@@ -943,6 +943,7 @@ footer.end code { font: 12.5px var(--font-mono); }
               <div class="field"><label>Model <i class="pin">6</i></label><div class="select">Default <span class="def">· opus[1m]</span><svg class="ic sm"><use href="#i-chev"/></svg></div></div>
               <div class="field"><label>Effort</label><div class="select">Default <span class="def">· xhigh</span><svg class="ic sm"><use href="#i-chev"/></svg></div></div>
             </div>
+            <div class="field"><label>Start <i class="pin">8</i></label><div class="select">Now <svg class="ic sm"><use href="#i-chev"/></svg></div><div style="font-size:11px;color:var(--ink-3);margin-top:5px">Also: In… · At a date and time… · After agents are Done… · When a quota resets…</div></div>
             <div class="pv">
               <div class="pv-h">Prompt sent to Claude <i class="pin">7</i><span class="end">812 characters · show all</span></div>
 <pre>Check if #3412 is still relevant and whether #3420 fixes it. If it does, review the PR. If not, explain what is missing.
@@ -979,6 +980,7 @@ Context:
     <li><i class="pin">4</i><span><b>Context chips.</b> Type <code>@</code> for a project or <code>#</code> for an issue or PR at the start of a word: a list opens, and the item you pick becomes a chip while the text stays readable. Or use the Add buttons on the page, "+ Project" and "+ GitHub link". Projects can have a branch. Ignoring the list never changes what you typed.</span></li>
     <li><i class="pin">5</i><span><b>Presets.</b> Toggle chips. Their sentences go at the end of the prompt, in the order set in Settings (S6).</span></li>
     <li><i class="pin">6</i><span><b>Model and effort.</b> "Default" means what the agent would pick on its own, read from its settings. A change here applies to this session only.</span></li>
+    <li><i class="pin">8</i><span><b>Delayed starts.</b> One Start selector defaults to Now. In… offers 15 min, 30 min and 1 hour buttons plus a minutes field; At… uses a local date/time picker; After agents… offers searchable checkboxes and waits for all selected agents to be Done; Quota reset… offers provider and 5h/weekly window with the reported reset time. The button becomes Schedule. Entries appear in a separate Scheduled group in Agents, with condition details, Start now and Cancel launch. The queue survives restarts.</span></li>
     <li><i class="pin">7</i><span><b>The exact prompt.</b> A live preview of the text sent to the agent. Launch starts the session in the background and a toast offers to open it, so you can launch several agents in a row from the inbox.</span></li>
   </ol>
 </section>

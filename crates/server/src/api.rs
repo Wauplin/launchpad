@@ -22,6 +22,9 @@ pub fn router() -> Router<Server> {
         .route("/api/projects/{id}/branches", get(branches))
         .route("/api/projects/{id}/promote", post(promote))
         .route("/api/launch/preview", post(preview))
+        .route("/api/launch/schedules", get(schedules).post(schedule))
+        .route("/api/launch/schedules/{id}", axum::routing::delete(cancel_schedule))
+        .route("/api/launch/schedules/{id}/start", post(start_schedule))
         .route("/api/launch/draft", get(get_draft).put(put_draft))
         .route("/api/harness/{kind}/defaults", get(defaults))
         .route("/api/sessions", get(list_sessions).post(launch))
@@ -413,3 +416,16 @@ async fn inbox_restore(State(s): State<Server>, Json(b): Json<InboxRestore>) -> 
     s.app.inbox.restore(&s.app, b.ids).await.map_err(bad)?;
     Ok(Json(json!({"ok":true})))
 }
+
+// ---------------------------------------------------------------- delayed launches
+use launchpad_core::schedules::{self, LaunchDelay, ScheduledLaunch};
+
+#[derive(Deserialize)]
+struct ScheduleRequest { spec: LaunchSpec, delay: LaunchDelay }
+async fn schedules(State(s): State<Server>) -> ApiResult<Vec<ScheduledLaunch>> { Ok(Json(schedules::list(&s.app).await?)) }
+async fn schedule(State(s): State<Server>, Json(b): Json<ScheduleRequest>) -> ApiResult<ScheduledLaunch> { Ok(Json(schedules::create(&s.app, b.spec, b.delay).await.map_err(bad)?)) }
+async fn cancel_schedule(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
+    schedules::cancel(&s.app, &id).await.map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
+}
+async fn start_schedule(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Session> { Ok(Json(schedules::start_now(&s.app, &id).await.map_err(bad)?)) }

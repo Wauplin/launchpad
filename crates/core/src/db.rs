@@ -133,6 +133,7 @@ pub fn open_state(path: &Path) -> Result<Db> {
         tx.commit()?;
         tracing::info!("state.db: applied migration {}", i + 1);
     }
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS scheduled_launch (id TEXT PRIMARY KEY, json TEXT NOT NULL);")?;
     Ok(Db::spawn(conn, "state"))
 }
 

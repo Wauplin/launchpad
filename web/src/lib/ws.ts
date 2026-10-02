@@ -1,5 +1,6 @@
 // One WebSocket to the daemon. Events update the TanStack Query cache and the session logs directly.
 
+import { rememberSuccessfulSession } from "@/stores/composer";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Session } from "@/gen/Session";
 import type { SessionEvent } from "@/gen/SessionEvent";
@@ -75,9 +76,12 @@ export function connectEvents(queryClient: QueryClient) {
         void queryClient.invalidateQueries({ queryKey: ["config"] });
       } else if (topic === "projects") {
         void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      } else if (topic === "schedules") {
+        void queryClient.invalidateQueries({ queryKey: ["schedules"] });
       } else if (topic === "sessions") {
         if (ev.type === "updated") {
           const s = ev.payload as Session;
+          rememberSuccessfulSession(s);
           queryClient.setQueryData<Session[]>(["sessions"], (old) => {
             if (!old) return old;
             const i = old.findIndex((o) => o.id === s.id);

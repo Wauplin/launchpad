@@ -536,6 +536,16 @@ label = "no unit test"
 text = "No need to add any unit tests for that PR."
 ```
 
+### 9.7.1 Delayed starts
+
+The composer has one Start selector: Now (default), In… (minutes with 15/30/60-minute buttons), At a date and time… (local calendar/time input), After agents are Done… (searchable multi-select), or When a quota resets… (Claude/Codex and 5h/weekly window). The launch button becomes Schedule when a delay is selected. The delay belongs to the saved composer draft, separately from the launch spec, and is cleared after submission. Scheduling does not change remembered harness/model/effort defaults; an actual successful launch does.
+
+`scheduled_launch` in `state.db` keeps the immutable launch spec, condition, title, creation time, resolved deadline, claim state and any pre-launch error. Duration and datetime delays resolve to Unix milliseconds. Quota delays require a successful reading less than 15 minutes old and a future reported reset; that deadline is frozen when scheduling, so later quota windows cannot move it. Unknown or stale quotas are unavailable. Agent dependencies require every selected session to satisfy `SessionStatus::is_done()` at the same check; archived, interrupted, errored, terminal and background sessions do not qualify. Already-Done selections can start immediately.
+
+A daemon loop checks the queue once per second. The DB actor serializes cancellation and claims before any launch work, then launches ready entries independently. The scheduled id becomes the session id. Queued entries survive restarts and overdue deadlines start when the daemon returns. A claim left behind on restart is removed if its session was persisted; otherwise it is marked failed for manual retry. There is no automatic retry after a claimed start, avoiding duplicate agent execution. Harness start failures use the usual session Error state and remain in the session list; failures before a session exists remain in Scheduled with the reason and Start now/Cancel controls. Temporary folders are created only at actual launch. The scheduler honors the updater installation guard; ready entries stay queued during installation and can start after the replacement daemon returns.
+
+`GET/POST /api/launch/schedules`, `DELETE /api/launch/schedules/{id}` and `POST /api/launch/schedules/{id}/start` expose the queue. WebSocket `schedules` events refresh it. The Agents screen adds a virtualized, independently collapsible Scheduled group and a detail pane with the condition, dependency states, prompt preview, Start now and Cancel launch. Queued entries are neither Running nor Done and do not change sidebar session counts. Closing their detail panel leaves the queue intact.
+
 ### 9.8 Surviving daemon restarts (later)
 
 Two options, to decide when it becomes a real pain:
@@ -692,3 +702,7 @@ Code viewer implementation, on 2026-10-02:
 33. **Commit status and deferred installation.** The status bar displays the running build’s Git commit and offers a small Update button when local main is ahead. Checks and builds run in the background; installation waits for no Running sessions, using the same predicate as the sidebar and counts. The updater never interrupts active agents or builds uncommitted work.
 
 34. **Collapsible agent groups.** Done, Running and Archived have independent collapse buttons with visible counts. Expansion is persisted as UI layout state; only expanded rows enter the fixed-height virtualized list.
+
+Delayed launches, on 2026-10-02:
+
+35. **Durable delayed starts.** A small explicit Start selector covers durations, local datetimes, all-selected-agent Done conditions and reported quota reset deadlines. Persist the queue separately from sessions, claim before starting, use a stable session id for crash recovery, and require manual retry for an interrupted claim without a session. Scheduled work stays separate from Running and Done.

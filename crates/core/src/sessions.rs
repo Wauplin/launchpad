@@ -46,6 +46,17 @@ pub struct StartSpec {
 
 const RAW_LINES_CAP: i64 = 20_000;
 
+#[derive(Debug)]
+pub(crate) struct InstallingUpdate;
+
+impl std::fmt::Display for InstallingUpdate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Launchpad is installing an update. Try again after it reconnects.")
+    }
+}
+
+impl std::error::Error for InstallingUpdate {}
+
 #[derive(Clone)]
 pub struct Sessions {
     inner: Arc<Inner>,
@@ -159,9 +170,13 @@ impl Sessions {
         true
     }
 
+    pub(crate) async fn installing(&self) -> bool {
+        *self.inner.installing.lock().await
+    }
+
     async fn allow_work(&self) -> Result<tokio::sync::MutexGuard<'_, bool>> {
         let guard = self.inner.installing.lock().await;
-        if *guard { bail!("Launchpad is installing an update. Try again after it reconnects."); }
+        if *guard { bail!(InstallingUpdate); }
         Ok(guard)
     }
 
@@ -310,6 +325,10 @@ impl Sessions {
     }
 
     pub async fn launch(&self, app: &App, spec: LaunchSpec) -> Result<Session> {
+        self.launch_with_id(app, spec, uuid::Uuid::new_v4().to_string()).await
+    }
+
+    pub(crate) async fn launch_with_id(&self, app: &App, spec: LaunchSpec, id: String) -> Result<Session> {
         let _guard = self.allow_work().await?;
         let harness = spec.harness.context("pick Claude Code or Codex")?;
         if spec.target == Target::None {
@@ -327,7 +346,6 @@ impl Sessions {
             Target::Project { project_id } => (preview.cwd.clone().unwrap_or_default(), Some(project_id.clone())),
             Target::None => unreachable!(),
         };
-        let id = uuid::Uuid::new_v4().to_string();
         let now = now_ms();
         let session = Session {
             id: id.clone(),

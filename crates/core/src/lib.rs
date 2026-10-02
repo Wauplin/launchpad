@@ -16,6 +16,7 @@ pub mod notify;
 pub mod paths;
 pub mod procs;
 pub mod projects;
+pub mod schedules;
 pub mod sessions;
 pub mod shellenv;
 pub mod status;
@@ -76,6 +77,8 @@ impl App {
             models: harness::ModelCache::default(),
         };
         app.sessions.load(&app).await?;
+        schedules::recover(&app).await?;
+        schedules::spawn(&app);
         status::spawn_monitors(&app);
         harness::codex::spawn_router(&app);
         harness::spawn_model_refresh(&app);
@@ -100,6 +103,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     projects::Discovered::export_all(&cfg)?;
     projects::ProjectPatch::export_all(&cfg)?;
     sessions::Preview::export_all(&cfg)?;
+    schedules::ScheduledLaunch::export_all(&cfg)?;
     github::GhItem::export_all(&cfg)?;
     inbox::InboxSnapshot::export_all(&cfg)?;
     inbox::ThreadPreview::export_all(&cfg)?;

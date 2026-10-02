@@ -15,9 +15,10 @@ import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
-import { useConfig, useHarnessDefaults, useProjects } from "@/lib/queries";
-import { useComposer } from "@/stores/composer";
+import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/queries";
+import { rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
+import { DelaySelector, delayError } from "./DelaySelector";
 import { itemIcon, PromptField } from "./PromptField";
 
 function Field({ label, hint, end, children }: { label: string; hint?: string; end?: React.ReactNode; children: React.ReactNode }) {
@@ -130,12 +131,18 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export function Composer() {
-  const { open, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch } = useComposer();
+  const { open, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, delay, setDelay } = useComposer();
   const projects = useProjects().data ?? [];
+  const sessions = useSessions().data;
+  useEffect(() => {
+    // A queued launch may have started while the browser was disconnected.
+    for (const session of sessions ?? []) rememberSuccessfulSession(session);
+  }, [sessions]);
   const config = useConfig().data?.config;
   const defaults = useHarnessDefaults(spec.harness).data;
   const navigate = useNavigate();
   const showSession = useLayout((s) => s.show);
+  const [delayValid, setDelayValid] = useState(true);
   const [launching, setLaunching] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const debouncedSpec = useDebounced(spec, 250);
@@ -154,7 +161,7 @@ export function Composer() {
   const sorted = [...projects.filter((p) => !p.is_temp)].sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
   const model = spec.model ? defaults?.models.find((m) => m.id === spec.model) : defaults?.models.find((m) => m.id === defaults?.model);
   const efforts = model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
-  const canLaunch = !!spec.harness && spec.target.kind !== "none" && !!preview.data?.prompt.trim();
+  const canLaunch = delayValid && !delayError(delay) && !!spec.harness && spec.target.kind !== "none" && !!preview.data?.prompt.trim();
 
   const addProjectContext = (p: Project) =>
     set((s) => (s.context_projects.some((c) => c.project_id === p.id) || (s.target.kind === "project" && s.target.project_id === p.id) ? s : { ...s, context_projects: [...s.context_projects, { project_id: p.id, branch: null }] }));
@@ -162,8 +169,15 @@ export function Composer() {
   const launch = async () => {
     setLaunching(true);
     try {
+      if (delay) {
+        await api.post("/api/launch/schedules", { spec, delay });
+        discard();
+        void navigate({ to: "/agents" });
+        toast("Agent scheduled. You can start it now or cancel in Agents.");
+        return;
+      }
       const s = await api.post<Session>("/api/sessions", spec);
-      useComposer.getState().rememberLaunch(spec);
+      if (s.status !== "error") useComposer.getState().rememberLaunch(spec);
       discard();
       const where = projects.find((p) => p.id === s.project_id)?.name ?? s.cwd.split("/").pop();
       const openIt = () => {
@@ -412,6 +426,8 @@ export function Composer() {
           </Field>
         </div>
 
+        <DelaySelector delay={delay} harness={spec.harness} onChange={setDelay} onValidityChange={setDelayValid} />
+
         <div className="rounded-lg border border-line bg-chrome">
           <div className="flex items-center gap-2 border-b border-line px-2.5 py-1.5 text-[11.5px] font-[650] text-ink-2">
             Prompt sent to {spec.harness ? HARNESS_NAME[spec.harness] : "the agent"}
@@ -428,8 +444,8 @@ export function Composer() {
       </div>
 
       <div className="flex items-center gap-2 border-t border-line bg-chrome px-3.5 py-3">
-        <label className="mr-auto inline-flex items-center gap-[7px] text-xs text-ink-2">
-          <input type="checkbox" className="accent-teal" checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
+        <label className="mr-auto inline-flex items-center gap-[7px] text-xs text-ink-2" style={delay ? { visibility: "hidden" } : undefined}>
+          <input type="checkbox" className="accent-teal" disabled={!!delay} checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
           Open after launch
         </label>
         <button className="btn btn-ghost" onClick={discard} title="Clear the composer">
@@ -437,7 +453,7 @@ export function Composer() {
         </button>
         <button className="btn btn-primary" disabled={!canLaunch || launching} onClick={() => void launch()}>
           <Icon name="play" size={14} />
-          {launching ? "Launching…" : "Launch"}
+          {launching ? (delay ? "Scheduling…" : "Launching…") : delay ? "Schedule" : "Launch"}
         </button>
       </div>
     </aside>
