@@ -5,7 +5,8 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 ## How to read this
 
 - Phases are ordered by value and by risk. Each one ends with something you use every day, so the app replaces part of your current workflow as early as possible.
-- There are no dates. Each phase has a **Done when** line: a concrete test from your own routine.
+- There are no dates. Each phase has a **Done when** line: a concrete check from your own routine, done by using the app.
+- Tests are kept to the minimum (see [ARCHITECTURE.md, section 5.2](ARCHITECTURE.md#52-testing)). No phase includes writing a test suite.
 - Phase 0 starts with short spikes on the unknowns. Each spike answers one question, and its notes go into `docs/spikes/`. If a spike fails, its fallback is listed so the plan does not stall.
 - Agents come before GitHub because launching agents is the main job of the app and the agent adapters carry the most technical risk.
 
@@ -118,4 +119,4 @@ Pick items as they become useful:
 
 ## Not planned
 
-Keyboard shortcuts (for now), dark theme, macOS and Windows, multiple users, GitHub search, Actions logs, release versioning, data migrations for the cache.
+Keyboard shortcuts (for now), a large test suite or mocks, dark theme, macOS and Windows, multiple users, GitHub search, Actions logs, release versioning, data migrations for the cache.

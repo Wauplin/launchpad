@@ -2,7 +2,7 @@
 
 Launchpad is a personal desktop app for Ubuntu (Tauri) that launches and drives coding agents (Claude Code, Codex) and replaces the parts of the GitHub UI used every day, with a local cache so nothing feels slow. It has one user, on one machine.
 
-Status: design phase. There is no code yet. When code lands, add the build, run and test commands to this file.
+Status: design phase. There is no code yet. When code lands, add the build and run commands to this file (and the test command, if there are tests).
 
 ## Where things are
 
@@ -24,6 +24,17 @@ Status: design phase. There is no code yet. When code lands, add the build, run 
 - Single user: no backward compatibility, no versioning, no data migration framework. The GitHub cache (`cache.db`) can be deleted and rebuilt at any time. Keep schema changes to `state.db` simple.
 - Anything Launchpad prepares for GitHub (pre-draft PRs, comments or reviews written by agents) stays local until the owner publishes it with a click.
 - Never refresh the Claude OAuth token. Read it only (see `docs/ARCHITECTURE.md`, section 9.5).
+
+## Testing
+
+This is a personal project: move fast and break things.
+
+- Keep tests to the minimum. Most code does not need tests. Do not add tests by default.
+- Add a test only for a small, specific part that clearly benefits from it, typically a pure function with tricky edge cases (for example the diff parser or the prompt renderer).
+- No mock tests. Do not mock HTTP APIs, harness processes, git or the database.
+- No tests that need a server, the network, GitHub, a running agent or the daemon.
+- The whole test run must take a few seconds at most. Delete or rewrite a test that becomes slow or flaky.
+- Check your changes by building and running the app (dev profile) rather than by writing tests.
 
 ## Writing style
 

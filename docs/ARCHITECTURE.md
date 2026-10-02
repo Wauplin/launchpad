@@ -21,6 +21,7 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 4. **Local first, publish later.** Anything that would create noise on GitHub (pre-draft PRs, agent-written comments) stays local until you publish it. These objects share one color in the UI (teal).
 5. **Click only.** No keyboard shortcuts, at least at first: every action is a visible button where it is needed, and the UI should be good enough that shortcuts are not missed. Text fields only type text: no character opens a popup or triggers an action. The one exception is the session message box, where `Enter` sends and `Shift+Enter` adds a new line, like in the terminal.
 6. **Owned and easy to extend.** A mainstream stack that coding agents handle well (Rust, React, TypeScript, Tailwind), configuration in a plain TOML file, GitHub payloads stored as JSON so new fields need no schema change.
+7. **Move fast, test little.** This is a personal project: speed of change matters more than protection against breakage. Most code has no tests. See [5.2](#52-testing).
 
 ## 2. Key decisions
 
@@ -85,7 +86,9 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 - Restarting the daemon kills agent processes (they are children in the service cgroup). Their sessions are marked `interrupted` and can be resumed in one click (`claude --resume`, Codex `thread/resume`). Only the turn in progress is lost. A later phase removes this limitation (see [9.8](#98-surviving-daemon-restarts-later)).
 - Dev and prod profiles: `LAUNCHPAD_PROFILE=dev` uses port 7318, `~/.local/share/launchpad-dev` and `~/.config/launchpad-dev`. Agents launched from the prod instance can work on the Launchpad codebase, run the dev instance and restart it without killing themselves.
 
-## 5. Repository layout
+## 5. Repository layout and testing
+
+### 5.1 Layout
 
 ```
 launchpad/
@@ -109,6 +112,16 @@ launchpad/
 ```
 
 Rust structs shared with the UI derive `ts_rs::TS`, so the API is typed end to end without maintaining an OpenAPI spec.
+
+### 5.2 Testing
+
+Tests are kept to the minimum:
+
+- Most code has no tests. Changes are checked by building and using the app (the dev profile, see [4.3](#43-lifecycle-consequences)).
+- A test is added only for a small, specific part that clearly benefits from it, typically a pure function with tricky edge cases. Likely candidates: the unified diff parser, the prompt renderer, the harness event normalizers (fed with output recorded from real sessions).
+- No mocks: no mocked HTTP APIs, harness processes, git or database.
+- No tests that need a server, the network, GitHub, a running agent or the daemon.
+- The full test run (`cargo test` plus the frontend tests, if any) takes a few seconds at most. A test that becomes slow or flaky is deleted or rewritten.
 
 ## 6. Backend
 
@@ -397,7 +410,7 @@ trait LiveSession: Send + Sync {
 - **Server requests:** `item/tool/requestUserInput` becomes an `ask_user` card. Approval requests should not happen with `approvalPolicy: "never"`; if one arrives, it is declined automatically and logged.
 - **Resume after a restart:** `thread/resume {threadId}`.
 - **Open in terminal:** `codex resume <thread-id>` with `-c check_for_update_on_startup=false` and the trust override for the cwd.
-- **Protocol types:** `codex app-server generate-json-schema` produces the full schema (104 client methods, 83 notifications in 0.159.3). Launchpad hand-writes Rust types for the subset it uses and checks them against the schema of the installed version in a test.
+- **Protocol types:** `codex app-server generate-json-schema` produces the full schema (104 client methods, 83 notifications in 0.159.3). Launchpad hand-writes Rust types for the subset it uses. After a Codex update, a small dev script regenerates the schema and lists the changes in the methods Launchpad uses. It is run by hand, not as a test.
 - **Option for later:** Codex now ships a shared local app-server daemon (`codex app-server daemon`, `codex agents`, `codex --remote unix://…`). Connecting to it instead of a private child process would let Codex threads survive Launchpad restarts and be attached from a terminal TUI. It is marked experimental, so it is not part of v1.
 
 ### 9.5 Versions, quotas and updates
@@ -552,9 +565,9 @@ The UI is already served by the daemon over HTTP and WebSocket. Remote access me
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Claude stream-json output changes after an auto-update | Adapter breaks | Raw event log and replay tests; `claude install <version>` to pin a known-good version |
+| Claude stream-json output changes after an auto-update | Adapter breaks | Raw event log, so the normalizer can be fixed and re-run on recorded sessions; `claude install <version>` to pin a known-good version |
 | Claude usage endpoint is undocumented | Quota bar shows "unknown" | Fallback to `rate_limit_event`; isolated module |
-| `codex app-server` is marked experimental | Breaking protocol changes | Types checked against the generated schema; version shown in the status bar |
+| `codex app-server` is marked experimental | Breaking protocol changes | Schema diff script after updates; version shown in the status bar |
 | TUI-only features are missing in headless sessions (slash commands, rewind, interactive pickers) | Some workflows still need the terminal | "Open in terminal" and "Re-attach" |
 | No "mark as unread" API on GitHub | Launchpad and github.com disagree | Local override, documented in the UI |
 | WebKitGTK performance | Slow large diffs or long sessions | Virtualization, early measurement, Chromium shell as fallback |
@@ -574,3 +587,4 @@ Confirmed on 2026-10-02:
 7. **Harness icons.** Launch buttons and harness marks use the Claude and Codex logos, without text labels.
 8. **Click-only UI.** No keyboard shortcuts and no typing triggers in text fields, at least at first. The only keyboard behavior is `Enter` to send in a session's message box. Shortcuts may be added later if they are really missed.
 9. **Terminal is a setting.** "Open in terminal" uses the terminal chosen in Settings: Terminator by default, Ghostty, GNOME Terminal, or a custom command.
+10. **Minimal tests.** Move fast and break things. Test only small, specific parts that clearly benefit from it. No mocks, no tests that need a server, and the whole run takes a few seconds at most. Details in [5.2](#52-testing).
