@@ -15,6 +15,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Manage local pre-draft pull requests.
+    Pr {
+        #[command(subcommand)]
+        command: Pr,
+    },
     /// Run the daemon (HTTP + WebSocket on 127.0.0.1).
     Daemon,
     /// Print the daemon status as JSON.
@@ -32,11 +37,69 @@ enum Command {
     },
 }
 
+#[derive(Subcommand)]
+enum Pr {
+    /// Create a dedicated local worktree from this checkout's committed HEAD.
+    Create {
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        body_file: Option<std::path::PathBuf>,
+    },
+    /// Update the local PR for the current worktree.
+    Update {
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        body_file: Option<std::path::PathBuf>,
+    },
+    /// Show the local PR for the current worktree.
+    Show,
+    /// List local PRs, including published and archived records.
+    List,
+}
+async fn pr_command(paths: &Paths, command: Pr) -> Result<()> {
+    let client = reqwest::Client::new();
+    let token = paths.token()?;
+    let cwd = std::env::current_dir()?.to_string_lossy().to_string();
+    let endpoint = format!("{}/api/predrafts", paths.base_url());
+    let mut resolve_url = reqwest::Url::parse(&format!("{endpoint}/resolve"))?;
+    resolve_url.query_pairs_mut().append_pair("cwd", &cwd);
+    let resolve = || client.get(resolve_url.clone()).bearer_auth(&token);
+    let request = match command {
+        Pr::List => client.get(&endpoint),
+        Pr::Create { title, body_file } => client.post(&endpoint).json(&serde_json::json!({"cwd":cwd,"title":title,"body":body_file.map(std::fs::read_to_string).transpose()?})),
+        Pr::Show => {
+            let p: serde_json::Value = resolve().send().await?.error_for_status()?.json().await?;
+            client.get(format!("{endpoint}/{}", p["id"].as_str().context("pre-draft id")?))
+        }
+        Pr::Update { title, body_file } => {
+            let p: serde_json::Value = resolve().send().await?.error_for_status()?.json().await?;
+            client.patch(format!("{endpoint}/{}", p["id"].as_str().context("pre-draft id")?)).json(&serde_json::json!({"title":title,"body":body_file.map(std::fs::read_to_string).transpose()?}))
+        }
+    };
+    let res = request
+        .bearer_auth(token)
+        .send()
+        .await
+        .context("is the daemon running?")?;
+    let status = res.status();
+    let body: serde_json::Value = res.json().await?;
+    anyhow::ensure!(
+        status.is_success(),
+        "{}",
+        body["error"].as_str().unwrap_or("request failed")
+    );
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let paths = Paths::from_env();
     match cli.command {
+        Command::Pr { command } => pr_command(&paths, command).await,
         Command::Daemon => {
             init_tracing();
             tracing::info!("profile {}, data in {}", paths.profile.name(), paths.data_dir.display());
@@ -62,7 +125,7 @@ async fn main() -> Result<()> {
                 .json(&serde_json::json!({"release": release}))
                 .send().await?.error_for_status()?.json().await?;
             match body["ready"].as_bool() {
-                Some(true) => {},
+                Some(true) => {}
                 Some(false) => std::process::exit(3),
                 None => anyhow::bail!("invalid installation reservation response"),
             }

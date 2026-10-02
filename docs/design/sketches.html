@@ -1295,7 +1295,7 @@ chunk=256MB  run 3/5 …</pre>
   <div class="sketch-head">
     <span class="sketch-id">S5 · Project page and pre-draft PR</span>
     <h2>A pull request that stays on your laptop until it is worth publishing</h2>
-    <p>Pre-draft PRs share the list and the review screens with GitHub PRs, in teal and with dashed edges. Nothing is pushed, no CI runs and nobody is notified until you choose Publish.</p>
+    <p>Pre-draft PRs share the project PR list with GitHub PRs, in teal. Their review screen has Description, Files changed, Commits and Notes tabs. Nothing is pushed, no CI runs and nobody is notified until you choose Publish.</p>
   </div>
   <div class="frame">
     <div class="win" role="img" aria-label="Project page with pre-draft PR mockup">
@@ -1417,13 +1417,15 @@ chunk=256MB  run 3/5 …</pre>
     </div>
   </div>
   <ol class="notes">
-    <li><i class="pin">1</i><span><b>One list, two origins.</b> Pre-draft PRs sit at the top of the project's PR list with a dashed teal icon, their local branch and the agent that made them.</span></li>
-    <li><i class="pin">2</i><span><b>Made by an agent.</b> Launching with "Pre-draft PR" (S2) creates the branch and worktree. The agent commits there and sets the title and description with <code>launchpad pr update</code>.</span></li>
+    <li><i class="pin">1</i><span><b>One list, two origins.</b> Pre-draft PRs sit at the top of the project's PR list as teal Local rows with their local branch. A checkbox includes discarded local records.</span></li>
+    <li><i class="pin">2</i><span><b>Made by an agent.</b> Choosing "Run in → Pre-draft PR" (S2) creates the branch and worktree. The agent commits there and sets the title and description with <code>launchpad pr update</code>.</span></li>
     <li><i class="pin">3</i><span><b>Review locally.</b> Files changed is computed with local git from the merge base. A banner warns when <code>main</code> has moved.</span></li>
     <li><i class="pin">4</i><span><b>Feedback loop.</b> Notes on files (and, later, on lines) are sent back to the same agent session with "Send feedback to agent". Then you review again.</span></li>
     <li><i class="pin">5</i><span><b>Publish or discard.</b> Publish pushes the branch under its final name and opens a draft or ready PR with the title and description. Discard deletes the branch and the worktree.</span></li>
   </ol>
 </section>
+
+<p class="subtitle">Phase 4 implementation: review notes use a General/file selector in the Notes tab. Send feedback resumes the linked agent session. Publish shows the remote branch name and a draft checkbox, then requires a second click to confirm push and PR creation. Discard requires a second click and refuses dirty worktrees. Refresh fetches the base and updates the ahead banner. General settings keep published worktrees by default, with optional cleanup after publication.</p>
 
 <!-- ======================= S6 DETAILS ======================= -->
 <section class="sketch" id="s6">

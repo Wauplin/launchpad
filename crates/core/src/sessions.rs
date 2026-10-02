@@ -174,7 +174,7 @@ impl Sessions {
         *self.inner.installing.lock().await
     }
 
-    async fn allow_work(&self) -> Result<tokio::sync::MutexGuard<'_, bool>> {
+    pub(crate) async fn allow_work(&self) -> Result<tokio::sync::MutexGuard<'_, bool>> {
         let guard = self.inner.installing.lock().await;
         if *guard { bail!(InstallingUpdate); }
         Ok(guard)
@@ -307,11 +307,37 @@ impl Sessions {
                 context.push(ContextInfo { path: p.path, description: p.description, branch: cp.branch.clone() });
             }
         }
-        let prompt = render_prompt(spec, &context, &config.presets);
+        let mut rendered_spec = spec.clone();
+        if matches!(
+            spec.target,
+            Target::Predraft { .. } | Target::ExistingPredraft { .. }
+        ) {
+            rendered_spec
+                .presets
+                .retain(|id| id != "draft-pr" && id != "worktree");
+        }
+        let mut prompt = render_prompt(&rendered_spec, &context, &config.presets);
+        if !prompt.trim().is_empty() && matches!(
+            spec.target,
+            Target::Predraft { .. } | Target::ExistingPredraft { .. }
+        ) {
+            prompt.push_str("\n\nWork in a dedicated local pre-draft worktree. Commit your changes, update the local PR title and description with launchpad pr update. Do not push, publish, or delete the worktree.");
+        }
         let (cwd, project) = match &spec.target {
-            Target::Project { project_id } => {
+            Target::Project { project_id } | Target::Predraft { project_id } => {
                 let p = crate::projects::get(app, project_id).await?.context("the project no longer exists")?;
                 (Some(p.path.clone()), Some(p))
+            }
+            Target::ExistingPredraft { predraft_id } => {
+                let p = crate::predrafts::get(app, predraft_id).await?;
+                anyhow::ensure!(
+                    !p.archived && p.published_url.is_none() && p.pushed_head.is_none(),
+                    "pre-draft is archived, published, or publication has started"
+                );
+                let project = crate::projects::get(app, &p.project_id)
+                    .await?
+                    .context("project not found")?;
+                (Some(p.root), Some(project))
             }
             Target::Temp => (None, None),
             Target::None => (None, None),
@@ -334,16 +360,58 @@ impl Sessions {
         if spec.target == Target::None {
             bail!("pick a project or a temporary folder");
         }
-        let preview = self.preview(app, &spec).await?;
+        let mut preview = self.preview(app, &spec).await?;
         if preview.prompt.trim().is_empty() {
             bail!("the prompt is empty");
         }
+        let mut predraft = None;
         let (cwd, project_id) = match &spec.target {
             Target::Temp => {
                 let p = crate::projects::create_temp(app, &spec.text).await?;
                 (p.path, Some(p.id))
             }
             Target::Project { project_id } => (preview.cwd.clone().unwrap_or_default(), Some(project_id.clone())),
+            Target::Predraft { project_id } => {
+                let mut p = crate::predrafts::create(
+                    app,
+                    crate::predrafts::Create {
+                        project_id: Some(project_id.clone()),
+                        title: Some(preview.title.clone()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+                p.session_id = Some(id.clone());
+                crate::predrafts::save(app, &p).await?;
+                preview
+                    .prompt
+                    .push_str(&format!("\n\n{}", crate::predrafts::instruction(app, &p)));
+                let cwd = p.root.clone();
+                predraft = Some(p);
+                (cwd, Some(project_id.clone()))
+            }
+            Target::ExistingPredraft { predraft_id } => {
+                let _lock = app.predraft_lock.lock().await;
+                let mut p = crate::predrafts::get(app, predraft_id).await?;
+                anyhow::ensure!(
+                    !p.archived && p.published_url.is_none() && p.pushed_head.is_none(),
+                    "pre-draft is archived, published, or publication has started"
+                );
+                anyhow::ensure!(
+                    !self.list().iter().any(|s| s.cwd == p.root
+                        && (s.status.is_running() || s.status == SessionStatus::InTerminal)),
+                    "pre-draft already has an active agent"
+                );
+                p.session_id = Some(id.clone());
+                crate::predrafts::save(app, &p).await?;
+                preview
+                    .prompt
+                    .push_str(&format!("\n\n{}", crate::predrafts::instruction(app, &p)));
+                let cwd = p.root.clone();
+                let project_id = p.project_id.clone();
+                predraft = Some(p);
+                (cwd, Some(project_id))
+            }
             Target::None => unreachable!(),
         };
         let now = now_ms();
@@ -369,6 +437,19 @@ impl Sessions {
         };
         self.inner.records.lock().unwrap().insert(id.clone(), session.clone());
         self.persist(app, &session).await?;
+        if let Some(p) = predraft {
+            let session_id = id.clone();
+            let predraft_id = p.id;
+            app.state_db
+                .call(move |c| {
+                    c.execute(
+                        "UPDATE session SET predraft_id=?1 WHERE id=?2",
+                        rusqlite::params![predraft_id, session_id],
+                    )?;
+                    Ok(())
+                })
+                .await?;
+        }
         app.bus.publish("sessions", "updated", serde_json::to_value(&session)?);
         self.publish_counts(app);
 
@@ -392,7 +473,9 @@ impl Sessions {
                     sink.fail(&format!("{e:#}")).await;
                 }
             }
-            Err(e) => sink.fail(&format!("could not start {}: {e:#}", harness.display())).await,
+            Err(e) => {
+                sink.fail(&format!("could not start {}: {e:#}", harness.display())).await
+            }
         }
         if let Some(session) = self.get(&id).filter(|s| s.status != SessionStatus::Error) { crate::titles::generate(app, &session); }
         Ok(self.get(&id).unwrap())
@@ -443,6 +526,7 @@ impl Sessions {
     pub async fn send(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>) -> Result<()> {
         let _guard = self.allow_work().await?;
         let s = self.get(id).context("no such session")?;
+        crate::predrafts::check_session_work(app, &s.cwd).await?;
         if s.status == SessionStatus::InTerminal {
             bail!("the session is open in a terminal: re-attach it first");
         }
@@ -503,6 +587,7 @@ impl Sessions {
     pub async fn resume(&self, app: &App, id: &str) -> Result<()> {
         let _guard = self.allow_work().await?;
         let s = self.get(id).context("no such session")?;
+        crate::predrafts::check_session_work(app, &s.cwd).await?;
         if s.status == SessionStatus::InTerminal && crate::terminal::tui_running(app, &s) {
             bail!("the session is still open in a terminal: close it there first");
         }
@@ -525,6 +610,7 @@ impl Sessions {
     pub async fn open_terminal(&self, app: &App, id: &str) -> Result<()> {
         let _guard = self.allow_work().await?;
         let s = self.get(id).context("no such session")?;
+        crate::predrafts::check_session_work(app, &s.cwd).await?;
         if s.status.is_running() {
             bail!("wait for the turn to end, or stop it first");
         }

@@ -278,6 +278,12 @@ pub enum Target {
     Project {
         project_id: String,
     },
+    Predraft {
+        project_id: String,
+    },
+    ExistingPredraft {
+        predraft_id: String,
+    },
     /// A new temporary folder in the projects root.
     Temp,
 }

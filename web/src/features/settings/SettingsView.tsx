@@ -110,6 +110,9 @@ export function SettingsView() {
           <Row title="Projects root" hint="Where projects are found, and where temporary folders and worktrees are created.">
             <input className="field-input font-mono text-xs" value={draft.projects_root} onChange={(e) => set((c) => ({ ...c, projects_root: e.target.value }))} />
           </Row>
+          <Row title="Published pre-draft worktrees" hint="Keep the local worktree by default. Cleanup only removes clean worktrees after a successful publication.">
+            <label className="flex items-center gap-2"><input type="checkbox" checked={draft.remove_published_worktree} onChange={(e) => set((c) => ({ ...c, remove_published_worktree: e.target.checked }))} />Remove after publishing</label>
+          </Row>
           <Row title="Terminal" hint='Used by "Open in terminal".'>
             <div className="grid gap-1.5">
               {terminals.map((t) => (

@@ -16,8 +16,8 @@ export function ScheduledPane({ launch, onStart, onClose }: { launch: ScheduledL
   const projects = useProjects().data ?? [];
   const [busy, setBusy] = useState(false);
   const preview = useQuery({ queryKey: ["scheduled-preview", launch.id], queryFn: () => api.post<Preview>("/api/launch/preview", launch.spec) });
-  const projectId = launch.spec.target.kind === "project" ? launch.spec.target.project_id : null;
-  const name = projects.find((p) => p.id === projectId)?.name ?? "New temporary folder";
+  const projectId = (launch.spec.target.kind === "project" || launch.spec.target.kind === "predraft") ? launch.spec.target.project_id : null;
+  const name = projects.find((p) => p.id === projectId)?.name ?? (launch.spec.target.kind === "existing_predraft" ? "Local pre-draft" : "New temporary folder");
   const act = async (start: boolean) => {
     setBusy(true);
     try {

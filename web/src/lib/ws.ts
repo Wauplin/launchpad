@@ -76,11 +76,16 @@ export function connectEvents(queryClient: QueryClient) {
         void queryClient.invalidateQueries({ queryKey: ["config"] });
       } else if (topic === "projects") {
         void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      } else if (topic === "predrafts") {
+        void queryClient.invalidateQueries({ queryKey: ["predrafts"] });
+        void queryClient.invalidateQueries({ queryKey: ["code-sources"] });
       } else if (topic === "schedules") {
         void queryClient.invalidateQueries({ queryKey: ["schedules"] });
       } else if (topic === "sessions") {
         if (ev.type === "updated") {
           const s = ev.payload as Session;
+          const previous = queryClient.getQueryData<Session[]>(["sessions"])?.find((p) => p.id === s.id);
+          if (previous?.status !== s.status) void queryClient.invalidateQueries({ queryKey: ["predrafts"] });
           rememberSuccessfulSession(s);
           queryClient.setQueryData<Session[]>(["sessions"], (old) => {
             if (!old) return old;

@@ -19,6 +19,8 @@ pub struct Config {
     pub projects_root: String,
     /// UI zoom position: 0..4 (100%, 110%, 120%, 135%, 150%).
     pub zoom: u8,
+    /// Remove a clean pre-draft worktree after successful publication.
+    pub remove_published_worktree: bool,
     pub commands: Commands,
     pub terminal: Terminal,
     pub github: GitHub,
@@ -68,17 +70,13 @@ impl Default for Config {
         Config {
             projects_root: "~/projects".into(),
             zoom: 2,
+            remove_published_worktree: false,
             commands: Commands::default(),
             terminal: Terminal::default(),
             github: GitHub::default(),
             agents: Agents::default(),
             presets: vec![
                 preset("worktree", "worktree", "Please use a local git worktree and delete it once you're done."),
-                preset(
-                    "draft-pr",
-                    "draft PR",
-                    "Open a draft PR once you are done and check CI if anything related to the PR is failing.",
-                ),
                 preset("no-unit-test", "no unit test", "No need to add any unit tests for that PR."),
             ],
         }
@@ -116,6 +114,7 @@ impl Default for Agents {
 /// (`presets` included: write `presets = []` to have none).
 pub const DEFAULT_CONFIG: &str = r#"zoom = 2                           # 100%, 110%, 120% (default), 135%, 150%
 projects_root = "~/projects"        # discovery, temporary folders, worktrees
+remove_published_worktree = false   # keep local PR worktrees after publication
 
 [commands]
 editor = "code"
@@ -135,11 +134,6 @@ notify = true                       # desktop notification when a session become
 id = "worktree"
 label = "worktree"
 text = "Please use a local git worktree and delete it once you're done."
-
-[[presets]]
-id = "draft-pr"
-label = "draft PR"
-text = "Open a draft PR once you are done and check CI if anything related to the PR is failing."
 
 [[presets]]
 id = "no-unit-test"

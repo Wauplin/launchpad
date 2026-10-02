@@ -5,6 +5,7 @@ mod auth;
 mod code;
 mod error;
 mod items;
+mod predrafts;
 mod routes;
 mod ui;
 mod ws;
@@ -32,6 +33,7 @@ pub async fn serve(app: App) -> Result<()> {
         .merge(api::router())
         .merge(code::router())
         .merge(items::router())
+        .merge(predrafts::router())
         .route("/ws", axum::routing::get(ws::handler))
         .route("/auth", axum::routing::get(auth::handshake))
         .fallback(ui::serve)

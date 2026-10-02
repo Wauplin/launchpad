@@ -518,7 +518,7 @@ pub async fn diff(app: &App, repo: &str, n: u64) -> Result<Value> {
     }
     Ok(v)
 }
-fn parse_diff(patch: &str) -> Vec<Value> {
+pub(crate) fn parse_diff(patch: &str) -> Vec<Value> {
     let mut out = vec![];
     let mut file: Option<Value> = None;
     for line in patch.lines() {

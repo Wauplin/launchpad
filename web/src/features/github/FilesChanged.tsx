@@ -268,14 +268,16 @@ export function FilesChanged({
   repo,
   number,
   head,
+  local,
 }: {
   repo: string;
   number: number;
   head: string;
+  local?: { id: string; root: string };
 }) {
   const q = useQuery({
-    queryKey: ["pr-diff", repo, number, head],
-    queryFn: () => api.post<Diff>(`${itemPath(repo, number)}/diff`),
+    queryKey: local ? ["predrafts", local.id, "diff", head] : ["pr-diff", repo, number, head],
+    queryFn: () => local ? api.get<Diff>(`/api/predrafts/${local.id}`) : api.post<Diff>(`${itemPath(repo, number)}/diff`),
     staleTime: Infinity,
   });
   const [split, setSplit] = useState(
@@ -324,7 +326,7 @@ export function FilesChanged({
           <div className="relative" style={{ height: v.getTotalSize() }}>
             {v.getVirtualItems().map((r) => {
               const f = files[r.index],
-                key = `${repo}:${number}:${head}:${f.filename}`;
+                key = `${local?.id ?? repo}:${number}:${head}:${f.filename}`;
               return (
                 <div
                   key={f.filename}
@@ -377,6 +379,7 @@ export function FilesChanged({
                     to="/projects/$id/code"
                     params={{ id: q.data.project_id }}
                     search={{
+                      root: local?.root,
                       rev:
                         file.status === "removed" ? q.data.base : q.data.head,
                       path: file.filename,

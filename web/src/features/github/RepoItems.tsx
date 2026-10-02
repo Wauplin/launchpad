@@ -5,6 +5,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { toastError } from "@/components/Toast";
 import { LaunchButton } from "@/features/launch/LaunchButton";
+import type { Predraft } from "@/gen/Predraft";
 import type { ListItem, RepoItems as Items } from "./types";
 import { AddContext, itemKey, itemPath, openGitHub, reference } from "./lib";
 const Row = memo(function Row({
@@ -75,7 +76,11 @@ export function RepoItems({
     queryKey: key,
     queryFn: () => api.get<Items>(`/api/repo-items/${repo}`),
     staleTime: 300_000,
+    enabled: !!repo,
   });
+  const local = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<Predraft[]>("/api/predrafts") });
+  const [showArchived, setShowArchived] = useState(false);
+  const predrafts = (local.data ?? []).filter((p) => p.project_id === projectId && (showArchived || !p.archived));
   const [tab, setTab] = useState<"prs" | "issues">("prs");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
@@ -92,7 +97,8 @@ export function RepoItems({
   useEffect(() => {
     if (q.data && Date.now() - q.data.fetched_at > 300_000) void refresh();
   }, [q.data?.fetched_at]);
-  const list = q.data?.[tab] ?? [];
+  const githubList = q.data?.[tab] ?? [];
+  const list = [...(tab === "prs" ? predrafts : []), ...githubList];
   const ref = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({
     count: list.length,
@@ -116,7 +122,7 @@ export function RepoItems({
           className={`btn ${tab === "prs" ? "bg-select!" : ""}`}
           onClick={() => setTab("prs")}
         >
-          Pull requests {q.data?.prs.length ?? ""}
+          Pull requests {(q.data?.prs.length ?? 0) + predrafts.length}
         </button>
         <button
           className={`btn ${tab === "issues" ? "bg-select!" : ""}`}
@@ -126,13 +132,14 @@ export function RepoItems({
         </button>
         <button
           className="btn ml-auto"
-          disabled={busy}
+          disabled={busy || !repo}
           onClick={() => void refresh()}
         >
           {busy ? "Refreshing…" : "Refresh"}
         </button>
         <button
           className="btn"
+          disabled={!repo}
           onClick={() =>
             openGitHub(
               `https://github.com/${repo}/${tab === "prs" ? "pulls" : "issues"}`,
@@ -141,6 +148,7 @@ export function RepoItems({
         >
           Open on GitHub
         </button>
+        <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Discarded local PRs</label>
       </div>
       {refs.length > 0 && (
         <div className="flex gap-2 p-3">
@@ -159,8 +167,9 @@ export function RepoItems({
       <div ref={ref} className="h-[336px] overflow-auto">
         <div className="relative" style={{ height: v.getTotalSize() }}>
           {v.getVirtualItems().map((row) => {
-            const i = list[row.index],
-              kind = tab === "prs" ? "pr" : "issue",
+            const i = list[row.index];
+            if ("branch" in i) return <div key={i.id} className="absolute w-full" style={{ transform: `translateY(${row.start}px)` }}><LocalRow p={i} /></div>;
+            const kind = tab === "prs" ? "pr" : "issue",
               id = `${kind}:${i.number}`;
             return (
               <div
@@ -188,3 +197,7 @@ export function RepoItems({
     </section>
   );
 }
+
+const LocalRow = memo(function LocalRow({ p }: { p: Predraft }) {
+  return <Link to="/predrafts/$id" params={{ id: p.id }} className="flex h-[56px] items-center gap-3 border-b border-line-2 bg-[#eaf8f5] px-3 no-underline text-teal-ink"><span className="rounded border border-teal-ink px-2 py-1 text-[11px]">Local</span><span className="min-w-0 flex-1"><span className="block truncate font-semibold">{p.title}</span><span className="text-xs">{p.archived ? "Discarded" : p.published_number ? `Published #${p.published_number}` : "Pre-draft PR"} · {p.branch}</span></span><span className="text-xs">Review</span></Link>;
+});

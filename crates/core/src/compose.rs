@@ -171,10 +171,7 @@ Please use a local git worktree and delete it once you're done. No need to add a
         let spec = LaunchSpec { text: "Fix the bug".into(), ..Default::default() };
         assert_eq!(render_prompt(&spec, &[], &presets()), "Fix the bug");
         let spec = LaunchSpec { presets: vec!["draft-pr".into()], ..Default::default() };
-        assert_eq!(
-            render_prompt(&spec, &[], &presets()),
-            "Open a draft PR once you are done and check CI if anything related to the PR is failing."
-        );
+        assert_eq!(render_prompt(&spec, &[], &presets()), "");
         let ctx = vec![ContextInfo { path: "/p/js".into(), description: " ".into(), branch: None }];
         assert_eq!(
             render_prompt(&LaunchSpec::default(), &ctx, &[]),

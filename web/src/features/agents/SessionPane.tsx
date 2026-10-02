@@ -1,6 +1,7 @@
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -140,6 +141,7 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
   const dropImages = useRef<((files: File[]) => void) | null>(null);
   const [dragging, setDragging] = useState(false);
   const s = useSession(sessionId);
+  const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => p.root === s?.cwd);
   const projects = useProjects().data;
   const navigate = useNavigate();
   const codeLinks = useCodeLinks(s);
@@ -252,7 +254,8 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
           </button>
         </span>
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3 tabular-nums">
-          <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
+          {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Pre-draft PR</button>}
+        <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
           <StatusBadge s={s} />
           <span>{usageLine(s)}</span>
         </span>

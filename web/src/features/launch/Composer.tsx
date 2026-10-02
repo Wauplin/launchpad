@@ -153,10 +153,12 @@ export function Composer() {
     placeholderData: (prev) => prev,
   });
 
+  const localPrs = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts"), enabled: open });
+  const existing = spec.target.kind === "existing_predraft" ? localPrs.data?.find((p) => p.id === (spec.target as { predraft_id: string }).predraft_id) : undefined;
   if (!open) return null;
 
   const set = (f: (s: LaunchSpec) => LaunchSpec) => update(f);
-  const target = spec.target.kind === "project" ? projects.find((p) => p.id === (spec.target as { project_id: string }).project_id) : null;
+  const target = (spec.target.kind === "project" || spec.target.kind === "predraft") ? projects.find((p) => p.id === (spec.target as { project_id: string }).project_id) : existing ? projects.find((p) => p.id === existing.project_id) : null;
   const repo = target?.gh_repo ?? target?.gh_upstream ?? null;
   const sorted = [...projects.filter((p) => !p.is_temp)].sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
   const model = spec.model ? defaults?.models.find((m) => m.id === spec.model) : defaults?.models.find((m) => m.id === defaults?.model);
@@ -164,7 +166,7 @@ export function Composer() {
   const canLaunch = delayValid && !delayError(delay) && !!spec.harness && spec.target.kind !== "none" && !!preview.data?.prompt.trim();
 
   const addProjectContext = (p: Project) =>
-    set((s) => (s.context_projects.some((c) => c.project_id === p.id) || (s.target.kind === "project" && s.target.project_id === p.id) ? s : { ...s, context_projects: [...s.context_projects, { project_id: p.id, branch: null }] }));
+    set((s) => (s.context_projects.some((c) => c.project_id === p.id) || ((s.target.kind === "project" || s.target.kind === "predraft") && s.target.project_id === p.id) ? s : { ...s, context_projects: [...s.context_projects, { project_id: p.id, branch: null }] }));
 
   const launch = async () => {
     setLaunching(true);
@@ -245,7 +247,7 @@ export function Composer() {
                       detail={p.description || p.gh_repo || undefined}
                       active={target?.id === p.id}
                       onClick={() => (
-                        set((s) => ({ ...s, target: { kind: "project", project_id: p.id }, context_projects: s.context_projects.filter((c) => c.project_id !== p.id) })), closeMenu()
+                        set((s) => ({ ...s, target: { kind: s.target.kind === "predraft" ? "predraft" : "project", project_id: p.id }, context_projects: s.context_projects.filter((c) => c.project_id !== p.id) })), closeMenu()
                       )}
                     />
                   ))}
@@ -255,9 +257,10 @@ export function Composer() {
             </Popover>
           </Field>
           <Field label="Run in">
-            <div className="flex h-8 items-center gap-2 truncate rounded-[7px] border border-line bg-chrome px-2.5 text-[12.5px] text-ink-2">
-              {spec.target.kind === "temp" ? "A new folder" : target ? <TargetCheckout projectId={target.id} /> : "—"}
-            </div>
+            {target ? <select className="field-input h-8 w-full" aria-label="Run in" value={spec.target.kind} onChange={(e) => set((s) => ({ ...s, target: { kind: e.target.value === "predraft" ? "predraft" : "project", project_id: target.id }, presets: s.presets.filter((id) => id !== "draft-pr" && id !== "worktree") }))}>
+              {existing && <option value="existing_predraft">Pre-draft: {existing.title}</option>}<option value="project">Project checkout</option><option value="predraft">Pre-draft PR</option>
+            </select> : <div className="field-input h-8">{spec.target.kind === "temp" ? "A new folder" : "—"}</div>}
+            {target && spec.target.kind === "project" && <div className="mt-1 text-xs text-ink-3"><TargetCheckout projectId={target.id} /></div>}
           </Field>
         </div>
 
@@ -359,7 +362,7 @@ export function Composer() {
           }
         >
           <div className="flex flex-wrap gap-1.5">
-            {(config?.presets ?? []).map((p) => {
+            {(config?.presets ?? []).filter((p) => p.id !== "draft-pr" && ((spec.target.kind !== "predraft" && spec.target.kind !== "existing_predraft") || p.id !== "worktree")).map((p) => {
               const on = spec.presets.includes(p.id);
               return (
                 <button

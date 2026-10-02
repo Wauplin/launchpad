@@ -15,6 +15,7 @@ pub mod items;
 pub mod model;
 pub mod notify;
 pub mod paths;
+pub mod predrafts;
 pub mod procs;
 pub mod projects;
 pub mod schedules;
@@ -48,6 +49,7 @@ pub struct App {
     pub github: github::GitHub,
     pub inbox: inbox::Inbox,
     pub models: harness::ModelCache,
+    pub predraft_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl App {
@@ -76,7 +78,9 @@ impl App {
             github,
             inbox: inbox::Inbox::new(),
             models: harness::ModelCache::default(),
+            predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
         };
+        predrafts::link_skill()?;
         app.sessions.load(&app).await?;
         schedules::recover(&app).await?;
         schedules::spawn(&app);
@@ -95,6 +99,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     std::fs::create_dir_all(out)?;
     // Timestamps are i64 in Rust; they fit in a JS number.
     let cfg = ts_rs::Config::new().with_out_dir(out).with_large_int("number");
+    predrafts::Predraft::export_all(&cfg)?;
     config::Config::export_all(&cfg)?;
     status::Status::export_all(&cfg)?;
     model::Session::export_all(&cfg)?;

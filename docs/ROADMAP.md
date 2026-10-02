@@ -19,7 +19,7 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 | 2 | GitHub inbox | You triage notifications without opening github.com | In progress |
 | 2b | Code viewer | You read code (an agent's worktree, a branch, a PR head) without opening an editor | In progress |
 | 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com | In progress |
-| 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | Not started |
+| 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | In progress |
 | 5 | Workspace polish | Several sessions are easy to arrange, find and resume | Not started |
 | 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | Not started |
 | 7 | Hardening and options | Sessions survive restarts, embedded terminal, remote access | Not started |
@@ -168,6 +168,16 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 - Publish as draft or ready for review (with remote branch name), discard, "base moved" banner.
 
 **Done when:** for two weeks, no exploratory draft PR is opened on GitHub and then closed.
+
+**Progress:**
+
+- Built on 2026-10-02: durable local pre-draft records and notes in `state.db`; fetch of the origin default branch; unique `lp/<slug>` branches and worktrees under `<projects_root>/.worktrees/<project-id>/`; new and existing pre-draft composer targets; exact CLI path/profile instructions in the launch and feedback prompts.
+- `launchpad pr create|update|show|list` implemented, with title/body-file inputs and worktree lookup through the existing registered-root checks. Creating from an existing checkout copies its committed HEAD into a new worktree and preserves the original checkout. A shared repository skill is linked into `~/.agents/skills/launchpad` at daemon startup. The old draft-PR preset is replaced by the composer target.
+- Teal local rows share the project PR list with GitHub PRs, with a toggle for discarded records and links from session panels. The local review page has an editable description, virtualized commits, the existing colored unified/split diff renderer and viewed markers, full-file navigation, saved general/file notes, and feedback that resumes the linked session. CLI-created records offer Launch agent.
+- Explicit confirmed publication takes a remote branch name (default `<github-user>/<slug>`) and draft/ready choice, checks the displayed commit and a clean idle worktree, pushes without force, and creates the GitHub PR. Publication checkpoints persist for retries and matching PR lookup avoids a duplicate after an uncertain response. Published records keep the GitHub link; Settings can remove a clean worktree afterward. Confirmed discard removes the local worktree and branch and archives the record. Refresh fetches the base and displays its ahead count.
+- Checked in the dev daemon and Chrome using a throwaway repository and local bare origin: real Codex GPT-6-Luna launch, committed edits and CLI title/body updates, same-session file feedback and a second commit, teal list rows, colored diffs, split view, viewed markers, full-file navigation, saved notes across reloads, all five zoom positions, base advancement, dirty-worktree refusals, CLI creation from existing committed work, original-checkout preservation, discard cleanup, and persistence across a dev restart. Strict Clippy, UI type checks/build, desktop build, and the ten existing fast Rust tests pass. Real GitHub push/PR creation and production installation were not exercised.
+- Left for the **Done when** check: two weeks of daily use, including publication on an intended PR.
+
 
 ## Phase 5: workspace polish
 

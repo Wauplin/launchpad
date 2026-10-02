@@ -13,4 +13,8 @@ projects_root: string,
 /**
  * UI zoom position: 0..4 (100%, 110%, 120%, 135%, 150%).
  */
-zoom: number, commands: Commands, terminal: Terminal, github: GitHub, agents: Agents, presets: Array<Preset>, };
+zoom: number,
+/**
+ * Remove a clean pre-draft worktree after successful publication.
+ */
+remove_published_worktree: boolean, commands: Commands, terminal: Terminal, github: GitHub, agents: Agents, presets: Array<Preset>, };

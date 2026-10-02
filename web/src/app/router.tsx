@@ -6,11 +6,13 @@ import { ProjectPage } from "@/features/projects/ProjectPage";
 import { ProjectsView } from "@/features/projects/ProjectsView";
 import { SettingsView } from "@/features/settings/SettingsView";
 import { ItemView } from "@/features/github/ItemView";
+import { PredraftView } from "@/features/predrafts/PredraftView";
 import { Shell } from "./Shell";
 
 const root = createRootRoute({ component: Shell });
 
 const routeTree = root.addChildren([
+  createRoute({ getParentRoute: () => root, path: "/predrafts/$id", component: PredraftView }),
   createRoute({ getParentRoute: () => root, path: "/github/$owner/$repo/$number", component: ItemView }),
   createRoute({ getParentRoute: () => root, path: "/", component: InboxView }),
   createRoute({

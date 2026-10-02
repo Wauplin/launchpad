@@ -49,7 +49,7 @@ export function ProjectPage() {
           </div>
         </div>
         {p.is_temp && <TempProjectCard p={p} />}
-        {p.gh_repo && <RepoItems key={p.gh_repo} repo={p.gh_repo} projectId={p.id} />}
+        <RepoItems key={p.gh_repo ?? p.id} repo={p.gh_repo ?? ""} projectId={p.id} />
         {worktrees.length > 0 && (
           <>
             <div className="seclabel">Worktrees</div>

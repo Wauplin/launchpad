@@ -2,7 +2,7 @@
 
 Launchpad is a personal desktop app for Ubuntu (Tauri) that launches and drives coding agents (Claude Code, Codex) and replaces the parts of the GitHub UI used every day, with a local cache so nothing feels slow. It has one user, on one machine.
 
-Status: Phase 0 done, Phases 1, 2, 2b and 3 built and awaiting daily-use checks (see `docs/ROADMAP.md`). Keep the build and run commands below and in `README.md` up to date.
+Status: Phase 0 done, Phases 1, 2, 2b, 3 and 4 built and awaiting daily-use checks (see `docs/ROADMAP.md`). Keep the build and run commands below and in `README.md` up to date.
 
 ## Commands
 
@@ -11,6 +11,7 @@ Status: Phase 0 done, Phases 1, 2, 2b and 3 built and awaiting daily-use checks 
 - Build the UI: `cd web && pnpm install && pnpm build` (Node 24 from `web/.nvmrc`, pnpm through Corepack).
 - Run the dev daemon: `LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- daemon` (port 7318, data in `~/.local/share/launchpad-dev`). Never stop or restart the prod daemon (port 7317) unless the owner asks: it runs the agents, maybe including you.
 - Sign a browser in to the dev daemon: `LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- url`. Headless screenshots work with `google-chrome --headless=new --screenshot=out.png --virtual-time-budget=5000 "<url>"`.
+- Local PR CLI: `launchpad pr create|update|show|list`; create/update accept `--title` and `--body-file`. Select the daemon with `LAUNCHPAD_PROFILE`; agents receive the exact CLI path and profile in their prompt. The repository skill is `skills/launchpad/SKILL.md`, linked into `~/.agents/skills/launchpad` at daemon startup.
 - Regenerate the TypeScript types after changing a Rust type shared with the UI: `cargo run -p launchpad -- gen-types`.
 - Type-check the UI: `(cd web && pnpm typecheck)`.
 - Tests: `cargo test` (the few unit tests in `crates/core`; the desktop crate is excluded by default).
@@ -23,6 +24,7 @@ Status: Phase 0 done, Phases 1, 2, 2b and 3 built and awaiting daily-use checks 
 - GitHub inbox: authenticate with `gh auth login`; the dev daemon uses the real GitHub account too. Verify replies and unsubscribe controls without posting comments or muting real threads during automated checks. Local unread actions are safe to check.
 - UI rule from spike 4 (WebKitGTK): virtualize every long list, memoize row components, use `useFlushSync: false` on virtualizers, prefer fixed row heights.
 - Issues and PRs: `crates/core/src/items.rs`, `crates/server/src/items.rs` and `web/src/features/github/`. Detail/list GETs return cached content; POST refreshes it. GitHub mutations require explicit publication buttons. During automated checks, do not post comments/reviews, request reviewers, change labels/state/draft status, or merge real items. Viewed markers and unsent drafts are safe to check.
+- Pre-draft PRs: `crates/core/src/predrafts.rs`, `crates/server/src/predrafts.rs`, and `web/src/features/predrafts/`. Records and notes live in `state.db`; worktrees use `.worktrees/<project-id>/<slug>` and `lp/<slug>` branches. Only explicit Publish pushes and creates a GitHub PR. Automated checks may use throwaway local bare remotes and local discard, but must not publish real PRs. Review uses committed heads; publication and cleanup require idle agents and clean worktrees. A started publication freezes further agent turns in that worktree until the owner finishes publication.
 - Code viewer: `crates/core/src/code.rs` (daemon) and `web/src/features/code/` (UI). Every `/api/code/*` request goes through `code::open`, which only accepts a registered project or one of its git worktrees as `root` and resolves `rev` to a commit id; keep that check for new endpoints. Syntax colors run in `highlight.worker.ts` (Shiki, JavaScript regex engine); the worker is an ES module (`worker.format = "es"` in `vite.config.ts`).
 - Headless screenshots do not wait for Web Workers with `--virtual-time-budget`, so code colors are missing in them; drive Chrome through the DevTools protocol with real waits to check colors.
 
