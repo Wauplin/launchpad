@@ -1359,7 +1359,8 @@ chunk=256MB  run 3/5 …</pre>
           <div class="setrow"><div class="sl"><b>Projects root</b><span>Where projects are found, and where temporary folders and worktrees are created.</span></div><div class="field-i">~/projects</div></div>
           <div class="setrow"><div class="sl"><b>Terminal <i class="pin">4</i></b><span>Used by "Open in terminal".</span></div>
             <div class="radios">
-              <div class="radio on"><span class="rb"></span><div><b>Ghostty <span class="found">found</span></b><span class="mono">ghostty --working-directory={cwd} -e {command}</span></div></div>
+              <div class="radio on"><span class="rb"></span><div><b>Terminator <span class="found">found</span></b><span class="mono">terminator --working-directory={cwd} -x {command}</span></div></div>
+              <div class="radio"><span class="rb"></span><div><b>Ghostty <span class="found">found</span></b><span class="mono">ghostty --working-directory={cwd} -e {command}</span></div></div>
               <div class="radio"><span class="rb"></span><div><b>GNOME Terminal <span class="found">found</span></b><span class="mono">gnome-terminal --working-directory={cwd} -- {command}</span></div></div>
               <div class="radio"><span class="rb"></span><div><b>Custom command</b><span class="faint">Any other terminal. Use {cwd} and {command} in the command.</span></div></div>
             </div>
@@ -1400,7 +1401,7 @@ chunk=256MB  run 3/5 …</pre>
     <li><i class="pin">1</i><span><b>Presets editor.</b> A label and a sentence per preset. Add, edit, delete, reorder. Only the three presets you listed exist at first.</span></li>
     <li><i class="pin">2</i><span><b>Temporary projects.</b> They live in the projects root (<code>~/projects</code> by default, configurable). Promote renames the folder and keeps its sessions resumable. Delete asks for a second click on the same button instead of a dialog.</span></li>
     <li><i class="pin">3</i><span><b>Quota detail.</b> Clicking the status bar shows both windows with exact reset times and the update state of each harness. Codex numbers are real values read from <code>codex app-server</code> on 2 October.</span></li>
-    <li><i class="pin">4</i><span><b>General settings.</b> The projects root (<code>~/projects</code> by default), the terminal used by "Open in terminal" (Ghostty by default, GNOME Terminal, or any terminal through a custom command) and the editor. Terminals installed on the machine are marked "found".</span></li>
+    <li><i class="pin">4</i><span><b>General settings.</b> The projects root (<code>~/projects</code> by default), the terminal used by "Open in terminal" (Terminator by default, Ghostty, GNOME Terminal, or any terminal through a custom command) and the editor. Terminals installed on the machine are marked "found".</span></li>
   </ol>
 </section>
 

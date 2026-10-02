@@ -210,7 +210,7 @@ editor = "code"
 browser = "xdg-open"
 
 [terminal]                          # used by "Open in terminal"
-app = "ghostty"                     # ghostty | gnome-terminal | custom
+app = "terminator"                  # terminator | ghostty | gnome-terminal | custom
 custom = ["kitty", "--directory", "{cwd}", "{command}"]   # only used when app = "custom"
 
 [github]
@@ -229,7 +229,8 @@ Settings → General edits the projects root, the terminal and the editor. For t
 
 | Terminal | Command |
 |---|---|
-| Ghostty (default) | `ghostty --working-directory={cwd} -e {command}` |
+| Terminator (default) | `terminator --working-directory={cwd} -x {command}` |
+| Ghostty | `ghostty --working-directory={cwd} -e {command}` |
 | GNOME Terminal | `gnome-terminal --working-directory={cwd} -- {command}` |
 | Custom | the `custom` list, with `{cwd}` and `{command}` replaced |
 
@@ -533,7 +534,7 @@ A pre-draft PR is a pull request that exists only on your laptop: a local branch
 ## 13. Desktop integration
 
 - Desktop notifications are sent by the daemon, so they work when the window is closed. Examples: "Claude is waiting in huggingface_hub", "Review requested: huggingface_hub#3420". Clicking one focuses the window on the item (`launchpad-desktop --open <route>`).
-- External apps are chosen in Settings → General (stored in `config.toml`, see [6.5](#65-configuration-file)): the terminal used by "Open in terminal" (Ghostty by default; GNOME Terminal or a custom command), the editor (`code` by default; Cursor is also installed) and the browser (`xdg-open`).
+- External apps are chosen in Settings → General (stored in `config.toml`, see [6.5](#65-configuration-file)): the terminal used by "Open in terminal" (Terminator by default; Ghostty, GNOME Terminal or a custom command), the editor (`code` by default; Cursor is also installed) and the browser (`xdg-open`).
 
 ## 14. Security
 
@@ -572,4 +573,4 @@ Confirmed on 2026-10-02:
 6. **Claude quota.** Launchpad may read the OAuth access token in `~/.claude/.credentials.json` to call the usage endpoint, never refreshing it.
 7. **Harness icons.** Launch buttons and harness marks use the Claude and Codex logos, without text labels.
 8. **Click-only UI.** No keyboard shortcuts and no typing triggers in text fields, at least at first. The only keyboard behavior is `Enter` to send in a session's message box. Shortcuts may be added later if they are really missed.
-9. **Terminal is a setting.** "Open in terminal" uses the terminal chosen in Settings: Ghostty by default, GNOME Terminal, or a custom command.
+9. **Terminal is a setting.** "Open in terminal" uses the terminal chosen in Settings: Terminator by default, Ghostty, GNOME Terminal, or a custom command.
