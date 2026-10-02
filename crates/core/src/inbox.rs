@@ -53,6 +53,7 @@ pub struct SyncStatus {
 }
 #[derive(Serialize, TS)]
 pub struct InboxSnapshot {
+    pub active_ids: Vec<String>,
     pub threads: Vec<Thread>,
     pub status: SyncStatus,
     pub limits: HashMap<String, RateLimit>,
@@ -83,7 +84,7 @@ impl Inbox {
             .cache_db
             .call(|c| {
                 let mut q =
-                    c.prepare("SELECT json FROM inbox_thread ORDER BY updated_at DESC,id")?;
+                    c.prepare("SELECT t.json FROM inbox_thread t LEFT JOIN inbox_subscription s ON s.id=t.id WHERE COALESCE(s.ignored,0)=0 AND COALESCE(s.subscribed,1)=1 ORDER BY t.updated_at DESC,t.id")?;
                 let rows = q.query_map([], |r| r.get::<_, String>(0))?;
                 rows.map(|s| Ok(serde_json::from_str(&s?)?)).collect()
             })
@@ -111,12 +112,46 @@ impl Inbox {
             }
             true
         });
+        let active_ids=app.state_db.call(|c| {
+            let mut q=c.prepare("SELECT id FROM inbox_active")?;
+            Ok(q.query_map([],|r|r.get(0))?.collect::<std::result::Result<Vec<String>,_>>()?)
+        }).await?;
         Ok(InboxSnapshot {
+            active_ids,
             threads,
             status: self.status.read().await.clone(),
             limits: app.github.limits.read().await.clone(),
         })
     }
+    /// The REST history contains Done threads too. Only show known inbox members.
+    pub async fn snapshot(&self, app: &App) -> Result<InboxSnapshot> {
+        let mut snapshot=self.list(app).await?;
+        let active:HashSet<_>=snapshot.active_ids.iter().cloned().collect();
+        snapshot.threads.retain(|t|active.contains(&t.id) || t.unread);
+        Ok(snapshot)
+    }
+
+    /// Restore inbox membership from a known GitHub inbox snapshot. This is local only;
+    /// it never marks anything read, Done or unsubscribed on GitHub.
+    pub async fn restore(&self, app:&App, ids:Vec<String>) -> Result<()> {
+        let _lock=self.lock.lock().await;
+        let known:HashSet<String>=app.cache_db.call(|c| {
+            let mut q=c.prepare("SELECT id FROM inbox_thread")?;
+            Ok(q.query_map([],|r|r.get(0))?.collect::<std::result::Result<_,_>>()?)
+        }).await?;
+        ensure!(ids.iter().all(|id|known.contains(id)), "snapshot contains an unknown or ignored notification");
+        app.state_db.call(move |c| {
+            let tx=c.transaction()?;
+            tx.execute("DELETE FROM inbox_active",[])?;
+            for id in ids {
+                tx.execute("INSERT OR IGNORE INTO inbox_active VALUES (?1)",[&id])?;
+                tx.execute("DELETE FROM inbox_override WHERE id=?1",[&id])?;
+            }
+            tx.commit()?;Ok(())
+        }).await?;
+        changed(app);Ok(())
+    }
+
     pub async fn preview(&self, app: &App, id: &str) -> Result<Option<ThreadPreview>> {
         let id = id.to_string();
         app.cache_db
@@ -155,6 +190,7 @@ impl Inbox {
     async fn sync_inner(&self, app: &App, now: i64) -> Result<()> {
         let full = now - *self.full_at.lock().await >= 30 * 60_000;
         let mut incoming = Vec::new();
+        let mut reconcile = full;
         let mut page = 1;
         loop {
             let path = format!("/notifications?all=true&per_page=50&page={page}");
@@ -166,9 +202,11 @@ impl Inbox {
                 .poll_interval
                 .max(app.config.get().github.poll_interval_seconds)
                 .max(60);
-            if r.not_modified && !full {
+            if r.not_modified && !full && page == 1 {
                 break;
             }
+            if page == 1 {reconcile = true;}
+            let has_next = r.has_next || (r.not_modified && r.value.as_array().is_some_and(|v|v.len()==50));
             incoming.extend(
                 r.value
                     .as_array()
@@ -176,11 +214,42 @@ impl Inbox {
                     .iter()
                     .filter_map(from_rest),
             );
-            if !full || !r.has_next {
+            if !has_next {
                 break;
             }
             page += 1;
         }
+        // all=true also includes discarded notifications. Remove only subscriptions that
+        // explicitly say ignored/unsubscribed; a 404 is an implicit subscription, not a mute.
+        let subscriptions: HashMap<String, (String, i64, bool)> = app.cache_db.call(|c| {
+            let mut q=c.prepare("SELECT id,updated_at,checked_at,COALESCE(ignored,0)=1 OR COALESCE(subscribed,1)=0 FROM inbox_subscription")?;
+            let rows=q.query_map([], |r| Ok((r.get(0)?, (r.get(1)?,r.get(2)?,r.get(3)?))))?;
+            Ok(rows.collect::<std::result::Result<_,_>>()?)
+        }).await?;
+        let mut active = Vec::new();
+        for t in incoming {
+            let cached=subscriptions.get(&t.id);
+            let hidden=if cached.is_some_and(|(at,checked,_)| at==&t.updated_at && now-checked < 30*60_000) {
+                cached.unwrap().2
+            } else {
+                let sub=app.github.subscription(&t.id).await?;
+                let subscribed=sub.as_ref().and_then(|s|s["subscribed"].as_bool());
+                let ignored=sub.as_ref().and_then(|s|s["ignored"].as_bool());
+                let hidden=ignored==Some(true) || subscribed==Some(false);
+                let id=t.id.clone(); let at=t.updated_at.clone();
+                app.cache_db.call(move |c| {
+                    c.execute("INSERT OR REPLACE INTO inbox_subscription VALUES (?1,?2,?3,?4,?5)",rusqlite::params![id,subscribed,ignored,at,now_ms()])?;
+                    Ok(())
+                }).await?;
+                hidden
+            };
+            if !hidden {active.push(t);}
+        }
+        let incoming=active;
+        let unread_ids:Vec<_>=incoming.iter().filter(|t|t.unread).map(|t|t.id.clone()).collect();
+        app.state_db.call(move |c| {let tx=c.transaction()?;for id in unread_ids {
+            tx.execute("INSERT OR IGNORE INTO inbox_active VALUES (?1)",[id])?;
+        }tx.commit()?;Ok(())}).await?;
         let old = self.list(app).await?.threads;
         let old_map: HashMap<_, _> = old.iter().map(|t| (&t.id, t)).collect();
         let changed_threads: Vec<_> = incoming
@@ -196,7 +265,7 @@ impl Inbox {
         let prior_threads: HashMap<_, _> = old.into_iter().map(|t| (t.id.clone(), t)).collect();
         app.cache_db.call(move |c| {
             let tx=c.transaction()?;
-            if full {tx.execute("DELETE FROM inbox_thread",[])?;}
+            if reconcile {tx.execute("DELETE FROM inbox_thread",[])?;}
             for mut t in saved {
                 // Preserve enriched fields when an unchanged notification is returned.
                 if let Some(p)=prior_threads.get(&t.id) { if p.updated_at==t.updated_at {t.state=p.state.clone();t.participants=p.participants.clone();t.participant_count=p.participant_count;t.review_decision=p.review_decision.clone();t.checks=p.checks.clone();} }
@@ -204,7 +273,7 @@ impl Inbox {
             }
             tx.commit()?; Ok(())
         }).await?;
-        if full {
+        if reconcile {
             *self.full_at.lock().await = now;
         }
         changed(app);
@@ -363,7 +432,7 @@ impl Inbox {
             action
         }
         .to_string();
-        let previous: Option<(String, String)> = app
+        let (previous, was_active): (Option<(String, String)>, bool) = app
             .state_db
             .call(move |c| {
                 use rusqlite::OptionalExtension;
@@ -374,11 +443,16 @@ impl Inbox {
                         |r| Ok((r.get(0)?, r.get(1)?)),
                     )
                     .optional()?;
+                let was_active=c.query_row("SELECT EXISTS(SELECT 1 FROM inbox_active WHERE id=?1)",[&id],|r|r.get(0))?;
+                if local=="done" {c.execute("DELETE FROM inbox_active WHERE id=?1",[&id])?;}
+                if local=="read" || local=="unread" {
+                    c.execute("INSERT OR IGNORE INTO inbox_active VALUES (?1)",[&id])?;
+                }
                 c.execute(
                     "INSERT OR REPLACE INTO inbox_override VALUES (?1,?2,?3)",
                     rusqlite::params![id, at, local],
                 )?;
-                Ok(prior)
+                Ok((prior, was_active))
             })
             .await?;
         changed(app);
@@ -410,6 +484,8 @@ impl Inbox {
             app.state_db
                 .call(move |c| {
                     c.execute("DELETE FROM inbox_override WHERE id=?1", [&id])?;
+                    if was_active {c.execute("INSERT OR IGNORE INTO inbox_active VALUES (?1)",[&id])?;}
+                    else {c.execute("DELETE FROM inbox_active WHERE id=?1",[&id])?;}
                     if let Some((at, a)) = previous {
                         c.execute(
                             "INSERT INTO inbox_override VALUES (?1,?2,?3)",

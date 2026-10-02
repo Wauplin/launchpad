@@ -35,6 +35,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/task-output", get(task_output))
         .route("/api/inbox", get(inbox))
         .route("/api/inbox/sync", post(inbox_sync))
+        .route("/api/inbox/restore", post(inbox_restore))
         .route("/api/inbox/{id}/preview", get(inbox_preview).post(inbox_refresh))
         .route("/api/inbox/{id}/action", post(inbox_action))
         .route("/api/inbox/{id}/reply", post(inbox_reply))
@@ -279,7 +280,7 @@ async fn open_editor(State(s): State<Server>, Json(b): Json<OpenEditor>) -> ApiR
 }
 
 async fn inbox(State(s): State<Server>) -> ApiResult<launchpad_core::inbox::InboxSnapshot> {
-    Ok(Json(s.app.inbox.list(&s.app).await?))
+    Ok(Json(s.app.inbox.snapshot(&s.app).await?))
 }
 async fn inbox_sync(State(s): State<Server>) -> ApiResult<Value> {
     s.app.inbox.sync(&s.app).await.map_err(bad)?;
@@ -319,5 +320,12 @@ async fn inbox_reply(
     Json(b): Json<Input>,
 ) -> ApiResult<Value> {
     s.app.inbox.reply(&s.app, &id, &b.text).await.map_err(bad)?;
+    Ok(Json(json!({"ok":true})))
+}
+
+#[derive(Deserialize)]
+struct InboxRestore { ids: Vec<String> }
+async fn inbox_restore(State(s): State<Server>, Json(b): Json<InboxRestore>) -> ApiResult<Value> {
+    s.app.inbox.restore(&s.app, b.ids).await.map_err(bad)?;
     Ok(Json(json!({"ok":true})))
 }

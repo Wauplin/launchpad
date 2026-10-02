@@ -48,6 +48,7 @@ These rules apply unless the owner says otherwise for a given task.
 - Linux (Ubuntu) only. Do not add code for macOS or Windows.
 - Single user: no backward compatibility, no versioning, no data migration framework. The GitHub cache (`cache.db`) can be deleted and rebuilt at any time. Keep schema changes to `state.db` simple.
 - Anything Launchpad prepares for GitHub (pre-draft PRs, comments or reviews written by agents) stays local until the owner publishes it with a click.
+- GitHub notifications: `all=true` returns historical Done threads too and has no Done/inbox field. Never treat the REST history as the web inbox or promise exact parity. Keep membership in `state.db`; a missing thread subscription (404) is not evidence of unsubscribe.
 - Never refresh the Claude OAuth token. Read it only (see `docs/ARCHITECTURE.md`, section 9.5).
 
 ## Testing

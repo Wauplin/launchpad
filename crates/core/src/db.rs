@@ -119,6 +119,8 @@ const STATE_MIGRATIONS: &[&str] = &[
     CREATE INDEX session_started ON session (started_at);",
     // 3: durable inbox triage overrides, scoped to a notification update time.
     "CREATE TABLE inbox_override (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, action TEXT NOT NULL);",
+    // 4: inbox membership for threads observed unread or opened locally.
+    "CREATE TABLE inbox_active (id TEXT PRIMARY KEY);",
 ];
 
 pub fn open_state(path: &Path) -> Result<Db> {
@@ -138,6 +140,7 @@ pub fn open_state(path: &Path) -> Result<Db> {
 const CACHE_SCHEMA: &str = "
 CREATE TABLE gh_response (url TEXT PRIMARY KEY, etag TEXT, last_modified TEXT, json TEXT NOT NULL);
 CREATE TABLE inbox_thread (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, json TEXT NOT NULL);
+CREATE TABLE inbox_subscription (id TEXT PRIMARY KEY, subscribed INTEGER, ignored INTEGER, updated_at TEXT NOT NULL, checked_at INTEGER NOT NULL);
 CREATE TABLE inbox_preview (id TEXT PRIMARY KEY, fetched_at INTEGER NOT NULL, json TEXT NOT NULL);
 CREATE TABLE gh_notification (id TEXT PRIMARY KEY, repo TEXT, subject_type TEXT, subject_number INTEGER,
     reason TEXT, unread INTEGER, updated_at TEXT, last_read_at TEXT, json TEXT NOT NULL);

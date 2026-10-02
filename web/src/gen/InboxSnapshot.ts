@@ -3,4 +3,4 @@ import type { RateLimit } from "./RateLimit";
 import type { SyncStatus } from "./SyncStatus";
 import type { Thread } from "./Thread";
 
-export type InboxSnapshot = { threads: Array<Thread>, status: SyncStatus, limits: { [key in string]: RateLimit }, };
+export type InboxSnapshot = { active_ids: Array<string>, threads: Array<Thread>, status: SyncStatus, limits: { [key in string]: RateLimit }, };

@@ -181,7 +181,8 @@ impl GitHub {
                 });
             }
             if !res.status().is_success() {
-                bail!("GitHub {path}: {}", res.status());
+                let status = res.status();
+                return Err(res.error_for_status().unwrap_err()).with_context(|| format!("GitHub {path}: {status}"));
             }
             let bytes = res.bytes().await?;
             let value = if bytes.is_empty() {
@@ -209,6 +210,16 @@ impl GitHub {
             .request(reqwest::Method::GET, path, None, true)
             .await?
             .value)
+    }
+
+    /// A missing explicit subscription does not mean the thread is ignored: watching a repo
+    /// can deliver notifications without a thread subscription.
+    pub async fn subscription(&self, id: &str) -> Result<Option<Value>> {
+        match self.get(&format!("/notifications/threads/{id}/subscription")).await {
+            Ok(v) => Ok(Some(v)),
+            Err(e) if e.downcast_ref::<reqwest::Error>().and_then(|e| e.status()) == Some(reqwest::StatusCode::NOT_FOUND) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     pub async fn graphql(&self, query: String) -> Result<Value> {
