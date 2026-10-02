@@ -49,6 +49,7 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 
 - All five spikes done on 2026-10-02, no fallback needed. Notes: [1](spikes/1-claude-stream-json.md), [2](spikes/2-claude-usage-endpoint.md), [3](spikes/3-codex-app-server.md), [4](spikes/4-webkitgtk.md), [5](spikes/5-claude-trust-prompt.md). The findings are in the architecture (decisions 11 to 16).
 - Build done: Cargo workspace, daemon (config watch, `state.db`, `cache.db`, axum API, WebSocket event bus, token and cookie auth with `Host` and `Origin` checks, embedded UI, dev and prod profiles, login shell environment), React app shell (sidebar, top bar with the Launch button, empty views, status bar with versions and both quotas), Tauri shell (single instance, warm hidden window), packaging (`packaging/install.sh`, systemd user unit, `.desktop` entry, autostart entry, icons).
+- App icon updated to the selected sculpted launch artwork, with the unchanged master, PNG sizes, WebP and SVG exports, a browser favicon, and an icon-only installer that does not restart running agents.
 - Measured: the window opens in about 100 ms from a dock click with the warm shell (cold start of the shell: about 0.5 s).
 
 ## Phase 1: launch and run agents
