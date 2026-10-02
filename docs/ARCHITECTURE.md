@@ -375,6 +375,8 @@ The agents list has three groups:
 - **Running:** `starting`, `working` and `background`. Long commands stay Running even when they produce no output. Codex no longer uses a silence timer to change the session state.
 - **Archived:** closed, interrupted, errored and externally attached sessions, as before. Archived conversations remain resumable. The separate Archive button stops the process and uses the existing `closed` state and `/close` endpoint; the header X only removes the session from the pane, including while Running.
 
+Each group heading is a button with a chevron and an always-visible count. Groups start expanded and collapse independently; their collapse state is kept with the UI layout in `localStorage` across navigation and reloads. Hidden session rows and Archived’s Show more button are omitted from the virtualized list. Collapsing a group does not change session state or close an open pane.
+
 The Agents sidebar item shows separate amber Done and blue Running counts; a discreet spinner appears beside a nonzero Running count. Pinned projects show an amber dot when any associated session is Done and a spinner when any is Running, including both when applicable. Sessions match projects by project id or folder, so worktree sessions retain their project marker.
 
 A session that becomes Done sends a desktop notification (`agents.notify`) unless the focused window is displaying it. Each session stores its id, harness id, cwd, project, title, model, effort, usage and initial launch spec. After launch, a separate naming request generates a concise AI title from the initial rendered prompt and persists it through the usual session update event. This request uses Claude Haiku or a small available Codex model, is ephemeral, runs outside the project and times out after 45 seconds. Launch never waits for naming; if naming fails, the first-line prompt title remains.
@@ -688,3 +690,5 @@ Code viewer implementation, on 2026-10-02:
 32. **No Enter in the viewer's other fields.** "Go to file" filters as you type and opens a file on click; search in the project runs as you type. The find field keeps its `Enter`, `Shift+Enter` and `Escape` keys (decision 22). The selection bar sits at the bottom right of the code, so the line numbers stay clickable, and its GitHub link copies a permalink instead of opening the browser.
 
 33. **Commit status and deferred installation.** The status bar displays the running build’s Git commit and offers a small Update button when local main is ahead. Checks and builds run in the background; installation waits for no Running sessions, using the same predicate as the sidebar and counts. The updater never interrupts active agents or builds uncommitted work.
+
+34. **Collapsible agent groups.** Done, Running and Archived have independent collapse buttons with visible counts. Expansion is persisted as UI layout state; only expanded rows enter the fixed-height virtualized list.

@@ -293,6 +293,9 @@ code.i { font: 12px var(--font-mono); background: var(--sunk); padding: 0 4px; b
 .s3 { grid-template-columns: 52px 248px 1fr; height: 760px; }
 .slist { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--paper); }
 .sgroup { display: flex; align-items: center; gap: 8px; padding: 12px 12px 6px; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.sgroup { width: 100%; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.sgroup:hover { background: var(--sunk); }
+.srow[hidden] { display: none; }
 .sgroup b { color: var(--attn); }
 .srow { display: grid; grid-template-columns: 18px 1fr; gap: 3px 9px; padding: 8px 12px; border-bottom: 1px solid var(--line-2); }
 .srow .hm { margin-top: 1px; grid-row: span 2; }
@@ -1008,14 +1011,14 @@ Context:
         </nav>
 
         <div class="slist">
-          <div class="sgroup">Done <b>2</b> <i class="pin">1</i></div>
+          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Done <b>2</b> <i class="pin">1</i></button>
           <div class="srow sel"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Fix listJobs CI failure</span><span class="m">huggingface.js <span class="st needs">Done 3 min</span></span></div>
           <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Check #3412 / #3420</span><span class="m">huggingface_hub <span class="st needs">Question</span></span></div>
-          <div class="sgroup">Running <span class="faint">3</span></div>
+          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Running <span class="faint">3</span></button>
           <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Benchmark upload chunk sizes</span><span class="m">tmp-1002-xet-bench <span class="st bgc">Running · background 6 min</span></span></div>
           <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Xet refresh token endpoint</span><span class="m">moon-landing <span class="st work">12 min</span> $1.84</span></div>
           <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Investigate shard retry logic</span><span class="m">transformers <span class="st work">2 min</span> $0.21</span></div>
-          <div class="sgroup">Archived</div>
+          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Archived <span class="faint">3</span></button>
           <div class="srow dim"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Release notes for v1.4</span><span class="m">huggingface_hub <span class="st done">Archived 2 h ago</span> $0.92</span></div>
           <div class="srow dim"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Fix flaky test_list_models</span><span class="m">huggingface_hub <span class="st int">Interrupted</span> Resume</span></div>
           <div class="srow dim"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Proofread the xet blog post</span><span class="m">blog <span class="st done">Archived yesterday</span></span></div>
@@ -1130,7 +1133,7 @@ chunk=256MB  run 3/5 …</pre>
     </div>
   </div>
   <ol class="notes">
-    <li><i class="pin">1</i><span><b>Done, Running, Archived.</b> Done waits for input. Running includes background and long commands, even when silent. Archived sessions can be resumed. Separate amber Done and blue Running counts appear beside Agents, with a spinner for running agents. Pinned projects show a done dot and a running spinner together when both apply.</span></li>
+    <li><i class="pin">1</i><span><b>Done, Running, Archived.</b> Click a heading to collapse or expand its rows; counts stay visible and the app remembers each group’s expansion. Done waits for input. Running includes background and long commands, even when silent. Archived sessions can be resumed. Separate amber Done and blue Running counts appear beside Agents, with a spinner for running agents. Pinned projects show a done dot and a running spinner together when both apply.</span></li>
     <li><i class="pin">2</i><span><b>Layouts 1, 2 and 4.</b> Buttons in the top bar. Clicking a session loads it in the focused pane (teal outline). Dragging picks another pane.</span></li>
     <li><i class="pin">3</i><span><b>Session header.</b> Titles are AI-generated from the initial prompt. Project, state and elapsed time, tokens, context usage and cost (Claude only). The X only closes the panel and leaves the session state unchanged. Archive stops the session and keeps it resumable in Archived. Stop interrupts the agent. "Open in terminal" hands the session to the terminal chosen in Settings (S6) and back.</span></li>
     <li><i class="pin">4</i><span><b>Compact tool calls.</b> Commands and file reads collapse into one line, edits show a small diff, the running command has a spinner. Click to expand.</span></li>
@@ -1746,3 +1749,14 @@ chunk=256MB  run 3/5 …</pre>
 </footer>
 
 </div>
+
+<script>
+function toggleAgentGroup(button) {
+  const expanded = button.getAttribute('aria-expanded') === 'true';
+  button.setAttribute('aria-expanded', !expanded);
+  button.querySelector('svg').style.transform = expanded ? 'rotate(-90deg)' : '';
+  for (let row = button.nextElementSibling; row?.classList.contains('srow'); row = row.nextElementSibling) {
+    row.hidden = expanded;
+  }
+}
+</script>

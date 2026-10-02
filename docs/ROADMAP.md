@@ -75,7 +75,7 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
   - Direct launcher on the top bar, projects and notifications, with the latest launched harness, model and effort selections remembered.
   - Temporary projects: create, delete with a second click, promote (the folder, the Claude transcripts and the session folders move).
   - Adapters: Claude and Codex, normalized events in `state.db`, WebSocket streaming with replay after a reconnect.
-  - Agents view: Done, Running and Archived groups; session pane with messages, collapsed tool calls, inline diffs, plan, question cards, background commands with their output, copy buttons, message box (`Enter` sends), Stop, Archive, Close panel, Resume, Open in terminal and Re-attach; layouts with 1, 2 and 4 panes.
+  - Agents view: independently collapsible Done, Running and Archived groups with remembered expansion state; session pane with messages, collapsed tool calls, inline diffs, plan, question cards, background commands with their output, copy buttons, message box (`Enter` sends), Stop, Archive, Close panel, Resume, Open in terminal and Re-attach; layouts with 1, 2 and 4 panes.
   - Signals: context tokens and usage, cost (Claude), desktop notification when a session becomes Done.
   - Maintenance: `codex update` at daemon start and every 6 hours.
   - Settings → General (projects root, terminal with "found" markers, editor) and Presets.
@@ -83,6 +83,7 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 - The bottom status bar displays the running Launchpad commit and offers Update when local main has newer commits. Updates build in the background from clean committed main and reserve idle agents before reinstalling; Settings shares the same updater and progress.
 - Settings → General now offers a production update button that runs UI type checks and Rust tests, builds release assets, then installs and relaunches from the local checkout. The updater runs outside the daemon and reports its stage and failure log in the UI.
 - Checked these updates in the dev browser and desktop: all five saved zoom positions, native Ctrl+V image paste, console drop and removal, native image delivery to Claude Haiku and Codex GPT-6-Luna (both identified a red test image), AI titles from both harnesses, saved launch selections across reloads, simultaneous Done and Running indicators on a pinned project, image-only input on a resumed Codex session, and a silent 35-second Codex command that stayed Running. UI and desktop builds and the five existing Rust tests pass.
+- Agent list update on 2026-10-02: Done, Running and Archived headings independently collapse their rows, keep counts visible and remember expansion across navigation and reloads. Verified against real dev sessions in the browser at all five zoom positions; UI type checks and build pass.
 - Session panel update on 2026-10-02: the X only closes the panel, preserving Done or Running; a separate Archive button keeps conversations resumable in the renamed Archived group. Verified in the dev browser: X preserves session data, Archive offers Resume, and X closes an archived panel with one click.
 - Left for the **Done when** check: a week of daily use.
 

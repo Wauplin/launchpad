@@ -4,9 +4,12 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type Layout = 1 | 2 | 4;
+export type AgentGroup = "Done" | "Running" | "Archived";
 
 type LayoutStore = {
   layout: Layout;
+  collapsedGroups: Partial<Record<AgentGroup, boolean>>;
+  toggleGroup: (group: AgentGroup) => void;
   panes: (string | null)[];
   focused: number;
   setLayout: (l: Layout) => void;
@@ -20,6 +23,8 @@ export const useLayout = create<LayoutStore>()(
   persist(
     (set, get) => ({
       layout: 1,
+      collapsedGroups: {},
+      toggleGroup: (group) => set({ collapsedGroups: { ...get().collapsedGroups, [group]: !get().collapsedGroups[group] } }),
       panes: [null, null, null, null],
       focused: 0,
       setLayout: (layout) => set({ layout, focused: Math.min(get().focused, layout - 1) }),

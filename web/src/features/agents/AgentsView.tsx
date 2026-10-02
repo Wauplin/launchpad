@@ -11,7 +11,7 @@ import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useProjects, useSessions } from "@/lib/queries";
 import { sendPresence } from "@/lib/ws";
-import { useLayout, type Layout } from "@/stores/layout";
+import { useLayout, type AgentGroup, type Layout } from "@/stores/layout";
 import { SessionPane } from "./SessionPane";
 import { StatusBadge } from "./SessionBits";
 
@@ -37,14 +37,18 @@ const SessionRow = memo(function SessionRow({ s, project, selected, onClick }: {
   );
 });
 
-function Group({ title, count, highlight, children }: { title: string; count: number; highlight?: boolean; children?: React.ReactNode }) {
+function Group({ title, count, highlight, collapsed, onToggle }: { title: AgentGroup; count: number; highlight?: boolean; collapsed: boolean; onToggle: () => void }) {
   return (
-    <>
-      <div className="flex items-center gap-2 px-3 pt-3 pb-1.5 seclabel">
-        {title} <b className={highlight && count ? "text-attn" : "font-normal text-ink-3"}>{count}</b>
-      </div>
-      {children}
-    </>
+    <button
+      type="button"
+      aria-expanded={!collapsed}
+      aria-label={`${collapsed ? "Expand" : "Collapse"} ${title}`}
+      onClick={onToggle}
+      className="flex h-[34px] w-full items-center gap-2 px-3 text-left seclabel hover:bg-sunk"
+    >
+      <Icon name="chev" size={12} className={collapsed ? "-rotate-90" : ""} />
+      {title} <b className={highlight && count ? "text-attn" : "font-normal text-ink-3"}>{count}</b>
+    </button>
   );
 }
 
@@ -69,7 +73,7 @@ export function LayoutSwitch() {
 export function AgentsView() {
   const sessions = useSessions().data ?? [];
   const projects = useProjects().data;
-  const { layout, panes, focused, focus, show, clearSession } = useLayout();
+  const { layout, panes, focused, focus, show, clearSession, collapsedGroups, toggleGroup } = useLayout();
   const search = useSearch({ strict: false }) as { session?: string };
   const navigate = useNavigate();
   const [archivedLimit, setArchivedLimit] = useState(30);
@@ -102,16 +106,16 @@ export function AgentsView() {
   const done = sessions.filter((s) => isDone(s)).sort((a, b) => a.status_since - b.status_since);
   const running = sessions.filter((s) => isRunning(s));
   const archived = sessions.filter((s) => !isDone(s) && !isRunning(s));
-  const items: ({ kind: "group"; title: string; count: number; highlight?: boolean } | { kind: "session"; session: Session } | { kind: "more" })[] = [
+  const items: ({ kind: "group"; title: AgentGroup; count: number; highlight?: boolean } | { kind: "session"; session: Session } | { kind: "more" })[] = [
     { kind: "group", title: "Done", count: done.length, highlight: true },
-    ...done.map((session) => ({ kind: "session" as const, session })),
+    ...(collapsedGroups.Done ? [] : done).map((session) => ({ kind: "session" as const, session })),
     { kind: "group", title: "Running", count: running.length },
-    ...running.map((session) => ({ kind: "session" as const, session })),
+    ...(collapsedGroups.Running ? [] : running).map((session) => ({ kind: "session" as const, session })),
     { kind: "group", title: "Archived", count: archived.length },
-    ...archived.slice(0, archivedLimit).map((session) => ({ kind: "session" as const, session })),
-    ...(archived.length > archivedLimit ? [{ kind: "more" as const }] : []),
+    ...(collapsedGroups.Archived ? [] : archived.slice(0, archivedLimit)).map((session) => ({ kind: "session" as const, session })),
+    ...(!collapsedGroups.Archived && archived.length > archivedLimit ? [{ kind: "more" as const }] : []),
   ];
-  const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => items[i].kind === "session" ? 68 : 34, getItemKey: (i) => items[i].kind === "session" ? items[i].session.id : `heading-${i}`, overscan: 6, useFlushSync: false });
+  const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => items[i].kind === "session" ? 68 : 34, getItemKey: (i) => { const item = items[i]; return item.kind === "session" ? item.session.id : item.kind === "group" ? `group-${item.title}` : "more-archived"; }, overscan: 6, useFlushSync: false });
   const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
   const selected = panes[focused];
   const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} selected={s.id === selected} onClick={() => show(s.id)} />;
@@ -131,7 +135,7 @@ export function AgentsView() {
           {virtual.getVirtualItems().map((v) => {
             const item = items[v.index];
             return <div key={v.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: v.size, transform: `translateY(${v.start}px)` }}>
-              {item.kind === "session" ? row(item.session) : item.kind === "group" ? <Group title={item.title} count={item.count} highlight={item.highlight} /> :
+              {item.kind === "session" ? row(item.session) : item.kind === "group" ? <Group title={item.title} count={item.count} highlight={item.highlight} collapsed={!!collapsedGroups[item.title]} onToggle={() => toggleGroup(item.title)} /> :
                 <button className="px-3 py-2 text-left text-xs text-teal-ink hover:underline" onClick={() => setArchivedLimit((n) => n + 50)}>Show more</button>}
             </div>;
           })}
