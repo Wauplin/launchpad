@@ -6,7 +6,7 @@ Status: proposal (2026-10-02), main decisions confirmed (see [Decisions log](#17
 
 Launchpad is a desktop app for Ubuntu, launched from the dock, that combines two things:
 
-- an **agent launcher and workspace** for Claude Code and Codex: start a session in the right folder with the right context in a few keystrokes, watch and drive several sessions side by side;
+- an **agent launcher and workspace** for Claude Code and Codex: start a session in the right folder with the right context in a few clicks, watch and drive several sessions side by side;
 - a **fast GitHub client** for the parts of GitHub used every day: notifications, issues, pull requests, reviews, merges. Everything is cached locally so moving between items never reloads a page.
 
 On top of these, Launchpad adds **local-first objects** that GitHub does not have: pre-draft PRs (a branch + title + description that exists only on the laptop) and, later, agent-written comments and reviews that wait for manual approval before being posted.
@@ -16,10 +16,11 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 ### Design principles
 
 1. **Never wait on the network to show something.** Every screen renders from the local database first and refreshes in the background. Network latency appears as a small "syncing" indicator, never as a blank page.
-2. **Launching an agent is the main action.** A minimal launch is about 3 keystrokes plus the prompt. A rich launch uses the same flow with more chips. Both must feel natural.
+2. **Launching an agent is the main action.** A minimal launch is three clicks plus the prompt. A rich launch uses the same flow with more chips. Both must feel natural.
 3. **The core does not depend on a harness.** Claude Code and Codex are adapters behind one session model. Adding a third harness means writing one adapter.
 4. **Local first, publish later.** Anything that would create noise on GitHub (pre-draft PRs, agent-written comments) stays local until you publish it. These objects share one color in the UI (teal).
-5. **Owned and easy to extend.** A mainstream stack that coding agents handle well (Rust, React, TypeScript, Tailwind), configuration in a plain TOML file, GitHub payloads stored as JSON so new fields need no schema change.
+5. **Click only.** No keyboard shortcuts, at least at first: every action is a visible button where it is needed, and the UI should be good enough that shortcuts are not missed. Text fields only type text: no character opens a popup or triggers an action. The one exception is the session message box, where `Enter` sends and `Shift+Enter` adds a new line, like in the terminal.
+6. **Owned and easy to extend.** A mainstream stack that coding agents handle well (Rust, React, TypeScript, Tailwind), configuration in a plain TOML file, GitHub payloads stored as JSON so new fields need no schema change.
 
 ## 2. Key decisions
 
@@ -74,10 +75,9 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 ### 4.2 Desktop shell
 
 - A Tauri v2 app of roughly 100 lines of Rust. On start it checks `GET /api/health`. If the daemon is down, it runs `systemctl --user start launchpad` (or spawns `launchpad daemon` directly as a fallback), then opens a window on `http://127.0.0.1:7317/` after the auth handshake described in [Security](#14-security).
-- Plugins: `single-instance` (clicking the dock icon focuses the existing window; `launchpad-desktop --launch` opens the composer) and `window-state`.
+- Plugins: `single-instance` (clicking the dock icon focuses the existing window; `launchpad-desktop --open <route>` focuses it on a given screen, used by desktop notifications) and `window-state`.
 - The window loads the UI from the daemon, not from bundled assets. This gives one origin (no CORS) and the same UI works in a browser for the future remote mode. The UI imports no `@tauri-apps/*` package.
 - The `.deb` bundle installs a `.desktop` entry, which can be pinned to the dock. During development, a hand-written `.desktop` file points to the release binary. `StartupWMClass` must match the window so the dock groups it correctly.
-- Wayland: Tauri global shortcuts do not work on GNOME Wayland. A GNOME custom shortcut (Settings → Keyboard → Custom Shortcuts) running `launchpad-desktop --launch` gives a system-wide "launch agent" key.
 
 ### 4.3 Lifecycle consequences
 
@@ -98,7 +98,7 @@ launchpad/
 ├─ desktop/                     # Tauri v2 shell (src-tauri)
 ├─ web/                         # React app (Vite)
 │  └─ src/
-│     ├─ app/                   # shell: sidebar, top bar, status bar, routing, shortcuts
+│     ├─ app/                   # shell: sidebar, top bar, status bar, routing
 │     ├─ features/              # inbox, launch, agents, github, projects, predraft, settings
 │     ├─ components/            # owned UI components (Radix based)
 │     ├─ lib/                   # api client, ws client, markdown, diff, query keys
@@ -243,14 +243,14 @@ text = "Please use a local git worktree and delete it once you're done."
 | Unsubscribe | `DELETE /notifications/threads/{id}/subscription`, then mark as done (to verify: the web inbox seems to do both) |
 | Mark as unread | **No public API.** Checked on 2026-10-02: no REST endpoint and no GraphQL mutation. Implemented as a local override: Launchpad shows the thread as unread until you open it or GitHub reports new activity. github.com still shows it as read. |
 
-- Opening a thread (preview or full view) marks it as read, like github.com. `u` toggles it back.
+- Opening a thread (preview or full view) marks it as read, like github.com. The "Mark as unread" button sets it back.
 - All actions are optimistic: the cache and the UI change immediately, the API call follows, and a failure rolls back with a toast.
 
 ### 7.3 Issues and pull requests (cached on demand)
 
 - **Detail query:** one GraphQL query per item fetches the header fields, `bodyHTML` and `body`, `timelineItems` (comments, reviews, review threads as read-only, commits, label/assign/rename/reference events, ready-for-review, merged, closed), participants, review requests, latest reviews, assignees, labels, milestone, `closingIssuesReferences`, check contexts (name, conclusion, details URL), `mergeable`, `mergeStateStatus`, `headRefName`, `baseRefName`, `headRefOid`.
 - **Freshness:** the cached version renders immediately. A background refresh runs when an opened item is older than 60 s, or when you click Refresh. Before refetching a full timeline, the daemon compares `updatedAt` from the list or notification.
-- **Prefetch:** when the inbox loads, details for the top 15 unread threads are prefetched. Selecting a row prefetches its neighbors (for `j`/`k` navigation). A project page fetches its first page of open PRs and issues (30 most recently updated) when opened, and refreshes it if older than 5 minutes. Nothing else is prefetched.
+- **Prefetch:** when the inbox loads, details for the top 15 unread threads are prefetched. Selecting a row prefetches the rows just below it, the likely next clicks. A project page fetches its first page of open PRs and issues (30 most recently updated) when opened, and refreshes it if older than 5 minutes. Nothing else is prefetched.
 - **Rendering:** GitHub's own `bodyHTML` (exact rendering: mentions, issue references, task lists, suggestion blocks), sanitized with DOMPurify and styled with `github-markdown-css` (light). The raw `body` is kept for quoting and editing.
 - **Images:** private repositories embed short-lived signed image URLs. The daemon rewrites image URLs to its `/img` proxy and fetches the bytes at sync time, while the URLs are still valid. Avatars go through the same proxy, so they show instantly after the first load.
 - **Mutations:**
@@ -379,7 +379,7 @@ trait LiveSession: Send + Sync {
 
 - **Process:** one long-lived `codex app-server` (JSON-RPC over stdio), child of the daemon and shared by all Codex sessions (the server handles multiple threads). It also serves `account/rateLimits/read` and `model/list`. Both were tested on this machine: the first returns the 5-hour and weekly windows with `usedPercent` and `resetsAt`, the second returns models with their supported effort levels.
 - **Flow:** `initialize` → `thread/start {cwd, model?, approvalPolicy: "never", sandbox: "danger-full-access"}` → `turn/start {threadId, input: [{type: "text", text}], effort?}`.
-- **Typing while the agent works:** `turn/steer {threadId, expectedTurnId, input}`. `Esc` sends `turn/interrupt`.
+- **Typing while the agent works:** `turn/steer {threadId, expectedTurnId, input}`. The Stop button sends `turn/interrupt`.
 - **Notifications → events:** `item/agentMessage/delta`, `item/started` and `item/completed` (agent messages, command executions with `item/commandExecution/outputDelta`, file changes, MCP tool calls, reasoning summaries), `turn/plan/updated`, `turn/diff/updated`, `thread/tokenUsage/updated`, `turn/completed` (switches to `waiting`), `account/rateLimits/updated`.
 - **Background commands:** Codex has no explicit signal for them. A `commandExecution` item that is still running without new output for 30 s puts the session in `background` until the item completes or new output arrives.
 - **Server requests:** `item/tool/requestUserInput` becomes an `ask_user` card. Approval requests should not happen with `approvalPolicy: "never"`; if one arrives, it is declined automatically and logged.
@@ -401,7 +401,7 @@ trait LiveSession: Send + Sync {
 - **Assistant text:** markdown (markdown-it, Shiki for code blocks), rendered incrementally. Finished blocks are memoized; only the last block re-renders while streaming.
 - **Tool calls:** collapsed to one line (`Bash · pytest tests/test_hf_api.py · 12 s · exit 0`). Consecutive calls are grouped ("Ran 6 commands, read 4 files"). File changes show a small inline diff. Click to expand.
 - **Copy:** every message keeps its raw markdown. "Copy" puts the exact markdown on the clipboard, without the line breaks and padding that terminals add. Code blocks have their own copy button. Tool output copies as raw text.
-- **Input:** `Enter` sends, `Shift+Enter` adds a new line, `Esc` interrupts. TUI-only slash commands point to "Open in terminal".
+- **Input:** a message box under each session, with a Send button. `Enter` also sends and `Shift+Enter` adds a new line, like in the terminal (the only keyboard behavior in the app). A Stop button in the session header interrupts the agent. TUI-only slash commands point to "Open in terminal".
 - **Header:** tokens (input, cached, output), context window usage, cost estimate (Claude reports `total_cost_usd`; Codex reports tokens only), elapsed time.
 
 ### 9.7 Prompt composition
@@ -511,12 +511,12 @@ A pre-draft PR is a pull request that exists only on your laptop: a local branch
 
 ## 12. Frontend
 
-- **Libraries:** React 19 + TypeScript + Vite; TanStack Router (typed routes); TanStack Query (cache, background revalidation, optimistic mutations; WebSocket events call `invalidateQueries` or `setQueryData`); Zustand for UI state (layouts, composer draft, selection); Tailwind CSS v4 with Radix primitives (shadcn-style components copied into the repo); cmdk (command palette); TanStack Virtual (lists, diffs, long sessions); Shiki in a Web Worker; markdown-it; DOMPurify; github-markdown-css.
+- **Libraries:** React 19 + TypeScript + Vite; TanStack Router (typed routes); TanStack Query (cache, background revalidation, optimistic mutations; WebSocket events call `invalidateQueries` or `setQueryData`); Zustand for UI state (layouts, composer draft, selection); Tailwind CSS v4 with Radix primitives (shadcn-style components copied into the repo); TanStack Virtual (lists, diffs, long sessions); Shiki in a Web Worker; markdown-it; DOMPurify; github-markdown-css.
 - **Theme:** light only. One set of CSS variables, no dark tokens.
 - **Layout:** left sidebar (Inbox, Agents, Projects, pinned projects, temporary projects, Settings; collapses to icons), main area, composer drawer on the right, status bar at the bottom.
 - **Harness marks:** the official Claude and Codex logos (SVG files in `web/src/assets/`) everywhere a harness appears: radial launch buttons (logo only, no label), session lists, pane headers, status bar.
-- **Speed tactics:** render from cache; prefetch on selection; keep list views mounted so scroll position and selection survive navigation; optimistic actions; virtualized lists; keyboard shortcuts everywhere.
-- **Shortcuts (first set):** `j`/`k` move, `Enter` open, `e` done, `u` read/unread, `m` unsubscribe, `l` launch from the selected item, `L` launch from anywhere, `Ctrl+K` command palette, `Ctrl+Enter` launch from the composer, `g i`/`g a`/`g p` go to inbox/agents/projects, `r` refresh, `o` open on GitHub, `Ctrl+1/2/4` agent layouts.
+- **Speed tactics:** render from cache; prefetch on selection; keep list views mounted so scroll position and selection survive navigation; optimistic actions; virtualized lists; every frequent action one click away.
+- **Click only:** no keyboard shortcuts (see principle 5). Frequent actions are visible buttons where they are used: hover actions on notification rows, a Launch button on every notification, issue, PR and project, layout buttons in the agents view, Refresh and Open on GitHub on every cached object. Icon-only buttons have a hover title. Context is added to the composer with buttons, never with typing triggers such as `@` or `#`.
 - **WebKitGTK:** the Tauri webview on Linux is WebKit, not Chromium. Phase 0 measures performance with a 5,000-line diff and a 2,000-event session. If the window renders blank with some GPU drivers, `WEBKIT_DISABLE_DMABUF_RENDERER=1` is the usual workaround. Because the UI is a plain web app, it can be developed in Chrome against the dev daemon, and switching the shell to Chromium (`--app=` mode) stays possible if WebKit is too slow.
 
 ## 13. Desktop integration
@@ -560,3 +560,4 @@ Confirmed on 2026-10-02:
 5. **Temporary folders.** `<projects_root>/tmp-<MMDD>-<slug>`. The projects root is configurable, default `~/projects`.
 6. **Claude quota.** Launchpad may read the OAuth access token in `~/.claude/.credentials.json` to call the usage endpoint, never refreshing it.
 7. **Harness icons.** Launch buttons and harness marks use the Claude and Codex logos, without text labels.
+8. **Click-only UI.** No keyboard shortcuts and no typing triggers in text fields, at least at first. The only keyboard behavior is `Enter` to send in a session's message box. Shortcuts may be added later if they are really missed.

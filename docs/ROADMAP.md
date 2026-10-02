@@ -37,15 +37,15 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 - Cargo workspace (`core`, `server`, `cli`), Vite React app, Tauri shell.
 - Daemon: `config.toml` loading and watch (including `projects_root`, default `~/projects`), `state.db` and `cache.db`, axum API, WebSocket with an event bus, auth (token file, cookie handshake, `Host` and `Origin` checks), static UI serving, dev and prod profiles.
 - Packaging: systemd user unit, `.desktop` file, `packaging/install.sh` (build release, install to `~/.local/bin`, restart the service, warn if agents are running).
-- App shell: sidebar, top bar with command palette placeholder, empty views, status bar with Claude and Codex versions, Codex quota (and Claude quota if spike 2 succeeds).
+- App shell: sidebar, top bar with the Launch button, empty views, status bar with Claude and Codex versions, Codex quota (and Claude quota if spike 2 succeeds).
 
 **Done when:** Launchpad is pinned in the dock, opens in under 300 ms with a warm daemon, and the status bar shows both versions and quotas.
 
 ## Phase 1: launch and run agents
 
 - **Projects:** registry, "Scan projects root" discovery, descriptions, pinning, repo ↔ project mapping.
-- **Composer:** harness toggle, project picker, free text, presets (the 3 initial ones) with a settings editor, context projects with a branch picker (local branches), pasted GitHub URLs turned into chips with their title, model and effort pickers showing "Default (…)", prompt preview, `Ctrl+Enter` to launch, unsent drafts kept.
-- **Radial launcher:** global Launch button and `L` key; two round buttons with the Claude and Codex logos (no labels); `C` / `X` to choose the harness, `Enter` for the last one used.
+- **Composer:** harness toggle, project picker, free text, presets (the 3 initial ones) with a settings editor, context projects with a branch picker (local branches), GitHub links added with a "+ GitHub link" field (title fetched), model and effort pickers showing "Default (…)", prompt preview, Launch button, unsent drafts kept. The prompt box only types text.
+- **Radial launcher:** Launch button in the top bar and on notifications, issues, PRs and projects; two round buttons with the Claude and Codex logos (no labels); the last harness used has a ring.
 - **Temporary projects:** create, clean up, promote (including moving Claude transcripts).
 - **Adapters:** Claude and Codex, normalized events, event log in `state.db`, WebSocket streaming with replay.
 - **Agents view:** list grouped as Running, Pending (waiting for your input, or idle while a background command runs) and Closed; session pane (messages, collapsed tool calls, inline diffs, copy buttons, input, interrupt, close, resume), layouts with 1, 2 and 4 panes.
@@ -58,7 +58,7 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 
 - GitHub client: token from `gh`, ETag store, GraphQL batching, rate-limit tracking.
 - Notification poller with `If-Modified-Since` and `X-Poll-Interval`, periodic full reconciliation, enrichment (state, participants, review decision, checks).
-- Inbox: repo filter chips with counts, unread-only toggle, two-line rows (reason, participants, time since update), actions (done, unsubscribe, read, local unread) with optimistic updates, keyboard navigation.
+- Inbox: repo filter chips with counts, unread-only toggle, two-line rows (reason, participants, time since update), hover action buttons (done, unsubscribe, read, local unread) with optimistic updates.
 - Preview pane: cached summary of the selected thread (description, latest comments), quick reply.
 - Launch from a notification: the project is chosen from the repo mapping and the thread is added as context.
 - Prefetch of the top unread threads.
@@ -92,7 +92,7 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 - Drag and drop sessions into panes, saved layouts, focus movement between panes, session rename, pin and search.
 - Import sessions started outside Launchpad (Claude transcripts in `~/.claude/projects/`, Codex `thread/list`) as history that can be resumed.
 - Git panel per session (status and diff of its cwd), "Open in editor".
-- Composer: `@project` and `#issue` autocomplete, recent contexts.
+- Composer: recent contexts offered as one-click chips.
 
 **Done when:** running 4 agents at once feels comfortable, and finding last week's session takes seconds.
 
@@ -117,4 +117,4 @@ Pick items as they become useful:
 
 ## Not planned
 
-Dark theme, macOS and Windows, multiple users, GitHub search, Actions logs, release versioning, data migrations for the cache.
+Keyboard shortcuts (for now), dark theme, macOS and Windows, multiple users, GitHub search, Actions logs, release versioning, data migrations for the cache.

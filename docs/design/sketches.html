@@ -92,16 +92,14 @@ h2 { margin: 0; font-stretch: 82%; font-weight: 720; font-size: clamp(24px, 3.4v
 .crumbs { display: flex; align-items: center; gap: 6px; color: var(--ink-2); }
 .crumbs b { color: var(--ink); font-weight: 600; }
 .crumbs .sep { color: var(--ink-3); }
-.palette { margin-left: auto; width: 320px; height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink-3); }
-.palette kbd { margin-left: auto; }
+.tb-launch { margin-left: auto; }
 .wctl { display: flex; gap: 8px; margin-left: 4px; }
 .wctl span { width: 14px; height: 14px; border-radius: 50%; background: #D5DAE1; }
 
-kbd { font: 500 10.5px/1 var(--font-mono); padding: 2px 4px; border-radius: 4px; border: 1px solid var(--line); border-bottom-width: 2px; background: var(--paper); color: var(--ink-2); white-space: nowrap; }
+
 .btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border-radius: 7px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); font-weight: 550; font-size: 12.5px; white-space: nowrap; cursor: default; }
 .btn.sm { height: 24px; padding: 0 8px; font-size: 12px; gap: 5px; border-radius: 6px; }
 .btn.primary { background: var(--teal); border-color: var(--teal-ink); color: #fff; }
-.btn.primary kbd { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.35); color: #fff; }
 .btn.green { background: var(--gh-open); border-color: #116329; color: #fff; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--ink-2); }
 .btn.danger { color: var(--gh-closed); }
@@ -164,14 +162,14 @@ kbd { font: 500 10.5px/1 var(--font-mono); padding: 2px 4px; border-radius: 4px;
 .rail .pj { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font: 650 10.5px var(--font-ui); background: var(--paper); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line); }
 .rail .bottom { margin-top: auto; }
 
-.statusbar { height: 30px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; background: var(--chrome); border-top: 1px solid var(--line); font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.statusbar { height: 30px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--chrome); border-top: 1px solid var(--line); font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .statusbar .h { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 600; }
 .statusbar .q { display: inline-flex; align-items: center; gap: 6px; }
 .statusbar .vsep { width: 1px; height: 14px; background: var(--line); }
 .statusbar .upd { color: var(--teal-ink); font-weight: 600; }
 .statusbar .right { margin-left: auto; display: inline-flex; gap: 14px; align-items: center; }
 .statusbar .needs { color: var(--attn); font-weight: 700; }
-.meter { width: 44px; height: 6px; border-radius: 3px; background: #DCE1E8; overflow: hidden; display: inline-block; }
+.meter { width: 34px; height: 6px; border-radius: 3px; background: #DCE1E8; overflow: hidden; display: inline-block; }
 .meter i { display: block; height: 100%; border-radius: 3px; background: var(--graphite); }
 .meter.clay i { background: var(--clay); }
 
@@ -205,7 +203,6 @@ kbd { font: 500 10.5px/1 var(--font-mono); padding: 2px 4px; border-radius: 4px;
 .nrow.hover { background: #F5F8FB; }
 .nacts { position: absolute; right: 10px; bottom: 7px; display: flex; gap: 4px; padding-left: 10px; background: #F5F8FB; }
 .nacts .btn:not(.primary) { background: var(--paper); }
-.nacts .btn kbd { padding: 1px 3px; }
 .prev { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow: hidden; }
 .prev-top { display: flex; align-items: center; gap: 8px; }
 .prev-top .sp { margin-left: auto; display: flex; gap: 4px; }
@@ -276,7 +273,6 @@ code.i { font: 12px var(--font-mono); background: var(--sunk); padding: 0 4px; b
 .select .ic:last-child { margin-left: auto; color: var(--ink-3); }
 .select .def { color: var(--ink-3); }
 .ta { min-height: 74px; padding: 9px 10px; border: 1.5px solid var(--teal); border-radius: 8px; box-shadow: 0 0 0 3px var(--teal-soft); line-height: 1.5; }
-.ta .ref { font-family: var(--font-mono); font-size: 12px; color: var(--teal-ink); background: var(--teal-soft); padding: 0 3px; border-radius: 3px; }
 .caret { display: inline-block; width: 1.5px; height: 15px; background: var(--ink); vertical-align: -3px; margin-left: 1px; }
 .ctx { display: grid; gap: 5px; }
 .ctx-item { display: grid; grid-template-columns: 16px auto 1fr 16px; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--chrome); font-size: 12.5px; }
@@ -290,7 +286,7 @@ code.i { font: 12px var(--font-mono); background: var(--sunk); padding: 0 4px; b
 .pv { border: 1px solid var(--line); border-radius: 8px; background: var(--chrome); }
 .pv-h { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 11.5px; font-weight: 650; color: var(--ink-2); border-bottom: 1px solid var(--line); }
 .pv-h .end { margin-left: auto; font-weight: 400; color: var(--ink-3); }
-.pv pre { margin: 0; padding: 8px 10px; font: 11.5px/1.5 var(--font-mono); white-space: pre-wrap; color: var(--ink-2); max-height: 128px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+.pv pre { margin: 0; padding: 8px 10px; font: 11.5px/1.5 var(--font-mono); white-space: pre-wrap; color: var(--ink-2); max-height: 100px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
 .dr-foot { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); background: var(--chrome); }
 .dr-foot .check { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-2); margin-right: auto; }
 .cb { width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--ink-3); background: var(--paper); display: inline-grid; place-items: center; }
@@ -348,7 +344,6 @@ code.i { font: 12px var(--font-mono); background: var(--sunk); padding: 0 4px; b
 .ask { border: 1px solid var(--attn-line); background: #FFFBEF; border-radius: 8px; padding: 9px 10px; display: grid; gap: 6px; }
 .ask .q { font-weight: 650; font-size: 12.5px; }
 .ask .opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; background: var(--paper); border: 1px solid var(--line); font-size: 12.5px; }
-.ask .opt kbd { margin-left: auto; }
 .ask .other { font-size: 11.5px; color: var(--ink-3); }
 .plan { display: grid; gap: 3px; padding: 7px 9px; border: 1px solid var(--line-2); border-radius: 6px; font-size: 12px; }
 .plan .pl { display: flex; align-items: center; gap: 7px; color: var(--ink-2); }
@@ -566,7 +561,7 @@ footer.end code { font: 12.5px var(--font-mono); }
 <header class="intro">
   <div class="kicker">Launchpad · design sketches · 2 October 2026</div>
   <h1>Launchpad sketches</h1>
-  <p class="lede">Six static mockups of the main screens, filled with example data. The app is light theme only, so the sketches are too. Pink numbered pins in each window match the notes below it. The design rationale is in <code>docs/ARCHITECTURE.md</code>.</p>
+  <p class="lede">Six static mockups of the main screens, filled with example data. The app is light theme only, so the sketches are too. The UI is click only: no keyboard shortcuts, and text fields only type text. Pink numbered pins in each window match the notes below it. The design rationale is in <code>docs/ARCHITECTURE.md</code>.</p>
   <div class="legend">
     <span><i class="sw" style="background:var(--teal)"></i>Launchpad: primary actions and anything that exists only on your laptop</span>
     <span><i class="sw" style="background:var(--clay)"></i>Claude Code</span>
@@ -595,8 +590,7 @@ footer.end code { font: 12.5px var(--font-mono); }
       <div class="topbar">
         <div class="brand"><span class="logo"><svg viewBox="0 0 12 12"><path d="M6 1.5 10.5 10H1.5z" fill="#fff"/></svg></span>Launchpad</div>
         <div class="crumbs"><b>Inbox</b></div>
-        <div class="palette"><svg class="ic"><use href="#i-search"/></svg>Jump to a project, issue or session<kbd>Ctrl K</kbd></div>
-        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch<kbd>L</kbd></span>
+        <span class="btn primary tb-launch"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
         <div class="wctl"><span></span><span></span><span></span></div>
       </div>
       <div class="app s1">
@@ -645,10 +639,10 @@ footer.end code { font: 12.5px var(--font-mono); }
             <div class="n2">hf download ignores --revision when used with --include</div>
             <div class="n3"><span class="reason hot">Mention</span><span class="avs"><span class="av" style="--h:150">CL</span><span class="av" style="--h:200">AK</span><span class="more">+3</span></span></div>
             <div class="nacts"><i class="pin">3</i>
-              <span class="btn sm"><svg class="ic sm"><use href="#i-check"/></svg>Done <kbd>e</kbd></span>
-              <span class="btn sm"><svg class="ic sm"><use href="#i-bell-off"/></svg><kbd>m</kbd></span>
-              <span class="btn sm"><svg class="ic sm"><use href="#i-mail"/></svg><kbd>u</kbd></span>
-              <span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg><kbd>l</kbd></span>
+              <span class="btn sm"><svg class="ic sm"><use href="#i-check"/></svg>Done</span>
+              <span class="btn sm"><svg class="ic sm"><use href="#i-bell-off"/></svg>Unsubscribe</span>
+              <span class="btn sm"><svg class="ic sm"><use href="#i-mail"/></svg>Mark read</span>
+              <span class="btn sm primary" title="Launch an agent"><svg class="ic sm"><use href="#i-play"/></svg></span>
             </div>
           </div>
           <div class="nrow unread">
@@ -694,9 +688,10 @@ footer.end code { font: 12.5px var(--font-mono); }
           <div class="stats"><span><span class="add">+84</span> <span class="del">−21</span> · 4 files</span><span>Checks: 14 passed, 1 failed</span><span>Review required</span></div>
           <div class="why"><svg class="ic sm"><use href="#i-eye"/></svg>anya-k asked you to review this pull request <i class="pin">5</i></div>
           <div class="actrow">
-            <span class="btn">Open <kbd>Enter</kbd></span>
-            <span class="btn"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Launch agent <kbd>l</kbd></span>
-            <span class="btn"><svg class="ic sm"><use href="#i-check"/></svg>Done <kbd>e</kbd></span>
+            <span class="btn">Open</span>
+            <span class="btn"><svg class="ic sm"><use href="#i-play"/></svg>Launch agent</span>
+            <span class="btn"><svg class="ic sm"><use href="#i-check"/></svg>Done</span>
+            <span class="btn"><svg class="ic sm"><use href="#i-bell-off"/></svg>Unsubscribe</span>
           </div>
           <div class="seclabel">Latest activity</div>
           <div class="cmt"><span class="av lg" style="--h:30">BR</span><div><div class="who"><b>bastien-r</b> · 12 min</div><p>Looks good! Do we need the same fix in <code class="i">HfFileSystem.glob</code>? It uses the same helper.</p></div></div>
@@ -720,9 +715,9 @@ footer.end code { font: 12.5px var(--font-mono); }
   <ol class="notes">
     <li><i class="pin">1</i><span><b>Filter by repository.</b> Chips with counts, one click. A single "Unread only" switch. No other filters, as asked.</span></li>
     <li><i class="pin">2</i><span><b>Rows you can scan.</b> Repo and number, time since update, the title, then why you are notified, who takes part, and what changed since your last visit. Icon colors follow GitHub.</span></li>
-    <li><i class="pin">3</i><span><b>Actions on hover and on keys.</b> Done <code>e</code>, Unsubscribe <code>m</code>, Read or unread <code>u</code>, Launch agent <code>l</code>. They apply instantly; the API call runs in the background.</span></li>
+    <li><i class="pin">3</i><span><b>Actions on hover.</b> Done, Unsubscribe, Mark read or unread, and Launch appear on the row under the mouse. They apply instantly; the API call runs in the background.</span></li>
     <li><i class="pin">4</i><span><b>Local unread.</b> GitHub has no API to mark a thread as unread. A teal ring shows threads you marked unread in Launchpad. github.com still shows them as read.</span></li>
-    <li><i class="pin">5</i><span><b>Preview from cache.</b> Selecting a row shows the cached thread at once and refreshes it in the background. <code>Enter</code> opens the full view (S4), still without loading a page.</span></li>
+    <li><i class="pin">5</i><span><b>Preview from cache.</b> Selecting a row shows the cached thread at once and refreshes it in the background. The Open button shows the full view (S4), still without loading a page.</span></li>
     <li><i class="pin">6</i><span><b>Projects and running agents.</b> Pinned projects show a dot in the harness color when an agent runs there. Temporary folders are grouped with their age.</span></li>
     <li><i class="pin">7</i><span><b>Always-visible status bar.</b> Claude and Codex versions, 5-hour and weekly usage with reset times, Codex update progress, GitHub sync state, running and pending agents.</span></li>
   </ol>
@@ -750,9 +745,10 @@ footer.end code { font: 12.5px var(--font-mono); }
         <div class="n2">hf download ignores --revision when used with --include</div>
         <div class="n3"><span class="reason hot">Mention</span><span class="avs"><span class="av" style="--h:150">CL</span><span class="av" style="--h:200">AK</span></span></div>
         <div class="nacts">
-          <span class="btn sm"><svg class="ic sm"><use href="#i-check"/></svg><kbd>e</kbd></span>
-          <span class="btn sm"><svg class="ic sm"><use href="#i-bell-off"/></svg><kbd>m</kbd></span>
-          <span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg><kbd>l</kbd></span>
+          <span class="btn sm"><svg class="ic sm"><use href="#i-check"/></svg>Done</span>
+          <span class="btn sm"><svg class="ic sm"><use href="#i-bell-off"/></svg>Unsubscribe</span>
+          <span class="btn sm"><svg class="ic sm"><use href="#i-mail"/></svg>Mark read</span>
+          <span class="btn sm primary" title="Launch an agent"><svg class="ic sm"><use href="#i-play"/></svg></span>
         </div>
       </div>
       <div class="bubbles">
@@ -763,7 +759,7 @@ footer.end code { font: 12.5px var(--font-mono); }
       <i class="pin abs" style="right:208px; top:40px">1</i>
     </div>
     <ol class="notes radial-notes">
-      <li><i class="pin">1</i><span><b>Radial picker.</b> Every Launch button (top bar, rows, issue and PR headers, project page, multi-selection) opens two round buttons next to the cursor, showing only the Claude and Codex logos. Click one, or press <code>C</code> or <code>X</code>. <code>Enter</code> repeats the last harness, which has a ring.</span></li>
+      <li><i class="pin">1</i><span><b>Radial picker.</b> Every Launch button (top bar, rows, issue and PR headers, project page, multi-selection) opens two round buttons next to the cursor, showing only the Claude and Codex logos. Click one. The last harness used has a ring.</span></li>
     </ol>
   </div>
 
@@ -772,8 +768,7 @@ footer.end code { font: 12.5px var(--font-mono); }
       <div class="topbar">
         <div class="brand"><span class="logo"><svg viewBox="0 0 12 12"><path d="M6 1.5 10.5 10H1.5z" fill="#fff"/></svg></span>Launchpad</div>
         <div class="crumbs">huggingface_hub <span class="sep">/</span> Issues <span class="sep">/</span> <b>#3412</b></div>
-        <div class="palette"><svg class="ic"><use href="#i-search"/></svg>Jump to a project, issue or session<kbd>Ctrl K</kbd></div>
-        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch<kbd>L</kbd></span>
+        <span class="btn primary tb-launch"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
         <div class="wctl"><span></span><span></span><span></span></div>
       </div>
       <div class="app s2">
@@ -827,14 +822,15 @@ footer.end code { font: 12.5px var(--font-mono); }
               <div class="field"><label>Run in <i class="pin">3</i></label><div class="select">Checkout · <span class="mono">main</span><svg class="ic sm"><use href="#i-chev"/></svg></div></div>
             </div>
             <div class="field"><label>Prompt</label>
-              <div class="ta">Check if <span class="ref">#3412</span> is still relevant and whether <span class="ref">#3420</span> fixes it. If it does, review the PR. If not, explain what is missing.<span class="caret"></span></div>
+              <div class="ta">Check if #3412 is still relevant and whether #3420 fixes it. If it does, review the PR. If not, explain what is missing.<span class="caret"></span></div>
             </div>
-            <div class="field"><label>Context <i class="pin">4</i><span class="hint">type @ for a project, # for an issue, or paste a link</span></label>
+            <div class="field"><label>Context <i class="pin">4</i><span class="hint">or use the Add buttons on the page</span></label>
               <div class="ctx">
                 <div class="ctx-item"><svg class="ic sm c-open"><use href="#i-issue"/></svg><span class="mono">#3412</span><span class="t">hf download ignores --revision when…</span><svg class="ic sm x"><use href="#i-x"/></svg></div>
                 <div class="ctx-item"><svg class="ic sm c-open"><use href="#i-pr"/></svg><span class="mono">#3420</span><span class="t">Fix revision handling in snapshot…</span><svg class="ic sm x"><use href="#i-x"/></svg></div>
                 <div class="ctx-item"><svg class="ic sm"><use href="#i-folder"/></svg><span class="mono">moon-landing</span><span class="t"><span class="branch"><svg class="ic sm"><use href="#i-branch"/></svg>xet-refresh-token<svg class="ic sm"><use href="#i-chev"/></svg></span></span><svg class="ic sm x"><use href="#i-x"/></svg></div>
               </div>
+              <div class="ctx-add"><span class="btn sm"><svg class="ic sm"><use href="#i-plus"/></svg>Project</span><span class="btn sm"><svg class="ic sm"><use href="#i-plus"/></svg>GitHub link</span></div>
             </div>
             <div class="field"><label>Presets <i class="pin">5</i><span class="lnk">Edit presets</span></label>
               <div class="presets">
@@ -860,7 +856,7 @@ Context:
           <div class="dr-foot">
             <span class="check"><span class="cb"></span>Open after launch</span>
             <span class="btn">Save draft</span>
-            <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch<kbd>Ctrl ↵</kbd></span>
+            <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
           </div>
         </aside>
       </div>
@@ -879,10 +875,10 @@ Context:
   <ol class="notes" start="2">
     <li><i class="pin">2</i><span><b>A drawer that stays open.</b> While the composer is open, every issue, PR and comment shows an "Add" button. Building a rich context means clicking around the app. Items already added say "In context".</span></li>
     <li><i class="pin">3</i><span><b>Where it runs.</b> The project checkout, a new pre-draft PR (Launchpad creates a branch and a worktree, see S5), or a new temporary folder in <code>~/projects</code>.</span></li>
-    <li><i class="pin">4</i><span><b>Context chips.</b> Issues, PRs and comment links (paste a URL or type <code>#</code>), and other projects with an optional branch (type <code>@</code>). Titles come from the cache.</span></li>
+    <li><i class="pin">4</i><span><b>Context chips.</b> Added with the Add buttons on the page, or with "+ Project" and "+ GitHub link" (paste a link to an issue, PR or comment there). Projects can have a branch. The prompt box only types text: nothing pops up while you type.</span></li>
     <li><i class="pin">5</i><span><b>Presets.</b> Toggle chips. Their sentences go at the end of the prompt, in the order set in Settings (S6).</span></li>
     <li><i class="pin">6</i><span><b>Model and effort.</b> "Default" means what the agent would pick on its own, read from its settings. A change here applies to this session only.</span></li>
-    <li><i class="pin">7</i><span><b>The exact prompt.</b> A live preview of the text sent to the agent. <code>Ctrl+Enter</code> launches. The session starts in the background and a toast offers to open it, so you can launch several agents in a row from the inbox.</span></li>
+    <li><i class="pin">7</i><span><b>The exact prompt.</b> A live preview of the text sent to the agent. Launch starts the session in the background and a toast offers to open it, so you can launch several agents in a row from the inbox.</span></li>
   </ol>
 </section>
 
@@ -900,8 +896,7 @@ Context:
         <div class="crumbs"><b>Agents</b></div>
         <span class="layout-sw" style="margin-left:18px"><span><svg class="ic sm"><use href="#i-pane1"/></svg></span><span><svg class="ic sm"><use href="#i-pane2"/></svg></span><span class="on"><svg class="ic sm"><use href="#i-pane4"/></svg></span></span>
         <i class="pin">2</i>
-        <div class="palette"><svg class="ic"><use href="#i-search"/></svg>Jump to a project, issue or session<kbd>Ctrl K</kbd></div>
-        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch<kbd>L</kbd></span>
+        <span class="btn primary tb-launch"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
         <div class="wctl"><span></span><span></span><span></span></div>
       </div>
       <div class="app s3">
@@ -934,7 +929,7 @@ Context:
             <div class="ph">
               <span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
               <span class="t">Xet refresh token endpoint</span>
-              <span class="acts"><i class="pin">3</i><span class="iconbtn" title="Interrupt (Esc)"><svg class="ic sm"><use href="#i-stop"/></svg></span><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span></span>
+              <span class="acts"><i class="pin">3</i><span class="iconbtn" title="Stop"><svg class="ic sm"><use href="#i-stop"/></svg></span><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span></span>
               <span class="m">moon-landing · <span class="st work">Working 12:04</span> 182k tokens · 18% context · $1.84</span>
             </div>
             <div class="pbody">
@@ -947,7 +942,7 @@ Context:
               </div>
               <div class="tool run"><span class="spin"></span><span class="n">Bash</span><span class="mono">pnpm test -- repos.spec.ts</span><span class="end">8 s</span></div>
             </div>
-            <div class="pin-input"><div class="inp">Message Claude. It is read after the current step. <i class="pin">7</i><span class="end"><kbd>Esc</kbd> stop</span></div></div>
+            <div class="pin-input"><div class="inp">Message Claude. It is read after the current step. <i class="pin">7</i><span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
           </div>
 
           <!-- pane 2: Codex waiting (focused) -->
@@ -971,7 +966,7 @@ Context:
               </div>
               <div class="turn">Turn finished · 3 min ago</div>
             </div>
-            <div class="pin-input"><div class="inp focus">Great. Add a changeset entry too, then push.<span class="caret"></span><span class="end"><kbd>↵</kbd></span></div></div>
+            <div class="pin-input"><div class="inp focus">Great. Add a changeset entry too, then push.<span class="caret"></span><span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
           </div>
 
           <!-- pane 3: Claude question -->
@@ -986,13 +981,13 @@ Context:
               <div class="msg-a"><p><b>#3412 is still relevant</b> on <code class="i">main</code>. #3420 fixes <code class="i">snapshot_download</code>, but <code class="i">HfFileSystem.glob</code> also filters before resolving the revision.</p></div>
               <div class="ask">
                 <div class="q">How should I continue? <i class="pin">6</i></div>
-                <div class="opt">Draft a review comment on #3420<kbd>1</kbd></div>
-                <div class="opt">Open a pre-draft PR with the glob fix<kbd>2</kbd></div>
-                <div class="opt">Stop here<kbd>3</kbd></div>
+                <div class="opt">Draft a review comment on #3420</div>
+                <div class="opt">Open a pre-draft PR with the glob fix</div>
+                <div class="opt">Stop here</div>
                 <div class="other">Or type another answer below.</div>
               </div>
             </div>
-            <div class="pin-input"><div class="inp">Answer or message Claude<span class="end"><kbd>↵</kbd></span></div></div>
+            <div class="pin-input"><div class="inp">Answer or message Claude<span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
           </div>
 
           <!-- pane 4: Claude pending on a background command -->
@@ -1019,7 +1014,7 @@ chunk=256MB  run 3/5 …</pre>
               </div>
               <div class="turn">Turn finished · waiting on 1 background command</div>
             </div>
-            <div class="pin-input"><div class="inp">Message Claude<span class="end"><kbd>↵</kbd></span></div></div>
+            <div class="pin-input"><div class="inp">Message Claude<span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
           </div>
         </div>
       </div>
@@ -1037,13 +1032,13 @@ chunk=256MB  run 3/5 …</pre>
   </div>
   <ol class="notes">
     <li><i class="pin">1</i><span><b>Pending, Running, Closed.</b> A pending session waits for your input, or only waits for a background command. It stays pending until you close it (×). Closed sessions can be resumed. A desktop notification fires when a session becomes pending, even with the window closed.</span></li>
-    <li><i class="pin">2</i><span><b>Layouts 1, 2 and 4.</b> <code>Ctrl+1</code>, <code>Ctrl+2</code>, <code>Ctrl+4</code>. Clicking a session loads it in the focused pane (teal outline). Dragging picks another pane.</span></li>
-    <li><i class="pin">3</i><span><b>Session header.</b> Project, state and elapsed time, tokens, context usage and cost (Claude only). Interrupt with <code>Esc</code>. "Open in terminal" hands the session to Ghostty and back.</span></li>
+    <li><i class="pin">2</i><span><b>Layouts 1, 2 and 4.</b> Buttons in the top bar. Clicking a session loads it in the focused pane (teal outline). Dragging picks another pane.</span></li>
+    <li><i class="pin">3</i><span><b>Session header.</b> Project, state and elapsed time, tokens, context usage and cost (Claude only). Stop interrupts the agent. "Open in terminal" hands the session to Ghostty and back.</span></li>
     <li><i class="pin">4</i><span><b>Compact tool calls.</b> Commands and file reads collapse into one line, edits show a small diff, the running command has a spinner. Click to expand.</span></li>
     <li><i class="pin">5</i><span><b>Copy exactly.</b> Each message has Copy (raw markdown) and Copy as text, and code blocks have their own button. No terminal line breaks or padding.</span></li>
     <li><i class="pin">6</i><span><b>Questions become buttons.</b> When an agent asks something, its options are clickable and numbered. Typing a free answer still works.</span></li>
     <li><i class="pin">8</i><span><b>Background commands.</b> When the agent only waits for a long command, the session shows an outlined "Background" badge with the latest output. It moves back to Running when the agent picks up again.</span></li>
-    <li><i class="pin">7</i><span><b>Type while it works.</b> A message sent during a turn steers Codex right away, or is read by Claude after its current step.</span></li>
+    <li><i class="pin">7</i><span><b>Type while it works.</b> A message sent during a turn steers Codex right away, or is read by Claude after its current step. Send with the button, or with <code>Enter</code> like in the terminal: the only keyboard behavior in the app.</span></li>
   </ol>
 </section>
 
@@ -1059,8 +1054,7 @@ chunk=256MB  run 3/5 …</pre>
       <div class="topbar">
         <div class="brand"><span class="logo"><svg viewBox="0 0 12 12"><path d="M6 1.5 10.5 10H1.5z" fill="#fff"/></svg></span>Launchpad</div>
         <div class="crumbs">huggingface_hub <span class="sep">/</span> Pull requests <span class="sep">/</span> <b>#3420</b></div>
-        <div class="palette"><svg class="ic"><use href="#i-search"/></svg>Jump to a project, issue or session<kbd>Ctrl K</kbd></div>
-        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch<kbd>L</kbd></span>
+        <span class="btn primary tb-launch"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
         <div class="wctl"><span></span><span></span><span></span></div>
       </div>
       <div class="app s4">
@@ -1184,7 +1178,7 @@ chunk=256MB  run 3/5 …</pre>
   </div>
   <ol class="notes">
     <li><i class="pin">1</i><span><b>Same tabs as GitHub.</b> Conversation, Commits and Files changed. Files changed uses local git when the project is registered, so large diffs open instantly.</span></li>
-    <li><i class="pin">2</i><span><b>Visible freshness.</b> Every cached view shows its age, a Refresh button (<code>r</code>) and Open on GitHub (<code>o</code>).</span></li>
+    <li><i class="pin">2</i><span><b>Visible freshness.</b> Every cached view shows its age, a Refresh button and an Open on GitHub button.</span></li>
     <li><i class="pin">3</i><span><b>Agent drafts, you post.</b> A dashed teal card is a review or comment written by an agent. It is never posted on its own: Edit, Post (as approval, comment or change request), or Discard.</span></li>
     <li><i class="pin">4</i><span><b>Merge box.</b> Check summary with links to the logs on GitHub, review state, conflicts, merge method remembered per repository, Convert to draft or Ready for review.</span></li>
     <li><i class="pin">5</i><span><b>Sidebar with local context.</b> Reviewers with Request, linked issues, participants, plus the agent sessions and drafts tied to this PR.</span></li>
@@ -1203,8 +1197,7 @@ chunk=256MB  run 3/5 …</pre>
       <div class="topbar">
         <div class="brand"><span class="logo"><svg viewBox="0 0 12 12"><path d="M6 1.5 10.5 10H1.5z" fill="#fff"/></svg></span>Launchpad</div>
         <div class="crumbs">huggingface_hub <span class="sep">/</span> <b>Pull requests</b></div>
-        <div class="palette"><svg class="ic"><use href="#i-search"/></svg>Jump to a project, issue or session<kbd>Ctrl K</kbd></div>
-        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch<kbd>L</kbd></span>
+        <span class="btn primary tb-launch"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
         <div class="wctl"><span></span><span></span><span></span></div>
       </div>
       <div class="app s5">
