@@ -1,15 +1,33 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
+import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import { useStatus } from "@/app/StatusBar";
 import { HARNESS_NAME, HarnessMark } from "@/components/HarnessMark";
-import { useSessions } from "@/lib/queries";
+import { useSchedules, useSessions } from "@/lib/queries";
 import { isDone } from "@/lib/sessionStatus";
 
-export function delaySummary(delay: LaunchDelay, readyAt: number | null = null, sessions: Session[] = []): string {
-  if (delay.kind === "agents") return `When ${delay.session_ids.map((id) => sessions.find((s) => s.id === id)?.title ?? "missing agent").join(" and ")} ${delay.session_ids.length === 1 ? "is" : "are"} Done`;
+type DependencyAgent = { id: string; title: string; harness: HarnessKind | null; status: string };
+
+function sessionDependency(session: Session): DependencyAgent {
+  return { id: session.id, title: session.title, harness: session.harness, status: isDone(session) ? "Done" : session.status === "closed" ? "Archived" : session.status };
+}
+
+function scheduledDependency(launch: ScheduledLaunch): DependencyAgent {
+  return { id: launch.id, title: launch.title, harness: launch.spec.harness, status: launch.status === "queued" ? "Scheduled" : launch.status === "failed" ? "Needs attention" : "Starting" };
+}
+
+export function dependencyAgent(id: string, sessions: Session[], schedules: ScheduledLaunch[]): DependencyAgent | undefined {
+  const session = sessions.find((s) => s.id === id);
+  if (session) return sessionDependency(session);
+  const launch = schedules.find((s) => s.id === id);
+  if (launch) return scheduledDependency(launch);
+}
+
+export function delaySummary(delay: LaunchDelay, readyAt: number | null = null, sessions: Session[] = [], schedules: ScheduledLaunch[] = []): string {
+  if (delay.kind === "agents") return `When ${delay.session_ids.map((id) => dependencyAgent(id, sessions, schedules)?.title ?? "missing or cancelled agent").join(" and ")} ${delay.session_ids.length === 1 ? "is" : "are"} Done`;
   const at = readyAt ?? (delay.kind === "at" ? delay.at : null);
   if (delay.kind === "quota") return `${HARNESS_NAME[delay.harness]} ${delay.window === "five_hour" ? "5h" : "weekly"} reset${at ? ` · ${new Date(at).toLocaleString()}` : ""}`;
   return at ? new Date(at).toLocaleString() : delay.kind === "in" ? `In ${delay.minutes} minutes` : "Pick a date and time";
@@ -29,20 +47,28 @@ function localDate(at: number) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-const AgentChoice = memo(function AgentChoice({ session, checked, toggle }: { session: Session; checked: boolean; toggle: () => void }) {
+const AgentChoice = memo(function AgentChoice({ session, checked, toggle }: { session: DependencyAgent; checked: boolean; toggle: () => void }) {
   return <label className="flex h-12 cursor-pointer items-center gap-2 border-b border-line px-2 text-xs hover:bg-chrome">
     <input type="checkbox" className="accent-teal" checked={checked} onChange={toggle} />
-    <HarnessMark harness={session.harness} size={14} />
+    {session.harness && <HarnessMark harness={session.harness} size={14} />}
     <span className="min-w-0 flex-1 truncate" title={session.title}>{session.title}</span>
-    <span className="text-ink-3">{isDone(session) ? "Done" : session.status === "closed" ? "Archived" : session.status}</span>
+    <span className="text-ink-3">{session.status}</span>
   </label>;
 });
 
 function AgentPicker({ ids, onChange }: { ids: string[]; onChange: (ids: string[]) => void }) {
   const all = useSessions();
+  const scheduled = useSchedules();
   const [filter, setFilter] = useState("");
   const ref = useRef<HTMLDivElement>(null);
-  const sessions = (all.data ?? []).filter((s) => (s.status !== "closed" || ids.includes(s.id)) && s.title.toLowerCase().includes(filter.toLowerCase()));
+  const existing = all.data ?? [];
+  const queue = scheduled.data ?? [];
+  const sessionIds = new Set(existing.map((s) => s.id));
+  const agents = [
+    ...queue.filter((s) => !sessionIds.has(s.id)).map(scheduledDependency),
+    ...existing.filter((s) => s.status !== "closed" || ids.includes(s.id)).map(sessionDependency),
+  ];
+  const sessions = agents.filter((s) => s.title.toLowerCase().includes(filter.toLowerCase()));
   const virtual = useVirtualizer({ count: sessions.length, getScrollElement: () => ref.current, estimateSize: () => 48, overscan: 3, useFlushSync: false });
   return <div className="grid gap-1.5">
     <input className="field-input" aria-label="Find agents to wait for" placeholder="Find an agent…" value={filter} onChange={(e) => setFilter(e.target.value)} />
@@ -52,9 +78,9 @@ function AgentPicker({ ids, onChange }: { ids: string[]; onChange: (ids: string[
           <AgentChoice session={s} checked={ids.includes(s.id)} toggle={() => onChange(ids.includes(s.id) ? ids.filter((id) => id !== s.id) : [...ids, s.id])} />
         </div>; })}
       </div>
-      {!sessions.length && <div className="p-2 text-xs text-ink-3">{all.isLoading ? "Loading agents…" : "No matching agents."}</div>}
+      {!sessions.length && <div className="p-2 text-xs text-ink-3">{all.isLoading || scheduled.isLoading ? "Loading agents…" : "No matching agents."}</div>}
     </div>
-    <p className="text-xs text-ink-3">{ids.length} selected · Starts when all selected agents are Done (waiting for input). Archived or interrupted agents do not count as Done.</p>
+    <p className="text-xs text-ink-3">{ids.length} selected · Starts when all selected agents are Done (waiting for input). Scheduled agents must launch and reach Done first. Cancelled, archived or interrupted agents do not count as Done.</p>
   </div>;
 }
 

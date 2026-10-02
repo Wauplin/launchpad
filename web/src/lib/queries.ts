@@ -5,6 +5,7 @@ import type { Config } from "@/gen/Config";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import type { Project } from "@/gen/Project";
+import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
 import type { TerminalOption } from "@/gen/TerminalOption";
 import { api } from "./api";
@@ -39,3 +40,5 @@ export const useTerminals = () => useQuery({ queryKey: ["terminals"], queryFn: (
 export function projectName(projects: Project[] | undefined, id: string | null, cwd?: string) {
   return projects?.find((p) => p.id === id)?.name ?? cwd?.split("/").pop() ?? "";
 }
+
+export const useSchedules = () => useQuery({ queryKey: ["schedules"], queryFn: () => api.get<ScheduledLaunch[]>("/api/launch/schedules"), staleTime: Infinity });

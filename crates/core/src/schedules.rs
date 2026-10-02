@@ -102,10 +102,12 @@ pub async fn create(app: &App, spec: LaunchSpec, delay: LaunchDelay) -> Result<S
             if session_ids.is_empty() {
                 bail!("pick at least one agent");
             }
+            // Scheduled ids become session ids at launch, so dependencies need no rewriting.
+            let scheduled = list(app).await?;
             for id in session_ids {
-                app.sessions
-                    .get(id)
-                    .context("a selected agent no longer exists")?;
+                if app.sessions.get(id).is_none() && !scheduled.iter().any(|s| &s.id == id) {
+                    bail!("a selected agent no longer exists");
+                }
             }
             None
         }

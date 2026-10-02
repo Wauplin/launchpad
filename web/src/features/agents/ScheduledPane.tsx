@@ -6,12 +6,13 @@ import type { Preview } from "@/gen/Preview";
 import { HARNESS_NAME } from "@/components/HarnessMark";
 import { toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
-import { useProjects, useSessions } from "@/lib/queries";
-import { delaySummary } from "@/features/launch/DelaySelector";
+import { useProjects, useSchedules, useSessions } from "@/lib/queries";
+import { dependencyAgent, delaySummary } from "@/features/launch/DelaySelector";
 
-export const useSchedules = () => useQuery({ queryKey: ["schedules"], queryFn: () => api.get<ScheduledLaunch[]>("/api/launch/schedules"), staleTime: Infinity });
+export { useSchedules } from "@/lib/queries";
 
 export function ScheduledPane({ launch, onStart, onClose }: { launch: ScheduledLaunch; onStart: (session: Session) => void; onClose: () => void }) {
+  const schedules = useSchedules().data ?? [];
   const sessions = useSessions().data ?? [];
   const projects = useProjects().data ?? [];
   const [busy, setBusy] = useState(false);
@@ -34,8 +35,8 @@ export function ScheduledPane({ launch, onStart, onClose }: { launch: ScheduledL
     <div className="grid gap-4 overflow-y-auto p-4 text-sm">
       <div className="grid gap-2 rounded-lg border border-line bg-chrome p-3">
         <b>{launch.status === "starting" ? "Starting…" : launch.status === "failed" ? "Launch needs attention" : "Scheduled"}</b>
-        <p>{delaySummary(launch.delay, launch.ready_at, sessions)}</p>
-        {launch.delay.kind === "agents" && <div className="grid gap-1">{launch.delay.session_ids.map((id) => { const s = sessions.find((s) => s.id === id); return <div key={id} className="text-xs text-ink-2">{s?.title ?? "Missing agent"} · {s?.status === "waiting" ? "Done" : s?.status === "closed" ? "Archived" : s?.status ?? "Unavailable"}</div>; })}</div>}
+        <p>{delaySummary(launch.delay, launch.ready_at, sessions, schedules)}</p>
+        {launch.delay.kind === "agents" && <div className="grid gap-1">{launch.delay.session_ids.map((id) => { const s = dependencyAgent(id, sessions, schedules); return <div key={id} className="text-xs text-ink-2">{s?.title ?? "Missing or cancelled agent"} · {s?.status ?? "Unavailable"}</div>; })}</div>}
         <p className="text-xs text-ink-3">The daemon starts this agent automatically when the condition is met. It does not need an open window.</p>
         {launch.error && <p role="alert" className="text-gh-closed">{launch.error}</p>}
         <div className="flex gap-2">
