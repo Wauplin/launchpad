@@ -9,6 +9,7 @@ pub mod events;
 pub mod git;
 pub mod github;
 pub mod harness;
+pub mod inbox;
 pub mod model;
 pub mod notify;
 pub mod paths;
@@ -37,6 +38,7 @@ pub struct App {
     pub codex: codex_rpc::CodexServer,
     pub sessions: sessions::Sessions,
     pub github: github::GitHub,
+    pub inbox: inbox::Inbox,
     pub models: harness::ModelCache,
 }
 
@@ -52,7 +54,7 @@ impl App {
         let env = shellenv::UserEnv::resolve().await;
         let status = status::StatusHandle::new(bus.clone());
         let codex = codex_rpc::CodexServer::new(env.clone());
-        let github = github::GitHub::new(env.clone());
+        let github = github::GitHub::new(env.clone(), cache_db.clone());
         let app = App {
             paths,
             config,
@@ -64,6 +66,7 @@ impl App {
             codex,
             sessions: sessions::Sessions::new(),
             github,
+            inbox: inbox::Inbox::new(),
             models: harness::ModelCache::default(),
         };
         app.sessions.load(&app).await?;
@@ -71,6 +74,7 @@ impl App {
         harness::codex::spawn_router(&app);
         harness::spawn_model_refresh(&app);
         harness::spawn_codex_updates(&app);
+        inbox::spawn(&app);
         Ok(app)
     }
 }
@@ -91,6 +95,8 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     projects::ProjectPatch::export_all(&cfg)?;
     sessions::Preview::export_all(&cfg)?;
     github::GhItem::export_all(&cfg)?;
+    inbox::InboxSnapshot::export_all(&cfg)?;
+    inbox::ThreadPreview::export_all(&cfg)?;
     terminal::TerminalOption::export_all(&cfg)?;
     Ok(())
 }

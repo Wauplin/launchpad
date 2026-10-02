@@ -1,6 +1,6 @@
 # Launchpad architecture
 
-Status: Phase 0 implemented on 2026-10-02 (daemon, API, app shell, desktop shell, packaging), main decisions confirmed (see [Decisions log](#17-decisions-log)). Companion documents: [ROADMAP.md](ROADMAP.md), the UI sketches in [design/sketches.html](design/sketches.html), and the spike notes in [spikes/](spikes/).
+Status: Phases 0, 1 and 2 implemented on 2026-10-02; Phases 1 and 2 await their daily-use checks, main decisions confirmed (see [Decisions log](#17-decisions-log)). Companion documents: [ROADMAP.md](ROADMAP.md), the UI sketches in [design/sketches.html](design/sketches.html), and the spike notes in [spikes/](spikes/).
 
 ## 1. What Launchpad is
 
@@ -272,11 +272,13 @@ Settings → General edits the projects root, the terminal and the editor. For t
 |---|---|
 | Mark as read | `PATCH /notifications/threads/{id}` |
 | Done | `DELETE /notifications/threads/{id}` |
-| Unsubscribe | `DELETE /notifications/threads/{id}/subscription`, then mark as done (to verify: the web inbox seems to do both) |
+| Unsubscribe | `PUT /notifications/threads/{id}/subscription` with `ignored: true`, then mark as done. Ignoring also mutes watched repositories; deleting a subscription does not. |
 | Mark as unread | **No public API.** Checked on 2026-10-02: no REST endpoint and no GraphQL mutation. Implemented as a local override: Launchpad shows the thread as unread until you open it or GitHub reports new activity. github.com still shows it as read. |
 
 - Opening a thread (preview or full view) marks it as read, like github.com. The "Mark as unread" button sets it back.
-- All actions are optimistic: the cache and the UI change immediately, the API call follows, and a failure rolls back with a toast.
+- All actions are optimistic: the cache and the UI change immediately, the API call follows, and a failure rolls back with a toast. Sync and notification mutations share a lock to prevent a poll from overwriting an action. Local read, unread and done overrides are stored in `state.db`, keyed by thread id and notification update time; new activity expires them.
+- Phase 2 stores normalized notifications in `cache.db` (`inbox_thread`), description and latest eight comment summaries in `inbox_preview`, and REST responses with ETag and Last-Modified in `gh_response`. New or changed subjects are enriched in batches of 20, unread first, and their summaries are warmed at the same time. Selecting a thread renders its cached summary immediately and refreshes in the background if it is older than 60 seconds. Releases and commits use REST summaries; other subject types have a GitHub link. Full timelines, HTML rendering and the image proxy remain in Phase 3.
+- Quick reply drafts stay in the UI when changing the selection or navigating. Posting requires clicking Post reply. The reply input has no Enter shortcut. A successful post stays successful even if refreshing its summary fails.
 
 ### 7.3 Issues and pull requests (cached on demand)
 
@@ -614,3 +616,9 @@ Phase 0 spikes, on 2026-10-02 (notes in [docs/spikes/](spikes/)):
 14. **Claude TUI trust.** "Open in terminal" sets `CLAUDE_CODE_SANDBOXED=1` for temporary projects, so the trust dialog does not appear. Launchpad does not write `~/.claude.json`.
 15. **WebKitGTK stays.** The Tauri shell is fast enough on an idle machine; the Chromium `--app=` fallback is kept for later if scrolling during agent builds bothers you. The UI follows the list rules of [section 12](#12-frontend).
 16. **Warm window.** The prod shell keeps one hidden process (autostart at login, hide on close), because a cold start takes about 0.5 s and the goal is 300 ms.
+
+Phase 2 implementation, on 2026-10-02:
+
+17. **Ignore on unsubscribe.** Use `PUT` with `ignored: true` followed by Done, so watched repository threads stop notifying too. The [GitHub notification API documentation](https://docs.github.com/en/rest/activity/notifications#set-a-thread-subscription) distinguishes ignoring from deleting a subscription.
+18. **Durable inbox overrides.** Local unread, read and done flags belong in `state.db`, scoped to the last notification update time. The disposable GitHub cache can be rebuilt without losing the owner's triage choices; fresh GitHub activity expires an override.
+19. **Summary previews first.** Phase 2 uses safe Markdown rendering of the description and latest eight comments, plus REST summaries for releases and commits. Full HTML timelines, images and reviews arrive in Phase 3. GitHub context references allow a missing issue number for release, commit and other notification subjects. An unmapped notification clears any previous composer project target, so it cannot launch accidentally in an unrelated repository.

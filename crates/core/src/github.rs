@@ -1,6 +1,4 @@
-//! Small GitHub client for Phase 1: titles of linked issues and PRs, and recent items of a repository
-//! for `#` suggestions. The token comes from `gh auth token`, is kept in memory only, and is read
-//! again after a `401`. Phase 2 extends this module (ETags, GraphQL, notifications).
+//! GitHub REST and GraphQL client, with persistent conditional responses and rate limits.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,6 +16,8 @@ use crate::util::now_ms;
 #[derive(Clone)]
 pub struct GitHub {
     env: UserEnv,
+    db: crate::db::Db,
+    pub limits: Arc<RwLock<std::collections::HashMap<String, RateLimit>>>,
     http: reqwest::Client,
     token: Arc<RwLock<Option<String>>>,
     /// Recent items per repository, for `#` suggestions: (fetched_at, items).
@@ -39,10 +39,26 @@ pub struct GhItem {
     pub updated_at: String,
 }
 
+#[derive(Clone, Debug, Serialize, TS)]
+pub struct RateLimit {
+    pub remaining: i64,
+    pub reset_at: i64,
+    pub retry_at: Option<i64>,
+}
+
+pub struct GhResponse {
+    pub value: Value,
+    pub not_modified: bool,
+    pub poll_interval: u64,
+    pub has_next: bool,
+}
+
 impl GitHub {
-    pub fn new(env: UserEnv) -> GitHub {
+    pub fn new(env: UserEnv, db: crate::db::Db) -> GitHub {
         GitHub {
             env,
+            db,
+            limits: Arc::new(RwLock::new(Default::default())),
             http: crate::status::http_client(),
             token: Arc::new(RwLock::new(None)),
             recent: Arc::new(RwLock::new(Default::default())),
@@ -55,39 +71,169 @@ impl GitHub {
                 return Ok(t);
             }
         }
-        let t = crate::procs::output(&self.env, "gh", &["auth", "token"], None).await.context("gh auth token")?;
+        let t = crate::procs::output(&self.env, "gh", &["auth", "token"], None)
+            .await
+            .context("gh auth token")?;
         *self.token.write().await = Some(t.clone());
         Ok(t)
     }
 
-    /// `GET https://api.github.com{path}`, with one retry after reading the token again on `401`.
-    pub async fn get(&self, path: &str) -> Result<Value> {
+    pub async fn request(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<Value>,
+        conditional: bool,
+    ) -> Result<GhResponse> {
+        anyhow::ensure!(
+            path.starts_with('/') && !path.starts_with("//"),
+            "invalid GitHub path"
+        );
+        let resource = if path == "/graphql" { "graphql" } else { "core" };
+        if let Some(limit) = self.limits.read().await.get(resource) {
+            let until = limit.retry_at.unwrap_or(0).max(if limit.remaining == 0 { limit.reset_at } else { 0 });
+            anyhow::ensure!(crate::util::now_ms()/1000 >= until, "GitHub {resource} rate limit; retry after {until}");
+        }
+        let key = path.to_string();
+        let cached = if conditional {
+            self.db
+                .call(move |c| {
+                    use rusqlite::OptionalExtension;
+                    Ok(c.query_row(
+                        "SELECT etag,last_modified,json FROM gh_response WHERE url=?1",
+                        [&key],
+                        |r| {
+                            Ok((
+                                r.get::<_, Option<String>>(0)?,
+                                r.get::<_, Option<String>>(1)?,
+                                r.get::<_, String>(2)?,
+                            ))
+                        },
+                    )
+                    .optional()?)
+                })
+                .await?
+        } else {
+            None
+        };
         for attempt in 0..2 {
             let token = self.token(attempt > 0).await?;
-            let res = self
+            let mut req = self
                 .http
-                .get(format!("https://api.github.com{path}"))
+                .request(method.clone(), format!("https://api.github.com{path}"))
                 .bearer_auth(&token)
                 .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "launchpad")
                 .header("X-GitHub-Api-Version", "2022-11-28")
-                .timeout(Duration::from_secs(15))
-                .send()
-                .await?;
+                .timeout(Duration::from_secs(30));
+            if let Some(body) = &body {
+                req = req.json(body);
+            }
+            if let Some((etag, modified, _)) = &cached {
+                // Notifications explicitly use Last-Modified, including when both headers exist.
+                if path.starts_with("/notifications?") {
+                    if let Some(m) = modified {
+                        req = req.header("If-Modified-Since", m);
+                    }
+                } else if let Some(e) = etag {
+                    req = req.header("If-None-Match", e);
+                }
+            }
+            let res = req.send().await?;
             if res.status() == reqwest::StatusCode::UNAUTHORIZED && attempt == 0 {
                 continue;
+            }
+            let h = res.headers();
+            let header = |name: &str| {
+                h.get(name)
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_string)
+            };
+            let poll_interval = header("x-poll-interval")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(60);
+            let retry = header("retry-after")
+                .and_then(|s| s.parse::<i64>().ok())
+                .map(|s| crate::util::now_ms() / 1000 + s);
+            if let (Some(resource), Some(remaining), Some(reset)) = (
+                header("x-ratelimit-resource"),
+                header("x-ratelimit-remaining"),
+                header("x-ratelimit-reset"),
+            ) {
+                self.limits.write().await.insert(
+                    resource,
+                    RateLimit {
+                        remaining: remaining.parse().unwrap_or(0),
+                        reset_at: reset.parse().unwrap_or(0),
+                        retry_at: retry,
+                    },
+                );
+            }
+            let etag = header("etag");
+            let modified = header("last-modified");
+            let has_next = header("link").is_some_and(|l| l.contains("rel=\"next\""));
+            if res.status() == reqwest::StatusCode::NOT_MODIFIED {
+                return Ok(GhResponse {
+                    value: serde_json::from_str(&cached.context("304 without cached response")?.2)?,
+                    not_modified: true,
+                    poll_interval,
+                    has_next,
+                });
             }
             if !res.status().is_success() {
                 bail!("GitHub {path}: {}", res.status());
             }
-            return Ok(res.json().await?);
+            let bytes = res.bytes().await?;
+            let value = if bytes.is_empty() {
+                Value::Null
+            } else {
+                serde_json::from_slice(&bytes)?
+            };
+            if method == reqwest::Method::GET {
+                let key = path.to_string();
+                let json = serde_json::to_string(&value)?;
+                self.db.call(move |c| { c.execute("INSERT OR REPLACE INTO gh_response (url,etag,last_modified,json) VALUES (?1,?2,?3,?4)", rusqlite::params![key,etag,modified,json])?; Ok(()) }).await?;
+            }
+            return Ok(GhResponse {
+                value,
+                not_modified: false,
+                poll_interval,
+                has_next,
+            });
         }
         bail!("GitHub {path}: unauthorized")
+    }
+
+    pub async fn get(&self, path: &str) -> Result<Value> {
+        Ok(self
+            .request(reqwest::Method::GET, path, None, true)
+            .await?
+            .value)
+    }
+
+    pub async fn graphql(&self, query: String) -> Result<Value> {
+        let v = self
+            .request(
+                reqwest::Method::POST,
+                "/graphql",
+                Some(serde_json::json!({"query":query})),
+                false,
+            )
+            .await?
+            .value;
+        // Keep partial data for inaccessible/deleted subjects; report errors if nothing succeeded.
+        if v["data"].is_null() {
+            bail!("GitHub GraphQL: {}", v["errors"]);
+        }
+        Ok(v["data"].clone())
     }
 
     /// Resolves a pasted link (issue, PR, comment) to a context reference with its title.
     pub async fn resolve_link(&self, url: &str) -> Result<GitHubRef> {
         let parsed = parse_link(url).context("not a GitHub issue, pull request or comment link")?;
-        let item = self.get(&format!("/repos/{}/issues/{}", parsed.repo, parsed.number)).await?;
+        let item = self
+            .get(&format!("/repos/{}/issues/{}", parsed.repo, parsed.number))
+            .await?;
         let is_pr = item.get("pull_request").is_some();
         let kind = match parsed.anchor {
             Anchor::IssueComment => "comment",
@@ -104,7 +250,7 @@ impl GitHub {
             url: parsed.canonical,
             kind: kind.into(),
             repo: parsed.repo,
-            number: parsed.number,
+            number: Some(parsed.number),
             title: item["title"].as_str().map(str::to_string),
         })
     }
@@ -116,9 +262,19 @@ impl GitHub {
         let items = match cached {
             Some((at, items)) if now_ms() - at < 5 * 60_000 => items,
             _ => {
-                let v = self.get(&format!("/repos/{repo}/issues?state=all&sort=updated&direction=desc&per_page=100")).await?;
-                let items: Vec<GhItem> = v.as_array().map(|a| a.iter().filter_map(|i| item_from_rest(repo, i)).collect()).unwrap_or_default();
-                self.recent.write().await.insert(repo.to_string(), (now_ms(), items.clone()));
+                let v = self
+                    .get(&format!(
+                        "/repos/{repo}/issues?state=all&sort=updated&direction=desc&per_page=100"
+                    ))
+                    .await?;
+                let items: Vec<GhItem> = v
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|i| item_from_rest(repo, i)).collect())
+                    .unwrap_or_default();
+                self.recent
+                    .write()
+                    .await
+                    .insert(repo.to_string(), (now_ms(), items.clone()));
                 items
             }
         };
@@ -126,10 +282,16 @@ impl GitHub {
         let mut out: Vec<GhItem> = if q.is_empty() {
             items
         } else if q.chars().all(|c| c.is_ascii_digit()) {
-            items.into_iter().filter(|i| i.number.to_string().starts_with(&q)).collect()
+            items
+                .into_iter()
+                .filter(|i| i.number.to_string().starts_with(&q))
+                .collect()
         } else {
             let words: Vec<&str> = q.split_whitespace().collect();
-            items.into_iter().filter(|i| words.iter().all(|w| i.title.to_lowercase().contains(w))).collect()
+            items
+                .into_iter()
+                .filter(|i| words.iter().all(|w| i.title.to_lowercase().contains(w)))
+                .collect()
         };
         // An exact number that is not in the recent list is fetched on demand.
         if out.is_empty() {
@@ -183,7 +345,9 @@ struct ParsedLink {
 /// `https://github.com/o/r/issues/12`, `/pull/12`, `/pull/12/files`, with `#issuecomment-…` or `#discussion_r…`.
 fn parse_link(url: &str) -> Option<ParsedLink> {
     let url = url.trim();
-    let rest = url.strip_prefix("https://github.com/").or_else(|| url.strip_prefix("http://github.com/"))?;
+    let rest = url
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.strip_prefix("http://github.com/"))?;
     let (path, fragment) = match rest.split_once('#') {
         Some((p, f)) => (p, Some(f)),
         None => (rest, None),
@@ -197,7 +361,10 @@ fn parse_link(url: &str) -> Option<ParsedLink> {
     let number: u64 = number.parse().ok()?;
     let anchor = match fragment {
         Some(f) if f.starts_with("issuecomment-") => Anchor::IssueComment,
-        Some(f) if f.starts_with("discussion_r") || f.starts_with("r") && f[1..].chars().all(|c| c.is_ascii_digit()) => {
+        Some(f)
+            if f.starts_with("discussion_r")
+                || f.starts_with("r") && f[1..].chars().all(|c| c.is_ascii_digit()) =>
+        {
             Anchor::ReviewComment
         }
         _ => Anchor::None,
@@ -207,7 +374,12 @@ fn parse_link(url: &str) -> Option<ParsedLink> {
         (Anchor::None, _) | (_, None) => base,
         (_, Some(f)) => format!("{base}#{f}"),
     };
-    Some(ParsedLink { repo: format!("{owner}/{repo}"), number, anchor, canonical })
+    Some(ParsedLink {
+        repo: format!("{owner}/{repo}"),
+        number,
+        anchor,
+        canonical,
+    })
 }
 
 #[cfg(test)]
@@ -216,16 +388,31 @@ mod tests {
 
     #[test]
     fn links() {
-        let p = parse_link("https://github.com/huggingface/huggingface_hub/pull/3420/files?w=1").unwrap();
-        assert_eq!((p.repo.as_str(), p.number, p.anchor, p.canonical.as_str()), (
-            "huggingface/huggingface_hub",
-            3420,
-            Anchor::None,
-            "https://github.com/huggingface/huggingface_hub/pull/3420"
-        ));
+        let p = parse_link("https://github.com/huggingface/huggingface_hub/pull/3420/files?w=1")
+            .unwrap();
+        assert_eq!(
+            (p.repo.as_str(), p.number, p.anchor, p.canonical.as_str()),
+            (
+                "huggingface/huggingface_hub",
+                3420,
+                Anchor::None,
+                "https://github.com/huggingface/huggingface_hub/pull/3420"
+            )
+        );
         let p = parse_link("https://github.com/a/b/issues/7#issuecomment-123").unwrap();
-        assert_eq!((p.anchor, p.canonical.as_str()), (Anchor::IssueComment, "https://github.com/a/b/issues/7#issuecomment-123"));
-        assert_eq!(parse_link("https://github.com/a/b/pull/7#discussion_r99").unwrap().anchor, Anchor::ReviewComment);
+        assert_eq!(
+            (p.anchor, p.canonical.as_str()),
+            (
+                Anchor::IssueComment,
+                "https://github.com/a/b/issues/7#issuecomment-123"
+            )
+        );
+        assert_eq!(
+            parse_link("https://github.com/a/b/pull/7#discussion_r99")
+                .unwrap()
+                .anchor,
+            Anchor::ReviewComment
+        );
         assert!(parse_link("https://github.com/a/b/commit/abc").is_none());
         assert!(parse_link("https://example.com/a/b/issues/1").is_none());
     }

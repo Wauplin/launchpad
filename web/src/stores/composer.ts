@@ -21,7 +21,8 @@ export const emptySpec = (): LaunchSpec => ({
 
 /** What a Launch button starts from: a project, GitHub items, text. */
 export type LaunchContext = {
-  projectId?: string;
+  /** null clears an unrelated draft target when a notification has no mapped project. */
+  projectId?: string | null;
   githubRefs?: GitHubRef[];
   contextProjects?: ContextProject[];
 };
@@ -65,7 +66,7 @@ export const useComposer = create<Composer>((set, get) => ({
       spec.model = null;
       spec.effort = null;
     }
-    if (ctx?.projectId) spec.target = { kind: "project", project_id: ctx.projectId };
+    if (ctx?.projectId !== undefined) spec.target = ctx.projectId ? { kind: "project", project_id: ctx.projectId } : { kind: "none" };
     for (const r of ctx?.githubRefs ?? []) if (!spec.github_refs.some((g) => g.url === r.url)) spec.github_refs = [...spec.github_refs, r];
     for (const c of ctx?.contextProjects ?? [])
       if (!spec.context_projects.some((p) => p.project_id === c.project_id)) spec.context_projects = [...spec.context_projects, c];

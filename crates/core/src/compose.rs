@@ -54,7 +54,8 @@ fn github_line(r: &GitHubRef) -> String {
     match r.kind.as_str() {
         "pr" => format!("Pull request: {}{title}", r.url),
         "comment" | "review_comment" => format!("Comment: {}{}", r.url, r.title.as_deref().map(|t| format!(" (on \"{}\")", t.replace('"', "'"))).unwrap_or_default()),
-        _ => format!("Issue: {}{title}", r.url),
+        "issue" => format!("Issue: {}{title}", r.url),
+        _ => format!("GitHub thread: {}{title}", r.url),
     }
 }
 
@@ -113,14 +114,14 @@ mod tests {
                     url: "https://github.com/huggingface/huggingface_hub/issues/3412".into(),
                     kind: "issue".into(),
                     repo: "huggingface/huggingface_hub".into(),
-                    number: 3412,
+                    number: Some(3412),
                     title: Some("hf download ignores --revision when used with --include".into()),
                 },
                 GitHubRef {
                     url: "https://github.com/huggingface/huggingface_hub/pull/3420".into(),
                     kind: "pr".into(),
                     repo: "huggingface/huggingface_hub".into(),
-                    number: 3420,
+                    number: Some(3420),
                     title: Some("Fix \"revision\" handling".into()),
                 },
             ],

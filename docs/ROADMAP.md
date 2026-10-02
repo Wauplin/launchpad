@@ -16,7 +16,7 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 |---|---|---|---|
 | 0 | Foundations and spikes | Dock icon opens a window served by the daemon, with versions and quotas in the status bar | Done |
 | 1 | Launch and run agents | You stop launching agents from the terminal | In progress |
-| 2 | GitHub inbox | You triage notifications without opening github.com | Not started |
+| 2 | GitHub inbox | You triage notifications without opening github.com | In progress |
 | 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com | Not started |
 | 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | Not started |
 | 5 | Workspace polish | Several sessions are easy to arrange, find and resume | Not started |
@@ -88,6 +88,15 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 - Prefetch of the top unread threads.
 
 **Done when:** a full morning of notification triage happens in Launchpad, and github.com is only opened for CI logs.
+
+
+**Progress:**
+
+- Built on 2026-10-02: direct GitHub REST and batched GraphQL client, token from `gh` with a retry on 401, persistent ETag/Last-Modified response cache, REST and GraphQL rate budgets in the status bar, polling that respects `X-Poll-Interval`, and a full paginated reconciliation at startup and every 30 minutes.
+- Inbox: virtualized fixed-height two-line rows and repository chips with counts, unread-only filter, participants, state, review and check summaries, optimistic Done, Unsubscribe (ignore future notifications), Read and local Unread actions with rollback on failure. Local overrides live in `state.db`, expire on new activity and survive daemon restarts and cache rebuilds.
+- Preview: cached description and latest eight issue/PR comments, background refresh, explicit Refresh and Open on GitHub, and quick replies published only by clicking Post reply. Release and commit notifications have REST summaries; other subject types link to GitHub. Top unread threads are enriched first and nearby preview caches are prefetched. Launch buttons choose the mapped origin/upstream project and add the thread as context, including subjects without an issue number.
+- Checked with the dev daemon against the real GitHub account: 240 notifications, 230 enriched issues/PRs, conditional polling and cached previews; UI and desktop builds, existing Rust tests, browser layout, unread filters, release links and composer context checks, and local unread persistence across a dev-daemon restart. Reply publishing and ignoring real threads were not exercised during automated verification.
+- Left for the **Done when** check: a full morning of daily notification triage.
 
 ## Phase 3: issues and pull requests
 

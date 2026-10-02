@@ -283,10 +283,10 @@ pub struct ContextProject {
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 pub struct GitHubRef {
     pub url: String,
-    /// `issue`, `pr`, `comment` or `review_comment`.
+    /// `issue`, `pr`, `comment`, `review_comment` or another notification subject kind.
     pub kind: String,
     pub repo: String,
-    pub number: u64,
+    pub number: Option<u64>,
     pub title: Option<String>,
 }
 

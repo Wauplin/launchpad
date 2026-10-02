@@ -4,7 +4,7 @@ Launchpad is a personal desktop app for Ubuntu that launches and drives coding a
 
 ## Status
 
-Phase 0 (foundations and spikes) is done: the daemon runs as a systemd user service, the window opens from the dock, and the status bar shows the Claude and Codex versions and quotas. Phase 1 (launch and run agents) is in progress. See [docs/ROADMAP.md](docs/ROADMAP.md).
+Phase 0 (foundations and spikes) is done: the daemon runs as a systemd user service, the window opens from the dock, and the status bar shows the Claude and Codex versions and quotas. Phase 1 (launch and run agents) is built and awaiting its week of daily use. Phase 2 (GitHub inbox) is built and awaiting a morning of notification triage: cached notifications, repo filters, thread summaries, quick replies, triage actions and agent launch from a thread. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Install
 
@@ -39,6 +39,7 @@ LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- status   # status as JSON
 - Profiles: `LAUNCHPAD_PROFILE=dev` uses port 7318, `~/.config/launchpad-dev` and `~/.local/share/launchpad-dev`. Without it (prod): port 7317, `~/.config/launchpad`, `~/.local/share/launchpad`.
 - A debug build of the daemon reads `web/dist` from disk, so `(cd web && pnpm build)` updates the UI without restarting it. A release build embeds the UI.
 - Hot reload: `(cd web && pnpm dev)` serves the UI on http://localhost:5173 and proxies the API to the dev daemon. Sign in once with the address printed by `launchpad url`, with port 5173 instead of 7318.
+- GitHub: sign in with `gh auth login` (a token with `repo` or `notifications` scope). The daemon reads the token from `gh auth token`, polls notifications in the background, and keeps cached threads available when offline. Opening an unread thread marks it read on GitHub. Unread is local only; replies post only when you click **Post reply**.
 - Types shared with the UI are generated from Rust: `cargo run -p launchpad -- gen-types` (writes `web/src/gen/`).
 - Desktop window for the dev daemon: `cargo build -p launchpad-desktop && LAUNCHPAD_PROFILE=dev ./target/debug/launchpad-desktop` (a dev window is not single-instance and quits when closed). `--open <route>` opens a given screen.
 - WebKitGTK benchmark: open `/dev/perf?auto=1` in the window; results go to the daemon log ([spike 4](docs/spikes/4-webkitgtk.md)).

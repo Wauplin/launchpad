@@ -270,7 +270,7 @@ export function Composer() {
               return (
                 <div key={g.url} className="grid grid-cols-[16px_auto_1fr_16px] items-center gap-2 rounded-[7px] border border-line bg-chrome px-2 py-1.5 text-[12.5px]">
                   <Icon name={g.kind === "comment" || g.kind === "review_comment" ? "comment" : ic.name} size={14} className={ic.color} />
-                  <span className="font-mono text-xs">#{String(g.number)}</span>
+                  <span className="font-mono text-xs">{g.number === null ? g.kind : `#${g.number}`}</span>
                   <span className="truncate text-ink-2">{g.title ?? g.url}</span>
                   <button className="text-ink-3 hover:text-ink" title="Remove" onClick={() => set((s) => ({ ...s, github_refs: s.github_refs.filter((x) => x.url !== g.url) }))}>
                     <Icon name="x" size={13} />

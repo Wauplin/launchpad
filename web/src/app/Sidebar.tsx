@@ -1,3 +1,4 @@
+import { useInbox } from "@/features/inbox/InboxView";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import type { Project } from "@/gen/Project";
@@ -51,6 +52,7 @@ function ProjectLink({ p, sessions }: { p: Project; sessions: Session[] }) {
 }
 
 export function Sidebar() {
+  const unread = useInbox().data?.threads.filter((t) => t.unread).length ?? 0;
   const projects = useProjects().data ?? [];
   const sessions = useSessions().data ?? [];
   const pending = sessions.filter((s) => s.status === "waiting" || s.status === "background").length;
@@ -58,7 +60,7 @@ export function Sidebar() {
   const temp = projects.filter((p) => p.is_temp).sort((a, b) => b.created_at - a.created_at);
   return (
     <aside className="flex w-[200px] flex-none flex-col gap-px overflow-y-auto border-r border-line bg-chrome px-2 py-2.5">
-      <NavItem to="/" icon="inbox">
+      <NavItem to="/" icon="inbox" end={unread > 0 ? <span className="text-xs text-ink-3">{unread}</span> : undefined}>
         Inbox
       </NavItem>
       <NavItem

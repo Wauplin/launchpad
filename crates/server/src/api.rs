@@ -1,4 +1,4 @@
-//! Phase 1 routes: projects, launch, sessions, GitHub helpers, settings helpers.
+//! Routes for projects, launch, sessions, GitHub inbox and settings helpers.
 
 use axum::Json;
 use axum::Router;
@@ -33,6 +33,11 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/resume", post(resume))
         .route("/api/sessions/{id}/open-terminal", post(open_terminal))
         .route("/api/sessions/{id}/task-output", get(task_output))
+        .route("/api/inbox", get(inbox))
+        .route("/api/inbox/sync", post(inbox_sync))
+        .route("/api/inbox/{id}/preview", get(inbox_preview).post(inbox_refresh))
+        .route("/api/inbox/{id}/action", post(inbox_action))
+        .route("/api/inbox/{id}/reply", post(inbox_reply))
         .route("/api/gh/resolve", post(gh_resolve))
         .route("/api/gh/{owner}/{repo}/suggest", get(gh_suggest))
         .route("/api/settings/terminals", get(terminals))
@@ -271,4 +276,48 @@ async fn open_editor(State(s): State<Server>, Json(b): Json<OpenEditor>) -> ApiR
     let editor = s.app.config.get().commands.editor;
     launchpad_core::procs::command(&s.app.env, &editor, None).arg(&b.path).kill_on_drop(false).spawn().map_err(|e| bad(e.into()))?;
     Ok(Json(json!({"ok": true})))
+}
+
+async fn inbox(State(s): State<Server>) -> ApiResult<launchpad_core::inbox::InboxSnapshot> {
+    Ok(Json(s.app.inbox.list(&s.app).await?))
+}
+async fn inbox_sync(State(s): State<Server>) -> ApiResult<Value> {
+    s.app.inbox.sync(&s.app).await.map_err(bad)?;
+    Ok(Json(json!({"ok":true})))
+}
+async fn inbox_preview(
+    State(s): State<Server>,
+    Path(id): Path<String>,
+) -> ApiResult<Option<launchpad_core::inbox::ThreadPreview>> {
+    Ok(Json(s.app.inbox.preview(&s.app, &id).await?))
+}
+#[derive(Deserialize)]
+struct PreviewRefresh { #[serde(default)] force: bool }
+async fn inbox_refresh(State(s): State<Server>, Path(id): Path<String>, Json(b):Json<PreviewRefresh>) -> ApiResult<Value> {
+    s.app.inbox.refresh_preview(&s.app, &id, b.force).await.map_err(bad)?;
+    Ok(Json(json!({"ok":true})))
+}
+#[derive(Deserialize)]
+struct InboxAction {
+    action: String,
+}
+async fn inbox_action(
+    State(s): State<Server>,
+    Path(id): Path<String>,
+    Json(b): Json<InboxAction>,
+) -> ApiResult<Value> {
+    s.app
+        .inbox
+        .action(&s.app, &id, &b.action)
+        .await
+        .map_err(bad)?;
+    Ok(Json(json!({"ok":true})))
+}
+async fn inbox_reply(
+    State(s): State<Server>,
+    Path(id): Path<String>,
+    Json(b): Json<Input>,
+) -> ApiResult<Value> {
+    s.app.inbox.reply(&s.app, &id, &b.text).await.map_err(bad)?;
+    Ok(Json(json!({"ok":true})))
 }

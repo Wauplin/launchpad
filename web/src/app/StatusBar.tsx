@@ -1,3 +1,4 @@
+import { useInbox } from "@/features/inbox/InboxView";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { HarnessStatus } from "@/gen/HarnessStatus";
@@ -63,6 +64,7 @@ function HarnessPart({ harness, s }: { harness: Harness; s: HarnessStatus }) {
 
 export function StatusBar() {
   const { data } = useStatus();
+  const limits = useInbox().data?.limits;
   const [online, setOnline] = useState(true);
   useEffect(() => onConnectionChange(setOnline), []);
   // Re-render every 30 s so ages and reset times stay current.
@@ -79,6 +81,7 @@ export function StatusBar() {
           <HarnessPart harness="claude" s={data.claude} />
           <span className="h-3.5 w-px bg-line" />
           <HarnessPart harness="codex" s={data.codex} />
+          <span className="text-ink-3" title={Object.entries(limits ?? {}).map(([k,v]) => `${k}: ${v.remaining} remaining, resets ${formatReset(v.reset_at)}`).join("; ")}>{Object.entries(limits ?? {}).map(([k,v]) => `GH ${k} ${v.remaining}`).join(" · ")}</span>
           <span className="ml-auto inline-flex items-center gap-3.5">
             {!online && <span className="font-semibold text-gh-closed">Daemon disconnected, reconnecting…</span>}
             {data.profile === "dev" && <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn">dev profile</span>}
