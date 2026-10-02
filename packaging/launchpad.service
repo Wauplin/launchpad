@@ -1,0 +1,16 @@
+[Unit]
+Description=Launchpad daemon (coding agents and GitHub cache)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/launchpad daemon
+Restart=on-failure
+RestartSec=2
+# Agents are children of the daemon: stopping or restarting the service stops them.
+KillMode=control-group
+TimeoutStopSec=10
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=default.target

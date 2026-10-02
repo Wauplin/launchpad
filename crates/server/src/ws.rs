@@ -16,7 +16,7 @@ pub async fn handler(State(s): State<Server>, ws: WebSocketUpgrade) -> Response 
 async fn run(s: Server, socket: WebSocket) {
     let (mut tx, mut rx) = socket.split();
     let mut events = s.app.bus.subscribe();
-    let hello = serde_json::json!({"type": "hello", "profile": s.app.paths.profile.name()});
+    let hello = serde_json::json!({"type": "hello", "profile": s.app.paths.profile.name(), "build": crate::ui::build_id()});
     if tx.send(Message::Text(hello.to_string().into())).await.is_err() {
         return;
     }

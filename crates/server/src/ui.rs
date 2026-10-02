@@ -28,3 +28,11 @@ pub async fn serve(uri: Uri) -> Response {
         None => (StatusCode::NOT_FOUND, "UI not built: run `pnpm -C web build`").into_response(),
     }
 }
+
+/// Identifies the UI build: changes whenever `index.html` (which names the hashed bundles) changes.
+pub fn build_id() -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    Assets::get("index.html").map(|f| f.data.into_owned()).unwrap_or_default().hash(&mut h);
+    format!("{:016x}", h.finish())
+}

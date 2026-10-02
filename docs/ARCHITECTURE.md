@@ -1,6 +1,6 @@
 # Launchpad architecture
 
-Status: proposal (2026-10-02), main decisions confirmed (see [Decisions log](#17-decisions-log)). Nothing is implemented yet. Companion documents: [ROADMAP.md](ROADMAP.md) and the UI sketches in [design/sketches.html](design/sketches.html).
+Status: Phase 0 implemented on 2026-10-02 (daemon, API, app shell, desktop shell, packaging), main decisions confirmed (see [Decisions log](#17-decisions-log)). Companion documents: [ROADMAP.md](ROADMAP.md), the UI sketches in [design/sketches.html](design/sketches.html), and the spike notes in [spikes/](spikes/).
 
 ## 1. What Launchpad is
 
@@ -78,9 +78,12 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 ### 4.2 Desktop shell
 
 - A Tauri v2 app of roughly 100 lines of Rust. On start it checks `GET /api/health`. If the daemon is down, it runs `systemctl --user start launchpad` (or spawns `launchpad daemon` directly as a fallback), then opens a window on `http://127.0.0.1:7317/` after the auth handshake described in [Security](#14-security).
-- Plugins: `single-instance` (clicking the dock icon focuses the existing window; `launchpad-desktop --open <route>` focuses it on a given screen, used by desktop notifications) and `window-state`.
+- Plugins: `single-instance` (prod only: clicking the dock icon focuses the existing window; `launchpad-desktop --open <route>` focuses it on a given screen, used by desktop notifications) and `window-state` (size and position).
+- **Warm window (prod):** a cold start of the shell takes about 0.5 s (GTK and WebKit processes), so one shell process stays warm. Closing the window hides it; the page stays loaded and connected. An autostart entry runs `launchpad-desktop --hidden` at login, and `install.sh` starts it after an install. A dock click starts a second process, which hands over to the warm one and exits: the window shows in about 100 ms ([spike 4](spikes/4-webkitgtk.md)). `launchpad-desktop --quit` stops the shell. Dev windows (`LAUNCHPAD_PROFILE=dev`) are not single-instance and quit on close.
+- Links to other sites never open inside the window: navigation outside the daemon origin is cancelled and the URL goes to `xdg-open`.
 - The window loads the UI from the daemon, not from bundled assets. This gives one origin (no CORS) and the same UI works in a browser for the future remote mode. The UI imports no `@tauri-apps/*` package.
-- The `.deb` bundle installs a `.desktop` entry, which can be pinned to the dock. During development, a hand-written `.desktop` file points to the release binary. `StartupWMClass` must match the window so the dock groups it correctly.
+- `packaging/install.sh` installs a `.desktop` entry, which can be pinned to the dock. On Wayland, the window's app id is `launchpad-desktop` (the binary name), so the entry has `StartupWMClass=launchpad-desktop` and the dock groups the window with the pinned icon. No `.deb` bundle is built.
+- After a daemon restart with a new UI build, the open page reloads itself: the WebSocket `hello` message carries a build id, and the UI compares it with the one it started with.
 
 ### 4.3 Lifecycle consequences
 
@@ -100,7 +103,7 @@ launchpad/
 │  │                            #   sessions, harness adapters, compose, predraft, quota
 │  ├─ server/                   # axum routes, WebSocket, auth, static UI serving
 │  └─ cli/                      # `launchpad` binary: daemon + agent-facing subcommands
-├─ desktop/                     # Tauri v2 shell (src-tauri)
+├─ desktop/                     # Tauri v2 shell (src-tauri), and fallback/ (page shown while the daemon starts)
 ├─ web/                         # React app (Vite)
 │  └─ src/
 │     ├─ app/                   # shell: sidebar, top bar, status bar, routing
@@ -553,7 +556,7 @@ A pre-draft PR is a pull request that exists only on your laptop: a local branch
 - **Harness marks:** the official Claude and Codex logos (SVG files in `web/src/assets/`) everywhere a harness appears: radial launch buttons (logo only, no label), session lists, pane headers, status bar.
 - **Speed tactics:** render from cache; prefetch on selection; keep list views mounted so scroll position and selection survive navigation; optimistic actions; virtualized lists; every frequent action one click away.
 - **Click only:** no keyboard shortcuts (see principle 5). Frequent actions are visible buttons where they are used: hover actions on notification rows, a Launch button on every notification, issue, PR and project, layout buttons in the agents view, Refresh and Open on GitHub on every cached object. Icon-only buttons have a hover title. Context is added to the composer with buttons, or with `@` and `#` suggestions in the prompt (see [9.7](#97-prompt-composition)).
-- **WebKitGTK:** the Tauri webview on Linux is WebKit, not Chromium. Phase 0 measures performance with a 5,000-line diff and a 2,000-event session. If the window renders blank with some GPU drivers, `WEBKIT_DISABLE_DMABUF_RENDERER=1` is the usual workaround. Because the UI is a plain web app, it can be developed in Chrome against the dev daemon, and switching the shell to Chromium (`--app=` mode) stays possible if WebKit is too slow.
+- **WebKitGTK:** the Tauri webview on Linux is WebKit, not Chromium. Measured in [spike 4](spikes/4-webkitgtk.md): a virtualized 5,000-line diff and a 2,000-event session scroll at 60 fps on an idle machine. With all CPU threads busy (a large build), WebKitGTK drops to about 20 fps where Chrome stays at 60 fps, and mounting thousands of plain rows is about 14 times slower than in Chrome. Rules that follow: virtualize every long list, memoize row components, create virtualizers with `useFlushSync: false`, prefer fixed row heights, keep overscan small. The page `/dev/perf?auto=1` repeats the measurement. If the window renders blank with some GPU drivers, `WEBKIT_DISABLE_DMABUF_RENDERER=1` is the usual workaround. Because the UI is a plain web app, it can be developed in Chrome against the dev daemon, and switching the shell to Chromium (`--app=` mode) stays possible if scrolling during builds becomes a problem.
 
 ## 13. Desktop integration
 
@@ -606,3 +609,5 @@ Phase 0 spikes, on 2026-10-02 (notes in [docs/spikes/](spikes/)):
 12. **Claude quota endpoint.** `/api/oauth/usage` works with the read-only token. Launchpad checks `expiresAt` and never calls with an expired token.
 13. **Codex adapter.** `codex app-server` works as planned (steer, interrupt, resume after restart). The adapter closes open items when a turn ends.
 14. **Claude TUI trust.** "Open in terminal" sets `CLAUDE_CODE_SANDBOXED=1` for temporary projects, so the trust dialog does not appear. Launchpad does not write `~/.claude.json`.
+15. **WebKitGTK stays.** The Tauri shell is fast enough on an idle machine; the Chromium `--app=` fallback is kept for later if scrolling during agent builds bothers you. The UI follows the list rules of [section 12](#12-frontend).
+16. **Warm window.** The prod shell keeps one hidden process (autostart at login, hide on close), because a cold start takes about 0.5 s and the goal is 300 ms.

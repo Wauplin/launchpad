@@ -4,7 +4,17 @@ Launchpad is a personal desktop app for Ubuntu that launches and drives coding a
 
 ## Status
 
-Phase 0 of the roadmap (foundations and spikes) is in progress: the daemon, the API and the app shell work; the desktop window and the packaging are next.
+Phase 0 (foundations and spikes) is done: the daemon runs as a systemd user service, the window opens from the dock, and the status bar shows the Claude and Codex versions and quotas. Phase 1 (launch and run agents) is in progress. See [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Install
+
+```sh
+packaging/install.sh            # build in release mode, install for the current user, restart the daemon
+```
+
+It installs `~/.local/bin/launchpad` and `~/.local/bin/launchpad-desktop`, the systemd user unit `launchpad.service`, the `Launchpad` application entry with its icon, and an autostart entry that keeps the window loaded in the background. Open Launchpad from the applications grid, then right click its dock icon and choose "Add to Favorites". Closing the window only hides it, so the next click shows it at once; `launchpad-desktop --quit` stops it. Running the script again updates everything; it asks first when agent sessions are open, because restarting the daemon stops them (`--force` skips the question).
+
+Logs: `journalctl --user -u launchpad -f`.
 
 ## Documentation
 
@@ -30,4 +40,6 @@ LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- status   # status as JSON
 - A debug build of the daemon reads `web/dist` from disk, so `pnpm -C web build` updates the UI without restarting it. A release build embeds the UI.
 - Hot reload: `pnpm -C web dev` serves the UI on http://localhost:5173 and proxies the API to the dev daemon. Sign in once with the address printed by `launchpad url`, with port 5173 instead of 7318.
 - Types shared with the UI are generated from Rust: `cargo run -p launchpad -- gen-types` (writes `web/src/gen/`).
+- Desktop window for the dev daemon: `cargo build -p launchpad-desktop && LAUNCHPAD_PROFILE=dev ./target/debug/launchpad-desktop` (a dev window is not single-instance and quits when closed). `--open <route>` opens a given screen.
+- WebKitGTK benchmark: open `/dev/perf?auto=1` in the window; results go to the daemon log ([spike 4](docs/spikes/4-webkitgtk.md)).
 - There are no tests yet.

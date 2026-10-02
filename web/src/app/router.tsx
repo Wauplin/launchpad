@@ -1,4 +1,4 @@
-import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import { createRootRoute, createRoute, createRouter, lazyRouteComponent } from "@tanstack/react-router";
 import { AgentsView } from "@/features/agents/AgentsView";
 import { InboxView } from "@/features/inbox/InboxView";
 import { ProjectsView } from "@/features/projects/ProjectsView";
@@ -12,6 +12,12 @@ const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/agents", component: AgentsView }),
   createRoute({ getParentRoute: () => root, path: "/projects", component: ProjectsView }),
   createRoute({ getParentRoute: () => root, path: "/settings", component: SettingsView }),
+  // Spike 4 benchmark page, not linked from the UI.
+  createRoute({
+    getParentRoute: () => root,
+    path: "/dev/perf",
+    component: lazyRouteComponent(() => import("@/features/dev/PerfView"), "PerfView"),
+  }),
 ]);
 
 export const router = createRouter({ routeTree, defaultPreload: "intent" });

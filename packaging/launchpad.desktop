@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Launchpad
+Comment=Launch coding agents and triage GitHub
+Exec=@BIN@/launchpad-desktop
+Icon=launchpad
+Terminal=false
+Categories=Development;
+StartupNotify=true
+StartupWMClass=launchpad-desktop

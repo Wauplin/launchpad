@@ -14,8 +14,8 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 
 | Phase | Theme | Main result | Status |
 |---|---|---|---|
-| 0 | Foundations and spikes | Dock icon opens a window served by the daemon, with versions and quotas in the status bar | In progress |
-| 1 | Launch and run agents | You stop launching agents from the terminal | Not started |
+| 0 | Foundations and spikes | Dock icon opens a window served by the daemon, with versions and quotas in the status bar | Done |
+| 1 | Launch and run agents | You stop launching agents from the terminal | In progress |
 | 2 | GitHub inbox | You triage notifications without opening github.com | Not started |
 | 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com | Not started |
 | 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | Not started |
@@ -46,7 +46,9 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 
 **Progress:**
 
-- Spikes 1, 2, 3 and 5 done on 2026-10-02, all successful, no fallback needed. Notes: [1](spikes/1-claude-stream-json.md), [2](spikes/2-claude-usage-endpoint.md), [3](spikes/3-codex-app-server.md), [5](spikes/5-claude-trust-prompt.md). The findings are in the architecture (decisions 11 to 14).
+- All five spikes done on 2026-10-02, no fallback needed. Notes: [1](spikes/1-claude-stream-json.md), [2](spikes/2-claude-usage-endpoint.md), [3](spikes/3-codex-app-server.md), [4](spikes/4-webkitgtk.md), [5](spikes/5-claude-trust-prompt.md). The findings are in the architecture (decisions 11 to 16).
+- Build done: Cargo workspace, daemon (config watch, `state.db`, `cache.db`, axum API, WebSocket event bus, token and cookie auth with `Host` and `Origin` checks, embedded UI, dev and prod profiles, login shell environment), React app shell (sidebar, top bar with the Launch button, empty views, status bar with versions and both quotas), Tauri shell (single instance, warm hidden window), packaging (`packaging/install.sh`, systemd user unit, `.desktop` entry, autostart entry, icons).
+- Measured: the window opens in about 100 ms from a dock click with the warm shell (cold start of the shell: about 0.5 s).
 
 ## Phase 1: launch and run agents
 

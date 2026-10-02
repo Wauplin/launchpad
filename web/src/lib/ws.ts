@@ -28,6 +28,7 @@ function setConnected(c: boolean) {
 
 export function connectEvents(queryClient: QueryClient) {
   let retry = 0;
+  let build: string | null = null;
   const open = () => {
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
     ws.onopen = () => {
@@ -42,7 +43,12 @@ export function connectEvents(queryClient: QueryClient) {
         void queryClient.invalidateQueries();
         return;
       }
-      if (ev.type === "hello") return;
+      if (ev.type === "hello") {
+        // A new UI build was installed (daemon restarted): reload to run it.
+        if (build && ev.build !== build) location.reload();
+        build = ev.build;
+        return;
+      }
       if (ev.topic === "status") {
         queryClient.setQueryData(["status"], ev.payload);
       } else if (ev.topic === "config") {

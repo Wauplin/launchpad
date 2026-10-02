@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Launchpad (background window)
+Comment=Keeps the Launchpad window loaded, so it opens instantly from the dock
+Exec=@BIN@/launchpad-desktop --hidden
+Icon=launchpad
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
