@@ -272,7 +272,11 @@ code.i { font: 12px var(--font-mono); background: var(--sunk); padding: 0 4px; b
 .select { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); }
 .select .ic:last-child { margin-left: auto; color: var(--ink-3); }
 .select .def { color: var(--ink-3); }
-.ta { min-height: 74px; padding: 9px 10px; border: 1.5px solid var(--teal); border-radius: 8px; box-shadow: 0 0 0 3px var(--teal-soft); line-height: 1.5; }
+.ta { position: relative; min-height: 74px; padding: 9px 10px; border: 1.5px solid var(--teal); border-radius: 8px; box-shadow: 0 0 0 3px var(--teal-soft); line-height: 1.5; }
+.mention { color: var(--teal-ink); background: var(--teal-soft); border-radius: 3px; padding: 0 2px; font-weight: 600; }
+.menu.suggest { left: 8px; top: calc(100% - 6px); width: 330px; z-index: 6; }
+.menu.suggest .mi span b { font-family: var(--font-mono); font-size: 12px; margin-right: 4px; }
+.menu .sfoot { padding: 5px 9px 3px; font-size: 11px; color: var(--ink-3); border-top: 1px solid var(--line-2); margin-top: 2px; }
 .caret { display: inline-block; width: 1.5px; height: 15px; background: var(--ink); vertical-align: -3px; margin-left: 1px; }
 .ctx { display: grid; gap: 5px; }
 .ctx-item { display: grid; grid-template-columns: 16px auto 1fr 16px; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--chrome); font-size: 12.5px; }
@@ -577,7 +581,7 @@ footer.end code { font: 12.5px var(--font-mono); }
 <header class="intro">
   <div class="kicker">Launchpad · design sketches · 2 October 2026</div>
   <h1>Launchpad sketches</h1>
-  <p class="lede">Six static mockups of the main screens, filled with example data. The app is light theme only, so the sketches are too. The UI is click only: no keyboard shortcuts, and text fields only type text. Pink numbered pins in each window match the notes below it. The design rationale is in <code>docs/ARCHITECTURE.md</code>.</p>
+  <p class="lede">Six static mockups of the main screens, filled with example data. The app is light theme only, so the sketches are too. The UI is click only: no keyboard shortcuts. The only typing helpers are <code>@</code> and <code>#</code> suggestions in the composer prompt. Pink numbered pins in each window match the notes below it. The design rationale is in <code>docs/ARCHITECTURE.md</code>.</p>
   <div class="legend">
     <span><i class="sw" style="background:var(--teal)"></i>Launchpad: primary actions and anything that exists only on your laptop</span>
     <span><i class="sw" style="background:var(--clay)"></i>Claude Code</span>
@@ -838,9 +842,16 @@ footer.end code { font: 12.5px var(--font-mono); }
               <div class="field"><label>Run in <i class="pin">3</i></label><div class="select">Checkout · <span class="mono">main</span><svg class="ic sm"><use href="#i-chev"/></svg></div></div>
             </div>
             <div class="field"><label>Prompt</label>
-              <div class="ta">Check if #3412 is still relevant and whether #3420 fixes it. If it does, review the PR. If not, explain what is missing.<span class="caret"></span></div>
+              <div class="ta">Check if #3412 is still relevant and whether #3420 fixes it. If it does, review the PR. If not, explain what is missing. Also check <span class="mention">#34</span><span class="caret"></span>
+                <div class="menu suggest">
+                  <div class="mi on"><svg class="ic sm c-draft"><use href="#i-pr-draft"/></svg><span><b>#3417</b> [CLI] hf jobs logs --follow</span><span class="d">Draft PR · Wauplin · 2 days</span></div>
+                  <div class="mi"><svg class="ic sm c-open"><use href="#i-pr"/></svg><span><b>#3409</b> Bump ruff to 0.14</span><span class="d">PR · farah-n · approved</span></div>
+                  <div class="mi"><svg class="ic sm c-open"><use href="#i-pr"/></svg><span><b>#3405</b> Support token=False in InferenceClient.chat</span><span class="d">PR · dmitri-v · changes requested</span></div>
+                  <div class="sfoot">Issues and PRs of huggingface_hub</div>
+                </div>
+              </div>
             </div>
-            <div class="field"><label>Context <i class="pin">4</i><span class="hint">or use the Add buttons on the page</span></label>
+            <div class="field"><label>Context <i class="pin">4</i><span class="hint">type @ or # in the prompt, or use the Add buttons</span></label>
               <div class="ctx">
                 <div class="ctx-item"><svg class="ic sm c-open"><use href="#i-issue"/></svg><span class="mono">#3412</span><span class="t">hf download ignores --revision when…</span><svg class="ic sm x"><use href="#i-x"/></svg></div>
                 <div class="ctx-item"><svg class="ic sm c-open"><use href="#i-pr"/></svg><span class="mono">#3420</span><span class="t">Fix revision handling in snapshot…</span><svg class="ic sm x"><use href="#i-x"/></svg></div>
@@ -891,7 +902,7 @@ Context:
   <ol class="notes" start="2">
     <li><i class="pin">2</i><span><b>A drawer that stays open.</b> While the composer is open, every issue, PR and comment shows an "Add" button. Building a rich context means clicking around the app. Items already added say "In context".</span></li>
     <li><i class="pin">3</i><span><b>Where it runs.</b> The project checkout, a new pre-draft PR (Launchpad creates a branch and a worktree, see S5), or a new temporary folder in <code>~/projects</code>.</span></li>
-    <li><i class="pin">4</i><span><b>Context chips.</b> Added with the Add buttons on the page, or with "+ Project" and "+ GitHub link" (paste a link to an issue, PR or comment there). Projects can have a branch. The prompt box only types text: nothing pops up while you type.</span></li>
+    <li><i class="pin">4</i><span><b>Context chips.</b> Type <code>@</code> for a project or <code>#</code> for an issue or PR at the start of a word: a list opens, and the item you pick becomes a chip while the text stays readable. Or use the Add buttons on the page, "+ Project" and "+ GitHub link". Projects can have a branch. Ignoring the list never changes what you typed.</span></li>
     <li><i class="pin">5</i><span><b>Presets.</b> Toggle chips. Their sentences go at the end of the prompt, in the order set in Settings (S6).</span></li>
     <li><i class="pin">6</i><span><b>Model and effort.</b> "Default" means what the agent would pick on its own, read from its settings. A change here applies to this session only.</span></li>
     <li><i class="pin">7</i><span><b>The exact prompt.</b> A live preview of the text sent to the agent. Launch starts the session in the background and a toast offers to open it, so you can launch several agents in a row from the inbox.</span></li>
@@ -1054,7 +1065,7 @@ chunk=256MB  run 3/5 …</pre>
     <li><i class="pin">5</i><span><b>Copy exactly.</b> Each message has Copy (raw markdown) and Copy as text, and code blocks have their own button. No terminal line breaks or padding.</span></li>
     <li><i class="pin">6</i><span><b>Questions become buttons.</b> When an agent asks something, its options are clickable and numbered. Typing a free answer still works.</span></li>
     <li><i class="pin">8</i><span><b>Background commands.</b> When the agent only waits for a long command, the session shows an outlined "Background" badge with the latest output. It moves back to Running when the agent picks up again.</span></li>
-    <li><i class="pin">7</i><span><b>Type while it works.</b> A message sent during a turn steers Codex right away, or is read by Claude after its current step. Send with the button, or with <code>Enter</code> like in the terminal: the only keyboard behavior in the app.</span></li>
+    <li><i class="pin">7</i><span><b>Type while it works.</b> A message sent during a turn steers Codex right away, or is read by Claude after its current step. Send with the button, or with <code>Enter</code> like in the terminal.</span></li>
   </ol>
 </section>
 

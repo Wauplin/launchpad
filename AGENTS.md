@@ -29,7 +29,7 @@ These rules apply unless the owner says otherwise for a given task.
 ## Product rules
 
 - Light theme only. Do not add a dark theme or dark-mode styles.
-- Click-only UI: no keyboard shortcuts. Every action is a visible button. Text fields only type text: no character opens a popup or triggers an action (no `@` or `#` autocomplete). The only exception is the session message box, where `Enter` sends and `Shift+Enter` adds a new line.
+- Click-only UI: no keyboard shortcuts. Every action is a visible button. Text fields only type text, with two exceptions: in the composer prompt, `@` (projects) and `#` (issues and PRs) at the start of a word open a suggestion list; in the session message box, `Enter` sends and `Shift+Enter` adds a new line. See `docs/ARCHITECTURE.md`, section 9.7, for the exact mention rules.
 - Linux (Ubuntu) only. Do not add code for macOS or Windows.
 - Single user: no backward compatibility, no versioning, no data migration framework. The GitHub cache (`cache.db`) can be deleted and rebuilt at any time. Keep schema changes to `state.db` simple.
 - Anything Launchpad prepares for GitHub (pre-draft PRs, comments or reviews written by agents) stays local until the owner publishes it with a click.

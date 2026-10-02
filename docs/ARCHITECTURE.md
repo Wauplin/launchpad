@@ -19,7 +19,7 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 2. **Launching an agent is the main action.** A minimal launch is three clicks plus the prompt. A rich launch uses the same flow with more chips. Both must feel natural.
 3. **The core does not depend on a harness.** Claude Code and Codex are adapters behind one session model. Adding a third harness means writing one adapter.
 4. **Local first, publish later.** Anything that would create noise on GitHub (pre-draft PRs, agent-written comments) stays local until you publish it. These objects share one color in the UI (teal).
-5. **Click only.** No keyboard shortcuts, at least at first: every action is a visible button where it is needed, and the UI should be good enough that shortcuts are not missed. Text fields only type text: no character opens a popup or triggers an action. The one exception is the session message box, where `Enter` sends and `Shift+Enter` adds a new line, like in the terminal.
+5. **Click only.** No keyboard shortcuts, at least at first: every action is a visible button where it is needed, and the UI should be good enough that shortcuts are not missed. Text fields only type text, with two exceptions: in the composer prompt, `@` and `#` at the start of a word open a suggestion list (projects, issues and PRs, see [9.7](#97-prompt-composition)), and in the session message box `Enter` sends and `Shift+Enter` adds a new line, like in the terminal.
 6. **Owned and easy to extend.** A mainstream stack that coding agents handle well (Rust, React, TypeScript, Tailwind), configuration in a plain TOML file, GitHub payloads stored as JSON so new fields need no schema change.
 7. **Move fast, test little.** This is a personal project: speed of change matters more than protection against breakage. Most code has no tests. See [5.2](#52-testing).
 
@@ -426,7 +426,7 @@ trait LiveSession: Send + Sync {
 - **Assistant text:** markdown (markdown-it, Shiki for code blocks), rendered incrementally. Finished blocks are memoized; only the last block re-renders while streaming.
 - **Tool calls:** collapsed to one line (`Bash · pytest tests/test_hf_api.py · 12 s · exit 0`). Consecutive calls are grouped ("Ran 6 commands, read 4 files"). File changes show a small inline diff. Click to expand.
 - **Copy:** every message keeps its raw markdown. "Copy" puts the exact markdown on the clipboard, without the line breaks and padding that terminals add. Code blocks have their own copy button. Tool output copies as raw text.
-- **Input:** a message box under each session, with a Send button. `Enter` also sends and `Shift+Enter` adds a new line, like in the terminal (the only keyboard behavior in the app). A Stop button in the session header interrupts the agent. TUI-only slash commands point to "Open in terminal".
+- **Input:** a message box under each session, with a Send button. `Enter` also sends and `Shift+Enter` adds a new line, like in the terminal. A Stop button in the session header interrupts the agent. TUI-only slash commands point to "Open in terminal".
 - **Header:** tokens (input, cached, output), context window usage, cost estimate (Claude reports `total_cost_usd`; Codex reports tokens only), elapsed time.
 
 ### 9.7 Prompt composition
@@ -462,6 +462,11 @@ Please use a local git worktree and delete it once you're done. No need to add a
 
 - Order: free text, then context, then presets (in the order defined in settings).
 - Paths are absolute, because sessions may run in worktrees outside the project folder. Context projects are also passed to Claude as `--add-dir`.
+- **Mentions in the prompt:** typing `@` suggests registered projects and `#` suggests issues and PRs of the selected project (from the cache, matched by number or title words; an exact number not in the cache is fetched on demand). Rules that keep typing predictable:
+  - The list opens only when `@` or `#` starts a word (after a space or at the start of a line). `user@host`, `C#` and Markdown headings (`#` followed by a space) never open it.
+  - Picking an item (click, or arrow keys and `Enter` while the list is open) adds a context chip and leaves a readable `@moon-landing` or `#3412` in the text.
+  - The list closes on a space, `Escape` or a click elsewhere. Ignoring it never changes what you typed.
+  - Only the composer prompt has mentions. Other text fields (comments, session messages) do not.
 - GitHub references are links by default: the agent reads them with `gh`, so they are always fresh. A later option can inline the cached thread to save the agent a round trip.
 - Presets live in `config.toml`. The three initial ones:
 
@@ -541,7 +546,7 @@ A pre-draft PR is a pull request that exists only on your laptop: a local branch
 - **Layout:** left sidebar (Inbox, Agents, Projects, pinned projects, temporary projects, Settings; collapses to icons), main area, composer drawer on the right, status bar at the bottom.
 - **Harness marks:** the official Claude and Codex logos (SVG files in `web/src/assets/`) everywhere a harness appears: radial launch buttons (logo only, no label), session lists, pane headers, status bar.
 - **Speed tactics:** render from cache; prefetch on selection; keep list views mounted so scroll position and selection survive navigation; optimistic actions; virtualized lists; every frequent action one click away.
-- **Click only:** no keyboard shortcuts (see principle 5). Frequent actions are visible buttons where they are used: hover actions on notification rows, a Launch button on every notification, issue, PR and project, layout buttons in the agents view, Refresh and Open on GitHub on every cached object. Icon-only buttons have a hover title. Context is added to the composer with buttons, never with typing triggers such as `@` or `#`.
+- **Click only:** no keyboard shortcuts (see principle 5). Frequent actions are visible buttons where they are used: hover actions on notification rows, a Launch button on every notification, issue, PR and project, layout buttons in the agents view, Refresh and Open on GitHub on every cached object. Icon-only buttons have a hover title. Context is added to the composer with buttons, or with `@` and `#` suggestions in the prompt (see [9.7](#97-prompt-composition)).
 - **WebKitGTK:** the Tauri webview on Linux is WebKit, not Chromium. Phase 0 measures performance with a 5,000-line diff and a 2,000-event session. If the window renders blank with some GPU drivers, `WEBKIT_DISABLE_DMABUF_RENDERER=1` is the usual workaround. Because the UI is a plain web app, it can be developed in Chrome against the dev daemon, and switching the shell to Chromium (`--app=` mode) stays possible if WebKit is too slow.
 
 ## 13. Desktop integration
@@ -585,6 +590,6 @@ Confirmed on 2026-10-02:
 5. **Temporary folders.** `<projects_root>/tmp-<MMDD>-<slug>`. The projects root is configurable, default `~/projects`.
 6. **Claude quota.** Launchpad may read the OAuth access token in `~/.claude/.credentials.json` to call the usage endpoint, never refreshing it.
 7. **Harness icons.** Launch buttons and harness marks use the Claude and Codex logos, without text labels.
-8. **Click-only UI.** No keyboard shortcuts and no typing triggers in text fields, at least at first. The only keyboard behavior is `Enter` to send in a session's message box. Shortcuts may be added later if they are really missed.
+8. **Click-only UI.** No keyboard shortcuts, at least at first. Two typing behaviors only: `@` and `#` suggestions in the composer prompt (added on 2026-10-02, see [9.7](#97-prompt-composition)), and `Enter` to send in a session's message box. Shortcuts may be added later if they are really missed.
 9. **Terminal is a setting.** "Open in terminal" uses the terminal chosen in Settings: Terminator by default, Ghostty, GNOME Terminal, or a custom command.
 10. **Minimal tests.** Move fast and break things. Test only small, specific parts that clearly benefit from it. No mocks, no tests that need a server, and the whole run takes a few seconds at most. Details in [5.2](#52-testing).

@@ -47,7 +47,7 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 ## Phase 1: launch and run agents
 
 - **Projects:** registry, "Scan projects root" discovery, descriptions, pinning, repo ↔ project mapping.
-- **Composer:** harness toggle, project picker, free text, presets (the 3 initial ones) with a settings editor, context projects with a branch picker (local branches), GitHub links added with a "+ GitHub link" field (title fetched), model and effort pickers showing "Default (…)", prompt preview, Launch button, unsent drafts kept. The prompt box only types text.
+- **Composer:** harness toggle, project picker, free text, presets (the 3 initial ones) with a settings editor, context projects with a branch picker (local branches), GitHub links added with a "+ GitHub link" field (title fetched), model and effort pickers showing "Default (…)", prompt preview, Launch button, unsent drafts kept. In the prompt, `@` suggests projects and `#` suggests issues and PRs (only at the start of a word).
 - **Radial launcher:** Launch button in the top bar and on notifications, issues, PRs and projects; two round buttons with the Claude and Codex logos (no labels); the last harness used has a ring.
 - **Temporary projects:** create, clean up, promote (including moving Claude transcripts).
 - **Adapters:** Claude and Codex, normalized events, event log in `state.db`, WebSocket streaming with replay.
