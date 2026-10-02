@@ -123,10 +123,10 @@ fn show_window(w: &WebviewWindow, argv: &[String]) {
     let _ = w.show();
     let _ = w.set_focus();
     if let Some(route) = open_route(argv) {
-        let _ = w.eval(&navigate_js(&route));
+        let _ = w.eval(navigate_js(&route));
     }
     if let Some(t0) = argv.iter().position(|a| a == "--t0").and_then(|i| argv.get(i + 1)).and_then(|v| v.parse::<u128>().ok()) {
-        let _ = w.eval(&format!(
+        let _ = w.eval(format!(
             "requestAnimationFrame(() => requestAnimationFrame(() => fetch('/api/log', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{message: 'window shown: ' + (Date.now() - {t0}) + ' ms after the second instance started'}})}})));"
         ));
     }
@@ -159,7 +159,7 @@ fn serde_json_string(s: &str) -> String {
 
 fn show_error(w: &WebviewWindow, msg: &str) {
     let m = serde_json_string(&format!("Launchpad could not start.\n\n{msg}\n\nLogs: journalctl --user -u launchpad"));
-    let _ = w.eval(&format!(
+    let _ = w.eval(format!(
         "document.getElementById('msg').outerHTML = '<pre id=\"msg\"></pre>'; document.getElementById('msg').textContent = {m};"
     ));
 }

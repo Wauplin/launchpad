@@ -228,10 +228,9 @@ async fn claude_usage(client: &reqwest::Client) -> Result<(Option<QuotaWindow>, 
     let creds: Value = serde_json::from_str(&std::fs::read_to_string(&path).context("read Claude credentials")?)?;
     let oauth = &creds["claudeAiOauth"];
     let token = oauth["accessToken"].as_str().context("no Claude OAuth token")?;
-    if let Some(exp) = oauth["expiresAt"].as_i64() {
-        if exp <= now_ms() {
-            bail!("Claude OAuth token expired, waiting for Claude Code to refresh it");
-        }
+    if let Some(exp) = oauth["expiresAt"].as_i64()
+        && exp <= now_ms() {
+        bail!("Claude OAuth token expired, waiting for Claude Code to refresh it");
     }
     let res = client
         .get("https://api.anthropic.com/api/oauth/usage")

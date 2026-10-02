@@ -46,3 +46,20 @@ LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- status   # status as JSON
 - Desktop window for the dev daemon: `cargo build -p launchpad-desktop && LAUNCHPAD_PROFILE=dev ./target/debug/launchpad-desktop` (a dev window is not single-instance and quits when closed). `--open <route>` opens a given screen.
 - WebKitGTK benchmark: open `/dev/perf?auto=1` in the window; results go to the daemon log ([spike 4](docs/spikes/4-webkitgtk.md)).
 - Tests: `cargo test` (a few pure functions: the prompt renderer, the remote and link parsers). It runs in well under a second once built.
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on pushes to `main`, pull requests and manual dispatch in `Wauplin/launchpad`. It has three independent Ubuntu 24.04 jobs: **Lint** runs strict Clippy across the whole workspace (including the desktop shell) and UI type checks; **Tests** runs the existing Rust tests for the default workspace members; **Build artifacts** builds the UI first, then both release binaries so the daemon embeds the UI. Rust is pinned to 1.93.1 for repeatable lint results; Node comes from `web/.nvmrc`, pnpm from `web/package.json`, and dependency installs use the lockfiles.
+
+Successful builds upload `launchpad-linux-x86_64`, retained for seven days. Download it from the workflow run and extract `launchpad-linux-x86_64.tar.gz`: `bin/` contains `launchpad` and `launchpad-desktop` with executable permissions preserved, and `web/dist/` contains the standalone UI build. The binaries target Ubuntu 24.04 x86_64 and require the desktop runtime libraries. CI does not install the app or publish a GitHub release.
+
+Run the same checks locally:
+
+```sh
+cargo +1.93.1 clippy --workspace --all-targets --locked -- -D warnings
+(cd web && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build)
+cargo +1.93.1 test --locked
+cargo +1.93.1 build --release --locked -p launchpad -p launchpad-desktop
+```
+
+Install the CI toolchain if needed: `rustup toolchain install 1.93.1 --profile minimal --component clippy`.

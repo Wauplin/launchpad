@@ -40,10 +40,9 @@ pub fn remotes(repo: &Path) -> Vec<(String, String)> {
                 .strip_prefix("[remote \"")
                 .and_then(|r| r.strip_suffix("\"]"))
                 .map(str::to_string);
-        } else if let (Some(name), Some((k, v))) = (&current, line.split_once('=')) {
-            if k.trim() == "url" {
-                out.push((name.clone(), v.trim().to_string()));
-            }
+        } else if let (Some(name), Some((k, v))) = (&current, line.split_once('='))
+            && k.trim() == "url" {
+            out.push((name.clone(), v.trim().to_string()));
         }
     }
     out

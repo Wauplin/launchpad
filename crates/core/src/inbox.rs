@@ -268,7 +268,7 @@ impl Inbox {
             if reconcile {tx.execute("DELETE FROM inbox_thread",[])?;}
             for mut t in saved {
                 // Preserve enriched fields when an unchanged notification is returned.
-                if let Some(p)=prior_threads.get(&t.id) { if p.updated_at==t.updated_at {t.state=p.state.clone();t.participants=p.participants.clone();t.participant_count=p.participant_count;t.review_decision=p.review_decision.clone();t.checks=p.checks.clone();} }
+                if let Some(p)=prior_threads.get(&t.id) && p.updated_at==t.updated_at {t.state=p.state.clone();t.participants=p.participants.clone();t.participant_count=p.participant_count;t.review_decision=p.review_decision.clone();t.checks=p.checks.clone();}
                 tx.execute("INSERT OR REPLACE INTO inbox_thread (id,updated_at,json) VALUES (?1,?2,?3)",rusqlite::params![t.id,t.updated_at,serde_json::to_string(&t)?])?;
             }
             tx.commit()?; Ok(())

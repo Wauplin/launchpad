@@ -51,10 +51,12 @@ pub struct Sessions {
     inner: Arc<Inner>,
 }
 
+type LiveSessions = HashMap<String, (u64, Arc<dyn LiveSession>)>;
+
 struct Inner {
     records: Mutex<HashMap<String, Session>>,
     /// Attached processes, with an instance number: the exit of an old process never detaches a newer one.
-    live: Mutex<HashMap<String, (u64, Arc<dyn LiveSession>)>>,
+    live: Mutex<LiveSessions>,
     next_instance: std::sync::atomic::AtomicU64,
     raw_counts: Mutex<HashMap<String, i64>>,
     /// Sessions shown in a focused window: no desktop notification for them.
@@ -433,10 +435,9 @@ impl Sessions {
 
     async fn detach(&self, id: &str) {
         let live = self.inner.live.lock().unwrap().remove(id);
-        if let Some((_, l)) = live {
-            if let Err(e) = l.stop().await {
-                tracing::warn!("stop {id}: {e:#}");
-            }
+        if let Some((_, l)) = live
+            && let Err(e) = l.stop().await {
+            tracing::warn!("stop {id}: {e:#}");
         }
     }
 

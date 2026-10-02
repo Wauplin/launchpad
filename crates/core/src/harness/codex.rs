@@ -34,7 +34,8 @@ struct State {
 }
 
 /// Live Codex sessions by thread id, for the router.
-type Threads = Arc<Mutex<HashMap<String, (Sink, Arc<Mutex<State>>)>>>;
+type ThreadSession = (Sink, Arc<Mutex<State>>);
+type Threads = Arc<Mutex<HashMap<String, ThreadSession>>>;
 
 fn threads() -> &'static Threads {
     static T: std::sync::OnceLock<Threads> = std::sync::OnceLock::new();
@@ -148,7 +149,7 @@ pub fn spawn_router(app: &App) {
                 }
                 Ok(Incoming::Exited) => {
                     // Every live thread is lost. Done sessions resume when you send a message.
-                    let all: Vec<(String, (Sink, Arc<Mutex<State>>))> = threads().lock().unwrap().drain().collect();
+                    let all: Vec<(String, ThreadSession)> = threads().lock().unwrap().drain().collect();
                     for (_, (sink, _)) in all {
                         sink.exited(Some("codex app-server exited".into())).await;
                     }

@@ -133,6 +133,10 @@ Tests are kept to the minimum:
 - No tests that need a server, the network, GitHub, a running agent or the daemon.
 - The full test run (`cargo test` plus the frontend tests, if any) takes a few seconds at most. A test that becomes slow or flaky is deleted or rewritten.
 
+### 5.3 Continuous integration
+
+GitHub Actions runs three independent jobs on Ubuntu 24.04: strict Clippy for all workspace targets plus UI type checks, the existing Rust tests for default members (excluding the desktop shell), and release builds of the daemon/CLI and desktop shell. The build job produces `web/dist` before compiling the daemon, which embeds those assets. It uploads a tar archive of both executable binaries and the standalone UI, retained for seven days. CI only builds artifacts; installation and production restarts stay local. Rust is pinned to 1.93.1 so new Clippy versions do not change the lint gate unexpectedly; Node and pnpm use the existing repository declarations and both package managers use locked dependencies.
+
 ## 6. Backend
 
 ### 6.1 Stack
@@ -667,3 +671,7 @@ Usability updates after daily use, on 2026-10-02:
 25. **Image messages.** Session message boxes accept image file selection, drops anywhere in the console and clipboard paste. Previews can be removed before Send; image-only messages are supported. PNG, JPEG, GIF and WebP images are limited to 5 MB each, eight images and 20 MB per message. The authenticated input endpoint validates data URLs and raises its request limit to 32 MB. Attachments remain in the local event log, appear in the conversation and are sent as native image content to Claude or Codex, including steer and resumed turns. Clipboard paste remains normal text-field behavior.
 26. **AI session titles.** Every newly launched agent gets an AI title based on its initial prompt. A separate short request runs in the background and broadcasts the persisted title without blocking launch. A prompt-derived title covers naming failures.
 27. **Self-update.** The production settings button runs checks and release builds in a transient systemd user unit, then uses the existing installer. The updater survives the daemon restart, and the replacement desktop window starts in its own user unit so it survives the updater's exit. Running agent sessions block installation, with a second check immediately before restart. The source is the current local checkout; fetching changes remains a separate action.
+
+Continuous integration, on 2026-10-02:
+
+28. **Three Ubuntu CI jobs.** GitHub Actions checks strict Rust linting and UI types, runs the existing fast Rust tests, and builds downloadable release binaries with the UI embedded. Ubuntu 24.04 x86_64 matches the Linux-only scope. Pin Rust for repeatable linting, preserve binary permissions inside a tar archive, and keep release publishing and installation outside CI.

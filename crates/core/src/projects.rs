@@ -238,10 +238,9 @@ pub async fn promote(app: &App, id: &str, name: &str) -> Result<Project> {
     std::fs::rename(&old, &new).with_context(|| format!("rename to {}", new.display()))?;
     let (old_s, new_s) = (old.to_string_lossy().to_string(), new.to_string_lossy().to_string());
     let (old_t, new_t) = (claude_transcripts_dir(&old_s), claude_transcripts_dir(&new_s));
-    if old_t.exists() && !new_t.exists() {
-        if let Err(e) = std::fs::rename(&old_t, &new_t) {
-            tracing::warn!("promote: could not move Claude transcripts: {e}");
-        }
+    if old_t.exists() && !new_t.exists()
+        && let Err(e) = std::fs::rename(&old_t, &new_t) {
+        tracing::warn!("promote: could not move Claude transcripts: {e}");
     }
     let (id2, name2) = (id.to_string(), name.to_string());
     let new_path = new_s.clone();

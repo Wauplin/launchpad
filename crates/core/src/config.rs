@@ -230,10 +230,9 @@ impl ConfigHandle {
         let dir = self.path.parent().unwrap().to_path_buf();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let mut watcher = match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-            if let Ok(ev) = res {
-                if ev.paths.iter().any(|p| p.file_name().is_some_and(|n| n == "config.toml")) {
-                    let _ = tx.send(());
-                }
+            if let Ok(ev) = res
+                && ev.paths.iter().any(|p| p.file_name().is_some_and(|n| n == "config.toml")) {
+                let _ = tx.send(());
             }
         }) {
             Ok(w) => w,

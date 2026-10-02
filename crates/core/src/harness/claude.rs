@@ -466,22 +466,20 @@ async fn tool_result(sink: &Sink, st: &Arc<Mutex<State>>, block: &Value, extra: 
     let output = text_of(&block["content"]);
     let is_error = block["is_error"].as_bool().unwrap_or(false);
     let cwd = st.lock().unwrap().cwd.clone();
-    if !is_error {
-        if let Some(fc) = file_change(&name, &input, &id, &cwd) {
-            sink.emit(fc).await;
-        }
+    if !is_error
+        && let Some(fc) = file_change(&name, &input, &id, &cwd) {
+        sink.emit(fc).await;
     }
     // Output file of a background command, for its live view.
-    if name == "Bash" && input["run_in_background"].as_bool() == Some(true) {
-        if let (Some(task), Some(file)) = (extra["backgroundTaskId"].as_str(), output.split("Output is being written to: ").nth(1)) {
-            sink.emit(EventBody::BackgroundTask {
-                task_id: task.to_string(),
-                description: summary(&name, &input),
-                status: "running".into(),
-                output_file: Some(file.split_whitespace().next().unwrap_or("").trim_end_matches('.').to_string()),
-            })
-            .await;
-        }
+    if name == "Bash" && input["run_in_background"].as_bool() == Some(true)
+        && let (Some(task), Some(file)) = (extra["backgroundTaskId"].as_str(), output.split("Output is being written to: ").nth(1)) {
+        sink.emit(EventBody::BackgroundTask {
+            task_id: task.to_string(),
+            description: summary(&name, &input),
+            status: "running".into(),
+            output_file: Some(file.split_whitespace().next().unwrap_or("").trim_end_matches('.').to_string()),
+        })
+        .await;
     }
     sink.emit(EventBody::ToolResult {
         item_id: id,

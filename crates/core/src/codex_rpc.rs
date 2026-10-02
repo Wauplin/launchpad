@@ -59,10 +59,9 @@ impl CodexServer {
     /// Returns the running process, starting it (and sending `initialize`) when needed.
     async fn get(&self) -> Result<Arc<Proc>> {
         let mut guard = self.proc.lock().await;
-        if let Some(p) = guard.as_ref() {
-            if p.alive.load(Ordering::Relaxed) {
-                return Ok(p.clone());
-            }
+        if let Some(p) = guard.as_ref()
+            && p.alive.load(Ordering::Relaxed) {
+            return Ok(p.clone());
         }
         // The lock stays held until `initialize` is done, so no request goes out before it.
         let p = self.spawn().await?;

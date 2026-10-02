@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.93.1
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install desktop system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: lint
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: web/.nvmrc
+      - name: Install UI dependencies
+        working-directory: web
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+      - name: Check Rust linting (including desktop)
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Check UI types
+        working-directory: web
+        run: pnpm typecheck
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tests
+      - name: Run Rust tests (default workspace members)
+        run: cargo test --locked
+
+  build:
+    name: Build artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install desktop system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: build
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: web/.nvmrc
+      - name: Build UI before embedding it in the daemon
+        working-directory: web
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Build release binaries
+        run: cargo build --release --locked -p launchpad -p launchpad-desktop
+      - name: Package binaries and UI (preserve executable permissions)
+        run: |
+          mkdir -p artifacts/bin artifacts/web
+          install -m755 target/release/launchpad target/release/launchpad-desktop artifacts/bin/
+          cp -r web/dist artifacts/web/
+          tar -czf launchpad-linux-x86_64.tar.gz -C artifacts .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: launchpad-linux-x86_64
+          path: launchpad-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 7

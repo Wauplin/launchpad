@@ -127,10 +127,9 @@ pub fn expand_home(p: &str) -> PathBuf {
 
 /// Replaces the home directory prefix with `~` for display.
 pub fn tilde(p: &Path) -> String {
-    if let Some(home) = dirs::home_dir() {
-        if let Ok(rest) = p.strip_prefix(&home) {
-            return format!("~/{}", rest.display());
-        }
+    if let Some(home) = dirs::home_dir()
+        && let Ok(rest) = p.strip_prefix(&home) {
+        return format!("~/{}", rest.display());
     }
     p.display().to_string()
 }

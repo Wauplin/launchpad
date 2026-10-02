@@ -6,6 +6,8 @@ Status: Phase 0 done, Phases 1 and 2 built and awaiting daily-use checks (see `d
 
 ## Commands
 
+- CI linting: `cargo +1.93.1 clippy --workspace --all-targets --locked -- -D warnings` and `(cd web && pnpm typecheck)`. Install the pinned toolchain with `rustup toolchain install 1.93.1 --profile minimal --component clippy`.
+- GitHub Actions: `.github/workflows/ci.yml` runs lint, tests and release artifact builds on Ubuntu 24.04. Build the UI before the release daemon so it embeds the assets; keep CI commands and toolchain documentation in sync.
 - Build the UI: `cd web && pnpm install && pnpm build` (Node 24 from `web/.nvmrc`, pnpm through Corepack).
 - Run the dev daemon: `LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- daemon` (port 7318, data in `~/.local/share/launchpad-dev`). Never stop or restart the prod daemon (port 7317) unless the owner asks: it runs the agents, maybe including you.
 - Sign a browser in to the dev daemon: `LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- url`. Headless screenshots work with `google-chrome --headless=new --screenshot=out.png --virtual-time-budget=5000 "<url>"`.

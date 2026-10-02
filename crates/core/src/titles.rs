@@ -49,7 +49,7 @@ async fn title(app: &App, session: &Session) -> Result<String> {
         HarnessKind::Claude => stdout,
         HarnessKind::Codex => stdout.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok())
             .filter(|event| event["type"] == "item.completed" && event["item"]["type"] == "agent_message")
-            .filter_map(|event| event["item"]["text"].as_str().map(str::to_string)).last().context("no generated title")?,
+            .filter_map(|event| event["item"]["text"].as_str().map(str::to_string)).next_back().context("no generated title")?,
     };
     let title = response.trim().trim_matches('"').trim();
     anyhow::ensure!(!title.is_empty() && !title.contains('\n') && title.chars().count() <= 100, "invalid generated title");

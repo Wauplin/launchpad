@@ -13,6 +13,8 @@ use crate::model::GitHubRef;
 use crate::shellenv::UserEnv;
 use crate::util::now_ms;
 
+type RecentItems = std::collections::HashMap<String, (i64, Vec<GhItem>)>;
+
 #[derive(Clone)]
 pub struct GitHub {
     env: UserEnv,
@@ -21,7 +23,7 @@ pub struct GitHub {
     http: reqwest::Client,
     token: Arc<RwLock<Option<String>>>,
     /// Recent items per repository, for `#` suggestions: (fetched_at, items).
-    recent: Arc<RwLock<std::collections::HashMap<String, (i64, Vec<GhItem>)>>>,
+    recent: Arc<RwLock<RecentItems>>,
 }
 
 /// An issue or a pull request, as shown in suggestions and context chips.
@@ -66,10 +68,9 @@ impl GitHub {
     }
 
     async fn token(&self, refresh: bool) -> Result<String> {
-        if !refresh {
-            if let Some(t) = self.token.read().await.clone() {
-                return Ok(t);
-            }
+        if !refresh
+            && let Some(t) = self.token.read().await.clone() {
+            return Ok(t);
         }
         let t = crate::procs::output(&self.env, "gh", &["auth", "token"], None)
             .await
@@ -305,12 +306,10 @@ impl GitHub {
                 .collect()
         };
         // An exact number that is not in the recent list is fetched on demand.
-        if out.is_empty() {
-            if let Ok(n) = q.parse::<u64>() {
-                if let Ok(v) = self.get(&format!("/repos/{repo}/issues/{n}")).await {
-                    out.extend(item_from_rest(repo, &v));
-                }
-            }
+        if out.is_empty()
+            && let Ok(n) = q.parse::<u64>()
+            && let Ok(v) = self.get(&format!("/repos/{repo}/issues/{n}")).await {
+            out.extend(item_from_rest(repo, &v));
         }
         out.truncate(12);
         Ok(out)

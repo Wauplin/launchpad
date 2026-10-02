@@ -81,10 +81,9 @@ async fn from_login_shell() -> anyhow::Result<BTreeMap<String, String>> {
     let body = text.split_once(START).map(|(_, b)| b).ok_or_else(|| anyhow::anyhow!("no output from {shell}"))?;
     let mut vars = BTreeMap::new();
     for entry in body.split('\0') {
-        if let Some((k, v)) = entry.split_once('=') {
-            if !k.is_empty() && !k.contains(char::is_whitespace) {
-                vars.insert(k.to_string(), v.to_string());
-            }
+        if let Some((k, v)) = entry.split_once('=')
+            && !k.is_empty() && !k.contains(char::is_whitespace) {
+            vars.insert(k.to_string(), v.to_string());
         }
     }
     // Shell-internal variables that make no sense for other processes.

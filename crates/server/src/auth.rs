@@ -41,18 +41,16 @@ impl Auth {
     }
 
     fn is_authenticated(&self, headers: &HeaderMap) -> bool {
-        if let Some(v) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
-            if let Some(t) = v.strip_prefix("Bearer ") {
-                return self.check_token(t.trim());
-            }
+        if let Some(v) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok())
+            && let Some(t) = v.strip_prefix("Bearer ") {
+            return self.check_token(t.trim());
         }
         for v in headers.get_all(header::COOKIE) {
             let Ok(v) = v.to_str() else { continue };
             for pair in v.split(';') {
-                if let Some((k, val)) = pair.trim().split_once('=') {
-                    if k == self.cookie && self.check_token(val) {
-                        return true;
-                    }
+                if let Some((k, val)) = pair.trim().split_once('=')
+                    && k == self.cookie && self.check_token(val) {
+                    return true;
                 }
             }
         }
@@ -68,12 +66,10 @@ pub async fn guard(State(s): State<Server>, req: Request, next: Next) -> Respons
     }
     let is_upgrade = headers.get(header::UPGRADE).is_some();
     let is_mutation = !matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS);
-    if is_upgrade || is_mutation {
-        if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
-            if !s.auth.origins.iter().any(|o| o == origin) {
-                return (StatusCode::FORBIDDEN, "foreign Origin").into_response();
-            }
-        }
+    if (is_upgrade || is_mutation)
+        && let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
+        && !s.auth.origins.iter().any(|o| o == origin) {
+        return (StatusCode::FORBIDDEN, "foreign Origin").into_response();
     }
     let path = req.uri().path();
     if path == "/api/health" || path == "/auth" || s.auth.is_authenticated(headers) {

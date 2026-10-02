@@ -120,7 +120,7 @@ pub fn tui_running(_app: &App, s: &Session) -> bool {
     for entry in dir.flatten() {
         let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else { continue };
         let args: Vec<&[u8]> = cmdline.split(|b| *b == 0).collect();
-        let has_id = args.iter().any(|a| *a == id.as_bytes());
+        let has_id = args.contains(&id.as_bytes());
         let is_resume = args.iter().any(|a| *a == b"--resume" || *a == b"resume");
         if has_id && is_resume && !args.iter().any(|a| *a == b"-p") {
             return true;
