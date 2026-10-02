@@ -1,6 +1,6 @@
 # Launchpad
 
-Launchpad is a personal desktop app for Ubuntu that launches and drives coding agents (Claude Code and Codex) and replaces the parts of GitHub used every day: notifications, issues, pull requests and reviews. Everything GitHub-related is cached locally, so moving between items never reloads a page. Launchpad also keeps pre-draft PRs: pull requests that exist only on the laptop until they are worth publishing.
+Launchpad is a personal desktop app for Ubuntu that launches and drives coding agents (Claude Code and Codex) and replaces the parts of GitHub used every day: notifications, issues, pull requests and reviews. Everything GitHub-related is cached locally, so moving between items never reloads a page. Launchpad also keeps pre-draft PRs: pull requests that exist only on the laptop until they are worth publishing. A read-only code viewer (designed, not built yet) shows the files of projects, worktrees and branches, and turns selected lines into context for an agent.
 
 ## Status
 

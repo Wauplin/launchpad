@@ -1,5 +1,5 @@
 <title>Launchpad Sketches</title>
-<meta name="description" content="Annotated UI sketches for Launchpad: inbox, agent launcher, agents grid, pull request view, pre-draft PRs.">
+<meta name="description" content="Annotated UI sketches for Launchpad: inbox, agent launcher, agents grid, pull request view, pre-draft PRs, code viewer.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu+Sans:wght@300..800&display=swap">
@@ -525,6 +525,80 @@ code.i { font: 12px var(--font-mono); background: var(--sunk); padding: 0 4px; b
 .qreset { padding-left: 80px; font-size: 11.5px; color: var(--ink-3); margin-top: -8px; }
 .qsep { height: 1px; background: var(--line-2); }
 
+/* ---------- S7 code viewer ---------- */
+.s7 { grid-template-columns: 52px 284px 1fr; height: 760px; }
+.cv-side { border-right: 1px solid var(--line); background: var(--paper); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.cv-side-h { padding: 10px 10px 9px; display: grid; gap: 8px; border-bottom: 1px solid var(--line-2); }
+.cv-go { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink-3); font-size: 12.5px; }
+.cv-go .pin { margin-left: auto; }
+.cv-filter { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.cv-filter .faint { margin-left: auto; font-size: 11.5px; }
+.cv-tree { padding: 4px 0; font-size: 12.5px; overflow: hidden; }
+.cv-tn { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px 0 calc(10px + var(--d, 0) * 16px); white-space: nowrap; color: var(--ink); }
+.cv-tn.f { padding-left: calc(30px + var(--d, 0) * 16px); }
+.cv-tn > .ic { color: var(--ink-3); }
+.cv-tn.dir { font-weight: 550; }
+.cv-tn.chg { color: var(--attn); }
+.cv-tn.sel { background: var(--select); box-shadow: inset 2px 0 0 var(--teal); font-weight: 600; }
+.cv-gs { margin-left: auto; font: 700 10.5px/1 var(--font-mono); color: var(--attn); }
+.cv-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.cv-tabs { display: flex; align-items: stretch; height: 34px; flex: none; background: var(--chrome); border-bottom: 1px solid var(--line); }
+.cv-tab { display: flex; align-items: center; gap: 7px; padding: 0 9px 0 12px; border-right: 1px solid var(--line); font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
+.cv-tab > .ic { color: var(--ink-3); }
+.cv-tab .cv-gs { margin-left: 0; }
+.cv-tab.on { background: var(--paper); color: var(--ink); font-weight: 600; box-shadow: inset 0 2px 0 var(--teal); margin-bottom: -1px; }
+.cv-tabs .pin { align-self: center; margin-left: 10px; }
+.cv-head { display: flex; align-items: center; gap: 12px; height: 42px; flex: none; padding: 0 10px 0 14px; border-bottom: 1px solid var(--line-2); }
+.cv-path { font: 12.5px var(--font-mono); color: var(--ink-3); white-space: nowrap; }
+.cv-path b { color: var(--ink); font-weight: 600; }
+.cv-meta { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cv-meta .add { color: var(--gh-open); font-weight: 650; }
+.cv-meta .del { color: var(--gh-closed); font-weight: 650; }
+.cv-head .end { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.btn.cv-on { background: var(--teal-soft); border-color: #9DCBC2; color: var(--teal-ink); }
+.btn.off, .iconbtn.off { opacity: .42; }
+.kbd { display: inline-flex; align-items: center; height: 16px; padding: 0 4px; border-radius: 4px; border: 1px solid #B9D9D2; border-bottom-width: 2px; background: var(--paper); font: 600 10px/1 var(--font-mono); color: var(--teal-ink); }
+.cv-code { position: relative; flex: 1; min-height: 0; overflow: hidden; padding-top: 4px; font: 12px/19px var(--font-mono); }
+.cv-line { display: grid; grid-template-columns: 3px 50px 1fr; height: 19px; }
+.cv-n { text-align: right; padding-right: 14px; color: var(--ink-3); user-select: none; font-variant-numeric: tabular-nums; }
+.cv-t { white-space: pre; }
+.cv-line.mod .cv-g { background: #D4A52C; }
+.cv-line.new .cv-g { background: #4AC26B; }
+.cv-line.sel { background: #EDF3FB; }
+.cv-line.sel .cv-n { background: #DCE8F7; color: var(--work); font-weight: 650; }
+mark.cv-m { background: #FFEBA6; color: inherit; border-radius: 2px; box-shadow: 0 0 0 1px #EDCF6E; }
+mark.cv-m.cur { background: #FFB347; box-shadow: 0 0 0 1.5px #C77700; }
+.cv-find { position: absolute; top: 8px; right: 14px; z-index: 3; display: flex; align-items: center; gap: 3px; padding: 5px; background: var(--paper); border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 10px 24px -10px rgba(23,32,43,.35); font: 12.5px/1.45 var(--font-ui); }
+.cv-fi { display: flex; align-items: center; gap: 6px; width: 200px; height: 28px; padding: 0 8px; border: 1.5px solid var(--teal); border-radius: 6px; box-shadow: 0 0 0 3px var(--teal-soft); font: 12px var(--font-mono); color: var(--ink); }
+.cv-fi .ic { color: var(--ink-3); }
+.cv-count { min-width: 62px; padding: 0 4px; text-align: center; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cv-opt { width: 26px; height: 26px; display: inline-grid; place-items: center; flex: none; border-radius: 6px; border: 1px solid transparent; font: 650 11px/1 var(--font-mono); color: var(--ink-2); }
+.cv-opt.on { background: var(--teal-soft); border-color: #9DCBC2; color: var(--teal-ink); }
+.cv-vsep { width: 1px; height: 18px; background: var(--line); margin: 0 2px; }
+.cv-selbar { position: absolute; z-index: 3; display: flex; align-items: center; gap: 4px; padding: 4px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 24px -10px rgba(23,32,43,.35); font: 12.5px/1.45 var(--font-ui); }
+.cv-sl { padding: 0 6px 0 4px; font-size: 11.5px; font-weight: 650; color: var(--work); white-space: nowrap; }
+.s7b { display: grid; grid-template-columns: 300px 330px 1fr; gap: 22px; max-width: 1180px; margin: 0 auto; width: 100%; align-items: start; }
+.s7b .stack { display: grid; gap: 22px; }
+@media (max-width: 900px) { .s7b { grid-template-columns: 1fr; } }
+.cv-sh { padding: 10px; display: grid; gap: 8px; border-bottom: 1px solid var(--line-2); }
+.cv-q { display: flex; align-items: center; gap: 3px; }
+.cv-q .cv-fi { flex: 1; width: auto; }
+.cv-rsum { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--ink-3); }
+.cv-res { padding: 4px 0 8px; font-size: 12px; }
+.cv-rf { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; white-space: nowrap; overflow: hidden; }
+.cv-rf .ic { color: var(--ink-3); }
+.cv-rf .p { font: 600 11.5px var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
+.cv-rf .k { margin-left: auto; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 999px; background: var(--sunk); display: inline-grid; place-items: center; flex: none; font-size: 11px; font-weight: 600; color: var(--ink-2); }
+.cv-rl { display: grid; grid-template-columns: 34px 1fr; align-items: center; height: 22px; padding: 0 10px 0 22px; font: 11.5px var(--font-mono); color: var(--ink-2); }
+.cv-rl .cv-n { padding-right: 10px; }
+.cv-rl .cv-t { overflow: hidden; text-overflow: ellipsis; }
+.cv-rl.on { background: var(--select); }
+.cv-rmore { padding: 3px 10px 5px 56px; font-size: 11.5px; font-weight: 600; color: var(--teal-ink); }
+.menu.static { position: static; box-shadow: none; border: 0; padding: 0; min-width: 0; }
+.cv-way { display: grid; gap: 7px; }
+.cv-way + .cv-way { border-top: 1px solid var(--line-2); padding-top: 12px; }
+.cv-link { color: var(--teal-ink); text-decoration: underline; text-decoration-color: #9DCBC2; text-underline-offset: 2px; }
+
 footer.end { margin-top: 72px; padding-top: 18px; border-top: 1px solid #CDD4DE; color: var(--ink-2); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 8px 24px; }
 footer.end code { font: 12.5px var(--font-mono); }
 </style>
@@ -572,6 +646,7 @@ footer.end code { font: 12.5px var(--font-mono); }
     <symbol id="i-alert" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3"/></g><circle cx="8" cy="11.6" r=".9" fill="currentColor"/></symbol>
     <symbol id="i-xcircle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="currentColor"/><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></symbol>
     <symbol id="i-okcircle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="currentColor"/><path d="M5.3 8.2l1.8 1.8 3.6-3.7" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-code" viewBox="0 0 16 16"><path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-cursor" viewBox="0 0 18 22"><path d="M2 1.5v15.2l3.9-3.6 2.7 6.2 2.6-1.1-2.7-6.1h5.4z" fill="#fff" stroke="#17202B" stroke-width="1.4" stroke-linejoin="round"/></symbol>
   </defs>
 </svg>
@@ -581,7 +656,7 @@ footer.end code { font: 12.5px var(--font-mono); }
 <header class="intro">
   <div class="kicker">Launchpad · design sketches · 2 October 2026</div>
   <h1>Launchpad sketches</h1>
-  <p class="lede">Six static mockups of the main screens, filled with example data. The app is light theme only, so the sketches are too. The UI is click only: no keyboard shortcuts. The only typing helpers are <code>@</code> and <code>#</code> suggestions in the composer prompt. Pink numbered pins in each window match the notes below it. The design rationale is in <code>docs/ARCHITECTURE.md</code>.</p>
+  <p class="lede">Seven static mockups of the main screens, filled with example data. The app is light theme only, so the sketches are too. The UI is click only, with one keyboard shortcut: <code>Ctrl+F</code> opens find in the code viewer. The only typing helpers are <code>@</code> and <code>#</code> suggestions in the composer prompt. Pink numbered pins in each window match the notes below it. The design rationale is in <code>docs/ARCHITECTURE.md</code>.</p>
   <div class="legend">
     <span><i class="sw" style="background:var(--teal)"></i>Launchpad: primary actions and anything that exists only on your laptop</span>
     <span><i class="sw" style="background:var(--clay)"></i>Claude Code</span>
@@ -595,6 +670,7 @@ footer.end code { font: 12.5px var(--font-mono); }
     <a href="#s4"><b>S4</b>Pull request</a>
     <a href="#s5"><b>S5</b>Pre-draft PR</a>
     <a href="#s6"><b>S6</b>Settings, temp folders, quotas</a>
+    <a href="#s7"><b>S7</b>Code viewer</a>
   </nav>
 </header>
 
@@ -1241,7 +1317,7 @@ chunk=256MB  run 3/5 …</pre>
           <div class="phead">
             <div class="name"><svg class="ic"><use href="#i-folder"/></svg>huggingface_hub</div>
             <div class="meta"><span class="mono">~/projects/huggingface_hub</span><span>huggingface/huggingface_hub</span><span><svg class="ic sm"><use href="#i-branch"/></svg> main <span class="clean">clean</span></span></div>
-            <div class="acts"><span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span><span class="btn sm">Editor</span><span class="btn sm"><svg class="ic sm"><use href="#i-term"/></svg>Terminal</span><span class="btn sm"><svg class="ic sm"><use href="#i-ext"/></svg>GitHub</span></div>
+            <div class="acts"><span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span><span class="btn sm"><svg class="ic sm"><use href="#i-code"/></svg>Code</span><span class="btn sm">Editor</span><span class="btn sm"><svg class="ic sm"><use href="#i-term"/></svg>Terminal</span><span class="btn sm"><svg class="ic sm"><use href="#i-ext"/></svg>GitHub</span></div>
           </div>
           <div class="tabs"><span class="tab on">Pull requests <span class="cnt">16</span></span><span class="tab">Issues <span class="cnt">52</span></span><span class="tab">Sessions <span class="cnt">9</span></span><span class="tab">Worktrees <span class="cnt">3</span></span></div>
           <div class="lfilter"><span class="fchip on">Open</span><span class="fchip">Pre-drafts <b>2</b></span><span class="fchip">Review requested <b>1</b></span><span class="fchip">Mine</span></div>
@@ -1303,7 +1379,7 @@ chunk=256MB  run 3/5 …</pre>
           <div class="tabs"><span class="tab">Description</span><span class="tab">Commits <span class="cnt">2</span></span><span class="tab on">Files changed <span class="cnt">2</span></span></div>
           <div class="files">
             <div class="dfile">
-              <div class="dfh"><svg class="ic sm"><use href="#i-chev"/></svg><span class="p">src/huggingface_hub/hf_file_system.py</span><span class="add">+12</span><span class="del">−4</span><span class="end"><span class="cb"></span>Viewed</span></div>
+              <div class="dfh"><svg class="ic sm"><use href="#i-chev"/></svg><span class="p">src/huggingface_hub/hf_file_system.py</span><span class="add">+12</span><span class="del">−4</span><span class="end"><span class="btn sm ghost"><svg class="ic sm"><use href="#i-code"/></svg>View file</span><span class="cb"></span>Viewed</span></div>
               <div class="diff"><table>
                 <tr class="hk"><td class="ln"></td><td class="ln"></td><td>@@ -405,5 +405,7 @@ class HfFileSystem(fsspec.AbstractFileSystem):</td></tr>
                 <tr><td class="ln">405</td><td class="ln">405</td><td>    <span class="kw">def</span> <span class="fn">glob</span>(self, path: str, maxdepth: Optional[int] = <span class="kw">None</span>, **kwargs):</td></tr>
@@ -1320,7 +1396,7 @@ chunk=256MB  run 3/5 …</pre>
               <div class="lnote"><span class="av" style="--h:175">W</span><div><div class="who">Your note for the agent <i class="pin">4</i></div>Also cover the <code class="i">detail=True</code> path. It goes through <code class="i">_ls_tree</code> and probably has the same bug.</div><span class="btn sm ghost">Edit</span></div>
             </div>
             <div class="dfile collapsed">
-              <div class="dfh"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><span class="p">tests/test_hf_file_system.py</span><span class="add">+19</span><span class="del">−2</span><span class="end"><span class="cb"></span>Viewed</span></div>
+              <div class="dfh"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><span class="p">tests/test_hf_file_system.py</span><span class="add">+19</span><span class="del">−2</span><span class="end"><span class="btn sm ghost"><svg class="ic sm"><use href="#i-code"/></svg>View file</span><span class="cb"></span>Viewed</span></div>
             </div>
           </div>
         </div>
@@ -1413,6 +1489,254 @@ chunk=256MB  run 3/5 …</pre>
     <li><i class="pin">2</i><span><b>Temporary projects.</b> They live in the projects root (<code>~/projects</code> by default, configurable). Promote renames the folder and keeps its sessions resumable. Delete asks for a second click on the same button instead of a dialog.</span></li>
     <li><i class="pin">3</i><span><b>Quota detail.</b> Clicking the status bar shows both windows with exact reset times and the update state of each harness. Codex numbers are real values read from <code>codex app-server</code> on 2 October.</span></li>
     <li><i class="pin">4</i><span><b>General settings.</b> The projects root (<code>~/projects</code> by default), the terminal used by "Open in terminal" (Terminator by default, Ghostty, GNOME Terminal, or any terminal through a custom command) and the editor. Terminals installed on the machine are marked "found".</span></li>
+  </ol>
+</section>
+
+<!-- ======================= S7 CODE VIEWER ======================= -->
+<section class="sketch" id="s7">
+  <div class="sketch-head">
+    <span class="sketch-id">S7 · Code viewer</span>
+    <h2>Read the code an agent works on, without opening an editor</h2>
+    <p>A read-only viewer for a project checkout, a worktree, a branch or a PR head: file tree, tabs, syntax highlighting, find in file and search in the project. It reads from local disk and git, so nothing waits on the network. Selected lines go to an agent in one click. Editing stays in your editor.</p>
+  </div>
+  <div class="frame">
+    <div class="win" role="img" aria-label="Code viewer mockup">
+      <div class="topbar">
+        <div class="brand"><span class="logo"><svg viewBox="0 0 12 12"><path d="M6 1.5 10.5 10H1.5z" fill="#fff"/></svg></span>Launchpad</div>
+        <div class="crumbs">huggingface_hub <span class="sep">/</span> <b>Code</b></div>
+        <span class="btn primary tb-launch"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
+        <div class="wctl"><span></span><span></span><span></span></div>
+      </div>
+      <div class="app s7">
+        <nav class="rail">
+          <span class="r"><svg class="ic"><use href="#i-inbox"/></svg></span>
+          <span class="r"><svg class="ic"><use href="#i-agents"/></svg><span class="dot"></span></span>
+          <span class="r on"><svg class="ic"><use href="#i-folder"/></svg></span>
+          <span class="sep"></span>
+          <span class="pj" style="box-shadow: inset 0 0 0 1.5px var(--ink); color: var(--ink)">hh</span><span class="pj">js</span><span class="pj">ml</span><span class="pj">tf</span>
+          <span class="r bottom"><svg class="ic"><use href="#i-sliders"/></svg></span>
+        </nav>
+
+        <aside class="cv-side">
+          <div class="cv-side-h">
+            <div class="field"><label>Source <i class="pin">1</i></label><div class="select"><svg class="ic sm c-local"><use href="#i-pr-local"/></svg><span class="mono">lp/glob-revision</span><span class="tag-local">Pre-draft</span><svg class="ic sm"><use href="#i-chev"/></svg></div></div>
+            <span class="seg full"><span class="on">Files</span><span>Search</span></span>
+            <div class="cv-go"><svg class="ic sm"><use href="#i-search"/></svg>Go to file<i class="pin">2</i></div>
+            <div class="cv-filter"><span class="toggle"><span class="tr"></span>Changed only</span><i class="pin">3</i><span class="faint">2 changed</span></div>
+          </div>
+          <div class="cv-tree">
+            <div class="cv-tn dir" style="--d:0"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><svg class="ic sm"><use href="#i-folder"/></svg>.github</div>
+            <div class="cv-tn dir" style="--d:0"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><svg class="ic sm"><use href="#i-folder"/></svg>docs</div>
+            <div class="cv-tn dir" style="--d:0"><svg class="ic sm"><use href="#i-chev"/></svg><svg class="ic sm"><use href="#i-folder"/></svg>src/huggingface_hub</div>
+            <div class="cv-tn dir" style="--d:1"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><svg class="ic sm"><use href="#i-folder"/></svg>commands</div>
+            <div class="cv-tn dir" style="--d:1"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><svg class="ic sm"><use href="#i-folder"/></svg>inference</div>
+            <div class="cv-tn dir" style="--d:1"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><svg class="ic sm"><use href="#i-folder"/></svg>utils</div>
+            <div class="cv-tn f" style="--d:1"><svg class="ic sm"><use href="#i-file"/></svg>__init__.py</div>
+            <div class="cv-tn f" style="--d:1"><svg class="ic sm"><use href="#i-file"/></svg>_commit_api.py</div>
+            <div class="cv-tn f" style="--d:1"><svg class="ic sm"><use href="#i-file"/></svg>_snapshot_download.py</div>
+            <div class="cv-tn f" style="--d:1"><svg class="ic sm"><use href="#i-file"/></svg>constants.py</div>
+            <div class="cv-tn f" style="--d:1"><svg class="ic sm"><use href="#i-file"/></svg>file_download.py</div>
+            <div class="cv-tn f" style="--d:1"><svg class="ic sm"><use href="#i-file"/></svg>hf_api.py</div>
+            <div class="cv-tn f chg sel" style="--d:1"><svg class="ic sm"><use href="#i-file"/></svg>hf_file_system.py<span class="cv-gs">M</span></div>
+            <div class="cv-tn f" style="--d:1"><svg class="ic sm"><use href="#i-file"/></svg>repocard.py</div>
+            <div class="cv-tn dir" style="--d:0"><svg class="ic sm"><use href="#i-chev"/></svg><svg class="ic sm"><use href="#i-folder"/></svg>tests</div>
+            <div class="cv-tn f" style="--d:1"><svg class="ic sm"><use href="#i-file"/></svg>test_hf_api.py</div>
+            <div class="cv-tn f chg" style="--d:1"><svg class="ic sm"><use href="#i-file"/></svg>test_hf_file_system.py<span class="cv-gs">M</span></div>
+            <div class="cv-tn f" style="--d:1"><svg class="ic sm"><use href="#i-file"/></svg>test_snapshot_download.py</div>
+            <div class="cv-tn dir" style="--d:0"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><svg class="ic sm"><use href="#i-folder"/></svg>utils</div>
+            <div class="cv-tn f" style="--d:0"><svg class="ic sm"><use href="#i-file"/></svg>.gitignore</div>
+            <div class="cv-tn f" style="--d:0"><svg class="ic sm"><use href="#i-file"/></svg>Makefile</div>
+            <div class="cv-tn f" style="--d:0"><svg class="ic sm"><use href="#i-file"/></svg>README.md</div>
+            <div class="cv-tn f" style="--d:0"><svg class="ic sm"><use href="#i-file"/></svg>pyproject.toml</div>
+          </div>
+        </aside>
+
+        <div class="cv-main">
+          <div class="cv-tabs">
+            <span class="cv-tab on"><svg class="ic sm"><use href="#i-file"/></svg>hf_file_system.py<span class="cv-gs">M</span><svg class="ic sm"><use href="#i-x"/></svg></span>
+            <span class="cv-tab"><svg class="ic sm"><use href="#i-file"/></svg>_snapshot_download.py<svg class="ic sm"><use href="#i-x"/></svg></span>
+            <span class="cv-tab"><svg class="ic sm"><use href="#i-file"/></svg>README.md<svg class="ic sm"><use href="#i-x"/></svg></span>
+            <i class="pin">4</i>
+          </div>
+          <div class="cv-head">
+            <span class="cv-path">src / huggingface_hub / <b>hf_file_system.py</b></span>
+            <span class="cv-meta">Python · 1,184 lines · <span class="add">+12</span> <span class="del">−4</span> since main</span>
+            <span class="end"><i class="pin">5</i>
+              <span class="btn sm cv-on"><svg class="ic sm"><use href="#i-search"/></svg>Find <span class="kbd">Ctrl+F</span></span>
+              <span class="iconbtn" title="Copy path"><svg class="ic sm"><use href="#i-copy"/></svg></span>
+              <span class="iconbtn off" title="Open on GitHub (this commit is not on GitHub)"><svg class="ic sm"><use href="#i-ext"/></svg></span>
+              <span class="btn sm">Editor</span>
+              <span class="iconbtn" title="Reload"><svg class="ic sm"><use href="#i-refresh"/></svg></span>
+            </span>
+          </div>
+          <div class="cv-code">
+            <div class="cv-find">
+              <span class="cv-fi"><svg class="ic sm"><use href="#i-search"/></svg>revision<span class="caret"></span></span>
+              <span class="cv-count">17 of 38</span>
+              <span class="cv-opt" title="Match case">Aa</span>
+              <span class="cv-opt" title="Whole word"><u>ab</u></span>
+              <span class="cv-opt" title="Regular expression">.*</span>
+              <span class="cv-vsep"></span>
+              <span class="iconbtn" title="Previous match"><svg class="ic sm"><use href="#i-up"/></svg></span>
+              <span class="iconbtn" title="Next match"><svg class="ic sm" style="transform:rotate(180deg)"><use href="#i-up"/></svg></span>
+              <span class="iconbtn" title="Close"><svg class="ic sm"><use href="#i-x"/></svg></span>
+              <i class="pin">6</i>
+            </div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">396</span><span class="cv-t">    <span class="kw">def</span> <span class="fn">walk</span>(self, path: str, *args, **kwargs):</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">397</span><span class="cv-t">        <span class="cm"># Set expand_info=False by default to get a x10 speed boost</span></span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">398</span><span class="cv-t">        kwargs = {<span class="str">"expand_info"</span>: kwargs.get(<span class="str">"detail"</span>, <span class="kw">False</span>), **kwargs}</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">399</span><span class="cv-t">        path = self.resolve_path(path, <mark class="cv-m">revision</mark>=kwargs.get(<span class="str">"<mark class="cv-m">revision</mark>"</span>)).unresolve()</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">400</span><span class="cv-t">        <span class="kw">yield from</span> super().walk(path, *args, **kwargs)</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">401</span><span class="cv-t"></span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">402</span><span class="cv-t">    <span class="kw">def</span> <span class="fn">isdir</span>(self, path: str) -&gt; bool:</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">403</span><span class="cv-t">        <span class="kw">return</span> self.info(path)[<span class="str">"type"</span>] == <span class="str">"directory"</span></span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">404</span><span class="cv-t"></span></div>
+            <div class="cv-line sel"><span class="cv-g"></span><span class="cv-n">405</span><span class="cv-t">    <span class="kw">def</span> <span class="fn">glob</span>(self, path: str, maxdepth: Optional[int] = <span class="kw">None</span>, **kwargs):</span></div>
+            <div class="cv-line sel"><span class="cv-g"></span><span class="cv-n">406</span><span class="cv-t">        resolved_path = self.resolve_path(path, <mark class="cv-m">revision</mark>=kwargs.get(<span class="str">"<mark class="cv-m">revision</mark>"</span>))</span></div>
+            <div class="cv-line sel mod"><span class="cv-g"></span><span class="cv-n">407</span><span class="cv-t">        <span class="cm"># Resolve the <mark class="cv-m">revision</mark> first so that filters apply to the requested ref</span></span></div>
+            <div class="cv-line sel mod"><span class="cv-g"></span><span class="cv-n">408</span><span class="cv-t">        <mark class="cv-m cur">revision</mark> = resolved_path.<mark class="cv-m">revision</mark></span></div>
+            <div class="cv-line sel new"><span class="cv-g"></span><span class="cv-n">409</span><span class="cv-t">        path = self._strip_protocol(resolved_path.unresolve())</span></div>
+            <div class="cv-line sel new"><span class="cv-g"></span><span class="cv-n">410</span><span class="cv-t">        kwargs = {<span class="str">"expand_info"</span>: kwargs.get(<span class="str">"detail"</span>, <span class="kw">False</span>), <span class="str">"<mark class="cv-m">revision</mark>"</span>: <mark class="cv-m">revision</mark>, **kwargs}</span></div>
+            <div class="cv-line sel"><span class="cv-g"></span><span class="cv-n">411</span><span class="cv-t">        <span class="kw">return</span> super().glob(path, maxdepth=maxdepth, **kwargs)</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">412</span><span class="cv-t"></span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">413</span><span class="cv-t">    <span class="kw">def</span> <span class="fn">find</span>(</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">414</span><span class="cv-t">        self,</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">415</span><span class="cv-t">        path: str,</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">416</span><span class="cv-t">        maxdepth: Optional[int] = <span class="kw">None</span>,</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">417</span><span class="cv-t">        withdirs: bool = <span class="kw">False</span>,</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">418</span><span class="cv-t">        detail: bool = <span class="kw">False</span>,</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">419</span><span class="cv-t">        refresh: bool = <span class="kw">False</span>,</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">420</span><span class="cv-t">        <mark class="cv-m">revision</mark>: Optional[str] = <span class="kw">None</span>,</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">421</span><span class="cv-t">        **kwargs,</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">422</span><span class="cv-t">    ) -&gt; Union[List[str], Dict[str, Dict[str, Any]]]:</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">423</span><span class="cv-t">        <span class="str">"""</span></span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">424</span><span class="cv-t"><span class="str">        List all files below path.</span></span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">425</span><span class="cv-t"><span class="str">        """</span></span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">426</span><span class="cv-t">        <span class="kw">if</span> maxdepth <span class="kw">is not None and</span> maxdepth &lt; 1:</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">427</span><span class="cv-t">            <span class="kw">raise</span> ValueError(<span class="str">"maxdepth must be at least 1"</span>)</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">428</span><span class="cv-t">        resolved_path = self.resolve_path(path, <mark class="cv-m">revision</mark>=<mark class="cv-m">revision</mark>)</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">429</span><span class="cv-t">        path = resolved_path.unresolve()</span></div>
+            <div class="cv-line"><span class="cv-g"></span><span class="cv-n">430</span><span class="cv-t">        kwargs = {<span class="str">"expand_info"</span>: detail, **kwargs}</span></div>
+            <div class="cv-selbar" style="left:60px; top:311px">
+              <span class="cv-sl">Lines 405–411</span>
+              <span class="btn sm"><svg class="ic sm"><use href="#i-copy"/></svg>Copy</span>
+              <span class="btn sm">Copy reference</span>
+              <span class="btn sm off" title="This commit is not on GitHub"><svg class="ic sm"><use href="#i-ext"/></svg>GitHub link</span>
+              <span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg>Add to agent<span class="split"><svg class="ic sm"><use href="#i-chev"/></svg></span></span>
+              <span class="btn sm">Editor</span>
+              <i class="pin">8</i>
+            </div>
+            <i class="pin abs" style="left:62px; top:213px">7</i>
+          </div>
+        </div>
+      </div>
+      <div class="statusbar">
+        <span class="h"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Claude 2.1.287</span>
+        <span class="q">5h <span class="meter clay"><i style="width:41%"></i></span>41% · 16:40</span>
+        <span class="q">week <span class="meter clay"><i style="width:62%"></i></span>62% · Mon 09:00</span>
+        <span class="vsep"></span>
+        <span class="h"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex 0.160.0</span>
+        <span class="q">5h <span class="meter"><i style="width:4%"></i></span>4% · 14:14</span>
+        <span class="q">week <span class="meter"><i style="width:22%"></i></span>22% · Sun 16:21</span>
+        <span class="right"><span>GitHub synced 1 min ago</span><span>2 running · <span class="needs">3 pending</span></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="s7b">
+    <div class="frag" role="img" aria-label="Search in project mockup">
+      <div class="fh"><svg class="ic sm"><use href="#i-search"/></svg><b>Search in project</b><span class="end faint mono">lp/glob-revision</span></div>
+      <div class="cv-sh">
+        <span class="seg full"><span>Files</span><span class="on">Search</span></span>
+        <div class="cv-q"><span class="cv-fi">resolve_path<span class="caret"></span></span><span class="cv-opt" title="Match case">Aa</span><span class="cv-opt on" title="Whole word"><u>ab</u></span><span class="cv-opt" title="Regular expression">.*</span></div>
+        <div class="cv-rsum">24 results in 5 files <i class="pin">9</i></div>
+      </div>
+      <div class="cv-res">
+        <div class="cv-rf"><svg class="ic sm"><use href="#i-chev"/></svg><span class="p">src/huggingface_hub/hf_file_system.py</span><span class="k">14</span></div>
+        <div class="cv-rl"><span class="cv-n">112</span><span class="cv-t">def <mark class="cv-m">resolve_path</mark>(</span></div>
+        <div class="cv-rl"><span class="cv-n">399</span><span class="cv-t">path = self.<mark class="cv-m">resolve_path</mark>(path, revision=kwargs.get(</span></div>
+        <div class="cv-rl on"><span class="cv-n">406</span><span class="cv-t">resolved_path = self.<mark class="cv-m">resolve_path</mark>(path, revision=</span></div>
+        <div class="cv-rl"><span class="cv-n">428</span><span class="cv-t">resolved_path = self.<mark class="cv-m">resolve_path</mark>(path, revision=</span></div>
+        <div class="cv-rmore">Show 10 more</div>
+        <div class="cv-rf"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><span class="p">tests/test_hf_file_system.py</span><span class="k">5</span></div>
+        <div class="cv-rf"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><span class="p">src/huggingface_hub/hf_api.py</span><span class="k">3</span></div>
+        <div class="cv-rf"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><span class="p">src/huggingface_hub/_snapshot_download.py</span><span class="k">1</span></div>
+        <div class="cv-rf"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><span class="p">docs/source/en/guides/hf_file_system.md</span><span class="k">1</span></div>
+      </div>
+    </div>
+
+    <div class="frag" role="img" aria-label="Source menu mockup">
+      <div class="fh"><svg class="ic sm"><use href="#i-branch"/></svg><b>Source</b><span class="end faint">huggingface_hub <i class="pin">1</i></span></div>
+      <div class="fb">
+        <div class="field-i" style="color:var(--ink-3)">Branch, tag or commit</div>
+        <div class="seclabel">Working trees</div>
+        <div class="menu static">
+          <div class="mi"><svg class="ic sm"><use href="#i-folder"/></svg><span><b>Checkout</b> · <span class="mono">main</span></span><span class="d">~/projects/huggingface_hub · 1 uncommitted file</span></div>
+          <div class="mi on"><svg class="ic sm c-local"><use href="#i-pr-local"/></svg><span><b class="mono">lp/glob-revision</b> <span class="tag-local">Pre-draft</span></span><span class="d">~/projects/.worktrees/huggingface_hub/glob-revision</span></div>
+          <div class="mi"><svg class="ic sm c-local"><use href="#i-pr-local"/></svg><span><b class="mono">lp/xet-resume</b> <span class="tag-local">Pre-draft</span></span><span class="d">Codex is working here</span></div>
+          <div class="mi"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span><b class="mono">fix-flaky-list-models</b></span><span class="d">Worktree created by Claude in .claude/worktrees/</span></div>
+        </div>
+        <div class="seclabel">Branches and pull requests</div>
+        <div class="menu static">
+          <div class="mi"><svg class="ic sm"><use href="#i-branch"/></svg><span><b class="mono">origin/main</b></span><span class="d">Fetched 4 min ago</span></div>
+          <div class="mi"><svg class="ic sm"><use href="#i-branch"/></svg><span><b class="mono">v1.3-release</b></span><span class="d">Local branch</span></div>
+          <div class="mi"><svg class="ic sm c-open"><use href="#i-pr"/></svg><span><b>#3420</b> Fix revision handling…</span><span class="d">PR head, fetched for its diff</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="frag" role="img" aria-label="Ways into the code viewer mockup">
+        <div class="fh"><svg class="ic sm"><use href="#i-code"/></svg><b>Ways in</b><span class="end"><i class="pin">10</i></span></div>
+        <div class="fb">
+          <div class="cv-way">
+            <span class="seclabel">Project page</span>
+            <div class="actrow"><span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span><span class="btn sm cv-on"><svg class="ic sm"><use href="#i-code"/></svg>Code</span><span class="btn sm">Editor</span><span class="btn sm"><svg class="ic sm"><use href="#i-term"/></svg>Terminal</span><span class="btn sm"><svg class="ic sm"><use href="#i-ext"/></svg>GitHub</span></div>
+          </div>
+          <div class="cv-way">
+            <span class="seclabel">Session</span>
+            <div class="edit"><div class="eh"><svg class="ic sm"><use href="#i-pencil"/></svg><span class="cv-link">src/huggingface_hub/hf_file_system.py</span> <span class="add">+12</span> <span class="del">−4</span></div></div>
+            <div class="msg-a"><p>The filters run before the revision is resolved, in <code class="i cv-link">hf_file_system.py:407</code>. The same helper is used by <code class="i cv-link">_ls_tree</code>.</p></div>
+          </div>
+          <div class="cv-way">
+            <span class="seclabel">Diff</span>
+            <div class="dfile collapsed"><div class="dfh"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><span class="p">tests/test_hf_file_system.py</span><span class="add">+19</span><span class="del">−2</span><span class="end"><span class="btn sm"><svg class="ic sm"><use href="#i-code"/></svg>View file</span></span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="frag" role="img" aria-label="Add to agent mockup">
+        <div class="fh"><svg class="ic sm"><use href="#i-play"/></svg><b>Add to agent</b><span class="end faint">hf_file_system.py, lines 405–411</span></div>
+        <div class="fb">
+          <div class="menu static">
+            <div class="mi on"><svg class="ic sm"><use href="#i-play"/></svg><span><b>New agent</b></span><span class="d">Opens the composer with these lines as context</span></div>
+            <div class="mi"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span><b>Check #3412 / #3420</b></span><span class="d">Adds the reference to its message box · Pending</span></div>
+            <div class="mi"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span><span><b>Resumable uploads with xet</b></span><span class="d">Adds the reference to its message box · Running</span></div>
+          </div>
+          <div class="seclabel">In the composer <i class="pin">11</i></div>
+          <div class="ctx-item"><svg class="ic sm"><use href="#i-file"/></svg><span class="mono">hf_file_system.py:405-411</span><span class="t"><span class="branch"><svg class="ic sm"><use href="#i-branch"/></svg>lp/glob-revision</span></span><svg class="ic sm x"><use href="#i-x"/></svg></div>
+          <div class="pv">
+            <div class="pv-h">Prompt sent to Claude<span class="end">context part</span></div>
+<pre>Context:
+- File: ~/projects/.worktrees/huggingface_hub/glob-revision/src/huggingface_hub/hf_file_system.py, lines 405-411</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <ol class="notes">
+    <li><i class="pin">1</i><span><b>Source.</b> One source at a time: the project checkout or one of its worktrees (pre-draft PRs, worktrees made by agents), read from disk with uncommitted changes; or a branch, tag, commit or PR head, read from git without touching any checkout.</span></li>
+    <li><i class="pin">2</i><span><b>Files and Go to file.</b> The whole file list loads once per source, so the tree and "Go to file" answer as you type. Ignored files are hidden. Type part of a path, then click a result.</span></li>
+    <li><i class="pin">3</i><span><b>What the branch changes.</b> Files changed since the branch left <code>main</code>, committed or not, have a letter: M modified, A added, U untracked. "Changed only" hides the other files. On <code>main</code> itself, these are your uncommitted changes.</span></li>
+    <li><i class="pin">4</i><span><b>Tabs.</b> Opened files stay as tabs for each source and come back when you return to the project.</span></li>
+    <li><i class="pin">5</i><span><b>File actions.</b> Find, copy the path, open on GitHub (only when the commit is on GitHub), open in your editor at the first visible line, reload. Markdown files also have a Preview. Images are shown; other binary files only show their size.</span></li>
+    <li><i class="pin">6</i><span><b>Find in file, with Ctrl+F.</b> The Find button or <code>Ctrl+F</code> opens this bar. <code>Enter</code> and <code>Shift+Enter</code> go to the next and previous match, <code>Escape</code> closes it. Match case, whole word and regex are toggles. It searches the whole file, not only the lines on screen. This is the only keyboard shortcut in Launchpad.</span></li>
+    <li><i class="pin">7</i><span><b>Changed lines.</b> Bars next to the line numbers mark what the branch changes: amber for modified lines, green for added ones. When an agent edits the open file, it reloads in place and keeps your position.</span></li>
+    <li><i class="pin">8</i><span><b>Select lines.</b> Click a line number, then drag or shift-click to extend the range. The bar copies the code or a <code>path:405-411</code> reference, gives a GitHub link, sends the lines to an agent, or opens them in your editor.</span></li>
+    <li><i class="pin">9</i><span><b>Search in project.</b> <code>git grep</code> on the same source, so it also works on a branch or a PR head. Results are grouped by file. Click a line to open the file there. At most 1,000 results.</span></li>
+    <li><i class="pin">10</i><span><b>Ways in.</b> A Code button on project pages and worktrees, a Files button in each session header, file paths in tool calls, edits and agent messages (<code>hf_file_system.py:407</code> becomes a link when the file exists), and View file on every file of a diff.</span></li>
+    <li><i class="pin">11</i><span><b>Lines as context.</b> Add to agent puts the file and the line range in the composer as a context chip, or in the message box of a session of the same project. The prompt gets the absolute path and the lines; the agent reads the file itself.</span></li>
   </ol>
 </section>
 

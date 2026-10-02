@@ -17,6 +17,7 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 | 0 | Foundations and spikes | Dock icon opens a window served by the daemon, with versions and quotas in the status bar | Done |
 | 1 | Launch and run agents | You stop launching agents from the terminal | In progress |
 | 2 | GitHub inbox | You triage notifications without opening github.com | In progress |
+| 2b | Code viewer | You read code (an agent's worktree, a branch, a PR head) without opening an editor | Not started |
 | 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com | Not started |
 | 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | Not started |
 | 5 | Workspace polish | Several sessions are easy to arrange, find and resume | Not started |
@@ -99,12 +100,26 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 - Checked with the dev daemon against the real GitHub account: 240 notifications, 230 enriched issues/PRs, conditional polling and cached previews; UI and desktop builds, existing Rust tests, browser layout, unread filters, release links and composer context checks, and local unread persistence across a dev-daemon restart. Reply publishing and ignoring real threads were not exercised during automated verification.
 - Left for the **Done when** check: a full morning of daily notification triage.
 
+## Phase 2b: code viewer
+
+Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which reuses its code renderer for Files changed. Design in [ARCHITECTURE.md, section 8.1](ARCHITECTURE.md#81-code-viewer) and sketch S7.
+
+- Daemon `code` module: sources (checkout, worktrees, branches, tags, fetched PR refs), file list with change letters, file content with changed line ranges, `git grep` search, path checks.
+- Viewer screen `/projects/{id}/code`: source picker, virtualized file tree with "Go to file" and "Changed only", tabs, code lines (virtualized, fixed row height, Shiki in a Web Worker) with bars on changed lines, Markdown preview, images.
+- Find bar: Find button and `Ctrl+F`, match case, whole word, regex; `Enter`, `Shift+Enter` and `Escape` in its field.
+- Search in project, grouped by file.
+- Line selection: copy, copy reference, GitHub link, open in editor at the line, add to agent (composer chip or a session's message box).
+- Ways in: Code button on project pages and worktrees, Files button in session headers, linked paths in tool calls, file changes and agent messages. "View file" on diffs comes with Phases 3 and 4.
+- The open file reloads when a session working in the same folder edits it.
+
+**Done when:** for a week, reading code (an agent's worktree, a branch, a file an agent mentions) happens in Launchpad, and the editor is opened only to change code.
+
 ## Phase 3: issues and pull requests
 
 - Detail query and timeline renderer: `bodyHTML`, sanitization, image proxy with a disk cache.
 - Issue view: conversation, close as completed or not planned, reopen, comment.
 - PR view: header, conversation, checks summary with links, reviewers and request review, labels, merge box (method remembered per repo), review (comment, approve, request changes), convert to draft and ready for review, close.
-- Files changed: local git diff through PR refs, API fallback, virtualization, syntax highlighting, unified and split views, "viewed" checkboxes.
+- Files changed: local git diff through PR refs, API fallback, virtualization, syntax highlighting (the code renderer of Phase 2b), unified and split views, "viewed" checkboxes, "View file" in the code viewer.
 - Project page: latest open PRs and issues (cached on demand), multi-select to launch an agent with the selection, Refresh and Open on GitHub everywhere.
 - Composer "cart": while the composer is open, every issue, PR and comment shows "+ Add".
 
@@ -125,7 +140,7 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 
 - Drag and drop sessions into panes, saved layouts, focus movement between panes, session rename, pin and search.
 - Import sessions started outside Launchpad (Claude transcripts in `~/.claude/projects/`, Codex `thread/list`) as history that can be resumed.
-- Git panel per session (status and diff of its cwd), "Open in editor".
+- Git panel per session (status and diff of its cwd; reading its files is the code viewer of Phase 2b), "Open in editor".
 - Composer: recent contexts offered as one-click chips.
 
 **Done when:** running 4 agents at once feels comfortable, and finding last week's session takes seconds.
@@ -148,7 +163,8 @@ Pick items as they become useful:
 - Another harness (one adapter module).
 - Inline review comments.
 - Optional inlining of cached GitHub threads in prompts.
+- Light editing in the code viewer (CodeMirror 6), if reading is not enough.
 
 ## Not planned
 
-Keyboard shortcuts (for now), a large test suite or mocks, dark theme, macOS and Windows, multiple users, GitHub search, Actions logs, release versioning, data migrations for the cache.
+Keyboard shortcuts other than `Ctrl+F` in the code viewer (for now), a large test suite or mocks, dark theme, macOS and Windows, multiple users, GitHub search, Actions logs, release versioning, data migrations for the cache.

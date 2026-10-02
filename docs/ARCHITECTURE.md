@@ -11,6 +11,8 @@ Launchpad is a desktop app for Ubuntu, launched from the dock, that combines two
 
 On top of these, Launchpad adds **local-first objects** that GitHub does not have: pre-draft PRs (a branch + title + description that exists only on the laptop) and, later, agent-written comments and reviews that wait for manual approval before being posted.
 
+A read-only **code viewer** connects both sides: it shows the files of a project, of an agent's worktree, of a branch or of a PR head, and turns selected lines into context for an agent (see [8.1](#81-code-viewer)).
+
 It is a single-user tool. Light theme only. Linux only. No versioning, no backward compatibility, no migration framework.
 
 ### Design principles
@@ -19,7 +21,7 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 2. **Launching an agent is the main action.** A minimal launch is three clicks plus the prompt. A rich launch uses the same flow with more chips. Both must feel natural.
 3. **The core does not depend on a harness.** Claude Code and Codex are adapters behind one session model. Adding a third harness means writing one adapter.
 4. **Local first, publish later.** Anything that would create noise on GitHub (pre-draft PRs, agent-written comments) stays local until you publish it. These objects share one color in the UI (teal).
-5. **Click only.** No keyboard shortcuts, at least at first: every action is a visible button where it is needed, and the UI should be good enough that shortcuts are not missed. Text fields only type text, with two exceptions: in the composer prompt, `@` and `#` at the start of a word open a suggestion list (projects, issues and PRs, see [9.7](#97-prompt-composition)), and in the session message box `Enter` sends and `Shift+Enter` adds a new line, like in the terminal.
+5. **Click only.** No keyboard shortcuts, at least at first, with one exception: `Ctrl+F` opens the find bar in the code viewer (see [8.1](#81-code-viewer)). Every action is a visible button where it is needed, and the UI should be good enough that shortcuts are not missed. Text fields only type text, with three exceptions: in the composer prompt, `@` and `#` at the start of a word open a suggestion list (projects, issues and PRs, see [9.7](#97-prompt-composition)); in the session message box `Enter` sends and `Shift+Enter` adds a new line, like in the terminal; in the find field of the code viewer, `Enter` and `Shift+Enter` go to the next and previous match and `Escape` closes the bar.
 6. **Owned and easy to extend.** A mainstream stack that coding agents handle well (Rust, React, TypeScript, Tailwind), configuration in a plain TOML file, GitHub payloads stored as JSON so new fields need no schema change.
 7. **Move fast, test little.** This is a personal project: speed of change matters more than protection against breakage. Most code has no tests. See [5.2](#52-testing).
 
@@ -34,6 +36,7 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 | Storage | SQLite (WAL). `state.db` for your data, `cache.db` for GitHub data | The cache can be deleted and rebuilt on any schema change, so no migrations are needed for it. |
 | GitHub access | Token from `gh auth token`, direct REST + GraphQL calls from Rust | Much faster than spawning `gh` for each call. GraphQL fetches participants and PR details in batches. |
 | Diffs | Local git first (fetch `pull/N/head`), GitHub API as fallback | Instant, handles very large PRs, and the same code path serves pre-draft PRs. |
+| Code viewer | Read-only, rendered by Launchpad with the code lines of the diff view (TanStack Virtual, Shiki in a Web Worker). Files come from disk and git | Reading agent work and looking up code are frequent; editing stays in the editor and with the agents. One code renderer, tuned for WebKitGTK, serves files and diffs. |
 | Pre-draft PRs | Launchpad creates the branch and worktree; agents use a `launchpad pr` CLI documented by a shared skill | Deterministic paths, no GitHub noise, 1-click publish or discard. |
 | Configuration | `~/.config/launchpad/config.toml` (settings and presets), editable in the UI and by hand | Can be versioned in dotfiles and edited by agents. |
 | Projects root | Setting `projects_root`, default `~/projects` | Used for discovery, temporary folders and worktrees. Every path in this document that starts with `~/projects` means "the projects root". |
@@ -100,14 +103,14 @@ launchpad/
 ├─ Cargo.toml                   # Rust workspace
 ├─ crates/
 │  ├─ core/                     # domain types and services: db, github, git, projects,
-│  │                            #   sessions, harness adapters, compose, predraft, quota
+│  │                            #   sessions, harness adapters, compose, predraft, quota, code
 │  ├─ server/                   # axum routes, WebSocket, auth, static UI serving
 │  └─ cli/                      # `launchpad` binary: daemon + agent-facing subcommands
 ├─ desktop/                     # Tauri v2 shell (src-tauri), and fallback/ (page shown while the daemon starts)
 ├─ web/                         # React app (Vite)
 │  └─ src/
 │     ├─ app/                   # shell: sidebar, top bar, status bar, routing
-│     ├─ features/              # inbox, launch, agents, github, projects, predraft, settings
+│     ├─ features/              # inbox, launch, agents, github, projects, code, predraft, settings
 │     ├─ components/            # owned UI components (Radix based)
 │     ├─ lib/                   # api client, ws client, markdown, diff, query keys
 │     └─ gen/                   # TypeScript types generated from Rust (ts-rs)
@@ -141,6 +144,7 @@ Tests are kept to the minimum:
 | `config` | Load and watch `config.toml`: presets, external commands (editor, terminal), poll intervals |
 | `projects` | Registry, discovery in the projects root, repo ↔ project mapping, temporary projects |
 | `git` | Status, branches, worktrees, PR ref fetch, diff parsing into files/hunks/lines |
+| `code` | Code viewer: sources (checkout, worktrees, revisions), file lists, file contents with changed line ranges, `git grep` search, path checks (see [8.1](#81-code-viewer)) |
 | `github` | HTTP client (REST + GraphQL), ETag store, rate-limit tracking |
 | `sync` | Notification poller, prioritized on-demand refresh queue, prefetch |
 | `sessions` | Session registry, state machine, event log, input routing |
@@ -167,6 +171,10 @@ GET    /api/gh/{owner}/{repo}/pulls?state=open  project lists (cache on demand)
 POST   /api/refresh                             {keys: [...]} force a refresh
 GET    /api/projects    POST /api/projects    POST /api/projects/discover
 POST   /api/projects/temp    POST /api/projects/{id}/promote    DELETE /api/projects/{id}
+GET    /api/code/sources?project={id}           checkout, worktrees, branches, tags, PR refs
+GET    /api/code/files?root={path}&rev=         every file path, with change letters
+GET    /api/code/file?root={path}&rev=&path=    content, language, size, changed lines
+GET    /api/code/search?root={path}&rev=&q=     git grep (match case, whole word, regex)
 POST   /api/launch/preview                      launch spec → rendered prompt, no side effect
 POST   /api/sessions                            launch spec → new session
 GET    /api/sessions    GET /api/sessions/{id}/events?after={seq}
@@ -309,6 +317,7 @@ Settings → General edits the projects root, the terminal and the editor. For t
 - When the repository is a registered project: `git fetch origin +refs/pull/{n}/head:refs/launchpad/pr/{n}` (a private ref namespace, so no local branches are created), then `git diff --find-renames origin/{base}...refs/launchpad/pr/{n}`. The three-dot form diffs from the merge base, like GitHub. The output is parsed into files, hunks and lines in Rust and cached by `(base_sha, head_sha)`.
 - Otherwise: `GET /repos/{o}/{r}/pulls/{n}/files` (paginated; GitHub truncates very large patches).
 - The UI renders diffs with virtualization (TanStack Virtual), highlights code with Shiki in a Web Worker (per file, only when visible), offers unified and split views, and stores "viewed" checkboxes locally.
+- Each file of a diff has a "View file" button that opens the full file in the code viewer ([8.1](#81-code-viewer)), at the PR head or in the pre-draft worktree.
 
 ### 7.5 Rate-limit budget
 
@@ -324,6 +333,26 @@ Settings → General edits the projects root, the terminal and the editor. For t
   - Trust: headless modes show no trust prompt (`claude -p` skips the trust dialog; `codex app-server` does not prompt). For "Open in terminal", Codex gets `-c 'projects."<path>".trust_level="trusted"'`. The Claude TUI shows its trust dialog in a git repository whose root is not trusted, even under a trusted `~/projects` and even with `--dangerously-skip-permissions` ([spike 5](spikes/5-claude-trust-prompt.md)). For temporary projects, "Open in terminal" sets `CLAUDE_CODE_SANDBOXED=1` in the command's environment, which skips the dialog. Launchpad never writes `~/.claude.json`.
   - Clean up: one button stops the sessions running there, deletes the folder and unregisters it. The confirmation is part of the button (second click), not a dialog.
   - Promote: pick a name, the folder is renamed (by default the `tmp-<MMDD>-` prefix is dropped) and `is_temp` is cleared. Renaming is refused while a session runs there. Claude stores transcripts in a folder derived from the path (`~/.claude/projects/<encoded-path>/`), so promotion also moves that folder to keep past sessions resumable.
+
+### 8.1 Code viewer
+
+A read-only viewer for the code of a project: file tree, tabs, syntax highlighting, find in file and search in the project (sketch S7). It is for reading: what an agent changed in its worktree, the full file behind a diff, a file an agent mentions, or code you want to give an agent as context. Editing stays in the editor chosen in Settings, and with the agents. Route: `/projects/{id}/code?root=&rev=&path=&line=`.
+
+- **Sources.** The viewer shows one source at a time:
+  - A working tree: the project checkout or one of its worktrees (`git worktree list`: pre-draft PRs, worktrees created by agents). Files are read from disk, uncommitted changes included.
+  - A git revision: a local or remote branch, a tag, a commit, or a PR head fetched for its diff (`refs/launchpad/pr/{n}`, see [7.4](#74-diffs)). Files are read with `git ls-tree` and `git show <rev>:<path>`, without touching any checkout.
+  - A temporary project that is not a git repository is read from disk with a directory walk (the `ignore` crate, which skips hidden and ignored files).
+- **File list.** `git ls-files --cached --others --exclude-standard -z` for a working tree, `git ls-tree -r --name-only -z <rev>` for a revision. The full list is sent once per source. The UI builds the tree (virtualized, fixed row height) and the "Go to file" filter from it, so neither waits on the daemon. A folder with a single child folder shares its row (`src/huggingface_hub`).
+- **What the branch changes.** The base is the merge base with the default branch (`git merge-base HEAD origin/<default>`). `git diff --name-status <base>` (plus untracked files for a working tree) gives the M, A and U letters in the tree and the "Changed only" filter. For the open file, `git diff -U0 <base> -- <path>` gives the line ranges of the bars next to the line numbers. On the default branch, the merge base is usually `HEAD`, so the viewer shows the uncommitted changes.
+- **File content.** `GET /api/code/file` returns the text, its size, the language (from the file name) and the changed line ranges. Images are shown as images. Other binary files (a NUL byte in the first 8 KB, as git detects them) only show their size. Files over 5 MB are not loaded ("Open in editor" instead), and files over 1 MB or 20,000 lines are shown without colors.
+- **Rendering.** The code lines of the diff view ([7.4](#74-diffs)): TanStack Virtual with fixed row heights, no line wrapping, Shiki in a Web Worker (plain text first, colors when ready). Markdown files also have a Preview (markdown-it, as in sessions). Opened files stay as tabs for each source.
+- **Find in file.** A find bar over the code, opened by its Find button or by `Ctrl+F` while the viewer is on screen. It searches the file text in memory, not the DOM: most rows of a virtualized file are not in the DOM, and the Tauri webview has no find bar of its own. Options: match case, whole word, regular expression. `Enter` goes to the next match, `Shift+Enter` to the previous one, `Escape` closes the bar, and the virtualizer scrolls the current match into view. This is the only keyboard shortcut in Launchpad (decision 22).
+- **Search in project.** `git grep -n --column -I` on the same source (with `<rev>` for a revision, `--no-index` for a folder without git): fixed strings by default (`-F`), `-E` in regex mode, `-i` unless match case is on, `-w` for whole words. Results are grouped by file (4 lines per file until "Show more") and capped at 1,000. A new query cancels the running one.
+- **Line selection.** Click a line number to select the line; drag over the numbers or shift-click to extend the range. The selection bar offers Copy (the code), Copy reference (`src/huggingface_hub/hf_file_system.py:405-411`), GitHub link (a permalink on the commit, offered only when a remote branch contains it: `git branch -r --contains <sha>`), Add to agent, and Open in editor (`--goto <file>:<line>` for VS Code and Cursor, the file alone for other editors).
+- **Add to agent.** Adds the file and the line range as context: to the composer as a context chip (see [9.7](#97-prompt-composition)), or to the message box of a session of the same project as a `path:405-411` reference. The prompt never includes the code itself; the agent reads the file, as it does for GitHub links.
+- **Ways in.** A Code button on project pages and on each worktree, a Files button in each session header (opens the session's cwd), file paths in tool calls and file changes, `path:line` references in agent messages (linked when the path is in the file list of the session's source), and "View file" on each file of a diff.
+- **Live updates.** No file watcher. When a session whose cwd is the open source reports a `file_change`, or a tool call that writes the open file, the viewer reloads the file in place and keeps the scroll position. The file list reloads when the viewer opens and with the Reload button.
+- **State.** Open tabs, expanded folders and the last position for each source are UI state (Zustand, kept in `localStorage`). Nothing is stored in `state.db`.
 
 ## 9. Agent sessions
 
@@ -444,6 +473,7 @@ trait LiveSession: Send + Sync {
 - **Copy:** every message keeps its raw markdown. "Copy" puts the exact markdown on the clipboard, without the line breaks and padding that terminals add. Code blocks have their own copy button. Tool output copies as raw text.
 - **Input:** a message box under each session, with a Send button. `Enter` also sends and `Shift+Enter` adds a new line, like in the terminal. A Stop button in the session header interrupts the agent. TUI-only slash commands point to "Open in terminal".
 - **Header:** tokens (input, cached, output), context window usage, cost estimate (Claude reports `total_cost_usd`; Codex reports tokens only), elapsed time.
+- **Files:** file paths in tool calls and file changes, and `path:line` references in messages, open the code viewer on the session's cwd ([8.1](#81-code-viewer)). A Files button in the header opens the viewer on that folder.
 
 ### 9.7 Prompt composition
 
@@ -457,6 +487,7 @@ struct LaunchSpec {
     presets: Vec<PresetId>,
     context_projects: Vec<ContextProject>,   // { project_id, branch: Option<String> }
     github_refs: Vec<GitHubRef>,             // issue | pr | comment | review comment: URL + cached title
+    files: Vec<FileRef>,                     // from the code viewer: root, revision, path, optional line range
     model: Option<String>,                   // None = harness default
     effort: Option<String>,                  // None = harness default
 }
@@ -484,6 +515,7 @@ Please use a local git worktree and delete it once you're done. No need to add a
   - The list closes on a space, `Escape` or a click elsewhere. Ignoring it never changes what you typed.
   - Only the composer prompt has mentions. Other text fields (comments, session messages) do not.
 - GitHub references are links by default: the agent reads them with `gh`, so they are always fresh. A later option can inline the cached thread to save the agent a round trip.
+- Files added from the code viewer are references too: `- File: <absolute path>, lines 405-411`. For a revision that is not checked out: `- File: src/x.py at origin/main (read it with git -C <project path> show origin/main:src/x.py), lines 405-411`.
 - Presets live in `config.toml`. The three initial ones:
 
 ```toml
@@ -562,7 +594,7 @@ A pre-draft PR is a pull request that exists only on your laptop: a local branch
 - **Layout:** left sidebar (Inbox, Agents, Projects, pinned projects, temporary projects, Settings; collapses to icons), main area, composer drawer on the right, status bar at the bottom.
 - **Harness marks:** the official Claude and Codex logos (SVG files in `web/src/assets/`) everywhere a harness appears: radial launch buttons (logo only, no label), session lists, pane headers, status bar.
 - **Speed tactics:** render from cache; prefetch on selection; keep list views mounted so scroll position and selection survive navigation; optimistic actions; virtualized lists; every frequent action one click away.
-- **Click only:** no keyboard shortcuts (see principle 5). Frequent actions are visible buttons where they are used: hover actions on notification rows, a Launch button on every notification, issue, PR and project, layout buttons in the agents view, Refresh and Open on GitHub on every cached object. Icon-only buttons have a hover title. Context is added to the composer with buttons, or with `@` and `#` suggestions in the prompt (see [9.7](#97-prompt-composition)).
+- **Click only:** no keyboard shortcuts except `Ctrl+F` in the code viewer (see principle 5). Frequent actions are visible buttons where they are used: hover actions on notification rows, a Launch button on every notification, issue, PR and project, layout buttons in the agents view, Refresh and Open on GitHub on every cached object. Icon-only buttons have a hover title. Context is added to the composer with buttons, or with `@` and `#` suggestions in the prompt (see [9.7](#97-prompt-composition)).
 - **WebKitGTK:** the Tauri webview on Linux is WebKit, not Chromium. Measured in [spike 4](spikes/4-webkitgtk.md): a virtualized 5,000-line diff and a 2,000-event session scroll at 60 fps on an idle machine. With all CPU threads busy (a large build), WebKitGTK drops to about 20 fps where Chrome stays at 60 fps, and mounting thousands of plain rows is about 14 times slower than in Chrome. Rules that follow: virtualize every long list, memoize row components, create virtualizers with `useFlushSync: false`, prefer fixed row heights, keep overscan small. The page `/dev/perf?auto=1` repeats the measurement. If the window renders blank with some GPU drivers, `WEBKIT_DISABLE_DMABUF_RENDERER=1` is the usual workaround. Because the UI is a plain web app, it can be developed in Chrome against the dev daemon, and switching the shell to Chromium (`--app=` mode) stays possible if scrolling during builds becomes a problem.
 
 ## 13. Desktop integration
@@ -576,6 +608,7 @@ A pre-draft PR is a pull request that exists only on your laptop: a local branch
 - It binds `127.0.0.1` only. At first start it writes a random 256-bit token to `~/.local/share/launchpad/token` (mode 0600). The desktop shell opens `/auth?t=<token>`, which sets an `HttpOnly`, `SameSite=Strict` cookie. The CLI sends `Authorization: Bearer <token>`.
 - Requests whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>` are rejected (DNS rebinding). WebSocket upgrades and mutations with a foreign `Origin` are rejected (CSRF). No CORS headers.
 - The GitHub token stays in daemon memory. Logs redact tokens.
+- The code viewer endpoints only read inside a registered project or one of its worktrees: `root` must be one of them, `path` must be relative without `..`, and the resolved path (after following symlinks) must stay inside `root`. Revisions are passed to git after `--end-of-options` and search patterns with `-e`, so they are never read as options.
 - For remote access later, keep the daemon on localhost and reach it through an SSH tunnel or Tailscale before adding any other authentication.
 
 ## 15. Future: remote access
@@ -594,6 +627,7 @@ The UI is already served by the daemon over HTTP and WebSocket. Remote access me
 | WebKitGTK performance | Slow large diffs or long sessions | Virtualization, early measurement, Chromium shell as fallback |
 | Expiring image URLs in private repositories | Broken images | Image proxy with a disk cache, filled at sync time |
 | Daemon restart kills running agents | In-flight turn lost | Dev/prod profiles, resume, session shim later |
+| Very large repositories or files | Slow code viewer | File list sent once per source and virtualized; no colors above 1 MB or 20,000 lines, nothing loaded above 5 MB; search capped at 1,000 results |
 
 ## 17. Decisions log
 
@@ -606,7 +640,7 @@ Confirmed on 2026-10-02:
 5. **Temporary folders.** `<projects_root>/tmp-<MMDD>-<slug>`. The projects root is configurable, default `~/projects`.
 6. **Claude quota.** Launchpad may read the OAuth access token in `~/.claude/.credentials.json` to call the usage endpoint, never refreshing it.
 7. **Harness icons.** Launch buttons and harness marks use the Claude and Codex logos, without text labels.
-8. **Click-only UI.** No keyboard shortcuts, at least at first. Two typing behaviors only: `@` and `#` suggestions in the composer prompt (added on 2026-10-02, see [9.7](#97-prompt-composition)), and `Enter` to send in a session's message box. Shortcuts may be added later if they are really missed.
+8. **Click-only UI.** No keyboard shortcuts, at least at first. Two typing behaviors only: `@` and `#` suggestions in the composer prompt (added on 2026-10-02, see [9.7](#97-prompt-composition)), and `Enter` to send in a session's message box. Shortcuts may be added later if they are really missed. Amended on 2026-10-02 by decision 22 (`Ctrl+F` in the code viewer).
 9. **Terminal is a setting.** "Open in terminal" uses the terminal chosen in Settings: Terminator by default, Ghostty, GNOME Terminal, or a custom command.
 10. **Minimal tests.** Move fast and break things. Test only small, specific parts that clearly benefit from it. No mocks, no tests that need a server, and the whole run takes a few seconds at most. Details in [5.2](#52-testing).
 
@@ -628,3 +662,8 @@ Phase 2 implementation, on 2026-10-02:
 Inbox correction after daily use, on 2026-10-02:
 
 20. **REST history is not the web inbox.** Real account verification found 242 REST notifications, including 72 explicitly ignored threads, while the owner's GitHub inbox had four items. The original assumption that `all=true` excluded Done threads was wrong. Subscription filtering removes ignored threads; durable local membership excludes the remaining historical read threads. The current membership can be restored from the owner's known four-item screenshot. This is a local repair, not a claim that the public API supports continuous exact web-inbox synchronization.
+
+Code viewer, asked for on 2026-10-02 (designed in sketch S7, not built yet):
+
+21. **Code viewer.** A read-only viewer (file tree, tabs, find in file, search in project) over a checkout, a worktree or any git revision, with selected lines usable as agent context. It uses the code lines of the diff view (TanStack Virtual, Shiki in a Web Worker) instead of Monaco or CodeMirror: nothing needs editing, Monaco is heavy and brings its own keyboard model, and one renderer tuned for WebKitGTK is simpler. If light editing is wanted later, CodeMirror 6 is the option. Details in [8.1](#81-code-viewer).
+22. **Ctrl+F.** The first keyboard shortcut. `Ctrl+F` opens the find bar while the code viewer is on screen. In the find field, `Enter` and `Shift+Enter` go to the next and previous match and `Escape` closes the bar. A visible Find button does the same, so every action still has a button. This amends decision 8.
