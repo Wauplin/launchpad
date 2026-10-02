@@ -1,3 +1,4 @@
+@import "github-markdown-css/github-markdown-light.css";
 @import "tailwindcss";
 
 /* Design tokens from docs/design/sketches.html. Light theme only. */
@@ -285,3 +286,7 @@ button {
 .lp-md-doc img {
   max-width: 100%;
 }
+
+.lp-gh-html { background: transparent; color: var(--color-ink); font-size: 13px; overflow-wrap: anywhere; }
+.lp-gh-html img { max-height: 600px; }
+.lp-gh-html pre { overflow: auto; }

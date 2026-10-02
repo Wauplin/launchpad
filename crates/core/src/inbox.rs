@@ -289,6 +289,7 @@ impl Inbox {
         let mut enrich = changed_threads;
         enrich.sort_by_key(|t| (!t.unread, std::cmp::Reverse(t.updated_at.clone())));
         let mut ids: HashSet<_> = enrich.iter().map(|t| t.id.clone()).collect();
+        let detail_top = top.clone();
         for t in top {
             if self.preview(app, &t.id).await?.is_none() && ids.insert(t.id.clone()) {
                 enrich.push(t);
@@ -298,6 +299,12 @@ impl Inbox {
             self.enrich(app, batch).await?;
             changed(app);
         }
+        let app = app.clone();
+        tokio::spawn(async move {
+            for t in detail_top {
+                if let Some(n) = t.number && (t.kind == "Issue" || t.kind == "PullRequest") && let Err(e) = crate::items::detail(&app,&t.repo,n,false).await { tracing::debug!("detail prefetch: {e:#}"); }
+            }
+        });
         Ok(())
     }
     async fn enrich(&self, app: &App, threads: &[Thread]) -> Result<()> {

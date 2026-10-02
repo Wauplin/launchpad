@@ -1,3 +1,5 @@
+import { Link } from "@tanstack/react-router";
+import { AddContext, reference, itemKey, itemPath } from "@/features/github/lib";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -22,7 +24,7 @@ function launchContext(t: Thread, projects: Project[]) {
 const labels: Record<string, string> = { review_requested: "Review requested", mention: "Mentioned", team_mention: "Team mention", assign: "Assigned", ci_activity: "CI activity", state_change: "State changed" };
 const reason = (s: string) => labels[s] ?? s.replaceAll("_", " ");
 type Action = { id: string; action: string };
-function useAction() {
+export function useInboxAction() {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: ["inbox-action"],
@@ -62,6 +64,7 @@ const ThreadRow = memo(function ThreadRow({ t, selected, projects, select, act, 
       <button className="btn btn-sm" title={t.unread ? "Mark as read" : "Mark as unread locally (github.com stays read)"} disabled={busy} onClick={() => act({ id: t.id, action: t.unread ? "read" : "unread" })}>{t.unread ? "Read" : "Unread"}</button>
     </div>
     <LaunchButton small primary={false} label={null} ctx={launchContext(t, projects)} />
+    {t.number !== null && (t.kind === "Issue" || t.kind === "PullRequest") && <AddContext refItem={reference(t.repo,{number:t.number,title:t.title,url:t.url},t.kind === "PullRequest" ? "pr" : "issue")}/> }
   </div>;
 });
 function RepoChips({ threads, selected }: { threads: Thread[]; selected: string | null }) {
@@ -91,6 +94,7 @@ function PreviewPane({ t, projects }: { t: Thread; projects: Project[] }) {
   const supported = t.kind === "Issue" || t.kind === "PullRequest";
   const hasSummary = supported || t.kind === "Release" || t.kind === "Commit";
   useEffect(() => { if (hasSummary) refresh.mutate(false); }, [t.id, t.updated_at]); // Refresh in the background while the cached summary renders.
+  useEffect(() => { if(supported && t.number !== null) void qc.prefetchQuery({queryKey:itemKey(t.repo,t.number),queryFn:()=>api.get(itemPath(t.repo,t.number!)),staleTime:60_000}); }, [t.id, t.updated_at]);
   const p = preview.data;
   return <section className="flex min-h-0 w-[40%] min-w-[320px] flex-col border-l border-line bg-paper">
     <div className="flex-none border-b border-line p-4">
@@ -98,6 +102,7 @@ function PreviewPane({ t, projects }: { t: Thread; projects: Project[] }) {
       <h2 className="mt-2 mb-3 text-[16px] font-semibold">{t.title}</h2>
       <div className="flex flex-wrap items-center gap-2">
         <LaunchButton small ctx={launchContext(t, projects)} />
+        {supported && t.number !== null && <><Link className="btn btn-sm no-underline" to="/github/$owner/$repo/$number" params={{owner:t.repo.split("/")[0],repo:t.repo.split("/")[1],number:String(t.number)}}>Full conversation</Link><AddContext refItem={reference(t.repo,{number:t.number,title:t.title,url:t.url},t.kind === "PullRequest" ? "pr" : "issue")}/></>}
         <button className="btn btn-sm" onClick={() => void api.post("/api/open", { url: t.url }).catch(toastError)}>Open on GitHub</button>
         {hasSummary && <button className="btn btn-sm" disabled={refresh.isPending} onClick={() => refresh.mutate(true)}>{refresh.isPending ? "Refreshing…" : "Refresh"}</button>}
         <button className="btn btn-sm ml-auto" onClick={() => useView.setState({ selected: null })}>Close</button>
@@ -111,7 +116,7 @@ function PreviewPane({ t, projects }: { t: Thread; projects: Project[] }) {
         <div className="mb-2 text-xs text-ink-3">{p.author} · summary cached {formatAge(p.fetched_at)} ago</div>
         <Markdown text={p.body || "No description."} />
         <h3 className="mt-6 mb-3 text-xs font-semibold text-ink-2">Latest comments (up to 8)</h3>
-        {p.comments.map((c) => <article key={c.url} className="mb-4 border-t border-line pt-3"><div className="mb-2 text-xs text-ink-3">{c.author} · {formatAge(Date.parse(c.created_at))} ago <button className="ml-2 text-teal-ink hover:underline" onClick={() => void api.post("/api/open", { url: c.url }).catch(toastError)}>Open comment</button></div><Markdown text={c.body} /></article>)}
+        {p.comments.map((c) => <article key={c.url} className="mb-4 border-t border-line pt-3"><div className="mb-2 text-xs text-ink-3">{c.author} · {formatAge(Date.parse(c.created_at))} ago <button className="ml-2 text-teal-ink hover:underline" onClick={() => void api.post("/api/open", { url: c.url }).catch(toastError)}>Open comment</button></div><AddContext refItem={{repo:t.repo,number:t.number,title:t.title,url:c.url,kind:"comment"}}/><Markdown text={c.body} /></article>)}
       </> : <p className="text-ink-3">{hasSummary ? refresh.isPending ? "Fetching the thread summary…" : "No cached summary. Click Refresh to try again." : "This notification has no issue or PR preview. Open it on GitHub for details."}</p>}
     </div>
     {supported && <div className="flex-none border-t border-line bg-chrome p-3">
@@ -126,7 +131,7 @@ export function InboxView() {
   const view = useView();
   const ref = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
-  const action = useAction();
+  const action = useInboxAction();
   const sync = useMutation({ mutationFn: () => api.post("/api/inbox/sync"), onError: toastError, onSettled: () => void qc.invalidateQueries({ queryKey: ["inbox"] }) });
   const threads = data?.threads ?? [];
   const counted = useMemo(() => threads.filter((t) => !view.unread || t.unread), [threads, view.unread]);
@@ -146,6 +151,7 @@ export function InboxView() {
   // Warm the next few cached previews without making GitHub requests.
   useEffect(() => {
     const at = visible.findIndex((t) => t.id === view.selected);
+    for (const t of visible.slice(Math.max(0, at + 1), Math.max(0, at + 1) + 3)) { if(t.number && (t.kind === "Issue" || t.kind === "PullRequest")) void qc.prefetchQuery({queryKey:itemKey(t.repo,t.number),queryFn:()=>api.get(itemPath(t.repo,t.number!)),staleTime:60_000}); }
     for (const t of visible.slice(Math.max(0, at + 1), Math.max(0, at + 1) + 3)) void qc.prefetchQuery({ queryKey: ["inbox-preview", t.id], queryFn: () => api.get<ThreadPreview | null>(`/api/inbox/${t.id}/preview`), staleTime: 60_000 });
   }, [view.selected, visible, qc]);
   return <div className="flex h-full flex-col">

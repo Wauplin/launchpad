@@ -1151,7 +1151,7 @@ chunk=256MB  run 3/5 …</pre>
   <div class="sketch-head">
     <span class="sketch-id">S4 · Pull request</span>
     <h2>GitHub's layout, without GitHub's loading times</h2>
-    <p>Same structure as github.com, so nothing needs learning. Content comes from the local copy, with its age shown. An agent-written review waits as a draft until you post it.</p>
+    <p>Same structure as github.com, so nothing needs learning. Content comes from the local copy, with its age shown. Phase 3 has explicit comment and review buttons. Agent-written suggestion cards shown below arrive in Phase 6.</p>
   </div>
   <div class="frame">
     <div class="win" role="img" aria-label="Pull request view mockup">
@@ -1181,7 +1181,7 @@ chunk=256MB  run 3/5 …</pre>
           </div>
           <div class="tabs">
             <span class="tab on"><svg class="ic sm"><use href="#i-comment"/></svg>Conversation <span class="cnt">6</span></span>
-            <span class="tab"><svg class="ic sm"><use href="#i-commit"/></svg>Commits <span class="cnt">3</span></span>
+            <span class="tab"><svg class="ic sm"><use href="#i-comment"/></svg>Review threads <span class="cnt">3</span></span>
             <span class="tab"><svg class="ic sm"><use href="#i-file"/></svg>Files changed <span class="cnt">4</span> <span class="mono" style="color:var(--gh-open)">+84</span> <span class="mono" style="color:var(--gh-closed)">−21</span></span>
             <i class="pin" style="align-self:center; margin-left:6px">1</i>
           </div>
@@ -1282,7 +1282,7 @@ chunk=256MB  run 3/5 …</pre>
     </div>
   </div>
   <ol class="notes">
-    <li><i class="pin">1</i><span><b>Same tabs as GitHub.</b> Conversation, Commits and Files changed. Files changed uses local git when the project is registered, so large diffs open instantly.</span></li>
+    <li><i class="pin">1</i><span><b>Conversation and review.</b> Conversation includes commits and timeline events. Files changed uses cached local git diffs when a project is registered, with unified/split views, viewed markers and View file; a separate Review threads tab shows inline discussions read-only.</span></li>
     <li><i class="pin">2</i><span><b>Visible freshness.</b> Every cached view shows its age, a Refresh button and an Open on GitHub button.</span></li>
     <li><i class="pin">3</i><span><b>Agent drafts, you post.</b> A dashed teal card is a review or comment written by an agent. It is never posted on its own: Edit, Post (as approval, comment or change request), or Discard.</span></li>
     <li><i class="pin">4</i><span><b>Merge box.</b> Check summary with links to the logs on GitHub, review state, conflicts, merge method remembered per repository, Convert to draft or Ready for review.</span></li>

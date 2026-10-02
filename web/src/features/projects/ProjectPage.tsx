@@ -1,5 +1,6 @@
 // A project: header, description, its worktrees and its sessions. Issues and PRs arrive in Phase 3.
 
+import { RepoItems } from "@/features/github/RepoItems";
 import { Link, useParams } from "@tanstack/react-router";
 import { HarnessMark } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
@@ -48,6 +49,7 @@ export function ProjectPage() {
           </div>
         </div>
         {p.is_temp && <TempProjectCard p={p} />}
+        {p.gh_repo && <RepoItems key={p.gh_repo} repo={p.gh_repo} projectId={p.id} />}
         {worktrees.length > 0 && (
           <>
             <div className="seclabel">Worktrees</div>

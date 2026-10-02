@@ -18,7 +18,7 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 | 1 | Launch and run agents | You stop launching agents from the terminal | In progress |
 | 2 | GitHub inbox | You triage notifications without opening github.com | In progress |
 | 2b | Code viewer | You read code (an agent's worktree, a branch, a PR head) without opening an editor | In progress |
-| 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com | Not started |
+| 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com | In progress |
 | 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | Not started |
 | 5 | Workspace polish | Several sessions are easy to arrange, find and resume | Not started |
 | 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | Not started |
@@ -148,6 +148,15 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 - Composer "cart": while the composer is open, every issue, PR and comment shows "+ Add".
 
 **Done when:** you review and merge a typical PR in Launchpad faster than on github.com, and moving between items never shows a loading page.
+
+**Progress:**
+
+- Built on 2026-10-02: cached issue and PR detail routes, paginated GraphQL timelines and read-only review threads, sanitized GitHub `bodyHTML`, raw Markdown retained, and a disk image/avatar cache with a restricted authenticated proxy. Cached items render immediately and refresh in the background; unchanged timelines reuse their cache while headers and checks refresh. The top 15 unread inbox items and nearby selected rows are prefetched.
+- Issue controls: comment, close as completed or not planned, reopen. PR controls: comments and reviews (comment, approve, request changes), check summary and log links, reviewers and team review requests, labels, draft/ready, close/reopen, and merge/squash/rebase with a remembered method per repository. Reviews and merges include the displayed head commit; merging requires a second explicit click. Unsent comment/review text survives navigation and reloads.
+- Files changed: fetched PR heads in the private ref namespace, three-dot local git diffs from the exact base/head commits through the matching origin/upstream remote, a paginated API fallback, cached by commit pair. Virtualized file list and diff rows, syntax colors from the existing worker, unified and synchronized split views, viewed markers scoped to the head commit, and View file in the code viewer (GitHub for an unmapped repository). Deleted files open at the base commit.
+- Project pages list the 30 most recently updated open PRs and issues, cache for five minutes, and support selection across both tabs to launch with several context references. Full conversation opens from inbox previews; issue, PR and comment cards expose + Add while the composer is open. Refresh and Open on GitHub controls remain visible.
+- Checked against the real account in the dev daemon and Chrome: 30 PRs and 30 issues from huggingface_hub, full issue/PR conversations, a reviewed PR with 15 timeline entries and three review threads, disk-cached avatars, a three-file local diff, and an eight-file API fallback from an unmapped repository. Browser checks confirmed multi-select composer references, syntax colors, unified/split views, viewed persistence, View file, unsent draft persistence, composer cart controls and review-thread rendering with no browser errors. Diff controls and virtualization were also checked at all five zoom positions. The dev desktop window starts successfully. Strict workspace Clippy, UI type checks/build, the desktop build and ten fast Rust tests pass. Publishing controls are implemented but deliberately not exercised against real GitHub items during automated checks.
+- Left for the **Done when** check: review and merge a typical PR in daily use, and compare the workflow speed to github.com.
 
 ## Phase 4: pre-draft PRs
 

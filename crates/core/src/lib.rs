@@ -11,6 +11,7 @@ pub mod git;
 pub mod github;
 pub mod harness;
 pub mod inbox;
+pub mod items;
 pub mod model;
 pub mod notify;
 pub mod paths;
