@@ -1,4 +1,5 @@
 // GraphQL fields selected by core/items.rs. Connections retain GitHub's field names.
+export type Label = { name: string; color: string };
 export type User = { login?: string; name?: string; avatarUrl?: string };
 export type Connection<T> = { nodes: T[]; pageInfo?: { hasNextPage: boolean } };
 export type Comment = {
@@ -42,7 +43,7 @@ export type Item = {
   updatedAt: string;
   fetched_at: number;
   author: User;
-  labels: Connection<{ name: string; color: string }>;
+  labels: Connection<Label>;
   assignees: Connection<User>;
   participants: Connection<User>;
   milestone?: { title: string };
@@ -94,6 +95,7 @@ export type Item = {
   }>;
 };
 export type ListItem = {
+  labels?: Connection<Label>;
   number: number;
   title: string;
   url: string;

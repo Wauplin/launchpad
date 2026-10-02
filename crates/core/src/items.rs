@@ -144,7 +144,7 @@ pub async fn project_items(app: &App, repo: &str, force: bool) -> Result<Value> 
         return Ok(v);
     }
     let (owner, name) = repo.split_once('/').context("repository")?;
-    let fields = "number title url updatedAt state author { login }";
+    let fields = "number title url updatedAt state author { login } labels(first:50) { nodes { name color } }";
     let query = format!(
         "query {{ repository(owner:{},name:{}) {{ pullRequests(first:30,states:OPEN,orderBy:{{field:UPDATED_AT,direction:DESC}}) {{ nodes {{ {fields} isDraft }} }} issues(first:30,states:OPEN,orderBy:{{field:UPDATED_AT,direction:DESC}}) {{ nodes {{ {fields} }} }} }} }}",
         json!(owner),

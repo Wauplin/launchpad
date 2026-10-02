@@ -1327,7 +1327,7 @@ chunk=256MB  run 3/5 …</pre>
             <div class="acts"><span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span><span class="btn sm"><svg class="ic sm"><use href="#i-code"/></svg>Code</span><span class="btn sm">Editor</span><span class="btn sm"><svg class="ic sm"><use href="#i-term"/></svg>Terminal</span><span class="btn sm"><svg class="ic sm"><use href="#i-ext"/></svg>GitHub</span></div>
           </div>
           <div class="tabs"><span class="tab on">Pull requests <span class="cnt">16</span></span><span class="tab">Issues <span class="cnt">52</span></span><span class="tab">Sessions <span class="cnt">9</span></span><span class="tab">Worktrees <span class="cnt">3</span></span></div>
-          <div class="lfilter"><span class="fchip on">Open</span><span class="fchip">Pre-drafts <b>2</b></span><span class="fchip">Review requested <b>1</b></span><span class="fchip">Mine</span></div>
+          <div class="lfilter"><span class="fchip on">Open</span><span class="fchip">Pre-drafts <b>2</b></span><span class="fchip">Review requested <b>1</b></span><span class="fchip">Mine</span><span class="fchip">Label: All labels ▾</span></div>
           <div class="prow local sel">
             <svg class="ic c-local"><use href="#i-pr-local"/></svg>
             <span class="t">Apply revision before filters in HfFileSystem.glob</span>
@@ -1340,7 +1340,7 @@ chunk=256MB  run 3/5 …</pre>
           </div>
           <div class="prow">
             <svg class="ic c-open"><use href="#i-pr"/></svg>
-            <span class="t">Fix revision handling in snapshot_download filters</span>
+            <span class="t">Fix revision handling in snapshot_download filters <span class="lbl" style="--h:0">bug</span></span>
             <span class="m">#3420 · anya-k · <span class="reason hot">Review requested</span></span>
           </div>
           <div class="prow">
@@ -1422,7 +1422,7 @@ chunk=256MB  run 3/5 …</pre>
     </div>
   </div>
   <ol class="notes">
-    <li><i class="pin">1</i><span><b>One list, two origins.</b> Pre-draft PRs sit at the top of the project's PR list as teal Local rows with their local branch. A checkbox includes discarded local records.</span></li>
+    <li><i class="pin">1</i><span><b>Labels and two origins.</b> GitHub rows show colored labels; a label selector filters recent cached open items by one label or no labels, with a visible matching count. Local PR rows stay visible. Pre-draft PRs sit at the top of the project's PR list as teal Local rows with their local branch. A checkbox includes discarded local records.</span></li>
     <li><i class="pin">2</i><span><b>Made by an agent.</b> Choosing "Run in → Pre-draft PR" (S2) creates the branch and worktree. The agent commits there and sets the title and description with <code>launchpad pr update</code>.</span></li>
     <li><i class="pin">3</i><span><b>Review locally.</b> Files changed is computed with local git from the merge base. A banner warns when <code>main</code> has moved.</span></li>
     <li><i class="pin">4</i><span><b>Feedback loop.</b> Notes on files (and, later, on lines) are sent back to the same agent session with "Send feedback to agent". Then you review again.</span></li>

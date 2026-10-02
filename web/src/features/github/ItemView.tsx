@@ -16,6 +16,7 @@ import {
   openGitHub,
   reference,
 } from "./lib";
+import { LabelChip } from "./LabelChip";
 import { FilesChanged } from "./FilesChanged";
 import type { Item, Timeline, Comment } from "./types";
 const EventCard = memo(function EventCard({
@@ -270,13 +271,7 @@ function Controls({
           <b>Labels</b>
           <div className="mt-2 flex flex-wrap gap-1">
             {item.labels.nodes.map((l) => (
-              <span
-                key={l.name}
-                className="rounded border border-line bg-paper px-2 py-1"
-                style={{ borderLeft: `4px solid #${l.color}` }}
-              >
-                {l.name}
-              </span>
+              <LabelChip key={l.name} label={l} />
             ))}
           </div>
           <input
