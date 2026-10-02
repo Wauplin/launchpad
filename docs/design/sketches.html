@@ -1,0 +1,1386 @@
+<title>Launchpad Sketches</title>
+<meta name="description" content="Annotated UI sketches for Launchpad: inbox, agent launcher, agents grid, pull request view, pre-draft PRs.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu+Sans:wght@300..800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu+Sans:wdth,wght@75..100,300..800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu+Sans+Mono:wght@400..700&display=swap">
+<style>
+/* Layout: a design board. Each sketch = heading, one full app window at a fixed 1180px design width (scrolls sideways on small screens), then numbered notes that match pins in the window.
+   Single light look by choice: the app itself is light-only, so the board is too. */
+:root {
+  --board: #E6EAF0;      /* page ground behind the windows */
+  --paper: #FFFFFF;      /* app main surface */
+  --chrome: #F4F6F9;     /* app bars and side panels */
+  --sunk: #EEF1F5;       /* inputs, code, quiet fills */
+  --ink: #17202B;
+  --ink-2: #4B5767;
+  --ink-3: #7B8696;
+  --line: #D9DEE6;
+  --line-2: #E9ECF1;
+  --teal: #0D7266;       /* Launchpad accent: primary actions and local-only objects */
+  --teal-ink: #0A5C52;
+  --teal-soft: #E2F1EE;
+  --clay: #BD5A39;       /* Claude Code */
+  --clay-soft: #F7E8E1;
+  --graphite: #2A3038;   /* Codex */
+  --gh-open: #1A7F37;    /* GitHub semantics, unchanged */
+  --gh-merged: #8250DF;
+  --gh-closed: #CF222E;
+  --gh-draft: #6E7781;
+  --attn: #8A5D00;
+  --attn-soft: #FFF4D4;
+  --attn-line: #E8C870;
+  --work: #1F63B0;
+  --work-soft: #E7F0FA;
+  --select: #E8EEF6;
+  --note: #B4197A;       /* annotation pins, not part of the app */
+  --font-ui: "Ubuntu Sans", "Ubuntu", system-ui, "Segoe UI", sans-serif;
+  --font-mono: "Ubuntu Sans Mono", "Ubuntu Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--board); color: var(--ink); font: 15px/1.55 var(--font-ui); }
+.page { max-width: 1240px; margin: 0 auto; padding-inline: 24px; padding-block: 48px 96px; }
+@media (max-width: 600px) { .page { padding-inline: 16px; padding-block: 28px 64px; } }
+
+/* ---------- board typography ---------- */
+.intro { display: grid; gap: 18px; max-width: 1000px; }
+.kicker { font: 600 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--teal-ink); }
+h1 { margin: 0; font-family: var(--font-ui); font-stretch: 78%; font-weight: 760; font-size: clamp(34px, 6vw, 52px); line-height: 1.02; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { margin: 0; font-size: 17px; color: var(--ink-2); max-width: 64ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13.5px; color: var(--ink-2); }
+.legend > span { display: inline-flex; align-items: center; gap: 8px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.sw-gh { display: inline-flex; gap: 2px; }
+.sw-gh i { width: 6px; height: 12px; border-radius: 2px; display: block; }
+.toc { display: flex; flex-wrap: wrap; gap: 8px; }
+.toc a { display: inline-flex; gap: 8px; align-items: baseline; padding: 6px 12px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-size: 13.5px; }
+.toc a b { font: 600 11.5px var(--font-mono); color: var(--teal-ink); }
+.toc a:hover { border-color: var(--teal); }
+.toc a:focus-visible, a:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+.sketch { margin-top: 72px; display: grid; gap: 22px; scroll-margin-top: 24px; }
+.sketch-head { display: grid; gap: 6px; max-width: 760px; }
+.sketch-id { font: 600 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--teal-ink); }
+h2 { margin: 0; font-stretch: 82%; font-weight: 720; font-size: clamp(24px, 3.4vw, 30px); line-height: 1.12; text-wrap: balance; }
+.sketch-head p { margin: 0; color: var(--ink-2); max-width: 66ch; }
+
+.frame { overflow-x: auto; padding-block: 4px 10px; }
+.notes { list-style: none; margin: 0 auto; padding: 0; width: 100%; max-width: 1180px; display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 14px 32px; }
+.notes li { display: grid; grid-template-columns: 20px 1fr; gap: 10px; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.notes li b { color: var(--ink); font-weight: 650; }
+.notes code, .sketch-head code, .lede code { font: 13px var(--font-mono); background: rgba(255,255,255,.7); padding: 0 4px; border-radius: 4px; }
+.pin { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--note); color: #fff; font: 700 10.5px/1 var(--font-ui); flex: none; box-shadow: 0 0 0 2px #fff; vertical-align: middle; font-style: normal; }
+.pin.abs { position: absolute; z-index: 5; }
+
+/* ---------- app window ---------- */
+.win { width: 1180px; margin: 0 auto; background: var(--paper); border: 1px solid #C7CED8; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; font-size: 13px; line-height: 1.45; color: var(--ink); box-shadow: 0 1px 2px rgba(23,32,43,.06), 0 18px 40px -14px rgba(23,32,43,.28); }
+.win button, .frag button { font: inherit; }
+.ic { width: 16px; height: 16px; flex: none; display: inline-block; vertical-align: -3px; }
+.ic.sm { width: 14px; height: 14px; vertical-align: -2px; }
+.mono { font-family: var(--font-mono); font-size: 12px; }
+.muted { color: var(--ink-2); }
+.faint { color: var(--ink-3); }
+.c-open { color: var(--gh-open); } .c-merged { color: var(--gh-merged); } .c-closed { color: var(--gh-closed); } .c-draft { color: var(--gh-draft); } .c-local { color: var(--teal); }
+
+.topbar { height: 46px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 10px 0 14px; background: var(--chrome); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: .01em; }
+.logo { width: 22px; height: 22px; border-radius: 6px; background: var(--teal); display: grid; place-items: center; }
+.logo svg { width: 12px; height: 12px; }
+.crumbs { display: flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.crumbs b { color: var(--ink); font-weight: 600; }
+.crumbs .sep { color: var(--ink-3); }
+.palette { margin-left: auto; width: 320px; height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink-3); }
+.palette kbd { margin-left: auto; }
+.wctl { display: flex; gap: 8px; margin-left: 4px; }
+.wctl span { width: 14px; height: 14px; border-radius: 50%; background: #D5DAE1; }
+
+kbd { font: 500 10.5px/1 var(--font-mono); padding: 2px 4px; border-radius: 4px; border: 1px solid var(--line); border-bottom-width: 2px; background: var(--paper); color: var(--ink-2); white-space: nowrap; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border-radius: 7px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); font-weight: 550; font-size: 12.5px; white-space: nowrap; cursor: default; }
+.btn.sm { height: 24px; padding: 0 8px; font-size: 12px; gap: 5px; border-radius: 6px; }
+.btn.primary { background: var(--teal); border-color: var(--teal-ink); color: #fff; }
+.btn.primary kbd { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.35); color: #fff; }
+.btn.green { background: var(--gh-open); border-color: #116329; color: #fff; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--ink-2); }
+.btn.danger { color: var(--gh-closed); }
+.btn .split { margin-left: 4px; padding-left: 7px; border-left: 1px solid rgba(255,255,255,.35); display: inline-flex; }
+.btn.plain .split { border-left-color: var(--line); }
+.iconbtn { width: 26px; height: 26px; display: inline-grid; place-items: center; border-radius: 6px; color: var(--ink-2); border: 1px solid transparent; }
+.iconbtn.box { border-color: var(--line); background: var(--paper); }
+
+.hm { width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; flex: none; color: #fff; font: 700 10px/1 var(--font-ui); }
+.hm.c { background: var(--clay); }
+.hm.x { background: var(--graphite); }
+.hm.sm { width: 15px; height: 15px; font-size: 8.5px; }
+.hm.lg { width: 26px; height: 26px; font-size: 13px; }
+.hm svg { width: 70%; height: 70%; display: block; }
+
+.av { width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; flex: none; font: 650 8.5px/1 var(--font-ui); background: hsl(var(--h) 52% 87%); color: hsl(var(--h) 48% 27%); box-shadow: 0 0 0 1.5px var(--paper); }
+.av.lg { width: 28px; height: 28px; font-size: 10.5px; }
+.avs { display: inline-flex; align-items: center; }
+.avs .av + .av { margin-left: -3px; }
+.avs .more { margin-left: 4px; font-size: 11.5px; color: var(--ink-3); }
+
+.pill { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.pill.open { background: var(--gh-open); color: #fff; }
+.pill.draftgh { background: var(--gh-draft); color: #fff; }
+.pill.local { background: var(--teal-soft); color: var(--teal-ink); border: 1px dashed var(--teal); }
+.reason { display: inline-flex; align-items: center; height: 19px; padding: 0 7px; border-radius: 5px; font-size: 11.5px; color: var(--ink-2); border: 1px solid var(--line); white-space: nowrap; }
+.reason.hot { color: var(--attn); background: var(--attn-soft); border-color: var(--attn-line); font-weight: 600; }
+.st { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.st::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.st.work { background: var(--work-soft); color: var(--work); }
+.st.needs { background: var(--attn-soft); color: var(--attn); }
+.st.done { background: var(--sunk); color: var(--ink-2); }
+.st.done::before { background: var(--ink-3); }
+.st.bgc { background: var(--paper); color: var(--attn); box-shadow: inset 0 0 0 1px var(--attn-line); }
+.st.bgc::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--attn); }
+.st.int { background: var(--paper); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line); }
+.st.int::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
+.lbl { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: hsl(var(--h) 70% 92%); color: hsl(var(--h) 55% 28%); }
+
+.app { display: grid; min-height: 0; }
+.side { background: var(--chrome); border-right: 1px solid var(--line); padding: 10px 8px; display: flex; flex-direction: column; gap: 1px; min-height: 0; }
+.nav-item { display: flex; align-items: center; gap: 9px; height: 31px; padding: 0 9px; border-radius: 7px; color: var(--ink-2); }
+.nav-item.on { background: var(--paper); color: var(--ink); font-weight: 600; box-shadow: inset 0 0 0 1px var(--line); }
+.nav-item .count { margin-left: auto; font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.nav-item .needs { margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--attn-soft); color: var(--attn); box-shadow: inset 0 0 0 1px var(--attn-line); font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+.side-label { padding: 14px 9px 4px; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); display: flex; align-items: center; gap: 6px; }
+.proj { display: flex; align-items: center; gap: 8px; height: 27px; padding: 0 9px; border-radius: 6px; color: var(--ink); font-size: 12.5px; }
+.proj .run { width: 7px; height: 7px; border-radius: 50%; margin-left: auto; }
+.proj .run.c { background: var(--clay); }
+.proj .run.x { background: var(--graphite); }
+.proj .age { margin-left: auto; font-size: 11px; color: var(--ink-3); }
+.proj .age + .run { margin-left: 6px; }
+.proj.tmp { color: var(--ink-2); font-family: var(--font-mono); font-size: 11.5px; }
+.side-foot { margin-top: auto; }
+.rail { background: var(--chrome); border-right: 1px solid var(--line); padding: 10px 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.rail .r { width: 36px; height: 34px; border-radius: 8px; display: grid; place-items: center; color: var(--ink-2); position: relative; }
+.rail .r.on { background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.rail .r .dot { position: absolute; top: 5px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--attn); box-shadow: 0 0 0 2px var(--chrome); }
+.rail .sep { width: 24px; height: 1px; background: var(--line); margin-block: 6px; }
+.rail .pj { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font: 650 10.5px var(--font-ui); background: var(--paper); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line); }
+.rail .bottom { margin-top: auto; }
+
+.statusbar { height: 30px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; background: var(--chrome); border-top: 1px solid var(--line); font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.statusbar .h { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 600; }
+.statusbar .q { display: inline-flex; align-items: center; gap: 6px; }
+.statusbar .vsep { width: 1px; height: 14px; background: var(--line); }
+.statusbar .upd { color: var(--teal-ink); font-weight: 600; }
+.statusbar .right { margin-left: auto; display: inline-flex; gap: 14px; align-items: center; }
+.statusbar .needs { color: var(--attn); font-weight: 700; }
+.meter { width: 44px; height: 6px; border-radius: 3px; background: #DCE1E8; overflow: hidden; display: inline-block; }
+.meter i { display: block; height: 100%; border-radius: 3px; background: var(--graphite); }
+.meter.clay i { background: var(--clay); }
+
+/* ---------- S1 inbox ---------- */
+.s1 { grid-template-columns: 200px 530px 1fr; height: 690px; }
+.ihead { padding: 12px 14px 10px; border-bottom: 1px solid var(--line); display: grid; gap: 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); background: var(--paper); }
+.fchip b { font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums; }
+.fchip.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+.fchip.on b { color: #fff; }
+.itools { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--ink-2); }
+.toggle { display: inline-flex; align-items: center; gap: 7px; }
+.toggle .tr { width: 26px; height: 15px; border-radius: 999px; background: #C9D0DA; position: relative; }
+.toggle .tr::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: #fff; }
+.toggle .tr.on { background: var(--teal); }
+.toggle .tr.on::after { left: 13px; }
+.itools .sync { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); }
+.ilist { overflow: hidden; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.nrow { position: relative; display: grid; grid-template-columns: 8px 16px 1fr; gap: 2px 10px; padding: 9px 14px 9px 10px; border-bottom: 1px solid var(--line-2); }
+.nrow .udot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; grid-row: 1 / span 3; }
+.nrow.unread .udot { background: var(--work); }
+.nrow.localunread .udot { box-shadow: inset 0 0 0 2px var(--teal); }
+.nrow > .ic { grid-row: 1 / span 3; margin-top: 2px; }
+.nrow .n1 { display: flex; align-items: baseline; gap: 6px; font-size: 11.5px; color: var(--ink-3); }
+.nrow .n1 .time { margin-left: auto; font-variant-numeric: tabular-nums; }
+.nrow .n2 { font-size: 13px; color: var(--ink-2); }
+.nrow.unread .n2, .nrow.localunread .n2 { color: var(--ink); font-weight: 600; }
+.nrow .n3 { display: flex; align-items: center; gap: 8px; margin-top: 3px; font-size: 11.5px; color: var(--ink-3); }
+.nrow.sel { background: var(--select); }
+.nrow.hover { background: #F5F8FB; }
+.nacts { position: absolute; right: 10px; bottom: 7px; display: flex; gap: 4px; padding-left: 10px; background: #F5F8FB; }
+.nacts .btn:not(.primary) { background: var(--paper); }
+.nacts .btn kbd { padding: 1px 3px; }
+.prev { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow: hidden; }
+.prev-top { display: flex; align-items: center; gap: 8px; }
+.prev-top .sp { margin-left: auto; display: flex; gap: 4px; }
+.prev h3 { margin: 0; font-size: 18px; line-height: 1.3; font-weight: 650; text-wrap: balance; }
+.prev .sub { color: var(--ink-2); font-size: 12.5px; }
+.prev .sub .mono { background: var(--work-soft); color: var(--work); padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.stats .add { color: var(--gh-open); font-weight: 650; }
+.stats .del { color: var(--gh-closed); font-weight: 650; }
+.why { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--attn-soft); color: var(--attn); font-size: 12.5px; }
+.actrow { display: flex; flex-wrap: wrap; gap: 6px; }
+.seclabel { font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.cmt { display: grid; grid-template-columns: 28px 1fr; gap: 10px; }
+.cmt .who { font-size: 12px; color: var(--ink-2); }
+.cmt .who b { color: var(--ink); font-weight: 650; }
+.cmt p { margin: 2px 0 0; font-size: 13px; }
+code.i { font: 12px var(--font-mono); background: var(--sunk); padding: 0 4px; border-radius: 4px; }
+.reply { margin-top: auto; display: flex; gap: 8px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-3); }
+.reply .btn { margin-left: auto; }
+
+/* ---------- S2 radial + composer ---------- */
+.radial-wrap { display: grid; grid-template-columns: minmax(0, 560px) 1fr; gap: 28px; align-items: center; max-width: 1180px; margin: 0 auto; width: 100%; }
+@media (max-width: 900px) { .radial-wrap { grid-template-columns: 1fr; } }
+.frag { background: var(--paper); border: 1px solid #C7CED8; border-radius: 10px; font-size: 13px; line-height: 1.45; color: var(--ink); box-shadow: 0 1px 2px rgba(23,32,43,.06), 0 12px 28px -14px rgba(23,32,43,.25); overflow: hidden; }
+.radial { position: relative; overflow: hidden; }
+.radial .nrow { border-bottom: 1px solid var(--line-2); }
+.bubbles { position: absolute; right: 52px; top: 22px; display: flex; gap: 14px; align-items: flex-start; }
+.bubble { display: grid; justify-items: center; gap: 6px; }
+.bubble .b { width: 50px; height: 50px; border-radius: 50%; display: grid; place-items: center; color: #fff; font: 700 19px/1 var(--font-ui); box-shadow: 0 8px 18px -6px rgba(23,32,43,.45), 0 0 0 4px rgba(255,255,255,.95); }
+.bubble.c .b { background: var(--clay); }
+.bubble.x .b { background: var(--graphite); }
+.bubble.c .b { outline: 2px solid var(--clay); outline-offset: 5px; }
+.bubble .b svg { width: 26px; height: 26px; }
+.cursor { position: absolute; width: 18px; height: 22px; }
+.radial-notes { display: grid; gap: 12px; }
+
+.s2 { grid-template-columns: 200px 1fr 440px; height: 720px; }
+.issue { padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; min-height: 0; }
+.issue h3 { margin: 0; font-size: 19px; font-weight: 650; line-height: 1.3; }
+.issue h3 .num { color: var(--ink-3); font-weight: 400; }
+.addbtn { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 11.5px; font-weight: 650; color: var(--teal-ink); background: var(--teal-soft); border: 1px dashed var(--teal); white-space: nowrap; }
+.addbtn.added { background: var(--teal); color: #fff; border-style: solid; border-color: var(--teal); }
+.gcard { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.gcard-h { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--chrome); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
+.gcard-h b { color: var(--ink); font-weight: 650; }
+.gcard-h .end { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.gcard-b { padding: 10px 12px; display: grid; gap: 8px; }
+.gcard-b p { margin: 0; }
+.linked { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.linked .end { margin-left: auto; }
+
+.drawer { border-left: 1px solid var(--line); background: var(--paper); display: flex; flex-direction: column; min-height: 0; box-shadow: -14px 0 28px -20px rgba(23,32,43,.35); position: relative; }
+.dr-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.dr-head .t { font-weight: 700; font-size: 14px; }
+.dr-head .x { margin-left: auto; }
+.seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--sunk); gap: 2px; }
+.seg > span { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 6px; font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
+.seg > span.on { background: var(--paper); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(23,32,43,.12), inset 0 0 0 1px var(--line); }
+.seg.full { display: flex; }
+.seg.full > span { flex: 1; justify-content: center; }
+.dr-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 13px; overflow: hidden; min-height: 0; }
+.field { display: grid; gap: 6px; }
+.field > label { font-size: 11.5px; font-weight: 650; color: var(--ink-2); display: flex; align-items: center; gap: 8px; }
+.field > label .hint { font-weight: 400; color: var(--ink-3); }
+.field > label .lnk { margin-left: auto; color: var(--teal-ink); font-weight: 600; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.select { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); }
+.select .ic:last-child { margin-left: auto; color: var(--ink-3); }
+.select .def { color: var(--ink-3); }
+.ta { min-height: 74px; padding: 9px 10px; border: 1.5px solid var(--teal); border-radius: 8px; box-shadow: 0 0 0 3px var(--teal-soft); line-height: 1.5; }
+.ta .ref { font-family: var(--font-mono); font-size: 12px; color: var(--teal-ink); background: var(--teal-soft); padding: 0 3px; border-radius: 3px; }
+.caret { display: inline-block; width: 1.5px; height: 15px; background: var(--ink); vertical-align: -3px; margin-left: 1px; }
+.ctx { display: grid; gap: 5px; }
+.ctx-item { display: grid; grid-template-columns: 16px auto 1fr 16px; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--chrome); font-size: 12.5px; }
+.ctx-item .t { color: var(--ink-2); min-width: 0; }
+.ctx-item .x { color: var(--ink-3); }
+.branch { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 5px; background: var(--paper); border: 1px solid var(--line); font: 11.5px var(--font-mono); color: var(--ink); white-space: nowrap; }
+.ctx-add { display: flex; gap: 6px; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.pchip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--line); font-size: 12.5px; color: var(--ink-2); background: var(--paper); }
+.pchip.on { background: var(--ink); border-color: var(--ink); color: #fff; font-weight: 600; }
+.pv { border: 1px solid var(--line); border-radius: 8px; background: var(--chrome); }
+.pv-h { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 11.5px; font-weight: 650; color: var(--ink-2); border-bottom: 1px solid var(--line); }
+.pv-h .end { margin-left: auto; font-weight: 400; color: var(--ink-3); }
+.pv pre { margin: 0; padding: 8px 10px; font: 11.5px/1.5 var(--font-mono); white-space: pre-wrap; color: var(--ink-2); max-height: 128px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+.dr-foot { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); background: var(--chrome); }
+.dr-foot .check { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-2); margin-right: auto; }
+.cb { width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--ink-3); background: var(--paper); display: inline-grid; place-items: center; }
+.cb.on { background: var(--teal); border-color: var(--teal); color: #fff; }
+
+/* ---------- S3 agents ---------- */
+.s3 { grid-template-columns: 52px 248px 1fr; height: 760px; }
+.slist { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--paper); }
+.sgroup { display: flex; align-items: center; gap: 8px; padding: 12px 12px 6px; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.sgroup b { color: var(--attn); }
+.srow { display: grid; grid-template-columns: 18px 1fr; gap: 3px 9px; padding: 8px 12px; border-bottom: 1px solid var(--line-2); }
+.srow .hm { margin-top: 1px; grid-row: span 2; }
+.srow .t { font-weight: 600; font-size: 12.5px; line-height: 1.35; }
+.srow .m { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 11.5px; color: var(--ink-3); }
+.srow.sel { background: var(--select); }
+.srow.dim .t { font-weight: 500; color: var(--ink-2); }
+.layout-sw { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--sunk); }
+.layout-sw span { width: 28px; height: 24px; display: grid; place-items: center; border-radius: 6px; color: var(--ink-3); }
+.layout-sw span.on { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px rgba(23,32,43,.12), inset 0 0 0 1px var(--line); }
+.grid4 { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1px; background: var(--line); min-height: 0; }
+.pane { background: var(--paper); display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
+.pane.focus { box-shadow: inset 0 0 0 2px var(--teal); z-index: 1; }
+.ph { display: grid; grid-template-columns: 18px 1fr auto; gap: 2px 9px; padding: 8px 10px 7px 12px; border-bottom: 1px solid var(--line-2); align-items: center; }
+.ph .hm { grid-row: span 2; align-self: start; margin-top: 1px; }
+.ph .t { font-weight: 650; font-size: 12.5px; }
+.ph .acts { display: flex; gap: 2px; grid-row: span 2; align-self: start; }
+.ph .m { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.pbody { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 9px; padding: 10px 12px; position: relative; }
+.pbody::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 28px; background: linear-gradient(var(--paper), rgba(255,255,255,0)); z-index: 1; }
+.msg-u { align-self: flex-end; max-width: 88%; padding: 7px 10px; border-radius: 10px 10px 3px 10px; background: var(--sunk); font-size: 12.5px; color: var(--ink); }
+.msg-a { font-size: 12.5px; line-height: 1.5; position: relative; }
+.msg-a p { margin: 0; }
+.msg-a p + p, .msg-a p + pre, .msg-a pre + p { margin-top: 6px; }
+.msg-a pre { margin: 0; padding: 7px 9px; border-radius: 6px; background: #F6F8FA; border: 1px solid var(--line-2); font: 11.5px/1.5 var(--font-mono); white-space: pre-wrap; position: relative; }
+.msg-a.hl { margin-top: 14px; background: #FAFBFC; box-shadow: 0 0 0 6px #FAFBFC, 0 0 0 7px var(--line-2); border-radius: 2px; }
+.copybar { position: absolute; top: -19px; right: -4px; display: flex; gap: 3px; z-index: 2; }
+.copybar .btn { background: var(--paper); box-shadow: 0 1px 3px rgba(23,32,43,.12); }
+.tool { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-2); padding: 4px 8px; border-radius: 6px; background: var(--chrome); border: 1px solid var(--line-2); }
+.tool .n { font-weight: 650; color: var(--ink); }
+.tool .end { margin-left: auto; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tool.run { background: var(--work-soft); border-color: #CFE0F4; color: var(--work); }
+.tool.run .n { color: var(--work); }
+.spin { width: 11px; height: 11px; border-radius: 50%; border: 2px solid #B9D1EE; border-top-color: var(--work); flex: none; }
+@media (prefers-reduced-motion: no-preference) { .spin { animation: spin 1s linear infinite; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+.edit { border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; }
+.edit .eh { display: flex; align-items: center; gap: 7px; padding: 4px 8px; font-size: 12px; background: var(--chrome); color: var(--ink-2); }
+.edit .eh .add { color: var(--gh-open); font-weight: 650; } .edit .eh .del { color: var(--gh-closed); font-weight: 650; }
+.edit pre { margin: 0; padding: 4px 0; font: 11px/1.55 var(--font-mono); white-space: pre; overflow: hidden; }
+.edit pre span { display: block; padding: 0 8px; }
+.edit pre .a { background: #E8F6EC; color: #0F4D23; }
+.edit pre .d { background: #FCEBEC; color: #7D1A20; }
+.turn { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--ink-3); }
+.turn::before, .turn::after { content: ""; height: 1px; background: var(--line-2); flex: 1; }
+.ask { border: 1px solid var(--attn-line); background: #FFFBEF; border-radius: 8px; padding: 9px 10px; display: grid; gap: 6px; }
+.ask .q { font-weight: 650; font-size: 12.5px; }
+.ask .opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; background: var(--paper); border: 1px solid var(--line); font-size: 12.5px; }
+.ask .opt kbd { margin-left: auto; }
+.ask .other { font-size: 11.5px; color: var(--ink-3); }
+.plan { display: grid; gap: 3px; padding: 7px 9px; border: 1px solid var(--line-2); border-radius: 6px; font-size: 12px; }
+.plan .pl { display: flex; align-items: center; gap: 7px; color: var(--ink-2); }
+.plan .pl.done { color: var(--ink-3); text-decoration: line-through; }
+.plan .pl.now { color: var(--ink); font-weight: 600; }
+.plan .bx { width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid var(--ink-3); flex: none; display: grid; place-items: center; }
+.plan .pl.done .bx { background: var(--ink-3); border-color: var(--ink-3); }
+.plan .pl.now .bx { border-color: var(--work); background: var(--work-soft); }
+.bgtask { border: 1px solid var(--attn-line); border-radius: 6px; overflow: hidden; }
+.bgtask .bh { display: flex; align-items: center; gap: 7px; padding: 4px 8px; font-size: 12px; background: var(--attn-soft); color: var(--attn); }
+.bgtask .bh .n { font-weight: 650; }
+.bgtask .bh .mono { color: var(--ink-2); }
+.bgtask .bh .end { margin-left: auto; font-variant-numeric: tabular-nums; }
+.bgtask .spin { border-color: var(--attn-line); border-top-color: var(--attn); }
+.bgtask .term { border-radius: 0; }
+.term { margin: 0; padding: 8px 10px; border-radius: 6px; background: #1E242C; color: #D6DEE8; font: 11px/1.6 var(--font-mono); white-space: pre; overflow: hidden; }
+.term .pr { color: #8FD3C8; }
+.term .dim { color: #8A96A6; }
+.pin-input { padding: 8px 10px 10px; border-top: 1px solid var(--line-2); }
+.inp { display: flex; align-items: flex-end; gap: 8px; padding: 7px 8px 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; color: var(--ink-3); min-height: 36px; }
+.inp.focus { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-soft); color: var(--ink); }
+.inp .end { margin-left: auto; display: flex; gap: 4px; align-items: center; flex: none; }
+
+/* ---------- S4 PR view ---------- */
+.s4 { grid-template-columns: 52px 1fr 268px; height: 1040px; }
+.prmain { overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
+.prhead { padding: 18px 24px 0; display: grid; gap: 8px; }
+.prhead h3 { margin: 0; font-size: 22px; font-weight: 600; line-height: 1.25; }
+.prhead h3 .num { color: var(--ink-3); font-weight: 400; }
+.prhead .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--ink-2); font-size: 13px; }
+.refp { font: 12px var(--font-mono); background: var(--work-soft); color: var(--work); padding: 1px 6px; border-radius: 5px; }
+.fresh { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--ink-3); font-size: 12px; }
+.tabs { display: flex; gap: 2px; padding: 0 24px; border-bottom: 1px solid var(--line); margin-top: 12px; }
+.tab { display: inline-flex; align-items: center; gap: 7px; padding: 9px 12px; color: var(--ink-2); font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.tab.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
+.tab .cnt { min-width: 20px; height: 18px; padding: 0 6px; border-radius: 999px; background: var(--sunk); font-size: 11.5px; display: inline-grid; place-items: center; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.timeline { padding: 16px 24px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; min-height: 0; }
+.tl-c { display: grid; grid-template-columns: 34px 1fr; gap: 12px; }
+.ev { display: flex; align-items: center; gap: 8px; padding-left: 46px; font-size: 12.5px; color: var(--ink-2); }
+.ev .evi { width: 24px; height: 24px; border-radius: 50%; background: var(--sunk); display: grid; place-items: center; color: var(--ink-2); margin-left: -36px; }
+.ev .sha { font: 11.5px var(--font-mono); color: var(--ink-3); }
+.task { display: flex; align-items: center; gap: 7px; }
+.sugg { border: 1.5px dashed var(--teal); background: #F4FAF8; border-radius: 9px; overflow: hidden; }
+.sugg .sh { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px dashed #9DCBC2; font-size: 12px; color: var(--teal-ink); }
+.sugg .sh b { font-weight: 700; }
+.sugg .sh .end { margin-left: auto; color: var(--ink-3); }
+.sugg .sb { padding: 10px 12px; display: grid; gap: 10px; }
+.sugg .sb p { margin: 0; }
+.mbox { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.mrow { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line-2); }
+.mrow .ok { color: var(--gh-open); } .mrow .bad { color: var(--gh-closed); } .mrow .warn { color: var(--attn); }
+.mrow .t { font-weight: 650; }
+.mrow .s { color: var(--ink-2); font-size: 12px; }
+.mrow.sub { padding-block: 6px; background: var(--chrome); font-size: 12px; }
+.mfoot { display: flex; align-items: center; gap: 8px; padding: 10px 14px; }
+.mfoot .end { margin-left: auto; display: flex; gap: 6px; }
+.compose { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.compose .cta { padding: 10px 12px; min-height: 58px; color: var(--ink-3); }
+.compose .cf { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line-2); background: var(--chrome); }
+.compose .cf .end { margin-left: auto; display: flex; gap: 6px; }
+.menu { position: absolute; z-index: 4; background: var(--paper); border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 12px 28px -10px rgba(23,32,43,.35); padding: 5px; display: grid; gap: 1px; min-width: 230px; }
+.menu .mi { display: grid; grid-template-columns: 16px 1fr; gap: 1px 9px; padding: 7px 9px; border-radius: 6px; }
+.menu .mi .d { grid-column: 2; font-size: 11.5px; color: var(--ink-3); }
+.menu .mi.on { background: var(--select); }
+.menu .mi b { font-weight: 650; }
+.prside { border-left: 1px solid var(--line); padding: 18px 16px; display: flex; flex-direction: column; gap: 16px; overflow: hidden; background: var(--paper); }
+.sblock { display: grid; gap: 7px; padding-bottom: 14px; border-bottom: 1px solid var(--line-2); }
+.sblock:last-child { border-bottom: 0; }
+.sblock .sbh { display: flex; align-items: center; font-size: 12px; font-weight: 650; color: var(--ink-2); }
+.sblock .sbh .end { margin-left: auto; color: var(--teal-ink); font-weight: 600; }
+.person { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.person .end { margin-left: auto; font-size: 11.5px; color: var(--ink-3); display: inline-flex; align-items: center; gap: 4px; }
+.reqdot { width: 8px; height: 8px; border-radius: 50%; background: var(--attn); display: inline-block; }
+.labels { display: flex; flex-wrap: wrap; gap: 5px; }
+.localbox { border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; display: grid; gap: 7px; background: var(--chrome); }
+.localbox .sr { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+
+/* ---------- S5 project + pre-draft ---------- */
+.s5 { grid-template-columns: 52px 420px 1fr; height: 800px; }
+.s5 .projcol, .s5 .pdcol { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.s5 .projcol { border-right: 1px solid var(--line); }
+.phead { padding: 14px 16px 0; display: grid; gap: 6px; }
+.phead .name { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 700; }
+.phead .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; color: var(--ink-3); }
+.phead .meta .clean { color: var(--gh-open); }
+.phead .acts { display: flex; gap: 5px; margin-top: 4px; }
+.s5 .tabs { padding: 0 16px; margin-top: 10px; }
+.s5 .tab { padding: 8px 9px; font-size: 12.5px; }
+.lfilter { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--line-2); }
+.prow { display: grid; grid-template-columns: 16px 1fr; gap: 2px 10px; padding: 9px 16px; border-bottom: 1px solid var(--line-2); }
+.prow > .ic { grid-row: span 2; margin-top: 2px; }
+.prow .t { font-weight: 600; font-size: 13px; }
+.prow .m { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 11.5px; color: var(--ink-3); }
+.prow.local { background: #F4FAF8; }
+.prow.local.sel { background: var(--teal-soft); }
+.tag-local { font: 600 10.5px/1 var(--font-ui); letter-spacing: .04em; text-transform: uppercase; color: var(--teal-ink); border: 1px dashed var(--teal); border-radius: 4px; padding: 3px 5px; }
+.review-ok { color: var(--gh-open); font-weight: 600; }
+.review-chg { color: var(--gh-closed); font-weight: 600; }
+.pdhead { padding: 16px 20px 0; display: grid; gap: 8px; position: relative; }
+.pdhead h3 { margin: 0; font-size: 19px; line-height: 1.3; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+.pdhead h3 .ic { color: var(--ink-3); }
+.pdhead .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; color: var(--ink-2); }
+.refl { font: 12px var(--font-mono); background: var(--teal-soft); color: var(--teal-ink); padding: 1px 6px; border-radius: 5px; }
+.origin { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+.origin a { color: var(--teal-ink); font-weight: 600; text-decoration: none; }
+.pdacts { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+.drift { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; background: var(--attn-soft); color: var(--attn); font-size: 12px; }
+.drift .end { margin-left: auto; }
+.s5 .pdcol .tabs { padding: 0 20px; }
+.files { padding: 12px 20px; display: grid; gap: 10px; overflow: hidden; min-height: 0; align-content: start; }
+.dfile { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.dfh { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--chrome); border-bottom: 1px solid var(--line); font-size: 12px; }
+.dfh .p { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
+.dfh .add { color: var(--gh-open); font-weight: 650; } .dfh .del { color: var(--gh-closed); font-weight: 650; }
+.dfh .end { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--ink-2); }
+.diff { overflow-x: auto; }
+.diff table { border-collapse: collapse; width: 100%; font: 11.5px/1.65 var(--font-mono); }
+.diff td { padding: 0 8px; white-space: pre; vertical-align: top; }
+.diff td.ln { width: 1%; color: var(--ink-3); text-align: right; user-select: none; padding: 0 6px; }
+.diff tr.hk td { background: #EEF4FB; color: var(--work); }
+.diff tr.a td { background: #E9F7ED; } .diff tr.a td.ln { background: #D3EFDB; }
+.diff tr.d td { background: #FCECEC; } .diff tr.d td.ln { background: #F8D7DA; }
+.diff tr.more td { background: var(--chrome); color: var(--ink-3); font-family: var(--font-ui); font-size: 11.5px; padding-block: 3px; }
+.kw { color: #A0306A; } .fn { color: #5A3FB0; } .str { color: #155E75; } .cm { color: #6B7785; font-style: italic; }
+.lnote { margin: 8px 10px 10px; border: 1px dashed var(--teal); background: #F4FAF8; border-radius: 7px; padding: 8px 10px; display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: start; font-size: 12.5px; }
+.lnote .who { font-size: 11.5px; color: var(--teal-ink); font-weight: 650; }
+.dfile.collapsed .dfh { border-bottom: 0; }
+
+/* ---------- S6 details ---------- */
+.s6 { display: grid; grid-template-columns: 1.35fr 1fr; gap: 22px; max-width: 1180px; margin: 0 auto; width: 100%; align-items: start; }
+.s6 .stack { display: grid; gap: 22px; }
+@media (max-width: 900px) { .s6 { grid-template-columns: 1fr; } }
+.fh { display: flex; align-items: center; gap: 8px; padding: 11px 14px; border-bottom: 1px solid var(--line); background: var(--chrome); font-size: 12.5px; color: var(--ink-2); }
+.fh b { color: var(--ink); font-weight: 650; }
+.fh .end { margin-left: auto; }
+.fb { padding: 14px; display: grid; gap: 10px; }
+.preset { display: grid; grid-template-columns: 16px 150px 1fr 26px; gap: 10px; align-items: start; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.preset .grip { color: var(--ink-3); margin-top: 7px; }
+.inbox-i { height: 30px; display: flex; align-items: center; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); font-weight: 600; font-size: 12.5px; }
+.inbox-t { min-height: 30px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); font-size: 12.5px; color: var(--ink); }
+.preset.editing .inbox-t { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-soft); }
+.fnote { font-size: 11.5px; color: var(--ink-3); display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start; }
+.tmpcard { display: grid; gap: 10px; }
+.tmpcard .row { display: flex; align-items: center; gap: 8px; }
+.tmpcard .name { font: 600 13px var(--font-mono); }
+.tmpcard .meta { font-size: 12px; color: var(--ink-3); }
+.promote { display: flex; align-items: center; gap: 0; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; height: 30px; }
+.promote .pre { padding: 0 8px; height: 100%; display: flex; align-items: center; background: var(--sunk); color: var(--ink-3); font: 12px var(--font-mono); border-right: 1px solid var(--line); }
+.promote .val { padding: 0 9px; font: 12px var(--font-mono); flex: 1; }
+.confirm { background: var(--gh-closed); border-color: #A40E26; color: #fff; }
+.qgrid { display: grid; gap: 12px; }
+.qh { display: flex; align-items: center; gap: 8px; font-weight: 650; }
+.qh .v { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.qrow { display: grid; grid-template-columns: 70px 1fr 40px; gap: 10px; align-items: center; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.qrow .bar { height: 8px; border-radius: 4px; background: #DCE1E8; overflow: hidden; }
+.qrow .bar i { display: block; height: 100%; background: var(--graphite); }
+.qrow .bar.clay i { background: var(--clay); }
+.qrow .pct { text-align: right; color: var(--ink); font-weight: 650; }
+.qreset { padding-left: 80px; font-size: 11.5px; color: var(--ink-3); margin-top: -8px; }
+.qsep { height: 1px; background: var(--line-2); }
+
+footer.end { margin-top: 72px; padding-top: 18px; border-top: 1px solid #CDD4DE; color: var(--ink-2); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 8px 24px; }
+footer.end code { font: 12.5px var(--font-mono); }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-claude" viewBox="0 0 24 24"><path d="M12.00 9.40L12.00 2.60M13.53 9.90L16.70 5.53M14.47 11.20L20.94 9.10M14.47 12.80L19.61 14.47M13.53 14.10L17.53 19.60M12.00 14.60L12.00 20.00M10.47 14.10L6.47 19.60M9.53 12.80L4.39 14.47M9.53 11.20L3.06 9.10M10.47 9.90L7.30 5.53" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-codex" viewBox="0 0 24 24"><path d="M6.5 7.5 11 12l-4.5 4.5M13 17h5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-issue" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/></symbol>
+    <symbol id="i-issue-done" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.4 8.2l1.8 1.8 3.4-3.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-pr" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="3.5" r="1.75"/><circle cx="4" cy="12.5" r="1.75"/><circle cx="12" cy="12.5" r="1.75"/><path d="M4 5.25v5.5"/><path d="M12 10.75V6.5a2 2 0 0 0-2-2H7.5"/><path d="M9 3 7.5 4.5 9 6"/></g></symbol>
+    <symbol id="i-pr-draft" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4" cy="3.5" r="1.75"/><circle cx="4" cy="12.5" r="1.75"/><circle cx="12" cy="12.5" r="1.75"/><path d="M4 5.25v5.5"/></g><circle cx="12" cy="8" r="1" fill="currentColor"/><circle cx="12" cy="4.25" r="1" fill="currentColor"/></symbol>
+    <symbol id="i-pr-merged" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4" cy="3.5" r="1.75"/><circle cx="4" cy="12.5" r="1.75"/><circle cx="12" cy="8.5" r="1.75"/><path d="M4 5.25v5.5"/><path d="M4 5.25c0 2.5 2.2 3.25 6.25 3.25"/></g></symbol>
+    <symbol id="i-pr-local" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="3.5" r="1.75"/><circle cx="4" cy="12.5" r="1.75"/><circle cx="12" cy="12.5" r="1.75"/><path d="M4 5.6v4.8" stroke-dasharray="1.6 1.6"/><path d="M12 10.75V6.5a2 2 0 0 0-2-2H7.5" stroke-dasharray="1.6 1.6"/></g></symbol>
+    <symbol id="i-inbox" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2 9.5 3.6 3.6a1 1 0 0 1 1-.85h6.8a1 1 0 0 1 1 .85L14 9.5v3a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></g></symbol>
+    <symbol id="i-agents" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></g></symbol>
+    <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2 4.5a1 1 0 0 1 1-1h3.2l1.5 1.5H13a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4h6.5M12 4h1.5M2.5 8h1.5M7 8h6.5M2.5 12h7.5M13 12h.5"/><circle cx="10.5" cy="4" r="1.5"/><circle cx="5.5" cy="8" r="1.5"/><circle cx="11.5" cy="12" r="1.5"/></g></symbol>
+    <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.5 8.5 6.5 11.5 12.5 5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="i-bell-off" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5V7a3.5 3.5 0 0 1 6.2-2.2"/><path d="M11.5 7.2v3.3l1 1.5h-9"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/><path d="M2.5 2.5l11 11"/></g></symbol>
+    <symbol id="i-mail" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M2.5 4.5 8 8.5l5.5-4"/></g></symbol>
+    <symbol id="i-play" viewBox="0 0 16 16"><path d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.4-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5z" fill="currentColor"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8a5 5 0 1 1-1.5-3.55"/><path d="M13 2.5v3h-3"/></g></symbol>
+    <symbol id="i-ext" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2.5h4.5V7"/><path d="M13.5 2.5 7.5 8.5"/><path d="M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3"/></g></symbol>
+    <symbol id="i-copy" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></g></symbol>
+    <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5" r="1.5"/><path d="M4.5 5v6"/><path d="M11.5 6.5c0 3-7 2-7 4.5"/></g></symbol>
+    <symbol id="i-term" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5"/><path d="M4.5 6.5 6.5 8.5 4.5 10.5"/><path d="M8 10.5h3.5"/></g></symbol>
+    <symbol id="i-stop" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 16 16"><path d="M4.5 6.5 8 10l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-search" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 13.5 13.5"/></g></symbol>
+    <symbol id="i-file" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M4 1.75h5l3 3v9.5H4z"/><path d="M9 1.75v3h3"/></g></symbol>
+    <symbol id="i-comment" viewBox="0 0 16 16"><path d="M2.5 3.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H7.2L4.5 13.6v-2.1h-1a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+    <symbol id="i-commit" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="2.5"/><path d="M1.5 8h4M10.5 8h4"/></g></symbol>
+    <symbol id="i-eye" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></g></symbol>
+    <symbol id="i-pane1" viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+    <symbol id="i-pane2" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M8 2.5v11"/></g></symbol>
+    <symbol id="i-pane4" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M8 2.5v11M2 8h12"/></g></symbol>
+    <symbol id="i-grip" viewBox="0 0 16 16"><g fill="currentColor"><circle cx="6" cy="4" r="1.1"/><circle cx="10" cy="4" r="1.1"/><circle cx="6" cy="8" r="1.1"/><circle cx="10" cy="8" r="1.1"/><circle cx="6" cy="12" r="1.1"/><circle cx="10" cy="12" r="1.1"/></g></symbol>
+    <symbol id="i-pencil" viewBox="0 0 16 16"><path d="M10.5 2.75l2.75 2.75-7.5 7.5H3v-2.75z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.75 4.5h10.5"/><path d="M6.25 4.5V3h3.5v1.5"/><path d="M4.25 4.5l.6 9h6.3l.6-9"/></g></symbol>
+    <symbol id="i-up" viewBox="0 0 16 16"><path d="M8 13V3.5M4 7.5l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-send" viewBox="0 0 16 16"><path d="M2.5 8 13.5 2.5 10.5 13.5 8 9z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3"/></g><circle cx="8" cy="11.6" r=".9" fill="currentColor"/></symbol>
+    <symbol id="i-xcircle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="currentColor"/><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="i-okcircle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="currentColor"/><path d="M5.3 8.2l1.8 1.8 3.6-3.7" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-cursor" viewBox="0 0 18 22"><path d="M2 1.5v15.2l3.9-3.6 2.7 6.2 2.6-1.1-2.7-6.1h5.4z" fill="#fff" stroke="#17202B" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+  </defs>
+</svg>
+
+<div class="page">
+
+<header class="intro">
+  <div class="kicker">Launchpad · design sketches · 2 October 2026</div>
+  <h1>Launchpad sketches</h1>
+  <p class="lede">Six static mockups of the main screens, filled with example data. The app is light theme only, so the sketches are too. Pink numbered pins in each window match the notes below it. The design rationale is in <code>docs/ARCHITECTURE.md</code>.</p>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--teal)"></i>Launchpad: primary actions and anything that exists only on your laptop</span>
+    <span><i class="sw" style="background:var(--clay)"></i>Claude Code</span>
+    <span><i class="sw" style="background:var(--graphite)"></i>Codex</span>
+    <span><span class="sw-gh"><i style="background:var(--gh-open)"></i><i style="background:var(--gh-merged)"></i><i style="background:var(--gh-closed)"></i><i style="background:var(--gh-draft)"></i></span>GitHub states keep GitHub's colors</span>
+  </div>
+  <nav class="toc" aria-label="Sketches">
+    <a href="#s1"><b>S1</b>Inbox</a>
+    <a href="#s2"><b>S2</b>Launching an agent</a>
+    <a href="#s3"><b>S3</b>Agents workspace</a>
+    <a href="#s4"><b>S4</b>Pull request</a>
+    <a href="#s5"><b>S5</b>Pre-draft PR</a>
+    <a href="#s6"><b>S6</b>Presets, temp folders, quotas</a>
+  </nav>
+</header>
+
+<!-- ======================= S1 INBOX ======================= -->
+<section class="sketch" id="s1">
+  <div class="sketch-head">
+    <span class="sketch-id">S1 · Inbox</span>
+    <h2>Notifications triaged from the local cache</h2>
+    <p>The default screen. List and preview sit side by side, so going from one thread to the next never loads a page. Everything here renders from SQLite and refreshes in the background.</p>
+  </div>
+  <div class="frame">
+    <div class="win" role="img" aria-label="Inbox mockup">
+      <div class="topbar">
+        <div class="brand"><span class="logo"><svg viewBox="0 0 12 12"><path d="M6 1.5 10.5 10H1.5z" fill="#fff"/></svg></span>Launchpad</div>
+        <div class="crumbs"><b>Inbox</b></div>
+        <div class="palette"><svg class="ic"><use href="#i-search"/></svg>Jump to a project, issue or session<kbd>Ctrl K</kbd></div>
+        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch<kbd>L</kbd></span>
+        <div class="wctl"><span></span><span></span><span></span></div>
+      </div>
+      <div class="app s1">
+        <aside class="side">
+          <div class="nav-item on"><svg class="ic"><use href="#i-inbox"/></svg>Inbox<span class="count">5 unread</span></div>
+          <div class="nav-item"><svg class="ic"><use href="#i-agents"/></svg>Agents<span class="needs">3</span></div>
+          <div class="nav-item"><svg class="ic"><use href="#i-folder"/></svg>Projects</div>
+          <div class="side-label">Pinned <i class="pin">6</i></div>
+          <div class="proj">huggingface_hub<span class="run c"></span></div>
+          <div class="proj">huggingface.js<span class="run x"></span></div>
+          <div class="proj">moon-landing<span class="run c"></span></div>
+          <div class="proj">transformers<span class="run c"></span></div>
+          <div class="proj">datasets</div>
+          <div class="proj">blog</div>
+          <div class="side-label">Temporary</div>
+          <div class="proj tmp">tmp-1002-xet-bench<span class="age">2 h</span><span class="run c"></span></div>
+          <div class="proj tmp">tmp-0929-gguf-check<span class="age">3 d</span></div>
+          <div class="side-foot"><div class="nav-item"><svg class="ic"><use href="#i-sliders"/></svg>Settings</div></div>
+        </aside>
+
+        <div class="ilist">
+          <div class="ihead">
+            <div class="chips"><i class="pin">1</i>
+              <span class="fchip on">All <b>14</b></span>
+              <span class="fchip">huggingface_hub <b>5</b></span>
+              <span class="fchip">moon-landing <b>3</b></span>
+              <span class="fchip">transformers <b>2</b></span>
+              <span class="fchip">huggingface.js <b>2</b></span>
+              <span class="fchip">datasets <b>2</b></span>
+            </div>
+            <div class="itools">
+              <span class="toggle"><span class="tr"></span>Unread only</span>
+              <span class="sync">Synced 12 s ago <svg class="ic sm"><use href="#i-refresh"/></svg></span>
+            </div>
+          </div>
+
+          <div class="nrow unread sel">
+            <span class="udot"></span><svg class="ic c-open"><use href="#i-pr"/></svg>
+            <div class="n1">huggingface_hub #3420<span class="time">4 min</span></div>
+            <div class="n2">Fix revision handling in snapshot_download filters</div>
+            <div class="n3"><span class="reason hot">Review requested</span><span class="avs"><span class="av" style="--h:200">AK</span><span class="av" style="--h:30">BR</span><span class="av" style="--h:175">W</span></span>2 new comments <i class="pin">2</i></div>
+          </div>
+          <div class="nrow unread hover">
+            <span class="udot"></span><svg class="ic c-open"><use href="#i-issue"/></svg>
+            <div class="n1">huggingface_hub #3412<span class="time">18 min</span></div>
+            <div class="n2">hf download ignores --revision when used with --include</div>
+            <div class="n3"><span class="reason hot">Mention</span><span class="avs"><span class="av" style="--h:150">CL</span><span class="av" style="--h:200">AK</span><span class="more">+3</span></span></div>
+            <div class="nacts"><i class="pin">3</i>
+              <span class="btn sm"><svg class="ic sm"><use href="#i-check"/></svg>Done <kbd>e</kbd></span>
+              <span class="btn sm"><svg class="ic sm"><use href="#i-bell-off"/></svg><kbd>m</kbd></span>
+              <span class="btn sm"><svg class="ic sm"><use href="#i-mail"/></svg><kbd>u</kbd></span>
+              <span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg><kbd>l</kbd></span>
+            </div>
+          </div>
+          <div class="nrow unread">
+            <span class="udot"></span><svg class="ic c-open"><use href="#i-pr"/></svg>
+            <div class="n1">moon-landing #18234<span class="time">1 h</span></div>
+            <div class="n2">Return xet refresh token in repo info endpoint</div>
+            <div class="n3"><span class="reason">Subscribed</span><span class="avs"><span class="av" style="--h:260">DV</span><span class="av" style="--h:330">EM</span></span>1 new commit</div>
+          </div>
+          <div class="nrow unread">
+            <span class="udot"></span><svg class="ic c-draft"><use href="#i-pr-draft"/></svg>
+            <div class="n1">huggingface.js #1712<span class="time">2 h</span></div>
+            <div class="n2">[hub] Add listJobs helper</div>
+            <div class="n3"><span class="reason">CI activity</span><span class="avs"><span class="av" style="--h:175">W</span></span>Workflow failed on your PR</div>
+          </div>
+          <div class="nrow">
+            <span class="udot"></span><svg class="ic c-merged"><use href="#i-pr-merged"/></svg>
+            <div class="n1">transformers #41877<span class="time">3 h</span></div>
+            <div class="n2">Use hf_hub_download retry logic for safetensors shards</div>
+            <div class="n3"><span class="reason">Team mention</span><span class="avs"><span class="av" style="--h:80">FN</span><span class="av" style="--h:200">AK</span><span class="more">+5</span></span>Merged by farah-n</div>
+          </div>
+          <div class="nrow localunread">
+            <span class="udot"></span><svg class="ic c-open"><use href="#i-issue"/></svg>
+            <div class="n1">moon-landing #18190<span class="time">yesterday</span></div>
+            <div class="n2">Gated repos: bulk access request API</div>
+            <div class="n3"><span class="reason hot">Assigned</span><span class="avs"><span class="av" style="--h:330">EM</span><span class="av" style="--h:175">W</span></span>Marked unread in Launchpad <i class="pin">4</i></div>
+          </div>
+          <div class="nrow">
+            <span class="udot"></span><svg class="ic c-merged"><use href="#i-issue-done"/></svg>
+            <div class="n1">huggingface_hub #3398<span class="time">yesterday</span></div>
+            <div class="n2">HfApi.list_models: accept a list for pipeline_tag</div>
+            <div class="n3"><span class="reason">Subscribed</span><span class="avs"><span class="av" style="--h:260">DV</span><span class="more">+2</span></span>Closed as completed</div>
+          </div>
+        </div>
+
+        <div class="prev">
+          <div class="prev-top">
+            <span class="pill open"><svg class="ic sm"><use href="#i-pr"/></svg>Open</span>
+            <span class="faint">huggingface_hub #3420</span>
+            <span class="sp"><span class="iconbtn box" title="Refresh"><svg class="ic sm"><use href="#i-refresh"/></svg></span><span class="iconbtn box" title="Open on GitHub"><svg class="ic sm"><use href="#i-ext"/></svg></span></span>
+          </div>
+          <h3>Fix revision handling in snapshot_download filters</h3>
+          <div class="sub">anya-k wants to merge 3 commits into <span class="mono">main</span> from <span class="mono">ak/fix-revision-filters</span></div>
+          <div class="stats"><span><span class="add">+84</span> <span class="del">−21</span> · 4 files</span><span>Checks: 14 passed, 1 failed</span><span>Review required</span></div>
+          <div class="why"><svg class="ic sm"><use href="#i-eye"/></svg>anya-k asked you to review this pull request <i class="pin">5</i></div>
+          <div class="actrow">
+            <span class="btn">Open <kbd>Enter</kbd></span>
+            <span class="btn"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Launch agent <kbd>l</kbd></span>
+            <span class="btn"><svg class="ic sm"><use href="#i-check"/></svg>Done <kbd>e</kbd></span>
+          </div>
+          <div class="seclabel">Latest activity</div>
+          <div class="cmt"><span class="av lg" style="--h:30">BR</span><div><div class="who"><b>bastien-r</b> · 12 min</div><p>Looks good! Do we need the same fix in <code class="i">HfFileSystem.glob</code>? It uses the same helper.</p></div></div>
+          <div class="cmt"><span class="av lg" style="--h:200">AK</span><div><div class="who"><b>anya-k</b> · 4 min</div><p>Good catch. I'd rather keep this PR small and do <code class="i">glob</code> in a follow-up.</p></div></div>
+          <div class="reply"><svg class="ic sm"><use href="#i-comment"/></svg>Reply to #3420<span class="btn sm">Comment</span></div>
+        </div>
+      </div>
+      <div class="statusbar">
+        <span class="h"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Claude 2.1.287</span>
+        <span class="q">5h <span class="meter clay"><i style="width:38%"></i></span>38% · 16:40</span>
+        <span class="q">week <span class="meter clay"><i style="width:61%"></i></span>61% · Mon 09:00</span>
+        <span class="vsep"></span>
+        <span class="h"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex 0.159.3 <span class="upd" title="Updating in the background">↑ 0.160.0</span></span>
+        <span class="q">5h <span class="meter"><i style="width:2%"></i></span>1% · 14:14</span>
+        <span class="q">week <span class="meter"><i style="width:22%"></i></span>22% · Sun 16:21</span>
+        <i class="pin">7</i>
+        <span class="right"><span>GitHub synced 12 s ago</span><span>2 running · <span class="needs">3 pending</span></span></span>
+      </div>
+    </div>
+  </div>
+  <ol class="notes">
+    <li><i class="pin">1</i><span><b>Filter by repository.</b> Chips with counts, one click. A single "Unread only" switch. No other filters, as asked.</span></li>
+    <li><i class="pin">2</i><span><b>Rows you can scan.</b> Repo and number, time since update, the title, then why you are notified, who takes part, and what changed since your last visit. Icon colors follow GitHub.</span></li>
+    <li><i class="pin">3</i><span><b>Actions on hover and on keys.</b> Done <code>e</code>, Unsubscribe <code>m</code>, Read or unread <code>u</code>, Launch agent <code>l</code>. They apply instantly; the API call runs in the background.</span></li>
+    <li><i class="pin">4</i><span><b>Local unread.</b> GitHub has no API to mark a thread as unread. A teal ring shows threads you marked unread in Launchpad. github.com still shows them as read.</span></li>
+    <li><i class="pin">5</i><span><b>Preview from cache.</b> Selecting a row shows the cached thread at once and refreshes it in the background. <code>Enter</code> opens the full view (S4), still without loading a page.</span></li>
+    <li><i class="pin">6</i><span><b>Projects and running agents.</b> Pinned projects show a dot in the harness color when an agent runs there. Temporary folders are grouped with their age.</span></li>
+    <li><i class="pin">7</i><span><b>Always-visible status bar.</b> Claude and Codex versions, 5-hour and weekly usage with reset times, Codex update progress, GitHub sync state, running and pending agents.</span></li>
+  </ol>
+</section>
+
+<!-- ======================= S2 LAUNCH ======================= -->
+<section class="sketch" id="s2">
+  <div class="sketch-head">
+    <span class="sketch-id">S2 · Launching an agent</span>
+    <h2>Pick a harness at the cursor, then build context while browsing</h2>
+    <p>Two steps. A radial picker chooses Claude Code or Codex in one click. Then a composer drawer opens on the right, already filled with whatever you launched from, and stays open while you keep navigating.</p>
+  </div>
+
+  <div class="radial-wrap">
+    <div class="frag radial" role="img" aria-label="Radial harness picker mockup">
+      <div class="nrow unread">
+        <span class="udot"></span><svg class="ic c-open"><use href="#i-pr"/></svg>
+        <div class="n1">huggingface_hub #3420<span class="time">4 min</span></div>
+        <div class="n2">Fix revision handling in snapshot_download filters</div>
+        <div class="n3"><span class="reason hot">Review requested</span><span class="avs"><span class="av" style="--h:200">AK</span><span class="av" style="--h:30">BR</span></span></div>
+      </div>
+      <div class="nrow unread hover">
+        <span class="udot"></span><svg class="ic c-open"><use href="#i-issue"/></svg>
+        <div class="n1">huggingface_hub #3412<span class="time">18 min</span></div>
+        <div class="n2">hf download ignores --revision when used with --include</div>
+        <div class="n3"><span class="reason hot">Mention</span><span class="avs"><span class="av" style="--h:150">CL</span><span class="av" style="--h:200">AK</span></span></div>
+        <div class="nacts">
+          <span class="btn sm"><svg class="ic sm"><use href="#i-check"/></svg><kbd>e</kbd></span>
+          <span class="btn sm"><svg class="ic sm"><use href="#i-bell-off"/></svg><kbd>m</kbd></span>
+          <span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg><kbd>l</kbd></span>
+        </div>
+      </div>
+      <div class="bubbles">
+        <div class="bubble c" title="Claude Code (C)"><span class="b"><svg><use href="#i-claude"/></svg></span></div>
+        <div class="bubble x" title="Codex (X)"><span class="b"><svg><use href="#i-codex"/></svg></span></div>
+      </div>
+      <svg class="cursor" style="right:16px; top:136px" viewBox="0 0 18 22"><use href="#i-cursor"/></svg>
+      <i class="pin abs" style="right:208px; top:40px">1</i>
+    </div>
+    <ol class="notes radial-notes">
+      <li><i class="pin">1</i><span><b>Radial picker.</b> Every Launch button (top bar, rows, issue and PR headers, project page, multi-selection) opens two round buttons next to the cursor, showing only the Claude and Codex logos. Click one, or press <code>C</code> or <code>X</code>. <code>Enter</code> repeats the last harness, which has a ring.</span></li>
+    </ol>
+  </div>
+
+  <div class="frame">
+    <div class="win" role="img" aria-label="Composer drawer mockup">
+      <div class="topbar">
+        <div class="brand"><span class="logo"><svg viewBox="0 0 12 12"><path d="M6 1.5 10.5 10H1.5z" fill="#fff"/></svg></span>Launchpad</div>
+        <div class="crumbs">huggingface_hub <span class="sep">/</span> Issues <span class="sep">/</span> <b>#3412</b></div>
+        <div class="palette"><svg class="ic"><use href="#i-search"/></svg>Jump to a project, issue or session<kbd>Ctrl K</kbd></div>
+        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch<kbd>L</kbd></span>
+        <div class="wctl"><span></span><span></span><span></span></div>
+      </div>
+      <div class="app s2">
+        <aside class="side">
+          <div class="nav-item"><svg class="ic"><use href="#i-inbox"/></svg>Inbox<span class="count">5 unread</span></div>
+          <div class="nav-item"><svg class="ic"><use href="#i-agents"/></svg>Agents<span class="needs">3</span></div>
+          <div class="nav-item on"><svg class="ic"><use href="#i-folder"/></svg>Projects</div>
+          <div class="side-label">Pinned</div>
+          <div class="proj">huggingface_hub<span class="run c"></span></div>
+          <div class="proj">huggingface.js<span class="run x"></span></div>
+          <div class="proj">moon-landing<span class="run c"></span></div>
+          <div class="proj">transformers<span class="run c"></span></div>
+          <div class="proj">datasets</div>
+          <div class="proj">blog</div>
+          <div class="side-label">Temporary</div>
+          <div class="proj tmp">tmp-1002-xet-bench<span class="age">2 h</span><span class="run c"></span></div>
+          <div class="proj tmp">tmp-0929-gguf-check<span class="age">3 d</span></div>
+          <div class="side-foot"><div class="nav-item"><svg class="ic"><use href="#i-sliders"/></svg>Settings</div></div>
+        </aside>
+
+        <div class="issue">
+          <div style="display:flex; align-items:center; gap:8px"><span class="pill open"><svg class="ic sm"><use href="#i-issue"/></svg>Open</span><span class="faint">chen-li opened 3 days ago · 5 comments</span><span style="margin-left:auto" class="addbtn added"><svg class="ic sm"><use href="#i-check"/></svg>In context</span></div>
+          <h3>hf download ignores --revision when used with --include <span class="num">#3412</span></h3>
+          <div class="gcard">
+            <div class="gcard-h"><span class="av" style="--h:150">CL</span><b>chen-li</b> commented 3 days ago</div>
+            <div class="gcard-b">
+              <p>Running <code class="i">hf download org/model --revision v2 --include "*.json"</code> downloads the JSON files from <code class="i">main</code>, not from <code class="i">v2</code>. Without <code class="i">--include</code> it works.</p>
+              <p class="muted">huggingface_hub 1.3.2, Python 3.12</p>
+            </div>
+          </div>
+          <div class="linked"><svg class="ic c-open"><use href="#i-pr"/></svg><span><b>#3420</b> Fix revision handling in snapshot_download filters</span><span class="end addbtn added"><svg class="ic sm"><use href="#i-check"/></svg>In context</span></div>
+          <div class="gcard">
+            <div class="gcard-h"><span class="av" style="--h:200">AK</span><b>anya-k</b> commented yesterday<span class="end"><span class="addbtn"><svg class="ic sm"><use href="#i-plus"/></svg>Add comment</span><i class="pin">2</i></span></div>
+            <div class="gcard-b"><p>Confirmed on <code class="i">main</code>. The filters run before the revision is resolved. I opened #3420 with a fix and a regression test.</p></div>
+          </div>
+          <div class="gcard">
+            <div class="gcard-h"><span class="av" style="--h:175">W</span><b>Wauplin</b> commented yesterday<span class="end"><span class="addbtn"><svg class="ic sm"><use href="#i-plus"/></svg>Add comment</span></span></div>
+            <div class="gcard-b"><p>Thanks both! Let's also check whether <code class="i">HfFileSystem</code> has the same problem.</p></div>
+          </div>
+        </div>
+
+        <aside class="drawer">
+          <div class="dr-head">
+            <span class="t">New agent</span>
+            <span class="seg"><span class="on"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Claude Code</span><span><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex</span></span>
+            <span class="iconbtn x"><svg class="ic sm"><use href="#i-x"/></svg></span>
+          </div>
+          <div class="dr-body">
+            <div class="two">
+              <div class="field"><label>Project</label><div class="select"><svg class="ic sm"><use href="#i-folder"/></svg>huggingface_hub<svg class="ic sm"><use href="#i-chev"/></svg></div></div>
+              <div class="field"><label>Run in <i class="pin">3</i></label><div class="select">Checkout · <span class="mono">main</span><svg class="ic sm"><use href="#i-chev"/></svg></div></div>
+            </div>
+            <div class="field"><label>Prompt</label>
+              <div class="ta">Check if <span class="ref">#3412</span> is still relevant and whether <span class="ref">#3420</span> fixes it. If it does, review the PR. If not, explain what is missing.<span class="caret"></span></div>
+            </div>
+            <div class="field"><label>Context <i class="pin">4</i><span class="hint">type @ for a project, # for an issue, or paste a link</span></label>
+              <div class="ctx">
+                <div class="ctx-item"><svg class="ic sm c-open"><use href="#i-issue"/></svg><span class="mono">#3412</span><span class="t">hf download ignores --revision when…</span><svg class="ic sm x"><use href="#i-x"/></svg></div>
+                <div class="ctx-item"><svg class="ic sm c-open"><use href="#i-pr"/></svg><span class="mono">#3420</span><span class="t">Fix revision handling in snapshot…</span><svg class="ic sm x"><use href="#i-x"/></svg></div>
+                <div class="ctx-item"><svg class="ic sm"><use href="#i-folder"/></svg><span class="mono">moon-landing</span><span class="t"><span class="branch"><svg class="ic sm"><use href="#i-branch"/></svg>xet-refresh-token<svg class="ic sm"><use href="#i-chev"/></svg></span></span><svg class="ic sm x"><use href="#i-x"/></svg></div>
+              </div>
+            </div>
+            <div class="field"><label>Presets <i class="pin">5</i><span class="lnk">Edit presets</span></label>
+              <div class="presets">
+                <span class="pchip on"><svg class="ic sm"><use href="#i-check"/></svg>worktree</span>
+                <span class="pchip">draft PR</span>
+                <span class="pchip on"><svg class="ic sm"><use href="#i-check"/></svg>no unit test</span>
+              </div>
+            </div>
+            <div class="two">
+              <div class="field"><label>Model <i class="pin">6</i></label><div class="select">Default <span class="def">· opus[1m]</span><svg class="ic sm"><use href="#i-chev"/></svg></div></div>
+              <div class="field"><label>Effort</label><div class="select">Default <span class="def">· xhigh</span><svg class="ic sm"><use href="#i-chev"/></svg></div></div>
+            </div>
+            <div class="pv">
+              <div class="pv-h">Prompt sent to Claude <i class="pin">7</i><span class="end">812 characters · show all</span></div>
+<pre>Check if #3412 is still relevant and whether #3420 fixes it. If it does, review the PR. If not, explain what is missing.
+
+Context:
+- Issue: https://github.com/huggingface/huggingface_hub/issues/3412 ("hf download ignores --revision when used with --include")
+- Pull request: https://github.com/huggingface/huggingface_hub/pull/3420 ("Fix revision handling in snapshot_download filters")
+- Reference project: ~/projects/moon-landing (server-side codebase), branch xet-refresh-token. Read it without changing its checkout. Do not modify it.</pre>
+            </div>
+          </div>
+          <div class="dr-foot">
+            <span class="check"><span class="cb"></span>Open after launch</span>
+            <span class="btn">Save draft</span>
+            <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch<kbd>Ctrl ↵</kbd></span>
+          </div>
+        </aside>
+      </div>
+      <div class="statusbar">
+        <span class="h"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Claude 2.1.287</span>
+        <span class="q">5h <span class="meter clay"><i style="width:38%"></i></span>38% · 16:40</span>
+        <span class="q">week <span class="meter clay"><i style="width:61%"></i></span>61% · Mon 09:00</span>
+        <span class="vsep"></span>
+        <span class="h"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex 0.159.3 <span class="upd" title="Updating in the background">↑ 0.160.0</span></span>
+        <span class="q">5h <span class="meter"><i style="width:2%"></i></span>1% · 14:14</span>
+        <span class="q">week <span class="meter"><i style="width:22%"></i></span>22% · Sun 16:21</span>
+        <span class="right"><span>GitHub synced 30 s ago</span><span>2 running · <span class="needs">3 pending</span></span></span>
+      </div>
+    </div>
+  </div>
+  <ol class="notes" start="2">
+    <li><i class="pin">2</i><span><b>A drawer that stays open.</b> While the composer is open, every issue, PR and comment shows an "Add" button. Building a rich context means clicking around the app. Items already added say "In context".</span></li>
+    <li><i class="pin">3</i><span><b>Where it runs.</b> The project checkout, a new pre-draft PR (Launchpad creates a branch and a worktree, see S5), or a new temporary folder in <code>~/projects</code>.</span></li>
+    <li><i class="pin">4</i><span><b>Context chips.</b> Issues, PRs and comment links (paste a URL or type <code>#</code>), and other projects with an optional branch (type <code>@</code>). Titles come from the cache.</span></li>
+    <li><i class="pin">5</i><span><b>Presets.</b> Toggle chips. Their sentences go at the end of the prompt, in the order set in Settings (S6).</span></li>
+    <li><i class="pin">6</i><span><b>Model and effort.</b> "Default" means what the agent would pick on its own, read from its settings. A change here applies to this session only.</span></li>
+    <li><i class="pin">7</i><span><b>The exact prompt.</b> A live preview of the text sent to the agent. <code>Ctrl+Enter</code> launches. The session starts in the background and a toast offers to open it, so you can launch several agents in a row from the inbox.</span></li>
+  </ol>
+</section>
+
+<!-- ======================= S3 AGENTS ======================= -->
+<section class="sketch" id="s3">
+  <div class="sketch-head">
+    <span class="sketch-id">S3 · Agents workspace</span>
+    <h2>Four sessions at once, rendered as conversations</h2>
+    <p>Sessions stream into Launchpad's own view, not a terminal. That makes messages copyable as clean markdown, lets tool calls collapse, and turns agent questions into buttons. The sidebar folds to icons here.</p>
+  </div>
+  <div class="frame">
+    <div class="win" role="img" aria-label="Agents grid mockup">
+      <div class="topbar">
+        <div class="brand"><span class="logo"><svg viewBox="0 0 12 12"><path d="M6 1.5 10.5 10H1.5z" fill="#fff"/></svg></span>Launchpad</div>
+        <div class="crumbs"><b>Agents</b></div>
+        <span class="layout-sw" style="margin-left:18px"><span><svg class="ic sm"><use href="#i-pane1"/></svg></span><span><svg class="ic sm"><use href="#i-pane2"/></svg></span><span class="on"><svg class="ic sm"><use href="#i-pane4"/></svg></span></span>
+        <i class="pin">2</i>
+        <div class="palette"><svg class="ic"><use href="#i-search"/></svg>Jump to a project, issue or session<kbd>Ctrl K</kbd></div>
+        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch<kbd>L</kbd></span>
+        <div class="wctl"><span></span><span></span><span></span></div>
+      </div>
+      <div class="app s3">
+        <nav class="rail">
+          <span class="r"><svg class="ic"><use href="#i-inbox"/></svg></span>
+          <span class="r on"><svg class="ic"><use href="#i-agents"/></svg><span class="dot"></span></span>
+          <span class="r"><svg class="ic"><use href="#i-folder"/></svg></span>
+          <span class="sep"></span>
+          <span class="pj">hh</span><span class="pj">js</span><span class="pj">ml</span><span class="pj">tf</span>
+          <span class="r bottom"><svg class="ic"><use href="#i-sliders"/></svg></span>
+        </nav>
+
+        <div class="slist">
+          <div class="sgroup">Pending <b>3</b> <i class="pin">1</i></div>
+          <div class="srow sel"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Fix listJobs CI failure</span><span class="m">huggingface.js <span class="st needs">Waiting 3 min</span></span></div>
+          <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Check #3412 / #3420</span><span class="m">huggingface_hub <span class="st needs">Question</span></span></div>
+          <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Benchmark upload chunk sizes</span><span class="m">tmp-1002-xet-bench <span class="st bgc">Background 6 min</span></span></div>
+          <div class="sgroup">Running <span class="faint">2</span></div>
+          <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Xet refresh token endpoint</span><span class="m">moon-landing <span class="st work">12 min</span> $1.84</span></div>
+          <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Investigate shard retry logic</span><span class="m">transformers <span class="st work">2 min</span> $0.21</span></div>
+          <div class="sgroup">Closed</div>
+          <div class="srow dim"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Release notes for v1.4</span><span class="m">huggingface_hub <span class="st done">Closed 2 h ago</span> $0.92</span></div>
+          <div class="srow dim"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Fix flaky test_list_models</span><span class="m">huggingface_hub <span class="st int">Interrupted</span> Resume</span></div>
+          <div class="srow dim"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Proofread the xet blog post</span><span class="m">blog <span class="st done">Closed yesterday</span></span></div>
+        </div>
+
+        <div class="grid4">
+          <!-- pane 1: Claude working -->
+          <div class="pane">
+            <div class="ph">
+              <span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
+              <span class="t">Xet refresh token endpoint</span>
+              <span class="acts"><i class="pin">3</i><span class="iconbtn" title="Interrupt (Esc)"><svg class="ic sm"><use href="#i-stop"/></svg></span><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span></span>
+              <span class="m">moon-landing · <span class="st work">Working 12:04</span> 182k tokens · 18% context · $1.84</span>
+            </div>
+            <div class="pbody">
+              <div class="msg-u">Add the xet refresh token to the repo info endpoint so the client can renew it without a second call.</div>
+              <div class="msg-a"><p>Token issuance lives in <code class="i">server/lib/xet/tokens.ts</code>. I'll reuse <code class="i">issueXetToken()</code> in the repo info handler, behind the existing <code class="i">expand</code> parameter.</p></div>
+              <div class="tool"><svg class="ic sm"><use href="#i-chev"/></svg><span class="n">Ran 3 commands, read 5 files</span><span class="end">41 s</span> <i class="pin">4</i></div>
+              <div class="edit">
+                <div class="eh"><svg class="ic sm"><use href="#i-pencil"/></svg>server/routes/api/repos.ts <span class="add">+18</span> <span class="del">−2</span></div>
+<pre><span class="a">+    if (expand.includes("xetRefreshToken")) {</span><span class="a">+      info.xetRefreshToken = await issueXetToken(repo, user);</span><span class="a">+    }</span></pre>
+              </div>
+              <div class="tool run"><span class="spin"></span><span class="n">Bash</span><span class="mono">pnpm test -- repos.spec.ts</span><span class="end">8 s</span></div>
+            </div>
+            <div class="pin-input"><div class="inp">Message Claude. It is read after the current step. <i class="pin">7</i><span class="end"><kbd>Esc</kbd> stop</span></div></div>
+          </div>
+
+          <!-- pane 2: Codex waiting (focused) -->
+          <div class="pane focus">
+            <div class="ph">
+              <span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span>
+              <span class="t">Fix listJobs CI failure</span>
+              <span class="acts"><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span><span class="iconbtn" title="Close session"><svg class="ic sm"><use href="#i-x"/></svg></span></span>
+              <span class="m">huggingface.js · <span class="st needs">Waiting 3 min</span> 41.2k tokens · gpt-6-sol medium</span>
+            </div>
+            <div class="pbody">
+              <div class="tool"><svg class="ic sm"><use href="#i-chev"/></svg><span class="n">Ran 7 commands, edited 2 files</span><span class="end">2 min 10 s</span></div>
+              <div class="msg-a hl">
+                <div class="copybar"><span class="btn sm"><svg class="ic sm"><use href="#i-copy"/></svg>Copy</span><span class="btn sm">Copy as text</span><i class="pin">5</i></div>
+                <p>CI is green again. The failure came from <code class="i">listJobs</code> returning the raw API payload, while the test expected parsed dates:</p>
+<pre>return jobs.map((job) =&gt; ({
+  ...job,
+  createdAt: new Date(job.createdAt),
+}));</pre>
+                <p>Changed <code class="i">packages/hub/src/lib/list-jobs.ts</code> and its test. Pushed to <code class="i">wauplin/list-jobs</code>.</p>
+              </div>
+              <div class="turn">Turn finished · 3 min ago</div>
+            </div>
+            <div class="pin-input"><div class="inp focus">Great. Add a changeset entry too, then push.<span class="caret"></span><span class="end"><kbd>↵</kbd></span></div></div>
+          </div>
+
+          <!-- pane 3: Claude question -->
+          <div class="pane">
+            <div class="ph">
+              <span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
+              <span class="t">Check #3412 / #3420</span>
+              <span class="acts"><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span><span class="iconbtn" title="Close session"><svg class="ic sm"><use href="#i-x"/></svg></span></span>
+              <span class="m">huggingface_hub · <span class="st needs">Question</span> 64k tokens · $0.58</span>
+            </div>
+            <div class="pbody">
+              <div class="msg-a"><p><b>#3412 is still relevant</b> on <code class="i">main</code>. #3420 fixes <code class="i">snapshot_download</code>, but <code class="i">HfFileSystem.glob</code> also filters before resolving the revision.</p></div>
+              <div class="ask">
+                <div class="q">How should I continue? <i class="pin">6</i></div>
+                <div class="opt">Draft a review comment on #3420<kbd>1</kbd></div>
+                <div class="opt">Open a pre-draft PR with the glob fix<kbd>2</kbd></div>
+                <div class="opt">Stop here<kbd>3</kbd></div>
+                <div class="other">Or type another answer below.</div>
+              </div>
+            </div>
+            <div class="pin-input"><div class="inp">Answer or message Claude<span class="end"><kbd>↵</kbd></span></div></div>
+          </div>
+
+          <!-- pane 4: Claude pending on a background command -->
+          <div class="pane">
+            <div class="ph">
+              <span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
+              <span class="t">Benchmark upload chunk sizes</span>
+              <span class="acts"><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span><span class="iconbtn" title="Close session"><svg class="ic sm"><use href="#i-x"/></svg></span></span>
+              <span class="m">tmp-1002-xet-bench · <span class="st bgc">Background command</span> 22.8k tokens · $0.31</span>
+            </div>
+            <div class="pbody">
+              <div class="msg-u">Benchmark upload throughput for 64, 128 and 256 MB chunks on a 2 GB file. Private repo, 5 runs each.</div>
+              <div class="plan">
+                <div class="pl done"><span class="bx"></span>Write bench.py with 3 chunk sizes</div>
+                <div class="pl now"><span class="bx"></span>Run 5 uploads per chunk size</div>
+                <div class="pl"><span class="bx"></span>Summarize results in RESULTS.md</div>
+              </div>
+              <div class="msg-a"><p>The full run takes about 10 minutes, so it runs in the background. I'll write <code class="i">RESULTS.md</code> when it finishes.</p></div>
+              <div class="bgtask">
+                <div class="bh"><span class="spin"></span><span class="n">Background</span><span class="mono">python bench.py --runs 5</span><span class="end">6 min <i class="pin">8</i></span></div>
+<pre class="term">chunk=64MB   p50=212ms  p95=388ms  301 MB/s
+chunk=128MB  p50=401ms  p95=655ms  318 MB/s
+chunk=256MB  run 3/5 …</pre>
+              </div>
+              <div class="turn">Turn finished · waiting on 1 background command</div>
+            </div>
+            <div class="pin-input"><div class="inp">Message Claude<span class="end"><kbd>↵</kbd></span></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="statusbar">
+        <span class="h"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Claude 2.1.287</span>
+        <span class="q">5h <span class="meter clay"><i style="width:39%"></i></span>39% · 16:40</span>
+        <span class="q">week <span class="meter clay"><i style="width:61%"></i></span>61% · Mon 09:00</span>
+        <span class="vsep"></span>
+        <span class="h"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex 0.160.0</span>
+        <span class="q">5h <span class="meter"><i style="width:4%"></i></span>4% · 14:14</span>
+        <span class="q">week <span class="meter"><i style="width:22%"></i></span>22% · Sun 16:21</span>
+        <span class="right"><span>GitHub synced 8 s ago</span><span>2 running · <span class="needs">3 pending</span></span></span>
+      </div>
+    </div>
+  </div>
+  <ol class="notes">
+    <li><i class="pin">1</i><span><b>Pending, Running, Closed.</b> A pending session waits for your input, or only waits for a background command. It stays pending until you close it (×). Closed sessions can be resumed. A desktop notification fires when a session becomes pending, even with the window closed.</span></li>
+    <li><i class="pin">2</i><span><b>Layouts 1, 2 and 4.</b> <code>Ctrl+1</code>, <code>Ctrl+2</code>, <code>Ctrl+4</code>. Clicking a session loads it in the focused pane (teal outline). Dragging picks another pane.</span></li>
+    <li><i class="pin">3</i><span><b>Session header.</b> Project, state and elapsed time, tokens, context usage and cost (Claude only). Interrupt with <code>Esc</code>. "Open in terminal" hands the session to Ghostty and back.</span></li>
+    <li><i class="pin">4</i><span><b>Compact tool calls.</b> Commands and file reads collapse into one line, edits show a small diff, the running command has a spinner. Click to expand.</span></li>
+    <li><i class="pin">5</i><span><b>Copy exactly.</b> Each message has Copy (raw markdown) and Copy as text, and code blocks have their own button. No terminal line breaks or padding.</span></li>
+    <li><i class="pin">6</i><span><b>Questions become buttons.</b> When an agent asks something, its options are clickable and numbered. Typing a free answer still works.</span></li>
+    <li><i class="pin">8</i><span><b>Background commands.</b> When the agent only waits for a long command, the session shows an outlined "Background" badge with the latest output. It moves back to Running when the agent picks up again.</span></li>
+    <li><i class="pin">7</i><span><b>Type while it works.</b> A message sent during a turn steers Codex right away, or is read by Claude after its current step.</span></li>
+  </ol>
+</section>
+
+<!-- ======================= S4 PR VIEW ======================= -->
+<section class="sketch" id="s4">
+  <div class="sketch-head">
+    <span class="sketch-id">S4 · Pull request</span>
+    <h2>GitHub's layout, without GitHub's loading times</h2>
+    <p>Same structure as github.com, so nothing needs learning. Content comes from the local copy, with its age shown. An agent-written review waits as a draft until you post it.</p>
+  </div>
+  <div class="frame">
+    <div class="win" role="img" aria-label="Pull request view mockup">
+      <div class="topbar">
+        <div class="brand"><span class="logo"><svg viewBox="0 0 12 12"><path d="M6 1.5 10.5 10H1.5z" fill="#fff"/></svg></span>Launchpad</div>
+        <div class="crumbs">huggingface_hub <span class="sep">/</span> Pull requests <span class="sep">/</span> <b>#3420</b></div>
+        <div class="palette"><svg class="ic"><use href="#i-search"/></svg>Jump to a project, issue or session<kbd>Ctrl K</kbd></div>
+        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch<kbd>L</kbd></span>
+        <div class="wctl"><span></span><span></span><span></span></div>
+      </div>
+      <div class="app s4">
+        <nav class="rail">
+          <span class="r on"><svg class="ic"><use href="#i-inbox"/></svg></span>
+          <span class="r"><svg class="ic"><use href="#i-agents"/></svg><span class="dot"></span></span>
+          <span class="r"><svg class="ic"><use href="#i-folder"/></svg></span>
+          <span class="sep"></span>
+          <span class="pj">hh</span><span class="pj">js</span><span class="pj">ml</span><span class="pj">tf</span>
+          <span class="r bottom"><svg class="ic"><use href="#i-sliders"/></svg></span>
+        </nav>
+        <div class="prmain">
+          <div class="prhead">
+            <h3>Fix revision handling in snapshot_download filters <span class="num">#3420</span></h3>
+            <div class="meta">
+              <span class="pill open"><svg class="ic sm"><use href="#i-pr"/></svg>Open</span>
+              <span><b>anya-k</b> wants to merge 3 commits into <span class="refp">main</span> from <span class="refp">ak/fix-revision-filters</span></span>
+              <span class="fresh"><i class="pin">2</i>Synced 40 s ago <span class="iconbtn box"><svg class="ic sm"><use href="#i-refresh"/></svg></span><span class="btn sm"><svg class="ic sm"><use href="#i-ext"/></svg>Open on GitHub</span></span>
+            </div>
+          </div>
+          <div class="tabs">
+            <span class="tab on"><svg class="ic sm"><use href="#i-comment"/></svg>Conversation <span class="cnt">6</span></span>
+            <span class="tab"><svg class="ic sm"><use href="#i-commit"/></svg>Commits <span class="cnt">3</span></span>
+            <span class="tab"><svg class="ic sm"><use href="#i-file"/></svg>Files changed <span class="cnt">4</span> <span class="mono" style="color:var(--gh-open)">+84</span> <span class="mono" style="color:var(--gh-closed)">−21</span></span>
+            <i class="pin" style="align-self:center; margin-left:6px">1</i>
+          </div>
+          <div class="timeline">
+            <div class="tl-c">
+              <span class="av lg" style="--h:200">AK</span>
+              <div class="gcard">
+                <div class="gcard-h"><b>anya-k</b> commented 2 days ago<span class="end"><span class="reason">Author</span></span></div>
+                <div class="gcard-b">
+                  <p>Fixes #3412.</p>
+                  <p>The <code class="i">--include</code> and <code class="i">--exclude</code> filters were applied before resolving the revision, so <code class="i">snapshot_download</code> listed files from <code class="i">main</code>. This PR resolves the revision first, then filters.</p>
+                  <div class="task"><span class="cb on"><svg class="ic sm" style="width:10px;height:10px"><use href="#i-check"/></svg></span>Regression test in <code class="i">tests/test_snapshot_download.py</code></div>
+                  <div class="task"><span class="cb"></span>Same fix in <code class="i">HfFileSystem.glob</code>?</div>
+                </div>
+              </div>
+            </div>
+            <div class="ev"><span class="evi"><svg class="ic sm"><use href="#i-eye"/></svg></span><b>anya-k</b> requested a review from <b>Wauplin</b> · 2 days ago</div>
+            <div class="tl-c">
+              <span class="av lg" style="--h:30">BR</span>
+              <div class="gcard">
+                <div class="gcard-h"><b>bastien-r</b> commented 12 min ago</div>
+                <div class="gcard-b"><p>Looks good! Do we need the same fix in <code class="i">HfFileSystem.glob</code>? It uses the same helper.</p></div>
+              </div>
+            </div>
+            <div class="ev"><span class="evi"><svg class="ic sm"><use href="#i-commit"/></svg></span><b>anya-k</b> pushed 1 commit <span class="sha">a1f93c2</span> Apply filters after resolving revision · 5 h ago</div>
+            <div class="tl-c">
+              <span class="hm c lg" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
+              <div class="sugg">
+                <div class="sh"><svg class="ic sm"><use href="#i-pencil"/></svg><b>Suggested review</b> drafted by Claude in "Check #3412 / #3420"<span class="end">Not posted <i class="pin">3</i></span></div>
+                <div class="sb">
+                  <p>The fix is correct for <code class="i">snapshot_download</code> and the regression test covers the reported case. <code class="i">HfFileSystem.glob</code> has the same ordering problem (<code class="i">hf_file_system.py</code>, line 407). I'm fine with a follow-up PR as discussed.</p>
+                  <div class="actrow"><span class="btn sm"><svg class="ic sm"><use href="#i-pencil"/></svg>Edit</span><span class="btn sm primary">Post as approval</span><span class="btn sm">Post as comment</span><span class="btn sm ghost">Discard</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="tl-c">
+              <span></span>
+              <div class="mbox">
+                <div class="mrow"><svg class="ic bad"><use href="#i-xcircle"/></svg><div><div class="t">1 failing check</div><div class="s">14 successful checks</div></div><span class="btn sm ghost">Show all</span></div>
+                <div class="mrow sub"><svg class="ic sm bad"><use href="#i-xcircle"/></svg><span>Python tests / windows-latest (3.10): failed after 6 min</span><span class="btn sm"><svg class="ic sm"><use href="#i-ext"/></svg>Logs on GitHub</span></div>
+                <div class="mrow"><svg class="ic warn"><use href="#i-alert"/></svg><div><div class="t">Review required</div><div class="s">At least 1 approving review is required to merge</div></div><span></span></div>
+                <div class="mrow"><svg class="ic ok"><use href="#i-okcircle"/></svg><div><div class="t">No conflicts with the base branch</div></div><span></span></div>
+                <div class="mfoot"><i class="pin">4</i><span class="btn green">Squash and merge<span class="split"><svg class="ic sm"><use href="#i-chev"/></svg></span></span><span class="faint">Merge method remembered for this repository</span><span class="end"><span class="btn sm">Convert to draft</span></span></div>
+              </div>
+            </div>
+            <div class="tl-c">
+              <span class="av lg" style="--h:175">W</span>
+              <div class="compose">
+                <div class="cta">Leave a comment</div>
+                <div class="cf"><span class="btn sm danger">Close pull request</span><span class="end"><span class="btn sm">Comment</span><span class="btn sm plain">Review<span class="split"><svg class="ic sm"><use href="#i-chev"/></svg></span></span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <aside class="prside">
+          <div class="sblock">
+            <div class="sbh">Reviewers<span class="end">Request <i class="pin">5</i></span></div>
+            <div class="person"><span class="av" style="--h:175">W</span>Wauplin<span class="end"><span class="reqdot"></span>requested</span></div>
+            <div class="person"><span class="av" style="--h:30">BR</span>bastien-r<span class="end"><svg class="ic sm"><use href="#i-comment"/></svg>commented</span></div>
+          </div>
+          <div class="sblock">
+            <div class="sbh">Assignees</div>
+            <div class="person"><span class="av" style="--h:200">AK</span>anya-k</div>
+          </div>
+          <div class="sblock">
+            <div class="sbh">Labels</div>
+            <div class="labels"><span class="lbl" style="--h:0">bug</span><span class="lbl" style="--h:210">CLI</span></div>
+          </div>
+          <div class="sblock">
+            <div class="sbh">Linked issues</div>
+            <div class="person"><svg class="ic sm c-open"><use href="#i-issue"/></svg>#3412 hf download ignores --revision…</div>
+          </div>
+          <div class="sblock">
+            <div class="sbh">Participants</div>
+            <div class="avs"><span class="av" style="--h:200">AK</span><span class="av" style="--h:30">BR</span><span class="av" style="--h:150">CL</span><span class="av" style="--h:175">W</span></div>
+          </div>
+          <div class="sblock">
+            <div class="sbh">In Launchpad</div>
+            <div class="localbox">
+              <div class="sr"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Check #3412 / #3420<span class="st needs" style="margin-left:auto">Question</span></div>
+              <div class="sr"><svg class="ic sm c-local"><use href="#i-pencil"/></svg>1 suggested review</div>
+            </div>
+            <span class="btn"><svg class="ic sm"><use href="#i-play"/></svg>Launch agent on this PR</span>
+          </div>
+        </aside>
+      </div>
+      <div class="statusbar">
+        <span class="h"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Claude 2.1.287</span>
+        <span class="q">5h <span class="meter clay"><i style="width:39%"></i></span>39% · 16:40</span>
+        <span class="q">week <span class="meter clay"><i style="width:61%"></i></span>61% · Mon 09:00</span>
+        <span class="vsep"></span>
+        <span class="h"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex 0.160.0</span>
+        <span class="q">5h <span class="meter"><i style="width:4%"></i></span>4% · 14:14</span>
+        <span class="q">week <span class="meter"><i style="width:22%"></i></span>22% · Sun 16:21</span>
+        <span class="right"><span>GitHub synced 40 s ago</span><span>2 running · <span class="needs">3 pending</span></span></span>
+      </div>
+    </div>
+  </div>
+  <ol class="notes">
+    <li><i class="pin">1</i><span><b>Same tabs as GitHub.</b> Conversation, Commits and Files changed. Files changed uses local git when the project is registered, so large diffs open instantly.</span></li>
+    <li><i class="pin">2</i><span><b>Visible freshness.</b> Every cached view shows its age, a Refresh button (<code>r</code>) and Open on GitHub (<code>o</code>).</span></li>
+    <li><i class="pin">3</i><span><b>Agent drafts, you post.</b> A dashed teal card is a review or comment written by an agent. It is never posted on its own: Edit, Post (as approval, comment or change request), or Discard.</span></li>
+    <li><i class="pin">4</i><span><b>Merge box.</b> Check summary with links to the logs on GitHub, review state, conflicts, merge method remembered per repository, Convert to draft or Ready for review.</span></li>
+    <li><i class="pin">5</i><span><b>Sidebar with local context.</b> Reviewers with Request, linked issues, participants, plus the agent sessions and drafts tied to this PR.</span></li>
+  </ol>
+</section>
+
+<!-- ======================= S5 PRE-DRAFT ======================= -->
+<section class="sketch" id="s5">
+  <div class="sketch-head">
+    <span class="sketch-id">S5 · Project page and pre-draft PR</span>
+    <h2>A pull request that stays on your laptop until it is worth publishing</h2>
+    <p>Pre-draft PRs share the list and the review screens with GitHub PRs, in teal and with dashed edges. Nothing is pushed, no CI runs and nobody is notified until you choose Publish.</p>
+  </div>
+  <div class="frame">
+    <div class="win" role="img" aria-label="Project page with pre-draft PR mockup">
+      <div class="topbar">
+        <div class="brand"><span class="logo"><svg viewBox="0 0 12 12"><path d="M6 1.5 10.5 10H1.5z" fill="#fff"/></svg></span>Launchpad</div>
+        <div class="crumbs">huggingface_hub <span class="sep">/</span> <b>Pull requests</b></div>
+        <div class="palette"><svg class="ic"><use href="#i-search"/></svg>Jump to a project, issue or session<kbd>Ctrl K</kbd></div>
+        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch<kbd>L</kbd></span>
+        <div class="wctl"><span></span><span></span><span></span></div>
+      </div>
+      <div class="app s5">
+        <nav class="rail">
+          <span class="r"><svg class="ic"><use href="#i-inbox"/></svg></span>
+          <span class="r"><svg class="ic"><use href="#i-agents"/></svg><span class="dot"></span></span>
+          <span class="r on"><svg class="ic"><use href="#i-folder"/></svg></span>
+          <span class="sep"></span>
+          <span class="pj" style="box-shadow: inset 0 0 0 1.5px var(--ink); color: var(--ink)">hh</span><span class="pj">js</span><span class="pj">ml</span><span class="pj">tf</span>
+          <span class="r bottom"><svg class="ic"><use href="#i-sliders"/></svg></span>
+        </nav>
+
+        <div class="projcol">
+          <div class="phead">
+            <div class="name"><svg class="ic"><use href="#i-folder"/></svg>huggingface_hub</div>
+            <div class="meta"><span class="mono">~/projects/huggingface_hub</span><span>huggingface/huggingface_hub</span><span><svg class="ic sm"><use href="#i-branch"/></svg> main <span class="clean">clean</span></span></div>
+            <div class="acts"><span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span><span class="btn sm">Editor</span><span class="btn sm"><svg class="ic sm"><use href="#i-term"/></svg>Terminal</span><span class="btn sm"><svg class="ic sm"><use href="#i-ext"/></svg>GitHub</span></div>
+          </div>
+          <div class="tabs"><span class="tab on">Pull requests <span class="cnt">16</span></span><span class="tab">Issues <span class="cnt">52</span></span><span class="tab">Sessions <span class="cnt">9</span></span><span class="tab">Worktrees <span class="cnt">3</span></span></div>
+          <div class="lfilter"><span class="fchip on">Open</span><span class="fchip">Pre-drafts <b>2</b></span><span class="fchip">Review requested <b>1</b></span><span class="fchip">Mine</span></div>
+          <div class="prow local sel">
+            <svg class="ic c-local"><use href="#i-pr-local"/></svg>
+            <span class="t">Apply revision before filters in HfFileSystem.glob</span>
+            <span class="m"><span class="tag-local">Pre-draft</span><span class="mono">lp/glob-revision</span><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>20 min <i class="pin">1</i></span>
+          </div>
+          <div class="prow local">
+            <svg class="ic c-local"><use href="#i-pr-local"/></svg>
+            <span class="t">Resumable uploads with xet: exploration</span>
+            <span class="m"><span class="tag-local">Pre-draft</span><span class="mono">lp/xet-resume</span><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="st work">Agent working</span></span>
+          </div>
+          <div class="prow">
+            <svg class="ic c-open"><use href="#i-pr"/></svg>
+            <span class="t">Fix revision handling in snapshot_download filters</span>
+            <span class="m">#3420 · anya-k · <span class="reason hot">Review requested</span></span>
+          </div>
+          <div class="prow">
+            <svg class="ic c-draft"><use href="#i-pr-draft"/></svg>
+            <span class="t">[CLI] hf jobs logs --follow</span>
+            <span class="m">#3417 · Wauplin · draft · 2 days</span>
+          </div>
+          <div class="prow">
+            <svg class="ic c-open"><use href="#i-pr"/></svg>
+            <span class="t">Bump ruff to 0.14</span>
+            <span class="m">#3409 · farah-n · <span class="review-ok">Approved</span></span>
+          </div>
+          <div class="prow">
+            <svg class="ic c-open"><use href="#i-pr"/></svg>
+            <span class="t">Support token=False in InferenceClient.chat</span>
+            <span class="m">#3405 · dmitri-v · <span class="review-chg">Changes requested</span></span>
+          </div>
+          <div class="prow">
+            <svg class="ic c-open"><use href="#i-pr"/></svg>
+            <span class="t">Paginate list_repo_tree with cursors</span>
+            <span class="m">#3398 · elise-m · 4 days</span>
+          </div>
+        </div>
+
+        <div class="pdcol">
+          <div class="pdhead">
+            <div style="display:flex; align-items:center; gap:8px"><span class="pill local"><svg class="ic sm"><use href="#i-pr-local"/></svg>Pre-draft · only on this laptop</span><span class="st done">Ready for review</span></div>
+            <h3>Apply revision before filters in HfFileSystem.glob <svg class="ic sm"><use href="#i-pencil"/></svg></h3>
+            <div class="meta"><span class="refl">lp/glob-revision</span> into <span class="refl">main</span><span>2 commits</span><span><span style="color:var(--gh-open); font-weight:650">+31</span> <span style="color:var(--gh-closed); font-weight:650">−6</span> · 2 files</span></div>
+            <div class="origin"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Created by Claude in "Check #3412 / #3420" · 20 min ago · <a>Open session</a> <i class="pin">2</i></div>
+            <div class="drift"><svg class="ic sm"><use href="#i-alert"/></svg>main is 3 commits ahead of this branch's base <i class="pin">3</i><span class="end btn sm">Ask agent to rebase</span></div>
+            <div class="pdacts">
+              <span class="btn primary"><svg class="ic sm"><use href="#i-up"/></svg>Publish<span class="split"><svg class="ic sm"><use href="#i-chev"/></svg></span></span>
+              <span class="btn"><svg class="ic sm"><use href="#i-send"/></svg>Send feedback to agent · 1 note</span>
+              <span class="btn ghost danger"><svg class="ic sm"><use href="#i-trash"/></svg>Discard</span>
+              <i class="pin">5</i>
+            </div>
+            <div class="menu" style="left:20px; top:214px">
+              <div class="mi on"><svg class="ic sm"><use href="#i-pr-draft"/></svg><b>Publish as draft PR</b><span class="d">Push to <span class="mono">wauplin/glob-revision</span>, open a draft</span></div>
+              <div class="mi"><svg class="ic sm c-open"><use href="#i-pr"/></svg><b>Publish ready for review</b><span class="d">Same, and request reviewers</span></div>
+            </div>
+          </div>
+          <div class="tabs"><span class="tab">Description</span><span class="tab">Commits <span class="cnt">2</span></span><span class="tab on">Files changed <span class="cnt">2</span></span></div>
+          <div class="files">
+            <div class="dfile">
+              <div class="dfh"><svg class="ic sm"><use href="#i-chev"/></svg><span class="p">src/huggingface_hub/hf_file_system.py</span><span class="add">+12</span><span class="del">−4</span><span class="end"><span class="cb"></span>Viewed</span></div>
+              <div class="diff"><table>
+                <tr class="hk"><td class="ln"></td><td class="ln"></td><td>@@ -405,5 +405,7 @@ class HfFileSystem(fsspec.AbstractFileSystem):</td></tr>
+                <tr><td class="ln">405</td><td class="ln">405</td><td>    <span class="kw">def</span> <span class="fn">glob</span>(self, path: str, maxdepth: Optional[int] = <span class="kw">None</span>, **kwargs):</td></tr>
+                <tr><td class="ln">406</td><td class="ln">406</td><td>        resolved_path = self.resolve_path(path, revision=kwargs.get(<span class="str">"revision"</span>))</td></tr>
+                <tr class="d"><td class="ln">407</td><td class="ln"></td><td>-       path = self._strip_protocol(path)</td></tr>
+                <tr class="d"><td class="ln">408</td><td class="ln"></td><td>-       kwargs = {<span class="str">"expand_info"</span>: kwargs.get(<span class="str">"detail"</span>, <span class="kw">False</span>), **kwargs}</td></tr>
+                <tr class="a"><td class="ln"></td><td class="ln">407</td><td>+       <span class="cm"># Resolve the revision first so that filters apply to the requested ref</span></td></tr>
+                <tr class="a"><td class="ln"></td><td class="ln">408</td><td>+       revision = resolved_path.revision</td></tr>
+                <tr class="a"><td class="ln"></td><td class="ln">409</td><td>+       path = self._strip_protocol(resolved_path.unresolve())</td></tr>
+                <tr class="a"><td class="ln"></td><td class="ln">410</td><td>+       kwargs = {<span class="str">"expand_info"</span>: kwargs.get(<span class="str">"detail"</span>, <span class="kw">False</span>), <span class="str">"revision"</span>: revision, **kwargs}</td></tr>
+                <tr><td class="ln">409</td><td class="ln">411</td><td>        <span class="kw">return</span> super().glob(path, maxdepth=maxdepth, **kwargs)</td></tr>
+                <tr class="more"><td class="ln"></td><td class="ln"></td><td>Expand 2 more changes in this file</td></tr>
+              </table></div>
+              <div class="lnote"><span class="av" style="--h:175">W</span><div><div class="who">Your note for the agent <i class="pin">4</i></div>Also cover the <code class="i">detail=True</code> path. It goes through <code class="i">_ls_tree</code> and probably has the same bug.</div><span class="btn sm ghost">Edit</span></div>
+            </div>
+            <div class="dfile collapsed">
+              <div class="dfh"><svg class="ic sm" style="transform:rotate(-90deg)"><use href="#i-chev"/></svg><span class="p">tests/test_hf_file_system.py</span><span class="add">+19</span><span class="del">−2</span><span class="end"><span class="cb"></span>Viewed</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="statusbar">
+        <span class="h"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Claude 2.1.287</span>
+        <span class="q">5h <span class="meter clay"><i style="width:41%"></i></span>41% · 16:40</span>
+        <span class="q">week <span class="meter clay"><i style="width:62%"></i></span>62% · Mon 09:00</span>
+        <span class="vsep"></span>
+        <span class="h"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex 0.160.0</span>
+        <span class="q">5h <span class="meter"><i style="width:4%"></i></span>4% · 14:14</span>
+        <span class="q">week <span class="meter"><i style="width:22%"></i></span>22% · Sun 16:21</span>
+        <span class="right"><span>GitHub synced 1 min ago</span><span>2 running · <span class="needs">3 pending</span></span></span>
+      </div>
+    </div>
+  </div>
+  <ol class="notes">
+    <li><i class="pin">1</i><span><b>One list, two origins.</b> Pre-draft PRs sit at the top of the project's PR list with a dashed teal icon, their local branch and the agent that made them.</span></li>
+    <li><i class="pin">2</i><span><b>Made by an agent.</b> Launching with "Pre-draft PR" (S2) creates the branch and worktree. The agent commits there and sets the title and description with <code>launchpad pr update</code>.</span></li>
+    <li><i class="pin">3</i><span><b>Review locally.</b> Files changed is computed with local git from the merge base. A banner warns when <code>main</code> has moved.</span></li>
+    <li><i class="pin">4</i><span><b>Feedback loop.</b> Notes on files (and, later, on lines) are sent back to the same agent session with "Send feedback to agent". Then you review again.</span></li>
+    <li><i class="pin">5</i><span><b>Publish or discard.</b> Publish pushes the branch under its final name and opens a draft or ready PR with the title and description. Discard deletes the branch and the worktree.</span></li>
+  </ol>
+</section>
+
+<!-- ======================= S6 DETAILS ======================= -->
+<section class="sketch" id="s6">
+  <div class="sketch-head">
+    <span class="sketch-id">S6 · Presets, temporary folders, quotas</span>
+    <h2>Three smaller pieces</h2>
+    <p>The presets editor in Settings, the header of a temporary project, and the popover behind the status bar quotas.</p>
+  </div>
+  <div class="s6">
+    <div class="frag" role="img" aria-label="Presets editor mockup">
+      <div class="fh"><svg class="ic sm"><use href="#i-sliders"/></svg>Settings <span class="faint">/</span> <b>Presets</b><span class="end btn sm"><svg class="ic sm"><use href="#i-plus"/></svg>New preset</span></div>
+      <div class="fb">
+        <div class="preset"><svg class="ic grip"><use href="#i-grip"/></svg><div class="inbox-i">worktree</div><div class="inbox-t">Please use a local git worktree and delete it once you're done.</div><span class="iconbtn"><svg class="ic sm"><use href="#i-trash"/></svg></span></div>
+        <div class="preset editing"><svg class="ic grip"><use href="#i-grip"/></svg><div class="inbox-i">draft PR</div><div class="inbox-t">Open a draft PR once you are done and check CI if anything related to the PR is failing.<span class="caret"></span></div><span class="iconbtn"><svg class="ic sm"><use href="#i-trash"/></svg></span></div>
+        <div class="preset"><svg class="ic grip"><use href="#i-grip"/></svg><div class="inbox-i">no unit test</div><div class="inbox-t">No need to add any unit tests for that PR.</div><span class="iconbtn"><svg class="ic sm"><use href="#i-trash"/></svg></span></div>
+        <div class="fnote"><i class="pin">1</i><span>Drag to change the order used in prompts. Saved to <span class="mono">~/.config/launchpad/config.toml</span>, which you can also edit by hand.</span></div>
+      </div>
+    </div>
+    <div class="stack">
+      <div class="frag" role="img" aria-label="Temporary project mockup">
+        <div class="fh"><svg class="ic sm"><use href="#i-folder"/></svg>Temporary project<span class="end faint">created 2 h ago</span></div>
+        <div class="fb tmpcard">
+          <div class="row"><span class="name">~/projects/tmp-1002-xet-bench</span></div>
+          <div class="meta">1 pending session (Claude) · not a git repository · 3 files</div>
+          <div class="row"><div class="promote" style="flex:1"><span class="pre">~/projects/</span><span class="val">xet-bench</span></div><span class="btn primary"><svg class="ic sm"><use href="#i-up"/></svg>Promote</span></div>
+          <div class="row"><span class="btn confirm"><svg class="ic sm"><use href="#i-trash"/></svg>Click again to delete the folder</span><span class="faint" style="font-size:12px">Stops the session first</span><i class="pin">2</i></div>
+        </div>
+      </div>
+      <div class="frag" role="img" aria-label="Quota popover mockup">
+        <div class="fh"><b>Usage</b><span class="end faint">updated 1 min ago</span></div>
+        <div class="fb qgrid">
+          <div class="qh"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Claude Code<span class="v">2.1.287 · updates itself</span></div>
+          <div class="qrow"><span>5 hours</span><span class="bar clay"><i style="width:38%"></i></span><span class="pct">38%</span></div>
+          <div class="qreset">resets today at 16:40</div>
+          <div class="qrow"><span>Week</span><span class="bar clay"><i style="width:61%"></i></span><span class="pct">61%</span></div>
+          <div class="qreset">resets Monday 5 Oct at 09:00</div>
+          <div class="qsep"></div>
+          <div class="qh"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex<span class="v">0.159.3 → 0.160.0, updating</span></div>
+          <div class="qrow"><span>5 hours</span><span class="bar"><i style="width:2%"></i></span><span class="pct">1%</span></div>
+          <div class="qreset">resets today at 14:14</div>
+          <div class="qrow"><span>Week</span><span class="bar"><i style="width:22%"></i></span><span class="pct">22%</span></div>
+          <div class="qreset">resets Sunday 4 Oct at 16:21 <i class="pin">3</i></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ol class="notes">
+    <li><i class="pin">1</i><span><b>Presets editor.</b> A label and a sentence per preset. Add, edit, delete, reorder. Only the three presets you listed exist at first.</span></li>
+    <li><i class="pin">2</i><span><b>Temporary projects.</b> They live in the projects root (<code>~/projects</code> by default, configurable). Promote renames the folder and keeps its sessions resumable. Delete asks for a second click on the same button instead of a dialog.</span></li>
+    <li><i class="pin">3</i><span><b>Quota detail.</b> Clicking the status bar shows both windows with exact reset times and the update state of each harness. Codex numbers are real values read from <code>codex app-server</code> on 2 October.</span></li>
+  </ol>
+</section>
+
+<footer class="end">
+  <span>Sketches for discussion, not a spec. Example people and issues are invented.</span>
+  <span>Source: <code>docs/design/sketches.html</code></span>
+</footer>
+
+</div>

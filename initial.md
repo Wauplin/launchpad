@@ -1,0 +1,42 @@
+I'm starting a new project. I want it to be a Tauri app that I can launch from my dock bar on Linux/Ubuntu. In the future I might want to host it on a server for remote access (i.e. splitting the web app from the web view and keeping the API built for Tauri) but that's not a focus for now. I don't care about being compatible with macos and windows. I want the app to be light theme (no need to implement dark theme at all). Use the frontend framework of your choice. For now I'm planning to be the sole user of this app, meaning I don't care about breaking backward compatibility, about semantic versioning (or versioning at all), about migrations, etc. I just want something to work for myself and that I can extend over time.
+
+The app is supposed to be in between a "agent harness launcher" and a "github UI replacement". Now that using agents more and more in my daily routing, I got used to some workflows that I still do a bit manually because things are scattered around. Launchpad is supposed to be the solution to this. You can be inspired by the Codex app but I want it to be more versatile, not bound to a single agent harness, more tightly integrated with my workflow (i.e. Github), and customizable (i.e. I own the codebase so I can extend it).
+
+The main things I want Launchpad to do:
+- be fast! faster than loading over and over again the same pages on github. Faster than typing prompts manually. Faster than using the CLI to launch agents in the correct directory. Etc.
+- see my GH notifications with the main features of the official UI, especially:
+  - list notification
+  - see if notified because of mention, subscribed, review requested, ...
+  - see who participate in the issue/PR
+  - be able to filter by repo
+  - see read/unread status
+  - for each notification: done, unsubscribe, mark as unread
+  - since how long
+  - No need for more than that (no need for other filters, search bar, multi select, etc. at least at first)
+- be able to register projects. A project is a local folder living inside ~/projects + optionally a remote git repo. Typically huggingface_hub, transformers, moon-landing, etc. 
+- be able to launch a agent harness session (at first codex or claude code) in one click
+  - agent is started directly in the project of my choice
+  - if codex ask if we should update => always no when starting a session. Always auto update codex in the background
+  - I can choose to start the agent in a new temporary project. In this case, create a tmp folder inside ~/project and start from there. Always "trust this folder" if agent asks. Add easy 1-click cleanup or 1-click "promote temporary folder to real project".
+  - when starting an agent, it should be super easy to:
+    - click on presets to create the prompt. I'm very often typing the same sentences in my prompts so I'd like to be able to manually define presets and concatenate them in my initial prompt. For instance clicking on "worktree" + "draft PR" + "no unit test" and the prompt is auto-generated to "Please use a local git worktree and delete it once your done. Open a draft PR once you are done and check CI if anything related to the PR is failing. No need to add any unit tests for that PR." I don't want just a static system prompt because it highly depends on the task I'm launching the agent on, but I also don't want to always type this preformatted sentences. I prefer to be able to configure them directly in Launchpad settings (should be easy to add/remove/edit them somewhere). For now please add the 3 presets I've list above but don't add more.
+    - in addition to presets, I also want to be able to select other projects to provide as context. Typically when I run an agent to add a feature in e.g. huggingface_hub, I want to tell the agent "check ../moon-landing repo for reference" (which contains server-side codebase). Or mention Python SDK project when working on the JS SDK. It should also be easy to provide a specific branch.
+    - and in addition to this, I also want to be able to provider issue/PRs from Github, or even links to specific comments. Typically launch an agent in huggingface_hub with a link to an issue + a related PR and trigger a "please check if issue is relevant and PR fixes it" task.
+    - and I should also be able to select the model and effort. By default always take the default one from the agent (i.e. the last one that was selected)
+    - => all of these options should be very easy to work with and never bloat the UI. Remember that "launching an agent" is the main thing the app will do so it has to be quick. Launching an agent with almost no context or with high context are both very valid use cases and both should be handled nicely. I think there should be a global "launch agent" button available from anywhere in the app with all options but also more atomically when selecting a notification, when multi-selecting issues and PRs, when inside a project, etc. For the codex vs claude selection it could be 1-click on the "start agent" icon => 2 floating round icons appear next to the mouse (1 for codex, 1 for claude) => click on one => start agent => panel on the side to build-up context. I let you see what you prefer but please make sure the UX is great.
+- agents panel to see all running agents, past agents, pending ones, etc.
+  - input/output of the session is streamed in the UI
+  - I should be able to type stuff in the session like I do in the terminal
+  - current cost and token usage of the session
+  - any message in the session should be copy-able easily with correct formatting. In CLI terminals usually it's not the case with line breaks/tabs added to the copied text. Streaming things in our own UI should make things easier than when working in a terminal.
+  - I want the UX to be slick to change between sessions, put some sessions side by side or in a 4 panels grid, etc.
+- always displayed somewhere: claude and codex versions, current quota usage and 5h/weekly limits, reset times
+- I want to be able to visualize issues, PRs, and diff changes as it's currently done in Github with comments, CI checks, code diff, buttons to request review, to comment, to approve/request changes, to merge or close or won't fix, turn open/draft, etc. For now no need to be able to make inline comments. I want all the info to be pulled regularly from GH and stored in a local DB. There should always be a "refresh" button just in case. What I want to avoid is that each time I go back n forth between issues/PRs to reload the full page all the time. This is what makes me feel slow when I use the GH UI. You can reuse most of the UI which I feel is pretty correct, my main pain point is about loading times.
+  - note that you can also use the info from local git project for e.g. code diff 
+  - later on, I want agents to be able to generate comments, reviews, etc. that would not be directly posted on Github but added as editable suggestions in the local "GH-like UI" so that I can myself post them in 1-click (after manual review and edit)
+- [MAYBE THE BIGGEST FEATURE I'M LOOKING FOR] I want to be able to generate "pre-draft PR". I often ask agents to start a draft PR on a topic when investigating a feature/bug, but then close it when I realize it's not needed or not how I envisioned it. This creates noise on Github for other collaborators but also triggers useless CI, etc. What I would like is to create a pre-draft PR locally with code changes on a branch, PR title, PR description, etc. so that I can manually review it myself. And only when I feel it's relevant and in good shape I push it as a draft or ready-for-review PR on the Hub.
+  - this feature is a combination between some code to have things in the DB + likely a skill or preset that I can forward to the agent. I let you decide what's the best UX for this
+- ofc for all projects, I'd like to see the latest issues and PRs, as well as pre-draft PRs (in the same interface but different color?). No need to pre-fetch and cache everything. A "cache on demand" is perfectly fine and likely to be more efficient. No need to be able to see CI Actions, it's fine to open the browser for that.
+- for anything GH related and cached, I should be able to refresh the data and I should be able to open the browser in one click to see it on GH.
+
+All agents can be launched on my laptop in yolo mode. That's what I already do on my daily basis. Use 'gh' CLI or the GH API, as you prefer. My 'gh' CLI is already logged in. For git repos, I always use SSH with my default key (already configured as well).
