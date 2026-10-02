@@ -485,6 +485,22 @@ code.i { font: 12px var(--font-mono); background: var(--sunk); padding: 0 4px; b
 .inbox-i { height: 30px; display: flex; align-items: center; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); font-weight: 600; font-size: 12.5px; }
 .inbox-t { min-height: 30px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); font-size: 12.5px; color: var(--ink); }
 .preset.editing .inbox-t { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-soft); }
+.setrow { display: grid; grid-template-columns: 170px 1fr; gap: 14px; align-items: start; }
+.setrow + .setrow { border-top: 1px solid var(--line-2); padding-top: 12px; }
+.sl { display: grid; gap: 2px; font-size: 12.5px; }
+.sl b { font-weight: 650; display: flex; align-items: center; gap: 6px; }
+.sl span { color: var(--ink-3); font-size: 11.5px; }
+.field-i { height: 30px; display: flex; align-items: center; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); font: 12px var(--font-mono); }
+.radios { display: grid; gap: 6px; }
+.radio { display: grid; grid-template-columns: 14px 1fr; gap: 9px; align-items: start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); }
+.radio.on { border-color: var(--teal); background: #F4FAF8; }
+.radio .rb { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--ink-3); margin-top: 2px; }
+.radio.on .rb { border: 4px solid var(--teal); }
+.radio > div { display: grid; gap: 2px; font-size: 12.5px; min-width: 0; }
+.radio b { font-weight: 650; }
+.radio .mono { font-size: 11px; color: var(--ink-2); overflow-wrap: anywhere; }
+.radio .faint { font-size: 11.5px; }
+.found { font-size: 10.5px; font-weight: 650; color: var(--gh-open); margin-left: 4px; }
 .fnote { font-size: 11.5px; color: var(--ink-3); display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start; }
 .tmpcard { display: grid; gap: 10px; }
 .tmpcard .row { display: flex; align-items: center; gap: 8px; }
@@ -574,7 +590,7 @@ footer.end code { font: 12.5px var(--font-mono); }
     <a href="#s3"><b>S3</b>Agents workspace</a>
     <a href="#s4"><b>S4</b>Pull request</a>
     <a href="#s5"><b>S5</b>Pre-draft PR</a>
-    <a href="#s6"><b>S6</b>Presets, temp folders, quotas</a>
+    <a href="#s6"><b>S6</b>Settings, temp folders, quotas</a>
   </nav>
 </header>
 
@@ -1033,7 +1049,7 @@ chunk=256MB  run 3/5 …</pre>
   <ol class="notes">
     <li><i class="pin">1</i><span><b>Pending, Running, Closed.</b> A pending session waits for your input, or only waits for a background command. It stays pending until you close it (×). Closed sessions can be resumed. A desktop notification fires when a session becomes pending, even with the window closed.</span></li>
     <li><i class="pin">2</i><span><b>Layouts 1, 2 and 4.</b> Buttons in the top bar. Clicking a session loads it in the focused pane (teal outline). Dragging picks another pane.</span></li>
-    <li><i class="pin">3</i><span><b>Session header.</b> Project, state and elapsed time, tokens, context usage and cost (Claude only). Stop interrupts the agent. "Open in terminal" hands the session to Ghostty and back.</span></li>
+    <li><i class="pin">3</i><span><b>Session header.</b> Project, state and elapsed time, tokens, context usage and cost (Claude only). Stop interrupts the agent. "Open in terminal" hands the session to the terminal chosen in Settings (S6) and back.</span></li>
     <li><i class="pin">4</i><span><b>Compact tool calls.</b> Commands and file reads collapse into one line, edits show a small diff, the running command has a spinner. Click to expand.</span></li>
     <li><i class="pin">5</i><span><b>Copy exactly.</b> Each message has Copy (raw markdown) and Copy as text, and code blocks have their own button. No terminal line breaks or padding.</span></li>
     <li><i class="pin">6</i><span><b>Questions become buttons.</b> When an agent asks something, its options are clickable and numbered. Typing a free answer still works.</span></li>
@@ -1322,11 +1338,12 @@ chunk=256MB  run 3/5 …</pre>
 <!-- ======================= S6 DETAILS ======================= -->
 <section class="sketch" id="s6">
   <div class="sketch-head">
-    <span class="sketch-id">S6 · Presets, temporary folders, quotas</span>
-    <h2>Three smaller pieces</h2>
-    <p>The presets editor in Settings, the header of a temporary project, and the popover behind the status bar quotas.</p>
+    <span class="sketch-id">S6 · Settings, temporary folders, quotas</span>
+    <h2>Settings and smaller pieces</h2>
+    <p>Two Settings screens (presets and general settings), the header of a temporary project, and the popover behind the status bar quotas.</p>
   </div>
   <div class="s6">
+    <div class="stack">
     <div class="frag" role="img" aria-label="Presets editor mockup">
       <div class="fh"><svg class="ic sm"><use href="#i-sliders"/></svg>Settings <span class="faint">/</span> <b>Presets</b><span class="end btn sm"><svg class="ic sm"><use href="#i-plus"/></svg>New preset</span></div>
       <div class="fb">
@@ -1334,6 +1351,21 @@ chunk=256MB  run 3/5 …</pre>
         <div class="preset editing"><svg class="ic grip"><use href="#i-grip"/></svg><div class="inbox-i">draft PR</div><div class="inbox-t">Open a draft PR once you are done and check CI if anything related to the PR is failing.<span class="caret"></span></div><span class="iconbtn"><svg class="ic sm"><use href="#i-trash"/></svg></span></div>
         <div class="preset"><svg class="ic grip"><use href="#i-grip"/></svg><div class="inbox-i">no unit test</div><div class="inbox-t">No need to add any unit tests for that PR.</div><span class="iconbtn"><svg class="ic sm"><use href="#i-trash"/></svg></span></div>
         <div class="fnote"><i class="pin">1</i><span>Drag to change the order used in prompts. Saved to <span class="mono">~/.config/launchpad/config.toml</span>, which you can also edit by hand.</span></div>
+      </div>
+    </div>
+      <div class="frag" role="img" aria-label="General settings mockup">
+        <div class="fh"><svg class="ic sm"><use href="#i-sliders"/></svg>Settings <span class="faint">/</span> <b>General</b></div>
+        <div class="fb">
+          <div class="setrow"><div class="sl"><b>Projects root</b><span>Where projects are found, and where temporary folders and worktrees are created.</span></div><div class="field-i">~/projects</div></div>
+          <div class="setrow"><div class="sl"><b>Terminal <i class="pin">4</i></b><span>Used by "Open in terminal".</span></div>
+            <div class="radios">
+              <div class="radio on"><span class="rb"></span><div><b>Ghostty <span class="found">found</span></b><span class="mono">ghostty --working-directory={cwd} -e {command}</span></div></div>
+              <div class="radio"><span class="rb"></span><div><b>GNOME Terminal <span class="found">found</span></b><span class="mono">gnome-terminal --working-directory={cwd} -- {command}</span></div></div>
+              <div class="radio"><span class="rb"></span><div><b>Custom command</b><span class="faint">Any other terminal. Use {cwd} and {command} in the command.</span></div></div>
+            </div>
+          </div>
+          <div class="setrow"><div class="sl"><b>Editor</b><span>Used by "Open in editor".</span></div><div class="select">VS Code <span class="def">· code</span><svg class="ic sm"><use href="#i-chev"/></svg></div></div>
+        </div>
       </div>
     </div>
     <div class="stack">
@@ -1368,6 +1400,7 @@ chunk=256MB  run 3/5 …</pre>
     <li><i class="pin">1</i><span><b>Presets editor.</b> A label and a sentence per preset. Add, edit, delete, reorder. Only the three presets you listed exist at first.</span></li>
     <li><i class="pin">2</i><span><b>Temporary projects.</b> They live in the projects root (<code>~/projects</code> by default, configurable). Promote renames the folder and keeps its sessions resumable. Delete asks for a second click on the same button instead of a dialog.</span></li>
     <li><i class="pin">3</i><span><b>Quota detail.</b> Clicking the status bar shows both windows with exact reset times and the update state of each harness. Codex numbers are real values read from <code>codex app-server</code> on 2 October.</span></li>
+    <li><i class="pin">4</i><span><b>General settings.</b> The projects root (<code>~/projects</code> by default), the terminal used by "Open in terminal" (Ghostty by default, GNOME Terminal, or any terminal through a custom command) and the editor. Terminals installed on the machine are marked "found".</span></li>
   </ol>
 </section>
 

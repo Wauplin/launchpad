@@ -51,6 +51,7 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 - **Agents view:** list grouped as Running, Pending (waiting for your input, or idle while a background command runs) and Closed; session pane (messages, collapsed tool calls, inline diffs, copy buttons, input, interrupt, close, resume), layouts with 1, 2 and 4 panes.
 - **Signals:** tokens, context usage and cost per session; desktop notification when a session becomes pending.
 - **Maintenance:** background `codex update`; "Open in terminal" and "Re-attach".
+- **Settings → General:** projects root, terminal used by "Open in terminal" (Ghostty, GNOME Terminal or a custom command), editor.
 
 **Done when:** for one week, every agent you start goes through Launchpad.
 

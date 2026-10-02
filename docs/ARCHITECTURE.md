@@ -207,8 +207,11 @@ projects_root = "~/projects"        # discovery, temporary folders, worktrees
 
 [commands]
 editor = "code"
-terminal = "ghostty"                # fallback: gnome-terminal
 browser = "xdg-open"
+
+[terminal]                          # used by "Open in terminal"
+app = "ghostty"                     # ghostty | gnome-terminal | custom
+custom = ["kitty", "--directory", "{cwd}", "{command}"]   # only used when app = "custom"
 
 [github]
 poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
@@ -221,6 +224,14 @@ id = "worktree"
 label = "worktree"
 text = "Please use a local git worktree and delete it once you're done."
 ```
+
+Settings → General edits the projects root, the terminal and the editor. For the terminal, it lists the terminals found on `PATH` and offers a custom command. Built-in templates:
+
+| Terminal | Command |
+|---|---|
+| Ghostty (default) | `ghostty --working-directory={cwd} -e {command}` |
+| GNOME Terminal | `gnome-terminal --working-directory={cwd} -- {command}` |
+| Custom | the `custom` list, with `{cwd}` and `{command}` replaced |
 
 ## 7. GitHub integration
 
@@ -371,7 +382,7 @@ trait LiveSession: Send + Sync {
 - **Background commands:** `system` messages with subtype `task_started` (`is_backgrounded: true`), `task_progress` and `task_notification` (final status, summary, output file) track commands started with `run_in_background`. A turn that ends while such a task runs puts the session in `background`. When the task ends, the session moves back to `working` if the agent continues, or to `waiting`.
 - **Questions from the agent:** in print mode, permission prompts go to the host by default (`--permission-prompts host`). Tools that need an answer (AskUserQuestion, plan approval) should arrive as `can_use_tool` control requests and are rendered as cards. To verify in the spike.
 - **Resume:** the same command with `--resume <session-id>`.
-- **Open in terminal:** wait for `waiting`, close stdin (the process exits), then run the configured terminal with `claude --resume <id> --dangerously-skip-permissions` in the session cwd. The session shows "in terminal". "Re-attach" resumes it in Launchpad later. A session never has two live processes.
+- **Open in terminal:** wait for `waiting`, close stdin (the process exits), then run the terminal chosen in Settings (see [6.5](#65-configuration-file)) with `claude --resume <id> --dangerously-skip-permissions` in the session cwd. The session shows "in terminal". "Re-attach" resumes it in Launchpad later. A session never has two live processes.
 - **Defaults:** without `--model` or `--effort`, Claude Code uses `~/.claude/settings.json` (today `model: opus[1m]`, `effortLevel: xhigh`). The composer reads that file and shows "Default (opus[1m] · xhigh)".
 - Subscription login works in print mode (OAuth). Do not use `--bare`: it disables OAuth.
 
@@ -522,7 +533,7 @@ A pre-draft PR is a pull request that exists only on your laptop: a local branch
 ## 13. Desktop integration
 
 - Desktop notifications are sent by the daemon, so they work when the window is closed. Examples: "Claude is waiting in huggingface_hub", "Review requested: huggingface_hub#3420". Clicking one focuses the window on the item (`launchpad-desktop --open <route>`).
-- External commands are configurable in `config.toml`: browser `xdg-open`, editor `code` (Cursor is also installed), terminal `ghostty` with GNOME Terminal as fallback.
+- External apps are chosen in Settings → General (stored in `config.toml`, see [6.5](#65-configuration-file)): the terminal used by "Open in terminal" (Ghostty by default; GNOME Terminal or a custom command), the editor (`code` by default; Cursor is also installed) and the browser (`xdg-open`).
 
 ## 14. Security
 
@@ -561,3 +572,4 @@ Confirmed on 2026-10-02:
 6. **Claude quota.** Launchpad may read the OAuth access token in `~/.claude/.credentials.json` to call the usage endpoint, never refreshing it.
 7. **Harness icons.** Launch buttons and harness marks use the Claude and Codex logos, without text labels.
 8. **Click-only UI.** No keyboard shortcuts and no typing triggers in text fields, at least at first. The only keyboard behavior is `Enter` to send in a session's message box. Shortcuts may be added later if they are really missed.
+9. **Terminal is a setting.** "Open in terminal" uses the terminal chosen in Settings: Ghostty by default, GNOME Terminal, or a custom command.
