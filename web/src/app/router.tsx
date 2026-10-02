@@ -1,5 +1,6 @@
 import { createRootRoute, createRoute, createRouter, lazyRouteComponent } from "@tanstack/react-router";
 import { AgentsView } from "@/features/agents/AgentsView";
+import { CodeView, validateCodeSearch } from "@/features/code/CodeView";
 import { InboxView } from "@/features/inbox/InboxView";
 import { ProjectPage } from "@/features/projects/ProjectPage";
 import { ProjectsView } from "@/features/projects/ProjectsView";
@@ -18,6 +19,7 @@ const routeTree = root.addChildren([
   }),
   createRoute({ getParentRoute: () => root, path: "/projects", component: ProjectsView }),
   createRoute({ getParentRoute: () => root, path: "/projects/$id", component: ProjectPage }),
+  createRoute({ getParentRoute: () => root, path: "/projects/$id/code", component: CodeView, validateSearch: validateCodeSearch }),
   createRoute({ getParentRoute: () => root, path: "/settings", component: SettingsView }),
   // Spike 4 benchmark page, not linked from the UI.
   createRoute({

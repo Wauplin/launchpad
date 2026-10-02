@@ -2,7 +2,7 @@
 
 Launchpad is a personal desktop app for Ubuntu (Tauri) that launches and drives coding agents (Claude Code, Codex) and replaces the parts of the GitHub UI used every day, with a local cache so nothing feels slow. It has one user, on one machine.
 
-Status: Phase 0 done, Phases 1 and 2 built and awaiting daily-use checks (see `docs/ROADMAP.md`). Keep the build and run commands below and in `README.md` up to date.
+Status: Phase 0 done, Phases 1, 2 and 2b built and awaiting daily-use checks (see `docs/ROADMAP.md`). Keep the build and run commands below and in `README.md` up to date.
 
 ## Commands
 
@@ -20,6 +20,8 @@ Status: Phase 0 done, Phases 1 and 2 built and awaiting daily-use checks (see `d
 - Icon assets: keep `packaging/icons/source.png` as the unchanged master. Regenerate PNG/WebP/SVG exports with `python3 packaging/generate-icons.py` (requires Pillow). Update installed icons without restarting the app or daemon with `packaging/install-icons.sh`.
 - GitHub inbox: authenticate with `gh auth login`; the dev daemon uses the real GitHub account too. Verify replies and unsubscribe controls without posting comments or muting real threads during automated checks. Local unread actions are safe to check.
 - UI rule from spike 4 (WebKitGTK): virtualize every long list, memoize row components, use `useFlushSync: false` on virtualizers, prefer fixed row heights.
+- Code viewer: `crates/core/src/code.rs` (daemon) and `web/src/features/code/` (UI). Every `/api/code/*` request goes through `code::open`, which only accepts a registered project or one of its git worktrees as `root` and resolves `rev` to a commit id; keep that check for new endpoints. Syntax colors run in `highlight.worker.ts` (Shiki, JavaScript regex engine); the worker is an ES module (`worker.format = "es"` in `vite.config.ts`).
+- Headless screenshots do not wait for Web Workers with `--virtual-time-budget`, so code colors are missing in them; drive Chrome through the DevTools protocol with real waits to check colors.
 
 ## Where things are
 

@@ -1,5 +1,6 @@
 //! Domain types and services of the Launchpad daemon.
 
+pub mod code;
 pub mod codex_rpc;
 pub mod compose;
 pub mod config;
@@ -99,5 +100,10 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     inbox::InboxSnapshot::export_all(&cfg)?;
     inbox::ThreadPreview::export_all(&cfg)?;
     terminal::TerminalOption::export_all(&cfg)?;
+    code::CodeSources::export_all(&cfg)?;
+    code::FileList::export_all(&cfg)?;
+    code::CodeFile::export_all(&cfg)?;
+    code::SearchResult::export_all(&cfg)?;
+    code::CommitInfo::export_all(&cfg)?;
     Ok(())
 }

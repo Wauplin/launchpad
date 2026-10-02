@@ -3,6 +3,7 @@
 
 import { create } from "zustand";
 import type { ContextProject } from "@/gen/ContextProject";
+import type { FileRef } from "@/gen/FileRef";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { Session } from "@/gen/Session";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
@@ -15,6 +16,7 @@ export const emptySpec = (): LaunchSpec => ({
   presets: [],
   context_projects: [],
   github_refs: [],
+  files: [],
   model: null,
   effort: null,
 });
@@ -25,6 +27,8 @@ export type LaunchContext = {
   projectId?: string | null;
   githubRefs?: GitHubRef[];
   contextProjects?: ContextProject[];
+  /** Lines from the code viewer. */
+  files?: FileRef[];
 };
 
 type Composer = {
@@ -60,6 +64,8 @@ export const useComposer = create<Composer>((set, get) => ({
     const spec: LaunchSpec = { ...cur, ...lastLaunch };
     if (ctx?.projectId !== undefined) spec.target = ctx.projectId ? { kind: "project", project_id: ctx.projectId } : { kind: "none" };
     for (const r of ctx?.githubRefs ?? []) if (!spec.github_refs.some((g) => g.url === r.url)) spec.github_refs = [...spec.github_refs, r];
+    const same = (a: FileRef, b: FileRef) => a.root === b.root && a.rev === b.rev && a.path === b.path && a.start_line === b.start_line && a.end_line === b.end_line;
+    for (const f of ctx?.files ?? []) if (!(spec.files ?? []).some((g) => same(f, g))) spec.files = [...(spec.files ?? []), f];
     for (const c of ctx?.contextProjects ?? [])
       if (!spec.context_projects.some((p) => p.project_id === c.project_id)) spec.context_projects = [...spec.context_projects, c];
     set({ open: true, spec });

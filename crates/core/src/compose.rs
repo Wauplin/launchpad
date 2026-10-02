@@ -2,7 +2,7 @@
 //! Deterministic: the composer preview and the launch use the same function.
 
 use crate::config::Preset;
-use crate::model::{GitHubRef, LaunchSpec};
+use crate::model::{FileRef, GitHubRef, LaunchSpec};
 
 /// A context project, resolved from the registry.
 pub struct ContextInfo {
@@ -33,6 +33,9 @@ pub fn render_prompt(spec: &LaunchSpec, context: &[ContextInfo], presets: &[Pres
             None => format!("- Reference project: {}{desc}. Read it, but do not modify it.", c.path),
         });
     }
+    for f in &spec.files {
+        lines.push(format!("- {}", file_line(f)));
+    }
     if !lines.is_empty() {
         let mut block = format!("Context:\n{}", lines.join("\n"));
         if !spec.github_refs.is_empty() {
@@ -56,6 +59,19 @@ fn github_line(r: &GitHubRef) -> String {
         "comment" | "review_comment" => format!("Comment: {}{}", r.url, r.title.as_deref().map(|t| format!(" (on \"{}\")", t.replace('"', "'"))).unwrap_or_default()),
         "issue" => format!("Issue: {}{title}", r.url),
         _ => format!("GitHub thread: {}{title}", r.url),
+    }
+}
+
+/// `File: /abs/path, lines 405-411`, or for a revision that is not checked out, how to read it.
+fn file_line(f: &FileRef) -> String {
+    let lines = match (f.start_line, f.end_line) {
+        (Some(a), Some(b)) if b > a => format!(", lines {a}-{b}"),
+        (Some(a), _) => format!(", line {a}"),
+        _ => String::new(),
+    };
+    match &f.rev {
+        Some(rev) => format!("File: {path} at {rev} (read it with `git -C {root} show {rev}:{path}`){lines}", path = f.path, root = f.root),
+        None => format!("File: {}/{}{lines}", f.root.trim_end_matches('/'), f.path),
     }
 }
 
@@ -125,6 +141,10 @@ mod tests {
                     title: Some("Fix \"revision\" handling".into()),
                 },
             ],
+            files: vec![
+                FileRef { root: "/home/u/projects/hh".into(), rev: None, path: "src/hf_file_system.py".into(), start_line: Some(405), end_line: Some(411) },
+                FileRef { root: "/home/u/projects/hh".into(), rev: Some("origin/main".into()), path: "src/x.py".into(), start_line: Some(7), end_line: Some(7) },
+            ],
             ..Default::default()
         };
         let ctx = vec![ContextInfo {
@@ -138,6 +158,8 @@ Context:
 - Issue: https://github.com/huggingface/huggingface_hub/issues/3412 (\"hf download ignores --revision when used with --include\")
 - Pull request: https://github.com/huggingface/huggingface_hub/pull/3420 (\"Fix 'revision' handling\")
 - Reference project: /home/u/projects/moon-landing (server-side codebase), branch `xet-refresh-token`. Read it without changing its checkout, for example with `git -C /home/u/projects/moon-landing show xet-refresh-token:<path>` or a temporary worktree. Do not modify it.
+- File: /home/u/projects/hh/src/hf_file_system.py, lines 405-411
+- File: src/x.py at origin/main (read it with `git -C /home/u/projects/hh show origin/main:src/x.py`), line 7
 Use `gh` to read issues, pull requests and comments.
 
 Please use a local git worktree and delete it once you're done. No need to add any unit tests for that PR.";

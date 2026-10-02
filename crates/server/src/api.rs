@@ -330,11 +330,22 @@ async fn open_url(State(s): State<Server>, Json(b): Json<OpenUrl>) -> ApiResult<
 #[derive(Deserialize)]
 struct OpenEditor {
     path: String,
+    line: Option<u32>,
 }
 
+/// Opens a file or folder in the editor. VS Code and Cursor open a file at a line (`--goto file:line`);
+/// other editors get the file alone.
 async fn open_editor(State(s): State<Server>, Json(b): Json<OpenEditor>) -> ApiResult<Value> {
     let editor = s.app.config.get().commands.editor;
-    launchpad_core::procs::command(&s.app.env, &editor, None).arg(&b.path).kill_on_drop(false).spawn().map_err(|e| bad(e.into()))?;
+    let mut cmd = launchpad_core::procs::command(&s.app.env, &editor, None);
+    let name = std::path::Path::new(&editor).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    match b.line {
+        Some(line) if matches!(name.as_str(), "code" | "code-insiders" | "codium" | "cursor" | "windsurf") => {
+            cmd.arg("--goto").arg(format!("{}:{line}", b.path))
+        }
+        _ => cmd.arg(&b.path),
+    };
+    cmd.kill_on_drop(false).spawn().map_err(|e| bad(e.into()))?;
     Ok(Json(json!({"ok": true})))
 }
 

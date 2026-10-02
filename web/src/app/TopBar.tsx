@@ -19,7 +19,14 @@ export function TopBar() {
       <div className="flex items-center gap-1.5 text-ink-2">
         {project ? (
           <>
-            Projects <span className="text-ink-3">/</span> <b className="font-semibold text-ink">{project.name}</b>
+            Projects <span className="text-ink-3">/</span>{" "}
+            {path.endsWith("/code") ? (
+              <>
+                {project.name} <span className="text-ink-3">/</span> <b className="font-semibold text-ink">Code</b>
+              </>
+            ) : (
+              <b className="font-semibold text-ink">{project.name}</b>
+            )}
           </>
         ) : (
           <b className="font-semibold text-ink">{title}</b>

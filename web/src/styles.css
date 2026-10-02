@@ -231,3 +231,57 @@ button {
   flex: none;
   animation: lp-spin 1s linear infinite;
 }
+
+/* Code viewer (sketch S7). */
+.cv-code {
+  font: 12px/20px var(--font-mono);
+  tab-size: 4;
+}
+.cv-t {
+  white-space: pre;
+}
+.cv-m {
+  background: #fff0a6;
+  color: inherit;
+}
+.cv-m.cur {
+  background: #f6c453;
+  box-shadow: 0 0 0 1px #c98a00;
+}
+.cv-check {
+  background: repeating-conic-gradient(#eef1f5 0% 25%, #fff 0% 50%) 50% / 16px 16px;
+}
+.lp-path {
+  color: var(--color-work);
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.lp-md-doc {
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.lp-md-doc h1 {
+  font-size: 22px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-line-2);
+}
+.lp-md-doc h2 {
+  font-size: 18px;
+  margin-top: 22px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--color-line-2);
+}
+.lp-md-doc h3 {
+  font-size: 15px;
+  margin-top: 18px;
+}
+.lp-md-doc p,
+.lp-md-doc ul,
+.lp-md-doc ol,
+.lp-md-doc table {
+  margin: 10px 0;
+}
+.lp-md-doc img {
+  max-width: 100%;
+}

@@ -1,9 +1,9 @@
 // One display row of a session (see rows.ts). Memoized on the row version.
 
 import { useQuery } from "@tanstack/react-query";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useContext, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
-import { Markdown } from "@/components/Markdown";
+import { CodeLinksContext, Markdown } from "@/components/Markdown";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
@@ -53,6 +53,28 @@ function AssistantRow({ text, streaming }: { text: string; streaming: boolean })
   );
 }
 
+/** A file path that opens the code viewer when it is a file of the session's folder. */
+function PathText({ path, className }: { path: string; className: string }) {
+  const links = useContext(CodeLinksContext);
+  const hit = links?.resolve(path);
+  if (!hit) return <span className={className}>{path}</span>;
+  return (
+    <span
+      role="link"
+      className={`${className} lp-path`}
+      title="Open in the code viewer"
+      onClick={(e) => {
+        e.stopPropagation();
+        links!.open(hit.path, hit.line);
+      }}
+    >
+      {path}
+    </span>
+  );
+}
+
+const FILE_TOOLS = new Set(["Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "View image"]);
+
 function CallLine({ c }: { c: Call }) {
   const [open, setOpen] = useState(false);
   const running = !c.result;
@@ -67,7 +89,7 @@ function CallLine({ c }: { c: Call }) {
       >
         {running ? <span className="lp-spin" /> : <Icon name="chev" size={12} className={`flex-none text-ink-3 transition-transform ${open ? "" : "-rotate-90"}`} />}
         <span className={`font-[650] ${running ? "text-work" : "text-ink"}`}>{c.name}</span>
-        <span className="min-w-0 truncate font-mono text-[11.5px]">{c.summary}</span>
+        {FILE_TOOLS.has(c.name) ? <PathText path={c.summary} className="min-w-0 truncate font-mono text-[11.5px]" /> : <span className="min-w-0 truncate font-mono text-[11.5px]">{c.summary}</span>}
         <span className="ml-auto flex-none whitespace-nowrap text-ink-3 tabular-nums">
           {running ? <Ago ts={c.ts} /> : [duration(c.result?.duration_ms), c.result?.exit_code != null ? `exit ${c.result.exit_code}` : c.result?.is_error ? "error" : ""].filter(Boolean).join(" · ")}
         </span>
@@ -118,7 +140,7 @@ function EditRow({ path, change, diff }: { path: string; change: string; diff: s
     <div className="overflow-hidden rounded-md border border-line-2">
       <div className="flex items-center gap-[7px] bg-chrome px-2 py-1 text-xs text-ink-2">
         <Icon name={change === "add" ? "file" : "pencil"} size={12} />
-        <span className="min-w-0 truncate font-mono">{path}</span>
+        <PathText path={path} className="min-w-0 truncate font-mono" />
         {change === "add" && <span className="text-ink-3">new file</span>}
         <span className="font-[650] text-gh-open">+{add}</span>
         <span className="font-[650] text-gh-closed">−{del}</span>

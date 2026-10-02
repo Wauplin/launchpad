@@ -21,4 +21,6 @@ export default defineConfig({
     },
   },
   build: { target: "es2022", chunkSizeWarningLimit: 2000 },
+  // The Shiki worker loads one grammar chunk per language, which needs an ES module worker.
+  worker: { format: "es" },
 });

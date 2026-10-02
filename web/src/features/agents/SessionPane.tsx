@@ -1,10 +1,14 @@
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
+import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ImageAttachment } from "@/gen/ImageAttachment";
 import { HarnessMark } from "@/components/HarnessMark";
+import { CodeLinksContext, type CodeLinks } from "@/components/Markdown";
+import { pathResolver, useCodeFiles } from "@/features/code/lib";
+import { useMessageDrafts } from "@/stores/messages";
 import { isRunning } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
@@ -22,7 +26,9 @@ function act(id: string, action: string) {
 type PendingAsk = { request_id: string; count: number } | null;
 
 function MessageBox({ sessionId, placeholder, disabled, ask, dropImages }: { sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null> }) {
-  const [text, setText] = useState("");
+  const text = useMessageDrafts((s) => s.drafts[sessionId] ?? "");
+  const setDraft = useMessageDrafts((s) => s.set);
+  const setText = (t: string) => setDraft(sessionId, t);
   const [busy, setBusy] = useState(false);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [reading, setReading] = useState(false);
@@ -116,11 +122,27 @@ function MessageBox({ sessionId, placeholder, disabled, ask, dropImages }: { ses
   );
 }
 
+/** File paths in the conversation open the code viewer on the session's folder. */
+function useCodeLinks(s: { project_id: string | null; cwd: string } | null): CodeLinks | null {
+  const navigate = useNavigate();
+  const files = useCodeFiles(s?.project_id ? s.cwd : null, null).data;
+  return useMemo(() => {
+    if (!s?.project_id || !files) return null;
+    const { project_id, cwd } = s;
+    return {
+      resolve: pathResolver(files.files, cwd),
+      open: (path, line) => void navigate({ to: "/projects/$id/code", params: { id: project_id }, search: { root: cwd, path, line: line ?? undefined } }),
+    };
+  }, [files, s?.project_id, s?.cwd, navigate]);
+}
+
 export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionId: string; focused: boolean; onFocus: () => void; onClear: () => void }) {
   const dropImages = useRef<((files: File[]) => void) | null>(null);
   const [dragging, setDragging] = useState(false);
   const s = useSession(sessionId);
   const projects = useProjects().data;
+  const navigate = useNavigate();
+  const codeLinks = useCodeLinks(s);
   const log = useSessionLogs((st) => st.logs[sessionId]);
   const load = useSessionLogs((st) => st.load);
   useEffect(() => {
@@ -206,6 +228,15 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
               </button>
             )
           )}
+          {s.project_id && (
+            <button
+              className="btn btn-sm"
+              title={`Read the files of ${s.cwd} in the code viewer`}
+              onClick={() => void navigate({ to: "/projects/$id/code", params: { id: s.project_id! }, search: { root: s.cwd } })}
+            >
+              Files
+            </button>
+          )}
           {resumable && (
             <button className="btn btn-sm" title="Resume the session" onClick={() => void act(s.id, "resume")}>
               Resume
@@ -227,6 +258,7 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
         </span>
       </div>
 
+      <CodeLinksContext.Provider value={codeLinks}>
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-y-auto px-3"
@@ -259,6 +291,7 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
           </div>
         )}
       </div>
+      </CodeLinksContext.Provider>
       <MessageBox key={s.id} dropImages={dropImages} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal"} ask={s.open_question && s.live ? ask : null} />
     </div>
   );

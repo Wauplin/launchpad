@@ -17,7 +17,7 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 | 0 | Foundations and spikes | Dock icon opens a window served by the daemon, with versions and quotas in the status bar | Done |
 | 1 | Launch and run agents | You stop launching agents from the terminal | In progress |
 | 2 | GitHub inbox | You triage notifications without opening github.com | In progress |
-| 2b | Code viewer | You read code (an agent's worktree, a branch, a PR head) without opening an editor | Not started |
+| 2b | Code viewer | You read code (an agent's worktree, a branch, a PR head) without opening an editor | In progress |
 | 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com | Not started |
 | 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | Not started |
 | 5 | Workspace polish | Several sessions are easy to arrange, find and resume | Not started |
@@ -119,6 +119,19 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 - The open file reloads when a session working in the same folder edits it.
 
 **Done when:** for a week, reading code (an agent's worktree, a branch, a file an agent mentions) happens in Launchpad, and the editor is opened only to change code.
+
+**Progress:**
+
+- Built on 2026-10-02:
+  - Daemon `code` module and `/api/code/*`: sources (checkout, `git worktree list`, local and remote branches, tags, `refs/launchpad/pr/*`), file lists with M, A and U letters since the merge base with the default branch, file contents with changed line ranges (modified, added, deleted), images, binary and size limits, `git grep` search capped at 1,000 results and cancelled with its request, the commit and its GitHub repository for permalinks. Roots must be registered projects or their git worktrees, paths stay inside the root, and revisions are resolved to a commit id first.
+  - Viewer `/projects/{id}/code`: source picker, virtualized tree with compact folders, "Go to file" and "Changed only", tabs, fixed-height virtualized code lines with Shiki colors from a Web Worker, change bars, Markdown preview (relative images and links resolved in the same source), images.
+  - Find bar: Find button and `Ctrl+F`, match case, whole word, regex, `Enter`, `Shift+Enter` and `Escape`; matches over the whole file.
+  - Search in project as you type, grouped by file with four lines until "Show more".
+  - Line selection: Copy, Copy reference, GitHub link (copied; only when a remote branch has the commit and the file has no uncommitted change), Add to agent (composer chip or a session's message box), Editor at the line (working trees).
+  - Ways in: Code on project pages and worktrees, Files in session headers, linked file paths in tool calls, file changes and inline code of agent messages.
+  - The open file and the file list reload when a session reports a `file_change` in the same working tree.
+- Checked with the dev daemon and Chrome through the DevTools protocol: this repository, its `code-viewer` worktree and branch, huggingface_hub (503 files in 0.3 s, a 15,442-line file from `origin/main`, permalinks to `huggingface/huggingface_hub`), an empty repository without commits; colors, find navigation, selection by click and shift-click, Go to file, search, README preview, image, Changed only, the composer prompt with a file chip, a session message box reference, and the 150% zoom position. A Claude Haiku session that edited the open file reloaded it in place within 5 seconds, with the scroll position kept. Opening the editor was not exercised during automated checks.
+- Left for the **Done when** check: a week of daily use. "View file" on diffs comes with Phases 3 and 4.
 
 ## Phase 3: issues and pull requests
 

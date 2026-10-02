@@ -264,7 +264,7 @@ export function Composer() {
           />
         </Field>
 
-        <Field label="Context" hint="type @ or # in the prompt, or use the buttons">
+        <Field label="Context" hint="type @ or # in the prompt, use the buttons, or add lines from the code viewer">
           <div className="grid gap-[5px]">
             {spec.github_refs.map((g) => {
               const ic = itemIcon(g.kind === "pr" ? "pr" : "issue", "open");
@@ -279,6 +279,19 @@ export function Composer() {
                 </div>
               );
             })}
+            {(spec.files ?? []).map((f, i) => (
+              <div key={`${f.root}\n${f.rev}\n${f.path}\n${f.start_line}-${f.end_line}`} className="grid grid-cols-[16px_minmax(0,auto)_1fr_16px] items-center gap-2 rounded-[7px] border border-line bg-chrome px-2 py-1.5 text-[12.5px]">
+                <Icon name="file" size={14} />
+                <span className="truncate font-mono text-xs" title={`${f.root}/${f.path}`}>
+                  {f.path}
+                  {f.start_line !== null && `:${f.start_line}${f.end_line !== null && f.end_line > f.start_line ? `-${f.end_line}` : ""}`}
+                </span>
+                <span className="truncate text-xs text-ink-3">{f.rev ? `at ${f.rev}` : f.root.split("/").pop()}</span>
+                <button className="text-ink-3 hover:text-ink" title="Remove" onClick={() => set((s) => ({ ...s, files: s.files.filter((_, j) => j !== i) }))}>
+                  <Icon name="x" size={13} />
+                </button>
+              </div>
+            ))}
             {spec.context_projects.map((c) => {
               const p = projects.find((x) => x.id === c.project_id);
               return (

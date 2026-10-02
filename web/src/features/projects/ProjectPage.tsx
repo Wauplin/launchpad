@@ -1,9 +1,10 @@
-// A project: header, description, and its sessions. Issues and PRs arrive in Phase 3.
+// A project: header, description, its worktrees and its sessions. Issues and PRs arrive in Phase 3.
 
-import { useParams } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import { HarnessMark } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { StatusBadge } from "@/features/agents/SessionBits";
+import { useCodeSources } from "@/features/code/lib";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
 import { useProject, useSessions } from "@/lib/queries";
@@ -17,6 +18,7 @@ export function ProjectPage() {
   const sessions = (useSessions().data ?? []).filter((s) => s.project_id === id);
   const show = useLayout((s) => s.show);
   const navigate = useNavigate();
+  const worktrees = (useCodeSources(p?.id).data?.worktrees ?? []).filter((w) => !w.main);
   if (!p) return <div className="p-6 text-ink-3">This project is not registered.</div>;
   return (
     <div className="h-full overflow-y-auto">
@@ -34,6 +36,10 @@ export function ProjectPage() {
                 GitHub
               </button>
             )}
+            <Link to="/projects/$id/code" params={{ id: p.id }} className="btn no-underline" title="Read the code of this project">
+              <Icon name="search" size={14} />
+              Code
+            </Link>
             <button className="btn" title="Open in editor" onClick={() => void api.post("/api/open-editor", { path: p.path })}>
               <Icon name="file" size={14} />
               Editor
@@ -42,6 +48,24 @@ export function ProjectPage() {
           </div>
         </div>
         {p.is_temp && <TempProjectCard p={p} />}
+        {worktrees.length > 0 && (
+          <>
+            <div className="seclabel">Worktrees</div>
+            <div className="overflow-hidden rounded-lg border border-line">
+              {worktrees.map((w) => (
+                <div key={w.path} className="flex items-center gap-2.5 border-b border-line-2 px-4 py-2 last:border-0">
+                  <Icon name="branch" size={14} className="text-ink-3" />
+                  <span className="font-mono text-xs font-semibold">{w.branch ?? "detached"}</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-3">{w.path}</span>
+                  <Link to="/projects/$id/code" params={{ id: p.id }} search={{ root: w.path }} className="btn btn-sm no-underline" title="Read the code of this worktree">
+                    <Icon name="search" size={12} />
+                    Code
+                  </Link>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
         <div className="seclabel">Sessions</div>
         <div className="overflow-hidden rounded-lg border border-line">
           {sessions.length === 0 && <div className="p-4 text-[12.5px] text-ink-2">No session in this project yet.</div>}

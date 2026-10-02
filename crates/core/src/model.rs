@@ -264,6 +264,8 @@ pub struct LaunchSpec {
     pub presets: Vec<String>,
     pub context_projects: Vec<ContextProject>,
     pub github_refs: Vec<GitHubRef>,
+    /// Files and line ranges added from the code viewer.
+    pub files: Vec<FileRef>,
     pub model: Option<String>,
     pub effort: Option<String>,
 }
@@ -295,6 +297,18 @@ pub struct GitHubRef {
     pub repo: String,
     pub number: Option<u64>,
     pub title: Option<String>,
+}
+
+/// A file from the code viewer, given to the agent as a reference: it reads the file itself.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct FileRef {
+    /// The working tree, or the project checkout for a revision.
+    pub root: String,
+    /// None: the file on disk in `root`.
+    pub rev: Option<String>,
+    pub path: String,
+    pub start_line: Option<u32>,
+    pub end_line: Option<u32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
