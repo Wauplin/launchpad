@@ -12,16 +12,18 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 
 ## Overview
 
-| Phase | Theme | Main result |
-|---|---|---|
-| 0 | Foundations and spikes | Dock icon opens a window served by the daemon, with versions and quotas in the status bar |
-| 1 | Launch and run agents | You stop launching agents from the terminal |
-| 2 | GitHub inbox | You triage notifications without opening github.com |
-| 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com |
-| 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub |
-| 5 | Workspace polish | Several sessions are easy to arrange, find and resume |
-| 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click |
-| 7 | Hardening and options | Sessions survive restarts, embedded terminal, remote access |
+| Phase | Theme | Main result | Status |
+|---|---|---|---|
+| 0 | Foundations and spikes | Dock icon opens a window served by the daemon, with versions and quotas in the status bar | Next |
+| 1 | Launch and run agents | You stop launching agents from the terminal | Not started |
+| 2 | GitHub inbox | You triage notifications without opening github.com | Not started |
+| 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com | Not started |
+| 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | Not started |
+| 5 | Workspace polish | Several sessions are easy to arrange, find and resume | Not started |
+| 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | Not started |
+| 7 | Hardening and options | Sessions survive restarts, embedded terminal, remote access | Not started |
+
+Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
 
 ## Phase 0: foundations and spikes
 

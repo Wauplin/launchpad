@@ -2,10 +2,11 @@
 
 Launchpad is a personal desktop app for Ubuntu (Tauri) that launches and drives coding agents (Claude Code, Codex) and replaces the parts of the GitHub UI used every day, with a local cache so nothing feels slow. It has one user, on one machine.
 
-Status: design phase. There is no code yet. When code lands, add the build and run commands to this file (and the test command, if there are tests).
+Status: design phase. There is no code yet. When code lands, add the build and run commands to this file and to `README.md` (and the test command, if there are tests).
 
 ## Where things are
 
+- `README.md`: what the project is, its current status, and how to build and run it.
 - `initial.md`: the original description of the project, in the owner's words.
 - `docs/ARCHITECTURE.md`: architecture and the decisions log. Read it before changing the design, and update it when a decision changes.
 - `docs/ROADMAP.md`: phases, and what "done" means for each one.
@@ -14,7 +15,14 @@ Status: design phase. There is no code yet. When code lands, add the build and r
 ## Git workflow
 
 - Always work on the `main` branch, in this checkout. Do not create other branches, worktrees or pull requests for this repository.
-- When a piece of work is complete, commit it on `main` with a short message that says what changed. Do not leave finished work uncommitted.
+- When a piece of work is complete, always commit it on `main`. Do not leave finished work uncommitted.
+- Before committing, update the documentation so that it matches the new state of the project, and include it in the same commit:
+  - `README.md`: status, build and run commands.
+  - `AGENTS.md`: new commands, rules or conventions.
+  - `docs/ARCHITECTURE.md`: design changes, and the decisions log when a decision is made or changed.
+  - `docs/ROADMAP.md`: the Status column and the items done in the current phase.
+  - `docs/design/sketches.html`: when the UI direction changes.
+- Use a short commit message that says what changed.
 
 ## Product rules
 
