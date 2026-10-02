@@ -14,6 +14,8 @@ Status: design phase. There is no code yet. When code lands, add the build and r
 
 ## Git workflow
 
+These rules apply unless the owner says otherwise for a given task.
+
 - Always work on the `main` branch, in this checkout. Do not create other branches, worktrees or pull requests for this repository.
 - When a piece of work is complete, always commit it on `main`. Do not leave finished work uncommitted.
 - Before committing, update the documentation so that it matches the new state of the project, and include it in the same commit:
