@@ -14,7 +14,7 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 
 | Phase | Theme | Main result | Status |
 |---|---|---|---|
-| 0 | Foundations and spikes | Dock icon opens a window served by the daemon, with versions and quotas in the status bar | Next |
+| 0 | Foundations and spikes | Dock icon opens a window served by the daemon, with versions and quotas in the status bar | In progress |
 | 1 | Launch and run agents | You stop launching agents from the terminal | Not started |
 | 2 | GitHub inbox | You triage notifications without opening github.com | Not started |
 | 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com | Not started |
@@ -43,6 +43,10 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 - App shell: sidebar, top bar with the Launch button, empty views, status bar with Claude and Codex versions, Codex quota (and Claude quota if spike 2 succeeds).
 
 **Done when:** Launchpad is pinned in the dock, opens in under 300 ms with a warm daemon, and the status bar shows both versions and quotas.
+
+**Progress:**
+
+- Spikes 1, 2, 3 and 5 done on 2026-10-02, all successful, no fallback needed. Notes: [1](spikes/1-claude-stream-json.md), [2](spikes/2-claude-usage-endpoint.md), [3](spikes/3-codex-app-server.md), [5](spikes/5-claude-trust-prompt.md). The findings are in the architecture (decisions 11 to 14).
 
 ## Phase 1: launch and run agents
 
