@@ -206,6 +206,7 @@ fn main() {
                 .title(if profile.dev { "Launchpad (dev)" } else { "Launchpad" })
                 .inner_size(1440.0, 920.0)
                 .min_inner_size(960.0, 600.0)
+                .disable_drag_drop_handler()
                 .visible(!hidden)
                 .on_navigation(move |url| {
                     let internal = url.as_str().starts_with(&origin) || url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost");

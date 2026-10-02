@@ -155,6 +155,7 @@ export function Composer() {
 
   const localPrs = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts"), enabled: open });
   const existing = spec.target.kind === "existing_predraft" ? localPrs.data?.find((p) => p.id === (spec.target as { predraft_id: string }).predraft_id) : undefined;
+  const recentSessions = sessions ?? [];
   if (!open) return null;
 
   const set = (f: (s: LaunchSpec) => LaunchSpec) => update(f);
@@ -168,6 +169,28 @@ export function Composer() {
   const addProjectContext = (p: Project) =>
     set((s) => (s.context_projects.some((c) => c.project_id === p.id) || ((s.target.kind === "project" || s.target.kind === "predraft") && s.target.project_id === p.id) ? s : { ...s, context_projects: [...s.context_projects, { project_id: p.id, branch: null }] }));
 
+  const recentContexts: { key: string; label: string; add: () => void }[] = [];
+  const seenContexts = new Set<string>();
+  for (const session of recentSessions.filter((s) => s.launch_spec.harness && s.last_seq > 0 && s.status !== "error")) {
+    for (const c of session.launch_spec.context_projects) {
+      const p = projects.find((p) => p.id === c.project_id);
+      const key = `project:${c.project_id}:${c.branch ?? ""}`;
+      if (!p || seenContexts.has(key)) continue;
+      seenContexts.add(key);
+      if (p.id !== target?.id && !spec.context_projects.some((p) => p.project_id === c.project_id)) recentContexts.push({ key, label: `${p.name}${c.branch ? ` · ${c.branch}` : ""}`, add: () => set((s) => ({ ...s, context_projects: [...s.context_projects,c] })) });
+    }
+    for (const g of session.launch_spec.github_refs) {
+      if (seenContexts.has(g.url)) continue;
+      seenContexts.add(g.url);
+      if (!spec.github_refs.some((r) => r.url === g.url)) recentContexts.push({ key:g.url, label:g.number ? `${g.repo}#${g.number}` : g.title ?? g.url, add:() => set((s) => ({ ...s, github_refs:[...s.github_refs,g] })) });
+    }
+    for (const f of session.launch_spec.files ?? []) {
+      const key = JSON.stringify(f);
+      if (seenContexts.has(key)) continue;
+      seenContexts.add(key);
+      if (!(spec.files ?? []).some((r) => JSON.stringify(r) === key)) recentContexts.push({ key, label:`${f.path}:${f.start_line}`, add:() => set((s) => ({ ...s, files:[...(s.files ?? []),f] })) });
+    }
+  }
   const launch = async () => {
     setLaunching(true);
     try {
@@ -283,6 +306,7 @@ export function Composer() {
 
         <Field label="Context" hint="type @ or # in the prompt, use the buttons, or add lines from the code viewer">
           <div className="grid gap-[5px]">
+            {!!recentContexts.length && <div className="grid gap-1"><span className="text-[11.5px] text-ink-3">Recent contexts</span><div className="flex flex-wrap gap-1">{recentContexts.slice(0,6).map((c) => <button key={c.key} className="btn btn-sm max-w-full truncate" title={c.label} onClick={c.add}>+ {c.label}</button>)}</div></div>}
             {spec.github_refs.map((g) => {
               const ic = itemIcon(g.kind === "pr" ? "pr" : "issue", "open");
               return (

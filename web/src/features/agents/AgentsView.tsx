@@ -1,6 +1,9 @@
 // Agents workspace (sketch S3): sessions grouped as Done, Running and Archived, shown in 1, 2 or 4 panes.
 // Clicking a session loads it in the focused pane.
 
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { ImportHistory } from "./ImportHistory";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useRef, useState } from "react";
@@ -18,18 +21,20 @@ import { useLayout, type AgentGroup, type Layout } from "@/stores/layout";
 import { SessionPane } from "./SessionPane";
 import { StatusBadge } from "./SessionBits";
 
-const SessionRow = memo(function SessionRow({ s, project, selected, onClick }: { s: Session; project: string; selected: boolean; onClick: () => void }) {
+const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onClick }: { s: Session; project: string; selected: boolean; pinned: boolean; onClick: () => void }) {
   const dim = s.status === "closed";
   return (
     <button
       onClick={onClick}
+      draggable
+      onDragStart={(e) => { e.dataTransfer.setData("application/x-launchpad-session", s.id); e.dataTransfer.effectAllowed = "move"; }}
       className={`grid h-[68px] w-full grid-cols-[18px_1fr] gap-x-[9px] gap-y-[3px] border-b border-line-2 px-3 py-2 text-left hover:bg-[#f5f8fb] ${selected ? "bg-select!" : ""}`}
     >
       <span className="row-span-2 mt-px">
         <HarnessMark harness={s.harness} size={18} />
       </span>
       <span className={`truncate text-[12.5px] leading-[1.35] ${dim ? "font-medium text-ink-2" : "font-semibold"}`} title={s.title}>
-        {s.title}
+        {pinned ? "★ " : ""}{s.title}
       </span>
       <span className="flex items-center gap-x-2 overflow-hidden whitespace-nowrap text-[11.5px] text-ink-3">
         <span className="max-w-[110px] truncate">{project}</span>
@@ -75,6 +80,17 @@ export function LayoutSwitch() {
 
 export function AgentsView() {
   const sessions = useSessions().data ?? [];
+  const [filter, setFilter] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [pinsOnly, setPinsOnly] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [layoutName, setLayoutName] = useState("");
+  const [selectedLayout, setSelectedLayout] = useState("");
+  const [dropTarget, setDropTarget] = useState<number | null>(null);
+  const pinned = useLayout((s) => s.pinned);
+  const { saved, saveLayout, restoreLayout, deleteLayout, place } = useLayout();
+  useEffect(() => { const t = setTimeout(() => setDebounced(filter.trim()), 250); return () => clearTimeout(t); }, [filter]);
+  const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
   const schedules = useSchedules().data ?? [];
   const [scheduledId, setScheduledId] = useState<string | null>(null);
   const scheduled = schedules.find((s) => s.id === scheduledId);
@@ -90,6 +106,7 @@ export function AgentsView() {
   const navigate = useNavigate();
   const [archivedLimit, setArchivedLimit] = useState(30);
   const listRef = useRef<HTMLDivElement>(null);
+  const paneRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   // From a desktop notification: /agents?session=<id>.
   useEffect(() => {
@@ -116,16 +133,20 @@ export function AgentsView() {
     };
   }, [visible.join(",")]);
 
-  const done = sessions.filter((s) => isDone(s)).sort((a, b) => a.status_since - b.status_since);
-  const running = sessions.filter((s) => isRunning(s));
-  const archived = sessions.filter((s) => !isDone(s) && !isRunning(s));
+  const needle = filter.trim().toLocaleLowerCase();
+  const filtered = sessions.filter((s) => (!pinsOnly || pinned.includes(s.id)) && (!needle || [s.title, s.cwd, s.prompt, projectName(projects, s.project_id, s.cwd)].some((t) => t.toLocaleLowerCase().includes(needle)) || (debounced === filter.trim() && matches.data?.includes(s.id))));
+  const order = (a: Session, b: Session) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)) || b.started_at - a.started_at;
+  const filteredSchedules = pinsOnly ? [] : schedules.filter((s) => !needle || `${s.title} ${s.spec.text}`.toLocaleLowerCase().includes(needle));
+  const done = filtered.filter((s) => isDone(s)).sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)) || a.status_since - b.status_since);
+  const running = filtered.filter((s) => isRunning(s)).sort(order);
+  const archived = filtered.filter((s) => !isDone(s) && !isRunning(s)).sort(order);
   const items: ({ kind: "group"; title: AgentGroup; count: number; highlight?: boolean } | { kind: "session"; session: Session } | { kind: "schedule"; launch: ScheduledLaunch } | { kind: "more" })[] = [
     { kind: "group", title: "Done", count: done.length, highlight: true },
     ...(collapsedGroups.Done ? [] : done).map((session) => ({ kind: "session" as const, session })),
     { kind: "group", title: "Running", count: running.length },
     ...(collapsedGroups.Running ? [] : running).map((session) => ({ kind: "session" as const, session })),
-    { kind: "group", title: "Scheduled", count: schedules.length },
-    ...(collapsedGroups.Scheduled ? [] : schedules).map((launch) => ({ kind: "schedule" as const, launch })),
+    { kind: "group", title: "Scheduled", count: filteredSchedules.length },
+    ...(collapsedGroups.Scheduled ? [] : filteredSchedules).map((launch) => ({ kind: "schedule" as const, launch })),
     { kind: "group", title: "Archived", count: archived.length },
     ...(collapsedGroups.Archived ? [] : archived.slice(0, archivedLimit)).map((session) => ({ kind: "session" as const, session })),
     ...(!collapsedGroups.Archived && archived.length > archivedLimit ? [{ kind: "more" as const }] : []),
@@ -133,11 +154,29 @@ export function AgentsView() {
   const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => items[i].kind === "session" || items[i].kind === "schedule" ? 68 : 34, getItemKey: (i) => items[i].kind === "session" ? items[i].session.id : items[i].kind === "schedule" ? items[i].launch.id : items[i].kind === "group" ? `group-${items[i].title}` : "more-archived", overscan: 6, useFlushSync: false });
   const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
   const selected = panes[focused];
-  const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} selected={s.id === selected} onClick={() => { setScheduledId(null); show(s.id); }} />;
+  const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} selected={s.id === selected} onClick={() => { setScheduledId(null); show(s.id); }} />;
 
   return (
-    <div className="flex h-full">
-      <div ref={listRef} className="flex w-[280px] flex-none flex-col overflow-y-auto border-r border-line bg-paper">
+    <div className="flex h-full flex-col">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line bg-paper p-2 text-xs">
+        <span className="font-semibold">Workspace</span>
+        {Array.from({ length: layout }, (_, i) => <button key={i} className={`btn btn-sm ${focused === i ? "bg-teal-soft! text-teal-ink" : ""}`} aria-label={`Focus pane ${i + 1}`} onClick={() => { focus(i); paneRefs.current[i]?.querySelector<HTMLTextAreaElement>("textarea:not(:disabled)")?.focus(); }}>Pane {i + 1}</button>)}
+        <input aria-label="Layout name" className="field-input w-32" placeholder="Layout name" maxLength={50} value={layoutName} onChange={(e) => setLayoutName(e.target.value)} />
+        <button className="btn btn-sm" disabled={!layoutName.trim()} onClick={() => { saveLayout(layoutName); setSelectedLayout(layoutName.trim().slice(0,50)); setLayoutName(""); }}>Save layout</button>
+        <select aria-label="Saved layouts" className="field-input w-32" value={selectedLayout} onChange={(e) => setSelectedLayout(e.target.value)}><option value="">Saved layouts</option>{saved.map((s) => <option key={s.name}>{s.name}</option>)}</select>
+        <button className="btn btn-sm" disabled={!selectedLayout} onClick={() => { restoreLayout(selectedLayout); setScheduledId(null); }}>Restore</button>
+        <button className="btn btn-sm" disabled={!selectedLayout} onClick={() => { deleteLayout(selectedLayout); setSelectedLayout(""); }}>Delete layout</button>
+      </div>
+      {importing && <ImportHistory onClose={() => setImporting(false)} onImported={(id) => { show(id); setImporting(false); setScheduledId(null); }} />}
+      <div className="flex min-h-0 flex-1">
+      <div className="flex w-[280px] flex-none flex-col border-r border-line bg-paper">
+        <div className="grid gap-2 border-b border-line p-2">
+          <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setArchivedLimit(30); }} />
+          <div className="flex gap-2"><button className={`btn btn-sm ${pinsOnly ? "bg-teal-soft!" : ""}`} aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button><button className="btn btn-sm" onClick={() => setImporting(!importing)}>Import history</button></div>
+          {matches.isFetching && <span className="text-xs text-ink-3">Searching messages…</span>}
+          {matches.error && <span className="text-xs text-danger">{matches.error.message}</span>}
+        </div>
+        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
         {sessions.length === 0 && schedules.length === 0 && (
           <div className="grid gap-3 p-4 text-[12.5px] text-ink-2">
             No session yet.
@@ -155,6 +194,7 @@ export function AgentsView() {
             </div>;
           })}
         </div>
+        </div>
       </div>
       <div
         className={`grid min-w-0 flex-1 gap-px bg-line ${layout === 1 ? "grid-cols-1" : layout === 2 ? "grid-cols-2" : "grid-cols-2 grid-rows-2"}`}
@@ -163,7 +203,11 @@ export function AgentsView() {
         {Array.from({ length: layout }, (_, i) => {
           const id = panes[i];
           return (
-            <div key={i} className="min-h-0 min-w-0 bg-paper">
+            <div key={i} ref={(el) => { paneRefs.current[i] = el; }} className={`relative min-h-0 min-w-0 bg-paper ${dropTarget === i ? "outline-2 -outline-offset-2 outline-teal" : ""}`}
+              onDragOver={(e) => { if (e.dataTransfer.types.includes("application/x-launchpad-session")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropTarget(i); } }}
+              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropTarget(null); }}
+              onDrop={(e) => { const id = e.dataTransfer.getData("application/x-launchpad-session"); if (id && sessions.some((s) => s.id === id)) { e.preventDefault(); place(id,i); setScheduledId(null); } setDropTarget(null); }}
+            >
               {scheduled && i === focused ? (
                 <ScheduledPane key={scheduled.id} launch={scheduled} onClose={() => setScheduledId(null)} onStart={(s) => { setScheduledId(null); show(s.id); }} />
               ) : id ? (
@@ -179,6 +223,7 @@ export function AgentsView() {
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );

@@ -1,6 +1,8 @@
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
+import { GitPanel } from "./GitPanel";
+import { useLayout } from "@/stores/layout";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -113,7 +115,7 @@ function MessageBox({ sessionId, placeholder, disabled, ask, dropImages }: { ses
               void send();
             }
           }}
-          className="max-h-40 min-h-5 flex-1 resize-none bg-transparent text-[12.5px] leading-5 outline-none disabled:opacity-60"
+          className="max-h-40 min-h-5 min-w-0 flex-1 resize-none bg-transparent text-[12.5px] leading-5 outline-none disabled:opacity-60"
         />
         <button className="iconbtn border-line! bg-paper" title="Send" disabled={disabled || busy || reading || (!text.trim() && !images.length)} onClick={() => void send()}>
           <Icon name="send" size={14} />
@@ -138,6 +140,11 @@ function useCodeLinks(s: { project_id: string | null; cwd: string } | null): Cod
 }
 
 export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionId: string; focused: boolean; onFocus: () => void; onClear: () => void }) {
+  const [gitOpen, setGitOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [title, setTitle] = useState("");
+  const [savingTitle, setSavingTitle] = useState(false);
+  const { pinned, togglePin, layout, panes, place } = useLayout();
   const dropImages = useRef<((files: File[]) => void) | null>(null);
   const [dragging, setDragging] = useState(false);
   const s = useSession(sessionId);
@@ -203,17 +210,17 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
     <div className={`relative flex h-full min-h-0 min-w-0 flex-col bg-paper ${focused ? "z-[1] shadow-[inset_0_0_0_2px_var(--color-teal)]" : ""}`} onMouseDown={onFocus}
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
-      onDrop={(e) => { e.preventDefault(); setDragging(false); dropImages.current?.(Array.from(e.dataTransfer.files)); }}
+      onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(false); dropImages.current?.(Array.from(e.dataTransfer.files)); } }}
     >
       {dragging && <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center border-2 border-teal bg-teal-soft/80 font-semibold text-teal-ink">Drop images to attach to your message</div>}
-      <div className="grid grid-cols-[18px_1fr_auto] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
-        <span className="row-span-2 self-start pt-px">
+      <div className="grid grid-cols-[18px_1fr] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
+        <span className="order-1 row-span-2 self-start pt-px">
           <HarnessMark harness={s.harness} size={18} />
         </span>
-        <span className="truncate text-[12.5px] font-[650]" title={s.title}>
+        <span draggable onDragStart={(e) => { e.dataTransfer.setData("application/x-launchpad-session",s.id); e.dataTransfer.effectAllowed = "move"; }} className="order-2 cursor-grab truncate text-[12.5px] font-[650]" title={`${s.title} · Drag to another pane`}>
           {s.title}
         </span>
-        <span className="row-span-2 flex gap-0.5 self-start">
+        <span className="order-4 col-span-2 flex flex-wrap gap-0.5 self-start pt-1">
           {running && (
             <button className="iconbtn" title="Stop: interrupt the agent" onClick={() => void act(s.id, "interrupt")}>
               <Icon name="stop" size={14} />
@@ -253,7 +260,7 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
             <Icon name="x" size={14} />
           </button>
         </span>
-        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3 tabular-nums">
+        <span className="order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3 tabular-nums">
           {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Pre-draft PR</button>}
         <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
           <StatusBadge s={s} />
@@ -261,10 +268,20 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
         </span>
       </div>
 
+      <div className="flex flex-wrap items-center gap-1 border-b border-line-2 px-2 py-1 text-xs">
+        <button className="btn btn-sm" aria-pressed={pinned.includes(s.id)} onClick={() => togglePin(s.id)}>{pinned.includes(s.id) ? "★ Unpin" : "☆ Pin"}</button>
+        <button className="btn btn-sm" onClick={() => { setTitle(s.title); setRenaming(!renaming); }}>Rename</button>
+        <button className={`btn btn-sm ${gitOpen ? "bg-select!" : ""}`} aria-pressed={gitOpen} onClick={() => setGitOpen(!gitOpen)}>Git</button>
+        <button className="btn btn-sm" onClick={() => void api.post("/api/open-editor", { path:s.cwd }).catch(toastError)}>Open in editor</button>
+        {layout > 1 && <select aria-label="Move session to pane" className="field-input max-w-32" value="" onChange={(e) => place(s.id,Number(e.target.value))}><option value="">Move to pane…</option>{Array.from({length:layout},(_,i) => panes[i] !== s.id && <option key={i} value={i}>Pane {i+1}</option>)}</select>}
+        <span className="ml-auto text-ink-3">{new Date(s.started_at).toLocaleDateString()}</span>
+      </div>
+      {renaming && <div className="flex gap-2 border-b border-line p-2"><input aria-label="Session title" className="field-input min-w-0 flex-1" maxLength={100} value={title} onChange={(e) => setTitle(e.target.value)} /><button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, {title}); setRenaming(false); } catch(e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button><button className="btn btn-sm" onClick={() => setRenaming(false)}>Cancel</button></div>}
+      {gitOpen && <GitPanel sessionId={s.id} />}
       <CodeLinksContext.Provider value={codeLinks}>
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto px-3"
+        className={`min-h-0 flex-1 overflow-y-auto px-3 ${gitOpen ? "hidden" : ""}`}
         onScroll={(e) => {
           const el = e.currentTarget;
           atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;

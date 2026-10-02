@@ -20,7 +20,7 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 | 2b | Code viewer | You read code (an agent's worktree, a branch, a PR head) without opening an editor | In progress |
 | 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com | In progress |
 | 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | In progress |
-| 5 | Workspace polish | Several sessions are easy to arrange, find and resume | Not started |
+| 5 | Workspace polish | Several sessions are easy to arrange, find and resume | In progress |
 | 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | Not started |
 | 7 | Hardening and options | Sessions survive restarts, embedded terminal, remote access | Not started |
 
@@ -187,6 +187,15 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 - Composer: recent contexts offered as one-click chips.
 
 **Done when:** running 4 agents at once feels comfortable, and finding last week's session takes seconds.
+
+**Progress:**
+
+- Built on 2026-10-02: session list and title drag/drop into any pane (swap when both are occupied), visible Focus pane and Move to pane controls, up to twelve named saved layouts with restore/delete, persistent pins sorted first within each state group and a Pinned filter, manual rename, and search over titles, projects, working directories, initial prompts and stored conversation messages. Group counts reflect the current filter and long lists remain virtualized.
+- Explicit Import history discovers paginated Claude transcripts and Codex threads (including Codex's archived history), excludes already imported conversations, and stores selected conversations atomically as Archived snapshots without launching an agent. Resume uses the original harness conversation id and cwd. Imported history does not change launch defaults. Native transcripts remain untouched; complete a conversation in its other client before resuming it here.
+- Each session has a read-only Git panel with branch, two-column status, renames, selected-file staged and working-tree diffs, safe untracked-file reading through the code viewer, five-second refresh and virtualized file/diff rows. Files opens the existing code viewer; Open in editor opens the session folder.
+- Composer offers six recent context chips from launched sessions, covering projects and their selected branches, GitHub links and file references. Already selected contexts are omitted.
+- Checked with real external Claude Haiku and Codex GPT-6-Luna conversations: discovery, duplicate prevention, imported messages, manual rename, stored-message search, and resume with remembered conversation context. Four real agents ran together and finished cleanly. Dev browser checks cover pins, filters, staged/unstaged/untracked patches, drag/drop, move and focus, named layout restore after reload, and import selectors. All five zoom sizes fit the four-pane workspace, and recent context chips add context in one click. Imported event history, renamed titles and message search survive a dev-daemon restart. The dev desktop opens successfully. Strict workspace Clippy, UI type checking/build, desktop build and the eleven fast Rust tests pass. A small UTF-8 output truncation regression test covers large Unicode patches.
+- Left for the **Done when** check: daily use with four agents and older conversations.
 
 ## Phase 6: agent-written suggestions
 

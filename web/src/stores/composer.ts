@@ -57,7 +57,7 @@ function save(spec: LaunchSpec, open: boolean, delay: LaunchDelay | null) {
 let lastLaunchAt = 0;
 
 export function rememberSuccessfulSession(session: Session) {
-  if (session.last_seq > 0 && session.status !== "error" && session.started_at > lastLaunchAt) {
+  if (session.launch_spec.harness && session.last_seq > 0 && session.status !== "error" && session.started_at > lastLaunchAt) {
     lastLaunchAt = session.started_at;
     useComposer.getState().rememberLaunch(session.launch_spec);
   }
@@ -103,7 +103,7 @@ export const useComposer = create<Composer>((set, get) => ({
   restore: async () => {
     try {
       const sessions = await api.get<Session[]>("/api/sessions");
-      const latest = sessions.filter((s) => s.last_seq > 0 && s.status !== "error").sort((a, b) => b.started_at - a.started_at)[0];
+      const latest = sessions.filter((s) => s.launch_spec.harness && s.last_seq > 0 && s.status !== "error").sort((a, b) => b.started_at - a.started_at)[0];
       if (latest) rememberSuccessfulSession(latest);
       const d = await api.get<{ spec?: LaunchSpec; open?: boolean; delay?: LaunchDelay | null } | null>("/api/launch/draft");
       if (d?.spec) set({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, delay: d.delay ?? null });

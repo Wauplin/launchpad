@@ -77,7 +77,7 @@ export function StatusBar() {
   }, []);
 
   return (
-    <footer className="flex h-[30px] flex-none items-center gap-2.5 border-t border-line bg-chrome px-3 text-[11.5px] whitespace-nowrap text-ink-2 tabular-nums">
+    <footer className="flex min-h-[30px] flex-none flex-wrap items-center gap-x-2.5 gap-y-1 py-1 border-t border-line bg-chrome px-3 text-[11.5px] whitespace-nowrap text-ink-2 tabular-nums">
       {data ? (
         <>
           <HarnessPart harness="claude" s={data.claude} />

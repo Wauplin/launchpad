@@ -29,6 +29,11 @@ pub fn router() -> Router<Server> {
         .route("/api/harness/{kind}/defaults", get(defaults))
         .route("/api/sessions", get(list_sessions).post(launch))
         .route("/api/sessions/{id}", get(get_session))
+        .route("/api/sessions/{id}/rename", post(rename_session))
+        .route("/api/sessions/{id}/git", get(session_git))
+        .route("/api/sessions/{id}/git-diff", get(session_git_diff))
+        .route("/api/sessions/history", get(session_history).post(import_session))
+        .route("/api/sessions/search", get(search_sessions))
         .route("/api/sessions/{id}/events", get(events))
         .route("/api/sessions/{id}/input", post(input).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/sessions/{id}/interrupt", post(interrupt))
@@ -429,3 +434,38 @@ async fn cancel_schedule(State(s): State<Server>, Path(id): Path<String>) -> Api
     Ok(Json(json!({"ok": true})))
 }
 async fn start_schedule(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Session> { Ok(Json(schedules::start_now(&s.app, &id).await.map_err(bad)?)) }
+
+#[derive(Deserialize)]
+struct RenameSession { title: String }
+async fn rename_session(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<RenameSession>) -> ApiResult<Session> {
+    Ok(Json(s.app.sessions.rename(&s.app, &id, &b.title).await.map_err(bad)?))
+}
+#[derive(Deserialize)]
+struct HistoryQuery { harness: HarnessKind, cursor: Option<String>, #[serde(default)] archived: bool }
+async fn session_history(State(s): State<Server>, Query(q): Query<HistoryQuery>) -> ApiResult<launchpad_core::history::Page> {
+    Ok(Json(launchpad_core::history::list(&s.app,q.harness,q.cursor,q.archived).await.map_err(bad)?))
+}
+#[derive(Deserialize)]
+struct ImportSession { harness: HarnessKind, id: String }
+async fn import_session(State(s): State<Server>, Json(b): Json<ImportSession>) -> ApiResult<Session> {
+    Ok(Json(launchpad_core::history::import(&s.app,b.harness,&b.id).await.map_err(bad)?))
+}
+async fn session_git(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<launchpad_core::workspace::GitStatus> {
+    Ok(Json(launchpad_core::workspace::status(&s.app,&id).await.map_err(bad)?))
+}
+#[derive(Deserialize)]
+struct GitDiffQuery { path: String }
+async fn session_git_diff(State(s): State<Server>, Path(id): Path<String>, Query(q): Query<GitDiffQuery>) -> ApiResult<launchpad_core::workspace::GitDiff> {
+    Ok(Json(launchpad_core::workspace::diff(&s.app,&id,&q.path).await.map_err(bad)?))
+}
+#[derive(Deserialize)]
+struct SessionSearch { q: String }
+async fn search_sessions(State(s): State<Server>, Query(q): Query<SessionSearch>) -> ApiResult<Vec<String>> {
+    let needle = q.q.trim().to_string();
+    if needle.is_empty() { return Ok(Json(vec![])); }
+    let ids = s.app.state_db.call(move |c| {
+        let mut st = c.prepare("SELECT DISTINCT session_id FROM session_event WHERE instr(lower(json_extract(json, '$.text')), lower(?1)) > 0")?;
+        Ok(st.query_map([needle], |r| r.get::<_,String>(0))?.collect::<Result<Vec<_>, _>>()?)
+    }).await?;
+    Ok(Json(ids))
+}

@@ -11,7 +11,7 @@ pub fn generate(app: &App, session: &Session) {
     tokio::spawn(async move {
         match title(&app, &session).await {
             Ok(title) => {
-                if let Err(e) = app.sessions.update(&app, &session.id, |s| s.title = title).await {
+                if let Err(e) = app.sessions.update(&app, &session.id, |s| { if s.title == session.title { s.title = title; } }).await {
                     tracing::warn!("save session title: {e:#}");
                 }
             }

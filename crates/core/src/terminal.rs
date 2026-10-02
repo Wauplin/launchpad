@@ -121,8 +121,8 @@ pub fn tui_running(_app: &App, s: &Session) -> bool {
         let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else { continue };
         let args: Vec<&[u8]> = cmdline.split(|b| *b == 0).collect();
         let has_id = args.contains(&id.as_bytes());
-        let is_resume = args.iter().any(|a| *a == b"--resume" || *a == b"resume");
-        if has_id && is_resume && !args.iter().any(|a| *a == b"-p") {
+        let is_resume = args.iter().any(|a| *a == b"--resume" || *a == b"resume" || *a == b"--session-id");
+        if has_id && is_resume {
             return true;
         }
     }
