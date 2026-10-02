@@ -1,6 +1,6 @@
 // Settings (sketch S6): General and Presets. Saved to config.toml, which can also be edited by hand.
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { Config } from "@/gen/Config";
 import type { Preset } from "@/gen/Preset";
@@ -31,6 +31,35 @@ function Row({ title, hint, children }: { title: string; hint: string; children:
         <span className="text-[11.5px] text-ink-3">{hint}</span>
       </div>
       <div>{children}</div>
+    </div>
+  );
+}
+
+type UpdateStatus = { state: "idle" | "running" | "complete" | "failed" | "unavailable"; stage: string; message: string; log: string };
+
+function UpdateControl() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["app-update"], queryFn: () => api.get<UpdateStatus>("/api/settings/update"), refetchInterval: 2000 });
+  const [starting, setStarting] = useState(false);
+  const start = async () => {
+    setStarting(true);
+    try {
+      await api.post("/api/settings/update");
+      await qc.invalidateQueries({ queryKey: ["app-update"] });
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setStarting(false);
+    }
+  };
+  return (
+    <div className="grid gap-2 text-[12.5px]">
+      <button className="btn btn-primary w-fit" disabled={!data || data.state === "running" || data.state === "unavailable" || starting} onClick={() => void start()}>
+        {starting ? "Starting…" : data?.state === "running" ? "Updating…" : "Check and update Launchpad"}
+      </button>
+      <span className="text-ink-2">Runs UI type checks and Rust tests, builds release binaries, then installs and relaunches Launchpad. An update waits until running agents finish.</span>
+      {data && data.state !== "idle" && <span className={data.state === "failed" ? "text-attn" : "text-ink-2"}>{data.stage}{data.stage && data.message ? ": " : ""}{data.message}</span>}
+      {data?.log && data.state === "failed" && <details><summary className="cursor-pointer">Show update log</summary><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-chrome p-2 font-mono text-[11px]">{data.log}</pre></details>}
     </div>
   );
 }
@@ -133,6 +162,9 @@ export function SettingsView() {
           </Row>
           <Row title="Editor" hint='Used by "Open in editor".'>
             <input className="field-input font-mono text-xs" value={draft.commands.editor} onChange={(e) => set((c) => ({ ...c, commands: { ...c.commands, editor: e.target.value } }))} />
+          </Row>
+          <Row title="App update" hint="Install the latest code from this checkout.">
+            <UpdateControl />
           </Row>
         </Card>
 

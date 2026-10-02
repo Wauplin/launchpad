@@ -79,6 +79,7 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
   - Maintenance: `codex update` at daemon start and every 6 hours.
   - Settings → General (projects root, terminal with "found" markers, editor) and Presets.
 - Usability updates on 2026-10-02: direct Launch with remembered selections; image attachments by file picker, console drop and clipboard paste for both harnesses; larger 120% default UI with stronger contrast and five saved zoom positions; Done/Running/Closed with long commands kept Running; separate colored sidebar counts and simultaneous project dots/spinners; virtualized session list; AI-generated session titles based on the initial prompt.
+- Settings → General now offers a production update button that runs UI type checks and Rust tests, builds release assets, then installs and relaunches from the local checkout. The updater runs outside the daemon and reports its stage and failure log in the UI.
 - Checked these updates in the dev browser and desktop: all five saved zoom positions, native Ctrl+V image paste, console drop and removal, native image delivery to Claude Haiku and Codex GPT-6-Luna (both identified a red test image), AI titles from both harnesses, saved launch selections across reloads, simultaneous Done and Running indicators on a pinned project, image-only input on a resumed Codex session, and a silent 35-second Codex command that stayed Running. UI and desktop builds and the five existing Rust tests pass.
 - Left for the **Done when** check: a week of daily use.
 

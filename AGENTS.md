@@ -14,6 +14,7 @@ Status: Phase 0 done, Phases 1 and 2 built and awaiting daily-use checks (see `d
 - Tests: `cargo test` (the few unit tests in `crates/core`; the desktop crate is excluded by default).
 - Dev window: `cargo build -p launchpad-desktop && LAUNCHPAD_PROFILE=dev ./target/debug/launchpad-desktop [--open <route>]`.
 - Install or update the prod app: `packaging/install.sh` (release build, binaries in `~/.local/bin`, systemd user unit, `.desktop` and autostart entries). It restarts the prod daemon, so only run it when the owner asks.
+- UI update: Settings → General starts `packaging/update.sh` in a transient systemd user service. It runs UI type checks, Rust tests and release builds, then `packaging/install.sh --prebuilt`. It restarts prod, so do not click it during agent work. The log is `~/.local/share/launchpad/update.log`.
 - Icon assets: keep `packaging/icons/source.png` as the unchanged master. Regenerate PNG/WebP/SVG exports with `python3 packaging/generate-icons.py` (requires Pillow). Update installed icons without restarting the app or daemon with `packaging/install-icons.sh`.
 - GitHub inbox: authenticate with `gh auth login`; the dev daemon uses the real GitHub account too. Verify replies and unsubscribe controls without posting comments or muting real threads during automated checks. Local unread actions are safe to check.
 - UI rule from spike 4 (WebKitGTK): virtualize every long list, memoize row components, use `useFlushSync: false` on virtualizers, prefer fixed row heights.

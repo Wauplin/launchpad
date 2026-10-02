@@ -5,12 +5,21 @@
 # Then restarts the daemon and the background window. Restarting stops running agents, so the script asks
 # first when some are running.
 #
-# Usage: packaging/install.sh [--force]
+# Usage: packaging/install.sh [--force] [--prebuilt] [--show]
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 FORCE=0
-[ "${1:-}" = "--force" ] && FORCE=1
+PREBUILT=0
+SHOW=0
+for arg in "$@"; do
+  case "$arg" in
+    --force) FORCE=1 ;;
+    --prebuilt) PREBUILT=1 ;;
+    --show) SHOW=1 ;;
+    *) echo "Unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
 BIN="$HOME/.local/bin"
 APPS="$HOME/.local/share/applications"
 ICONS="$HOME/.local/share/icons/hicolor"
@@ -26,12 +35,18 @@ if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
 fi
 
 # 1. Running agents are stopped by the restart.
-running=0
-if curl -sf http://127.0.0.1:7317/api/health >/dev/null 2>&1 && [ -x "$BIN/launchpad" ]; then
-  running=$("$BIN/launchpad" status 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin)["sessions"]; print(s["running"] + s["pending"])' || echo 0)
-fi
+check_running() {
+  running=0
+  if curl -sf http://127.0.0.1:7317/api/health >/dev/null 2>&1 && [ -x "$BIN/launchpad" ]; then
+    if ! running=$("$BIN/launchpad" status 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin)["sessions"]; print(s["running"])'); then
+      echo "Cannot read running sessions; leaving the daemon running." >&2
+      exit 1
+    fi
+  fi
+}
+check_running
 if [ "$running" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
-  echo "warning: $running agent session(s) are open in Launchpad. Restarting the daemon stops them (they can be resumed)."
+  echo "warning: $running agent session(s) are running in Launchpad. Restarting the daemon interrupts them (they can be resumed)."
   if [ -t 0 ]; then
     read -r -p "Restart anyway? [y/N] " answer
     [ "$answer" = "y" ] || [ "$answer" = "Y" ] || { echo "Cancelled."; exit 1; }
@@ -43,8 +58,17 @@ fi
 
 # 2. Build.
 # From web/: Corepack picks the pnpm version of the nearest package.json, not the one of `-C web`.
-(cd web && pnpm install --frozen-lockfile --config.confirmModulesPurge=false && pnpm build)
-cargo build --release -p launchpad -p launchpad-desktop
+if [ "$PREBUILT" -eq 0 ]; then
+  (cd web && pnpm install --frozen-lockfile --config.confirmModulesPurge=false && pnpm build)
+  cargo build --release -p launchpad -p launchpad-desktop
+fi
+
+# Sessions may have started while the build ran. Never stop them without an explicit --force.
+check_running
+if [ "$running" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
+  echo "Update paused: $running agent session(s) started during the build. Run the installer with --force when they can be interrupted." >&2
+  exit 1
+fi
 
 # 3. Install. Copy then rename, so running binaries are replaced safely.
 mkdir -p "$BIN" "$APPS" "$UNITS" "$AUTOSTART"
@@ -79,7 +103,16 @@ for _ in $(seq 1 100); do
 done
 if curl -sf http://127.0.0.1:7317/api/health >/dev/null 2>&1; then
   if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
-    setsid "$BIN/launchpad-desktop" --hidden >/dev/null 2>&1 < /dev/null &
+    if [ "$SHOW" -eq 1 ]; then
+      # The updater itself runs in a transient unit. A separate unit keeps the new window alive.
+      window_env=()
+      for key in DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS; do
+        if [ -n "${!key:-}" ]; then window_env+=("--setenv=$key=${!key}"); fi
+      done
+      systemd-run --user --collect "--unit=launchpad-desktop-update-$(date +%s)" "${window_env[@]}" "$BIN/launchpad-desktop"
+    else
+      setsid "$BIN/launchpad-desktop" --hidden >/dev/null 2>&1 < /dev/null &
+    fi
   fi
   echo "Launchpad installed. The daemon runs on http://127.0.0.1:7317 (logs: journalctl --user -u launchpad -f)."
   echo "Open it from the applications grid and pin it to the dock (right click > Add to Favorites)."

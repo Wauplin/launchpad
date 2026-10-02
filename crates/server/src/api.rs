@@ -5,6 +5,7 @@ use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use launchpad_core::model::*;
+use launchpad_core::paths::Profile;
 use launchpad_core::projects::{self, Discovered, ProjectPatch};
 use launchpad_core::sessions::Preview;
 use serde::Deserialize;
@@ -42,6 +43,7 @@ pub fn router() -> Router<Server> {
         .route("/api/gh/resolve", post(gh_resolve))
         .route("/api/gh/{owner}/{repo}/suggest", get(gh_suggest))
         .route("/api/settings/terminals", get(terminals))
+        .route("/api/settings/update", get(update_status).post(start_update))
         .route("/api/open", post(open_url))
         .route("/api/open-editor", post(open_editor))
 }
@@ -265,6 +267,49 @@ async fn gh_suggest(
 
 async fn terminals(State(s): State<Server>) -> Json<Vec<launchpad_core::terminal::TerminalOption>> {
     Json(launchpad_core::terminal::options(&s.app))
+}
+
+async fn update_status(State(s): State<Server>) -> ApiResult<Value> {
+    if s.app.paths.profile != Profile::Prod {
+        return Ok(Json(json!({"state": "unavailable", "stage": "", "message": "Updates are available in the production app.", "log": ""})));
+    }
+    let file = s.app.paths.data_dir.join("update-status");
+    let line = std::fs::read_to_string(&file).unwrap_or_default();
+    let mut fields = line.trim().splitn(3, '\t');
+    let state = fields.next().filter(|v| !v.is_empty()).unwrap_or("idle");
+    let stage = fields.next().unwrap_or("");
+    let message = fields.next().unwrap_or("");
+    let log = std::fs::read_to_string(file.with_file_name("update.log")).unwrap_or_default();
+    let log = log.chars().rev().take(6000).collect::<String>().chars().rev().collect::<String>();
+    Ok(Json(json!({"state": state, "stage": stage, "message": message, "log": log})))
+}
+
+async fn start_update(State(s): State<Server>) -> ApiResult<Value> {
+    if s.app.paths.profile != Profile::Prod {
+        return Err(ApiError::bad_request("Open the production app to update Launchpad."));
+    }
+    if s.app.status.get().sessions.running > 0 {
+        return Err(ApiError::conflict("Running agents would be interrupted. Wait for them to finish before updating."));
+    }
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/update.sh");
+    if !script.is_file() {
+        return Err(ApiError::not_found(format!("Update script is missing: {}", script.display())));
+    }
+    let mut cmd = launchpad_core::procs::command(&s.app.env, "systemd-run", None);
+    cmd.args(["--user", "--collect", "--unit=launchpad-update", "--property=Type=exec"]);
+    if let Some(path) = s.app.env.get("PATH") {
+        cmd.arg(format!("--setenv=PATH={path}"));
+    }
+    for key in ["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"] {
+        if let Some(value) = s.app.env.get(key) {
+            cmd.arg(format!("--setenv={key}={value}"));
+        }
+    }
+    let out = cmd.arg("/usr/bin/bash").arg(script).output().await?;
+    if !out.status.success() {
+        return Err(ApiError::conflict(format!("Could not start update: {}", String::from_utf8_lossy(&out.stderr).trim())));
+    }
+    Ok(Json(json!({"ok": true})))
 }
 
 #[derive(Deserialize)]
