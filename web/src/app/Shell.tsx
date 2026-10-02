@@ -2,12 +2,16 @@ import { Outlet } from "@tanstack/react-router";
 import { IconSprite } from "@/components/Icon";
 import { Toasts } from "@/components/Toast";
 import { Composer } from "@/features/launch/Composer";
-import { RadialPicker } from "@/features/launch/Radial";
+import { useConfig } from "@/lib/queries";
+import { useLayoutEffect } from "react";
+import { zoomScale } from "@/lib/zoom";
 import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
 
 export function Shell() {
+  const config = useConfig().data?.config;
+  useLayoutEffect(() => { document.documentElement.style.zoom = String(zoomScale(config?.zoom ?? 2)); }, [config?.zoom]);
   return (
     <div className="flex h-full flex-col">
       <IconSprite />
@@ -20,7 +24,6 @@ export function Shell() {
         <Composer />
       </div>
       <StatusBar />
-      <RadialPicker />
       <Toasts />
     </div>
   );

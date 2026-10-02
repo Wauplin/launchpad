@@ -7,7 +7,7 @@ import type { Discovered } from "@/gen/Discovered";
 import type { Project } from "@/gen/Project";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
-import { LaunchButton } from "@/features/launch/Radial";
+import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { useConfig, useProjects, useSessions } from "@/lib/queries";

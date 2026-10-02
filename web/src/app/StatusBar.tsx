@@ -87,7 +87,7 @@ export function StatusBar() {
             {data.profile === "dev" && <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn">dev profile</span>}
             <span>
               {data.sessions.running} running ·{" "}
-              <span className={data.sessions.pending > 0 ? "font-bold text-attn" : ""}>{data.sessions.pending} pending</span>
+              <span className={data.sessions.done > 0 ? "font-bold text-attn" : ""}>{data.sessions.done} done</span>
             </span>
           </span>
         </>

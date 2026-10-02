@@ -4,7 +4,7 @@ Launchpad is a personal desktop app for Ubuntu that launches and drives coding a
 
 ## Status
 
-Phase 0 (foundations and spikes) is done: the daemon runs as a systemd user service, the window opens from the dock, and the status bar shows the Claude and Codex versions and quotas. Phase 1 (launch and run agents) is built and awaiting its week of daily use. Phase 2 (GitHub inbox) is built and awaiting a morning of notification triage: cached notifications, repo filters, thread summaries, quick replies, triage actions and agent launch from a thread. See [docs/ROADMAP.md](docs/ROADMAP.md).
+Phase 0 (foundations and spikes) is done: the daemon runs as a systemd user service, the window opens from the dock, and the status bar shows the Claude and Codex versions and quotas. Phase 1 (launch and run agents) is built and awaiting its week of daily use. Phase 2 (GitHub inbox) is built and awaiting a morning of notification triage: cached notifications, repo filters, thread summaries, quick replies, triage actions and agent launch from a thread. Agent launches open the composer directly and remember the last launched harness, model and effort. Sessions support pasted and dropped images, AI-generated prompt-based titles, and Done/Running/Closed groups with sidebar activity indicators. The light UI has stronger contrast and defaults to 120% zoom; Settings → General offers five zoom sizes. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Install
 

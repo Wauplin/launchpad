@@ -15,8 +15,8 @@
   --sunk: #EEF1F5;       /* inputs, code, quiet fills */
   --ink: #17202B;
   --ink-2: #4B5767;
-  --ink-3: #7B8696;
-  --line: #D9DEE6;
+  --ink-3: #596779;
+  --line: #C4CCD7;
   --line-2: #E9ECF1;
   --teal: #0D7266;       /* Launchpad accent: primary actions and local-only objects */
   --teal-ink: #0A5C52;
@@ -223,21 +223,14 @@ code.i { font: 12px var(--font-mono); background: var(--sunk); padding: 0 4px; b
 .reply { margin-top: auto; display: flex; gap: 8px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-3); }
 .reply .btn { margin-left: auto; }
 
-/* ---------- S2 radial + composer ---------- */
-.radial-wrap { display: grid; grid-template-columns: minmax(0, 560px) 1fr; gap: 28px; align-items: center; max-width: 1180px; margin: 0 auto; width: 100%; }
-@media (max-width: 900px) { .radial-wrap { grid-template-columns: 1fr; } }
+/* ---------- S2 direct launch + composer ---------- */
+.launch-wrap { display: grid; grid-template-columns: minmax(0, 560px) 1fr; gap: 28px; align-items: center; max-width: 1180px; margin: 0 auto; width: 100%; }
+@media (max-width: 900px) { .launch-wrap { grid-template-columns: 1fr; } }
 .frag { background: var(--paper); border: 1px solid #C7CED8; border-radius: 10px; font-size: 13px; line-height: 1.45; color: var(--ink); box-shadow: 0 1px 2px rgba(23,32,43,.06), 0 12px 28px -14px rgba(23,32,43,.25); overflow: hidden; }
-.radial { position: relative; overflow: hidden; }
-.radial .nrow { border-bottom: 1px solid var(--line-2); }
-.bubbles { position: absolute; right: 52px; top: 22px; display: flex; gap: 14px; align-items: flex-start; }
-.bubble { display: grid; justify-items: center; gap: 6px; }
-.bubble .b { width: 50px; height: 50px; border-radius: 50%; display: grid; place-items: center; color: #fff; font: 700 19px/1 var(--font-ui); box-shadow: 0 8px 18px -6px rgba(23,32,43,.45), 0 0 0 4px rgba(255,255,255,.95); }
-.bubble.c .b { background: var(--clay); }
-.bubble.x .b { background: var(--graphite); }
-.bubble.c .b { outline: 2px solid var(--clay); outline-offset: 5px; }
-.bubble .b svg { width: 26px; height: 26px; }
+.launch-preview { position: relative; overflow: hidden; }
+.launch-preview .nrow { border-bottom: 1px solid var(--line-2); }
 .cursor { position: absolute; width: 18px; height: 22px; }
-.radial-notes { display: grid; gap: 12px; }
+.launch-notes { display: grid; gap: 12px; }
 
 .s2 { grid-template-columns: 200px 1fr 440px; height: 720px; }
 .issue { padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; min-height: 0; }
@@ -601,6 +594,10 @@ mark.cv-m.cur { background: #FFB347; box-shadow: 0 0 0 1.5px #C77700; }
 
 footer.end { margin-top: 72px; padding-top: 18px; border-top: 1px solid #CDD4DE; color: var(--ink-2); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 8px 24px; }
 footer.end code { font: 12.5px var(--font-mono); }
+
+.win { zoom: 1.2; }
+.spin { animation: sketch-spin 1s linear infinite; }
+@keyframes sketch-spin { to { transform: rotate(360deg); } }
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -692,17 +689,17 @@ footer.end code { font: 12.5px var(--font-mono); }
       <div class="app s1">
         <aside class="side">
           <div class="nav-item on"><svg class="ic"><use href="#i-inbox"/></svg>Inbox<span class="count">5 unread</span></div>
-          <div class="nav-item"><svg class="ic"><use href="#i-agents"/></svg>Agents<span class="needs">3</span></div>
+          <div class="nav-item"><svg class="ic"><use href="#i-agents"/></svg>Agents<span class="needs" title="Done">2</span><span style="display:flex;align-items:center;gap:4px;color:var(--work)"><span class="spin"></span>3</span></div>
           <div class="nav-item"><svg class="ic"><use href="#i-folder"/></svg>Projects</div>
           <div class="side-label">Pinned <i class="pin">6</i></div>
-          <div class="proj">huggingface_hub<span class="run c"></span></div>
-          <div class="proj">huggingface.js<span class="run x"></span></div>
-          <div class="proj">moon-landing<span class="run c"></span></div>
-          <div class="proj">transformers<span class="run c"></span></div>
+          <div class="proj">huggingface_hub<span class="run" style="background:var(--attn)" title="Done"></span><span class="spin" title="Running"></span></div>
+          <div class="proj">huggingface.js<span class="run" style="background:var(--attn)" title="Done"></span></div>
+          <div class="proj">moon-landing<span class="spin" title="Running"></span></div>
+          <div class="proj">transformers<span class="spin" title="Running"></span></div>
           <div class="proj">datasets</div>
           <div class="proj">blog</div>
           <div class="side-label">Temporary</div>
-          <div class="proj tmp">tmp-1002-xet-bench<span class="age">2 h</span><span class="run c"></span></div>
+          <div class="proj tmp">tmp-1002-xet-bench<span class="age">2 h</span><span class="spin" title="Running"></span></div>
           <div class="proj tmp">tmp-0929-gguf-check<span class="age">3 d</span></div>
           <div class="side-foot"><div class="nav-item"><svg class="ic"><use href="#i-sliders"/></svg>Settings</div></div>
         </aside>
@@ -804,7 +801,7 @@ footer.end code { font: 12.5px var(--font-mono); }
         <span class="q">5h <span class="meter"><i style="width:2%"></i></span>1% · 14:14</span>
         <span class="q">week <span class="meter"><i style="width:22%"></i></span>22% · Sun 16:21</span>
         <i class="pin">7</i>
-        <span class="right"><span>GitHub synced 12 s ago</span><span>2 running · <span class="needs">3 pending</span></span></span>
+        <span class="right"><span>GitHub synced 12 s ago</span><span>3 running · <span class="needs">2 done</span></span></span>
       </div>
     </div>
   </div>
@@ -814,8 +811,8 @@ footer.end code { font: 12.5px var(--font-mono); }
     <li><i class="pin">3</i><span><b>Actions on hover.</b> Done, Unsubscribe, Mark read or unread, and Launch appear on the row under the mouse. They apply instantly; the API call runs in the background.</span></li>
     <li><i class="pin">4</i><span><b>Local unread.</b> GitHub has no API to mark a thread as unread. A teal ring shows threads you marked unread in Launchpad. github.com still shows them as read.</span></li>
     <li><i class="pin">5</i><span><b>Preview from cache.</b> Selecting a row shows the cached thread at once and refreshes it in the background. The Open button shows the full view (S4), still without loading a page.</span></li>
-    <li><i class="pin">6</i><span><b>Projects and running agents.</b> Pinned projects show a dot in the harness color when an agent runs there. Temporary folders are grouped with their age.</span></li>
-    <li><i class="pin">7</i><span><b>Always-visible status bar.</b> Claude and Codex versions, 5-hour and weekly usage with reset times, Codex update progress, GitHub sync state, running and pending agents.</span></li>
+    <li><i class="pin">6</i><span><b>Project activity.</b> Pinned projects show an amber dot for Done and a spinner for Running, together when both apply. Temporary folders are grouped with their age.</span></li>
+    <li><i class="pin">7</i><span><b>Always-visible status bar.</b> Claude and Codex versions, 5-hour and weekly usage with reset times, Codex update progress, GitHub sync state, running and done agents.</span></li>
   </ol>
 </section>
 
@@ -823,12 +820,12 @@ footer.end code { font: 12.5px var(--font-mono); }
 <section class="sketch" id="s2">
   <div class="sketch-head">
     <span class="sketch-id">S2 · Launching an agent</span>
-    <h2>Pick a harness at the cursor, then build context while browsing</h2>
-    <p>Two steps. A radial picker chooses Claude Code or Codex in one click. Then a composer drawer opens on the right, already filled with whatever you launched from, and stays open while you keep navigating.</p>
+    <h2>Launch directly, then build context while browsing</h2>
+    <p>Click Launch to open the composer on the right with the harness, model and effort used for the latest launched agent. Context from the launch location is filled in, and the drawer stays open while you navigate.</p>
   </div>
 
-  <div class="radial-wrap">
-    <div class="frag radial" role="img" aria-label="Radial harness picker mockup">
+  <div class="launch-wrap">
+    <div class="frag launch-preview" role="img" aria-label="Direct launch from a notification mockup">
       <div class="nrow unread">
         <span class="udot"></span><svg class="ic c-open"><use href="#i-pr"/></svg>
         <div class="n1">huggingface_hub #3420<span class="time">4 min</span></div>
@@ -847,15 +844,11 @@ footer.end code { font: 12.5px var(--font-mono); }
           <span class="btn sm primary" title="Launch an agent"><svg class="ic sm"><use href="#i-play"/></svg></span>
         </div>
       </div>
-      <div class="bubbles">
-        <div class="bubble c" title="Claude Code (C)"><span class="b"><svg><use href="#i-claude"/></svg></span></div>
-        <div class="bubble x" title="Codex (X)"><span class="b"><svg><use href="#i-codex"/></svg></span></div>
-      </div>
       <svg class="cursor" style="right:16px; top:136px" viewBox="0 0 18 22"><use href="#i-cursor"/></svg>
       <i class="pin abs" style="right:208px; top:40px">1</i>
     </div>
-    <ol class="notes radial-notes">
-      <li><i class="pin">1</i><span><b>Radial picker.</b> Every Launch button (top bar, rows, issue and PR headers, project page, multi-selection) opens two round buttons next to the cursor, showing only the Claude and Codex logos. Click one. The last harness used has a ring.</span></li>
+    <ol class="notes launch-notes">
+      <li><i class="pin">1</i><span><b>Direct launch.</b> Every Launch button opens the composer immediately. Harness, model and effort come from the latest launched agent; unsent edits do not change the defaults.</span></li>
     </ol>
   </div>
 
@@ -870,17 +863,17 @@ footer.end code { font: 12.5px var(--font-mono); }
       <div class="app s2">
         <aside class="side">
           <div class="nav-item"><svg class="ic"><use href="#i-inbox"/></svg>Inbox<span class="count">5 unread</span></div>
-          <div class="nav-item"><svg class="ic"><use href="#i-agents"/></svg>Agents<span class="needs">3</span></div>
+          <div class="nav-item"><svg class="ic"><use href="#i-agents"/></svg>Agents<span class="needs" title="Done">2</span><span style="display:flex;align-items:center;gap:4px;color:var(--work)"><span class="spin"></span>3</span></div>
           <div class="nav-item on"><svg class="ic"><use href="#i-folder"/></svg>Projects</div>
           <div class="side-label">Pinned</div>
-          <div class="proj">huggingface_hub<span class="run c"></span></div>
-          <div class="proj">huggingface.js<span class="run x"></span></div>
-          <div class="proj">moon-landing<span class="run c"></span></div>
-          <div class="proj">transformers<span class="run c"></span></div>
+          <div class="proj">huggingface_hub<span class="run" style="background:var(--attn)" title="Done"></span><span class="spin" title="Running"></span></div>
+          <div class="proj">huggingface.js<span class="run" style="background:var(--attn)" title="Done"></span></div>
+          <div class="proj">moon-landing<span class="spin" title="Running"></span></div>
+          <div class="proj">transformers<span class="spin" title="Running"></span></div>
           <div class="proj">datasets</div>
           <div class="proj">blog</div>
           <div class="side-label">Temporary</div>
-          <div class="proj tmp">tmp-1002-xet-bench<span class="age">2 h</span><span class="run c"></span></div>
+          <div class="proj tmp">tmp-1002-xet-bench<span class="age">2 h</span><span class="spin" title="Running"></span></div>
           <div class="proj tmp">tmp-0929-gguf-check<span class="age">3 d</span></div>
           <div class="side-foot"><div class="nav-item"><svg class="ic"><use href="#i-sliders"/></svg>Settings</div></div>
         </aside>
@@ -971,7 +964,7 @@ Context:
         <span class="h"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex 0.159.3 <span class="upd" title="Updating in the background">↑ 0.160.0</span></span>
         <span class="q">5h <span class="meter"><i style="width:2%"></i></span>1% · 14:14</span>
         <span class="q">week <span class="meter"><i style="width:22%"></i></span>22% · Sun 16:21</span>
-        <span class="right"><span>GitHub synced 30 s ago</span><span>2 running · <span class="needs">3 pending</span></span></span>
+        <span class="right"><span>GitHub synced 30 s ago</span><span>3 running · <span class="needs">2 done</span></span></span>
       </div>
     </div>
   </div>
@@ -1013,11 +1006,11 @@ Context:
         </nav>
 
         <div class="slist">
-          <div class="sgroup">Pending <b>3</b> <i class="pin">1</i></div>
-          <div class="srow sel"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Fix listJobs CI failure</span><span class="m">huggingface.js <span class="st needs">Waiting 3 min</span></span></div>
+          <div class="sgroup">Done <b>2</b> <i class="pin">1</i></div>
+          <div class="srow sel"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Fix listJobs CI failure</span><span class="m">huggingface.js <span class="st needs">Done 3 min</span></span></div>
           <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Check #3412 / #3420</span><span class="m">huggingface_hub <span class="st needs">Question</span></span></div>
-          <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Benchmark upload chunk sizes</span><span class="m">tmp-1002-xet-bench <span class="st bgc">Background 6 min</span></span></div>
-          <div class="sgroup">Running <span class="faint">2</span></div>
+          <div class="sgroup">Running <span class="faint">3</span></div>
+          <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Benchmark upload chunk sizes</span><span class="m">tmp-1002-xet-bench <span class="st bgc">Running · background 6 min</span></span></div>
           <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Xet refresh token endpoint</span><span class="m">moon-landing <span class="st work">12 min</span> $1.84</span></div>
           <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Investigate shard retry logic</span><span class="m">transformers <span class="st work">2 min</span> $0.21</span></div>
           <div class="sgroup">Closed</div>
@@ -1054,7 +1047,7 @@ Context:
               <span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span>
               <span class="t">Fix listJobs CI failure</span>
               <span class="acts"><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span><span class="iconbtn" title="Close session"><svg class="ic sm"><use href="#i-x"/></svg></span></span>
-              <span class="m">huggingface.js · <span class="st needs">Waiting 3 min</span> 41.2k tokens · gpt-6-sol medium</span>
+              <span class="m">huggingface.js · <span class="st needs">Done 3 min</span> 41.2k tokens · gpt-6-sol medium</span>
             </div>
             <div class="pbody">
               <div class="tool"><svg class="ic sm"><use href="#i-chev"/></svg><span class="n">Ran 7 commands, edited 2 files</span><span class="end">2 min 10 s</span></div>
@@ -1093,7 +1086,7 @@ Context:
             <div class="pin-input"><div class="inp">Answer or message Claude<span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
           </div>
 
-          <!-- pane 4: Claude pending on a background command -->
+          <!-- pane 4: Claude done on a background command -->
           <div class="pane">
             <div class="ph">
               <span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
@@ -1129,18 +1122,18 @@ chunk=256MB  run 3/5 …</pre>
         <span class="h"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex 0.160.0</span>
         <span class="q">5h <span class="meter"><i style="width:4%"></i></span>4% · 14:14</span>
         <span class="q">week <span class="meter"><i style="width:22%"></i></span>22% · Sun 16:21</span>
-        <span class="right"><span>GitHub synced 8 s ago</span><span>2 running · <span class="needs">3 pending</span></span></span>
+        <span class="right"><span>GitHub synced 8 s ago</span><span>3 running · <span class="needs">2 done</span></span></span>
       </div>
     </div>
   </div>
   <ol class="notes">
-    <li><i class="pin">1</i><span><b>Pending, Running, Closed.</b> A pending session waits for your input, or only waits for a background command. It stays pending until you close it (×). Closed sessions can be resumed. A desktop notification fires when a session becomes pending, even with the window closed.</span></li>
+    <li><i class="pin">1</i><span><b>Done, Running, Closed.</b> Done waits for input. Running includes background and long commands, even when silent. Closed sessions can be resumed. Separate amber Done and blue Running counts appear beside Agents, with a spinner for running agents. Pinned projects show a done dot and a running spinner together when both apply.</span></li>
     <li><i class="pin">2</i><span><b>Layouts 1, 2 and 4.</b> Buttons in the top bar. Clicking a session loads it in the focused pane (teal outline). Dragging picks another pane.</span></li>
-    <li><i class="pin">3</i><span><b>Session header.</b> Project, state and elapsed time, tokens, context usage and cost (Claude only). Stop interrupts the agent. "Open in terminal" hands the session to the terminal chosen in Settings (S6) and back.</span></li>
+    <li><i class="pin">3</i><span><b>Session header.</b> Titles are AI-generated from the initial prompt. Project, state and elapsed time, tokens, context usage and cost (Claude only). Stop interrupts the agent. "Open in terminal" hands the session to the terminal chosen in Settings (S6) and back.</span></li>
     <li><i class="pin">4</i><span><b>Compact tool calls.</b> Commands and file reads collapse into one line, edits show a small diff, the running command has a spinner. Click to expand.</span></li>
     <li><i class="pin">5</i><span><b>Copy exactly.</b> Each message has Copy (raw markdown) and Copy as text, and code blocks have their own button. No terminal line breaks or padding.</span></li>
     <li><i class="pin">6</i><span><b>Questions become buttons.</b> When an agent asks something, its options are clickable and numbered. Typing a free answer still works.</span></li>
-    <li><i class="pin">8</i><span><b>Background commands.</b> When the agent only waits for a long command, the session shows an outlined "Background" badge with the latest output. It moves back to Running when the agent picks up again.</span></li>
+    <li><i class="pin">8</i><span><b>Images and background commands.</b> Paste a screenshot into the message field, drop images anywhere in the console or click Attach images. Preview and remove attachments before sending. When the agent only waits for a long command, the session shows an blue "Background" badge with the latest output. It stays in Running until it finishes and the agent waits for input.</span></li>
     <li><i class="pin">7</i><span><b>Type while it works.</b> A message sent during a turn steers Codex right away, or is read by Claude after its current step. Send with the button, or with <code>Enter</code> like in the terminal.</span></li>
   </ol>
 </section>
@@ -1275,7 +1268,7 @@ chunk=256MB  run 3/5 …</pre>
         <span class="h"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex 0.160.0</span>
         <span class="q">5h <span class="meter"><i style="width:4%"></i></span>4% · 14:14</span>
         <span class="q">week <span class="meter"><i style="width:22%"></i></span>22% · Sun 16:21</span>
-        <span class="right"><span>GitHub synced 40 s ago</span><span>2 running · <span class="needs">3 pending</span></span></span>
+        <span class="right"><span>GitHub synced 40 s ago</span><span>3 running · <span class="needs">2 done</span></span></span>
       </div>
     </div>
   </div>
@@ -1409,7 +1402,7 @@ chunk=256MB  run 3/5 …</pre>
         <span class="h"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex 0.160.0</span>
         <span class="q">5h <span class="meter"><i style="width:4%"></i></span>4% · 14:14</span>
         <span class="q">week <span class="meter"><i style="width:22%"></i></span>22% · Sun 16:21</span>
-        <span class="right"><span>GitHub synced 1 min ago</span><span>2 running · <span class="needs">3 pending</span></span></span>
+        <span class="right"><span>GitHub synced 1 min ago</span><span>3 running · <span class="needs">2 done</span></span></span>
       </div>
     </div>
   </div>
@@ -1443,6 +1436,7 @@ chunk=256MB  run 3/5 …</pre>
       <div class="frag" role="img" aria-label="General settings mockup">
         <div class="fh"><svg class="ic sm"><use href="#i-sliders"/></svg>Settings <span class="faint">/</span> <b>General</b></div>
         <div class="fb">
+          <div class="setrow"><div class="sl"><b>Zoom</b><span>Scale the entire interface.</span></div><div><input type="range" min="0" max="4" step="1" value="2" aria-label="Zoom size"><div>100% · 110% · <b>120% (default)</b> · 135% · 150%</div></div></div>
           <div class="setrow"><div class="sl"><b>Projects root</b><span>Where projects are found, and where temporary folders and worktrees are created.</span></div><div class="field-i">~/projects</div></div>
           <div class="setrow"><div class="sl"><b>Terminal <i class="pin">4</i></b><span>Used by "Open in terminal".</span></div>
             <div class="radios">
@@ -1461,7 +1455,7 @@ chunk=256MB  run 3/5 …</pre>
         <div class="fh"><svg class="ic sm"><use href="#i-folder"/></svg>Temporary project<span class="end faint">created 2 h ago</span></div>
         <div class="fb tmpcard">
           <div class="row"><span class="name">~/projects/tmp-1002-xet-bench</span></div>
-          <div class="meta">1 pending session (Claude) · not a git repository · 3 files</div>
+          <div class="meta">1 done session (Claude) · not a git repository · 3 files</div>
           <div class="row"><div class="promote" style="flex:1"><span class="pre">~/projects/</span><span class="val">xet-bench</span></div><span class="btn primary"><svg class="ic sm"><use href="#i-up"/></svg>Promote</span></div>
           <div class="row"><span class="btn confirm"><svg class="ic sm"><use href="#i-trash"/></svg>Click again to delete the folder</span><span class="faint" style="font-size:12px">Stops the session first</span><i class="pin">2</i></div>
         </div>
@@ -1638,7 +1632,7 @@ chunk=256MB  run 3/5 …</pre>
         <span class="h"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex 0.160.0</span>
         <span class="q">5h <span class="meter"><i style="width:4%"></i></span>4% · 14:14</span>
         <span class="q">week <span class="meter"><i style="width:22%"></i></span>22% · Sun 16:21</span>
-        <span class="right"><span>GitHub synced 1 min ago</span><span>2 running · <span class="needs">3 pending</span></span></span>
+        <span class="right"><span>GitHub synced 1 min ago</span><span>3 running · <span class="needs">2 done</span></span></span>
       </div>
     </div>
   </div>
@@ -1710,7 +1704,7 @@ chunk=256MB  run 3/5 …</pre>
         <div class="fb">
           <div class="menu static">
             <div class="mi on"><svg class="ic sm"><use href="#i-play"/></svg><span><b>New agent</b></span><span class="d">Opens the composer with these lines as context</span></div>
-            <div class="mi"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span><b>Check #3412 / #3420</b></span><span class="d">Adds the reference to its message box · Pending</span></div>
+            <div class="mi"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span><b>Check #3412 / #3420</b></span><span class="d">Adds the reference to its message box · Done</span></div>
             <div class="mi"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span><span><b>Resumable uploads with xet</b></span><span class="d">Adds the reference to its message box · Running</span></div>
           </div>
           <div class="seclabel">In the composer <i class="pin">11</i></div>

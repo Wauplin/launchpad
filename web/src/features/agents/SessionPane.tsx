@@ -3,7 +3,9 @@
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ImageAttachment } from "@/gen/ImageAttachment";
 import { HarnessMark } from "@/components/HarnessMark";
+import { isRunning } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
@@ -19,9 +21,34 @@ function act(id: string, action: string) {
 
 type PendingAsk = { request_id: string; count: number } | null;
 
-function MessageBox({ sessionId, placeholder, disabled, ask }: { sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk }) {
+function MessageBox({ sessionId, placeholder, disabled, ask, dropImages }: { sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null> }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [reading, setReading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const addImages = async (files: File[]) => {
+    if (disabled || busy || reading) return;
+    setReading(true);
+    try {
+      if (images.length + files.length > 8) throw new Error("Attach at most 8 images.");
+      const added = await Promise.all(files.map(async (file) => {
+        if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type)) throw new Error("Use PNG, JPEG, WebP or GIF images.");
+        if (file.size > 5 * 1024 * 1024) throw new Error("Each image must be 5 MB or smaller.");
+        const data_url = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error("Could not read the image."));
+          reader.readAsDataURL(file);
+        });
+        return { name: file.name || "Pasted image.png", data_url };
+      }));
+      if ([...images, ...added].reduce((n, i) => n + i.data_url.length, 0) > 28_000_000) throw new Error("Images must total 20 MB or less.");
+      setImages((current) => [...current, ...added]);
+    } catch (e) { toastError(e); }
+    finally { setReading(false); }
+  };
+  useLayoutEffect(() => { dropImages.current = (files) => { void addImages(files); }; });
   const ref = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
@@ -31,16 +58,18 @@ function MessageBox({ sessionId, placeholder, disabled, ask }: { sessionId: stri
   }, [text]);
   const send = async () => {
     const t = text.trim();
-    if (!t || busy) return;
+    if ((!t && !images.length) || busy || disabled || reading) return;
     setBusy(true);
     try {
       if (ask) {
         // A typed answer to the open question.
-        await api.post(`/api/sessions/${sessionId}/answer`, { request_id: ask.request_id, answers: Array(ask.count).fill(t) });
+        await api.post(`/api/sessions/${sessionId}/answer`, { request_id: ask.request_id, answers: Array(ask.count).fill(t || "See the attached images in my next message.") });
+        if (images.length) await api.post(`/api/sessions/${sessionId}/input`, { text: t, images });
       } else {
-        await api.post(`/api/sessions/${sessionId}/input`, { text: t });
+        await api.post(`/api/sessions/${sessionId}/input`, { text: t, images });
       }
       setText("");
+      setImages([]);
     } catch (e) {
       toastError(e);
     } finally {
@@ -49,12 +78,25 @@ function MessageBox({ sessionId, placeholder, disabled, ask }: { sessionId: stri
   };
   return (
     <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5">
+      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={(e) => { void addImages(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+      {images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{images.map((image, i) => <div key={i} className="relative">
+        <img src={image.data_url} alt={image.name} title={image.name} className="h-16 max-w-28 rounded-md border border-line object-contain" />
+        <button className="iconbtn absolute -top-1 -right-1 bg-paper!" title={`Remove ${image.name}`} disabled={busy || reading} onClick={() => setImages((current) => current.filter((_, j) => j !== i))}><Icon name="x" size={12} /></button>
+      </div>)}</div>}
+      <div className="mb-1 flex items-center gap-2 text-[11.5px] text-ink-3">
+        <button className="btn btn-sm" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>Attach images</button>
+        <span>{reading ? "Reading images…" : "Drop images here or paste into the message box"}</span>
+      </div>
       <div className="flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
         <textarea
           ref={ref}
           rows={1}
           value={text}
-          disabled={disabled}
+          disabled={disabled || busy || reading}
+          onPaste={(e) => {
+            const files = Array.from(e.clipboardData.items).filter((item) => item.kind === "file" && item.type.startsWith("image/")).map((item) => item.getAsFile()).filter((file): file is File => !!file);
+            if (files.length) { e.preventDefault(); void addImages(files); }
+          }}
           placeholder={placeholder}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -66,7 +108,7 @@ function MessageBox({ sessionId, placeholder, disabled, ask }: { sessionId: stri
           }}
           className="max-h-40 min-h-5 flex-1 resize-none bg-transparent text-[12.5px] leading-5 outline-none disabled:opacity-60"
         />
-        <button className="iconbtn border-line! bg-paper" title="Send" disabled={disabled || busy || !text.trim()} onClick={() => void send()}>
+        <button className="iconbtn border-line! bg-paper" title="Send" disabled={disabled || busy || reading || (!text.trim() && !images.length)} onClick={() => void send()}>
           <Icon name="send" size={14} />
         </button>
       </div>
@@ -75,6 +117,8 @@ function MessageBox({ sessionId, placeholder, disabled, ask }: { sessionId: stri
 }
 
 export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionId: string; focused: boolean; onFocus: () => void; onClear?: () => void }) {
+  const dropImages = useRef<((files: File[]) => void) | null>(null);
+  const [dragging, setDragging] = useState(false);
   const s = useSession(sessionId);
   const projects = useProjects().data;
   const log = useSessionLogs((st) => st.logs[sessionId]);
@@ -115,7 +159,7 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
       </div>
     );
   }
-  const running = s.status === "working" || s.status === "starting";
+  const running = isRunning(s);
   const closedLike = s.status === "closed" || s.status === "interrupted" || s.status === "error";
   const name = s.harness === "claude" ? "Claude" : "Codex";
   const placeholder =
@@ -132,7 +176,12 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
             : `Message ${name}`;
 
   return (
-    <div className={`relative flex h-full min-h-0 min-w-0 flex-col bg-paper ${focused ? "z-[1] shadow-[inset_0_0_0_2px_var(--color-teal)]" : ""}`} onMouseDown={onFocus}>
+    <div className={`relative flex h-full min-h-0 min-w-0 flex-col bg-paper ${focused ? "z-[1] shadow-[inset_0_0_0_2px_var(--color-teal)]" : ""}`} onMouseDown={onFocus}
+      onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
+      onDrop={(e) => { e.preventDefault(); setDragging(false); dropImages.current?.(Array.from(e.dataTransfer.files)); }}
+    >
+      {dragging && <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center border-2 border-teal bg-teal-soft/80 font-semibold text-teal-ink">Drop images to attach to your message</div>}
       <div className="grid grid-cols-[18px_1fr_auto] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
         <span className="row-span-2 self-start pt-px">
           <HarnessMark harness={s.harness} size={18} />
@@ -212,7 +261,7 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
           </div>
         )}
       </div>
-      <MessageBox sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal"} ask={s.open_question && s.live ? ask : null} />
+      <MessageBox key={s.id} dropImages={dropImages} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal"} ask={s.open_question && s.live ? ask : null} />
     </div>
   );
 }

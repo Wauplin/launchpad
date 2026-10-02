@@ -52,7 +52,7 @@ pub struct QuotaWindow {
 #[derive(Clone, Debug, Default, Serialize, TS)]
 pub struct SessionCounts {
     pub running: u32,
-    pub pending: u32,
+    pub done: u32,
 }
 
 #[derive(Clone)]

@@ -19,6 +19,7 @@ pub mod sessions;
 pub mod shellenv;
 pub mod status;
 pub mod terminal;
+mod titles;
 pub mod util;
 
 use std::sync::Arc;

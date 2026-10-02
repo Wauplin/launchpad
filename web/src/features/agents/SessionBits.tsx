@@ -31,9 +31,9 @@ export function statusInfo(s: Session): { label: string; style: keyof typeof STY
     case "working":
       return { label: `Working ${elapsed(s.status_since)}`, style: "work" };
     case "waiting":
-      return { label: s.open_question ? "Question" : `Waiting ${formatAge(s.status_since)}`, style: "needs" };
+      return { label: s.open_question ? "Question" : `Done ${formatAge(s.status_since)}`, style: "needs" };
     case "background":
-      return { label: `Background ${formatAge(s.status_since)}`, style: "bg" };
+      return { label: `Background ${formatAge(s.status_since)}`, style: "work" };
     case "closed":
       return { label: `Closed ${formatAge(s.ended_at ?? s.status_since)} ago`, style: "done" };
     case "in_terminal":

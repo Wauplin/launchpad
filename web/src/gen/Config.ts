@@ -5,8 +5,12 @@ import type { GitHub } from "./GitHub";
 import type { Preset } from "./Preset";
 import type { Terminal } from "./Terminal";
 
-export type Config = { 
+export type Config = {
 /**
  * Discovery, temporary folders and worktrees. `~` is expanded.
  */
-projects_root: string, commands: Commands, terminal: Terminal, github: GitHub, agents: Agents, presets: Array<Preset>, };
+projects_root: string,
+/**
+ * UI zoom position: 0..4 (100%, 110%, 120%, 135%, 150%).
+ */
+zoom: number, commands: Commands, terminal: Terminal, github: GitHub, agents: Agents, presets: Array<Preset>, };

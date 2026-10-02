@@ -4,7 +4,7 @@
 import { create } from "zustand";
 import type { ContextProject } from "@/gen/ContextProject";
 import type { GitHubRef } from "@/gen/GitHubRef";
-import type { HarnessKind } from "@/gen/HarnessKind";
+import type { Session } from "@/gen/Session";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import { api } from "@/lib/api";
 
@@ -32,7 +32,8 @@ type Composer = {
   spec: LaunchSpec;
   openAfterLaunch: boolean;
   loaded: boolean;
-  start: (harness: HarnessKind, ctx?: LaunchContext) => void;
+  start: (ctx?: LaunchContext) => void;
+  rememberLaunch: (spec: LaunchSpec) => void;
   update: (f: (s: LaunchSpec) => LaunchSpec) => void;
   close: () => void;
   discard: () => void;
@@ -46,26 +47,17 @@ function save(spec: LaunchSpec, open: boolean) {
   saveTimer = setTimeout(() => void api.put("/api/launch/draft", { spec, open }).catch(() => {}), 400);
 }
 
-export const LAST_HARNESS_KEY = "launchpad.lastHarness";
+let lastLaunch: Pick<LaunchSpec, "harness" | "model" | "effort"> = { harness: "claude", model: null, effort: null };
 
 export const useComposer = create<Composer>((set, get) => ({
   open: false,
   spec: emptySpec(),
   openAfterLaunch: false,
   loaded: false,
-  start: (harness, ctx) => {
-    try {
-      localStorage.setItem(LAST_HARNESS_KEY, harness);
-    } catch {
-      /* ignore */
-    }
+  rememberLaunch: (spec) => { lastLaunch = { harness: spec.harness, model: spec.model, effort: spec.effort }; },
+  start: (ctx) => {
     const cur = get().spec;
-    // Keep what was typed; add what the button brings.
-    const spec: LaunchSpec = { ...cur, harness };
-    if (cur.harness !== harness) {
-      spec.model = null;
-      spec.effort = null;
-    }
+    const spec: LaunchSpec = { ...cur, ...lastLaunch };
     if (ctx?.projectId !== undefined) spec.target = ctx.projectId ? { kind: "project", project_id: ctx.projectId } : { kind: "none" };
     for (const r of ctx?.githubRefs ?? []) if (!spec.github_refs.some((g) => g.url === r.url)) spec.github_refs = [...spec.github_refs, r];
     for (const c of ctx?.contextProjects ?? [])
@@ -90,6 +82,9 @@ export const useComposer = create<Composer>((set, get) => ({
   setOpenAfterLaunch: (v) => set({ openAfterLaunch: v }),
   restore: async () => {
     try {
+      const sessions = await api.get<Session[]>("/api/sessions");
+      const latest = sessions.sort((a, b) => b.started_at - a.started_at)[0];
+      if (latest) get().rememberLaunch(latest.launch_spec);
       const d = await api.get<{ spec?: LaunchSpec; open?: boolean } | null>("/api/launch/draft");
       if (d?.spec) set({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open });
     } finally {

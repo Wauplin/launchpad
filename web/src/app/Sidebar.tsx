@@ -2,6 +2,7 @@ import { useInbox } from "@/features/inbox/InboxView";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import type { Project } from "@/gen/Project";
+import { isDone, isRunning } from "@/lib/sessionStatus";
 import type { Session } from "@/gen/Session";
 import { Icon, type IconName } from "@/components/Icon";
 import { formatAge } from "@/lib/format";
@@ -26,12 +27,12 @@ export function SideLabel({ children }: { children: ReactNode }) {
   return <div className="flex items-center gap-1.5 px-[9px] pt-3.5 pb-1 seclabel">{children}</div>;
 }
 
-/** Dot in the harness color when an agent runs (or waits) in the project. */
 function RunDot({ p, sessions }: { p: Project; sessions: Session[] }) {
-  const active = sessions.filter((s) => (s.cwd === p.path || s.cwd.startsWith(p.path + "/")) && s.status !== "closed" && s.status !== "error" && s.status !== "interrupted");
-  if (!active.length) return null;
-  const h = active[0].harness;
-  return <span className={`ml-1.5 size-[7px] flex-none rounded-full ${h === "claude" ? "bg-clay" : "bg-[#5b6cff]"}`} title={`${active.length} open session${active.length > 1 ? "s" : ""}`} />;
+  const active = sessions.filter((s) => s.project_id === p.id || s.cwd === p.path || s.cwd.startsWith(p.path + "/"));
+  return <span className="flex items-center gap-1.5">
+    {active.some(isDone) && <span className="size-[7px] rounded-full bg-attn" title="Done: waiting for input" />}
+    {active.some(isRunning) && <span className="lp-spin" title="Running" />}
+  </span>;
 }
 
 function ProjectLink({ p, sessions }: { p: Project; sessions: Session[] }) {
@@ -55,7 +56,8 @@ export function Sidebar() {
   const unread = useInbox().data?.threads.filter((t) => t.unread).length ?? 0;
   const projects = useProjects().data ?? [];
   const sessions = useSessions().data ?? [];
-  const pending = sessions.filter((s) => s.status === "waiting" || s.status === "background").length;
+  const done = sessions.filter(isDone).length;
+  const running = sessions.filter(isRunning).length;
   const pinned = projects.filter((p) => p.pinned && !p.is_temp);
   const temp = projects.filter((p) => p.is_temp).sort((a, b) => b.created_at - a.created_at);
   return (
@@ -67,11 +69,12 @@ export function Sidebar() {
         to="/agents"
         icon="agents"
         end={
-          pending > 0 ? (
-            <span className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-attn-soft px-[5px] text-[11px] font-bold text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]">
-              {pending}
+          <span className="flex items-center gap-2 text-[11px] font-semibold tabular-nums">
+            <span className="rounded-full bg-attn-soft px-1.5 text-attn" title={`${done} Done: waiting for input`}>{done}</span>
+            <span className="flex items-center gap-1 text-work" title={`${running} Running`}>
+              {running > 0 && <span className="lp-spin" />}{running}
             </span>
-          ) : undefined
+          </span>
         }
       >
         Agents

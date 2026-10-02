@@ -24,7 +24,7 @@ use crate::util::now_ms;
 #[async_trait]
 pub trait LiveSession: Send + Sync {
     /// A new turn, or a message read during the running turn.
-    async fn send(&self, text: &str, client_id: &str) -> Result<()>;
+    async fn send(&self, text: &str, client_id: &str, images: &[ImageAttachment]) -> Result<()>;
     async fn interrupt(&self) -> Result<()>;
     /// Answers an `ask_user` request: one answer per question.
     async fn answer(&self, request_id: &str, answers: Vec<String>) -> Result<()>;
@@ -81,7 +81,7 @@ impl Sessions {
     }
 
     /// Loads sessions from `state.db`. Sessions that were mid-turn when the daemon stopped become
-    /// `interrupted`; pending ones stay pending without a process (sending a message resumes them).
+    /// `interrupted`; done ones stay done without a process (sending a message resumes them).
     pub async fn load(&self, app: &App) -> Result<()> {
         let rows: Vec<Session> = app
             .state_db
@@ -207,7 +207,7 @@ impl Sessions {
     }
 
     /// Applies a change to a session record, stores it, and pushes it to the UI.
-    async fn update(&self, app: &App, id: &str, f: impl FnOnce(&mut Session)) -> Result<Session> {
+    pub(crate) async fn update(&self, app: &App, id: &str, f: impl FnOnce(&mut Session)) -> Result<Session> {
         let s = {
             let mut recs = self.inner.records.lock().unwrap();
             let s = recs.get_mut(id).context("no such session")?;
@@ -220,17 +220,17 @@ impl Sessions {
     }
 
     fn publish_counts(&self, app: &App) {
-        let (mut running, mut pending) = (0, 0);
+        let (mut running, mut done) = (0, 0);
         for s in self.inner.records.lock().unwrap().values() {
             if s.status.is_running() {
                 running += 1;
-            } else if s.status.is_pending() {
-                pending += 1;
+            } else if s.status.is_done() {
+                done += 1;
             }
         }
         app.status.update(|st| {
             st.sessions.running = running;
-            st.sessions.pending = pending;
+            st.sessions.done = done;
         });
     }
 
@@ -343,14 +343,15 @@ impl Sessions {
         match self.attach(app, harness, start, sink.clone()).await {
             Ok(live) => {
                 let client_id = uuid::Uuid::new_v4().to_string();
-                sink.emit(EventBody::UserMessage { text: preview.prompt.clone(), client_id: client_id.clone(), queued: false }).await;
+                sink.emit(EventBody::UserMessage { text: preview.prompt.clone(), client_id: client_id.clone(), queued: false, images: vec![] }).await;
                 sink.set_status(SessionStatus::Working).await;
-                if let Err(e) = live.send(&preview.prompt, &client_id).await {
+                if let Err(e) = live.send(&preview.prompt, &client_id, &[]).await {
                     sink.fail(&format!("{e:#}")).await;
                 }
             }
             Err(e) => sink.fail(&format!("could not start {}: {e:#}", harness.display())).await,
         }
+        if let Some(session) = self.get(&id).filter(|s| s.status != SessionStatus::Error) { crate::titles::generate(app, &session); }
         Ok(self.get(&id).unwrap())
     }
 
@@ -396,7 +397,7 @@ impl Sessions {
         Ok(live)
     }
 
-    pub async fn send(&self, app: &App, id: &str, text: &str) -> Result<()> {
+    pub async fn send(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>) -> Result<()> {
         let s = self.get(id).context("no such session")?;
         if s.status == SessionStatus::InTerminal {
             bail!("the session is open in a terminal: re-attach it first");
@@ -409,11 +410,11 @@ impl Sessions {
         }
         let client_id = uuid::Uuid::new_v4().to_string();
         let queued = s.status.is_running() && !resumed;
-        sink.emit(EventBody::UserMessage { text: text.to_string(), client_id: client_id.clone(), queued }).await;
+        sink.emit(EventBody::UserMessage { text: text.to_string(), client_id: client_id.clone(), queued, images: images.clone() }).await;
         if !queued {
             sink.set_status(SessionStatus::Working).await;
         }
-        live.send(text, &client_id).await
+        live.send(text, &client_id, &images).await
     }
 
     pub async fn interrupt(&self, _app: &App, id: &str) -> Result<()> {
@@ -502,7 +503,7 @@ impl Sessions {
         let ids: Vec<String> =
             self.list().into_iter().filter(|s| s.cwd == path || s.cwd.starts_with(&format!("{path}/"))).map(|s| s.id).collect();
         for id in ids {
-            if self.get(&id).is_some_and(|s| s.live || s.status.is_running() || s.status.is_pending()) {
+            if self.get(&id).is_some_and(|s| s.live || s.status.is_running() || s.status.is_done()) {
                 self.close(app, &id).await?;
             }
         }
@@ -658,9 +659,9 @@ impl Sink {
             .await;
         self.emit(EventBody::Status { status }).await;
         self.sessions.publish_counts(&self.app);
-        if before.status.is_running() && status.is_pending() && !self.sessions.is_watched(&self.id) {
+        if before.status.is_running() && status.is_done() && !self.sessions.is_watched(&self.id) {
             let s = self.sessions.get(&self.id).unwrap();
-            crate::notify::session_pending(&self.app, &s);
+            crate::notify::session_done(&self.app, &s);
         }
     }
 

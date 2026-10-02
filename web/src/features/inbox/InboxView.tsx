@@ -8,7 +8,7 @@ import type { InboxSnapshot } from "@/gen/InboxSnapshot";
 import type { Project } from "@/gen/Project";
 import { Markdown } from "@/components/Markdown";
 import { toast, toastError } from "@/components/Toast";
-import { LaunchButton } from "@/features/launch/Radial";
+import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { useProjects } from "@/lib/queries";

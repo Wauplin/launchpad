@@ -26,7 +26,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions", get(list_sessions).post(launch))
         .route("/api/sessions/{id}", get(get_session))
         .route("/api/sessions/{id}/events", get(events))
-        .route("/api/sessions/{id}/input", post(input))
+        .route("/api/sessions/{id}/input", post(input).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/sessions/{id}/interrupt", post(interrupt))
         .route("/api/sessions/{id}/answer", post(answer))
         .route("/api/sessions/{id}/close", post(close))
@@ -150,7 +150,10 @@ async fn events(State(s): State<Server>, Path(id): Path<String>, Query(q): Query
 
 #[derive(Deserialize)]
 struct Input {
+    #[serde(default)]
     text: String,
+    #[serde(default)]
+    images: Vec<launchpad_core::model::ImageAttachment>,
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
@@ -158,10 +161,21 @@ fn bad(e: anyhow::Error) -> ApiError {
 }
 
 async fn input(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<Input>) -> ApiResult<Value> {
-    if b.text.trim().is_empty() {
+    if b.text.trim().is_empty() && b.images.is_empty() {
         return Err(ApiError::bad_request("the message is empty"));
     }
-    s.app.sessions.send(&s.app, &id, &b.text).await.map_err(bad)?;
+    use base64::Engine;
+    if b.images.len() > 8 || b.images.iter().map(|i| i.data_url.len()).sum::<usize>() > 28_000_000 {
+        return Err(ApiError::bad_request("attach at most 8 images, totaling 20 MB"));
+    }
+    for image in &b.images {
+        let valid = image.data_url.split_once(',').is_some_and(|(header, data)| {
+            matches!(header, "data:image/png;base64" | "data:image/jpeg;base64" | "data:image/webp;base64" | "data:image/gif;base64")
+                && base64::engine::general_purpose::STANDARD.decode(data).is_ok_and(|bytes| !bytes.is_empty() && bytes.len() <= 5 * 1024 * 1024)
+        });
+        if !valid { return Err(ApiError::bad_request("images must be PNG, JPEG, WebP or GIF, up to 5 MB each")); }
+    }
+    s.app.sessions.send(&s.app, &id, &b.text, b.images).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 

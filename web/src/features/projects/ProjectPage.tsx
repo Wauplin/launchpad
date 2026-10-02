@@ -4,7 +4,7 @@ import { useParams } from "@tanstack/react-router";
 import { HarnessMark } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { StatusBadge } from "@/features/agents/SessionBits";
-import { LaunchButton } from "@/features/launch/Radial";
+import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
 import { useProject, useSessions } from "@/lib/queries";
 import { useLayout } from "@/stores/layout";

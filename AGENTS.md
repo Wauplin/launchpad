@@ -43,8 +43,11 @@ These rules apply unless the owner says otherwise for a given task.
 
 ## Product rules
 
+- Agent groups: Done means waiting for input; Running includes starting, working and background commands. Never infer Done from a command being silent. Sidebar counts and project markers must use the same predicates.
+- Launch defaults come from the latest successfully launched spec, not from harness clicks or unsent edits.
+- General zoom has five positions (100%, 110%, 120%, 135%, 150%), with 120% as the default. Scale the entire interface and keep list virtualization working at every position.
 - Light theme only. Do not add a dark theme or dark-mode styles.
-- Click-only UI: no keyboard shortcuts, except `Ctrl+F`, which opens the find bar in the code viewer. Every action is a visible button (the find bar also has a Find button). Text fields only type text, with three exceptions: in the composer prompt, `@` (projects) and `#` (issues and PRs) at the start of a word open a suggestion list; in the session message box, `Enter` sends and `Shift+Enter` adds a new line; in the find field of the code viewer, `Enter` and `Shift+Enter` go to the next and previous match and `Escape` closes the bar. See `docs/ARCHITECTURE.md`, sections 8.1 (code viewer) and 9.7 (mention rules).
+- Click-only UI: no keyboard shortcuts, except `Ctrl+F`, which opens the find bar in the code viewer. Every action is a visible button (the find bar also has a Find button). Text fields only type text, with three exceptions: in the composer prompt, `@` (projects) and `#` (issues and PRs) at the start of a word open a suggestion list; in the session message box, `Enter` sends, `Shift+Enter` adds a new line, and standard clipboard paste accepts images; in the find field of the code viewer, `Enter` and `Shift+Enter` go to the next and previous match and `Escape` closes the bar. See `docs/ARCHITECTURE.md`, sections 8.1 (code viewer) and 9.7 (mention rules).
 - Linux (Ubuntu) only. Do not add code for macOS or Windows.
 - Single user: no backward compatibility, no versioning, no data migration framework. The GitHub cache (`cache.db`) can be deleted and rebuilt at any time. Keep schema changes to `state.db` simple.
 - Anything Launchpad prepares for GitHub (pre-draft PRs, comments or reviews written by agents) stays local until the owner publishes it with a click.

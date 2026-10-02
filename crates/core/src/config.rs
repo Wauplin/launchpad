@@ -17,6 +17,8 @@ use crate::paths::Paths;
 pub struct Config {
     /// Discovery, temporary folders and worktrees. `~` is expanded.
     pub projects_root: String,
+    /// UI zoom position: 0..4 (100%, 110%, 120%, 135%, 150%).
+    pub zoom: u8,
     pub commands: Commands,
     pub terminal: Terminal,
     pub github: GitHub,
@@ -49,8 +51,7 @@ pub struct GitHub {
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(default)]
 pub struct Agents {
-    pub pending_after_silent_command_seconds: u64,
-    /// Desktop notification when a session becomes pending.
+    /// Desktop notification when a session becomes done.
     pub notify: bool,
 }
 
@@ -66,6 +67,7 @@ impl Default for Config {
         let preset = |id: &str, label: &str, text: &str| Preset { id: id.into(), label: label.into(), text: text.into() };
         Config {
             projects_root: "~/projects".into(),
+            zoom: 2,
             commands: Commands::default(),
             terminal: Terminal::default(),
             github: GitHub::default(),
@@ -106,13 +108,14 @@ impl Default for GitHub {
 
 impl Default for Agents {
     fn default() -> Self {
-        Agents { pending_after_silent_command_seconds: 30, notify: true }
+        Agents { notify: true }
     }
 }
 
 /// Written on first start. Missing keys in a user file fall back to these values
 /// (`presets` included: write `presets = []` to have none).
-pub const DEFAULT_CONFIG: &str = r#"projects_root = "~/projects"        # discovery, temporary folders, worktrees
+pub const DEFAULT_CONFIG: &str = r#"zoom = 2                           # 100%, 110%, 120% (default), 135%, 150%
+projects_root = "~/projects"        # discovery, temporary folders, worktrees
 
 [commands]
 editor = "code"
@@ -126,8 +129,7 @@ custom = ["kitty", "--directory", "{cwd}", "{command}"]   # only used when app =
 poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
 [agents]
-pending_after_silent_command_seconds = 30
-notify = true                       # desktop notification when a session becomes pending
+notify = true                       # desktop notification when a session becomes done
 
 [[presets]]
 id = "worktree"
@@ -194,6 +196,7 @@ impl ConfigHandle {
 
     /// Rewrites the file (comments are lost) and applies the new config at once.
     pub fn save(&self, config: Config) -> Result<()> {
+        anyhow::ensure!(config.zoom <= 4, "zoom must be between 0 and 4");
         let text = toml::to_string_pretty(&config)?;
         let tmp = self.path.with_extension("toml.tmp");
         std::fs::write(&tmp, text)?;

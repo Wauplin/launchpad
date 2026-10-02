@@ -1,12 +1,14 @@
-// Agents workspace (sketch S3): sessions grouped as Pending, Running and Closed, shown in 1, 2 or 4 panes.
+// Agents workspace (sketch S3): sessions grouped as Done, Running and Closed, shown in 1, 2 or 4 panes.
 // Clicking a session loads it in the focused pane.
 
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { memo, useEffect, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { memo, useEffect, useRef, useState } from "react";
 import type { Session } from "@/gen/Session";
 import { HarnessMark } from "@/components/HarnessMark";
+import { isRunning, isDone } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
-import { LaunchButton } from "@/features/launch/Radial";
+import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useProjects, useSessions } from "@/lib/queries";
 import { sendPresence } from "@/lib/ws";
 import { useLayout, type Layout } from "@/stores/layout";
@@ -18,7 +20,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, onClick }: {
   return (
     <button
       onClick={onClick}
-      className={`grid w-full grid-cols-[18px_1fr] gap-x-[9px] gap-y-[3px] border-b border-line-2 px-3 py-2 text-left hover:bg-[#f5f8fb] ${selected ? "bg-select!" : ""}`}
+      className={`grid h-[68px] w-full grid-cols-[18px_1fr] gap-x-[9px] gap-y-[3px] border-b border-line-2 px-3 py-2 text-left hover:bg-[#f5f8fb] ${selected ? "bg-select!" : ""}`}
     >
       <span className="row-span-2 mt-px">
         <HarnessMark harness={s.harness} size={18} />
@@ -26,7 +28,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, onClick }: {
       <span className={`truncate text-[12.5px] leading-[1.35] ${dim ? "font-medium text-ink-2" : "font-semibold"}`} title={s.title}>
         {s.title}
       </span>
-      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3">
+      <span className="flex items-center gap-x-2 overflow-hidden whitespace-nowrap text-[11.5px] text-ink-3">
         <span className="max-w-[110px] truncate">{project}</span>
         <StatusBadge s={s} />
         {s.usage.cost_usd != null && <span>${s.usage.cost_usd.toFixed(2)}</span>}
@@ -35,7 +37,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, onClick }: {
   );
 });
 
-function Group({ title, count, highlight, children }: { title: string; count: number; highlight?: boolean; children: React.ReactNode }) {
+function Group({ title, count, highlight, children }: { title: string; count: number; highlight?: boolean; children?: React.ReactNode }) {
   return (
     <>
       <div className="flex items-center gap-2 px-3 pt-3 pb-1.5 seclabel">
@@ -71,6 +73,7 @@ export function AgentsView() {
   const search = useSearch({ strict: false }) as { session?: string };
   const navigate = useNavigate();
   const [closedLimit, setClosedLimit] = useState(30);
+  const listRef = useRef<HTMLDivElement>(null);
 
   // From a desktop notification: /agents?session=<id>.
   useEffect(() => {
@@ -96,16 +99,26 @@ export function AgentsView() {
     };
   }, [visible.join(",")]);
 
-  const pending = sessions.filter((s) => s.status === "waiting" || s.status === "background").sort((a, b) => a.status_since - b.status_since);
-  const running = sessions.filter((s) => s.status === "working" || s.status === "starting");
-  const closed = sessions.filter((s) => !pending.includes(s) && !running.includes(s));
+  const done = sessions.filter((s) => isDone(s)).sort((a, b) => a.status_since - b.status_since);
+  const running = sessions.filter((s) => isRunning(s));
+  const closed = sessions.filter((s) => !isDone(s) && !isRunning(s));
+  const items: ({ kind: "group"; title: string; count: number; highlight?: boolean } | { kind: "session"; session: Session } | { kind: "more" })[] = [
+    { kind: "group", title: "Done", count: done.length, highlight: true },
+    ...done.map((session) => ({ kind: "session" as const, session })),
+    { kind: "group", title: "Running", count: running.length },
+    ...running.map((session) => ({ kind: "session" as const, session })),
+    { kind: "group", title: "Closed", count: closed.length },
+    ...closed.slice(0, closedLimit).map((session) => ({ kind: "session" as const, session })),
+    ...(closed.length > closedLimit ? [{ kind: "more" as const }] : []),
+  ];
+  const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => items[i].kind === "session" ? 68 : 34, getItemKey: (i) => items[i].kind === "session" ? items[i].session.id : `heading-${i}`, overscan: 6, useFlushSync: false });
   const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
   const selected = panes[focused];
   const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} selected={s.id === selected} onClick={() => show(s.id)} />;
 
   return (
     <div className="flex h-full">
-      <div className="flex w-[260px] flex-none flex-col overflow-y-auto border-r border-line bg-paper">
+      <div ref={listRef} className="flex w-[280px] flex-none flex-col overflow-y-auto border-r border-line bg-paper">
         {sessions.length === 0 && (
           <div className="grid gap-3 p-4 text-[12.5px] text-ink-2">
             No session yet.
@@ -114,20 +127,15 @@ export function AgentsView() {
             </span>
           </div>
         )}
-        <Group title="Pending" count={pending.length} highlight>
-          {pending.map(row)}
-        </Group>
-        <Group title="Running" count={running.length}>
-          {running.map(row)}
-        </Group>
-        <Group title="Closed" count={closed.length}>
-          {closed.slice(0, closedLimit).map(row)}
-          {closed.length > closedLimit && (
-            <button className="px-3 py-2 text-left text-xs text-teal-ink hover:underline" onClick={() => setClosedLimit((n) => n + 50)}>
-              Show more
-            </button>
-          )}
-        </Group>
+        <div style={{ height: virtual.getTotalSize(), position: "relative", flexShrink: 0 }}>
+          {virtual.getVirtualItems().map((v) => {
+            const item = items[v.index];
+            return <div key={v.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: v.size, transform: `translateY(${v.start}px)` }}>
+              {item.kind === "session" ? row(item.session) : item.kind === "group" ? <Group title={item.title} count={item.count} highlight={item.highlight} /> :
+                <button className="px-3 py-2 text-left text-xs text-teal-ink hover:underline" onClick={() => setClosedLimit((n) => n + 50)}>Show more</button>}
+            </div>;
+          })}
+        </div>
       </div>
       <div
         className={`grid min-w-0 flex-1 gap-px bg-line ${layout === 1 ? "grid-cols-1" : layout === 2 ? "grid-cols-2" : "grid-cols-2 grid-rows-2"}`}

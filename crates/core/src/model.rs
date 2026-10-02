@@ -39,9 +39,9 @@ impl HarnessKind {
 pub enum SessionStatus {
     Starting,
     Working,
-    /// Pending: the turn finished and the agent waits for input.
+    /// Done: the turn finished and the agent waits for input.
     Waiting,
-    /// Pending: the agent only waits for a background command.
+    /// Running: the agent only waits for a background command.
     Background,
     Closed,
     InTerminal,
@@ -76,10 +76,10 @@ impl SessionStatus {
         }
     }
     pub fn is_running(self) -> bool {
-        matches!(self, SessionStatus::Starting | SessionStatus::Working)
+        matches!(self, SessionStatus::Starting | SessionStatus::Working | SessionStatus::Background)
     }
-    pub fn is_pending(self) -> bool {
-        matches!(self, SessionStatus::Waiting | SessionStatus::Background)
+    pub fn is_done(self) -> bool {
+        matches!(self, SessionStatus::Waiting)
     }
 }
 
@@ -109,7 +109,7 @@ pub struct Session {
     /// When the status last changed (Unix ms).
     #[ts(type = "number")]
     pub status_since: i64,
-    /// A harness process is attached. A pending session without a process resumes when you send a message.
+    /// A harness process is attached. A done session without a process resumes when you send a message.
     pub live: bool,
     /// The agent asked a question that is not answered yet.
     pub open_question: bool,
@@ -124,6 +124,13 @@ pub struct Session {
     #[ts(type = "number")]
     pub last_seq: i64,
     pub launch_spec: LaunchSpec,
+}
+
+/// An image attached to a user message, kept locally in the event log.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct ImageAttachment {
+    pub name: String,
+    pub data_url: String,
 }
 
 /// One normalized event in a session (`session_event` table, streamed over the WebSocket).
@@ -142,7 +149,7 @@ pub struct SessionEvent {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EventBody {
     /// Sent by you. `queued` while the agent has not read it yet.
-    UserMessage { text: String, client_id: String, queued: bool },
+    UserMessage { text: String, client_id: String, queued: bool, #[serde(default)] images: Vec<ImageAttachment> },
     /// The agent read a queued message.
     MessageDelivered { client_id: String },
     /// Live text of an assistant message (not stored; the final text comes as `assistant_message`).

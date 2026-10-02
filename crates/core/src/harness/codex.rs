@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -74,8 +73,10 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
 
 #[async_trait]
 impl LiveSession for CodexSession {
-    async fn send(&self, text: &str, client_id: &str) -> Result<()> {
-        let input = json!([{"type": "text", "text": text}]);
+    async fn send(&self, text: &str, client_id: &str, images: &[ImageAttachment]) -> Result<()> {
+        let mut input = vec![];
+        if !text.is_empty() { input.push(json!({"type": "text", "text": text})); }
+        input.extend(images.iter().map(|i| json!({"type": "image", "url": i.data_url})));
         let turn = self.state.lock().unwrap().turn_id.clone();
         if let Some(turn_id) = turn {
             // Typing while the agent works steers the running turn.
@@ -146,7 +147,7 @@ pub fn spawn_router(app: &App) {
                     request(&a, entry, id, &method, &params).await;
                 }
                 Ok(Incoming::Exited) => {
-                    // Every live thread is lost. Pending sessions resume when you send a message.
+                    // Every live thread is lost. Done sessions resume when you send a message.
                     let all: Vec<(String, (Sink, Arc<Mutex<State>>))> = threads().lock().unwrap().drain().collect();
                     for (_, (sink, _)) in all {
                         sink.exited(Some("codex app-server exited".into())).await;
@@ -158,28 +159,6 @@ pub fn spawn_router(app: &App) {
         }
     });
 
-    let a = app.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            let silent_ms = a.config.get().agents.pending_after_silent_command_seconds as i64 * 1000;
-            let all: Vec<(Sink, Arc<Mutex<State>>)> = threads().lock().unwrap().values().cloned().collect();
-            for (sink, st) in all {
-                let silent = {
-                    let s = st.lock().unwrap();
-                    let cmds: Vec<_> = s.open.values().filter(|(t, _, _)| t == "commandExecution").collect();
-                    !cmds.is_empty() && cmds.iter().all(|(_, _, last)| now_ms() - last > silent_ms)
-                };
-                match (sink.status(), silent) {
-                    (Some(SessionStatus::Working), true) => sink.set_status(SessionStatus::Background).await,
-                    (Some(SessionStatus::Background), false) if st.lock().unwrap().turn_id.is_some() => {
-                        sink.set_status(SessionStatus::Working).await
-                    }
-                    _ => {}
-                }
-            }
-        }
-    });
 }
 
 async fn request(app: &App, entry: Option<(Sink, Arc<Mutex<State>>)>, id: Value, method: &str, params: &Value) {

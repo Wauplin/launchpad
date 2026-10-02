@@ -55,11 +55,11 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 
 - **Projects:** registry, "Scan projects root" discovery, descriptions, pinning, repo ↔ project mapping.
 - **Composer:** harness toggle, project picker, free text, presets (the 3 initial ones) with a settings editor, context projects with a branch picker (local branches), GitHub links added with a "+ GitHub link" field (title fetched), model and effort pickers showing "Default (…)", prompt preview, Launch button, unsent drafts kept. In the prompt, `@` suggests projects and `#` suggests issues and PRs (only at the start of a word).
-- **Radial launcher:** Launch button in the top bar and on notifications, issues, PRs and projects; two round buttons with the Claude and Codex logos (no labels); the last harness used has a ring.
+- **Direct launcher:** Launch buttons open the composer sidebar with the harness, model and effort selections from the latest launched agent.
 - **Temporary projects:** create, clean up, promote (including moving Claude transcripts).
 - **Adapters:** Claude and Codex, normalized events, event log in `state.db`, WebSocket streaming with replay.
-- **Agents view:** list grouped as Running, Pending (waiting for your input, or idle while a background command runs) and Closed; session pane (messages, collapsed tool calls, inline diffs, copy buttons, input, interrupt, close, resume), layouts with 1, 2 and 4 panes.
-- **Signals:** tokens, context usage and cost per session; desktop notification when a session becomes pending.
+- **Agents view:** list grouped as Done (waiting for input), Running (including background and long commands) and Closed; session pane (messages, collapsed tool calls, inline diffs, copy buttons, input, interrupt, close, resume), layouts with 1, 2 and 4 panes.
+- **Signals:** tokens, context usage and cost per session; desktop notification when a session becomes Done.
 - **Maintenance:** background `codex update`; "Open in terminal" and "Re-attach".
 - **Settings → General:** projects root, terminal used by "Open in terminal" (Terminator by default, Ghostty, GNOME Terminal or a custom command), editor.
 
@@ -70,13 +70,15 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 - Built on 2026-10-02, and checked against the real CLIs (Claude Haiku and Codex GPT-6-Luna) through the API and the UI:
   - Projects: registry, "Scan projects root" (149 repositories in 48 ms), descriptions, pinning, add by path, repo → project mapping (origin, then upstream).
   - Composer: harness toggle, project picker (or a new temporary folder), prompt with `@` and `#` suggestions, context projects with a branch picker, "+ GitHub link" with the title fetched, the three presets and their settings editor, model and effort pickers showing "Default (…)", live prompt preview, "Open after launch", draft kept on the daemon.
-  - Radial launcher on the top bar and on projects (the last harness used has a ring). Notifications, issues and PRs get their Launch buttons in Phases 2 and 3.
+  - Direct launcher on the top bar, projects and notifications, with the latest launched harness, model and effort selections remembered.
   - Temporary projects: create, delete with a second click, promote (the folder, the Claude transcripts and the session folders move).
   - Adapters: Claude and Codex, normalized events in `state.db`, WebSocket streaming with replay after a reconnect.
-  - Agents view: Pending, Running and Closed groups; session pane with messages, collapsed tool calls, inline diffs, plan, question cards, background commands with their output, copy buttons, message box (`Enter` sends), Stop, Close, Resume, Open in terminal and Re-attach; layouts with 1, 2 and 4 panes.
-  - Signals: context tokens and usage, cost (Claude), desktop notification when a session becomes pending.
+  - Agents view: Done, Running and Closed groups; session pane with messages, collapsed tool calls, inline diffs, plan, question cards, background commands with their output, copy buttons, message box (`Enter` sends), Stop, Close, Resume, Open in terminal and Re-attach; layouts with 1, 2 and 4 panes.
+  - Signals: context tokens and usage, cost (Claude), desktop notification when a session becomes Done.
   - Maintenance: `codex update` at daemon start and every 6 hours.
   - Settings → General (projects root, terminal with "found" markers, editor) and Presets.
+- Usability updates on 2026-10-02: direct Launch with remembered selections; image attachments by file picker, console drop and clipboard paste for both harnesses; larger 120% default UI with stronger contrast and five saved zoom positions; Done/Running/Closed with long commands kept Running; separate colored sidebar counts and simultaneous project dots/spinners; virtualized session list; AI-generated session titles based on the initial prompt.
+- Checked these updates in the dev browser and desktop: all five saved zoom positions, native Ctrl+V image paste, console drop and removal, native image delivery to Claude Haiku and Codex GPT-6-Luna (both identified a red test image), AI titles from both harnesses, saved launch selections across reloads, simultaneous Done and Running indicators on a pinned project, image-only input on a resumed Codex session, and a silent 35-second Codex command that stayed Running. UI and desktop builds and the five existing Rust tests pass.
 - Left for the **Done when** check: a week of daily use.
 
 ## Phase 2: GitHub inbox

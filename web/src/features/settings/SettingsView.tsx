@@ -7,6 +7,7 @@ import type { Preset } from "@/gen/Preset";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
+import { ZOOM_LEVELS } from "@/lib/zoom";
 import { useConfig, useTerminals } from "@/lib/queries";
 
 function Card({ title, end, children, id }: { title: string; end?: React.ReactNode; children: React.ReactNode; id?: string }) {
@@ -84,6 +85,13 @@ export function SettingsView() {
       <div className="mx-auto grid max-w-[860px] grid-cols-[minmax(0,1fr)] gap-5 p-6">
         {q.data.error && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">config.toml has an error, the previous settings are in use: {q.data.error}</div>}
         <Card title="General" end={actions}>
+          <Row title="Zoom" hint="Make the whole interface larger. The middle position is the default.">
+            <label className="grid gap-2">
+              <span className="font-semibold">{ZOOM_LEVELS[draft.zoom]}%{draft.zoom === 2 ? " (default)" : ""}</span>
+              <input aria-label="Interface zoom" type="range" min={0} max={4} step={1} value={draft.zoom} onChange={(e) => set((c) => ({ ...c, zoom: Number(e.target.value) }))} className="w-full accent-teal" />
+              <span className="flex justify-between text-xs text-ink-2">{ZOOM_LEVELS.map((z) => <span key={z}>{z}%</span>)}</span>
+            </label>
+          </Row>
           <Row title="Projects root" hint="Where projects are found, and where temporary folders and worktrees are created.">
             <input className="field-input font-mono text-xs" value={draft.projects_root} onChange={(e) => set((c) => ({ ...c, projects_root: e.target.value }))} />
           </Row>

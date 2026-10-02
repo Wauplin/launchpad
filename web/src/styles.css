@@ -8,8 +8,8 @@
   --color-sunk: #eef1f5;
   --color-ink: #17202b;
   --color-ink-2: #4b5767;
-  --color-ink-3: #7b8696;
-  --color-line: #d9dee6;
+  --color-ink-3: #596779;
+  --color-line: #c4ccd7;
   --color-line-2: #e9ecf1;
   --color-teal: #0d7266;
   --color-teal-ink: #0a5c52;
@@ -34,6 +34,7 @@
 }
 
 :root {
+  zoom: 1.2;
   color-scheme: light;
 }
 

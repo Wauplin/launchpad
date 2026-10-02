@@ -1,5 +1,6 @@
 // Turns a session's event log into display rows.
 
+import type { ImageAttachment } from "@/gen/ImageAttachment";
 import type { PlanItem } from "@/gen/PlanItem";
 import type { Question } from "@/gen/Question";
 import type { SessionLog } from "@/lib/sessionStore";
@@ -15,7 +16,7 @@ export type Call = {
 };
 
 export type Row = { key: string; v: string } & (
-  | { t: "user"; text: string; queued: boolean }
+  | { t: "user"; text: string; queued: boolean; images: ImageAttachment[] }
   | { t: "assistant"; text: string; streaming: boolean }
   | { t: "reasoning"; text: string }
   | { t: "tools"; calls: Call[] }
@@ -45,7 +46,7 @@ export function buildRows(log: SessionLog): Row[] {
     const key = `e${e.seq}`;
     switch (b.kind) {
       case "user_message":
-        rows.push({ key, v: "", t: "user", text: b.text, queued: b.queued && !delivered.has(b.client_id) });
+        rows.push({ key, v: "", t: "user", text: b.text, images: b.images ?? [], queued: b.queued && !delivered.has(b.client_id) });
         break;
       case "assistant_message":
         rows.push({ key, v: String(b.text.length), t: "assistant", text: b.text, streaming: false });

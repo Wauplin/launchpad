@@ -4,19 +4,19 @@ import type { LaunchSpec } from "./LaunchSpec";
 import type { SessionStatus } from "./SessionStatus";
 import type { Usage } from "./Usage";
 
-export type Session = { id: string, harness: HarnessKind, 
+export type Session = { id: string, harness: HarnessKind,
 /**
  * Claude session id (same as `id`) or Codex thread id.
  */
-harness_session_id: string | null, project_id: string | null, cwd: string, title: string, status: SessionStatus, 
+harness_session_id: string | null, project_id: string | null, cwd: string, title: string, status: SessionStatus,
 /**
  * When the status last changed (Unix ms).
  */
-status_since: number, 
+status_since: number,
 /**
- * A harness process is attached. A pending session without a process resumes when you send a message.
+ * A harness process is attached. A done session without a process resumes when you send a message.
  */
-live: boolean, 
+live: boolean,
 /**
  * The agent asked a question that is not answered yet.
  */

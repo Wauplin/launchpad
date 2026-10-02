@@ -137,11 +137,18 @@ impl ClaudeSession {
 
 #[async_trait]
 impl LiveSession for ClaudeSession {
-    async fn send(&self, text: &str, client_id: &str) -> Result<()> {
+    async fn send(&self, text: &str, client_id: &str, images: &[ImageAttachment]) -> Result<()> {
+        let mut content = vec![];
+        if !text.is_empty() { content.push(json!({"type": "text", "text": text})); }
+        for image in images {
+            let (header, data) = image.data_url.split_once(",").context("invalid image data URL")?;
+            let media_type = header.strip_prefix("data:").and_then(|h| h.strip_suffix(";base64")).context("invalid image media type")?;
+            content.push(json!({"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}));
+        }
         self.write(&json!({
             "type": "user",
             "uuid": client_id,
-            "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+            "message": {"role": "user", "content": content},
         }))
         .await
     }

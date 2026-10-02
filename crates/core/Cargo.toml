@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
+base64 = "0.22"
 async-trait = "0.1.92"
 dirs = "7.0.0"
 futures-util = "0.3.34"

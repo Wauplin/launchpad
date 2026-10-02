@@ -21,7 +21,7 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 2. **Launching an agent is the main action.** A minimal launch is three clicks plus the prompt. A rich launch uses the same flow with more chips. Both must feel natural.
 3. **The core does not depend on a harness.** Claude Code and Codex are adapters behind one session model. Adding a third harness means writing one adapter.
 4. **Local first, publish later.** Anything that would create noise on GitHub (pre-draft PRs, agent-written comments) stays local until you publish it. These objects share one color in the UI (teal).
-5. **Click only.** No keyboard shortcuts, at least at first, with one exception: `Ctrl+F` opens the find bar in the code viewer (see [8.1](#81-code-viewer)). Every action is a visible button where it is needed, and the UI should be good enough that shortcuts are not missed. Text fields only type text, with three exceptions: in the composer prompt, `@` and `#` at the start of a word open a suggestion list (projects, issues and PRs, see [9.7](#97-prompt-composition)); in the session message box `Enter` sends and `Shift+Enter` adds a new line, like in the terminal; in the find field of the code viewer, `Enter` and `Shift+Enter` go to the next and previous match and `Escape` closes the bar.
+5. **Click only.** No keyboard shortcuts, at least at first, with one exception: `Ctrl+F` opens the find bar in the code viewer (see [8.1](#81-code-viewer)). Every action is a visible button where it is needed, and the UI should be good enough that shortcuts are not missed. Text fields only type text, with three exceptions: in the composer prompt, `@` and `#` at the start of a word open a suggestion list (projects, issues and PRs, see [9.7](#97-prompt-composition)); in the session message box `Enter` sends, `Shift+Enter` adds a new line and standard clipboard paste accepts images; in the find field of the code viewer, `Enter` and `Shift+Enter` go to the next and previous match and `Escape` closes the bar.
 6. **Owned and easy to extend.** A mainstream stack that coding agents handle well (Rust, React, TypeScript, Tailwind), configuration in a plain TOML file, GitHub payloads stored as JSON so new fields need no schema change.
 7. **Move fast, test little.** This is a personal project: speed of change matters more than protection against breakage. Most code has no tests. See [5.2](#52-testing).
 
@@ -230,6 +230,7 @@ Because GitHub payloads are stored as JSON, showing a new field in the UI means 
 `~/.config/launchpad/config.toml` is watched by the daemon and rewritten by the Settings screen. Missing keys use their defaults.
 
 ```toml
+zoom = 2                            # 100%, 110%, 120% (default), 135%, 150%
 projects_root = "~/projects"        # discovery, temporary folders, worktrees
 
 [commands]
@@ -244,8 +245,7 @@ custom = ["kitty", "--directory", "{cwd}", "{command}"]   # only used when app =
 poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
 [agents]
-pending_after_silent_command_seconds = 30   # see 9.1
-notify = true                       # desktop notification when a session becomes pending
+notify = true                       # desktop notification when a session becomes Done
 
 [[presets]]                         # see 9.7
 id = "worktree"
@@ -360,25 +360,15 @@ A read-only viewer for the code of a project: file tree, tabs, syntax highlighti
 
 States are the same for every harness:
 
-```
-starting ─▶ working ⇄ pending ─(Close)─▶ closed ─(Resume)─▶ working
-                        ├─ waiting:    turn finished, needs your input
-                        └─ background: idle while a background command runs
-
-other states: in terminal ─(re-attach)─▶ working
-              interrupted (daemon restart) ─(resume)─▶ working
-              error
-```
-
 The agents list has three groups:
 
-- **Running:** the agent is producing output.
-- **Pending:** the agent is not doing anything you need to watch, and the session stays here until you close it. Two cases:
-  - `waiting`: the turn finished and the agent waits for your input (including questions shown as cards).
-  - `background`: the agent only waits for a background command. Claude reports these explicitly (see [9.3](#93-claude-code-adapter)). For Codex, a command that has produced no output for `pending_after_silent_command_seconds` (default 30 s) counts as background. This is a heuristic on purpose; it only changes a badge.
-- **Closed:** sessions you closed. Closing stops the harness process; the conversation stays resumable in one click.
+- **Done:** `waiting`, when a turn has finished or the agent asks for user input. It stays here until the next prompt or Close.
+- **Running:** `starting`, `working` and `background`. Long commands stay Running even when they produce no output. Codex no longer uses a silence timer to change the session state.
+- **Closed:** closed, interrupted, errored and externally attached sessions, as before. Closed conversations remain resumable.
 
-A session that becomes pending raises the sidebar badge and sends a desktop notification (setting `agents.notify`). The UI reports over the WebSocket which sessions it shows and whether its window has the focus; no notification is sent for a session you are looking at. Each session stores: Launchpad id (a UUID, also passed to Claude as `--session-id`), harness session or thread id, cwd, project, title, model, effort, cost, token usage, and the launch spec that created it.
+The Agents sidebar item shows separate amber Done and blue Running counts; a discreet spinner appears beside a nonzero Running count. Pinned projects show an amber dot when any associated session is Done and a spinner when any is Running, including both when applicable. Sessions match projects by project id or folder, so worktree sessions retain their project marker.
+
+A session that becomes Done sends a desktop notification (`agents.notify`) unless the focused window is displaying it. Each session stores its id, harness id, cwd, project, title, model, effort, usage and initial launch spec. After launch, a separate naming request generates a concise AI title from the initial rendered prompt and persists it through the usual session update event. This request uses Claude Haiku or a small available Codex model, is ephemeral, runs outside the project and times out after 45 seconds. Launch never waits for naming; if naming fails, the first-line prompt title remains.
 
 Normalized event kinds (stored in `session_event`, streamed over WebSocket):
 
@@ -396,7 +386,7 @@ Normalized event kinds (stored in `session_event`, streamed over WebSocket):
 
 Raw harness output lines are also stored (`session_raw`, capped at 20,000 lines per session) so the normalizer can be improved and replayed on old sessions. Text deltas and live command output are streamed but not stored; the final message and the command result are.
 
-A pending session has no harness process after a daemon restart; sending it a message resumes it first. A session that was mid-turn becomes `interrupted`.
+A Done session has no harness process after a daemon restart; sending it a message resumes it first. A session that was mid-turn becomes `interrupted`.
 
 ### 9.2 Harness adapter interface
 
@@ -451,7 +441,7 @@ trait LiveSession: Send + Sync {
 - **Flow:** `initialize` → `thread/start {cwd, model?, approvalPolicy: "never", sandbox: "danger-full-access"}` → `turn/start {threadId, input: [{type: "text", text}], effort?}`.
 - **Typing while the agent works:** `turn/steer {threadId, expectedTurnId, input}`. The steered text appears as a `userMessage` item when Codex reads it (after the running command), in the same turn. The Stop button sends `turn/interrupt {threadId, turnId}`, which ends the turn with `status: "interrupted"`. A running command is not stopped by the interrupt: it finishes on its own and its `item/completed` arrives later. The adapter marks open items as interrupted when the turn ends, and the late result replaces that mark. Verified in [spike 3](spikes/3-codex-app-server.md), with the full event mapping.
 - **Notifications → events:** `item/agentMessage/delta`, `item/started` and `item/completed` (user messages, agent messages with `phase` `commentary` or `final_answer`, command executions with `item/commandExecution/outputDelta`, file changes, MCP tool calls, reasoning summaries), `turn/plan/updated`, `turn/diff/updated`, `thread/tokenUsage/updated` (`total`, `last`, `modelContextWindow`), `turn/completed` (switches to `waiting`), `account/rateLimits/updated` (after every model response).
-- **Background commands:** Codex has no explicit signal for them. A `commandExecution` item that is still running without new output for 30 s puts the session in `background` until the item completes or new output arrives.
+- **Long commands:** an open `commandExecution` stays Running until the turn finishes or Codex asks for user input. Silence is not a signal that the agent is Done.
 - **Server requests:** `item/tool/requestUserInput` becomes an `ask_user` card. Approval requests should not happen with `approvalPolicy: "never"`; if one arrives, it is declined automatically and logged.
 - **Resume after a restart:** `thread/resume {threadId}`.
 - **Open in terminal:** `codex resume <thread-id>` with `-c check_for_update_on_startup=false` and the trust override for the cwd.
@@ -592,7 +582,7 @@ A pre-draft PR is a pull request that exists only on your laptop: a local branch
 - **Libraries:** React 19 + TypeScript + Vite, with pnpm as the package manager; TanStack Router (typed routes); TanStack Query (cache, background revalidation, optimistic mutations; WebSocket events call `invalidateQueries` or `setQueryData`); Zustand for UI state (layouts, composer draft, selection); Tailwind CSS v4 with Radix primitives (shadcn-style components copied into the repo); TanStack Virtual (lists, diffs, long sessions); Shiki in a Web Worker; markdown-it; DOMPurify; github-markdown-css.
 - **Theme:** light only. One set of CSS variables, no dark tokens.
 - **Layout:** left sidebar (Inbox, Agents, Projects, pinned projects, temporary projects, Settings; collapses to icons), main area, composer drawer on the right, status bar at the bottom.
-- **Harness marks:** the official Claude and Codex logos (SVG files in `web/src/assets/`) everywhere a harness appears: radial launch buttons (logo only, no label), session lists, pane headers, status bar.
+- **Harness marks:** the official Claude and Codex logos (SVG files in `web/src/assets/`) everywhere a harness appears: session lists, pane headers, status bar.
 - **Speed tactics:** render from cache; prefetch on selection; keep list views mounted so scroll position and selection survive navigation; optimistic actions; virtualized lists; every frequent action one click away.
 - **Click only:** no keyboard shortcuts except `Ctrl+F` in the code viewer (see principle 5). Frequent actions are visible buttons where they are used: hover actions on notification rows, a Launch button on every notification, issue, PR and project, layout buttons in the agents view, Refresh and Open on GitHub on every cached object. Icon-only buttons have a hover title. Context is added to the composer with buttons, or with `@` and `#` suggestions in the prompt (see [9.7](#97-prompt-composition)).
 - **WebKitGTK:** the Tauri webview on Linux is WebKit, not Chromium. Measured in [spike 4](spikes/4-webkitgtk.md): a virtualized 5,000-line diff and a 2,000-event session scroll at 60 fps on an idle machine. With all CPU threads busy (a large build), WebKitGTK drops to about 20 fps where Chrome stays at 60 fps, and mounting thousands of plain rows is about 14 times slower than in Chrome. Rules that follow: virtualize every long list, memoize row components, create virtualizers with `useFlushSync: false`, prefer fixed row heights, keep overscan small. The page `/dev/perf?auto=1` repeats the measurement. If the window renders blank with some GPU drivers, `WEBKIT_DISABLE_DMABUF_RENDERER=1` is the usual workaround. Because the UI is a plain web app, it can be developed in Chrome against the dev daemon, and switching the shell to Chromium (`--app=` mode) stays possible if scrolling during builds becomes a problem.
@@ -635,11 +625,11 @@ Confirmed on 2026-10-02:
 
 1. **Headless sessions.** Launchpad renders sessions itself. Losing TUI-only features is fine; "Open in terminal" is the escape hatch. No embedded terminal for now.
 2. **Background daemon.** The systemd user service with a thin Tauri window is the target architecture.
-3. **Pending agents.** A session is pending when its turn finished and it waits for input, or when it only waits for a background command. It stays pending until you close it. Kept simple (see [9.1](#91-session-model)).
+3. **Agent groups.** Updated by decision 23: Done waits for input; Running includes background and long commands; Closed remains resumable (see [9.1](#91-session-model)).
 4. **Pre-draft PRs.** Launchpad creates the branch and worktree under `<projects_root>/.worktrees/` and links a `launchpad` skill into `~/.agents/skills`.
 5. **Temporary folders.** `<projects_root>/tmp-<MMDD>-<slug>`. The projects root is configurable, default `~/projects`.
 6. **Claude quota.** Launchpad may read the OAuth access token in `~/.claude/.credentials.json` to call the usage endpoint, never refreshing it.
-7. **Harness icons.** Launch buttons and harness marks use the Claude and Codex logos, without text labels.
+7. **Harness icons.** Harness marks use the Claude and Codex logos. Launch buttons open the composer directly (updated by decision 23).
 8. **Click-only UI.** No keyboard shortcuts, at least at first. Two typing behaviors only: `@` and `#` suggestions in the composer prompt (added on 2026-10-02, see [9.7](#97-prompt-composition)), and `Enter` to send in a session's message box. Shortcuts may be added later if they are really missed. Amended on 2026-10-02 by decision 22 (`Ctrl+F` in the code viewer).
 9. **Terminal is a setting.** "Open in terminal" uses the terminal chosen in Settings: Terminator by default, Ghostty, GNOME Terminal, or a custom command.
 10. **Minimal tests.** Move fast and break things. Test only small, specific parts that clearly benefit from it. No mocks, no tests that need a server, and the whole run takes a few seconds at most. Details in [5.2](#52-testing).
@@ -667,3 +657,10 @@ Code viewer, asked for on 2026-10-02 (designed in sketch S7, not built yet):
 
 21. **Code viewer.** A read-only viewer (file tree, tabs, find in file, search in project) over a checkout, a worktree or any git revision, with selected lines usable as agent context. It uses the code lines of the diff view (TanStack Virtual, Shiki in a Web Worker) instead of Monaco or CodeMirror: nothing needs editing, Monaco is heavy and brings its own keyboard model, and one renderer tuned for WebKitGTK is simpler. If light editing is wanted later, CodeMirror 6 is the option. Details in [8.1](#81-code-viewer).
 22. **Ctrl+F.** The first keyboard shortcut. `Ctrl+F` opens the find bar while the code viewer is on screen. In the find field, `Enter` and `Shift+Enter` go to the next and previous match and `Escape` closes the bar. A visible Find button does the same, so every action still has a button. This amends decision 8.
+
+Usability updates after daily use, on 2026-10-02:
+
+23. **Direct launch and readable status.** Every Launch button opens the composer with the harness, model and effort selections from the latest launched session, kept in `state.db` with its launch spec. Picking a harness or editing an unsent draft does not change these remembered defaults. Done means waiting for input; background commands stay Running. The Agents navigation and pinned project markers share the same state predicates.
+24. **Readable scale.** The whole light interface scales through CSS zoom, including fixed-height virtualized rows, icons and panels. General settings persist five zoom positions in `config.toml`: 100%, 110%, 120% (default), 135% and 150%. Secondary text and borders have stronger contrast.
+25. **Image messages.** Session message boxes accept image file selection, drops anywhere in the console and clipboard paste. Previews can be removed before Send; image-only messages are supported. PNG, JPEG, GIF and WebP images are limited to 5 MB each, eight images and 20 MB per message. The authenticated input endpoint validates data URLs and raises its request limit to 32 MB. Attachments remain in the local event log, appear in the conversation and are sent as native image content to Claude or Codex, including steer and resumed turns. Clipboard paste remains normal text-field behavior.
+26. **AI session titles.** Every newly launched agent gets an AI title based on its initial prompt. A separate short request runs in the background and broadcasts the persisted title without blocking launch. A prompt-derived title covers naming failures.

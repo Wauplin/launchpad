@@ -163,6 +163,7 @@ export function Composer() {
     setLaunching(true);
     try {
       const s = await api.post<Session>("/api/sessions", spec);
+      useComposer.getState().rememberLaunch(spec);
       discard();
       const where = projects.find((p) => p.id === s.project_id)?.name ?? s.cwd.split("/").pop();
       const openIt = () => {

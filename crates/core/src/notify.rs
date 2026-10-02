@@ -11,7 +11,7 @@ use crate::model::{Session, SessionStatus};
 static WAITING: AtomicUsize = AtomicUsize::new(0);
 const MAX_WAITING: usize = 32;
 
-pub fn session_pending(app: &App, s: &Session) {
+pub fn session_done(app: &App, s: &Session) {
     if !app.config.get().agents.notify {
         return;
     }
