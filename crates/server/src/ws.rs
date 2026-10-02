@@ -14,6 +14,12 @@ pub async fn handler(State(s): State<Server>, ws: WebSocketUpgrade) -> Response 
 }
 
 async fn run(s: Server, socket: WebSocket) {
+    serve_socket(&s, socket).await;
+    // The window is gone: nothing is watched any more.
+    s.app.sessions.set_watched(false, vec![]);
+}
+
+async fn serve_socket(s: &Server, socket: WebSocket) {
     let (mut tx, mut rx) = socket.split();
     let mut events = s.app.bus.subscribe();
     let hello = serde_json::json!({"type": "hello", "profile": s.app.paths.profile.name(), "build": crate::ui::build_id()});
@@ -39,7 +45,7 @@ async fn run(s: Server, socket: WebSocket) {
                 match msg {
                     Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
                     Some(Ok(Message::Ping(p))) => { let _ = tx.send(Message::Pong(p)).await; }
-                    Some(Ok(Message::Text(t))) => client_message(&s, &t),
+                    Some(Ok(Message::Text(t))) => client_message(s, &t),
                     Some(Ok(_)) => {}
                 }
             }

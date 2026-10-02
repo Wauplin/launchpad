@@ -42,8 +42,8 @@ if [ "$running" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
 fi
 
 # 2. Build.
-pnpm -C web install --frozen-lockfile --config.confirmModulesPurge=false
-pnpm -C web build
+# From web/: Corepack picks the pnpm version of the nearest package.json, not the one of `-C web`.
+(cd web && pnpm install --frozen-lockfile --config.confirmModulesPurge=false && pnpm build)
 cargo build --release -p launchpad -p launchpad-desktop
 
 # 3. Install. Copy then rename, so running binaries are replaced safely.

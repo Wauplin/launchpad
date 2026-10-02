@@ -25,7 +25,7 @@ pub async fn serve(uri: Uri) -> Response {
     match Assets::get("index.html") {
         Some(file) => ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-cache")], file.data)
             .into_response(),
-        None => (StatusCode::NOT_FOUND, "UI not built: run `pnpm -C web build`").into_response(),
+        None => (StatusCode::NOT_FOUND, "UI not built: run `(cd web && pnpm build)`").into_response(),
     }
 }
 

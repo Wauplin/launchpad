@@ -1,8 +1,15 @@
 //! Desktop notifications, sent by the daemon so they work when the window is closed.
 //! Clicking one opens the window on the item (`launchpad-desktop --open <route>`).
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use crate::App;
 use crate::model::{Session, SessionStatus};
+
+/// Threads waiting for a click. GNOME keeps unanswered notifications in its tray, so the waits are
+/// capped; beyond the cap, notifications are shown without the click action.
+static WAITING: AtomicUsize = AtomicUsize::new(0);
+const MAX_WAITING: usize = 32;
 
 pub fn session_pending(app: &App, s: &Session) {
     if !app.config.get().agents.notify {
@@ -28,7 +35,10 @@ pub fn session_pending(app: &App, s: &Session) {
             .action("default", "Open")
             .show();
         match handle {
-            Ok(h) => h.wait_for_action(|action| {
+            Ok(_) if WAITING.load(Ordering::Relaxed) >= MAX_WAITING => {}
+            Ok(h) => {
+                WAITING.fetch_add(1, Ordering::Relaxed);
+                h.wait_for_action(|action| {
                 if action == "default" {
                     let exe = desktop.clone().map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|| "launchpad-desktop".into());
                     let mut cmd = std::process::Command::new(exe);
@@ -38,7 +48,9 @@ pub fn session_pending(app: &App, s: &Session) {
                     }
                     let _ = cmd.spawn();
                 }
-            }),
+                });
+                WAITING.fetch_sub(1, Ordering::Relaxed);
+            }
             Err(e) => tracing::warn!("notification: {e}"),
         }
     });

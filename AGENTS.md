@@ -6,11 +6,11 @@ Status: Phase 0 done, Phase 1 in progress (see `docs/ROADMAP.md`). Keep the buil
 
 ## Commands
 
-- Build the UI: `pnpm -C web install && pnpm -C web build` (Node 24 from `web/.nvmrc`, pnpm through Corepack).
+- Build the UI: `cd web && pnpm install && pnpm build` (Node 24 from `web/.nvmrc`, pnpm through Corepack).
 - Run the dev daemon: `LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- daemon` (port 7318, data in `~/.local/share/launchpad-dev`). Never stop or restart the prod daemon (port 7317) unless the owner asks: it runs the agents, maybe including you.
 - Sign a browser in to the dev daemon: `LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- url`. Headless screenshots work with `google-chrome --headless=new --screenshot=out.png --virtual-time-budget=5000 "<url>"`.
 - Regenerate the TypeScript types after changing a Rust type shared with the UI: `cargo run -p launchpad -- gen-types`.
-- Type-check the UI: `pnpm -C web typecheck`.
+- Type-check the UI: `(cd web && pnpm typecheck)`.
 - Tests: `cargo test` (the few unit tests in `crates/core`; the desktop crate is excluded by default).
 - Dev window: `cargo build -p launchpad-desktop && LAUNCHPAD_PROFILE=dev ./target/debug/launchpad-desktop [--open <route>]`.
 - Install or update the prod app: `packaging/install.sh` (release build, binaries in `~/.local/bin`, systemd user unit, `.desktop` and autostart entries). It restarts the prod daemon, so only run it when the owner asks.
