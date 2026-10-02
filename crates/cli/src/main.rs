@@ -19,6 +19,9 @@ enum Command {
     Daemon,
     /// Print the daemon status as JSON.
     Status,
+    /// Reserve an idle daemon for installation, or release it after failure.
+    #[command(hide = true)]
+    UpdateInstallLock { #[arg(long)] release: bool },
     /// Print the address that signs a browser into the UI.
     Url,
     /// Write the TypeScript types shared with the UI.
@@ -50,6 +53,19 @@ async fn main() -> Result<()> {
                 .context("is the daemon running?")?;
             let body: serde_json::Value = res.error_for_status()?.json().await?;
             println!("{}", serde_json::to_string_pretty(&body)?);
+            Ok(())
+        }
+        Command::UpdateInstallLock { release } => {
+            let body: serde_json::Value = reqwest::Client::new()
+                .post(format!("{}/api/settings/update/install-lock", paths.base_url()))
+                .bearer_auth(paths.token()?)
+                .json(&serde_json::json!({"release": release}))
+                .send().await?.error_for_status()?.json().await?;
+            match body["ready"].as_bool() {
+                Some(true) => {},
+                Some(false) => std::process::exit(3),
+                None => anyhow::bail!("invalid installation reservation response"),
+            }
             Ok(())
         }
         Command::Url => {

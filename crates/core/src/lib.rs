@@ -23,6 +23,10 @@ pub mod terminal;
 mod titles;
 pub mod util;
 
+/// Source revision embedded in the running binary, and the main checkout used for updates.
+pub const COMMIT: &str = env!("LAUNCHPAD_COMMIT");
+pub const SOURCE: &str = env!("LAUNCHPAD_SOURCE");
+
 use std::sync::Arc;
 
 use anyhow::Result;

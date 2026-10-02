@@ -55,6 +55,8 @@ type LiveSessions = HashMap<String, (u64, Arc<dyn LiveSession>)>;
 
 struct Inner {
     records: Mutex<HashMap<String, Session>>,
+    /// Serializes new turns with the final updater idle check. True blocks new work until restart.
+    installing: tokio::sync::Mutex<bool>,
     /// Attached processes, with an instance number: the exit of an old process never detaches a newer one.
     live: Mutex<LiveSessions>,
     next_instance: std::sync::atomic::AtomicU64,
@@ -74,6 +76,7 @@ impl Sessions {
         Sessions {
             inner: Arc::new(Inner {
                 records: Mutex::new(HashMap::new()),
+                installing: tokio::sync::Mutex::new(false),
                 live: Mutex::new(HashMap::new()),
                 next_instance: std::sync::atomic::AtomicU64::new(1),
                 raw_counts: Mutex::new(HashMap::new()),
@@ -141,6 +144,25 @@ impl Sessions {
         }
         self.publish_counts(app);
         Ok(())
+    }
+
+    pub async fn prepare_install(&self, release: bool) -> bool {
+        let mut installing = self.inner.installing.lock().await;
+        if release {
+            *installing = false;
+            return true;
+        }
+        if self.list().iter().any(|s| s.status.is_running()) {
+            return false;
+        }
+        *installing = true;
+        true
+    }
+
+    async fn allow_work(&self) -> Result<tokio::sync::MutexGuard<'_, bool>> {
+        let guard = self.inner.installing.lock().await;
+        if *guard { bail!("Launchpad is installing an update. Try again after it reconnects."); }
+        Ok(guard)
     }
 
     pub fn list(&self) -> Vec<Session> {
@@ -288,6 +310,7 @@ impl Sessions {
     }
 
     pub async fn launch(&self, app: &App, spec: LaunchSpec) -> Result<Session> {
+        let _guard = self.allow_work().await?;
         let harness = spec.harness.context("pick Claude Code or Codex")?;
         if spec.target == Target::None {
             bail!("pick a project or a temporary folder");
@@ -400,6 +423,7 @@ impl Sessions {
     }
 
     pub async fn send(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>) -> Result<()> {
+        let _guard = self.allow_work().await?;
         let s = self.get(id).context("no such session")?;
         if s.status == SessionStatus::InTerminal {
             bail!("the session is open in a terminal: re-attach it first");
@@ -424,6 +448,7 @@ impl Sessions {
     }
 
     pub async fn answer(&self, app: &App, id: &str, request_id: &str, answers: Vec<String>) -> Result<()> {
+        let _guard = self.allow_work().await?;
         let live = self.live(id).context("the session has no running process")?;
         live.answer(request_id, answers.clone()).await?;
         let sink = self.sink(app, id);
@@ -458,6 +483,7 @@ impl Sessions {
 
     /// Resumes a closed or interrupted session in Launchpad, without sending anything.
     pub async fn resume(&self, app: &App, id: &str) -> Result<()> {
+        let _guard = self.allow_work().await?;
         let s = self.get(id).context("no such session")?;
         if s.status == SessionStatus::InTerminal && crate::terminal::tui_running(app, &s) {
             bail!("the session is still open in a terminal: close it there first");
@@ -479,6 +505,7 @@ impl Sessions {
 
     /// Hands the session to the terminal chosen in Settings.
     pub async fn open_terminal(&self, app: &App, id: &str) -> Result<()> {
+        let _guard = self.allow_work().await?;
         let s = self.get(id).context("no such session")?;
         if s.status.is_running() {
             bail!("wait for the turn to end, or stop it first");

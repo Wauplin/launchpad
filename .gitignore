@@ -3,3 +3,6 @@
 /web/dist
 /desktop/src-tauri/gen
 /web/tsconfig.tsbuildinfo
+
+# Agent worktrees have their own Git state.
+/.claude/worktrees/

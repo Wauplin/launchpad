@@ -44,6 +44,7 @@ pub fn router() -> Router<Server> {
         .route("/api/gh/{owner}/{repo}/suggest", get(gh_suggest))
         .route("/api/settings/terminals", get(terminals))
         .route("/api/settings/update", get(update_status).post(start_update))
+        .route("/api/settings/update/install-lock", post(install_lock))
         .route("/api/open", post(open_url))
         .route("/api/open-editor", post(open_editor))
 }
@@ -270,28 +271,41 @@ async fn terminals(State(s): State<Server>) -> Json<Vec<launchpad_core::terminal
 }
 
 async fn update_status(State(s): State<Server>) -> ApiResult<Value> {
-    if s.app.paths.profile != Profile::Prod {
-        return Ok(Json(json!({"state": "unavailable", "stage": "", "message": "Updates are available in the production app.", "log": ""})));
-    }
+    let source = std::path::Path::new(launchpad_core::SOURCE);
+    let latest = launchpad_core::procs::output(&s.app.env, "git", &["rev-parse", "refs/heads/main"], Some(source)).await.ok();
+    let outdated = if let Some(ref latest) = latest {
+        latest != launchpad_core::COMMIT && launchpad_core::procs::output(
+            &s.app.env, "git", &["merge-base", "--is-ancestor", launchpad_core::COMMIT, latest], Some(source)
+        ).await.is_ok()
+    } else { false };
     let file = s.app.paths.data_dir.join("update-status");
     let line = std::fs::read_to_string(&file).unwrap_or_default();
     let mut fields = line.trim().splitn(3, '\t');
     let state = fields.next().filter(|v| !v.is_empty()).unwrap_or("idle");
+    let state = if s.app.paths.profile == Profile::Prod { state } else { "unavailable" };
     let stage = fields.next().unwrap_or("");
     let message = fields.next().unwrap_or("");
+    let message = if s.app.paths.profile == Profile::Prod { message } else { "Updates are available in the production app." };
     let log = std::fs::read_to_string(file.with_file_name("update.log")).unwrap_or_default();
     let log = log.chars().rev().take(6000).collect::<String>().chars().rev().collect::<String>();
-    Ok(Json(json!({"state": state, "stage": stage, "message": message, "log": log})))
+    Ok(Json(json!({"state": state, "stage": stage, "message": message, "log": log, "commit": launchpad_core::COMMIT, "latest_commit": latest, "outdated": outdated})))
+}
+
+#[derive(Deserialize)]
+struct InstallLock { #[serde(default)] release: bool }
+
+async fn install_lock(State(s): State<Server>, Json(b): Json<InstallLock>) -> ApiResult<Value> {
+    if s.app.paths.profile != Profile::Prod {
+        return Err(ApiError::bad_request("Installation is production-only."));
+    }
+    Ok(Json(json!({"ready": s.app.sessions.prepare_install(b.release).await})))
 }
 
 async fn start_update(State(s): State<Server>) -> ApiResult<Value> {
     if s.app.paths.profile != Profile::Prod {
         return Err(ApiError::bad_request("Open the production app to update Launchpad."));
     }
-    if s.app.status.get().sessions.running > 0 {
-        return Err(ApiError::conflict("Running agents would be interrupted. Wait for them to finish before updating."));
-    }
-    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/update.sh");
+    let script = std::path::Path::new(launchpad_core::SOURCE).join("packaging/update.sh");
     if !script.is_file() {
         return Err(ApiError::not_found(format!("Update script is missing: {}", script.display())));
     }
