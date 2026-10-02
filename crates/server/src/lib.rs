@@ -1,5 +1,6 @@
 //! HTTP + WebSocket server of the daemon, on 127.0.0.1 only.
 
+mod api;
 mod auth;
 mod error;
 mod routes;
@@ -26,6 +27,7 @@ pub async fn serve(app: App) -> Result<()> {
     let server = Server { app, auth };
     let router: Router = Router::new()
         .merge(routes::router())
+        .merge(api::router())
         .route("/ws", axum::routing::get(ws::handler))
         .route("/auth", axum::routing::get(auth::handshake))
         .fallback(ui::serve)

@@ -39,9 +39,20 @@ async fn run(s: Server, socket: WebSocket) {
                 match msg {
                     Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
                     Some(Ok(Message::Ping(p))) => { let _ = tx.send(Message::Pong(p)).await; }
+                    Some(Ok(Message::Text(t))) => client_message(&s, &t),
                     Some(Ok(_)) => {}
                 }
             }
         }
+    }
+}
+
+/// Messages from the UI. `presence`: whether the window has the focus and which sessions it shows,
+/// so the daemon does not notify about a session you are looking at.
+fn client_message(s: &Server, text: &str) {
+    let Ok(msg) = serde_json::from_str::<serde_json::Value>(text) else { return };
+    if msg["type"] == "presence" {
+        let sessions = msg["sessions"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
+        s.app.sessions.set_watched(msg["focused"].as_bool().unwrap_or(false), sessions);
     }
 }

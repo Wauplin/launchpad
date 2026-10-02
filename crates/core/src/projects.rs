@@ -1,0 +1,261 @@
+//! Project registry (ARCHITECTURE.md, section 8): registered folders, discovery in the projects root,
+//! the repo → project mapping, and temporary projects.
+
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result, bail};
+use rusqlite::{OptionalExtension, Row, params};
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+use crate::App;
+use crate::model::Project;
+use crate::util::now_ms;
+
+const COLUMNS: &str = "id, name, path, remote_url, gh_repo, gh_upstream, description, is_temp, pinned, created_at";
+
+fn from_row(r: &Row) -> rusqlite::Result<Project> {
+    Ok(Project {
+        id: r.get(0)?,
+        name: r.get(1)?,
+        path: r.get(2)?,
+        remote_url: r.get(3)?,
+        gh_repo: r.get(4)?,
+        gh_upstream: r.get(5)?,
+        description: r.get(6)?,
+        is_temp: r.get::<_, i64>(7)? != 0,
+        pinned: r.get::<_, i64>(8)? != 0,
+        created_at: r.get(9)?,
+    })
+}
+
+/// A git repository found in the projects root.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct Discovered {
+    pub name: String,
+    pub path: String,
+    pub gh_repo: Option<String>,
+    pub registered: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
+#[serde(default)]
+pub struct ProjectPatch {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub pinned: Option<bool>,
+}
+
+pub async fn list(app: &App) -> Result<Vec<Project>> {
+    app.state_db
+        .call(|c| {
+            let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM project ORDER BY is_temp, lower(name)"))?;
+            let rows = st.query_map([], from_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await
+}
+
+pub async fn get(app: &App, id: &str) -> Result<Option<Project>> {
+    let id = id.to_string();
+    app.state_db
+        .call(move |c| Ok(c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE id = ?1"), [id], from_row).optional()?))
+        .await
+}
+
+/// Project whose folder contains `cwd` (the longest match).
+pub async fn for_path(app: &App, cwd: &Path) -> Result<Option<Project>> {
+    let all = list(app).await?;
+    Ok(all.into_iter().filter(|p| cwd.starts_with(&p.path)).max_by_key(|p| p.path.len()))
+}
+
+/// The project to use for a GitHub repository: `origin` first, then `upstream` (forks).
+pub async fn for_repo(app: &App, repo: &str) -> Result<Option<Project>> {
+    let all = list(app).await?;
+    let eq = |a: &Option<String>| a.as_deref().is_some_and(|r| r.eq_ignore_ascii_case(repo));
+    Ok(all.iter().find(|p| eq(&p.gh_repo)).or_else(|| all.iter().find(|p| eq(&p.gh_upstream))).cloned())
+}
+
+fn remote_info(path: &Path) -> (Option<String>, Option<String>, Option<String>) {
+    let remotes = crate::git::remotes(path);
+    let url = |name: &str| remotes.iter().find(|(n, _)| n == name).map(|(_, u)| u.clone());
+    let origin = url("origin");
+    let gh_repo = origin.as_deref().and_then(crate::git::github_repo);
+    let gh_upstream = url("upstream").as_deref().and_then(crate::git::github_repo);
+    (origin, gh_repo, gh_upstream)
+}
+
+/// Registers a folder (or returns the existing project for it).
+pub async fn register(app: &App, path: &Path, is_temp: bool) -> Result<Project> {
+    let path = std::fs::canonicalize(path).with_context(|| format!("{} does not exist", path.display()))?;
+    if !path.is_dir() {
+        bail!("{} is not a folder", path.display());
+    }
+    let (remote_url, gh_repo, gh_upstream) = remote_info(&path);
+    let p = Project {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        path: path.to_string_lossy().to_string(),
+        remote_url,
+        gh_repo,
+        gh_upstream,
+        description: String::new(),
+        is_temp,
+        pinned: false,
+        created_at: now_ms(),
+    };
+    let saved = p.clone();
+    let existing = app
+        .state_db
+        .call(move |c| {
+            if let Some(e) = c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE path = ?1"), [&p.path], from_row).optional()? {
+                return Ok(Some(e));
+            }
+            c.execute(
+                &format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"),
+                params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at],
+            )?;
+            Ok(None)
+        })
+        .await?;
+    let project = existing.unwrap_or(saved);
+    app.bus.publish("projects", "changed", serde_json::Value::Null);
+    Ok(project)
+}
+
+pub async fn update(app: &App, id: &str, patch: ProjectPatch) -> Result<Project> {
+    let id2 = id.to_string();
+    app.state_db
+        .call(move |c| {
+            if let Some(n) = patch.name {
+                c.execute("UPDATE project SET name = ?1 WHERE id = ?2", params![n.trim(), id2])?;
+            }
+            if let Some(d) = patch.description {
+                c.execute("UPDATE project SET description = ?1 WHERE id = ?2", params![d.trim(), id2])?;
+            }
+            if let Some(p) = patch.pinned {
+                c.execute("UPDATE project SET pinned = ?1 WHERE id = ?2", params![p as i64, id2])?;
+            }
+            Ok(())
+        })
+        .await?;
+    app.bus.publish("projects", "changed", serde_json::Value::Null);
+    get(app, id).await?.context("no such project")
+}
+
+/// Removes a project from the registry. The folder is left as is.
+pub async fn unregister(app: &App, id: &str) -> Result<()> {
+    let id = id.to_string();
+    app.state_db.call(move |c| Ok(c.execute("DELETE FROM project WHERE id = ?1", [id])?)).await?;
+    app.bus.publish("projects", "changed", serde_json::Value::Null);
+    Ok(())
+}
+
+/// "Scan projects root": git repositories in the projects root (one level deep).
+pub async fn discover(app: &App) -> Result<Vec<Discovered>> {
+    let root = app.config.get().projects_root();
+    let registered: std::collections::HashSet<String> = list(app).await?.into_iter().map(|p| p.path).collect();
+    tokio::task::spawn_blocking(move || {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(&root).with_context(|| format!("read {}", root.display()))? {
+            let entry = entry?;
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') || !path.is_dir() || crate::git::git_dir(&path).is_none() {
+                continue;
+            }
+            let (_, gh_repo, _) = remote_info(&path);
+            let canonical = std::fs::canonicalize(&path).unwrap_or(path.clone());
+            out.push(Discovered {
+                registered: registered.contains(&canonical.to_string_lossy().to_string()),
+                name,
+                path: canonical.to_string_lossy().to_string(),
+                gh_repo,
+            });
+        }
+        out.sort_by_key(|d| d.name.to_lowercase());
+        Ok(out)
+    })
+    .await?
+}
+
+/// Creates `<projects_root>/tmp-<MMDD>-<slug>` and registers it as a temporary project.
+pub async fn create_temp(app: &App, prompt: &str) -> Result<Project> {
+    let root = app.config.get().projects_root();
+    let (month, day) = crate::util::local_month_day();
+    let base = format!("tmp-{month:02}{day:02}-{}", crate::compose::slug_from(prompt));
+    let mut path = root.join(&base);
+    let mut n = 2;
+    while path.exists() {
+        path = root.join(format!("{base}-{n}"));
+        n += 1;
+    }
+    std::fs::create_dir_all(&path).with_context(|| format!("create {}", path.display()))?;
+    register(app, &path, true).await
+}
+
+fn check_temp(app: &App, p: &Project) -> Result<PathBuf> {
+    if !p.is_temp {
+        bail!("{} is not a temporary project", p.name);
+    }
+    let root = std::fs::canonicalize(app.config.get().projects_root())?;
+    let path = PathBuf::from(&p.path);
+    if path.parent() != Some(root.as_path()) {
+        bail!("{} is not directly in the projects root", p.path);
+    }
+    Ok(path)
+}
+
+/// Deletes the folder of a temporary project and unregisters it. The caller stops its sessions first.
+pub async fn delete_temp(app: &App, id: &str) -> Result<()> {
+    let p = get(app, id).await?.context("no such project")?;
+    let path = check_temp(app, &p)?;
+    if path.exists() {
+        tokio::task::spawn_blocking(move || std::fs::remove_dir_all(&path)).await??;
+    }
+    unregister(app, id).await
+}
+
+/// Claude stores transcripts in `~/.claude/projects/<path with every non-alphanumeric character as ->`.
+pub fn claude_transcripts_dir(cwd: &str) -> PathBuf {
+    let encoded: String = cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+    dirs::home_dir().unwrap_or_default().join(".claude/projects").join(encoded)
+}
+
+/// Renames a temporary folder to `<projects_root>/<name>` and makes it a normal project. Moves the
+/// Claude transcripts too, so past sessions stay resumable. Refused while a session runs there.
+pub async fn promote(app: &App, id: &str, name: &str) -> Result<Project> {
+    let p = get(app, id).await?.context("no such project")?;
+    let old = check_temp(app, &p)?;
+    let name = name.trim();
+    if name.is_empty() || name.contains('/') || name.starts_with('.') {
+        bail!("invalid folder name");
+    }
+    let new = old.parent().unwrap().join(name);
+    if new.exists() {
+        bail!("{} already exists", new.display());
+    }
+    std::fs::rename(&old, &new).with_context(|| format!("rename to {}", new.display()))?;
+    let (old_s, new_s) = (old.to_string_lossy().to_string(), new.to_string_lossy().to_string());
+    let (old_t, new_t) = (claude_transcripts_dir(&old_s), claude_transcripts_dir(&new_s));
+    if old_t.exists() && !new_t.exists() {
+        if let Err(e) = std::fs::rename(&old_t, &new_t) {
+            tracing::warn!("promote: could not move Claude transcripts: {e}");
+        }
+    }
+    let (id2, name2) = (id.to_string(), name.to_string());
+    app.state_db
+        .call(move |c| {
+            c.execute("UPDATE project SET path = ?1, name = ?2, is_temp = 0 WHERE id = ?3", params![new_s, name2, id2])?;
+            // Sessions keep working from the new folder.
+            c.execute(
+                "UPDATE session SET cwd = ?1 || substr(cwd, length(?2) + 1) WHERE cwd = ?2 OR cwd LIKE ?2 || '/%'",
+                params![new_s, old_s],
+            )?;
+            Ok(())
+        })
+        .await?;
+    app.bus.publish("projects", "changed", serde_json::Value::Null);
+    app.bus.publish("sessions", "reload", serde_json::Value::Null);
+    get(app, id).await?.context("no such project")
+}

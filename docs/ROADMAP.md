@@ -64,6 +64,10 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 
 **Done when:** for one week, every agent you start goes through Launchpad.
 
+**Progress:**
+
+- Backend done: project registry and discovery, temporary projects (create, clean up, promote with the Claude transcripts), prompt renderer, Claude and Codex adapters with the normalized event log in `state.db` and WebSocket streaming, session operations (send, steer, interrupt, answer questions, close, resume, open in terminal, re-attach), model and effort defaults, GitHub link titles and `#` suggestions, desktop notifications, background `codex update`.
+
 ## Phase 2: GitHub inbox
 
 - GitHub client: token from `gh`, ETag store, GraphQL batching, rate-limit tracking.

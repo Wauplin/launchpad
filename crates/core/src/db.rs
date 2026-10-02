@@ -111,6 +111,12 @@ const STATE_MIGRATIONS: &[&str] = &[
         spec_json TEXT NOT NULL,
         updated_at INTEGER NOT NULL
     );",
+    // 2: fork upstreams, session status details
+    "ALTER TABLE project ADD COLUMN gh_upstream TEXT;
+    ALTER TABLE session ADD COLUMN status_since INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE session ADD COLUMN open_question INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE session ADD COLUMN last_seq INTEGER NOT NULL DEFAULT 0;
+    CREATE INDEX session_started ON session (started_at);",
 ];
 
 pub fn open_state(path: &Path) -> Result<Db> {

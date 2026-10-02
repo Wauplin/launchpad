@@ -1,13 +1,23 @@
 //! Domain types and services of the Launchpad daemon.
 
 pub mod codex_rpc;
+pub mod compose;
 pub mod config;
 pub mod db;
+pub mod drafts;
 pub mod events;
+pub mod git;
+pub mod github;
+pub mod harness;
+pub mod model;
+pub mod notify;
 pub mod paths;
 pub mod procs;
+pub mod projects;
+pub mod sessions;
 pub mod shellenv;
 pub mod status;
+pub mod terminal;
 pub mod util;
 
 use std::sync::Arc;
@@ -25,6 +35,9 @@ pub struct App {
     pub env: shellenv::UserEnv,
     pub status: status::StatusHandle,
     pub codex: codex_rpc::CodexServer,
+    pub sessions: sessions::Sessions,
+    pub github: github::GitHub,
+    pub models: harness::ModelCache,
 }
 
 impl App {
@@ -39,8 +52,25 @@ impl App {
         let env = shellenv::UserEnv::resolve().await;
         let status = status::StatusHandle::new(bus.clone());
         let codex = codex_rpc::CodexServer::new(env.clone());
-        let app = App { paths, config, state_db, cache_db, bus, env, status, codex };
+        let github = github::GitHub::new(env.clone());
+        let app = App {
+            paths,
+            config,
+            state_db,
+            cache_db,
+            bus,
+            env,
+            status,
+            codex,
+            sessions: sessions::Sessions::new(),
+            github,
+            models: harness::ModelCache::default(),
+        };
+        app.sessions.load(&app).await?;
         status::spawn_monitors(&app);
+        harness::codex::spawn_router(&app);
+        harness::spawn_model_refresh(&app);
+        harness::spawn_codex_updates(&app);
         Ok(app)
     }
 }
@@ -53,5 +83,14 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     let cfg = ts_rs::Config::new().with_out_dir(out).with_large_int("number");
     config::Config::export_all(&cfg)?;
     status::Status::export_all(&cfg)?;
+    model::Session::export_all(&cfg)?;
+    model::SessionEvent::export_all(&cfg)?;
+    model::Project::export_all(&cfg)?;
+    model::HarnessDefaults::export_all(&cfg)?;
+    projects::Discovered::export_all(&cfg)?;
+    projects::ProjectPatch::export_all(&cfg)?;
+    sessions::Preview::export_all(&cfg)?;
+    github::GhItem::export_all(&cfg)?;
+    terminal::TerminalOption::export_all(&cfg)?;
     Ok(())
 }
