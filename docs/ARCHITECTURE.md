@@ -541,7 +541,7 @@ A pre-draft PR is a pull request that exists only on your laptop: a local branch
 
 ## 12. Frontend
 
-- **Libraries:** React 19 + TypeScript + Vite; TanStack Router (typed routes); TanStack Query (cache, background revalidation, optimistic mutations; WebSocket events call `invalidateQueries` or `setQueryData`); Zustand for UI state (layouts, composer draft, selection); Tailwind CSS v4 with Radix primitives (shadcn-style components copied into the repo); TanStack Virtual (lists, diffs, long sessions); Shiki in a Web Worker; markdown-it; DOMPurify; github-markdown-css.
+- **Libraries:** React 19 + TypeScript + Vite, with pnpm as the package manager; TanStack Router (typed routes); TanStack Query (cache, background revalidation, optimistic mutations; WebSocket events call `invalidateQueries` or `setQueryData`); Zustand for UI state (layouts, composer draft, selection); Tailwind CSS v4 with Radix primitives (shadcn-style components copied into the repo); TanStack Virtual (lists, diffs, long sessions); Shiki in a Web Worker; markdown-it; DOMPurify; github-markdown-css.
 - **Theme:** light only. One set of CSS variables, no dark tokens.
 - **Layout:** left sidebar (Inbox, Agents, Projects, pinned projects, temporary projects, Settings; collapses to icons), main area, composer drawer on the right, status bar at the bottom.
 - **Harness marks:** the official Claude and Codex logos (SVG files in `web/src/assets/`) everywhere a harness appears: radial launch buttons (logo only, no label), session lists, pane headers, status bar.

@@ -10,7 +10,7 @@ Design phase. There is no code yet. The next step is Phase 0 of the roadmap (fou
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): architecture and decisions log.
 - [docs/ROADMAP.md](docs/ROADMAP.md): phases and their progress.
-- [docs/design/sketches.html](docs/design/sketches.html): UI sketches (open the file in a browser).
+- [docs/design/sketches.html](docs/design/sketches.html): UI sketches (open the file in a browser, or the [published version](https://claude.ai/code/artifact/916895f3-aa0f-4378-96da-b971415d6a5a)).
 - [AGENTS.md](AGENTS.md): rules for coding agents working on this repository (`CLAUDE.md` links to it).
 - [initial.md](initial.md): the original project description.
 

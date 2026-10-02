@@ -10,7 +10,7 @@ Status: design phase. There is no code yet. When code lands, add the build and r
 - `initial.md`: the original description of the project, in the owner's words.
 - `docs/ARCHITECTURE.md`: architecture and the decisions log. Read it before changing the design, and update it when a decision changes.
 - `docs/ROADMAP.md`: phases, and what "done" means for each one.
-- `docs/design/sketches.html`: UI sketches (static HTML, open it in a browser).
+- `docs/design/sketches.html`: UI sketches (static HTML, open it in a browser). It is also published as a private artifact at https://claude.ai/code/artifact/916895f3-aa0f-4378-96da-b971415d6a5a. After changing the file, republish it to that same URL when the Artifact tool is available.
 
 ## Git workflow
 
