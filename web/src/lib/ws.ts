@@ -1,6 +1,9 @@
-// One WebSocket to the daemon. Events update the TanStack Query cache directly.
+// One WebSocket to the daemon. Events update the TanStack Query cache and the session logs directly.
 
 import type { QueryClient } from "@tanstack/react-query";
+import type { Session } from "@/gen/Session";
+import type { SessionEvent } from "@/gen/SessionEvent";
+import { reloadSessionLogs, useSessionLogs } from "./sessionStore";
 
 export type BusEvent = { seq: number; topic: string; type: string; payload: unknown };
 type Listener = (ev: BusEvent) => void;
@@ -8,6 +11,7 @@ type Listener = (ev: BusEvent) => void;
 const listeners = new Set<Listener>();
 let connected = false;
 const connectionListeners = new Set<(c: boolean) => void>();
+let socket: WebSocket | null = null;
 
 /** Subscribes to every bus event. Returns the unsubscribe function. */
 export function onEvent(fn: Listener): () => void {
@@ -26,21 +30,33 @@ function setConnected(c: boolean) {
   connectionListeners.forEach((fn) => fn(c));
 }
 
+let presence: { focused: boolean; sessions: string[] } = { focused: false, sessions: [] };
+
+/** Tells the daemon which sessions are on screen, so it does not notify about them. */
+export function sendPresence(focused: boolean, sessions: string[]) {
+  presence = { focused, sessions };
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "presence", ...presence }));
+}
+
 export function connectEvents(queryClient: QueryClient) {
   let retry = 0;
   let build: string | null = null;
   const open = () => {
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+    socket = ws;
     ws.onopen = () => {
       retry = 0;
       setConnected(true);
+      ws.send(JSON.stringify({ type: "presence", ...presence }));
       // Anything may have changed while disconnected.
       void queryClient.invalidateQueries();
+      reloadSessionLogs();
     };
     ws.onmessage = (msg) => {
       const ev = JSON.parse(msg.data);
       if (ev.type === "resync") {
         void queryClient.invalidateQueries();
+        reloadSessionLogs();
         return;
       }
       if (ev.type === "hello") {
@@ -49,10 +65,29 @@ export function connectEvents(queryClient: QueryClient) {
         build = ev.build;
         return;
       }
-      if (ev.topic === "status") {
+      const topic: string = ev.topic;
+      if (topic === "status") {
         queryClient.setQueryData(["status"], ev.payload);
-      } else if (ev.topic === "config") {
+      } else if (topic === "config") {
         void queryClient.invalidateQueries({ queryKey: ["config"] });
+      } else if (topic === "projects") {
+        void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      } else if (topic === "sessions") {
+        if (ev.type === "updated") {
+          const s = ev.payload as Session;
+          queryClient.setQueryData<Session[]>(["sessions"], (old) => {
+            if (!old) return old;
+            const i = old.findIndex((o) => o.id === s.id);
+            if (i < 0) return [s, ...old];
+            const next = [...old];
+            next[i] = s;
+            return next;
+          });
+        } else {
+          void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+        }
+      } else if (topic.startsWith("session/")) {
+        useSessionLogs.getState().receive(ev.payload as SessionEvent);
       }
       listeners.forEach((fn) => fn(ev as BusEvent));
     };

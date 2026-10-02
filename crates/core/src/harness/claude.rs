@@ -26,9 +26,17 @@ struct State {
     tools: HashMap<String, (String, Value)>,
     /// Running background tasks.
     background: HashSet<String>,
+    /// Every background task started in this process (`task_notification` can come after the running
+    /// list is already empty).
+    background_known: HashSet<String>,
     /// `request_id` of pending `can_use_tool` requests for AskUserQuestion → their input.
     questions: HashMap<String, Value>,
     context_window: Option<u64>,
+    /// Id of the assistant message being streamed (from `message_start`).
+    streaming_msg: String,
+    /// Content blocks seen per assistant message: Claude sends one `assistant` event per block, so this
+    /// gives the block index used by the stream events.
+    msg_blocks: HashMap<String, usize>,
     stopping: bool,
     cwd: String,
 }
@@ -184,12 +192,16 @@ async fn handle(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>
     match msg["type"].as_str().unwrap_or("") {
         "system" => handle_system(sink, st, msg).await,
         "stream_event" => {
+            if !msg["parent_tool_use_id"].is_null() {
+                return;
+            }
             let ev = &msg["event"];
-            if ev["type"] == "content_block_delta" && ev["delta"]["type"] == "text_delta" {
-                let item_id = format!("{}:{}", msg["parent_tool_use_id"].as_str().unwrap_or(""), ev["index"]);
-                if msg["parent_tool_use_id"].is_null() {
-                    sink.emit(EventBody::AssistantDelta { item_id, text: ev["delta"]["text"].as_str().unwrap_or("").into() }).await;
-                }
+            if ev["type"] == "message_start" {
+                st.lock().unwrap().streaming_msg = ev["message"]["id"].as_str().unwrap_or("").to_string();
+            } else if ev["type"] == "content_block_delta" && ev["delta"]["type"] == "text_delta" {
+                // Same id as the final `assistant` text block, so the UI swaps the live text for it.
+                let item_id = format!("{}:{}", st.lock().unwrap().streaming_msg, ev["index"]);
+                sink.emit(EventBody::AssistantDelta { item_id, text: ev["delta"]["text"].as_str().unwrap_or("").into() }).await;
             }
         }
         "assistant" => {
@@ -202,7 +214,13 @@ async fn handle(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>
             if let Some(model) = m["model"].as_str() {
                 sink.set_model(model).await;
             }
-            for (i, block) in m["content"].as_array().cloned().unwrap_or_default().iter().enumerate() {
+            for block in m["content"].as_array().cloned().unwrap_or_default().iter() {
+                let i = {
+                    let mut s = st.lock().unwrap();
+                    let n = s.msg_blocks.entry(msg_id.to_string()).or_insert(0);
+                    *n += 1;
+                    *n - 1
+                };
                 match block["type"].as_str().unwrap_or("") {
                     "text" => {
                         let text = block["text"].as_str().unwrap_or("").to_string();
@@ -348,7 +366,11 @@ async fn handle_system(sink: &Sink, st: &Arc<Mutex<State>>, msg: &Value) {
         }
         "task_started" if msg["is_backgrounded"].as_bool() == Some(true) => {
             let task_id = msg["task_id"].as_str().unwrap_or("").to_string();
-            st.lock().unwrap().background.insert(task_id.clone());
+            {
+                let mut s = st.lock().unwrap();
+                s.background.insert(task_id.clone());
+                s.background_known.insert(task_id.clone());
+            }
             sink.emit(EventBody::BackgroundTask {
                 task_id,
                 description: msg["description"].as_str().unwrap_or("").into(),
@@ -359,7 +381,11 @@ async fn handle_system(sink: &Sink, st: &Arc<Mutex<State>>, msg: &Value) {
         }
         "task_notification" => {
             let task_id = msg["task_id"].as_str().unwrap_or("").to_string();
-            let was_background = st.lock().unwrap().background.remove(&task_id);
+            let was_background = {
+                let mut s = st.lock().unwrap();
+                s.background.remove(&task_id);
+                s.background_known.contains(&task_id)
+            };
             if was_background {
                 sink.emit(EventBody::BackgroundTask {
                     task_id,

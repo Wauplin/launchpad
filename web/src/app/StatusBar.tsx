@@ -48,7 +48,7 @@ function HarnessPart({ harness, s }: { harness: Harness; s: HarnessStatus }) {
         {name} {s.version ?? <span className="font-normal text-gh-closed">not found</span>}
         {s.updating_to && (
           <span className="text-teal-ink" title="Updating in the background">
-            ↑ {s.updating_to}
+            ↑ {s.updating_to === "latest" ? "updating" : s.updating_to}
           </span>
         )}
       </span>

@@ -50,6 +50,8 @@ pub struct GitHub {
 #[serde(default)]
 pub struct Agents {
     pub pending_after_silent_command_seconds: u64,
+    /// Desktop notification when a session becomes pending.
+    pub notify: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
@@ -104,7 +106,7 @@ impl Default for GitHub {
 
 impl Default for Agents {
     fn default() -> Self {
-        Agents { pending_after_silent_command_seconds: 30 }
+        Agents { pending_after_silent_command_seconds: 30, notify: true }
     }
 }
 
@@ -125,6 +127,7 @@ poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
 [agents]
 pending_after_silent_command_seconds = 30
+notify = true                       # desktop notification when a session becomes pending
 
 [[presets]]
 id = "worktree"

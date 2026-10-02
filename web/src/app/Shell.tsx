@@ -1,5 +1,8 @@
 import { Outlet } from "@tanstack/react-router";
 import { IconSprite } from "@/components/Icon";
+import { Toasts } from "@/components/Toast";
+import { Composer } from "@/features/launch/Composer";
+import { RadialPicker } from "@/features/launch/Radial";
 import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
@@ -14,8 +17,11 @@ export function Shell() {
         <main className="relative min-w-0 flex-1 overflow-hidden bg-paper">
           <Outlet />
         </main>
+        <Composer />
       </div>
       <StatusBar />
+      <RadialPicker />
+      <Toasts />
     </div>
   );
 }

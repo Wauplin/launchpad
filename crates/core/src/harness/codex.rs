@@ -376,7 +376,8 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             let turn = &p["turn"];
             let interrupted = turn["status"] == "interrupted";
             let error = turn["error"]["message"].as_str().map(str::to_string);
-            // Items still open never get `item/completed` after an interrupt.
+            // Items still open are marked as interrupted. An interrupt does not stop a running command,
+            // so its real `item/completed` may still arrive later and replace this.
             let open: Vec<(String, (String, i64, i64))> = st.lock().unwrap().open.drain().collect();
             for (id, (t, _, _)) in open {
                 if TOOL_ITEMS.contains(&t.as_str()) {

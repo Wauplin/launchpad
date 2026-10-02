@@ -42,4 +42,4 @@ LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- status   # status as JSON
 - Types shared with the UI are generated from Rust: `cargo run -p launchpad -- gen-types` (writes `web/src/gen/`).
 - Desktop window for the dev daemon: `cargo build -p launchpad-desktop && LAUNCHPAD_PROFILE=dev ./target/debug/launchpad-desktop` (a dev window is not single-instance and quits when closed). `--open <route>` opens a given screen.
 - WebKitGTK benchmark: open `/dev/perf?auto=1` in the window; results go to the daemon log ([spike 4](docs/spikes/4-webkitgtk.md)).
-- There are no tests yet.
+- Tests: `cargo test` (a few pure functions: the prompt renderer, the remote and link parsers). It runs in well under a second once built.

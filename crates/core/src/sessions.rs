@@ -509,6 +509,16 @@ impl Sessions {
         Ok(())
     }
 
+    /// After a folder rename (promote): sessions in `old` now run in `new`.
+    pub async fn move_cwd(&self, app: &App, old: &str, new: &str) -> Result<()> {
+        let ids: Vec<String> = self.list().into_iter().filter(|s| s.cwd == old || s.cwd.starts_with(&format!("{old}/"))).map(|s| s.id).collect();
+        for id in ids {
+            let (old, new) = (old.to_string(), new.to_string());
+            self.update(app, &id, move |s| s.cwd = format!("{new}{}", &s.cwd[old.len()..])).await?;
+        }
+        Ok(())
+    }
+
     pub fn running_in(&self, path: &str) -> bool {
         self.list().iter().any(|s| (s.cwd == path || s.cwd.starts_with(&format!("{path}/"))) && (s.live || s.status.is_running()))
     }

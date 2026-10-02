@@ -5,6 +5,9 @@ use crate::App;
 use crate::model::{Session, SessionStatus};
 
 pub fn session_pending(app: &App, s: &Session) {
+    if !app.config.get().agents.notify {
+        return;
+    }
     let project = std::path::Path::new(&s.cwd).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let summary = match (s.status, s.open_question) {
         (_, true) => format!("{} has a question in {project}", s.harness.display()),

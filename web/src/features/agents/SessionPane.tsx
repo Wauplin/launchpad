@@ -1,0 +1,218 @@
+// One session in a pane: header with state and actions, the conversation, and the message box.
+// The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
+
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { HarnessMark } from "@/components/HarnessMark";
+import { Icon } from "@/components/Icon";
+import { toastError } from "@/components/Toast";
+import { api } from "@/lib/api";
+import { projectName, useProjects, useSession } from "@/lib/queries";
+import { useSessionLogs } from "@/lib/sessionStore";
+import { buildRows } from "./rows";
+import { EventRow } from "./EventRow";
+import { StatusBadge, usageLine } from "./SessionBits";
+
+function act(id: string, action: string) {
+  return api.post(`/api/sessions/${id}/${action}`).catch(toastError);
+}
+
+type PendingAsk = { request_id: string; count: number } | null;
+
+function MessageBox({ sessionId, placeholder, disabled, ask }: { sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [text]);
+  const send = async () => {
+    const t = text.trim();
+    if (!t || busy) return;
+    setBusy(true);
+    try {
+      if (ask) {
+        // A typed answer to the open question.
+        await api.post(`/api/sessions/${sessionId}/answer`, { request_id: ask.request_id, answers: Array(ask.count).fill(t) });
+      } else {
+        await api.post(`/api/sessions/${sessionId}/input`, { text: t });
+      }
+      setText("");
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5">
+      <div className="flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
+        <textarea
+          ref={ref}
+          rows={1}
+          value={text}
+          disabled={disabled}
+          placeholder={placeholder}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter sends, Shift+Enter adds a new line, like in the terminal.
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+          className="max-h-40 min-h-5 flex-1 resize-none bg-transparent text-[12.5px] leading-5 outline-none disabled:opacity-60"
+        />
+        <button className="iconbtn border-line! bg-paper" title="Send" disabled={disabled || busy || !text.trim()} onClick={() => void send()}>
+          <Icon name="send" size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionId: string; focused: boolean; onFocus: () => void; onClear?: () => void }) {
+  const s = useSession(sessionId);
+  const projects = useProjects().data;
+  const log = useSessionLogs((st) => st.logs[sessionId]);
+  const load = useSessionLogs((st) => st.load);
+  useEffect(() => {
+    if (!log) {
+      useSessionLogs.setState((st) => ({ logs: { ...st.logs, [sessionId]: { events: [], lastSeq: 0, loaded: false, deltas: {}, outputs: {} } } }));
+      void load(sessionId);
+    }
+  }, [sessionId, log, load]);
+  const rows = useMemo(() => (log ? buildRows(log) : []), [log]);
+  const ask: PendingAsk = useMemo(() => {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      if (r.t === "ask") return r.answers ? null : { request_id: r.request_id, count: r.questions.length };
+    }
+    return null;
+  }, [rows]);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const atBottom = useRef(true);
+  const v = useVirtualizer({ count: rows.length, getScrollElement: () => scrollRef.current, estimateSize: () => 48, overscan: 6, useFlushSync: false });
+  const total = v.getTotalSize();
+  useLayoutEffect(() => {
+    if (atBottom.current && rows.length) v.scrollToIndex(rows.length - 1, { align: "end" });
+  }, [rows.length, total, v]);
+  // Re-render every 20 s for elapsed times.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 20_000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (!s) {
+    return (
+      <div className="grid h-full place-items-center text-ink-3" onMouseDown={onFocus}>
+        This session no longer exists.
+      </div>
+    );
+  }
+  const running = s.status === "working" || s.status === "starting";
+  const closedLike = s.status === "closed" || s.status === "interrupted" || s.status === "error";
+  const name = s.harness === "claude" ? "Claude" : "Codex";
+  const placeholder =
+    s.status === "in_terminal"
+      ? "Open in the terminal: re-attach it to continue here"
+      : s.open_question
+        ? `Answer or message ${name}`
+        : running
+          ? s.harness === "claude"
+            ? "Message Claude. It is read after the current step."
+            : "Message Codex. It steers the running turn."
+          : closedLike
+            ? `Message ${name} to resume the session`
+            : `Message ${name}`;
+
+  return (
+    <div className={`relative flex h-full min-h-0 min-w-0 flex-col bg-paper ${focused ? "z-[1] shadow-[inset_0_0_0_2px_var(--color-teal)]" : ""}`} onMouseDown={onFocus}>
+      <div className="grid grid-cols-[18px_1fr_auto] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
+        <span className="row-span-2 self-start pt-px">
+          <HarnessMark harness={s.harness} size={18} />
+        </span>
+        <span className="truncate text-[12.5px] font-[650]" title={s.title}>
+          {s.title}
+        </span>
+        <span className="row-span-2 flex gap-0.5 self-start">
+          {running && (
+            <button className="iconbtn" title="Stop: interrupt the agent" onClick={() => void act(s.id, "interrupt")}>
+              <Icon name="stop" size={14} />
+            </button>
+          )}
+          {s.status === "in_terminal" ? (
+            <button className="btn btn-sm" title="Continue this session in Launchpad" onClick={() => void act(s.id, "resume")}>
+              Re-attach
+            </button>
+          ) : (
+            !running && (
+              <button className="iconbtn" title="Open in terminal" onClick={() => void act(s.id, "open-terminal")}>
+                <Icon name="term" size={14} />
+              </button>
+            )
+          )}
+          {closedLike && (
+            <button className="btn btn-sm" title="Resume the session" onClick={() => void act(s.id, "resume")}>
+              Resume
+            </button>
+          )}
+          {s.status !== "closed" && (
+            <button className="iconbtn" title="Close the session (it stays resumable)" onClick={() => void act(s.id, "close")}>
+              <Icon name="x" size={14} />
+            </button>
+          )}
+          {onClear && s.status === "closed" && (
+            <button className="iconbtn" title="Remove from this pane" onClick={onClear}>
+              <Icon name="x" size={14} />
+            </button>
+          )}
+        </span>
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3 tabular-nums">
+          <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
+          <StatusBadge s={s} />
+          <span>{usageLine(s)}</span>
+        </span>
+      </div>
+
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto px-3"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+        }}
+      >
+        {log && !log.loaded ? (
+          <div className="p-6 text-center text-ink-3">Loading…</div>
+        ) : (
+          <div style={{ height: total, position: "relative" }}>
+            {v.getVirtualItems().map((it) => (
+              <div
+                key={rows[it.index].key}
+                data-index={it.index}
+                ref={v.measureElement}
+                className="flex flex-col py-[5px]"
+                style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${it.start}px)` }}
+              >
+                <EventRow row={rows[it.index]} sessionId={s.id} live={s.live} />
+              </div>
+            ))}
+          </div>
+        )}
+        {running && (
+          <div className="flex items-center gap-2 pb-2 text-xs text-work">
+            <span className="lp-spin" />
+            {s.status === "starting" ? "Starting…" : "Working…"}
+          </div>
+        )}
+      </div>
+      <MessageBox sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal"} ask={s.open_question && s.live ? ask : null} />
+    </div>
+  );
+}

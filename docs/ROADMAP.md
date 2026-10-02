@@ -66,7 +66,17 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 
 **Progress:**
 
-- Backend done: project registry and discovery, temporary projects (create, clean up, promote with the Claude transcripts), prompt renderer, Claude and Codex adapters with the normalized event log in `state.db` and WebSocket streaming, session operations (send, steer, interrupt, answer questions, close, resume, open in terminal, re-attach), model and effort defaults, GitHub link titles and `#` suggestions, desktop notifications, background `codex update`.
+- Built on 2026-10-02, and checked against the real CLIs (Claude Haiku and Codex GPT-6-Luna) through the API and the UI:
+  - Projects: registry, "Scan projects root" (149 repositories in 48 ms), descriptions, pinning, add by path, repo → project mapping (origin, then upstream).
+  - Composer: harness toggle, project picker (or a new temporary folder), prompt with `@` and `#` suggestions, context projects with a branch picker, "+ GitHub link" with the title fetched, the three presets and their settings editor, model and effort pickers showing "Default (…)", live prompt preview, "Open after launch", draft kept on the daemon.
+  - Radial launcher on the top bar and on projects (the last harness used has a ring). Notifications, issues and PRs get their Launch buttons in Phases 2 and 3.
+  - Temporary projects: create, delete with a second click, promote (the folder, the Claude transcripts and the session folders move).
+  - Adapters: Claude and Codex, normalized events in `state.db`, WebSocket streaming with replay after a reconnect.
+  - Agents view: Pending, Running and Closed groups; session pane with messages, collapsed tool calls, inline diffs, plan, question cards, background commands with their output, copy buttons, message box (`Enter` sends), Stop, Close, Resume, Open in terminal and Re-attach; layouts with 1, 2 and 4 panes.
+  - Signals: context tokens and usage, cost (Claude), desktop notification when a session becomes pending.
+  - Maintenance: `codex update` at daemon start and every 6 hours.
+  - Settings → General (projects root, terminal with "found" markers, editor) and Presets.
+- Left for the **Done when** check: a week of daily use.
 
 ## Phase 2: GitHub inbox
 

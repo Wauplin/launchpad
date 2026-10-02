@@ -2,7 +2,7 @@
 
 Launchpad is a personal desktop app for Ubuntu (Tauri) that launches and drives coding agents (Claude Code, Codex) and replaces the parts of the GitHub UI used every day, with a local cache so nothing feels slow. It has one user, on one machine.
 
-Status: Phase 0 done, Phase 1 in progress (see `docs/ROADMAP.md`). Keep the build and run commands below and in `README.md` up to date (and the test command, once there are tests).
+Status: Phase 0 done, Phase 1 in progress (see `docs/ROADMAP.md`). Keep the build and run commands below and in `README.md` up to date.
 
 ## Commands
 
@@ -11,6 +11,7 @@ Status: Phase 0 done, Phase 1 in progress (see `docs/ROADMAP.md`). Keep the buil
 - Sign a browser in to the dev daemon: `LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- url`. Headless screenshots work with `google-chrome --headless=new --screenshot=out.png --virtual-time-budget=5000 "<url>"`.
 - Regenerate the TypeScript types after changing a Rust type shared with the UI: `cargo run -p launchpad -- gen-types`.
 - Type-check the UI: `pnpm -C web typecheck`.
+- Tests: `cargo test` (the few unit tests in `crates/core`; the desktop crate is excluded by default).
 - Dev window: `cargo build -p launchpad-desktop && LAUNCHPAD_PROFILE=dev ./target/debug/launchpad-desktop [--open <route>]`.
 - Install or update the prod app: `packaging/install.sh` (release build, binaries in `~/.local/bin`, systemd user unit, `.desktop` and autostart entries). It restarts the prod daemon, so only run it when the owner asks.
 - UI rule from spike 4 (WebKitGTK): virtualize every long list, memoize row components, use `useFlushSync: false` on virtualizers, prefer fixed row heights.

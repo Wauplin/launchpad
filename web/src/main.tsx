@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { router } from "@/app/router";
 import { logToDaemon } from "@/lib/api";
 import { connectEvents } from "@/lib/ws";
+import { useComposer } from "@/stores/composer";
 import "./styles.css";
 
 const queryClient = new QueryClient({
@@ -14,6 +15,7 @@ const queryClient = new QueryClient({
   },
 });
 connectEvents(queryClient);
+void useComposer.getState().restore();
 
 window.addEventListener("error", (e) => logToDaemon(`uncaught: ${e.message} at ${e.filename}:${e.lineno}`, "error"));
 window.addEventListener("unhandledrejection", (e) => logToDaemon(`unhandled rejection: ${String(e.reason)}`, "error"));

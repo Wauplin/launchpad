@@ -1,16 +1,14 @@
 import { useRouterState } from "@tanstack/react-router";
-import { Icon } from "@/components/Icon";
-
-const TITLES: [RegExp, string][] = [
-  [/^\/$/, "Inbox"],
-  [/^\/agents/, "Agents"],
-  [/^\/projects/, "Projects"],
-  [/^\/settings/, "Settings"],
-];
+import { LayoutSwitch } from "@/features/agents/AgentsView";
+import { LaunchButton } from "@/features/launch/Radial";
+import { useProjects } from "@/lib/queries";
 
 export function TopBar() {
   const path = useRouterState({ select: (s) => s.location.pathname });
-  const title = TITLES.find(([re]) => re.test(path))?.[1] ?? "";
+  const projects = useProjects().data ?? [];
+  const projectId = path.match(/^\/projects\/([^/]+)/)?.[1];
+  const project = projects.find((p) => p.id === projectId);
+  const title = path === "/" ? "Inbox" : path.startsWith("/agents") ? "Agents" : path.startsWith("/settings") ? "Settings" : path.startsWith("/projects") ? "Projects" : "";
   return (
     <header className="flex h-[46px] flex-none items-center gap-3.5 border-b border-line bg-chrome pr-2.5 pl-3.5">
       <div className="flex items-center gap-2 font-bold tracking-[0.01em]">
@@ -22,12 +20,22 @@ export function TopBar() {
         Launchpad
       </div>
       <div className="flex items-center gap-1.5 text-ink-2">
-        <b className="font-semibold text-ink">{title}</b>
+        {project ? (
+          <>
+            Projects <span className="text-ink-3">/</span> <b className="font-semibold text-ink">{project.name}</b>
+          </>
+        ) : (
+          <b className="font-semibold text-ink">{title}</b>
+        )}
       </div>
-      <button className="btn btn-primary ml-auto" title="Launch an agent">
-        <Icon name="play" size={14} />
-        Launch
-      </button>
+      {path.startsWith("/agents") && (
+        <span className="ml-[18px]">
+          <LayoutSwitch />
+        </span>
+      )}
+      <span className="ml-auto">
+        <LaunchButton ctx={project ? { projectId: project.id } : undefined} />
+      </span>
     </header>
   );
 }

@@ -237,6 +237,7 @@ poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
 [agents]
 pending_after_silent_command_seconds = 30   # see 9.1
+notify = true                       # desktop notification when a session becomes pending
 
 [[presets]]                         # see 9.7
 id = "worktree"
@@ -344,7 +345,7 @@ The agents list has three groups:
   - `background`: the agent only waits for a background command. Claude reports these explicitly (see [9.3](#93-claude-code-adapter)). For Codex, a command that has produced no output for `pending_after_silent_command_seconds` (default 30 s) counts as background. This is a heuristic on purpose; it only changes a badge.
 - **Closed:** sessions you closed. Closing stops the harness process; the conversation stays resumable in one click.
 
-A session that becomes pending raises the sidebar badge and sends a desktop notification. Each session stores: Launchpad id (a UUID, also passed to Claude as `--session-id`), harness session or thread id, cwd, project, title, model, effort, cost, token usage, and the launch spec that created it.
+A session that becomes pending raises the sidebar badge and sends a desktop notification (setting `agents.notify`). The UI reports over the WebSocket which sessions it shows and whether its window has the focus; no notification is sent for a session you are looking at. Each session stores: Launchpad id (a UUID, also passed to Claude as `--session-id`), harness session or thread id, cwd, project, title, model, effort, cost, token usage, and the launch spec that created it.
 
 Normalized event kinds (stored in `session_event`, streamed over WebSocket):
 
@@ -360,7 +361,9 @@ Normalized event kinds (stored in `session_event`, streamed over WebSocket):
 | `ask_user` | question and options from the agent, answered with `/answer` |
 | `status`, `rate_limit`, `error` | state changes, quota updates, failures |
 
-Raw harness output lines are also stored (size-capped) so the normalizer can be improved and replayed on old sessions.
+Raw harness output lines are also stored (`session_raw`, capped at 20,000 lines per session) so the normalizer can be improved and replayed on old sessions. Text deltas and live command output are streamed but not stored; the final message and the command result are.
+
+A pending session has no harness process after a daemon restart; sending it a message resumes it first. A session that was mid-turn becomes `interrupted`.
 
 ### 9.2 Harness adapter interface
 
@@ -398,7 +401,7 @@ trait LiveSession: Send + Sync {
   ```
 
   Verified in [spike 1](spikes/1-claude-stream-json.md).
-- **Environment:** the adapters remove `CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_PID` and `CLAUDE_EFFORT` from the environment before spawning a harness. A dev daemon started from an agent session would otherwise pass them on, and Claude then turns transcript saving off ("inherited CLAUDE_CODE_CHILD_SESSION marker").
+- **Environment:** harness processes get `LAUNCHPAD_PROFILE` (the profile of the daemon that started them) and `LAUNCHPAD_SESSION_ID`, so `launchpad` commands run by an agent reach the right daemon and session. The adapters remove `CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_PID` and `CLAUDE_EFFORT` from the environment before spawning a harness. A dev daemon started from an agent session would otherwise pass them on, and Claude then turns transcript saving off ("inherited CLAUDE_CODE_CHILD_SESSION marker").
 - **Input:** one JSON line per user message on stdin (`{"type":"user","uuid":"<uuid>","message":{"role":"user","content":[…]}}`). A message sent while a turn runs does not start a new turn: Claude adds it to the running turn at the next model request (after the current tool result). Claude reports `command_lifecycle` events (`queued`, `started`, `completed`) with the message `uuid`, and `--replay-user-messages` echoes the message when Claude reads it. The UI shows the message as "queued" until then.
 - **Interrupt:** a `control_request` with `subtype: "interrupt"` on stdin. Claude replies with a `control_response`, rejects the running tool, and ends the turn with a `result` of subtype `error_during_execution`. The process stays alive for the next message.
 - **Output → events:** `system`/`init` (model, tools, cwd; sent again at the start of every turn), `stream_event` (text deltas), `assistant` (text, thinking and `tool_use` blocks), `user` (`tool_result` blocks), `result` at the end of each turn (`total_cost_usd`, `usage`, duration; switches the session to `waiting`), `rate_limit_event` (sent once per process: `utilization` as a fraction and `resetsAt` for both the five-hour and the seven-day window). `total_cost_usd` is cumulative for the whole session, including earlier processes of a resumed session, so Launchpad stores the latest value instead of adding them; `usage` is per turn.
@@ -413,7 +416,7 @@ trait LiveSession: Send + Sync {
 
 - **Process:** one long-lived `codex app-server` (JSON-RPC over stdio), child of the daemon and shared by all Codex sessions (the server handles multiple threads). It also serves `account/rateLimits/read` and `model/list`. Both were tested on this machine: the first returns the 5-hour and weekly windows with `usedPercent` and `resetsAt`, the second returns models with their supported effort levels.
 - **Flow:** `initialize` → `thread/start {cwd, model?, approvalPolicy: "never", sandbox: "danger-full-access"}` → `turn/start {threadId, input: [{type: "text", text}], effort?}`.
-- **Typing while the agent works:** `turn/steer {threadId, expectedTurnId, input}`. The steered text appears as a `userMessage` item when Codex reads it (after the running command), in the same turn. The Stop button sends `turn/interrupt {threadId, turnId}`, which ends the turn with `status: "interrupted"`. The running command item gets no `item/completed`, so the adapter closes every open item when a turn ends. Verified in [spike 3](spikes/3-codex-app-server.md), with the full event mapping.
+- **Typing while the agent works:** `turn/steer {threadId, expectedTurnId, input}`. The steered text appears as a `userMessage` item when Codex reads it (after the running command), in the same turn. The Stop button sends `turn/interrupt {threadId, turnId}`, which ends the turn with `status: "interrupted"`. A running command is not stopped by the interrupt: it finishes on its own and its `item/completed` arrives later. The adapter marks open items as interrupted when the turn ends, and the late result replaces that mark. Verified in [spike 3](spikes/3-codex-app-server.md), with the full event mapping.
 - **Notifications → events:** `item/agentMessage/delta`, `item/started` and `item/completed` (user messages, agent messages with `phase` `commentary` or `final_answer`, command executions with `item/commandExecution/outputDelta`, file changes, MCP tool calls, reasoning summaries), `turn/plan/updated`, `turn/diff/updated`, `thread/tokenUsage/updated` (`total`, `last`, `modelContextWindow`), `turn/completed` (switches to `waiting`), `account/rateLimits/updated` (after every model response).
 - **Background commands:** Codex has no explicit signal for them. A `commandExecution` item that is still running without new output for 30 s puts the session in `background` until the item completes or new output arrives.
 - **Server requests:** `item/tool/requestUserInput` becomes an `ask_user` card. Approval requests should not happen with `approvalPolicy: "never"`; if one arrives, it is declined automatically and logged.

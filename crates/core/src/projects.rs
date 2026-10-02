@@ -244,18 +244,12 @@ pub async fn promote(app: &App, id: &str, name: &str) -> Result<Project> {
         }
     }
     let (id2, name2) = (id.to_string(), name.to_string());
+    let new_path = new_s.clone();
     app.state_db
-        .call(move |c| {
-            c.execute("UPDATE project SET path = ?1, name = ?2, is_temp = 0 WHERE id = ?3", params![new_s, name2, id2])?;
-            // Sessions keep working from the new folder.
-            c.execute(
-                "UPDATE session SET cwd = ?1 || substr(cwd, length(?2) + 1) WHERE cwd = ?2 OR cwd LIKE ?2 || '/%'",
-                params![new_s, old_s],
-            )?;
-            Ok(())
-        })
+        .call(move |c| Ok(c.execute("UPDATE project SET path = ?1, name = ?2, is_temp = 0 WHERE id = ?3", params![new_path, name2, id2])?))
         .await?;
+    // Sessions keep working from the new folder.
+    app.sessions.move_cwd(app, &old_s, &new_s).await?;
     app.bus.publish("projects", "changed", serde_json::Value::Null);
-    app.bus.publish("sessions", "reload", serde_json::Value::Null);
     get(app, id).await?.context("no such project")
 }
