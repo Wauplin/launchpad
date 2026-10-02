@@ -72,6 +72,8 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 - Runs as a systemd user unit `launchpad.service`: starts at login, restarts on crash, logs to journald (`journalctl --user -u launchpad -f`).
 - Owns everything stateful: SQLite, GitHub sync loops, agent processes, quota polling, desktop notifications (D-Bus through `notify-rust`), and opening URLs, editors and terminals.
 - Listens on `127.0.0.1:7317` only.
+- Resolves the environment of your login shell once at startup (`$SHELL -l -i -c 'env -0'`, about 0.5 s) and uses it for every process it starts. Under systemd the daemon only gets a minimal `PATH`, and agents must see the same tools as in a terminal (nvm, cargo, `~/.local/bin`). Variables left by a parent agent session (`CLAUDECODE`, `CLAUDE_CODE_*`, …) are removed.
+- Harness processes get `PR_SET_PDEATHSIG`, so they stop when the daemon stops, even outside systemd (dev profile).
 
 ### 4.2 Desktop shell
 
@@ -201,6 +203,7 @@ project(id, name, path, remote_url, gh_repo, description, is_temp, pinned, creat
 session(id, harness, harness_session_id, project_id, cwd, title, status, model, effort,
         launch_spec_json, prompt, predraft_id, cost_usd, usage_json, started_at, ended_at)
 session_event(session_id, seq, ts, kind, json, PRIMARY KEY (session_id, seq))
+session_raw(session_id, n, ts, dir, line, PRIMARY KEY (session_id, n))   -- raw harness lines
 launch_draft(id, spec_json, updated_at)
 predraft(id, project_id, branch, base, worktree_path, title, body, status, session_id,
          gh_pr_number, created_at, updated_at)

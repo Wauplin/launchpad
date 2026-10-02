@@ -2,7 +2,15 @@
 
 Launchpad is a personal desktop app for Ubuntu (Tauri) that launches and drives coding agents (Claude Code, Codex) and replaces the parts of the GitHub UI used every day, with a local cache so nothing feels slow. It has one user, on one machine.
 
-Status: design phase. There is no code yet. When code lands, add the build and run commands to this file and to `README.md` (and the test command, if there are tests).
+Status: Phase 0 in progress (see `docs/ROADMAP.md`). Keep the build and run commands below and in `README.md` up to date (and the test command, once there are tests).
+
+## Commands
+
+- Build the UI: `pnpm -C web install && pnpm -C web build` (Node 24 from `web/.nvmrc`, pnpm through Corepack).
+- Run the dev daemon: `LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- daemon` (port 7318, data in `~/.local/share/launchpad-dev`). Never stop or restart the prod daemon (port 7317) unless the owner asks: it runs the agents, maybe including you.
+- Sign a browser in to the dev daemon: `LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- url`. Headless screenshots work with `google-chrome --headless=new --screenshot=out.png --virtual-time-budget=5000 "<url>"`.
+- Regenerate the TypeScript types after changing a Rust type shared with the UI: `cargo run -p launchpad -- gen-types`.
+- Type-check the UI: `pnpm -C web typecheck`.
 
 ## Where things are
 
@@ -10,6 +18,8 @@ Status: design phase. There is no code yet. When code lands, add the build and r
 - `initial.md`: the original description of the project, in the owner's words.
 - `docs/ARCHITECTURE.md`: architecture and the decisions log. Read it before changing the design, and update it when a decision changes.
 - `docs/ROADMAP.md`: phases, and what "done" means for each one.
+- `docs/spikes/`: notes from the Phase 0 spikes (exact harness behavior, with sample output).
+- `crates/core` (domain and services), `crates/server` (axum API, WebSocket, auth, embedded UI), `crates/cli` (`launchpad` binary), `web/` (React app), `desktop/` (Tauri shell), `packaging/` (systemd unit, `.desktop` file, install script).
 - `docs/design/sketches.html`: UI sketches (static HTML, open it in a browser). It is also published as a private artifact at https://claude.ai/code/artifact/916895f3-aa0f-4378-96da-b971415d6a5a. After changing the file, republish it to that same URL when the Artifact tool is available.
 
 ## Git workflow

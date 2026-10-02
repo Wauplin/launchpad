@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+/* Design tokens from docs/design/sketches.html. Light theme only. */
+@theme {
+  --color-board: #e6eaf0;
+  --color-paper: #ffffff;
+  --color-chrome: #f4f6f9;
+  --color-sunk: #eef1f5;
+  --color-ink: #17202b;
+  --color-ink-2: #4b5767;
+  --color-ink-3: #7b8696;
+  --color-line: #d9dee6;
+  --color-line-2: #e9ecf1;
+  --color-teal: #0d7266;
+  --color-teal-ink: #0a5c52;
+  --color-teal-soft: #e2f1ee;
+  --color-clay: #bd5a39;
+  --color-clay-soft: #f7e8e1;
+  --color-graphite: #2a3038;
+  --color-gh-open: #1a7f37;
+  --color-gh-merged: #8250df;
+  --color-gh-closed: #cf222e;
+  --color-gh-draft: #6e7781;
+  --color-attn: #8a5d00;
+  --color-attn-soft: #fff4d4;
+  --color-attn-line: #e8c870;
+  --color-work: #1f63b0;
+  --color-work-soft: #e7f0fa;
+  --color-select: #e8eef6;
+  --color-meter: #dce1e8;
+
+  --font-ui: "Ubuntu Sans", "Ubuntu", system-ui, "Segoe UI", sans-serif;
+  --font-mono: "Ubuntu Sans Mono", "Ubuntu Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font: 13px/1.45 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  cursor: default;
+}
+
+/* Shared small components. */
+@layer components {
+  .btn {
+    @apply inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-line bg-paper px-[11px] text-[12.5px] font-[550] whitespace-nowrap text-ink select-none;
+  }
+  .btn:hover:not(:disabled) {
+    @apply border-[#c4ccd7] bg-[#fafbfc];
+  }
+  .btn:disabled {
+    @apply opacity-50;
+  }
+  .btn-sm {
+    @apply h-6 gap-[5px] rounded-md px-2 text-xs;
+  }
+  .btn-primary {
+    @apply border-teal-ink bg-teal text-white;
+  }
+  .btn-primary:hover:not(:disabled) {
+    @apply border-teal-ink bg-teal-ink;
+  }
+  .btn-ghost {
+    @apply border-transparent bg-transparent text-ink-2;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    @apply border-transparent bg-sunk;
+  }
+  .iconbtn {
+    @apply inline-grid size-[26px] place-items-center rounded-md border border-transparent text-ink-2;
+  }
+  .iconbtn:hover:not(:disabled) {
+    @apply bg-sunk text-ink;
+  }
+  .field-input {
+    @apply h-8 w-full rounded-[7px] border border-line bg-paper px-2.5 text-[13px] text-ink outline-none;
+  }
+  .field-input:focus {
+    @apply border-teal shadow-[0_0_0_3px_var(--color-teal-soft)];
+  }
+  .seclabel {
+    @apply text-[10.5px] font-[650] tracking-[0.08em] text-ink-3 uppercase;
+  }
+}
