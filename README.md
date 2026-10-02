@@ -16,7 +16,7 @@ It installs `~/.local/bin/launchpad` and `~/.local/bin/launchpad-desktop`, the s
 
 Logs: `journalctl --user -u launchpad -f`.
 
-The app uses the sculpted launch icon. Its master and PNG/WebP exports are in [packaging/icons](packaging/icons/README.md); the SVG wraps the raster artwork. Use `packaging/install-icons.sh` to update only the installed icon without restarting the app or daemon. Regenerate exports with `python3 packaging/generate-icons.py` (requires Pillow).
+The app uses the sculpted launch icon, also shown in the top-left corner of the UI. Its master and PNG/WebP exports are in [packaging/icons](packaging/icons/README.md); the SVG wraps the raster artwork. Use `packaging/install-icons.sh` to update only the installed icon without restarting the app or daemon. Regenerate exports with `python3 packaging/generate-icons.py` (requires Pillow).
 
 ## Documentation
 

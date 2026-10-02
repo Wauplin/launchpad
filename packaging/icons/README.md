@@ -7,6 +7,6 @@ The selected sculpted launch artwork is an ivory folded arrow with a mint core a
 - `launchpad.webp`: a lossless 512 × 512 WebP export.
 - `../launchpad.svg`: a self-contained SVG wrapper around the 1024px PNG, not vector artwork.
 - `../../desktop/src-tauri/icons/`: the 32px, 128px, 256px (`128x128@2x.png`) and 512px (`icon.png`) PNGs referenced by Tauri and the full installer.
-- `../../web/src/assets/launchpad.png`: the 32px browser favicon, bundled by Vite.
+- `../../web/src/assets/launchpad.png`: the 64px web export, bundled by Vite and used as the browser favicon and the top-left logo in the app.
 
 Regenerate all exports with `python3 packaging/generate-icons.py` (requires Pillow). Keep the master unchanged; derive sizes from it rather than from a smaller export. Run `packaging/install-icons.sh` to update the installed Ubuntu icon and refresh the icon cache without restarting the app or daemon. An already open browser tab may need a reload to display the new favicon.

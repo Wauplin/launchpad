@@ -19,7 +19,7 @@ for size in (16, 24, 32, 48, 64, 96, 128, 256, 512, 1024):
     if size in (32, 128, 256, 512):
         name = {32: "32x32.png", 128: "128x128.png", 256: "128x128@2x.png", 512: "icon.png"}[size]
         image.save(desktop / name)
-    if size == 32:
+    if size == 64:
         image.save(root / "web/src/assets/launchpad.png")
     if size == 512:
         image.save(icons / "launchpad.webp", lossless=True)
