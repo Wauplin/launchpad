@@ -48,6 +48,7 @@ These rules apply unless the owner says otherwise for a given task.
 ## Product rules
 
 - Agent groups: Done means waiting for input; Running includes starting, working and background commands. Never infer Done from a command being silent. Sidebar counts and project markers must use the same predicates.
+- The session header X only closes the panel and never changes session state. Archive is a separate button; archived sessions remain resumable and appear in Archived.
 - Launch defaults come from the latest successfully launched spec, not from harness clicks or unsent edits.
 - General zoom has five positions (100%, 110%, 120%, 135%, 150%), with 120% as the default. Scale the entire interface and keep list virtualization working at every position.
 - Light theme only. Do not add a dark theme or dark-mode styles.

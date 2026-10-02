@@ -368,9 +368,9 @@ States are the same for every harness:
 
 The agents list has three groups:
 
-- **Done:** `waiting`, when a turn has finished or the agent asks for user input. It stays here until the next prompt or Close.
+- **Done:** `waiting`, when a turn has finished or the agent asks for user input. It stays here until the next prompt or Archive. Closing its panel does not change its state.
 - **Running:** `starting`, `working` and `background`. Long commands stay Running even when they produce no output. Codex no longer uses a silence timer to change the session state.
-- **Closed:** closed, interrupted, errored and externally attached sessions, as before. Closed conversations remain resumable.
+- **Archived:** closed, interrupted, errored and externally attached sessions, as before. Archived conversations remain resumable. The separate Archive button stops the process and uses the existing `closed` state and `/close` endpoint; the header X only removes the session from the pane, including while Running.
 
 The Agents sidebar item shows separate amber Done and blue Running counts; a discreet spinner appears beside a nonzero Running count. Pinned projects show an amber dot when any associated session is Done and a spinner when any is Running, including both when applicable. Sessions match projects by project id or folder, so worktree sessions retain their project marker.
 
@@ -631,7 +631,7 @@ Confirmed on 2026-10-02:
 
 1. **Headless sessions.** Launchpad renders sessions itself. Losing TUI-only features is fine; "Open in terminal" is the escape hatch. No embedded terminal for now.
 2. **Background daemon.** The systemd user service with a thin Tauri window is the target architecture.
-3. **Agent groups.** Updated by decision 23: Done waits for input; Running includes background and long commands; Closed remains resumable (see [9.1](#91-session-model)).
+3. **Agent groups.** Updated by decision 23: Done waits for input; Running includes background and long commands; Archived remains resumable (see [9.1](#91-session-model)).
 4. **Pre-draft PRs.** Launchpad creates the branch and worktree under `<projects_root>/.worktrees/` and links a `launchpad` skill into `~/.agents/skills`.
 5. **Temporary folders.** `<projects_root>/tmp-<MMDD>-<slug>`. The projects root is configurable, default `~/projects`.
 6. **Claude quota.** Launchpad may read the OAuth access token in `~/.claude/.credentials.json` to call the usage endpoint, never refreshing it.
@@ -675,3 +675,5 @@ Usability updates after daily use, on 2026-10-02:
 Continuous integration, on 2026-10-02:
 
 28. **Three Ubuntu CI jobs.** GitHub Actions checks strict Rust linting and UI types, runs the existing fast Rust tests, and builds downloadable release binaries with the UI embedded. Ubuntu 24.04 x86_64 matches the Linux-only scope. Pin Rust for repeatable linting, preserve binary permissions inside a tar archive, and keep release publishing and installation outside CI.
+
+29. **Separate panel closing and session archiving.** The session header X only closes the panel, leaving Done or Running unchanged. A labeled Archive button performs the former session-close action and keeps the conversation resumable. The list and closed-state badges say Archived; storage and API names stay `closed` and `/close`.

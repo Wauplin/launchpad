@@ -35,7 +35,7 @@ export function statusInfo(s: Session): { label: string; style: keyof typeof STY
     case "background":
       return { label: `Background ${formatAge(s.status_since)}`, style: "work" };
     case "closed":
-      return { label: `Closed ${formatAge(s.ended_at ?? s.status_since)} ago`, style: "done" };
+      return { label: `Archived ${formatAge(s.ended_at ?? s.status_since)} ago`, style: "done" };
     case "in_terminal":
       return { label: "In terminal", style: "int" };
     case "interrupted":

@@ -1,4 +1,4 @@
-// Agents workspace (sketch S3): sessions grouped as Done, Running and Closed, shown in 1, 2 or 4 panes.
+// Agents workspace (sketch S3): sessions grouped as Done, Running and Archived, shown in 1, 2 or 4 panes.
 // Clicking a session loads it in the focused pane.
 
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -72,7 +72,7 @@ export function AgentsView() {
   const { layout, panes, focused, focus, show, clearSession } = useLayout();
   const search = useSearch({ strict: false }) as { session?: string };
   const navigate = useNavigate();
-  const [closedLimit, setClosedLimit] = useState(30);
+  const [archivedLimit, setArchivedLimit] = useState(30);
   const listRef = useRef<HTMLDivElement>(null);
 
   // From a desktop notification: /agents?session=<id>.
@@ -101,15 +101,15 @@ export function AgentsView() {
 
   const done = sessions.filter((s) => isDone(s)).sort((a, b) => a.status_since - b.status_since);
   const running = sessions.filter((s) => isRunning(s));
-  const closed = sessions.filter((s) => !isDone(s) && !isRunning(s));
+  const archived = sessions.filter((s) => !isDone(s) && !isRunning(s));
   const items: ({ kind: "group"; title: string; count: number; highlight?: boolean } | { kind: "session"; session: Session } | { kind: "more" })[] = [
     { kind: "group", title: "Done", count: done.length, highlight: true },
     ...done.map((session) => ({ kind: "session" as const, session })),
     { kind: "group", title: "Running", count: running.length },
     ...running.map((session) => ({ kind: "session" as const, session })),
-    { kind: "group", title: "Closed", count: closed.length },
-    ...closed.slice(0, closedLimit).map((session) => ({ kind: "session" as const, session })),
-    ...(closed.length > closedLimit ? [{ kind: "more" as const }] : []),
+    { kind: "group", title: "Archived", count: archived.length },
+    ...archived.slice(0, archivedLimit).map((session) => ({ kind: "session" as const, session })),
+    ...(archived.length > archivedLimit ? [{ kind: "more" as const }] : []),
   ];
   const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => items[i].kind === "session" ? 68 : 34, getItemKey: (i) => items[i].kind === "session" ? items[i].session.id : `heading-${i}`, overscan: 6, useFlushSync: false });
   const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
@@ -132,7 +132,7 @@ export function AgentsView() {
             const item = items[v.index];
             return <div key={v.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: v.size, transform: `translateY(${v.start}px)` }}>
               {item.kind === "session" ? row(item.session) : item.kind === "group" ? <Group title={item.title} count={item.count} highlight={item.highlight} /> :
-                <button className="px-3 py-2 text-left text-xs text-teal-ink hover:underline" onClick={() => setClosedLimit((n) => n + 50)}>Show more</button>}
+                <button className="px-3 py-2 text-left text-xs text-teal-ink hover:underline" onClick={() => setArchivedLimit((n) => n + 50)}>Show more</button>}
             </div>;
           })}
         </div>

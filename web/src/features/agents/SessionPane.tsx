@@ -116,7 +116,7 @@ function MessageBox({ sessionId, placeholder, disabled, ask, dropImages }: { ses
   );
 }
 
-export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionId: string; focused: boolean; onFocus: () => void; onClear?: () => void }) {
+export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionId: string; focused: boolean; onFocus: () => void; onClear: () => void }) {
   const dropImages = useRef<((files: File[]) => void) | null>(null);
   const [dragging, setDragging] = useState(false);
   const s = useSession(sessionId);
@@ -160,7 +160,7 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
     );
   }
   const running = isRunning(s);
-  const closedLike = s.status === "closed" || s.status === "interrupted" || s.status === "error";
+  const resumable = s.status === "closed" || s.status === "interrupted" || s.status === "error";
   const name = s.harness === "claude" ? "Claude" : "Codex";
   const placeholder =
     s.status === "in_terminal"
@@ -171,7 +171,7 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
           ? s.harness === "claude"
             ? "Message Claude. It is read after the current step."
             : "Message Codex. It steers the running turn."
-          : closedLike
+          : resumable
             ? `Message ${name} to resume the session`
             : `Message ${name}`;
 
@@ -206,21 +206,19 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
               </button>
             )
           )}
-          {closedLike && (
+          {resumable && (
             <button className="btn btn-sm" title="Resume the session" onClick={() => void act(s.id, "resume")}>
               Resume
             </button>
           )}
           {s.status !== "closed" && (
-            <button className="iconbtn" title="Close the session (it stays resumable)" onClick={() => void act(s.id, "close")}>
-              <Icon name="x" size={14} />
+            <button className="btn btn-sm" title="Archive the session (it stays resumable)" onClick={() => void act(s.id, "close")}>
+              Archive
             </button>
           )}
-          {onClear && s.status === "closed" && (
-            <button className="iconbtn" title="Remove from this pane" onClick={onClear}>
-              <Icon name="x" size={14} />
-            </button>
-          )}
+          <button className="iconbtn" title="Close panel" onClick={onClear}>
+            <Icon name="x" size={14} />
+          </button>
         </span>
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3 tabular-nums">
           <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
