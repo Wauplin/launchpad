@@ -1,5 +1,5 @@
 <title>Launchpad Sketches</title>
-<meta name="description" content="Annotated UI sketches for Launchpad: inbox, agent launcher, agents grid, pull request view, pre-draft PRs, code viewer.">
+<meta name="description" content="Annotated UI sketches for Launchpad: inbox, agent launcher, agents grid, pull request view, pre-draft PRs, code viewer, session summary overlay.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu+Sans:wght@300..800&display=swap">
@@ -595,6 +595,58 @@ mark.cv-m.cur { background: #FFB347; box-shadow: 0 0 0 1.5px #C77700; }
 .cv-way + .cv-way { border-top: 1px solid var(--line-2); padding-top: 12px; }
 .cv-link { color: var(--teal-ink); text-decoration: underline; text-decoration-color: #9DCBC2; text-underline-offset: 2px; }
 
+/* ---------- S8 session summary overlay ---------- */
+.s8 { grid-template-columns: 52px 248px 1fr; height: 940px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); min-height: 0; }
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--sunk); font-size: 11.5px; font-weight: 600; }
+.seg span { height: 20px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 5px; color: var(--ink-3); }
+.seg span.on { background: var(--paper); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+.stage { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.stage > .pbody { opacity: .5; filter: blur(1.2px); }
+.sov { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; gap: 9px; padding: 12px; overflow: hidden; background: rgba(238,241,245,.86); }
+.sov.static { position: static; background: var(--sunk); }
+.band { display: flex; align-items: center; gap: 9px; padding: 8px 11px; border-radius: 8px; font-size: 13px; font-weight: 700; border: 1px solid; }
+.band .ic { width: 18px; height: 18px; }
+.band small { font-size: 11.5px; font-weight: 500; color: var(--ink-2); }
+.band .end { margin-left: auto; font-size: 11.5px; font-weight: 500; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.band.done { background: var(--attn-soft); border-color: var(--attn-line); color: var(--attn); }
+.band.ask { background: #FFFBEF; border-color: var(--attn-line); color: var(--attn); }
+.band.stopped { background: var(--paper); border-color: var(--ink-3); color: var(--ink); border-style: dashed; }
+.band.int { background: var(--paper); border-color: var(--line); color: var(--ink-2); }
+.band.failed { background: #FCEBEC; border-color: #F1B5B9; color: var(--gh-closed); }
+.band.arch { background: var(--chrome); border-color: var(--line); color: var(--ink-2); }
+.band.sched { background: var(--teal-soft); border-color: #9DCBC2; color: var(--teal-ink); }
+.scard { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; display: grid; gap: 6px; box-shadow: 0 1px 2px rgba(23,32,43,.05); }
+.scard > .sh { display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.scard > .sh .end { margin-left: auto; display: flex; gap: 3px; letter-spacing: 0; text-transform: none; }
+.smeta { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 4px 10px; font-size: 11.5px; align-items: baseline; font-variant-numeric: tabular-nums; }
+.smeta dt { color: var(--ink-3); }
+.smeta dd { margin: 0; color: var(--ink); min-width: 0; }
+.smeta .add { color: var(--gh-open); font-weight: 650; } .smeta .del { color: var(--gh-closed); font-weight: 650; }
+.stask { font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sfinal { font-size: 12.5px; line-height: 1.5; max-height: 130px; overflow: hidden; position: relative; }
+.sfinal p { margin: 0; } .sfinal p + p, .sfinal ul { margin-top: 5px; }
+.sfinal ul { margin-bottom: 0; padding-left: 18px; }
+.sfinal::after { content: ""; position: absolute; inset: auto 0 0 0; height: 34px; background: linear-gradient(rgba(255,255,255,0), var(--paper)); }
+.smore { font-size: 11.5px; font-weight: 600; color: var(--teal-ink); }
+.snext { display: grid; gap: 5px; }
+.snext .nx { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--chrome); font-size: 12px; }
+.snext .nx .src { font-size: 10.5px; font-weight: 650; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; width: 58px; flex: none; }
+.snext .nx .btn { margin-left: auto; }
+.sacts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; }
+.tracebar { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-bottom: 1px solid var(--attn-line); background: var(--attn-soft); font-size: 11.5px; color: var(--attn); font-weight: 600; }
+.tracebar .end { margin-left: auto; display: flex; gap: 4px; }
+.s8f { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; max-width: 1180px; margin: 0 auto; width: 100%; align-items: start; }
+.s8f .stack { display: grid; gap: 22px; }
+@media (max-width: 900px) { .s8f { grid-template-columns: 1fr; } }
+.bands { padding: 12px; display: grid; gap: 7px; }
+.rsched { padding: 10px 12px; display: grid; gap: 6px; font-size: 12.5px; }
+.rsched .opt { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 7px; border: 1px solid var(--line); }
+.rsched .opt.on { border-color: var(--teal); background: var(--teal-soft); }
+.rsched .opt .faint { margin-left: auto; font-size: 11.5px; }
+.s8-open h3 { margin: 0; font-size: 18px; }
+.s8-q li { grid-template-columns: 1fr; }
+
 footer.end { margin-top: 72px; padding-top: 18px; border-top: 1px solid #CDD4DE; color: var(--ink-2); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 8px 24px; }
 footer.end code { font: 12.5px var(--font-mono); }
 
@@ -648,6 +700,8 @@ footer.end code { font: 12.5px var(--font-mono); }
     <symbol id="i-okcircle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="currentColor"/><path d="M5.3 8.2l1.8 1.8 3.6-3.7" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-code" viewBox="0 0 16 16"><path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-cursor" viewBox="0 0 18 22"><path d="M2 1.5v15.2l3.9-3.6 2.7 6.2 2.6-1.1-2.7-6.1h5.4z" fill="#fff" stroke="#17202B" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.2 1.5"/></g></symbol>
+    <symbol id="i-archive" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="2" y="3" width="12" height="3" rx=".8"/><path d="M3 6v6.5a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6M6.5 8.75h3" stroke-linecap="round"/></g></symbol>
   </defs>
 </svg>
 
@@ -656,7 +710,7 @@ footer.end code { font: 12.5px var(--font-mono); }
 <header class="intro">
   <div class="kicker">Launchpad · design sketches · 2 October 2026</div>
   <h1>Launchpad sketches</h1>
-  <p class="lede">Seven static mockups of the main screens, filled with example data. The app is light theme only, so the sketches are too. The UI is click only, with one keyboard shortcut: <code>Ctrl+F</code> opens find in the code viewer. The only typing helpers are <code>@</code> and <code>#</code> suggestions in the composer prompt. Pink numbered pins in each window match the notes below it. The design rationale is in <code>docs/ARCHITECTURE.md</code>.</p>
+  <p class="lede">Eight static mockups of the main screens, filled with example data. The app is light theme only, so the sketches are too. The UI is click only, with one keyboard shortcut: <code>Ctrl+F</code> opens find in the code viewer. The only typing helpers are <code>@</code> and <code>#</code> suggestions in the composer prompt. Pink numbered pins in each window match the notes below it. The design rationale is in <code>docs/ARCHITECTURE.md</code>.</p>
   <div class="legend">
     <span><i class="sw" style="background:var(--teal)"></i>Launchpad: primary actions and anything that exists only on your laptop</span>
     <span><i class="sw" style="background:var(--clay)"></i>Claude Code</span>
@@ -671,6 +725,7 @@ footer.end code { font: 12.5px var(--font-mono); }
     <a href="#s5"><b>S5</b>Pre-draft PR</a>
     <a href="#s6"><b>S6</b>Settings, temp folders, quotas</a>
     <a href="#s7"><b>S7</b>Code viewer</a>
+    <a href="#s8"><b>S8</b>Session summary</a>
   </nav>
 </header>
 
@@ -1751,6 +1806,241 @@ chunk=256MB  run 3/5 …</pre>
     <li><i class="pin">9</i><span><b>Search in project.</b> <code>git grep</code> on the same source, so it also works on a branch or a PR head. Results are grouped by file. Click a line to open the file there. At most 1,000 results.</span></li>
     <li><i class="pin">10</i><span><b>Ways in.</b> A Code button on project pages and worktrees, a Files button in each session header, file paths in tool calls, edits and agent messages (<code>hf_file_system.py:407</code> becomes a link when the file exists), and View file on every file of a diff.</span></li>
     <li><i class="pin">11</i><span><b>Lines as context.</b> Add to agent puts the file and the line range in the composer as a context chip, or in the message box of a session of the same project. The prompt gets the absolute path and the lines; the agent reads the file itself.</span></li>
+  </ol>
+</section>
+
+<!-- ======================= S8 SESSION SUMMARY ======================= -->
+<section class="sketch" id="s8">
+  <div class="sketch-head">
+    <span class="sketch-id">S8 · Session summary overlay · draft for discussion</span>
+    <h2>When an agent stops, show the outcome first, not the trace</h2>
+    <p>A session opened in a pane that is Done, stopped, interrupted, failed or archived gets a summary overlay over its trace. The state is clear at a glance from the colored band. The overlay shows the metadata, the final message and the next steps, with buttons for common actions. The full trace is one click away. Running sessions never get the overlay. This is a sketch only; nothing is implemented.</p>
+  </div>
+  <div class="frame">
+    <div class="win" role="img" aria-label="Session summary overlay mockup">
+      <div class="topbar">
+        <div class="brand"><span class="logo"><img src="../../packaging/launchpad.svg" alt=""/></span>Launchpad</div>
+        <div class="crumbs"><b>Agents</b></div>
+        <span class="layout-sw" style="margin-left:18px"><span><svg class="ic sm"><use href="#i-pane1"/></svg></span><span class="on"><svg class="ic sm"><use href="#i-pane2"/></svg></span><span><svg class="ic sm"><use href="#i-pane4"/></svg></span></span>
+        <span class="btn primary tb-launch"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
+        <div class="wctl"><span></span><span></span><span></span></div>
+      </div>
+      <div class="app s3 s8">
+        <nav class="rail">
+          <span class="r"><svg class="ic"><use href="#i-inbox"/></svg></span>
+          <span class="r on"><svg class="ic"><use href="#i-agents"/></svg><span class="dot"></span></span>
+          <span class="r"><svg class="ic"><use href="#i-folder"/></svg></span>
+          <span class="sep"></span>
+          <span class="pj">hh</span><span class="pj">js</span><span class="pj">ml</span>
+          <span class="r bottom"><svg class="ic"><use href="#i-sliders"/></svg></span>
+        </nav>
+
+        <div class="slist">
+          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Running <span class="faint">1</span></button>
+          <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Investigate shard retry logic</span><span class="m">transformers <span class="st work">2 min</span> $0.21</span></div>
+          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Done <b>2</b></button>
+          <div class="srow sel"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Xet refresh token endpoint</span><span class="m">moon-landing <span class="st needs">Done 3 min</span> $2.31</span></div>
+          <div class="srow"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Migrate snapshot tests to vitest</span><span class="m">huggingface.js <span class="st int">Stopped</span></span></div>
+          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Archived <span class="faint">2</span></button>
+          <div class="srow dim"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Release notes for v1.4</span><span class="m">huggingface_hub <span class="st done">Archived 2 h ago</span> $0.92</span></div>
+          <div class="srow dim"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Proofread the xet blog post</span><span class="m">blog <span class="st done">Archived yesterday</span></span></div>
+        </div>
+
+        <div class="grid2">
+          <!-- pane 1: Claude done -->
+          <div class="pane focus">
+            <div class="ph">
+              <span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
+              <span class="t">Xet refresh token endpoint</span>
+              <span class="acts"><span class="seg"><span class="on">Summary</span><span>Trace</span></span><i class="pin">2</i><span class="btn sm" title="Archive the session (it stays resumable)">Archive</span><span class="iconbtn" title="Close panel"><svg class="ic sm"><use href="#i-x"/></svg></span></span>
+              <span class="m">moon-landing · <span class="st needs">Done 3 min</span> 241k tokens · $2.31</span>
+            </div>
+            <div class="stage">
+              <div class="pbody">
+                <div class="tool"><svg class="ic sm"><use href="#i-chev"/></svg><span class="n">Ran 9 commands, edited 3 files</span><span class="end">6 min</span></div>
+                <div class="msg-a"><p>Tests pass. I committed the change on <code class="i">lp/xet-refresh</code>.</p></div>
+                <div class="turn">Turn finished · 3 min ago</div>
+              </div>
+              <div class="sov">
+                <div class="band done"><svg class="ic"><use href="#i-okcircle"/></svg>Done <small>waiting for you</small><span class="end">finished 14:32 · 3 min ago</span><i class="pin">1</i></div>
+                <div class="scard">
+                  <div class="sh">Run <i class="pin">3</i></div>
+                  <dl class="smeta">
+                    <dt>Time</dt><dd>18 min 40 s · 4 turns</dd>
+                    <dt>Cost</dt><dd>$2.31 · 241k tokens</dd>
+                    <dt>Model</dt><dd>claude-opus-5-5 · 22% context</dd>
+                    <dt>Folder</dt><dd class="mono">.worktrees/moon-landing/xet-refresh</dd>
+                    <dt>Changes</dt><dd>3 files <span class="add">+64</span> <span class="del">−9</span></dd>
+                    <dt>Git</dt><dd>lp/xet-refresh · 2 commits, not pushed · clean</dd>
+                    <dt>Context</dt><dd>#3412 · issue</dd>
+                    <dt>Last cmd</dt><dd class="mono">pnpm test <span style="color:var(--gh-open)">exit 0</span></dd>
+                  </dl>
+                  <div class="stask"><b>Task:</b> Add the xet refresh token to the repo info endpoint so the client can renew it without a second call.</div>
+                </div>
+                <div class="scard">
+                  <div class="sh">Final message <i class="pin">4</i><span class="end"><span class="btn sm"><svg class="ic sm"><use href="#i-copy"/></svg>Copy</span><span class="btn sm">Copy as text</span></span></div>
+                  <div class="sfinal">
+                    <p>Done. <code class="i">GET /api/repos/:id?expand=xetRefreshToken</code> now returns a fresh refresh token. It reuses <code class="i">issueXetToken()</code>, so expiry and scopes stay the same as the dedicated endpoint.</p>
+                    <ul><li>Changed <code class="i">server/routes/api/repos.ts</code> and its spec.</li><li>Added a test for users without write access: they get no token.</li><li>Not done: the OpenAPI schema. It is generated in CI and I could not run the generator locally.</li></ul>
+                  </div>
+                  <span class="smore">Show full message</span>
+                </div>
+                <div class="scard">
+                  <div class="sh">Next steps <i class="pin">5</i></div>
+                  <div class="snext">
+                    <div class="nx"><span class="src">Agent</span>Update the OpenAPI schema<span class="btn sm">Ask the agent</span></div>
+                    <div class="nx"><span class="src">Git</span>2 commits not pushed, no PR yet<span class="btn sm"><svg class="ic sm"><use href="#i-pr-local"/></svg>Open pre-draft PR</span></div>
+                    <div class="nx"><span class="src">Git</span>3 files changed since <code class="i">main</code><span class="btn sm"><svg class="ic sm"><use href="#i-code"/></svg>Review diff</span></div>
+                  </div>
+                </div>
+                <div class="sacts"><i class="pin">6</i><span class="btn sm">Show trace</span><span class="btn sm"><svg class="ic sm"><use href="#i-term"/></svg>Open in terminal</span><span class="btn sm"><svg class="ic sm"><use href="#i-clock"/></svg>Schedule follow-up</span><span class="btn sm"><svg class="ic sm"><use href="#i-refresh"/></svg>Relaunch</span><span class="btn sm"><svg class="ic sm"><use href="#i-archive"/></svg>Archive</span></div>
+              </div>
+            </div>
+            <div class="pin-input"><div class="inp">Message Claude to continue. The summary closes when the turn starts. <i class="pin">7</i><span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
+          </div>
+
+          <!-- pane 2: Codex stopped by the user -->
+          <div class="pane">
+            <div class="ph">
+              <span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span>
+              <span class="t">Migrate snapshot tests to vitest</span>
+              <span class="acts"><span class="seg"><span class="on">Summary</span><span>Trace</span></span><span class="btn sm" title="Archive the session (it stays resumable)">Archive</span><span class="iconbtn" title="Close panel"><svg class="ic sm"><use href="#i-x"/></svg></span></span>
+              <span class="m">huggingface.js · <span class="st int">Stopped 14:05</span> 88k tokens · gpt-6-sol medium</span>
+            </div>
+            <div class="stage">
+              <div class="pbody">
+                <div class="msg-a"><p>Converting <code class="i">packages/hub/test/snapshots/*.spec.ts</code> one by one.</p></div>
+                <div class="tool"><svg class="ic sm"><use href="#i-chev"/></svg><span class="n">Ran 4 commands, edited 6 files</span><span class="end">3 min</span></div>
+                <div class="turn">Stopped by you · 14:05</div>
+              </div>
+              <div class="sov">
+                <div class="band stopped"><svg class="ic"><use href="#i-stop"/></svg>Stopped <small>by you, during a turn</small><span class="end">14:05 · 30 min ago</span></div>
+                <div class="scard">
+                  <div class="sh">Run</div>
+                  <dl class="smeta">
+                    <dt>Time</dt><dd>7 min 12 s · 2 turns</dd>
+                    <dt>Tokens</dt><dd>88k</dd>
+                    <dt>Folder</dt><dd class="mono">~/projects/huggingface.js</dd>
+                    <dt>Changes</dt><dd>6 files <span class="add">+142</span> <span class="del">−131</span></dd>
+                    <dt>Git</dt><dd>main · uncommitted</dd>
+                    <dt>Cut off</dt><dd class="mono">pnpm vitest run (killed)</dd>
+                  </dl>
+                  <div class="stask"><b>Task:</b> Migrate the snapshot tests from jest to vitest and keep the snapshots identical.</div>
+                </div>
+                <div class="scard">
+                  <div class="sh">Last agent message <i class="pin">8</i><span class="end"><span class="btn sm"><svg class="ic sm"><use href="#i-copy"/></svg>Copy</span></span></div>
+                  <div class="sfinal" style="max-height:92px">
+                    <p>4 of 7 spec files are converted. I am running the suite to check that the snapshots did not change before I convert the last 3 files (<code class="i">list-files</code>, <code class="i">commit</code>, <code class="i">upload</code>).</p>
+                  </div>
+                  <span class="smore">Show full message</span>
+                </div>
+                <div class="scard">
+                  <div class="sh">Next steps</div>
+                  <div class="snext">
+                    <div class="nx"><span class="src">Session</span>The turn did not finish<span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg>Resume</span></div>
+                    <div class="nx"><span class="src">Git</span>6 uncommitted files on <code class="i">main</code><span class="btn sm"><svg class="ic sm"><use href="#i-code"/></svg>Review diff</span></div>
+                  </div>
+                </div>
+                <div class="sacts"><span class="btn sm">Show trace</span><span class="btn sm"><svg class="ic sm"><use href="#i-clock"/></svg>Resume later</span><span class="btn sm"><svg class="ic sm"><use href="#i-refresh"/></svg>Relaunch</span><span class="btn sm"><svg class="ic sm"><use href="#i-archive"/></svg>Archive</span></div>
+              </div>
+            </div>
+            <div class="pin-input"><div class="inp">Message Codex to resume with new instructions<span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="statusbar">
+        <span class="h" title="Running Launchpad commit">Launchpad <code>76df248</code></span>
+        <span class="h"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Claude 2.1.287</span>
+        <span class="q">5h <span class="meter clay"><i style="width:39%"></i></span>39% · 16:40</span>
+        <span class="vsep"></span>
+        <span class="h"><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex 0.160.0</span>
+        <span class="q">5h <span class="meter"><i style="width:4%"></i></span>4% · 14:14</span>
+        <span class="right"><span>GitHub synced 8 s ago</span><span>1 running · <span class="needs">2 done</span></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="s8f">
+    <div class="stack">
+      <div class="frag" role="img" aria-label="Archived session overlay mockup">
+        <div class="fh"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span><b>Release notes for v1.4</b><span class="end faint">huggingface_hub</span></div>
+        <div class="sov static">
+          <div class="band arch"><svg class="ic"><use href="#i-archive"/></svg>Archived <small>after Done · resumable</small><span class="end">archived 2 h ago</span><i class="pin">9</i></div>
+          <div class="scard">
+            <dl class="smeta">
+              <dt>Time</dt><dd>9 min · 1 turn</dd>
+              <dt>Cost</dt><dd>$0.92</dd>
+              <dt>Git</dt><dd>release-notes-1.4 · pushed</dd>
+              <dt>Output</dt><dd>PR #3431 · draft</dd>
+            </dl>
+          </div>
+          <div class="scard">
+            <div class="sh">Final message</div>
+            <div class="sfinal" style="max-height:62px"><p>Release notes are in <code class="i">docs/source/en/release_notes/v1.4.md</code> and draft PR #3431 is open. I grouped the 23 merged PRs into 4 sections.</p></div>
+          </div>
+          <div class="sacts"><span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg>Resume</span><span class="btn sm">Show trace</span><span class="btn sm"><svg class="ic sm"><use href="#i-refresh"/></svg>Relaunch</span><span class="btn sm"><svg class="ic sm"><use href="#i-clock"/></svg>Schedule relaunch</span><span class="btn sm"><svg class="ic sm"><use href="#i-pr-draft"/></svg>Open #3431</span></div>
+        </div>
+      </div>
+      <div class="frag" role="img" aria-label="Trace mode mockup">
+        <div class="fh"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span><b>Xet refresh token endpoint</b><span class="end"><span class="seg"><span>Summary</span><span class="on">Trace</span></span></span></div>
+        <div class="tracebar"><svg class="ic sm"><use href="#i-okcircle"/></svg>Done 3 min ago · $2.31 · 3 files<i class="pin">10</i><span class="end"><span class="btn sm">Final message</span><span class="btn sm">Back to summary</span></span></div>
+        <div class="pbody" style="justify-content:flex-start;gap:8px">
+          <div class="msg-u">Add the xet refresh token to the repo info endpoint so the client can renew it without a second call.</div>
+          <div class="msg-a"><p>Token issuance lives in <code class="i">server/lib/xet/tokens.ts</code>. I'll reuse <code class="i">issueXetToken()</code> in the repo info handler.</p></div>
+          <div class="tool"><svg class="ic sm"><use href="#i-chev"/></svg><span class="n">Ran 3 commands, read 5 files</span><span class="end">41 s</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="stack">
+      <div class="frag" role="img" aria-label="State bands mockup">
+        <div class="fh"><b>State bands</b><span class="end faint">one per end state</span></div>
+        <div class="bands">
+          <div class="band done"><svg class="ic"><use href="#i-okcircle"/></svg>Done <small>waiting for you</small><span class="end">3 min ago</span></div>
+          <div class="band ask"><svg class="ic"><use href="#i-alert"/></svg>Question <small>the agent needs an answer</small><span class="end">12 min ago</span><i class="pin">11</i></div>
+          <div class="band stopped"><svg class="ic"><use href="#i-stop"/></svg>Stopped <small>by you, during a turn</small><span class="end">30 min ago</span></div>
+          <div class="band int"><svg class="ic"><use href="#i-refresh"/></svg>Interrupted <small>the daemon restarted during a turn</small><span class="end">1 h ago</span></div>
+          <div class="band failed"><svg class="ic"><use href="#i-xcircle"/></svg>Failed <small>Codex exited with code 1</small><span class="end">5 min ago</span></div>
+          <div class="band arch"><svg class="ic"><use href="#i-archive"/></svg>Archived <small>resumable</small><span class="end">yesterday</span></div>
+          <div class="band sched"><svg class="ic"><use href="#i-clock"/></svg>Follow-up scheduled <small>at 16:40, when the 5h quota resets</small><span class="end">Cancel</span></div>
+        </div>
+      </div>
+      <div class="frag" role="img" aria-label="Schedule follow-up mockup">
+        <div class="fh"><svg class="ic sm"><use href="#i-clock"/></svg><b>Schedule follow-up</b><span class="end faint">same session, new message</span><i class="pin">12</i></div>
+        <div class="rsched">
+          <div class="opt on"><svg class="ic sm"><use href="#i-clock"/></svg>When the Claude 5h quota resets<span class="faint">16:40 · read 1 min ago</span></div>
+          <div class="opt"><svg class="ic sm"><use href="#i-clock"/></svg>At a time<span class="faint">today 18:00</span></div>
+          <div class="opt"><svg class="ic sm"><use href="#i-agents"/></svg>After another session is Done<span class="faint">Investigate shard retry…</span></div>
+          <div class="inp" style="min-height:52px">Update the OpenAPI schema, then push the branch.</div>
+          <div class="sacts"><span class="btn sm primary">Schedule</span><span class="btn sm">Open in composer</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <ol class="notes">
+    <li><i class="pin">1</i><span><b>State band.</b> The first line of the overlay says the state in words, with a color and an icon that match the sidebar badge: amber Done, dashed Stopped, gray Interrupted and Archived, red Failed. It also shows when the session ended. The overlay covers the faded trace, so a pane that is not running cannot be mistaken for one that is.</span></li>
+    <li><i class="pin">2</i><span><b>Summary or Trace.</b> A toggle in the session header. The overlay opens by default when a session is not running. "Show trace" hides it for this session until its state changes again. The header X still only closes the panel, and Archive stays a separate button.</span></li>
+    <li><i class="pin">3</i><span><b>Run metadata.</b> Facts Launchpad already has, without asking the agent: duration and turns, cost and tokens (cost for Claude only), model and context, folder, changed files compared to <code>main</code>, branch and push state, context items, and the exit code of the last command. The first prompt is one line, so you remember what the task was.</span></li>
+    <li><i class="pin">4</i><span><b>Final message.</b> The last agent message, rendered as markdown and cut after a few lines, with Copy and Copy as text. "Show full message" expands it in place. No AI summary: what you read is what the agent wrote.</span></li>
+    <li><i class="pin">5</i><span><b>Next steps.</b> Each row says where it comes from. <b>Agent</b> rows are the options of the agent's last question, or a "Not done" list that the agent wrote; a click sends the matching message. <b>Git</b> and <b>Session</b> rows come from facts: unpushed commits, uncommitted files, a turn that did not finish. Each row has one button.</span></li>
+    <li><i class="pin">6</i><span><b>Rapid actions.</b> Show trace, Open in terminal, Schedule follow-up, Relaunch (opens the composer with the same launch spec, as a new session), Archive. The actions depend on the state: Resume is first for Stopped, Interrupted and Archived sessions.</span></li>
+    <li><i class="pin">7</i><span><b>Write a new message.</b> The message box stays active under the overlay. Sending closes the overlay and the session goes back to Running with the normal trace view.</span></li>
+    <li><i class="pin">8</i><span><b>Stopped sessions.</b> They show the last agent message instead of a final message, and the command that was cut off. Resume continues the turn; a message in the box resumes with new instructions; "Resume later" opens the follow-up scheduler.</span></li>
+    <li><i class="pin">9</i><span><b>Archived sessions.</b> Same overlay, with fewer rows. Resume moves the session out of Archived. Relaunch and Schedule relaunch start a new session with the same spec. Linked PRs and issues are buttons.</span></li>
+    <li><i class="pin">10</i><span><b>Trace mode.</b> With the overlay hidden, a thin bar at the top of the trace keeps the state visible, with buttons that jump to the final message or bring the summary back.</span></li>
+    <li><i class="pin">11</i><span><b>One band per end state.</b> Question is a Done variant: its options are the Agent rows of Next steps, so they can be answered from the overlay. A scheduled follow-up adds a teal band with a Cancel button, and the session also appears in Scheduled.</span></li>
+    <li><i class="pin">12</i><span><b>Schedule follow-up.</b> It reuses the start conditions of scheduled launches (time, quota reset with a fresh reading, another session Done), but sends a message to the same session instead of starting a new one. All selected conditions must be met.</span></li>
+  </ol>
+
+  <div class="sketch-head s8-open">
+    <h3>Open questions</h3>
+  </div>
+  <ol class="notes s8-q">
+    <li><span><b>Overlay or summary view?</b> The sketch uses an overlay on a faded trace. A simpler option replaces the trace with the summary and has no transparency. Blur can be slow on WebKitGTK, so the real version could use a solid background.</span></li>
+    <li><span><b>When does it open?</b> Every time a pane loads a session that is not running, or only after a state change that you have not seen yet?</span></li>
+    <li><span><b>Next steps from the agent.</b> Read them only from the agent's last question, or also ask agents (through the Launchpad skill) to end with a short "Next steps" list that Launchpad can parse?</span></li>
+    <li><span><b>Follow-up in the same session or a new one?</b> Schedule follow-up sends a message to the same session. Is a new session with the same spec (Relaunch) needed often enough to keep both?</span></li>
+    <li><span><b>Small panes.</b> In the 4-pane layout, the overlay keeps only the band, the final message and the actions. Metadata could fold into one line.</span></li>
   </ol>
 </section>
 
