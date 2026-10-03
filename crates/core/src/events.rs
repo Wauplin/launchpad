@@ -3,11 +3,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tokio::sync::broadcast;
 
 /// One message on the bus, sent as is over the WebSocket.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Event {
     /// Per-session sequence number for `session/{id}` topics (replayable from `state.db`),
     /// a global counter otherwise.

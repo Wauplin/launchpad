@@ -2,7 +2,7 @@
 
 Launchpad is a personal desktop app for Ubuntu (Tauri) that launches and drives coding agents (Claude Code, Codex) and replaces the parts of the GitHub UI used every day, with a local cache so nothing feels slow. It has one user, on one machine.
 
-Status: Phase 0 done, Phases 1, 2, 2b, 3, 4, 5 and 6 built, with the first three Phase 7 options built and awaiting daily-use checks (see `docs/ROADMAP.md`). Keep the build and run commands below and in `README.md` up to date.
+Status: Phase 0 done, Phases 1, 2, 2b, 3, 4, 5 and 6 built and awaiting daily-use checks; Phase 7 is deferred until a candidate has an owner-approved scope (see `docs/ROADMAP.md`). Keep the build and run commands below and in `README.md` up to date.
 
 ## Commands
 
@@ -12,9 +12,6 @@ Status: Phase 0 done, Phases 1, 2, 2b, 3, 4, 5 and 6 built, with the first three
 - Run the dev daemon: `LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- daemon` (port 7318, data in `~/.local/share/launchpad-dev`). Never stop or restart the prod daemon (port 7317) unless the owner asks: it runs the agents, maybe including you.
 - Sign a browser in to the dev daemon: `LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- url`. Headless screenshots work with `google-chrome --headless=new --screenshot=out.png --virtual-time-budget=5000 "<url>"`.
 - Local PR CLI: `launchpad pr create|update|show|list`; create/update accept `--title` and `--body-file`. Select the daemon with `LAUNCHPAD_PROFILE`; agents receive the exact CLI path and profile in their prompt. The repository skill is `skills/launchpad/SKILL.md`, linked into `~/.agents/skills/launchpad` at daemon startup.
-- Session workers: `crates/core/src/worker.rs` owns each session in `launchpad-<profile>-session-<id>.service`, with a private socket under `/run/user/<uid>/launchpad-<profile>/`. The daemon reconnects and replays stored events; only the worker writes its live session row. Never stop production workers during automated checks. Archive stops a worker; daemon restarts preserve it. Logs: `journalctl --user -u launchpad-dev-session-<id>`. Agent launches require the systemd user manager.
-- Embedded terminal: `crates/core/src/pty.rs` and `web/src/features/agents/EmbeddedTerminal.tsx`; the worker owns the PTY, bounded output and full harness TUI. Stop the TUI before re-attaching; never start two owners of one conversation. Terminal input uses native harness keys, with visible key and clipboard buttons.
-- Remote browser: `launchpad url --remote` enables per-browser command-copy mode. Forward the same localhost port with SSH (7317 prod, 7318 dev); keep Host/Origin checks and the daemon localhost bind. Copying an external-terminal command releases the headless owner first.
 - Agent suggestions: `launchpad suggest comment|review --repo <owner/repo> --number <n> --body-file <file> [--event comment|approve|request-changes] [--session-id <id>]`; reviews require `--head <inspected-commit>`. For local PRs use `--predraft <id>` instead of repo/number. `crates/core/src/suggestions.rs`, `crates/server/src/suggestions.rs` and `web/src/features/suggestions/` keep drafts in `state.db`. The CLI never publishes; only explicit card buttons do. Local PR suggestions become local notes. Automated checks must not post real suggestions. Posting claims survive restarts and uncertain outcomes require checking GitHub before replacing a draft.
 - Regenerate the TypeScript types after changing a Rust type shared with the UI: `cargo run -p launchpad -- gen-types`.
 - Type-check the UI: `(cd web && pnpm typecheck)`.
@@ -60,6 +57,8 @@ These rules apply unless the owner says otherwise for a given task.
 
 ## Product rules
 
+- Phase 7 is an unselected list of candidates. Do not implement its extensions without a concrete owner-approved scope and acceptance check. Session workers, embedded terminals and remote browser mode were reverted; the daemon owns harnesses and restarting it interrupts active turns.
+
 - Agent groups: Done means waiting for input; Running includes starting, working and background commands. Never infer Done from a command being silent. Sidebar counts and project markers must use the same predicates.
 - Agent list groups collapse independently using their headings. Keep counts visible, remember collapse state in the persisted UI layout, and omit hidden rows from the virtualizer.
 - The session header X only closes the panel and never changes session state. Archive is a separate button; archived sessions remain resumable and appear in Archived.
@@ -67,7 +66,7 @@ These rules apply unless the owner says otherwise for a given task.
 - Launch defaults come from the latest successfully launched spec, not from harness clicks or unsent edits.
 - General zoom has five positions (100%, 110%, 120%, 135%, 150%), with 120% as the default. Scale the entire interface and keep list virtualization working at every position.
 - Light theme only. Do not add a dark theme or dark-mode styles.
-- Click-only UI: the optional embedded harness TUI accepts its native keys and has visible key/clipboard buttons. Elsewhere, no keyboard shortcuts, except `Ctrl+F`, which opens the find bar in the code viewer. Every action is a visible button (the find bar also has a Find button). Text fields only type text, with three exceptions: in the composer prompt, `@` (projects) and `#` (issues and PRs) at the start of a word open a suggestion list; in the session message box, `Enter` sends, `Shift+Enter` adds a new line, and standard clipboard paste accepts images; in the find field of the code viewer, `Enter` and `Shift+Enter` go to the next and previous match and `Escape` closes the bar. See `docs/ARCHITECTURE.md`, sections 8.1 (code viewer) and 9.7 (mention rules).
+- Click-only UI: no keyboard shortcuts, except `Ctrl+F`, which opens the find bar in the code viewer. Every action is a visible button (the find bar also has a Find button). Text fields only type text, with three exceptions: in the composer prompt, `@` (projects) and `#` (issues and PRs) at the start of a word open a suggestion list; in the session message box, `Enter` sends, `Shift+Enter` adds a new line, and standard clipboard paste accepts images; in the find field of the code viewer, `Enter` and `Shift+Enter` go to the next and previous match and `Escape` closes the bar. See `docs/ARCHITECTURE.md`, sections 8.1 (code viewer) and 9.7 (mention rules).
 - Linux (Ubuntu) only. Do not add code for macOS or Windows.
 - Single user: no backward compatibility, no versioning, no data migration framework. The GitHub cache (`cache.db`) can be deleted and rebuilt at any time. Keep schema changes to `state.db` simple.
 - Anything Launchpad prepares for GitHub (pre-draft PRs, comments or reviews written by agents) stays local until the owner publishes it with a click.

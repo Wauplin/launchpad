@@ -27,20 +27,13 @@ enum Command {
     },
     /// Run the daemon (HTTP + WebSocket on 127.0.0.1).
     Daemon,
-    /// Own a session outside the UI daemon.
-    #[command(hide = true)]
-    SessionWorker { id: String, #[arg(long)] fresh: bool },
     /// Print the daemon status as JSON.
     Status,
     /// Reserve an idle daemon for installation, or release it after failure.
     #[command(hide = true)]
     UpdateInstallLock { #[arg(long)] release: bool },
     /// Print the address that signs a browser into the UI.
-    Url {
-        /// Mark the browser as remote: editor and external terminal actions copy commands.
-        #[arg(long)]
-        remote: bool,
-    },
+    Url,
     /// Write the TypeScript types shared with the UI.
     #[command(hide = true)]
     GenTypes {
@@ -164,10 +157,6 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Suggest { command } => suggest_command(&paths, command).await,
         Command::Pr { command } => pr_command(&paths, command).await,
-        Command::SessionWorker { id, fresh } => {
-            init_tracing();
-            launchpad_core::worker::run(paths, &id, fresh).await
-        }
         Command::Daemon => {
             init_tracing();
             tracing::info!("profile {}, data in {}", paths.profile.name(), paths.data_dir.display());
@@ -199,8 +188,8 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::Url { remote } => {
-            println!("{}/auth?t={}{}", paths.base_url(), paths.token()?, if remote { "&next=%2F%3Fremote%3D1" } else { "" });
+        Command::Url => {
+            println!("{}/auth?t={}", paths.base_url(), paths.token()?);
             Ok(())
         }
         Command::GenTypes { out } => launchpad_core::gen_types(&out),

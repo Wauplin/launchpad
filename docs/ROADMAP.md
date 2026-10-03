@@ -1,6 +1,6 @@
 # Launchpad roadmap
 
-Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
+Status: implementation and acceptance tracker (updated 2026-10-03). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
 
 ## How to read this
 
@@ -22,7 +22,7 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 | 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | In progress |
 | 5 | Workspace polish | Several sessions are easy to arrange, find and resume | In progress |
 | 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | In progress |
-| 7 | Hardening and options | Sessions survive restarts, embedded terminal, remote access | In progress |
+| 7 | Optional extensions requiring a new scope | Candidate ideas only; no selected implementation | Next |
 
 Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
 
@@ -217,7 +217,9 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 
 ## Phase 7: hardening and options
 
-Pick items as they become useful:
+Phase 7 is deferred. The implementation in commit `7b670af` was reverted on 2026-10-03 at the owner’s request because the phase was not well scoped. Restart survival, embedded terminals and remote browser mode are no longer built features. The list below is a menu of candidates, not an approved implementation plan. Select and scope one item before doing further Phase 7 work; define its user need, ownership and recovery rules, non-goals, and acceptance check. Complete the outstanding Phases 1–6 acceptance checks and address correctness findings before expanding the scope.
+
+Candidate ideas:
 
 - Sessions that survive daemon restarts (session shim, or Codex's shared app-server daemon).
 - Embedded terminal mode (xterm.js + PTY) for full TUI fidelity when needed.
@@ -226,15 +228,6 @@ Pick items as they become useful:
 - Inline review comments.
 - Optional inlining of cached GitHub threads in prompts.
 - Light editing in the code viewer (CodeMirror 6), if reading is not enough.
-
-**Progress:**
-
-- Built on 2026-10-03: independent systemd user session workers for Claude and Codex, private Unix command sockets, one writer per live session, and normalized event replay plus transient output forwarding when the UI daemon reconnects. Active turns, background commands and pending question state remain in the worker; a worker crash or reboot still needs native Resume.
-- Optional light embedded terminal: xterm.js with a Linux PTY owned by the session worker, native TUI resume, resize, bounded output replay, visible key/clipboard controls, conversation toggle, and Stop TUI and re-attach. The headless adapter and TUI never own the same conversation simultaneously.
-- Remote browser mode: same-port SSH forwarding, `launchpad url --remote`, a browser-local Settings toggle, copied editor commands, and a release-and-copy terminal handoff. Localhost binding and Host/Origin/token checks remain in place.
-- Checked with real Claude Haiku and Codex GPT-6-Luna sessions: both completed silent 45-second commands across a killed dev daemon; a pending Claude question retained its request id and accepted an answer after restart; both native TUIs replied and Claude’s TUI survived another daemon restart. Browser checks cover all five zoom positions, conversation toggling, reload, stop/re-attach and persisted remote mode; shell-quoted remote commands and Host/Origin/token checks also pass. Strict workspace Clippy, UI type checks/build, desktop build and the 11 existing fast Rust tests pass.
-- The remaining menu items (another harness, inline review comments, cached-thread prompt expansion and light code editing) are optional and have not been selected.
-- Left for daily use: daemon restart and TUI handoff during normal work, and browser access from a second machine.
 
 ## Not planned
 

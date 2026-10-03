@@ -18,7 +18,6 @@ pub mod notify;
 pub mod paths;
 pub mod predrafts;
 pub mod procs;
-pub mod pty;
 pub mod projects;
 pub mod schedules;
 pub mod sessions;
@@ -29,7 +28,6 @@ pub mod terminal;
 mod titles;
 pub mod util;
 pub mod workspace;
-pub mod worker;
 
 /// Source revision embedded in the running binary, and the main checkout used for updates.
 pub const COMMIT: &str = env!("LAUNCHPAD_COMMIT");
@@ -42,9 +40,6 @@ use anyhow::Result;
 /// Shared state of a running daemon. Cheap to clone.
 #[derive(Clone)]
 pub struct App {
-    /// Session workers own harnesses; the HTTP daemon only connects to them.
-    pub worker: bool,
-    pub pty: pty::Terminal,
     pub paths: Arc<paths::Paths>,
     pub config: config::ConfigHandle,
     pub state_db: db::Db,
@@ -63,14 +58,6 @@ pub struct App {
 impl App {
     /// Opens the databases and the config, and starts the background services.
     pub async fn start(paths: paths::Paths) -> Result<App> {
-        Self::start_mode(paths, false).await
-    }
-
-    pub async fn start_worker(paths: paths::Paths) -> Result<App> {
-        Self::start_mode(paths, true).await
-    }
-
-    async fn start_mode(paths: paths::Paths, worker: bool) -> Result<App> {
         paths.ensure_dirs()?;
         let paths = Arc::new(paths);
         let bus = events::Bus::new();
@@ -82,8 +69,6 @@ impl App {
         let codex = codex_rpc::CodexServer::new(env.clone());
         let github = github::GitHub::new(env.clone(), cache_db.clone());
         let app = App {
-            worker,
-            pty: pty::Terminal::default(),
             paths,
             config,
             state_db,
@@ -98,10 +83,6 @@ impl App {
             models: harness::ModelCache::default(),
             predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
         };
-        if worker {
-            harness::codex::spawn_router(&app);
-            return Ok(app);
-        }
         predrafts::link_skill()?;
         app.sessions.load(&app).await?;
         schedules::recover(&app).await?;

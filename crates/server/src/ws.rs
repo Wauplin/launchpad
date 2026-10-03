@@ -16,7 +16,7 @@ pub async fn handler(State(s): State<Server>, ws: WebSocketUpgrade) -> Response 
 async fn run(s: Server, socket: WebSocket) {
     serve_socket(&s, socket).await;
     // The window is gone: nothing is watched any more.
-    presence(&s.app, false, vec![]);
+    s.app.sessions.set_watched(false, vec![]);
 }
 
 async fn serve_socket(s: &Server, socket: WebSocket) {
@@ -59,16 +59,6 @@ fn client_message(s: &Server, text: &str) {
     let Ok(msg) = serde_json::from_str::<serde_json::Value>(text) else { return };
     if msg["type"] == "presence" {
         let sessions = msg["sessions"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
-        presence(&s.app, msg["focused"].as_bool().unwrap_or(false), sessions);
-    }
-}
-
-fn presence(app: &launchpad_core::App, focused: bool, sessions: Vec<String>) {
-    app.sessions.set_watched(focused, sessions.clone());
-    for s in app.sessions.list().into_iter().filter(|s| s.live) {
-        let (paths, sessions) = (app.paths.clone(), sessions.clone());
-        tokio::spawn(async move {
-            let _ = launchpad_core::worker::call(&paths, &s.id, "presence", serde_json::json!({"focused":focused,"sessions":sessions})).await;
-        });
+        s.app.sessions.set_watched(msg["focused"].as_bool().unwrap_or(false), sessions);
     }
 }

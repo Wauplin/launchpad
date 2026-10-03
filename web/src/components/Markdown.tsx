@@ -5,11 +5,10 @@
 // becomes a link to the code viewer (CodeLinks context). The code viewer's Markdown preview resolves
 // relative images and links to files of the same source (`links` prop).
 
-import { api } from "@/lib/api";
 import MarkdownIt from "markdown-it";
 import { createContext, memo, useContext, useMemo, type MouseEvent } from "react";
 import { copyText } from "@/lib/clipboard";
-import { toast, toastError } from "./Toast";
+import { toast } from "./Toast";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
 
@@ -73,7 +72,7 @@ export const Markdown = memo(function Markdown({ text, className = "", links }: 
     if (a) {
       e.preventDefault();
       if (links?.link(a.getAttribute("href") ?? "")) return;
-      void api.post("/api/open", { url: a.href }).catch(toastError);
+      void fetch("/api/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: a.href }) });
     }
   };
   return <div className={`lp-md ${className}`} onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;

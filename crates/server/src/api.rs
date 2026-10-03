@@ -41,9 +41,6 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/close", post(close))
         .route("/api/sessions/{id}/resume", post(resume))
         .route("/api/sessions/{id}/open-terminal", post(open_terminal))
-        .route("/api/sessions/{id}/embedded-terminal", post(embedded_terminal))
-        .route("/api/sessions/{id}/terminal/{action}", get(terminal_snapshot).post(terminal_action))
-        .route("/api/sessions/{id}/terminal-command", get(terminal_command).post(release_terminal_command))
         .route("/api/sessions/{id}/task-output", get(task_output))
         .route("/api/inbox", get(inbox))
         .route("/api/inbox/sync", post(inbox_sync))
@@ -354,8 +351,6 @@ async fn open_url(State(s): State<Server>, Json(b): Json<OpenUrl>) -> ApiResult<
 
 #[derive(Deserialize)]
 struct OpenEditor {
-    #[serde(default)]
-    copy_only: bool,
     path: String,
     line: Option<u32>,
 }
@@ -364,17 +359,14 @@ struct OpenEditor {
 /// other editors get the file alone.
 async fn open_editor(State(s): State<Server>, Json(b): Json<OpenEditor>) -> ApiResult<Value> {
     let editor = s.app.config.get().commands.editor;
-    let mut argv = vec![editor.clone()];
     let mut cmd = launchpad_core::procs::command(&s.app.env, &editor, None);
     let name = std::path::Path::new(&editor).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     match b.line {
         Some(line) if matches!(name.as_str(), "code" | "code-insiders" | "codium" | "cursor" | "windsurf") => {
-            argv.extend(["--goto".into(), format!("{}:{line}", b.path)]);
             cmd.arg("--goto").arg(format!("{}:{line}", b.path))
         }
-        _ => { argv.push(b.path.clone()); cmd.arg(&b.path) },
+        _ => cmd.arg(&b.path),
     };
-    if b.copy_only { return Ok(Json(json!({"command":launchpad_core::terminal::shell_join(&argv)}))); }
     cmd.kill_on_drop(false).spawn().map_err(|e| bad(e.into()))?;
     Ok(Json(json!({"ok": true})))
 }
@@ -476,33 +468,4 @@ async fn search_sessions(State(s): State<Server>, Query(q): Query<SessionSearch>
         Ok(st.query_map([needle], |r| r.get::<_,String>(0))?.collect::<Result<Vec<_>, _>>()?)
     }).await?;
     Ok(Json(ids))
-}
-
-async fn embedded_terminal(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
-    s.app.sessions.embedded_terminal(&s.app, &id).await.map_err(bad)?;
-    Ok(Json(json!({"ok":true})))
-}
-async fn terminal_snapshot(State(s): State<Server>, Path((id, action)): Path<(String,String)>) -> ApiResult<Value> {
-    if action != "snapshot" || s.app.sessions.get(&id).is_none() { return Err(ApiError::bad_request("no such terminal")); }
-    Ok(Json(launchpad_core::worker::call(&s.app.paths, &id, "terminal-snapshot", json!({})).await.map_err(bad)?))
-}
-async fn terminal_action(State(s): State<Server>, Path((id, action)): Path<(String,String)>, Json(body): Json<Value>) -> ApiResult<Value> {
-    if !matches!(action.as_str(), "input" | "resize" | "stop") || s.app.sessions.get(&id).is_none() { return Err(ApiError::bad_request("unknown terminal action")); }
-    let _guard = s.app.sessions.allow_terminal_work().await.map_err(bad)?;
-    let session = s.app.sessions.get(&id).ok_or_else(|| ApiError::bad_request("no such session"))?;
-    launchpad_core::predrafts::check_session_work(&s.app, &session.cwd).await.map_err(bad)?;
-    Ok(Json(launchpad_core::worker::call(&s.app.paths, &id, &format!("terminal-{action}"), body).await.map_err(bad)?))
-}
-async fn terminal_command(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
-    let session = s.app.sessions.get(&id).ok_or_else(|| ApiError::bad_request("no such session"))?;
-    let is_temp = match &session.project_id { Some(id) => launchpad_core::projects::get(&s.app,id).await?.is_some_and(|p|p.is_temp), None => false };
-    let argv = launchpad_core::terminal::tui_command(&s.app,&session,is_temp).map_err(bad)?;
-    Ok(Json(json!({"command": format!("cd {} && {}", launchpad_core::terminal::shell_join(&[session.cwd]), launchpad_core::terminal::shell_join(&argv))})))
-}
-
-async fn release_terminal_command(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
-    // Construct the command first, so errors leave the current owner attached.
-    let command = terminal_command(State(s.clone()), Path(id.clone())).await?;
-    s.app.sessions.release_terminal(&s.app,&id).await.map_err(bad)?;
-    Ok(command)
 }

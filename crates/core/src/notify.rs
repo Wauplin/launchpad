@@ -1,4 +1,4 @@
-//! Desktop session notifications, sent by the worker so they work without a window or UI daemon.
+//! Desktop notifications, sent by the daemon so they work when the window is closed.
 //! Clicking one opens the window on the item (`launchpad-desktop --open <route>`).
 
 use std::sync::atomic::{AtomicUsize, Ordering};

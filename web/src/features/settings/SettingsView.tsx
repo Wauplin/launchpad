@@ -1,5 +1,3 @@
-import { useRemote } from "@/lib/remote";
-import { copyText } from "@/lib/clipboard";
 // Settings (sketch S6): General and Presets. Saved to config.toml, which can also be edited by hand.
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -53,7 +51,6 @@ function UpdateControl() {
 }
 
 export function SettingsView() {
-  const remote = useRemote();
   const q = useConfig();
   const terminals = useTerminals().data ?? [];
   const qc = useQueryClient();
@@ -103,11 +100,6 @@ export function SettingsView() {
       <div className="mx-auto grid max-w-[860px] grid-cols-[minmax(0,1fr)] gap-5 p-6">
         {q.data.error && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">config.toml has an error, the previous settings are in use: {q.data.error}</div>}
         <Card title="General" end={actions}>
-          <Row title="Remote browser" hint="Saved in this browser only. Use an SSH tunnel to the daemon's localhost port.">
-            <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={remote.enabled} onChange={(e) => remote.set(e.target.checked)} />Copy editor and external-terminal commands for the server</label>
-            <p className="mt-2 text-xs text-ink-3">The embedded terminal runs on the server. Forward the same port (7317 for production, 7318 for dev), then run launchpad url --remote on the server and open its address here.</p>
-            <button className="btn btn-sm mt-2" onClick={() => void copyText("ssh -N -L 127.0.0.1:7317:127.0.0.1:7317 user@server").then(() => toast("SSH tunnel template copied")).catch(toastError)}>Copy SSH tunnel template</button>
-          </Row>
           <Row title="Zoom" hint="Make the whole interface larger. The middle position is the default.">
             <label className="grid gap-2">
               <span className="font-semibold">{ZOOM_LEVELS[draft.zoom]}%{draft.zoom === 2 ? " (default)" : ""}</span>
