@@ -19,6 +19,7 @@ import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/q
 import { rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { DelaySelector, conditionsError } from "./DelaySelector";
+import { CronSelector, type CronDraft } from "./CronSelector";
 import { itemIcon, PromptField } from "./PromptField";
 
 function Field({ label, hint, end, children }: { label: string; hint?: string; end?: React.ReactNode; children: React.ReactNode }) {
@@ -143,6 +144,8 @@ export function Composer() {
   const navigate = useNavigate();
   const showSession = useLayout((s) => s.show);
   const [delayValid, setDelayValid] = useState(true);
+  const [cron, setCron] = useState<CronDraft | null>(null);
+  const [cronValid, setCronValid] = useState(true);
   const [launching, setLaunching] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const debouncedSpec = useDebounced(spec, 250);
@@ -165,7 +168,7 @@ export function Composer() {
   const model = spec.model ? defaults?.models.find((m) => m.id === spec.model) : defaults?.models.find((m) => m.id === defaults?.model);
   const efforts = model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
   const scheduled = conditions.length > 0;
-  const canLaunch = delayValid && !conditionsError(conditions) && !!spec.harness && spec.target.kind !== "none" && !!preview.data?.prompt.trim();
+  const canLaunch = (cron ? cronValid : delayValid && !conditionsError(conditions)) && !!spec.harness && spec.target.kind !== "none" && !!preview.data?.prompt.trim();
 
   const addProjectContext = (p: Project) =>
     set((s) => (s.context_projects.some((c) => c.project_id === p.id) || ((s.target.kind === "project" || s.target.kind === "predraft") && s.target.project_id === p.id) ? s : { ...s, context_projects: [...s.context_projects, { project_id: p.id, branch: null }] }));
@@ -195,6 +198,14 @@ export function Composer() {
   const launch = async () => {
     setLaunching(true);
     try {
+      if (cron) {
+        await api.post("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions });
+        setCron(null);
+        discard();
+        void navigate({ to: "/agents" });
+        toast("Cron agent created. Find it in the Cron group in Agents.");
+        return;
+      }
       if (scheduled) {
         await api.post("/api/launch/schedules", { spec, conditions });
         discard();
@@ -454,7 +465,8 @@ export function Composer() {
           </Field>
         </div>
 
-        <DelaySelector conditions={conditions} harness={spec.harness} onChange={setConditions} onValidityChange={setDelayValid} />
+        <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); }} onValidityChange={setCronValid} />
+        {!cron && <DelaySelector conditions={conditions} harness={spec.harness} onChange={setConditions} onValidityChange={setDelayValid} />}
 
         <div className="rounded-lg border border-line bg-chrome">
           <div className="flex items-center gap-2 border-b border-line px-2.5 py-1.5 text-[11.5px] font-[650] text-ink-2">
@@ -472,16 +484,16 @@ export function Composer() {
       </div>
 
       <div className="flex items-center gap-2 border-t border-line bg-chrome px-3.5 py-3">
-        <label className="mr-auto inline-flex items-center gap-[7px] text-xs text-ink-2" style={scheduled ? { visibility: "hidden" } : undefined}>
-          <input type="checkbox" className="accent-teal" disabled={scheduled} checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
+        <label className="mr-auto inline-flex items-center gap-[7px] text-xs text-ink-2" style={scheduled || cron ? { visibility: "hidden" } : undefined}>
+          <input type="checkbox" className="accent-teal" disabled={scheduled || !!cron} checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
           Open after launch
         </label>
-        <button className="btn btn-ghost" onClick={discard} title="Clear the composer">
+        <button className="btn btn-ghost" onClick={() => { setCron(null); discard(); }} title="Clear the composer">
           Discard
         </button>
         <button className="btn btn-primary" disabled={!canLaunch || launching} onClick={() => void launch()}>
           <Icon name="play" size={14} />
-          {launching ? (scheduled ? "Scheduling…" : "Launching…") : scheduled ? "Schedule" : "Launch"}
+          {launching ? (cron ? "Creating…" : scheduled ? "Scheduling…" : "Launching…") : cron ? "Create cron" : scheduled ? "Schedule" : "Launch"}
         </button>
       </div>
     </aside>

@@ -558,6 +558,16 @@ A daemon loop checks the queue once per second. The DB actor serializes cancella
 
 `GET/POST /api/launch/schedules`, `DELETE /api/launch/schedules/{id}` and `POST /api/launch/schedules/{id}/start` expose the queue. WebSocket `schedules` events refresh it. The Agents screen adds a virtualized, independently collapsible Scheduled group and a detail pane with the conditions, dependency states, prompt preview, Start now and Cancel launch. Queued entries are neither Running nor Done and do not change sidebar session counts. Closing their detail panel leaves the queue intact.
 
+### 9.7.2 Cron agents
+
+The composer has a Repeat selector under the launch options: Run once (default) or On a cron schedule…. A cron replaces the Start selector and the button becomes Create cron. The schedule is a standard 5-field cron expression (minute, hour, day of month, month, day of week) in the daemon's local time zone, with preset buttons (every hour, every day at 9:00, weekdays at 9:00, Mondays at 9:00). The daemon parses it with the `croner` crate; `GET /api/launch/crons/next?schedule=…` returns the next three run times, so the UI previews and validates with the same parser as the scheduler.
+
+Conditions are optional and all must hold at the due time: "the previous run is no longer Running" (`SessionStatus::is_running()`, the same predicate as the sidebar) and "the harness has at least N% left of its 5-hour or weekly quota". A quota condition needs a successful reading less than 15 minutes old; an unknown, stale or failed reading blocks the run. A run whose conditions fail is skipped with the reason saved in `last_outcome`; it is not retried before the next scheduled time.
+
+`cron_agent` in `state.db` keeps each cron as JSON: launch spec, title, schedule, conditions, paused flag, next run time, last check, last outcome and up to 50 run session ids. A daemon loop checks every 5 seconds. Each due run is claimed in the DB actor by moving `next_run_at` to the next match before any launch work, so a crash never repeats a run. A run more than 1 hour late (daemon stopped, update installing) is skipped instead of started; the loop does nothing while the updater blocks new work. Each run is a normal session with a new id and appears in Running, Done and Archived like other agents. Run now starts one run immediately, ignores the conditions and keeps the schedule.
+
+`GET/POST /api/launch/crons`, `PATCH/DELETE /api/launch/crons/{id}` (schedule, conditions, paused) and `POST /api/launch/crons/{id}/run` expose crons. WebSocket `crons` events refresh them. The Agents screen lists crons in their own collapsible Cron group above Scheduled, and the detail pane shows the schedule, conditions, next run, last outcome, the run list, Run now, Edit schedule, Pause/Resume and Delete cron. Deleting a cron keeps its past sessions.
+
 ### 9.8 Surviving daemon restarts (later)
 
 Two options, to decide when it becomes a real pain:
@@ -719,7 +729,7 @@ Code viewer implementation, on 2026-10-02:
 
 33. **Commit status and deferred installation.** The status bar displays the running build’s Git commit and offers a small Update button when local main is ahead. Checks and builds run in the background; installation waits for no Running sessions, using the same predicate as the sidebar and counts. The updater never interrupts active agents or builds uncommitted work.
 
-34. **Collapsible agent groups.** Scheduled, Running, Done and Archived (in that order, top to bottom) have independent collapse buttons with visible counts. Expansion is persisted as UI layout state; only expanded rows enter the fixed-height virtualized list.
+34. **Collapsible agent groups.** Cron, Scheduled, Running, Done and Archived (in that order, top to bottom) have independent collapse buttons with visible counts. Expansion is persisted as UI layout state; only expanded rows enter the fixed-height virtualized list.
 
 Delayed launches, on 2026-10-02:
 
@@ -754,3 +764,7 @@ Scope correction, on 2026-10-03:
 Scheduled launch conditions, on 2026-10-03:
 
 45. **Combined start conditions.** A scheduled launch stores a list of conditions that must all be met, instead of one delay. Time and quota conditions still resolve once to a single deadline (the latest one); agent conditions are checked live. There is no OR: one launch per alternative covers that case without a condition tree.
+
+Cron agents, on 2026-10-03:
+
+46. **Cron agents claim by advancing the schedule.** Recurring launches are separate `cron_agent` records with a 5-field local-time schedule (`croner`) and optional conditions (previous run finished, minimum quota left). The scheduler moves `next_run_at` forward before launching, so runs are never repeated after a crash; failed conditions and runs more than 1 hour late are skipped, not caught up. Runs are ordinary sessions; crons have their own Cron group and never count as Running or Done.

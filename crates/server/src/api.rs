@@ -25,6 +25,10 @@ pub fn router() -> Router<Server> {
         .route("/api/launch/schedules", get(schedules).post(schedule))
         .route("/api/launch/schedules/{id}", axum::routing::delete(cancel_schedule))
         .route("/api/launch/schedules/{id}/start", post(start_schedule))
+        .route("/api/launch/crons", get(crons).post(create_cron))
+        .route("/api/launch/crons/next", get(cron_next))
+        .route("/api/launch/crons/{id}", axum::routing::patch(update_cron).delete(delete_cron))
+        .route("/api/launch/crons/{id}/run", post(run_cron))
         .route("/api/launch/draft", get(get_draft).put(put_draft))
         .route("/api/harness/{kind}/defaults", get(defaults))
         .route("/api/sessions", get(list_sessions).post(launch))
@@ -434,6 +438,23 @@ async fn cancel_schedule(State(s): State<Server>, Path(id): Path<String>) -> Api
     Ok(Json(json!({"ok": true})))
 }
 async fn start_schedule(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Session> { Ok(Json(schedules::start_now(&s.app, &id).await.map_err(bad)?)) }
+
+// ---------------------------------------------------------------- cron agents
+use launchpad_core::crons::{self, CronAgent, CronCondition, CronPatch};
+
+#[derive(Deserialize)]
+struct CronRequest { spec: LaunchSpec, schedule: String, conditions: Vec<CronCondition> }
+async fn crons(State(s): State<Server>) -> ApiResult<Vec<CronAgent>> { Ok(Json(crons::list(&s.app).await?)) }
+async fn create_cron(State(s): State<Server>, Json(b): Json<CronRequest>) -> ApiResult<CronAgent> { Ok(Json(crons::create(&s.app, b.spec, b.schedule, b.conditions).await.map_err(bad)?)) }
+async fn update_cron(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<CronPatch>) -> ApiResult<CronAgent> { Ok(Json(crons::update(&s.app, &id, b).await.map_err(bad)?)) }
+async fn delete_cron(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
+    crons::delete(&s.app, &id).await.map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
+}
+#[derive(Deserialize)]
+struct CronNext { schedule: String }
+async fn cron_next(Query(q): Query<CronNext>) -> ApiResult<Vec<i64>> { Ok(Json(crons::next_runs(&q.schedule, 3).map_err(bad)?)) }
+async fn run_cron(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Session> { Ok(Json(crons::run_now(&s.app, &id).await.map_err(bad)?)) }
 
 #[derive(Deserialize)]
 struct RenameSession { title: String }

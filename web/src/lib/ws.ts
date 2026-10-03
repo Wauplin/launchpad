@@ -81,6 +81,8 @@ export function connectEvents(queryClient: QueryClient) {
         void queryClient.invalidateQueries({ queryKey: ["code-sources"] });
       } else if (topic === "suggestions") {
         void queryClient.invalidateQueries({ queryKey: ["suggestions"] });
+      } else if (topic === "crons") {
+        void queryClient.invalidateQueries({ queryKey: ["crons"] });
       } else if (topic === "schedules") {
         void queryClient.invalidateQueries({ queryKey: ["schedules"] });
       } else if (topic === "sessions") {

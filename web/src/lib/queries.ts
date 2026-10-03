@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Config } from "@/gen/Config";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
+import type { CronAgent } from "@/gen/CronAgent";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import type { Project } from "@/gen/Project";
 import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
@@ -40,5 +41,7 @@ export const useTerminals = () => useQuery({ queryKey: ["terminals"], queryFn: (
 export function projectName(projects: Project[] | undefined, id: string | null, cwd?: string) {
   return projects?.find((p) => p.id === id)?.name ?? cwd?.split("/").pop() ?? "";
 }
+
+export const useCrons = () => useQuery({ queryKey: ["crons"], queryFn: () => api.get<CronAgent[]>("/api/launch/crons"), staleTime: Infinity });
 
 export const useSchedules = () => useQuery({ queryKey: ["schedules"], queryFn: () => api.get<ScheduledLaunch[]>("/api/launch/schedules"), staleTime: Infinity });

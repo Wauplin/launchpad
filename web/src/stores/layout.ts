@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type Layout = 1 | 2 | 4;
-export type AgentGroup = "Done" | "Running" | "Scheduled" | "Archived";
+export type AgentGroup = "Cron" | "Done" | "Running" | "Scheduled" | "Archived";
 
 type SavedLayout = { name: string; layout: Layout; panes: (string | null)[]; focused: number };
 

@@ -4,6 +4,7 @@ pub mod code;
 pub mod codex_rpc;
 pub mod compose;
 pub mod config;
+pub mod crons;
 pub mod db;
 pub mod drafts;
 pub mod events;
@@ -87,6 +88,7 @@ impl App {
         app.sessions.load(&app).await?;
         schedules::recover(&app).await?;
         schedules::spawn(&app);
+        crons::spawn(&app);
         status::spawn_monitors(&app);
         harness::codex::spawn_router(&app);
         harness::spawn_model_refresh(&app);
@@ -114,6 +116,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     projects::ProjectPatch::export_all(&cfg)?;
     sessions::Preview::export_all(&cfg)?;
     schedules::ScheduledLaunch::export_all(&cfg)?;
+    crons::CronAgent::export_all(&cfg)?;
     github::GhItem::export_all(&cfg)?;
     inbox::InboxSnapshot::export_all(&cfg)?;
     inbox::ThreadPreview::export_all(&cfg)?;
