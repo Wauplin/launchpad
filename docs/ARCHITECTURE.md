@@ -719,7 +719,7 @@ Code viewer implementation, on 2026-10-02:
 
 33. **Commit status and deferred installation.** The status bar displays the running build’s Git commit and offers a small Update button when local main is ahead. Checks and builds run in the background; installation waits for no Running sessions, using the same predicate as the sidebar and counts. The updater never interrupts active agents or builds uncommitted work.
 
-34. **Collapsible agent groups.** Done, Running and Archived have independent collapse buttons with visible counts. Expansion is persisted as UI layout state; only expanded rows enter the fixed-height virtualized list.
+34. **Collapsible agent groups.** Scheduled, Running, Done and Archived (in that order, top to bottom) have independent collapse buttons with visible counts. Expansion is persisted as UI layout state; only expanded rows enter the fixed-height virtualized list.
 
 Delayed launches, on 2026-10-02:
 

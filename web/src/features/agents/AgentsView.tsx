@@ -1,4 +1,4 @@
-// Agents workspace (sketch S3): sessions grouped as Done, Running and Archived, shown in 1, 2 or 4 panes.
+// Agents workspace (sketch S3): sessions grouped as Scheduled, Running, Done and Archived, shown in 1, 2 or 4 panes.
 // Clicking a session loads it in the focused pane.
 
 import { useQuery } from "@tanstack/react-query";
@@ -141,12 +141,12 @@ export function AgentsView() {
   const running = filtered.filter((s) => isRunning(s)).sort(order);
   const archived = filtered.filter((s) => !isDone(s) && !isRunning(s)).sort(order);
   const items: ({ kind: "group"; title: AgentGroup; count: number; highlight?: boolean } | { kind: "session"; session: Session } | { kind: "schedule"; launch: ScheduledLaunch } | { kind: "more" })[] = [
-    { kind: "group", title: "Done", count: done.length, highlight: true },
-    ...(collapsedGroups.Done ? [] : done).map((session) => ({ kind: "session" as const, session })),
-    { kind: "group", title: "Running", count: running.length },
-    ...(collapsedGroups.Running ? [] : running).map((session) => ({ kind: "session" as const, session })),
     { kind: "group", title: "Scheduled", count: filteredSchedules.length },
     ...(collapsedGroups.Scheduled ? [] : filteredSchedules).map((launch) => ({ kind: "schedule" as const, launch })),
+    { kind: "group", title: "Running", count: running.length },
+    ...(collapsedGroups.Running ? [] : running).map((session) => ({ kind: "session" as const, session })),
+    { kind: "group", title: "Done", count: done.length, highlight: true },
+    ...(collapsedGroups.Done ? [] : done).map((session) => ({ kind: "session" as const, session })),
     { kind: "group", title: "Archived", count: archived.length },
     ...(collapsedGroups.Archived ? [] : archived.slice(0, archivedLimit)).map((session) => ({ kind: "session" as const, session })),
     ...(!collapsedGroups.Archived && archived.length > archivedLimit ? [{ kind: "more" as const }] : []),
