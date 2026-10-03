@@ -9,6 +9,7 @@ import type { Note } from "@/gen/Note";
 import type { Diff } from "@/features/github/types";
 import { FilesChanged } from "@/features/github/FilesChanged";
 import { Markdown } from "@/components/Markdown";
+import { LocalSuggestions } from "@/features/suggestions/Suggestions";
 import { useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 type Detail = Diff & { predraft: Predraft; status: string | null; commits: string[]; base_ahead: number; dirty: boolean; default_remote_branch: string };
@@ -35,6 +36,15 @@ function Review({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const previousNotes = useRef<Note[] | null>(null);
+  useEffect(() => {
+    if (!p) return;
+    const previous = previousNotes.current;
+    previousNotes.current = p.notes;
+    if (!previous || !loaded) return;
+    const added = p.notes.filter((n) => !previous.some((old) => old.path === n.path && old.text === n.text));
+    if (added.length) setNotes((current) => [...current, ...added.filter((n) => !current.some((old) => old.path === n.path && old.text === n.text))]);
+  }, [p?.notes, loaded]);
   const draftKey = `predraft-draft:${id}`;
   useEffect(() => {
     if (!p || loaded) return;
@@ -83,7 +93,7 @@ function Review({ id }: { id: string }) {
       <div className="flex gap-2">{["description", "files", "commits", "notes"].map((t) => <button key={t} className={`btn btn-sm ${tab === t ? "bg-select!" : ""}`} onClick={() => setTab(t)}>{t === "files" ? `Files changed (${d.files.length})` : t[0].toUpperCase() + t.slice(1)}</button>)}</div>
     </div>
     {tab === "files" && !p.archived && d.head ? <FilesChanged repo="local" number={0} head={d.head} local={{ id, root: p.root }} /> : <div className="min-h-0 flex-1 overflow-auto p-4">
-      {tab === "description" && <>{editing && active ? <div className="grid gap-3"><input aria-label="PR title" className="field-input" value={title} onChange={(e) => setTitle(e.target.value)} /><textarea aria-label="PR description" className="field-input min-h-48" value={body} onChange={(e) => setBody(e.target.value)} /><button className="btn w-fit" disabled={busy} onClick={() => void run(save)}>Save title and description</button></div> : <><Markdown text={p.body || "No description yet. The agent can set it with launchpad pr update."} />{active && <button className="btn mt-3" onClick={() => { setTitle(p.title); setBody(p.body); setEditing(true); }}>Edit title and description</button>}</>}</>}
+      {tab === "description" && <>{editing && active ? <div className="grid gap-3"><input aria-label="PR title" className="field-input" value={title} onChange={(e) => setTitle(e.target.value)} /><textarea aria-label="PR description" className="field-input min-h-48" value={body} onChange={(e) => setBody(e.target.value)} /><button className="btn w-fit" disabled={busy} onClick={() => void run(save)}>Save title and description</button></div> : <><Markdown text={p.body || "No description yet. The agent can set it with launchpad pr update."} />{active && <button className="btn mt-3" onClick={() => { setTitle(p.title); setBody(p.body); setEditing(true); }}>Edit title and description</button>}</>}<LocalSuggestions id={id} /></>}
       {tab === "commits" && <Commits commits={d.commits} />}
       {tab === "notes" && <div className="grid max-w-[800px] gap-3">
         {notes.map((n, i) => <div key={i} className="rounded border border-line p-3"><b className="text-xs">{n.path ?? "General"}</b><textarea aria-label={`Review note ${i + 1}`} className="field-input mt-2 w-full" disabled={!active || busy} value={n.text} onChange={(e) => setNotes((a) => a.map((v, j) => j === i ? { ...v, text: e.target.value } : v))} />{active && <button className="btn btn-sm mt-2" disabled={busy} onClick={() => setNotes((a) => a.filter((_, j) => i !== j))}>Remove note</button>}</div>)}

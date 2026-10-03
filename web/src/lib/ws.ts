@@ -79,6 +79,8 @@ export function connectEvents(queryClient: QueryClient) {
       } else if (topic === "predrafts") {
         void queryClient.invalidateQueries({ queryKey: ["predrafts"] });
         void queryClient.invalidateQueries({ queryKey: ["code-sources"] });
+      } else if (topic === "suggestions") {
+        void queryClient.invalidateQueries({ queryKey: ["suggestions"] });
       } else if (topic === "schedules") {
         void queryClient.invalidateQueries({ queryKey: ["schedules"] });
       } else if (topic === "sessions") {

@@ -16,6 +16,8 @@ import {
   openGitHub,
   reference,
 } from "./lib";
+import { SuggestionCard, useSuggestions } from "@/features/suggestions/Suggestions";
+import { useComposer } from "@/stores/composer";
 import { LabelChip } from "./LabelChip";
 import { FilesChanged } from "./FilesChanged";
 import type { Item, Timeline, Comment } from "./types";
@@ -103,6 +105,8 @@ const EventCard = memo(function EventCard({
 });
 function Conversation({ item }: { item: Item }) {
   const ref = useRef<HTMLDivElement>(null);
+  const qc = useQueryClient();
+  const suggestions = useSuggestions({ kind: "git_hub", repo: item.repo, number: item.number });
   const events: Timeline[] = [
     {
       __typename: "Description",
@@ -116,7 +120,8 @@ function Conversation({ item }: { item: Item }) {
     ...item.timelineItems.nodes.filter((e) => e.__typename),
   ];
   const v = useVirtualizer({
-    count: events.length,
+    count: suggestions.data.length + events.length,
+    getItemKey: (i) => i < suggestions.data.length ? suggestions.data[i].id : events[i - suggestions.data.length].id ?? `event:${i - suggestions.data.length}`,
     getScrollElement: () => ref.current,
     estimateSize: () => 160,
     overscan: 3,
@@ -124,6 +129,7 @@ function Conversation({ item }: { item: Item }) {
   });
   return (
     <div ref={ref} className="min-h-0 flex-1 overflow-auto p-4">
+      {suggestions.error && <p role="alert" className="text-gh-closed">{String(suggestions.error)}</p>}
       <div className="relative" style={{ height: v.getTotalSize() }}>
         {v.getVirtualItems().map((r) => (
           <div
@@ -133,7 +139,7 @@ function Conversation({ item }: { item: Item }) {
             className="absolute left-0 top-0 w-full pb-3"
             style={{ transform: `translateY(${r.start}px)` }}
           >
-            <EventCard event={events[r.index]} item={item} />
+            {r.index < suggestions.data.length ? <SuggestionCard suggestion={suggestions.data[r.index]} head={item.headRefOid} onPosted={() => { void api.post<Item>(itemPath(item.repo, item.number), { force: true }).then((fresh) => qc.setQueryData(itemKey(item.repo, item.number), fresh)).catch(() => {}); }} /> : <EventCard event={events[r.index - suggestions.data.length]} item={item} />}
           </div>
         ))}
       </div>
@@ -602,6 +608,10 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
                 : [],
             }}
           />
+          {isPr && item && <button className="btn btn-sm" onClick={() => {
+            useComposer.getState().start({ projectId: project?.id ?? null, githubRefs: [reference(repo, item, "pr")] });
+            useComposer.getState().update((s) => ({ ...s, text: `Review ${repo}#${number} at commit ${item.headRefOid}. Inspect the changes and relevant context, summarize concrete findings, and save a local suggested review using launchpad suggest review --repo ${repo} --number ${number} --head ${item.headRefOid} --body-file <file> with your session id. Use --event request-changes for blocking findings, otherwise a comment review. Do not post to GitHub or change the code.` }));
+          }}>Review with agent</button>}
           {item && (
             <AddContext
               refItem={reference(repo, item, isPr ? "pr" : "issue")}

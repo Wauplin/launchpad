@@ -442,6 +442,7 @@ impl Sessions {
             }
             Target::None => unreachable!(),
         };
+        preview.prompt.push_str(&format!("\n\n{}", crate::suggestions::instruction(app, &id)));
         let now = now_ms();
         let session = Session {
             id: id.clone(),

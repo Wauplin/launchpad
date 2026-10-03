@@ -20,6 +20,11 @@ enum Command {
         #[command(subcommand)]
         command: Pr,
     },
+    /// Save an agent-written suggestion locally; never posts to GitHub.
+    Suggest {
+        #[command(subcommand)]
+        command: Suggest,
+    },
     /// Run the daemon (HTTP + WebSocket on 127.0.0.1).
     Daemon,
     /// Print the daemon status as JSON.
@@ -35,6 +40,57 @@ enum Command {
         #[arg(default_value = "web/src/gen")]
         out: std::path::PathBuf,
     },
+}
+
+#[derive(Subcommand)]
+enum Suggest {
+    Comment(SuggestArgs),
+    Review(SuggestArgs),
+}
+#[derive(clap::Args)]
+struct SuggestArgs {
+    #[arg(
+        long,
+        required_unless_present = "predraft",
+        conflicts_with = "predraft",
+        requires = "number"
+    )]
+    repo: Option<String>,
+    #[arg(long, requires = "repo")]
+    number: Option<u64>,
+    #[arg(long, conflicts_with_all = ["repo", "number"])]
+    predraft: Option<String>,
+    #[arg(long)]
+    body_file: std::path::PathBuf,
+    #[arg(long, default_value = "comment", value_parser = ["comment", "approve", "request-changes"])]
+    event: String,
+    #[arg(long)]
+    head: Option<String>,
+    #[arg(long)]
+    session_id: Option<String>,
+}
+async fn suggest_command(paths: &Paths, command: Suggest) -> Result<()> {
+    let (kind, q) = match command {
+        Suggest::Comment(q) => ("comment", q),
+        Suggest::Review(q) => ("review", q),
+    };
+    let target = match q.predraft {
+        Some(id) => serde_json::json!({"kind":"predraft","id":id}),
+        None => serde_json::json!({"kind":"git_hub","repo":q.repo,"number":q.number}),
+    };
+    let res = reqwest::Client::new().post(format!("{}/api/suggestions", paths.base_url()))
+        .bearer_auth(paths.token()?)
+        .json(&serde_json::json!({"target":target,"kind":kind,"body":std::fs::read_to_string(q.body_file)?,"event":q.event.replace('-', "_").to_uppercase(),"head":q.head,"session_id":q.session_id}))
+        .send().await.context("is the daemon running?")?;
+    let status = res.status();
+    let body: serde_json::Value = res.json().await?;
+    anyhow::ensure!(
+        status.is_success(),
+        "{}",
+        body["error"].as_str().unwrap_or("request failed")
+    );
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
 }
 
 #[derive(Subcommand)]
@@ -99,6 +155,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let paths = Paths::from_env();
     match cli.command {
+        Command::Suggest { command } => suggest_command(&paths, command).await,
         Command::Pr { command } => pr_command(&paths, command).await,
         Command::Daemon => {
             init_tracing();

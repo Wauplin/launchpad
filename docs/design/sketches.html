@@ -1156,7 +1156,7 @@ chunk=256MB  run 3/5 …</pre>
   <div class="sketch-head">
     <span class="sketch-id">S4 · Pull request</span>
     <h2>GitHub's layout, without GitHub's loading times</h2>
-    <p>Same structure as github.com, so nothing needs learning. Content comes from the local copy, with its age shown. Phase 3 has explicit comment and review buttons. Agent-written suggestion cards shown below arrive in Phase 6.</p>
+    <p>Same structure as github.com, so nothing needs learning. Content comes from the local copy, with its age shown. Phase 3 has explicit comment and review buttons. Phase 6 adds editable agent suggestion cards and Review with agent, which opens the composer with the displayed PR head.</p>
   </div>
   <div class="frame">
     <div class="win" role="img" aria-label="Pull request view mockup">
@@ -1177,7 +1177,7 @@ chunk=256MB  run 3/5 …</pre>
         </nav>
         <div class="prmain">
           <div class="prhead">
-            <h3>Fix revision handling in snapshot_download filters <span class="num">#3420</span></h3>
+            <h3>Fix revision handling in snapshot_download filters <span class="num">#3420</span></h3><span class="btn sm">Review with agent</span>
             <div class="meta">
               <span class="pill open"><svg class="ic sm"><use href="#i-pr"/></svg>Open</span>
               <span><b>anya-k</b> wants to merge 3 commits into <span class="refp">main</span> from <span class="refp">ak/fix-revision-filters</span></span>
@@ -1215,10 +1215,10 @@ chunk=256MB  run 3/5 …</pre>
             <div class="tl-c">
               <span class="hm c lg" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
               <div class="sugg">
-                <div class="sh"><svg class="ic sm"><use href="#i-pencil"/></svg><b>Suggested review</b> drafted by Claude in "Check #3412 / #3420"<span class="end">Not posted <i class="pin">3</i></span></div>
+                <div class="sh"><svg class="ic sm"><use href="#i-pencil"/></svg><b>Suggested review</b> drafted by Claude · reviewed head <code>a1f93c2</code><span class="end">Local draft · posts on click <i class="pin">3</i></span></div>
                 <div class="sb">
                   <p>The fix is correct for <code class="i">snapshot_download</code> and the regression test covers the reported case. <code class="i">HfFileSystem.glob</code> has the same ordering problem (<code class="i">hf_file_system.py</code>, line 407). I'm fine with a follow-up PR as discussed.</p>
-                  <div class="actrow"><span class="btn sm"><svg class="ic sm"><use href="#i-pencil"/></svg>Edit</span><span class="btn sm primary">Post as approval</span><span class="btn sm">Post as comment</span><span class="btn sm ghost">Discard</span></div>
+                  <div class="actrow"><span class="btn sm"><svg class="ic sm"><use href="#i-pencil"/></svg>Edit</span><span class="btn sm">Review type: Approve ▾</span><span class="btn sm primary">Post review</span><span class="btn sm ghost">Discard</span></div>
                 </div>
               </div>
             </div>
@@ -1294,6 +1294,8 @@ chunk=256MB  run 3/5 …</pre>
     <li><i class="pin">5</i><span><b>Sidebar with local context.</b> Reviewers with Request, linked issues, participants, plus the agent sessions and drafts tied to this PR.</span></li>
   </ol>
 </section>
+
+<p style="max-width:1200px;margin:16px auto;color:var(--ink-3)">Suggested reviews keep the inspected commit. A changed head blocks posting; failed or interrupted posting requires checking GitHub before replacing the draft. Local PR suggestion cards use Add to local notes and stay on this machine.</p>
 
 <!-- ======================= S5 PRE-DRAFT ======================= -->
 <section class="sketch" id="s5">

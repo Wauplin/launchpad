@@ -1,6 +1,6 @@
 ---
 name: launchpad
-description: Prepare and update local pre-draft pull requests in Launchpad. Use when working in a Launchpad pre-draft worktree or asked to prepare a local PR.
+description: Prepare local pre-draft pull requests and agent-written comment or review suggestions in Launchpad. Use in a Launchpad pre-draft worktree or when asked to prepare a local PR or suggested GitHub response.
 ---
 
 # Local pull requests
@@ -14,3 +14,11 @@ The description starts with the problem and resulting behavior. Add validation a
 `launchpad pr list` lists local records. Outside a pre-draft worktree, `launchpad pr create --title "Concrete change" --body-file /path/to/description.md` copies the current committed HEAD into a new dedicated worktree. Commit changes first. The JSON result gives the new `root`; switch to that folder for further changes and CLI updates. It requires a registered project with an origin remote. It never moves or removes the original checkout.
 
 Review feedback arrives in the same agent session. Address each note, commit changes, and update the local description again. Leave publication to the owner.
+
+## Suggested comments and reviews
+
+Use the exact CLI path, profile and session id supplied in the Launchpad session prompt. Write the suggested text to a file, then save it with `launchpad suggest comment --repo owner/repo --number 123 --body-file /path/to/comment.md --session-id <session-id>`. This only saves a local draft; it does not call GitHub.
+
+For a PR review, inspect a specific committed head and use `launchpad suggest review --repo owner/repo --number 123 --head <40-character-commit> --body-file /path/to/review.md --session-id <session-id>`. The default is a comment review; use `--event approve` or `--event request-changes` when appropriate. Use the commit you actually reviewed, never substitute a newer PR head without reviewing it. Inline suggestions are not supported yet; describe paths and lines in the review body.
+
+For a local pre-draft, replace `--repo` and `--number` with `--predraft <id>`. Its card lets the owner add the text to local review notes. Publishing the pre-draft does not publish these suggestions. The owner can edit, post or discard GitHub drafts in the issue or PR conversation. Stop after saving the suggestion and report its id; leave posting to the owner.

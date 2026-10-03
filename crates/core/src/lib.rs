@@ -23,6 +23,7 @@ pub mod schedules;
 pub mod sessions;
 pub mod shellenv;
 pub mod status;
+pub mod suggestions;
 pub mod terminal;
 mod titles;
 pub mod util;
@@ -102,6 +103,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     // Timestamps are i64 in Rust; they fit in a JS number.
     let cfg = ts_rs::Config::new().with_out_dir(out).with_large_int("number");
     predrafts::Predraft::export_all(&cfg)?;
+    suggestions::Suggestion::export_all(&cfg)?;
     config::Config::export_all(&cfg)?;
     status::Status::export_all(&cfg)?;
     model::Session::export_all(&cfg)?;

@@ -135,6 +135,7 @@ pub fn open_state(path: &Path) -> Result<Db> {
     }
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS scheduled_launch (id TEXT PRIMARY KEY, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS draft_comment (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS predraft (id TEXT PRIMARY KEY, json TEXT NOT NULL);",
     )?;
     Ok(Db::spawn(conn, "state"))

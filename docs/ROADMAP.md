@@ -21,7 +21,7 @@ Status: proposal (2026-10-02). See [ARCHITECTURE.md](ARCHITECTURE.md) for the de
 | 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com | In progress |
 | 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | In progress |
 | 5 | Workspace polish | Several sessions are easy to arrange, find and resume | In progress |
-| 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | Not started |
+| 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | In progress |
 | 7 | Hardening and options | Sessions survive restarts, embedded terminal, remote access | Not started |
 
 Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
@@ -206,6 +206,14 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 - "Review with agent" quick action on PRs that produces a suggested review.
 
 **Done when:** you post agent-drafted reviews after editing them, and nothing an agent writes reaches GitHub without your click.
+
+**Progress:**
+
+- Built on 2026-10-03: `launchpad suggest comment|review`, profile-aware agent instructions with the exact CLI and session id, and the matching skill section. Suggestions persist in `state.db` independently of the GitHub cache and receive Claude/Codex attribution from their session.
+- Issue and PR conversations include virtualized teal cards with Edit, Post comment/review and Discard. Review event selection and unsaved edits survive reloads; saved edits persist on the daemon. Local PR descriptions show the same cards with Add to local notes; this never publishes to GitHub or sends feedback automatically.
+- Review with agent opens the composer with the PR context, displayed head and instructions to save a local review. Suggested reviews require the inspected commit id, and publication checks the current PR head. Durable posting claims prevent duplicate submissions after crashes or lost responses; uncertain attempts remain visible for manual inspection.
+- Checked the dev daemon and Chrome: CLI comment/review creation and validation, issue/PR cards, saved and unsaved edits, event selection, reloads, live discard, all five zoom positions, Review with agent context, local note saving and duplicate prevention, outdated-head rejection, and suggestion persistence across a dev-daemon restart. A real Codex session saved a local suggestion through the CLI with session attribution. Strict workspace Clippy, UI type checks/build, daemon/desktop builds and the 11 existing Rust tests pass.
+- Left for the **Done when** check: posting edited agent reviews during daily use. Automated checks do not publish real GitHub text.
 
 ## Phase 7: hardening and options
 
