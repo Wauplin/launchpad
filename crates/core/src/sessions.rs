@@ -96,19 +96,36 @@ impl Sessions {
         }
     }
 
-    /// Loads sessions from `state.db`. Sessions that were mid-turn when the daemon stopped become
-    /// `interrupted`; done ones stay done without a process (sending a message resumes them).
+    /// Loads session records and reconnects to surviving workers. Only a missing owner makes a
+    /// running session Interrupted; an idle session without a worker resumes on its next message.
     pub async fn load(&self, app: &App) -> Result<()> {
+        self.load_records(app, None, None).await
+    }
+
+    pub async fn load_one(&self, app: &App, id: &str) -> Result<()> {
+        self.load_records(app, Some(id.to_string()), None).await
+    }
+
+    pub(crate) async fn load_worker_exit(&self, app: &App, id: &str, instance: u64) -> Result<()> {
+        self.load_records(app, Some(id.to_string()), Some(instance)).await
+    }
+
+    pub(crate) fn worker_current(&self, id: &str, instance: u64) -> bool {
+        self.inner.live.lock().unwrap().get(id).is_some_and(|(i, _)| *i == instance)
+    }
+
+    async fn load_records(&self, app: &App, only: Option<String>, instance: Option<u64>) -> Result<()> {
+        let selected = only.clone();
         let rows: Vec<Session> = app
             .state_db
-            .call(|c| {
+            .call(move |c| {
                 let mut st = c.prepare(
                     "SELECT id, harness, harness_session_id, project_id, cwd, title, status, status_since, open_question, model,
                             effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json
-                     FROM session",
+                     FROM session WHERE (?1 IS NULL OR id=?1)",
                 )?;
                 let rows = st
-                    .query_map([], |r| {
+                    .query_map([selected], |r| {
                         let usage: Option<String> = r.get(12)?;
                         let mut usage: Usage = usage.and_then(|u| serde_json::from_str(&u).ok()).unwrap_or_default();
                         usage.cost_usd = r.get(13)?;
@@ -138,22 +155,51 @@ impl Sessions {
                 Ok(rows)
             })
             .await?;
-        let mut interrupted = vec![];
-        {
-            let mut recs = self.inner.records.lock().unwrap();
-            for mut s in rows {
-                if s.status.is_running() {
-                    s.status = SessionStatus::Interrupted;
-                    s.status_since = now_ms();
-                    interrupted.push(s.clone());
+        for s in rows {
+            {
+                let current = self.inner.live.lock().unwrap();
+                if instance.is_some_and(|i| current.get(&s.id).is_none_or(|(active, _)| *active != i)) { continue; }
+                self.inner.records.lock().unwrap().insert(s.id.clone(), s.clone());
+            }
+            if only.is_some() { continue; }
+            if crate::worker::available(&app.paths, &s.id).await {
+                let start = StartSpec { session_id: s.id.clone(), harness_session_id: s.harness_session_id.clone(), resume: true, cwd: s.cwd.clone().into(), title: s.title.clone(), model: s.model.clone(), effort: s.effort.clone(), add_dirs: vec![] };
+                if let Err(e) = self.attach(app, s.harness, start, self.sink(app, &s.id)).await {
+                    tracing::warn!("reconnect session {}: {e:#}", s.id);
+                    self.sink(app, &s.id).set_status(SessionStatus::Interrupted).await;
                 }
-                recs.insert(s.id.clone(), s);
+            } else if s.status.is_running() {
+                self.sink(app, &s.id).set_status(SessionStatus::Interrupted).await;
             }
         }
-        for s in interrupted {
-            self.persist(app, &s).await?;
-        }
         self.publish_counts(app);
+        Ok(())
+    }
+
+    pub(crate) fn accept_snapshot(&self, app: &App, s: Session) {
+        self.inner.records.lock().unwrap().insert(s.id.clone(), s.clone());
+        app.bus.publish("sessions", "updated", serde_json::to_value(s).unwrap_or(Value::Null));
+        self.publish_counts(app);
+    }
+
+    async fn worker_action(&self, app: &App, id: &str, action: &str, body: Value) -> Result<Session> {
+        let response = crate::worker::call(&app.paths, id, action, body).await?;
+        let s: Session = serde_json::from_value(response["session"].clone())?;
+        // Only the ordered watch stream updates the mirror. A command reply can arrive after
+        // a newer snapshot and must not roll the daemon back to an earlier status.
+        Ok(s)
+    }
+
+    /// Only called by the worker; no daemon state or background services are loaded here.
+    pub(crate) async fn attach_worker(&self, app: &App, id: &str, fresh: bool) -> Result<()> {
+        let s = self.get(id).context("no such session")?;
+        let preview = self.preview(app, &s.launch_spec).await?;
+        let start = StartSpec { session_id: id.into(), harness_session_id: s.harness_session_id.clone(), resume: !fresh && s.harness_session_id.is_some(), cwd: s.cwd.clone().into(), title: s.title.clone(), model: s.model.clone(), effort: s.effort.clone(), add_dirs: preview.add_dirs };
+        self.attach(app, s.harness, start, self.sink(app, id)).await?;
+        if !fresh {
+            self.update(app, id, |s| s.ended_at = None).await?;
+            self.sink(app, id).set_status(SessionStatus::Waiting).await;
+        }
         Ok(())
     }
 
@@ -173,6 +219,8 @@ impl Sessions {
     pub(crate) async fn installing(&self) -> bool {
         *self.inner.installing.lock().await
     }
+
+    pub async fn allow_terminal_work(&self) -> Result<tokio::sync::MutexGuard<'_, bool>> { self.allow_work().await }
 
     pub(crate) async fn allow_work(&self) -> Result<tokio::sync::MutexGuard<'_, bool>> {
         let guard = self.inner.installing.lock().await;
@@ -221,6 +269,9 @@ impl Sessions {
     }
 
     pub async fn rename(&self, app: &App, id: &str, title: &str) -> Result<Session> {
+        if !app.worker && crate::worker::available(&app.paths, id).await {
+            return self.worker_action(app, id, "rename", serde_json::json!({"title":title})).await;
+        }
         let title = title.trim();
         anyhow::ensure!(!title.is_empty() && title.chars().count() <= 100 && !title.contains(['\n', '\r']), "Use a title of 1 to 100 characters on one line.");
         self.update(app, id, |s| s.title = title.to_string()).await
@@ -494,14 +545,7 @@ impl Sessions {
         };
         let sink = self.sink(app, &id);
         match self.attach(app, harness, start, sink.clone()).await {
-            Ok(live) => {
-                let client_id = uuid::Uuid::new_v4().to_string();
-                sink.emit(EventBody::UserMessage { text: preview.prompt.clone(), client_id: client_id.clone(), queued: false, images: vec![] }).await;
-                sink.set_status(SessionStatus::Working).await;
-                if let Err(e) = live.send(&preview.prompt, &client_id, &[]).await {
-                    sink.fail(&format!("{e:#}")).await;
-                }
-            }
+            Ok(_) => {}
             Err(e) => {
                 sink.fail(&format!("could not start {}: {e:#}", harness.display())).await
             }
@@ -512,14 +556,22 @@ impl Sessions {
 
     async fn attach(&self, app: &App, harness: HarnessKind, start: StartSpec, mut sink: Sink) -> Result<Arc<dyn LiveSession>> {
         let id = start.session_id.clone();
+        let after = self.get(&id).map(|s| s.last_seq).unwrap_or(0);
         let instance = self.inner.next_instance.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         sink.instance = instance;
-        let live: Arc<dyn LiveSession> = match harness {
+        let remote = !app.worker;
+        let live: Arc<dyn LiveSession> = if remote {
+            crate::worker::attach(app, &id, !start.resume).await?
+        } else { match harness {
             HarnessKind::Claude => crate::harness::claude::start(app, start, sink.clone()).await?,
             HarnessKind::Codex => crate::harness::codex::start(app, start, sink.clone()).await?,
-        };
+        } };
         self.inner.live.lock().unwrap().insert(id.clone(), (instance, live.clone()));
-        self.update(app, &id, |s| s.live = true).await?;
+        if remote {
+            crate::worker::watch(app, &id, instance, after);
+        } else {
+            self.update(app, &id, |s| s.live = true).await?;
+        }
         Ok(live)
     }
 
@@ -529,8 +581,8 @@ impl Sessions {
             return Ok(l);
         }
         let s = self.get(id).context("no such session")?;
-        if s.launch_spec.harness.is_none() && crate::terminal::tui_running(app, &s) {
-            bail!("This imported conversation is still running in another client. Finish it there first.");
+        if crate::terminal::tui_running(app, &s) {
+            bail!("This conversation is still running in another client. Finish it there first.");
         }
         let mut add_dirs = Vec::new();
         for cp in &s.launch_spec.context_projects {
@@ -562,6 +614,11 @@ impl Sessions {
         if s.status == SessionStatus::InTerminal {
             bail!("the session is open in a terminal: re-attach it first");
         }
+        if !app.worker {
+            self.reattach(app, id).await?;
+            self.worker_action(app, id, "send", serde_json::json!({"text":text,"images":images})).await?;
+            return Ok(());
+        }
         let resumed = self.live(id).is_none();
         let live = self.reattach(app, id).await?;
         let sink = self.sink(app, id);
@@ -583,6 +640,10 @@ impl Sessions {
 
     pub async fn answer(&self, app: &App, id: &str, request_id: &str, answers: Vec<String>) -> Result<()> {
         let _guard = self.allow_work().await?;
+        if !app.worker {
+            self.worker_action(app, id, "answer", serde_json::json!({"request_id":request_id,"answers":answers})).await?;
+            return Ok(());
+        }
         let live = self.live(id).context("the session has no running process")?;
         live.answer(request_id, answers.clone()).await?;
         let sink = self.sink(app, id);
@@ -602,6 +663,15 @@ impl Sessions {
 
     /// Stops the process. The conversation stays resumable.
     pub async fn close(&self, app: &App, id: &str) -> Result<()> {
+        if !app.worker && crate::worker::available(&app.paths, id).await {
+            self.worker_action(app, id, "close", serde_json::json!({})).await?;
+            crate::worker::wait_stopped(app, id).await?;
+            self.load_one(app, id).await?;
+            if let Some(s) = self.get(id) { self.accept_snapshot(app, s); }
+            self.inner.live.lock().unwrap().remove(id);
+            return Ok(());
+        }
+        if app.worker { app.pty.stop().await?; }
         self.detach(id).await;
         let sink = self.sink(app, id);
         sink.set_status(SessionStatus::Closed).await;
@@ -620,10 +690,14 @@ impl Sessions {
         let _guard = self.allow_work().await?;
         let s = self.get(id).context("no such session")?;
         crate::predrafts::check_session_work(app, &s.cwd).await?;
-        if s.status == SessionStatus::InTerminal && crate::terminal::tui_running(app, &s) {
+        if app.pty.running() || (s.status == SessionStatus::InTerminal && crate::terminal::tui_running(app, &s)) {
             bail!("the session is still open in a terminal: close it there first");
         }
         self.reattach(app, id).await?;
+        if !app.worker {
+            self.worker_action(app, id, "resume", serde_json::json!({})).await?;
+            return Ok(());
+        }
         let sink = self.sink(app, id);
         sink.emit(EventBody::Notice {
             text: if s.status == SessionStatus::InTerminal {
@@ -638,27 +712,79 @@ impl Sessions {
         Ok(())
     }
 
+    async fn release_owner(&self, app: &App, id: &str) -> Result<Session> {
+        let s = self.get(id).context("no such session")?;
+        anyhow::ensure!(!s.status.is_running() && !s.open_question, "finish or interrupt the turn and answer pending questions first");
+        anyhow::ensure!(s.status != SessionStatus::InTerminal, "session is already in a terminal");
+        anyhow::ensure!(s.harness_session_id.is_some(), "session has no conversation yet");
+        self.detach(id).await;
+        app.pty.clear()?;
+        self.update(app, id, |s| { s.live = false; s.open_question = false; }).await?;
+        if s.harness == HarnessKind::Codex { app.codex.shutdown().await?; }
+        if s.harness == HarnessKind::Claude {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+            while crate::terminal::tui_running(app, &s) {
+                anyhow::ensure!(tokio::time::Instant::now() < deadline, "headless process did not exit; try again");
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }
+        Ok(s)
+    }
+
+    /// Remote terminal handoff: release the headless owner before a copied resume command can run.
+    pub async fn release_terminal(&self, app: &App, id: &str) -> Result<()> {
+        let _guard = self.allow_work().await?;
+        let s = self.get(id).context("no such session")?;
+        crate::predrafts::check_session_work(app, &s.cwd).await?;
+        if !app.worker {
+            self.reattach(app, id).await?;
+            self.worker_action(app, id, "release-terminal", serde_json::json!({})).await?;
+            return Ok(());
+        }
+        self.release_owner(app, id).await?;
+        self.sink(app, id).set_status(SessionStatus::InTerminal).await;
+        Ok(())
+    }
+
     /// Hands the session to the terminal chosen in Settings.
     pub async fn open_terminal(&self, app: &App, id: &str) -> Result<()> {
         let _guard = self.allow_work().await?;
         let s = self.get(id).context("no such session")?;
         crate::predrafts::check_session_work(app, &s.cwd).await?;
-        if s.status.is_running() {
-            bail!("wait for the turn to end, or stop it first");
+        if s.status.is_running() || s.open_question {
+            bail!("wait for the turn to end and answer pending questions, or stop it first");
         }
         if s.harness_session_id.is_none() {
             bail!("the session has no conversation yet");
         }
-        self.detach(id).await;
-        self.update(app, id, |s| {
-            s.live = false;
-            s.open_question = false;
-        })
-        .await?;
+        if !app.worker {
+            self.reattach(app, id).await?;
+            self.worker_action(app, id, "open-terminal", serde_json::json!({})).await?;
+            return Ok(());
+        }
+        let s = self.release_owner(app, id).await?;
         crate::terminal::open(app, &s).await?;
         let sink = self.sink(app, id);
         sink.emit(EventBody::Notice { text: "Opened in the terminal".into() }).await;
         sink.set_status(SessionStatus::InTerminal).await;
+        Ok(())
+    }
+
+    pub async fn embedded_terminal(&self, app: &App, id: &str) -> Result<()> {
+        let _guard = self.allow_work().await?;
+        let s = self.get(id).context("no such session")?;
+        crate::predrafts::check_session_work(app, &s.cwd).await?;
+        anyhow::ensure!(!s.status.is_running() && !s.open_question, "finish or interrupt the turn and answer any pending question first");
+        anyhow::ensure!(s.status != SessionStatus::InTerminal, "session is already in a terminal");
+        anyhow::ensure!(s.harness_session_id.is_some(), "session has no conversation yet");
+        if !app.worker {
+            self.reattach(app, id).await?;
+            self.worker_action(app, id, "embedded-terminal", serde_json::json!({})).await?;
+            return Ok(());
+        }
+        let s = self.release_owner(app, id).await?;
+        app.pty.open(app, &s).await?;
+        self.sink(app, id).set_status(SessionStatus::InTerminal).await;
         Ok(())
     }
 
@@ -667,7 +793,7 @@ impl Sessions {
         let ids: Vec<String> =
             self.list().into_iter().filter(|s| s.cwd == path || s.cwd.starts_with(&format!("{path}/"))).map(|s| s.id).collect();
         for id in ids {
-            if self.get(&id).is_some_and(|s| s.live || s.status.is_running() || s.status.is_done()) {
+            if self.get(&id).is_some_and(|s| s.live || s.status.is_running() || s.status.is_done() || s.status == SessionStatus::InTerminal) {
                 self.close(app, &id).await?;
             }
         }
@@ -678,6 +804,10 @@ impl Sessions {
     pub async fn move_cwd(&self, app: &App, old: &str, new: &str) -> Result<()> {
         let ids: Vec<String> = self.list().into_iter().filter(|s| s.cwd == old || s.cwd.starts_with(&format!("{old}/"))).map(|s| s.id).collect();
         for id in ids {
+            if !app.worker && crate::worker::available(&app.paths, &id).await {
+                self.worker_action(app, &id, "move-cwd", serde_json::json!({"old":old,"new":new})).await?;
+                continue;
+            }
             let (old, new) = (old.to_string(), new.to_string());
             self.update(app, &id, move |s| s.cwd = format!("{new}{}", &s.cwd[old.len()..])).await?;
         }
@@ -685,7 +815,7 @@ impl Sessions {
     }
 
     pub fn running_in(&self, path: &str) -> bool {
-        self.list().iter().any(|s| (s.cwd == path || s.cwd.starts_with(&format!("{path}/"))) && (s.live || s.status.is_running()))
+        self.list().iter().any(|s| (s.cwd == path || s.cwd.starts_with(&format!("{path}/"))) && (s.live || s.status.is_running() || s.status == SessionStatus::InTerminal))
     }
 
     /// Called by adapters when their process ends.

@@ -1,4 +1,4 @@
-//! Codex adapter: threads on the shared `codex app-server` (docs/spikes/3-codex-app-server.md).
+//! Codex adapter: a thread on the session worker's `codex app-server` (docs/spikes/3-codex-app-server.md).
 //!
 //! The router (one task) reads every app-server message and hands those with a `threadId` to the
 //! session of that thread.

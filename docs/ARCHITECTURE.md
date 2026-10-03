@@ -30,7 +30,7 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 | Topic | Decision | Why |
 |---|---|---|
 | Process model | A background daemon (`launchpad daemon`, systemd user service) plus a thin Tauri window | Agents keep running when the window is closed or the UI is rebuilt. The daemon is always warm, so the window opens instantly. The same server can later run on a remote machine. |
-| UI ↔ backend | HTTP + WebSocket on `127.0.0.1`. The Tauri window loads the UI from the daemon | One transport for desktop and future remote access. The frontend has no Tauri dependency and also runs in a normal browser. |
+| UI ↔ backend | HTTP + WebSocket on `127.0.0.1`. The Tauri window loads the UI from the daemon | One transport for desktop and remote browser access. The frontend has no Tauri dependency and also runs in a normal browser. |
 | Agent integration | Structured protocols: `claude -p` with stream-json, `codex app-server` (JSON-RPC) | Launchpad renders the conversation itself: exact copy of messages, token and cost numbers, grid layouts, cards for questions. An "Open in terminal" button covers features that only exist in the TUI. |
 | Frontend | React + TypeScript + Vite, TanStack Query / Router / Virtual, Tailwind, Radix primitives | Largest ecosystem, and the stack that coding agents write best, which matters for a codebase you extend with agents. |
 | Storage | SQLite (WAL). `state.db` for your data, `cache.db` for GitHub data | The cache can be deleted and rebuilt on any schema change, so no migrations are needed for it. |
@@ -64,7 +64,7 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
                                │               │               │               │
                         api.github.com    git CLI (SSH)    claude -p        codex app-server
                         REST + GraphQL    ~/projects/*     stream-json      JSON-RPC over stdio
-                                                           (1 per session)  (1 shared process)
+                                                           (1 per session)  (1 per session; monitor separate)
 ```
 
 ## 4. Process model
@@ -73,10 +73,10 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 
 - One Rust binary, `launchpad`, with subcommands: `launchpad daemon` (the server) and agent-facing commands such as `launchpad pr …` and `launchpad suggest …`.
 - Runs as a systemd user unit `launchpad.service`: starts at login, restarts on crash, logs to journald (`journalctl --user -u launchpad -f`).
-- Owns everything stateful: SQLite, GitHub sync loops, agent processes, quota polling, desktop notifications (D-Bus through `notify-rust`), and opening URLs, editors and terminals.
+- Owns GitHub sync, the HTTP API, quota polling and session proxies. Each session has a separate systemd user service that owns its harness, normalized events, pending questions, notifications and optional PTY, and writes its own session row in the shared WAL database.
 - Listens on `127.0.0.1:7317` only.
 - Resolves the environment of your login shell once at startup (`$SHELL -l -i -c 'env -0'`, about 0.5 s) and uses it for every process it starts. Under systemd the daemon only gets a minimal `PATH`, and agents must see the same tools as in a terminal (nvm, cargo, `~/.local/bin`). Variables left by a parent agent session (`CLAUDECODE`, `CLAUDE_CODE_*`, …) are removed.
-- Harness processes get `PR_SET_PDEATHSIG`, so they stop when the daemon stops, even outside systemd (dev profile).
+- Harness processes get `PR_SET_PDEATHSIG` from their session worker, so a worker failure stops its children. A UI daemon restart does not affect sibling worker services.
 
 ### 4.2 Desktop shell
 
@@ -84,7 +84,7 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 - Plugins: `single-instance` (prod only: clicking the dock icon focuses the existing window; `launchpad-desktop --open <route>` focuses it on a given screen, used by desktop notifications) and `window-state` (size and position).
 - **Warm window (prod):** a cold start of the shell takes about 0.5 s (GTK and WebKit processes), so one shell process stays warm. Closing the window hides it; the page stays loaded and connected. An autostart entry runs `launchpad-desktop --hidden` at login, and `install.sh` starts it after an install. A dock click starts a second process, which hands over to the warm one and exits: the window shows in about 100 ms ([spike 4](spikes/4-webkitgtk.md)). `launchpad-desktop --quit` stops the shell. Dev windows (`LAUNCHPAD_PROFILE=dev`) are not single-instance and quit on close.
 - Links to other sites never open inside the window: navigation outside the daemon origin is cancelled and the URL goes to `xdg-open`.
-- The window loads the UI from the daemon, not from bundled assets. This gives one origin (no CORS) and the same UI works in a browser for the future remote mode. The UI imports no `@tauri-apps/*` package.
+- The window loads the UI from the daemon, not from bundled assets. This gives one origin (no CORS) and the same UI works in a browser through a same-port SSH tunnel. The UI imports no `@tauri-apps/*` package.
 - `packaging/install.sh` installs a `.desktop` entry, which can be pinned to the dock. On Wayland, the window's app id is `launchpad-desktop` (the binary name), so the entry has `StartupWMClass=launchpad-desktop` and the dock groups the window with the pinned icon. No `.deb` bundle is built.
 - App identity: the sculpted launch icon uses an ivory folded arrow, mint core and coral exhaust on a teal rounded tile. `packaging/icons/source.png` is the unchanged raster master; `packaging/generate-icons.py` derives PNG sizes, lossless WebP, a 64px web export (browser favicon and top bar logo) and a self-contained SVG wrapper. Tauri, Ubuntu packaging and the in-app top bar share this artwork. `packaging/install-icons.sh` updates only the installed icon files and GTK icon cache, leaving processes running.
 - After a daemon restart with a new UI build, the open page reloads itself: the WebSocket `hello` message carries a build id, and the UI compares it with the one it started with.
@@ -93,7 +93,7 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 ### 4.3 Lifecycle consequences
 
 - Closing the window does not affect running agents or sync.
-- Restarting the daemon kills agent processes (they are children in the service cgroup). Their sessions are marked `interrupted` and can be resumed in one click (`claude --resume`, Codex `thread/resume`). Only the turn in progress is lost. A later phase removes this limitation (see [9.8](#98-surviving-daemon-restarts-later)).
+- Restarting the daemon preserves session workers and active turns, including background commands and pending questions. It reconnects through private Unix sockets and replays normalized events from `state.db`. Only missing or crashed owners make running sessions Interrupted. A machine reboot still loses the active turn; native Resume restores the conversation (see [9.8](#98-surviving-daemon-restarts)).
 - Dev and prod profiles: `LAUNCHPAD_PROFILE=dev` uses port 7318, `~/.local/share/launchpad-dev` and `~/.config/launchpad-dev`. Agents launched from the prod instance can work on the Launchpad codebase, run the dev instance and restart it without killing themselves.
 
 ## 5. Repository layout and testing
@@ -397,7 +397,7 @@ Normalized event kinds (stored in `session_event`, streamed over WebSocket):
 
 Raw harness output lines are also stored (`session_raw`, capped at 20,000 lines per session) so the normalizer can be improved and replayed on old sessions. Text deltas and live command output are streamed but not stored; the final message and the command result are.
 
-A Done session has no harness process after a daemon restart; sending it a message resumes it first. A session that was mid-turn becomes `interrupted`.
+Done and running sessions reconnect to their surviving worker after a daemon restart. Without a worker, an idle session resumes on its next message and a running session becomes Interrupted.
 
 ### 9.1.1 Workspace arrangements and history
 
@@ -460,16 +460,16 @@ trait LiveSession: Send + Sync {
 
 ### 9.4 Codex adapter
 
-- **Process:** one long-lived `codex app-server` (JSON-RPC over stdio), child of the daemon and shared by all Codex sessions (the server handles multiple threads). It also serves `account/rateLimits/read` and `model/list`. Both were tested on this machine: the first returns the 5-hour and weekly windows with `usedPercent` and `resetsAt`, the second returns models with their supported effort levels.
+- **Process:** one long-lived `codex app-server` (JSON-RPC over stdio) per session worker. The daemon has a separate process for `account/rateLimits/read`, `model/list` and history discovery. Both were tested on this machine: the first returns the 5-hour and weekly windows with `usedPercent` and `resetsAt`, the second returns models with their supported effort levels.
 - **Flow:** `initialize` → `thread/start {cwd, model?, approvalPolicy: "never", sandbox: "danger-full-access"}` → `turn/start {threadId, input: [{type: "text", text}], effort?}`.
 - **Typing while the agent works:** `turn/steer {threadId, expectedTurnId, input}`. The steered text appears as a `userMessage` item when Codex reads it (after the running command), in the same turn. The Stop button sends `turn/interrupt {threadId, turnId}`, which ends the turn with `status: "interrupted"`. A running command is not stopped by the interrupt: it finishes on its own and its `item/completed` arrives later. The adapter marks open items as interrupted when the turn ends, and the late result replaces that mark. Verified in [spike 3](spikes/3-codex-app-server.md), with the full event mapping.
 - **Notifications → events:** `item/agentMessage/delta`, `item/started` and `item/completed` (user messages, agent messages with `phase` `commentary` or `final_answer`, command executions with `item/commandExecution/outputDelta`, file changes, MCP tool calls, reasoning summaries), `turn/plan/updated`, `turn/diff/updated`, `thread/tokenUsage/updated` (`total`, `last`, `modelContextWindow`), `turn/completed` (switches to `waiting`), `account/rateLimits/updated` (after every model response).
 - **Long commands:** an open `commandExecution` stays Running until the turn finishes or Codex asks for user input. Silence is not a signal that the agent is Done.
 - **Server requests:** `item/tool/requestUserInput` becomes an `ask_user` card. Approval requests should not happen with `approvalPolicy: "never"`; if one arrives, it is declined automatically and logged.
 - **Resume after a restart:** `thread/resume {threadId}`.
-- **Open in terminal:** `codex resume <thread-id>` with `-c check_for_update_on_startup=false` and the trust override for the cwd.
+- **Open in terminal:** stop the worker's private app-server to release the native thread lock, then `codex resume <thread-id>` with `-c check_for_update_on_startup=false` and the trust override for the cwd.
 - **Protocol types:** `codex app-server generate-json-schema` produces the full schema (104 client methods, 83 notifications in 0.159.3). Launchpad hand-writes Rust types for the subset it uses. After a Codex update, a small dev script regenerates the schema and lists the changes in the methods Launchpad uses. It is run by hand, not as a test.
-- **Option for later:** Codex now ships a shared local app-server daemon (`codex app-server daemon`, `codex agents`, `codex --remote unix://…`). Connecting to it instead of a private child process would let Codex threads survive Launchpad restarts and be attached from a terminal TUI. It is marked experimental, so it is not part of v1.
+- **Option for later:** Codex now ships a shared local app-server daemon (`codex app-server daemon`, `codex agents`, `codex --remote unix://…`). The worker-based design already preserves turns across daemon restarts. Its experimental shared daemon remains an alternative for reducing the number of app-server processes.
 
 ### 9.5 Versions, quotas and updates
 
@@ -558,14 +558,13 @@ A daemon loop checks the queue once per second. The DB actor serializes cancella
 
 `GET/POST /api/launch/schedules`, `DELETE /api/launch/schedules/{id}` and `POST /api/launch/schedules/{id}/start` expose the queue. WebSocket `schedules` events refresh it. The Agents screen adds a virtualized, independently collapsible Scheduled group and a detail pane with the condition, dependency states, prompt preview, Start now and Cancel launch. Queued entries are neither Running nor Done and do not change sidebar session counts. Closing their detail panel leaves the queue intact.
 
-### 9.8 Surviving daemon restarts (later)
+### 9.8 Surviving daemon restarts
 
-Two options, to decide when it becomes a real pain:
+`launchpad session-worker <id> [--fresh]` runs in a transient `launchpad-<profile>-session-<id>.service` started through `systemd-run --user --collect --service-type=exec`. It is a sibling of the daemon, with its own cgroup. Every worker loads only its session, starts the existing Claude adapter or a private Codex app-server, and owns normalization and all live session writes. It uses the same `state.db` WAL actor and capped raw log; the daemon never has to reconstruct normalizer state from partially consumed output. The daemon keeps its separate Codex app-server for quota, model and history queries.
 
-- **Session shim:** each session runs under `launchpad shim`, started with `systemd-run --user --scope` so it lives outside the daemon cgroup. The shim owns the harness stdin/stdout, appends raw output to a file and accepts input on a Unix socket. On start, the daemon reattaches to existing shims and replays their output files.
-- **Codex only:** use Codex's shared app-server daemon (see [9.4](#94-codex-adapter)).
+Workers accept serialized commands on mode-0600 Unix sockets inside a mode-0700 `/run/user/<uid>/launchpad-<profile>/` directory. The daemon subscribes before backfilling the durable event sequence, deduplicates sequence numbers, and follows live snapshots and transient output. Worker status counters stay local; the daemon derives global counts from mirrored session records. Presence is forwarded so a focused pane suppresses desktop notifications. The initial prompt is sent by the fresh worker, so a daemon failure during startup does not require a duplicate turn. There is no automatic worker restart after a crash. Archive stops the adapter and PTY and exits the service; an external-terminal handoff keeps the worker available for later re-attachment. A worker keeps the binary it started with across application updates.
 
-Not needed for v1, because of the dev/prod profiles and one-click resume.
+The optional embedded terminal uses xterm.js and its Fit addon with a Linux `openpty` master in the worker. The slave becomes the TUI's controlling terminal; resize uses `TIOCSWINSZ`. Handoff requires an idle session without pending questions and releases the headless adapter before starting the native resume command. The Codex worker also stops its private app-server to release the native thread lock; `thread/unsubscribe` alone does not let the TUI take ownership. Only one owner runs the conversation. The worker keeps up to 1 MB of terminal bytes with monotonic byte offsets; a reconnect snapshot and live chunks cannot duplicate output. Browser scrollback is capped at 5,000 lines. Stop TUI and re-attach terminates the process group and waits for exit before restoring the structured adapter. TUI messages remain in the native transcript and are not copied into the structured history on re-attach. The TUI accepts native keys; visible key and clipboard controls are provided as an exception to the surrounding click-only UI.
 
 ## 10. Pre-draft PRs
 
@@ -640,9 +639,9 @@ Local PR description cards use Add to local notes instead of a GitHub publicatio
 - The code viewer endpoints only read inside a registered project or one of its worktrees: `root` must be one of them (a linked worktree is checked against git's own records: its `.git` file points to `<main>/.git/worktrees/<name>`, whose `gitdir` points back), `path` must be relative without `..` or `.`, and the resolved path (after following symlinks) must stay inside `root`. A revision is resolved once with `git rev-parse --verify --end-of-options <rev>^{commit}`, and later commands only get the commit id (`git grep` in git 2.34 does not accept `--end-of-options`). Search patterns are passed with `-e` and pathspecs are literal, so user input is never read as an option or a pathspec pattern.
 - For remote access later, keep the daemon on localhost and reach it through an SSH tunnel or Tailscale before adding any other authentication.
 
-## 15. Future: remote access
+## 15. Remote browser access
 
-The UI is already served by the daemon over HTTP and WebSocket. Remote access means running `launchpad daemon` on the server (agents and projects live there), connecting through a tunnel, and opening the UI in a browser or pointing the Tauri shell at the remote URL. Features tied to the local machine ("open in editor", "open in terminal") become "copy command".
+Run the daemon on the Ubuntu host holding the projects and forward its same localhost port with SSH: `ssh -N -L 127.0.0.1:7317:127.0.0.1:7317 user@server` (7318 for dev). `launchpad url --remote` prints the existing token handshake URL with a remote-mode marker. Settings → General stores the same mode in this browser's local storage, independently of daemon configuration. Editor actions return a shell-quoted command instead of opening an app on the server. The external-terminal action releases the headless owner, marks the session In terminal, and copies its shell-quoted native resume command. Re-attach requires that terminal to finish. The embedded PTY works over the normal authenticated HTTP and WebSocket transport. Same-port forwarding preserves the existing Host and Origin allowlists; the daemon still binds only localhost. Direct LAN binding, reverse-proxy origins and remote desktop-shell configuration remain outside this implementation.
 
 ## 16. Risks and unknowns
 
@@ -655,14 +654,14 @@ The UI is already served by the daemon over HTTP and WebSocket. Remote access me
 | No "mark as unread" API on GitHub | Launchpad and github.com disagree | Local override, documented in the UI |
 | WebKitGTK performance | Slow large diffs or long sessions | Virtualization, early measurement, Chromium shell as fallback |
 | Expiring image URLs in private repositories | Broken images | Image proxy with a disk cache, filled at sync time |
-| Daemon restart kills running agents | In-flight turn lost | Dev/prod profiles, resume, session shim later |
+| Worker crash or machine reboot | In-flight turn lost | Separate worker services survive daemon restarts; native Resume restores the conversation |
 | Very large repositories or files | Slow code viewer | File list sent once per source and virtualized; no colors above 1 MB or 20,000 lines, nothing loaded above 5 MB; search capped at 1,000 results |
 
 ## 17. Decisions log
 
 Confirmed on 2026-10-02:
 
-1. **Headless sessions.** Launchpad renders sessions itself. Losing TUI-only features is fine; "Open in terminal" is the escape hatch. No embedded terminal for now.
+1. **Headless sessions.** Launchpad renders sessions itself. Losing TUI-only features is fine; "Open in terminal" is the escape hatch. Amended by decision 45: an optional embedded terminal now provides the full TUI.
 2. **Background daemon.** The systemd user service with a thin Tauri window is the target architecture.
 3. **Agent groups.** Updated by decision 23: Done waits for input; Running includes background and long commands; Archived remains resumable (see [9.1](#91-session-model)).
 4. **Pre-draft PRs.** Launchpad creates the branch and worktree under `<projects_root>/.worktrees/` and links a `launchpad` skill into `~/.agents/skills`.
@@ -746,3 +745,9 @@ Phase 5 implementation, on 2026-10-02:
 Phase 6 implementation, on 2026-10-03:
 
 43. **Local agent suggestions with explicit publication.** Durable suggestion records belong in `state.db`, with session attribution and the inspected review head. GitHub posting requires a visible card action, checks the PR head and persists a claim before the mutation. Failed or interrupted claims require manual inspection instead of automatic retries. Local PR cards add notes atomically and never publish text.
+
+
+Phase 7 hardening options, on 2026-10-03:
+
+44. **One durable session owner.** Run each session's existing adapter and normalizer in a separate systemd user service, reached through a private Unix socket. Keep writing normalized events while the HTTP daemon is absent and replay that log on reconnection. Codex gets a private app-server per session; the daemon's monitor and history process stays separate. No automatic restart of a crashed worker or duplicate turn retry.
+45. **Optional full TUI and remote browser.** The session worker also owns an optional Linux PTY rendered by a light xterm.js terminal. Handoff and return enforce one live conversation owner; TUI input is the explicit exception to click-only typing. Same-port SSH forwarding uses existing localhost authentication. A per-browser remote setting copies editor commands and releases the headless owner before copying a terminal resume command.

@@ -35,7 +35,7 @@ pub fn options(app: &App) -> Vec<TerminalOption> {
 }
 
 /// The command that resumes the session in a TUI.
-fn tui_command(app: &App, s: &Session, is_temp: bool) -> Result<Vec<String>> {
+pub fn tui_command(app: &App, s: &Session, is_temp: bool) -> Result<Vec<String>> {
     let id = s.harness_session_id.clone().context("the session has no conversation yet")?;
     Ok(match s.harness {
         HarnessKind::Claude => {
@@ -106,7 +106,7 @@ pub async fn open(app: &App, s: &Session) -> Result<()> {
     Ok(())
 }
 
-fn shell_join(argv: &[String]) -> String {
+pub fn shell_join(argv: &[String]) -> String {
     argv.iter()
         .map(|a| if a.chars().all(|c| c.is_ascii_alphanumeric() || "-_./=:".contains(c)) { a.clone() } else { format!("'{}'", a.replace('\'', "'\\''")) })
         .collect::<Vec<_>>()

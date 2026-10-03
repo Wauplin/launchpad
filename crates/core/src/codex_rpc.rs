@@ -1,7 +1,7 @@
 //! Client for `codex app-server`: JSON-RPC over stdio, one JSON object per line, no `"jsonrpc"` field.
 //!
-//! One process is shared by every Codex session and by the quota monitor. It is started on first use
-//! and started again after it exits. See docs/spikes/3-codex-app-server.md.
+//! Each session worker has a private process; the UI daemon has another for quota, models and history.
+//! A process is started on first use and started again after it exits. See docs/spikes/3-codex-app-server.md.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -27,6 +27,7 @@ pub enum Incoming {
 }
 
 struct Proc {
+    pid: u32,
     stdin: tokio::sync::Mutex<ChildStdin>,
     pending: Mutex<HashMap<i64, oneshot::Sender<Result<Value>>>>,
     alive: std::sync::atomic::AtomicBool,
@@ -93,6 +94,7 @@ impl CodexServer {
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
         let p = Arc::new(Proc {
+            pid: child.id().context("app-server pid")?,
             stdin: tokio::sync::Mutex::new(stdin),
             pending: Mutex::new(HashMap::new()),
             alive: std::sync::atomic::AtomicBool::new(true),
@@ -162,6 +164,23 @@ impl CodexServer {
                 bail!("codex {method}: timeout")
             }
         }
+    }
+
+    /// Release the native thread lock before handing this worker's conversation to a TUI.
+    pub async fn shutdown(&self) -> Result<()> {
+        let p = self.proc.lock().await.clone();
+        if let Some(p) = p && p.alive.load(Ordering::Relaxed) {
+            unsafe { libc::kill(p.pid as i32, libc::SIGTERM); }
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            while p.alive.load(Ordering::Relaxed) && tokio::time::Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            if p.alive.load(Ordering::Relaxed) { unsafe { libc::kill(p.pid as i32, libc::SIGKILL); } }
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while p.alive.load(Ordering::Relaxed) { tokio::time::sleep(Duration::from_millis(50)).await; }
+            }).await.context("Codex app-server did not exit")?;
+        }
+        Ok(())
     }
 
     /// Sends a request and waits for its result.

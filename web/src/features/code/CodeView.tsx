@@ -1,3 +1,4 @@
+import { useRemote } from "@/lib/remote";
 // Code viewer (sketch S7, ARCHITECTURE.md section 8.1): one source at a time (a working tree or a git
 // revision), a file tree, tabs, colored code with changed-line bars, find in file (Ctrl+F) and
 // search in the project. Selected lines become agent context. Read only.
@@ -347,7 +348,7 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
             <Icon name="ext" size={14} />
           </button>
           <button className="btn btn-sm" disabled={!!rev} title={rev ? "Only for working trees: this revision is not on disk" : "Open in your editor at the first visible line"} onClick={() => openEditor(editorLine())}>
-            Editor
+            {useRemote.getState().enabled ? "Copy editor command" : "Editor"}
           </button>
           <button className="iconbtn" title="Reload the file and the file list" onClick={reload}>
             <Icon name="refresh" size={14} />
@@ -368,7 +369,7 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
             {f.kind === "binary" ? `Binary file · ${sizeText(f.size)}` : `This file is ${sizeText(f.size)}: too large to show here.`}
             {!rev && (
               <button className="btn btn-sm" onClick={() => openEditor()}>
-                Open in editor
+                {useRemote.getState().enabled ? "Copy editor command" : "Open in editor"}
               </button>
             )}
           </div>
@@ -680,7 +681,7 @@ function SelectionBar({
       </button>
       <AddToAgent project={project} root={root} rev={rev} path={path} selection={selection} />
       <button className="btn btn-sm" disabled={!!rev} title={rev ? "Only for working trees" : "Open in your editor at this line"} onClick={() => openEditor(start)}>
-        Editor
+        {useRemote.getState().enabled ? "Copy editor command" : "Editor"}
       </button>
       <button className="iconbtn" title="Clear the selection" onClick={onClear}>
         <Icon name="x" size={13} />

@@ -1,3 +1,4 @@
+import { useRemote } from "@/lib/remote";
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
@@ -6,7 +7,7 @@ import { useLayout } from "@/stores/layout";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ImageAttachment } from "@/gen/ImageAttachment";
 import { HarnessMark } from "@/components/HarnessMark";
 import { CodeLinksContext, type CodeLinks } from "@/components/Markdown";
@@ -21,6 +22,8 @@ import { useSessionLogs } from "@/lib/sessionStore";
 import { buildRows } from "./rows";
 import { EventRow } from "./EventRow";
 import { StatusBadge, usageLine } from "./SessionBits";
+
+const EmbeddedTerminal = lazy(() => import("./EmbeddedTerminal").then((m) => ({ default: m.EmbeddedTerminal })));
 
 function act(id: string, action: string) {
   return api.post(`/api/sessions/${id}/${action}`).catch(toastError);
@@ -140,6 +143,9 @@ function useCodeLinks(s: { project_id: string | null; cwd: string } | null): Cod
 }
 
 export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionId: string; focused: boolean; onFocus: () => void; onClear: () => void }) {
+  const remote = useRemote((s) => s.enabled);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalBusy, setTerminalBusy] = useState(false);
   const [gitOpen, setGitOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
@@ -148,6 +154,9 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
   const dropImages = useRef<((files: File[]) => void) | null>(null);
   const [dragging, setDragging] = useState(false);
   const s = useSession(sessionId);
+  const terminalState = useQuery({ queryKey: ["terminal", sessionId, s?.status], queryFn: () => api.get<{running:boolean;output:string}>(`/api/sessions/${sessionId}/terminal/snapshot`), enabled: s?.status === "in_terminal", retry: false, refetchInterval: s?.status === "in_terminal" ? 3000 : false });
+  const embedded = s?.status === "in_terminal" && !!terminalState.data && (terminalState.data.running || !!terminalState.data.output);
+  useEffect(() => { if (embedded) setTerminalOpen(true); }, [embedded]);
   const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => p.root === s?.cwd);
   const projects = useProjects().data;
   const navigate = useNavigate();
@@ -227,16 +236,21 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
             </button>
           )}
           {s.status === "in_terminal" ? (
-            <button className="btn btn-sm" title="Continue this session in Launchpad" onClick={() => void act(s.id, "resume")}>
+            <button className="btn btn-sm" disabled={embedded} title={embedded ? "Use Stop TUI and re-attach in the terminal panel" : "Continue this session in Launchpad"} onClick={() => void act(s.id, "resume")}>
               Re-attach
             </button>
           ) : (
             !running && (
-              <button className="iconbtn" title="Open in terminal" onClick={() => void act(s.id, "open-terminal")}>
+              <button className="iconbtn" title={remote ? "Copy terminal command" : "Open in terminal"} onClick={() => void act(s.id, "open-terminal")}>
                 <Icon name="term" size={14} />
               </button>
             )
           )}
+          {!running && s.status !== "in_terminal" && <button className="btn btn-sm" disabled={terminalBusy || s.open_question || !s.harness_session_id} onClick={async () => {
+            setTerminalBusy(true);
+            try { await api.post(`/api/sessions/${s.id}/embedded-terminal`); setTerminalOpen(true); } catch(e) { toastError(e); } finally { setTerminalBusy(false); }
+          }}>{terminalBusy ? "Starting TUI…" : "Embedded terminal"}</button>}
+          {embedded && <button className="btn btn-sm" onClick={() => setTerminalOpen(!terminalOpen)}>{terminalOpen ? "Conversation" : "Show terminal"}</button>}
           {s.project_id && (
             <button
               className="btn btn-sm"
@@ -272,12 +286,13 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
         <button className="btn btn-sm" aria-pressed={pinned.includes(s.id)} onClick={() => togglePin(s.id)}>{pinned.includes(s.id) ? "★ Unpin" : "☆ Pin"}</button>
         <button className="btn btn-sm" onClick={() => { setTitle(s.title); setRenaming(!renaming); }}>Rename</button>
         <button className={`btn btn-sm ${gitOpen ? "bg-select!" : ""}`} aria-pressed={gitOpen} onClick={() => setGitOpen(!gitOpen)}>Git</button>
-        <button className="btn btn-sm" onClick={() => void api.post("/api/open-editor", { path:s.cwd }).catch(toastError)}>Open in editor</button>
+        <button className="btn btn-sm" onClick={() => void api.post("/api/open-editor", { path:s.cwd }).catch(toastError)}>{remote ? "Copy editor command" : "Open in editor"}</button>
         {layout > 1 && <select aria-label="Move session to pane" className="field-input max-w-32" value="" onChange={(e) => place(s.id,Number(e.target.value))}><option value="">Move to pane…</option>{Array.from({length:layout},(_,i) => panes[i] !== s.id && <option key={i} value={i}>Pane {i+1}</option>)}</select>}
         <span className="ml-auto text-ink-3">{new Date(s.started_at).toLocaleDateString()}</span>
       </div>
       {renaming && <div className="flex gap-2 border-b border-line p-2"><input aria-label="Session title" className="field-input min-w-0 flex-1" maxLength={100} value={title} onChange={(e) => setTitle(e.target.value)} /><button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, {title}); setRenaming(false); } catch(e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button><button className="btn btn-sm" onClick={() => setRenaming(false)}>Cancel</button></div>}
-      {gitOpen && <GitPanel sessionId={s.id} />}
+      {gitOpen && !terminalOpen && <GitPanel sessionId={s.id} />}
+      {terminalOpen && s.status === "in_terminal" ? <Suspense fallback={<div className="p-4 text-xs text-ink-3">Loading terminal…</div>}><EmbeddedTerminal sessionId={s.id} onReturn={() => { setTerminalOpen(false); void terminalState.refetch(); }} /></Suspense> : <>
       <CodeLinksContext.Provider value={codeLinks}>
       <div
         ref={scrollRef}
@@ -313,6 +328,7 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
       </div>
       </CodeLinksContext.Provider>
       <MessageBox key={s.id} dropImages={dropImages} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal"} ask={s.open_question && s.live ? ask : null} />
+      </>}
     </div>
   );
 }

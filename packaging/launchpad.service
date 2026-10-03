@@ -7,7 +7,7 @@ Type=simple
 ExecStart=%h/.local/bin/launchpad daemon
 Restart=on-failure
 RestartSec=2
-# Agents are children of the daemon: stopping or restarting the service stops them.
+# Session workers run in separate user services and survive daemon restarts.
 KillMode=control-group
 TimeoutStopSec=10
 Environment=RUST_LOG=info

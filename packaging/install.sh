@@ -2,7 +2,7 @@
 # Builds Launchpad in release mode and installs it for the current user:
 #   ~/.local/bin/{launchpad,launchpad-desktop}, the systemd user unit, the .desktop entry, the icons, and an
 #   autostart entry that keeps the window loaded in the background (so the dock opens it instantly).
-# Then restarts the daemon and the background window. Restarting stops running agents, so the script asks
+# Then restarts the daemon and the background window. Older sessions without workers can be interrupted, so the script asks
 # first when some are running.
 #
 # Usage: packaging/install.sh [--force] [--prebuilt] [--show]
@@ -34,7 +34,7 @@ if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
   set -u
 fi
 
-# 1. Running agents are stopped by the restart.
+# 1. Keep an idle installation policy even though session workers survive the restart.
 check_running() {
   running=0
   if curl -sf http://127.0.0.1:7317/api/health >/dev/null 2>&1 && [ -x "$BIN/launchpad" ]; then
@@ -46,7 +46,7 @@ check_running() {
 }
 check_running
 if [ "$running" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
-  echo "warning: $running agent session(s) are running in Launchpad. Restarting the daemon interrupts them (they can be resumed)."
+  echo "warning: $running agent session(s) are running in Launchpad. Session workers survive the restart; older sessions without workers may be interrupted."
   if [ -t 0 ]; then
     read -r -p "Restart anyway? [y/N] " answer
     [ "$answer" = "y" ] || [ "$answer" = "Y" ] || { echo "Cancelled."; exit 1; }
@@ -66,7 +66,7 @@ fi
 # Sessions may have started while the build ran. Never stop them without an explicit --force.
 check_running
 if [ "$running" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
-  echo "Update paused: $running agent session(s) started during the build. Run the installer with --force when they can be interrupted." >&2
+  echo "Update paused: $running agent session(s) started during the build. Run the installer with --force when installation is safe." >&2
   exit 1
 fi
 

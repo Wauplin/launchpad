@@ -7,8 +7,8 @@ use tokio::process::Command;
 
 use crate::shellenv::UserEnv;
 
-/// A command with the user environment. Harness children also die with the daemon (`PR_SET_PDEATHSIG`),
-/// so a restarted dev daemon never leaves orphan agents behind.
+/// A command with the user environment. Harnesses use `child_command` inside the session worker,
+/// so they die with their owner while surviving a UI daemon restart.
 pub fn command(env: &UserEnv, program: &str, cwd: Option<&Path>) -> Command {
     let resolved = env.which(program).unwrap_or_else(|| program.into());
     let mut cmd = Command::new(resolved);
@@ -20,7 +20,7 @@ pub fn command(env: &UserEnv, program: &str, cwd: Option<&Path>) -> Command {
     cmd
 }
 
-/// Like [`command`], and the child gets SIGTERM when the daemon exits.
+/// Like [`command`], and the child gets SIGTERM when its owning process exits.
 pub fn child_command(env: &UserEnv, program: &str, cwd: Option<&Path>) -> Command {
     let mut cmd = command(env, program, cwd);
     // SAFETY: prctl is async-signal-safe and only affects the child.

@@ -1,3 +1,4 @@
+import { useRemote } from "@/lib/remote";
 // A project: header, description, its worktrees and its sessions. Issues and PRs arrive in Phase 3.
 
 import { RepoItems } from "@/features/github/RepoItems";
@@ -14,6 +15,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Description, TempProjectCard } from "./ProjectsView";
 
 export function ProjectPage() {
+  const remote = useRemote((s) => s.enabled);
   const { id } = useParams({ strict: false }) as { id: string };
   const p = useProject(id);
   const sessions = (useSessions().data ?? []).filter((s) => s.project_id === id);
@@ -41,9 +43,9 @@ export function ProjectPage() {
               <Icon name="search" size={14} />
               Code
             </Link>
-            <button className="btn" title="Open in editor" onClick={() => void api.post("/api/open-editor", { path: p.path })}>
+            <button className="btn" title={remote ? "Copy editor command" : "Open in editor"} onClick={() => void api.post("/api/open-editor", { path: p.path })}>
               <Icon name="file" size={14} />
-              Editor
+              {remote ? "Copy editor command" : "Editor"}
             </button>
             <LaunchButton ctx={{ projectId: p.id }} />
           </div>
