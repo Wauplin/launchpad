@@ -1,7 +1,11 @@
-// Persistent session panes, saved arrangements and pins.
+// Persistent session panes, saved arrangements and pins, one set per workspace (see workspace.ts).
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { useWorkspace } from "./workspace";
+
+/** All projects keep the original key. */
+const storageKey = (workspace: string | null) => (workspace ? `launchpad.layout.${workspace}` : "launchpad.layout");
 
 export type Layout = 1 | 2 | 4;
 export type AgentGroup = "Cron" | "Done" | "Running" | "Scheduled" | "Archived";
@@ -28,9 +32,12 @@ type LayoutStore = {
   clearSession: (id: string) => void;
 };
 
+const defaults = { layout: 1 as Layout, pinned: [], saved: [], collapsedGroups: {}, panes: [null, null, null, null], focused: 0 };
+
 export const useLayout = create<LayoutStore>()(
   persist(
     (set, get) => ({
+      ...defaults,
       layout: 1,
       pinned: [],
       togglePin: (id) => set({ pinned: get().pinned.includes(id) ? get().pinned.filter((p) => p !== id) : [...get().pinned, id] }),
@@ -66,6 +73,15 @@ export const useLayout = create<LayoutStore>()(
       },
       clearSession: (id) => set({ panes: get().panes.map((p) => (p === id ? null : p)) }),
     }),
-    { name: "launchpad.layout" },
+    { name: storageKey(useWorkspace.getState().current) },
   ),
 );
+
+/** Loads the panes of another workspace when this window switches. */
+useWorkspace.subscribe((s, prev) => {
+  if (s.current === prev.current) return;
+  const name = storageKey(s.current);
+  useLayout.persist.setOptions({ name });
+  if (localStorage.getItem(name)) void useLayout.persist.rehydrate();
+  else useLayout.setState(defaults);
+});

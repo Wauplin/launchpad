@@ -1,5 +1,5 @@
-// Agents workspace (sketch S3): sessions grouped as Cron, Scheduled, Running, Done and Archived, shown in 1, 2 or 4 panes.
-// Clicking a session loads it in the focused pane.
+// Agents (sketch S3): sessions grouped as Cron, Scheduled, Running, Done and Archived, shown in 1, 2 or 4 panes.
+// Clicking a session loads it in the focused pane. The window's workspace narrows every group.
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -18,6 +18,7 @@ import { isRunning, isDone } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useCrons, useProjects, useSessions } from "@/lib/queries";
+import { useScope } from "@/lib/workspace";
 import { sendPresence } from "@/lib/ws";
 import { useLayout, type AgentGroup, type Layout } from "@/stores/layout";
 import { SessionPane } from "./SessionPane";
@@ -89,7 +90,9 @@ export function LayoutSwitch() {
 }
 
 export function AgentsView() {
-  const sessions = useSessions().data ?? [];
+  const scope = useScope();
+  const allSessions = useSessions().data ?? [];
+  const sessions = allSessions.filter(scope.hasSession);
   const [filter, setFilter] = useState("");
   const [debounced, setDebounced] = useState("");
   const [pinsOnly, setPinsOnly] = useState(false);
@@ -101,10 +104,10 @@ export function AgentsView() {
   const { saved, saveLayout, restoreLayout, deleteLayout, place } = useLayout();
   useEffect(() => { const t = setTimeout(() => setDebounced(filter.trim()), 250); return () => clearTimeout(t); }, [filter]);
   const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
-  const schedules = useSchedules().data ?? [];
+  const schedules = (useSchedules().data ?? []).filter((s) => scope.hasSpec(s.spec));
   const [scheduledId, setScheduledIdState] = useState<string | null>(null);
   const scheduled = schedules.find((s) => s.id === scheduledId);
-  const crons = useCrons().data ?? [];
+  const crons = (useCrons().data ?? []).filter((c) => scope.hasSpec(c.spec));
   const [cronId, setCronIdState] = useState<string | null>(null);
   const cron = crons.find((c) => c.id === cronId);
   // A cron and a scheduled launch share the focused pane, so selecting one clears the other.
@@ -113,10 +116,10 @@ export function AgentsView() {
   const clearSide = () => { setScheduledIdState(null); setCronIdState(null); };
   useEffect(() => {
     if (scheduledId && !scheduled) {
-      if (sessions.some((s) => s.id === scheduledId)) useLayout.getState().show(scheduledId);
+      if (allSessions.some((s) => s.id === scheduledId)) useLayout.getState().show(scheduledId);
       setScheduledIdState(null);
     }
-  }, [scheduledId, scheduled, sessions]);
+  }, [scheduledId, scheduled, allSessions]);
   useEffect(() => { if (cronId && !crons.some((c) => c.id === cronId)) setCronIdState(null); }, [cronId, crons]);
   const projects = useProjects().data;
   const { layout, panes, focused, focus, show, clearSession, collapsedGroups, toggleGroup } = useLayout();
@@ -180,7 +183,7 @@ export function AgentsView() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-paper p-2 text-xs">
-        <span className="font-semibold">Workspace</span>
+        <span className="font-semibold">Panes</span>
         {Array.from({ length: layout }, (_, i) => <button key={i} className={`btn btn-sm ${focused === i ? "bg-teal-soft! text-teal-ink" : ""}`} aria-label={`Focus pane ${i + 1}`} onClick={() => { focus(i); paneRefs.current[i]?.querySelector<HTMLTextAreaElement>("textarea:not(:disabled)")?.focus(); }}>Pane {i + 1}</button>)}
         <input aria-label="Layout name" className="field-input w-32" placeholder="Layout name" maxLength={50} value={layoutName} onChange={(e) => setLayoutName(e.target.value)} />
         <button className="btn btn-sm" disabled={!layoutName.trim()} onClick={() => { saveLayout(layoutName); setSelectedLayout(layoutName.trim().slice(0,50)); setLayoutName(""); }}>Save layout</button>
@@ -200,7 +203,7 @@ export function AgentsView() {
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
         {sessions.length === 0 && schedules.length === 0 && crons.length === 0 && (
           <div className="grid gap-3 p-4 text-[12.5px] text-ink-2">
-            No session yet.
+            {scope.workspace ? `No agent in ${scope.workspace.name} yet.` : "No session yet."}
             <span>
               <LaunchButton small />
             </span>

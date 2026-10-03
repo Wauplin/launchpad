@@ -734,12 +734,13 @@ footer.end code { font: 12.5px var(--font-mono); }
   <div class="sketch-head">
     <span class="sketch-id">S1 · Inbox</span>
     <h2>Notifications triaged from the local cache</h2>
-    <p>The default screen. List and preview sit side by side, so going from one thread to the next never loads a page. Everything here renders from SQLite and refreshes in the background.</p>
+    <p>The default screen. List and preview sit side by side, so going from one thread to the next never loads a page. Everything here renders from SQLite and refreshes in the background. The top bar menu picks this window's workspace (a named set of projects) or opens another window on a different one; the sidebar, agents and inbox then only show that workspace, and the inbox has an All repos button to see every notification.</p>
   </div>
   <div class="frame">
     <div class="win" role="img" aria-label="Inbox mockup">
       <div class="topbar">
         <div class="brand"><span class="logo"><img src="../../packaging/launchpad.svg" alt=""/></span>Launchpad</div>
+        <span class="btn" title="Workspace of this window">HF Hub<svg class="ic sm"><use href="#i-chev"/></svg></span>
         <div class="crumbs"><b>Inbox</b></div>
         <span class="btn primary tb-launch"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
         <div class="wctl"><span></span><span></span><span></span></div>
@@ -749,7 +750,7 @@ footer.end code { font: 12.5px var(--font-mono); }
           <div class="nav-item on"><svg class="ic"><use href="#i-inbox"/></svg>Inbox<span class="count">5 unread</span></div>
           <div class="nav-item"><svg class="ic"><use href="#i-agents"/></svg>Agents<span class="needs" title="Done">2</span><span style="display:flex;align-items:center;gap:4px;color:var(--work)"><span class="spin"></span>3</span></div>
           <div class="nav-item"><svg class="ic"><use href="#i-folder"/></svg>Projects</div>
-          <div class="side-label">Pinned <i class="pin">6</i></div>
+          <div class="side-label">HF Hub <i class="pin">6</i></div>
           <div class="proj">huggingface_hub<span class="run" style="background:var(--attn)" title="Done"></span><span class="spin" title="Running"></span></div>
           <div class="proj">huggingface.js<span class="run" style="background:var(--attn)" title="Done"></span></div>
           <div class="proj">moon-landing<span class="spin" title="Running"></span></div>

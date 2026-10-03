@@ -6,6 +6,8 @@ import { router } from "@/app/router";
 import { logToDaemon } from "@/lib/api";
 import { connectEvents } from "@/lib/ws";
 import { useComposer } from "@/stores/composer";
+// Reads `?ws=` before anything else rewrites the address.
+import "@/stores/workspace";
 import "./styles.css";
 
 const queryClient = new QueryClient({

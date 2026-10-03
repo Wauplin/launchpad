@@ -187,6 +187,7 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 ## Phase 5: workspace polish
 
 - Drag and drop sessions into panes, saved layouts, focus movement between panes, session rename, pin and search.
+- Workspaces: named sets of projects that narrow agents, projects and the inbox, chosen per window, with one-click switching and new windows.
 - Import sessions started outside Launchpad (Claude transcripts in `~/.claude/projects/`, Codex `thread/list`) as history that can be resumed.
 - Git panel per session (status and diff of its cwd; reading its files is the code viewer of Phase 2b), "Open in editor".
 - Composer: recent contexts offered as one-click chips.
@@ -200,7 +201,8 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 - Each session has a read-only Git panel with branch, two-column status, renames, selected-file staged and working-tree diffs, safe untracked-file reading through the code viewer, five-second refresh and virtualized file/diff rows. Files opens the existing code viewer; Open in editor opens the session folder.
 - Composer offers six recent context chips from launched sessions, covering projects and their selected branches, GitHub links and file references. Already selected contexts are omitted.
 - Checked with real external Claude Haiku and Codex GPT-6-Luna conversations: discovery, duplicate prevention, imported messages, manual rename, stored-message search, and resume with remembered conversation context. Four real agents ran together and finished cleanly. Dev browser checks cover pins, filters, staged/unstaged/untracked patches, drag/drop, move and focus, named layout restore after reload, and import selectors. All five zoom sizes fit the four-pane workspace, and recent context chips add context in one click. Imported event history, renamed titles and message search survive a dev-daemon restart. The dev desktop opens successfully. Strict workspace Clippy, UI type checking/build, desktop build and the eleven fast Rust tests pass. A small UTF-8 output truncation regression test covers large Unicode patches.
-- Left for the **Done when** check: daily use with four agents and older conversations.
+- Workspaces, added on 2026-10-04: named sets of projects edited in `/workspaces`, a top bar switcher that changes the window's workspace in place, and New window buttons that open another desktop window on any workspace (`launchpad-desktop --workspace <name>` also works). A workspace narrows the sidebar, Agents groups (including Cron and Scheduled), Projects, composer project order, status bar counts and the Inbox, which has an All repos button to see every notification. Launches add their project (or new temporary folder) to the window's workspace. Pane layouts and composer drafts are per workspace; desktop notification suppression accounts for every open window. Checked in the dev daemon and Chrome through the DevTools protocol: switching, per-window storage and titles, `?ws=` by name, per-workspace panes and drafts, the Inbox filter and All repos toggle, Add/Remove project buttons, and a real Claude Haiku launch in a temporary folder that joined its workspace. Two dev desktop windows opened as separate processes, one with `--workspace` and one from the New window API. The prod multi-window path in the warm shell is untested until the next install.
+- Left for the **Done when** check: daily use with four agents and older conversations, and daily use of two workspaces in two windows.
 
 ## Phase 6: agent-written suggestions
 

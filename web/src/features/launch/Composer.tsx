@@ -3,7 +3,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
@@ -16,6 +16,7 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/queries";
+import { useScope } from "@/lib/workspace";
 import { rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { DelaySelector, conditionsError } from "./DelaySelector";
@@ -134,6 +135,7 @@ function useDebounced<T>(value: T, ms: number): T {
 export function Composer() {
   const { open, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, conditions, setConditions } = useComposer();
   const projects = useProjects().data ?? [];
+  const scope = useScope();
   const sessions = useSessions().data;
   useEffect(() => {
     // A queued launch may have started while the browser was disconnected.
@@ -158,13 +160,15 @@ export function Composer() {
 
   const localPrs = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts"), enabled: open });
   const existing = spec.target.kind === "existing_predraft" ? localPrs.data?.find((p) => p.id === (spec.target as { predraft_id: string }).predraft_id) : undefined;
-  const recentSessions = sessions ?? [];
+  const recentSessions = (sessions ?? []).filter(scope.hasSession);
   if (!open) return null;
 
   const set = (f: (s: LaunchSpec) => LaunchSpec) => update(f);
   const target = (spec.target.kind === "project" || spec.target.kind === "predraft") ? projects.find((p) => p.id === (spec.target as { project_id: string }).project_id) : existing ? projects.find((p) => p.id === existing.project_id) : null;
   const repo = target?.gh_repo ?? target?.gh_upstream ?? null;
-  const sorted = [...projects.filter((p) => !p.is_temp)].sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
+  const inScope = (p: Project) => Number(!!scope.workspace && scope.hasProject(p.id));
+  const sorted = [...projects.filter((p) => !p.is_temp)].sort((a, b) => inScope(b) - inScope(a) || Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
+  const firstOther = scope.workspace ? sorted.find((p) => !scope.hasProject(p.id)) : undefined;
   const model = spec.model ? defaults?.models.find((m) => m.id === spec.model) : defaults?.models.find((m) => m.id === defaults?.model);
   const efforts = model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
   const scheduled = conditions.length > 0;
@@ -197,6 +201,8 @@ export function Composer() {
   }
   const launch = async () => {
     setLaunching(true);
+    // The target project joins this window's workspace, so the new agent shows up here.
+    const spec = { ...useComposer.getState().spec, workspace_id: scope.workspace?.id ?? null };
     try {
       if (cron) {
         await api.post("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions });
@@ -275,8 +281,9 @@ export function Composer() {
                     onClick={() => (set((s) => ({ ...s, target: { kind: "temp" } })), closeMenu())}
                   />
                   {sorted.map((p) => (
+                    <Fragment key={p.id}>
+                    {p === firstOther && <div className="px-[9px] pt-2 pb-1 seclabel" title="Launching here adds the project to this workspace">Not in {scope.workspace?.name}</div>}
                     <MenuItem
-                      key={p.id}
                       icon={<Icon name="folder" size={13} />}
                       label={p.name}
                       detail={p.description || p.gh_repo || undefined}
@@ -285,6 +292,7 @@ export function Composer() {
                         set((s) => ({ ...s, target: { kind: s.target.kind === "predraft" ? "predraft" : "project", project_id: p.id }, context_projects: s.context_projects.filter((c) => c.project_id !== p.id) })), closeMenu()
                       )}
                     />
+                    </Fragment>
                   ))}
                   {sorted.length === 0 && <div className="px-2 py-1.5 text-xs text-ink-3">No project yet: add some in Projects.</div>}
                 </>

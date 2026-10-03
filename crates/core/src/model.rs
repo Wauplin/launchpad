@@ -268,6 +268,8 @@ pub struct LaunchSpec {
     pub files: Vec<FileRef>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// The workspace of the window that launched it: the target project joins that workspace.
+    pub workspace_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]

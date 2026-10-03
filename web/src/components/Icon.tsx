@@ -39,7 +39,8 @@ export type IconName =
   | "send"
   | "alert"
   | "xcircle"
-  | "okcircle";
+  | "okcircle"
+  | "window";
 
 export function IconSprite() {
   return (
@@ -84,6 +85,7 @@ export function IconSprite() {
     <symbol id="i-alert" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3"/></g><circle cx="8" cy="11.6" r=".9" fill="currentColor"/></symbol>
     <symbol id="i-xcircle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="currentColor"/><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/></symbol>
     <symbol id="i-okcircle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="currentColor"/><path d="M5.3 8.2l1.8 1.8 3.6-3.7" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></symbol>
+    <symbol id="i-window" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5"/><path d="M1.75 5.75h12.5"/></g></symbol>
       </defs>
     </svg>
   );

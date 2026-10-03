@@ -81,7 +81,7 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 ### 4.2 Desktop shell
 
 - A Tauri v2 app of roughly 100 lines of Rust. On start it checks `GET /api/health`. If the daemon is down, it runs `systemctl --user start launchpad` (or spawns `launchpad daemon` directly as a fallback), then opens a window on `http://127.0.0.1:7317/` after the auth handshake described in [Security](#14-security).
-- Plugins: `single-instance` (prod only: clicking the dock icon focuses the existing window; `launchpad-desktop --open <route>` focuses it on a given screen, used by desktop notifications) and `window-state` (size and position).
+- Plugins: `single-instance` (prod only: clicking the dock icon focuses the existing window; `launchpad-desktop --open <route>` focuses it on a given screen, used by desktop notifications; `--new-window` and `--workspace` open more windows, see [9.1.2](#912-workspaces)) and `window-state` (size and position).
 - **Warm window (prod):** a cold start of the shell takes about 0.5 s (GTK and WebKit processes), so one shell process stays warm. Closing the window hides it; the page stays loaded and connected. An autostart entry runs `launchpad-desktop --hidden` at login, and `install.sh` starts it after an install. A dock click starts a second process, which hands over to the warm one and exits: the window shows in about 100 ms ([spike 4](spikes/4-webkitgtk.md)). `launchpad-desktop --quit` stops the shell. Dev windows (`LAUNCHPAD_PROFILE=dev`) are not single-instance and quit on close.
 - Links to other sites never open inside the window: navigation outside the daemon origin is cancelled and the URL goes to `xdg-open`.
 - The window loads the UI from the daemon, not from bundled assets. This gives one origin (no CORS) and the same UI works in a browser for the future remote mode. The UI imports no `@tauri-apps/*` package.
@@ -149,6 +149,7 @@ GitHub Actions runs three independent jobs on Ubuntu 24.04: strict Clippy for al
 |---|---|
 | `config` | Load and watch `config.toml`: presets, external commands (editor, terminal), poll intervals |
 | `projects` | Registry, discovery in the projects root, repo ↔ project mapping, temporary projects |
+| `workspace` | Workspaces (named sets of projects), new desktop windows (see [9.1.2](#912-workspaces)) |
 | `git` | Status, branches, worktrees, PR ref fetch, diff parsing into files/hunks/lines |
 | `code` | Code viewer: sources (checkout, worktrees, revisions), file lists, file contents with changed line ranges, `git grep` search, path checks (see [8.1](#81-code-viewer)) |
 | `github` | HTTP client (REST + GraphQL), ETag store, rate-limit tracking |
@@ -176,6 +177,8 @@ POST   /api/gh/{owner}/{repo}/issues/{n}/comments|close|reopen
 GET    /api/gh/{owner}/{repo}/pulls?state=open  project lists (cache on demand)
 POST   /api/refresh                             {keys: [...]} force a refresh
 GET    /api/projects    POST /api/projects    POST /api/projects/discover
+GET    /api/workspaces  POST /api/workspaces  PATCH|DELETE /api/workspaces/{id}
+POST   /api/window                              {workspace_id?}: another desktop window
 POST   /api/projects/temp    POST /api/projects/{id}/promote    DELETE /api/projects/{id}
 GET    /api/code/sources?project={id}           checkout, worktrees, branches, tags, PR refs
 GET    /api/code/files?root={path}&rev=         every file path, with change letters
@@ -200,7 +203,7 @@ WebSocket messages look like `{seq, topic, type, payload}` with topics `session/
 
 SQLite in WAL mode, two files in `~/.local/share/launchpad/`:
 
-- `state.db` holds data you would not want to lose: projects, sessions and their events, launch drafts, pre-draft PRs, draft comments, local notification overrides. Schema changes are a list of SQL statements applied in order using `PRAGMA user_version`. This takes about 20 lines of code and is not a framework.
+- `state.db` holds data you would not want to lose: projects, workspaces, sessions and their events, launch drafts (one per workspace), pre-draft PRs, draft comments, local notification overrides. Schema changes are a list of SQL statements applied in order using `PRAGMA user_version`. This takes about 20 lines of code and is not a framework.
 - `cache.db` mirrors GitHub. It stores a hash of its schema. If the code's schema hash differs, the file is deleted and rebuilt by the next sync. No migrations, ever.
 
 Cache tables keep the raw GraphQL or REST JSON plus a few indexed columns:
@@ -399,9 +402,23 @@ Raw harness output lines are also stored (`session_raw`, capped at 20,000 lines 
 
 A Done session has no harness process after a daemon restart; sending it a message resumes it first. A session that was mid-turn becomes `interrupted`.
 
-### 9.1.1 Workspace arrangements and history
+### 9.1.1 Pane arrangements
 
-The workspace has visible Focus pane buttons for every pane, and a Move to pane selector in each session. Drag a session row or its title onto a pane to move it there; occupied panes swap sessions. Clicking a session still opens it in the focused pane. The current arrangement, up to twelve named layouts and session pins live in the existing persisted browser layout store. Pins sort first inside each state group rather than introducing another session state. Search filters titles, project names, folders and initial prompts immediately, and debounces a daemon query over stored user/assistant message text. Filtered groups retain their counts and independent collapse controls.
+The Agents view has visible Focus pane buttons for every pane, and a Move to pane selector in each session. Drag a session row or its title onto a pane to move it there; occupied panes swap sessions. Clicking a session still opens it in the focused pane. The current arrangement, up to twelve named layouts and session pins live in the existing persisted browser layout store. Pins sort first inside each state group rather than introducing another session state. Search filters titles, project names, folders and initial prompts immediately, and debounces a daemon query over stored user/assistant message text. Filtered groups retain their counts and independent collapse controls.
+
+### 9.1.2 Workspaces
+
+A workspace is a named set of registered projects, stored as JSON in the `workspace` table of `state.db`. A project can belong to several workspaces. Everything else follows from the projects: a session belongs to a workspace when its project id or folder belongs to one of its projects, or when it was launched from that workspace; scheduled launches and crons use their target project or the workspace that created them. Inbox threads belong to a workspace when their repository is the `origin` or `upstream` of one of its projects. "All projects" is the absence of a workspace and shows everything, as before.
+
+Each window shows one workspace. The choice lives in the window's `sessionStorage`, so several windows show different workspaces and each one keeps its own after a reload; `localStorage` remembers the last choice for the next window. The top bar switcher changes the workspace in place (no reload) and has a New window button per workspace. The window title names the workspace, so the dock and the window switcher tell windows apart. `/workspaces` creates, renames and deletes workspaces and picks their projects; deleting a workspace keeps its projects and agents.
+
+In a workspace: the sidebar lists all its projects and its temporary folders, and its counts; Agents filters Cron, Scheduled, Running, Done and Archived; Projects lists its projects first with Add/Remove buttons and the other projects below; the composer offers its projects first; the status bar counts its agents with the sidebar predicates. The Inbox shows the workspace's repositories by default, with an All repos button to see every notification (the repository chips and the unread count follow the same list). A launch sends the window's `workspace_id` in its launch spec, and the daemon adds the target project, including a new temporary folder, to that workspace, so a new agent never disappears from the window that started it. Adding a folder or a scanned repository from Projects also adds it to the window's workspace. Unregistering a project removes it from every workspace.
+
+Pane layouts, saved layouts, pins and collapsed groups are stored per workspace (`launchpad.layout.<id>`; all projects keep `launchpad.layout`). The unsent composer draft is also per workspace (`launch_draft` row `workspace:<id>`), so two windows do not overwrite each other's draft. Desktop notifications suppression uses the presence of every connected window: a session shown in any focused window is not notified.
+
+New windows: `POST /api/window` runs `launchpad-desktop --new-window [--workspace <id>]` next to the daemon binary. In prod, the single-instance shell opens one more window in the warm process (labels `window-2`, `window-3`, …, so window-state reuses their sizes); only the main window hides on close. In dev, each `launchpad-desktop` is its own process with its own window, like separate VS Code instances. `launchpad-desktop --workspace <id or name>` starts on a workspace; on a running prod shell it switches the hidden main window, or opens a new window when combined with `--new-window`. In a normal browser, New window opens a tab with `?ws=<id>`.
+
+### 9.1.3 Session titles and history import
 
 Manual rename updates the session title in `state.db` and broadcasts the usual session update. A late AI naming result only applies if the original launch title is still present. Session headers wrap their visible actions so titles remain readable in four-pane layouts. The status bar wraps at larger zoom positions instead of extending past the window, and the desktop shell leaves drag/drop to the HTML controls. Focus pane buttons also focus the selected session’s message box.
 
@@ -768,3 +785,7 @@ Scheduled launch conditions, on 2026-10-03:
 Cron agents, on 2026-10-03:
 
 46. **Cron agents claim by advancing the schedule.** Recurring launches are separate `cron_agent` records with a 5-field local-time schedule (`croner`) and optional conditions (previous run finished, minimum quota left). The scheduler moves `next_run_at` forward before launching, so runs are never repeated after a crash; failed conditions and runs more than 1 hour late are skipped, not caught up. Runs are ordinary sessions; crons have their own Cron group and never count as Running or Done.
+
+Workspaces, on 2026-10-04:
+
+47. **Workspaces are sets of projects, chosen per window.** A workspace stores only project ids; sessions, scheduled launches, crons and inbox threads are filtered through their project or repository, so there is no second ownership model to keep in sync. Launches carry the window's workspace id and add their project to it. The selection is per window (`sessionStorage`), and switching is instant in the same window; another workspace in parallel is one click on New window. Several windows share the one daemon, which keeps running all agents; prod windows live in the single warm shell process, dev windows are separate processes. The existing session Git module was renamed `session_git` so "workspace" only names this concept, and the Agents toolbar label became "Panes".

@@ -12,4 +12,8 @@ export type LaunchSpec = { harness: HarnessKind | null, target: Target, text: st
 /**
  * Files and line ranges added from the code viewer.
  */
-files: Array<FileRef>, model: string | null, effort: string | null, };
+files: Array<FileRef>, model: string | null, effort: string | null,
+/**
+ * The workspace of the window that launched it: the target project joins that workspace.
+ */
+workspace_id: string | null, };

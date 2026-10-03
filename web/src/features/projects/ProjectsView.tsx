@@ -11,6 +11,8 @@ import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { useConfig, useProjects, useSessions } from "@/lib/queries";
+import { useScope } from "@/lib/workspace";
+import type { Workspace } from "@/gen/Workspace";
 
 export function Description({ p }: { p: Project }) {
   const [edit, setEdit] = useState<string | null>(null);
@@ -60,8 +62,24 @@ function PinButton({ p }: { p: Project }) {
   );
 }
 
+/** Adds the project to the window's workspace, or removes it (the project stays registered). */
+function WorkspaceButton({ p, w }: { p: Project; w: Workspace }) {
+  const qc = useQueryClient();
+  const inside = w.project_ids.includes(p.id);
+  const toggle = () =>
+    void api
+      .patch(`/api/workspaces/${w.id}`, { project_ids: inside ? w.project_ids.filter((id) => id !== p.id) : [...w.project_ids, p.id] })
+      .then(() => qc.invalidateQueries({ queryKey: ["workspaces"] }), toastError);
+  return (
+    <button className={`btn btn-sm ${inside ? "" : "border-teal! text-teal-ink"}`} title={inside ? `Remove from ${w.name} (the project stays in Launchpad)` : `Add to ${w.name}`} onClick={toggle}>
+      {inside ? "Remove from workspace" : <><Icon name="plus" size={12} />Add to workspace</>}
+    </button>
+  );
+}
+
 function ProjectRow({ p }: { p: Project }) {
   const qc = useQueryClient();
+  const w = useScope().workspace;
   const [confirm, setConfirm] = useState(false);
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-line-2 px-4 py-2.5">
@@ -75,7 +93,7 @@ function ProjectRow({ p }: { p: Project }) {
         <Description p={p} />
       </div>
       <div className="flex items-center gap-1.5">
-        <PinButton p={p} />
+        {w ? <WorkspaceButton p={p} w={w} /> : <PinButton p={p} />}
         <LaunchButton small ctx={{ projectId: p.id }} label={null} />
         <button
           className={`btn btn-sm ${confirm ? "border-[#A40E26]! bg-gh-closed! text-white!" : "btn-ghost"}`}
@@ -155,11 +173,12 @@ export function TempProjectCard({ p }: { p: Project }) {
 
 function Discover({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
+  const workspaceId = useScope().workspace?.id ?? null;
   const [filter, setFilter] = useState("");
   const q = useQuery({ queryKey: ["discover"], queryFn: () => api.post<Discovered[]>("/api/projects/discover") });
   const add = async (d: Discovered) => {
     try {
-      await api.post("/api/projects", { path: d.path });
+      await api.post("/api/projects", { path: d.path, workspace_id: workspaceId });
       await qc.invalidateQueries({ queryKey: ["projects"] });
       await qc.invalidateQueries({ queryKey: ["discover"] });
     } catch (e) {
@@ -201,15 +220,20 @@ function Discover({ onClose }: { onClose: () => void }) {
 
 export function ProjectsView() {
   const projects = useProjects().data ?? [];
+  const scope = useScope();
+  const w = scope.workspace;
   const config = useConfig().data?.config;
   const qc = useQueryClient();
   const [scan, setScan] = useState(false);
   const [path, setPath] = useState("");
   const regular = projects.filter((p) => !p.is_temp).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
-  const temp = projects.filter((p) => p.is_temp);
+  // In a workspace: its projects first, then the others, which one click adds.
+  const mine = w ? regular.filter((p) => scope.hasProject(p.id)) : regular;
+  const others = w ? regular.filter((p) => !scope.hasProject(p.id)) : [];
+  const temp = projects.filter((p) => p.is_temp && scope.hasProject(p.id));
   const addPath = async () => {
     try {
-      await api.post("/api/projects", { path });
+      await api.post("/api/projects", { path, workspace_id: w?.id ?? null });
       setPath("");
       await qc.invalidateQueries({ queryKey: ["projects"] });
     } catch (e) {
@@ -220,7 +244,7 @@ export function ProjectsView() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
         <div className="flex items-center gap-2">
-          <h2 className="m-0 text-lg font-semibold">Projects</h2>
+          <h2 className="m-0 text-lg font-semibold">{w ? `Projects in ${w.name}` : "Projects"}</h2>
           <span className="min-w-0 truncate text-xs text-ink-3">in {config?.projects_root}</span>
           <button className="btn ml-auto" onClick={() => setScan((v) => !v)}>
             <Icon name="search" size={14} />
@@ -229,8 +253,8 @@ export function ProjectsView() {
         </div>
         {scan && <Discover onClose={() => setScan(false)} />}
         <div className="overflow-hidden rounded-lg border border-line">
-          {regular.length === 0 && <div className="p-4 text-[12.5px] text-ink-2">No project yet. Use "Scan projects root" or add a folder below.</div>}
-          {regular.map((p) => (
+          {mine.length === 0 && <div className="p-4 text-[12.5px] text-ink-2">{w ? `No project in ${w.name} yet. Add one from the list below, scan the projects root or add a folder.` : 'No project yet. Use "Scan projects root" or add a folder below.'}</div>}
+          {mine.map((p) => (
             <ProjectRow key={p.id} p={p} />
           ))}
           <div className="flex gap-2 bg-chrome px-4 py-2.5">
@@ -247,6 +271,16 @@ export function ProjectsView() {
             </button>
           </div>
         </div>
+        {others.length > 0 && (
+          <>
+            <div className="seclabel">Other projects</div>
+            <div className="overflow-hidden rounded-lg border border-line">
+              {others.map((p) => (
+                <ProjectRow key={p.id} p={p} />
+              ))}
+            </div>
+          </>
+        )}
         {temp.length > 0 && (
           <>
             <div className="seclabel">Temporary</div>

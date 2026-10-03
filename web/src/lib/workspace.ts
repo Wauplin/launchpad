@@ -1,0 +1,85 @@
+// What the current workspace contains. Every list that a workspace narrows (sidebar, agents, projects,
+// inbox, composer) uses these predicates, so counts and markers agree.
+
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
+import type { LaunchSpec } from "@/gen/LaunchSpec";
+import type { Project } from "@/gen/Project";
+import type { Session } from "@/gen/Session";
+import type { Workspace } from "@/gen/Workspace";
+import { toast } from "@/components/Toast";
+import { useWorkspace } from "@/stores/workspace";
+import { api } from "./api";
+import { useProjects } from "./queries";
+
+export const useWorkspaces = () => useQuery({ queryKey: ["workspaces"], queryFn: () => api.get<Workspace[]>("/api/workspaces"), staleTime: Infinity });
+
+export type Scope = {
+  /** null: all projects. */
+  workspace: Workspace | null;
+  /** The projects of the workspace (every project when there is none). */
+  projects: Project[];
+  hasProject: (id: string | null, cwd?: string) => boolean;
+  hasSession: (s: Session) => boolean;
+  hasSpec: (spec: LaunchSpec) => boolean;
+  /** `owner/repo`, matching a project's origin or upstream. */
+  hasRepo: (repo: string) => boolean;
+};
+
+const yes = () => true;
+
+export function specProject(spec: LaunchSpec): string | null {
+  return spec.target.kind === "project" || spec.target.kind === "predraft" ? spec.target.project_id : null;
+}
+
+export function useScope(): Scope {
+  const current = useWorkspace((s) => s.current);
+  const workspaces = useWorkspaces();
+  const projects = useProjects().data;
+  return useMemo(() => {
+    const workspace = workspaces.data?.find((w) => w.id === current) ?? null;
+    // While the workspaces load, show nothing rather than every project.
+    if (!workspace && !(current && !workspaces.data)) return { workspace, projects: projects ?? [], hasProject: yes, hasSession: yes, hasSpec: yes, hasRepo: yes };
+    const ids = new Set(workspace?.project_ids ?? []);
+    const mine = (projects ?? []).filter((p) => ids.has(p.id));
+    const repos = new Set(mine.flatMap((p) => [p.gh_repo, p.gh_upstream]).filter((r): r is string => !!r).map((r) => r.toLowerCase()));
+    const hasProject = (id: string | null, cwd?: string) => (!!id && ids.has(id)) || (!!cwd && mine.some((p) => cwd === p.path || cwd.startsWith(p.path + "/")));
+    const hasSpec = (spec: LaunchSpec) => (!!workspace && spec.workspace_id === workspace.id) || hasProject(specProject(spec));
+    return {
+      workspace,
+      projects: mine,
+      hasProject,
+      hasSession: (s: Session) => hasProject(s.project_id, s.cwd) || hasSpec(s.launch_spec),
+      hasSpec,
+      hasRepo: (repo: string) => repos.has(repo.toLowerCase()),
+    };
+  }, [current, workspaces.data, projects]);
+}
+
+/** Resolves `?ws=<id or name>` and forgets a workspace deleted from another window. Mounted once in the shell. */
+export function useWorkspaceSync() {
+  const { current, requested, switchTo } = useWorkspace();
+  const workspaces = useWorkspaces().data;
+  useEffect(() => {
+    if (!workspaces) return;
+    if (requested !== null) {
+      const want = requested.toLowerCase();
+      const w = workspaces.find((w) => w.id === requested || w.name.toLowerCase() === want);
+      if (!w && want !== "" && want !== "all") toast(`No workspace named ${requested}: showing all projects`);
+      switchTo(w?.id ?? null);
+    } else if (current && !workspaces.some((w) => w.id === current)) {
+      switchTo(null);
+    }
+  }, [workspaces, requested, current, switchTo]);
+  const name = workspaces?.find((w) => w.id === current)?.name;
+  useEffect(() => { document.title = name ? `${name} · Launchpad` : "Launchpad"; }, [name]);
+}
+
+/** Opens another window on a workspace (null: all projects). Outside the desktop shell, a browser tab. */
+export async function openWindow(workspaceId: string | null) {
+  try {
+    await api.post("/api/window", { workspace_id: workspaceId });
+  } catch {
+    window.open(`/?ws=${encodeURIComponent(workspaceId ?? "all")}`, "_blank");
+  }
+}

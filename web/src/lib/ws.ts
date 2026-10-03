@@ -74,6 +74,8 @@ export function connectEvents(queryClient: QueryClient) {
         void queryClient.invalidateQueries({ queryKey: ["inbox-preview"] });
       } else if (topic === "config") {
         void queryClient.invalidateQueries({ queryKey: ["config"] });
+      } else if (topic === "workspaces") {
+        void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       } else if (topic === "projects") {
         void queryClient.invalidateQueries({ queryKey: ["projects"] });
       } else if (topic === "predrafts") {

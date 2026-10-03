@@ -14,9 +14,20 @@ import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { useProjects } from "@/lib/queries";
+import { useScope } from "@/lib/workspace";
 
 export const useInbox = () => useQuery({ queryKey: ["inbox"], queryFn: () => api.get<InboxSnapshot>("/api/inbox"), staleTime: Infinity });
-const useView = create<{ selected: string | null; repo: string | null; unread: boolean; scroll: number; drafts: Record<string, string> }>(() => ({ selected: null, repo: null, unread: false, scroll: 0, drafts: {} }));
+/** `allRepos`: show every repository instead of the workspace's ones. */
+const useView = create<{ selected: string | null; repo: string | null; unread: boolean; allRepos: boolean; scroll: number; drafts: Record<string, string> }>(() => ({ selected: null, repo: null, unread: false, allRepos: false, scroll: 0, drafts: {} }));
+/** Threads of the workspace's repositories, unless All repos is on. The sidebar count uses the same list. */
+export function useInboxThreads() {
+  const { data } = useInbox();
+  const scope = useScope();
+  const allRepos = useView((s) => s.allRepos);
+  const threads = useMemo(() => data?.threads ?? [], [data]);
+  const scoped = useMemo(() => (allRepos || !scope.workspace ? threads : threads.filter((t) => scope.hasRepo(t.repo))), [threads, allRepos, scope]);
+  return { threads: scoped, total: threads.length, scope, allRepos };
+}
 function launchContext(t: Thread, projects: Project[]) {
   const project = projects.find((p) => p.gh_repo?.toLowerCase() === t.repo.toLowerCase()) ?? projects.find((p) => p.gh_upstream?.toLowerCase() === t.repo.toLowerCase());
   return { projectId: project?.id ?? null, githubRefs: [{ repo: t.repo, number: t.number, title: t.title, url: t.url, kind: t.kind === "PullRequest" ? "pr" : t.kind === "Issue" ? "issue" : t.kind.toLowerCase() }] };
@@ -133,10 +144,13 @@ export function InboxView() {
   const qc = useQueryClient();
   const action = useInboxAction();
   const sync = useMutation({ mutationFn: () => api.post("/api/inbox/sync"), onError: toastError, onSettled: () => void qc.invalidateQueries({ queryKey: ["inbox"] }) });
-  const threads = data?.threads ?? [];
+  const { threads, total, scope, allRepos } = useInboxThreads();
+  const hidden = total - threads.length;
   const counted = useMemo(() => threads.filter((t) => !view.unread || t.unread), [threads, view.unread]);
   const visible = useMemo(() => counted.filter((t) => !view.repo || t.repo === view.repo), [counted, view.repo]);
   const selected = threads.find((t) => t.id === view.selected);
+  // A repository picked among all repos may not belong to the workspace.
+  useEffect(() => { if (view.repo && !threads.some((t) => t.repo === view.repo)) useView.setState({ repo: null }); }, [allRepos, scope.workspace?.id]);
   const v = useVirtualizer({ count: visible.length, getScrollElement: () => ref.current, estimateSize: () => 70, getItemKey: (i) => visible[i].id, overscan: 4, useFlushSync: false, initialOffset: view.scroll });
   const previousFilter = useRef({ repo: view.repo, unread: view.unread });
   useEffect(() => {
@@ -157,6 +171,10 @@ export function InboxView() {
   return <div className="flex h-full flex-col">
     <div className="flex h-14 flex-none items-center gap-3 border-b border-line px-4">
       <h1 className="text-lg font-semibold">Inbox</h1><span className="text-xs text-ink-3">{threads.filter((t) => t.unread).length} unread</span>
+      {scope.workspace && <span className="flex items-center gap-1" title="Notifications of this workspace's repositories, or of every repository">
+        <button className={`btn btn-sm ${!allRepos ? "bg-select!" : ""}`} aria-pressed={!allRepos} onClick={() => useView.setState({ allRepos: false, scroll: 0 })}>{scope.workspace.name} repos</button>
+        <button className={`btn btn-sm ${allRepos ? "bg-select!" : ""}`} aria-pressed={allRepos} onClick={() => useView.setState({ allRepos: true, scroll: 0 })}>All repos{!allRepos && hidden > 0 ? ` · ${hidden} more` : ""}</button>
+      </span>}
       <label className="ml-auto flex items-center gap-2 text-xs"><input type="checkbox" checked={view.unread} onChange={(e) => useView.setState({ unread: e.target.checked, scroll: 0 })} />Unread only</label>
       <span className="text-xs text-ink-3">{data?.status.syncing ? "Syncing…" : data?.status.last_sync ? `Synced ${formatAge(data.status.last_sync)} ago` : "Waiting for GitHub"}</span>
       <button className="btn btn-sm" disabled={sync.isPending || data?.status.syncing} onClick={() => sync.mutate()}>Refresh</button>
@@ -165,7 +183,7 @@ export function InboxView() {
     <RepoChips threads={counted} selected={view.repo} />
     <div className="flex min-h-0 flex-1">
       <div data-inbox-list ref={ref} className="min-w-0 flex-1 overflow-y-auto" onScroll={() => useView.setState({ scroll: ref.current?.scrollTop ?? 0 })}>
-        {visible.length === 0 && <p className="p-8 text-center text-ink-3">{data?.status.syncing ? "Fetching notifications…" : view.unread || view.repo ? "No notifications match these filters." : "Your inbox is clear."}</p>}
+        {visible.length === 0 && <p className="p-8 text-center text-ink-3">{data?.status.syncing ? "Fetching notifications…" : view.unread || view.repo ? "No notifications match these filters." : hidden > 0 ? `No notifications for the repositories of ${scope.workspace?.name}. Click the repos filter to see all ${hidden}.` : "Your inbox is clear."}</p>}
         <div className="relative" style={{ height: v.getTotalSize() }}>
           {v.getVirtualItems().map((item) => <div key={item.key} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${item.start}px)` }}><ThreadRow t={visible[item.index]} selected={visible[item.index].id === view.selected} projects={projects} select={select} act={mutate} busy={action.isPending} /></div>)}
         </div>

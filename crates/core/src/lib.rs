@@ -28,6 +28,7 @@ pub mod suggestions;
 pub mod terminal;
 mod titles;
 pub mod util;
+pub mod session_git;
 pub mod workspace;
 
 /// Source revision embedded in the running binary, and the main checkout used for updates.
@@ -128,8 +129,9 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     code::CommitInfo::export_all(&cfg)?;
     history::Candidate::export_all(&cfg)?;
     history::Page::export_all(&cfg)?;
-    workspace::GitFile::export_all(&cfg)?;
-    workspace::GitStatus::export_all(&cfg)?;
-    workspace::GitDiff::export_all(&cfg)?;
+    session_git::GitFile::export_all(&cfg)?;
+    session_git::GitStatus::export_all(&cfg)?;
+    session_git::GitDiff::export_all(&cfg)?;
+    workspace::Workspace::export_all(&cfg)?;
     Ok(())
 }

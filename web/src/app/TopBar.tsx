@@ -3,19 +3,21 @@ import logo from "@/assets/launchpad.png";
 import { LayoutSwitch } from "@/features/agents/AgentsView";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { useProjects } from "@/lib/queries";
+import { WorkspaceSwitcher } from "@/features/workspaces/Workspaces";
 
 export function TopBar() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const projects = useProjects().data ?? [];
   const projectId = path.match(/^\/projects\/([^/]+)/)?.[1];
   const project = projects.find((p) => p.id === projectId);
-  const title = path === "/" ? "Inbox" : path.startsWith("/agents") ? "Agents" : path.startsWith("/settings") ? "Settings" : path.startsWith("/projects") ? "Projects" : "";
+  const title = path === "/" ? "Inbox" : path.startsWith("/agents") ? "Agents" : path.startsWith("/settings") ? "Settings" : path.startsWith("/workspaces") ? "Workspaces" : path.startsWith("/projects") ? "Projects" : "";
   return (
     <header className="flex h-[46px] flex-none items-center gap-3.5 border-b border-line bg-chrome pr-2.5 pl-3.5">
       <div className="flex items-center gap-2 font-bold tracking-[0.01em]">
         <img src={logo} alt="" className="size-[22px]" />
         Launchpad
       </div>
+      <WorkspaceSwitcher />
       <div className="flex items-center gap-1.5 text-ink-2">
         {project ? (
           <>

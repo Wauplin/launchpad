@@ -9,6 +9,7 @@ import type { Session } from "@/gen/Session";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import { api } from "@/lib/api";
+import { draftQuery, useWorkspace } from "./workspace";
 
 export const emptySpec = (): LaunchSpec => ({
   harness: null,
@@ -20,6 +21,7 @@ export const emptySpec = (): LaunchSpec => ({
   files: [],
   model: null,
   effort: null,
+  workspace_id: null,
 });
 
 /** What a Launch button starts from: a project, GitHub items, text. */
@@ -52,7 +54,15 @@ type Composer = {
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 function save(spec: LaunchSpec, open: boolean, conditions: LaunchDelay[]) {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => void api.put("/api/launch/draft", { spec, open, conditions }).catch(() => {}), 400);
+  // Each workspace has its own draft; the address is taken now, before a workspace switch.
+  const path = `/api/launch/draft${draftQuery()}`;
+  saveTimer = setTimeout(() => void api.put(path, { spec, open, conditions }).catch(() => {}), 400);
+}
+
+/** A switch saves the pending draft of the previous workspace at once, then loads the next one. */
+function flush(spec: LaunchSpec, open: boolean, conditions: LaunchDelay[], workspace: string | null) {
+  clearTimeout(saveTimer);
+  return api.put(`/api/launch/draft${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`, { spec, open, conditions }).catch(() => {});
 }
 
 let lastLaunchAt = 0;
@@ -106,10 +116,17 @@ export const useComposer = create<Composer>((set, get) => ({
       const sessions = await api.get<Session[]>("/api/sessions");
       const latest = sessions.filter((s) => s.launch_spec.harness && s.last_seq > 0 && s.status !== "error").sort((a, b) => b.started_at - a.started_at)[0];
       if (latest) rememberSuccessfulSession(latest);
-      const d = await api.get<{ spec?: LaunchSpec; open?: boolean; conditions?: LaunchDelay[]; delay?: LaunchDelay | null } | null>("/api/launch/draft");
+      const d = await api.get<{ spec?: LaunchSpec; open?: boolean; conditions?: LaunchDelay[]; delay?: LaunchDelay | null } | null>(`/api/launch/draft${draftQuery()}`);
       if (d?.spec) set({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, conditions: d.conditions ?? (d.delay ? [d.delay] : []) });
+      else set({ spec: { ...emptySpec(), harness: get().spec.harness }, open: false, conditions: [] });
     } finally {
       set({ loaded: true });
     }
   },
 }));
+
+useWorkspace.subscribe((s, prev) => {
+  if (s.current === prev.current) return;
+  const { spec, open, conditions, loaded } = useComposer.getState();
+  void (loaded ? flush(spec, open, conditions, prev.current) : Promise.resolve()).then(() => useComposer.getState().restore());
+});

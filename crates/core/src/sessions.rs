@@ -72,9 +72,12 @@ struct Inner {
     live: Mutex<LiveSessions>,
     next_instance: std::sync::atomic::AtomicU64,
     raw_counts: Mutex<HashMap<String, i64>>,
-    /// Sessions shown in a focused window: no desktop notification for them.
-    watched: Mutex<(bool, Vec<String>, i64)>,
+    /// Sessions shown in a focused window, per window connection: no desktop notification for them.
+    watched: Mutex<HashMap<u64, Presence>>,
 }
+
+/// A window's focus, the sessions it shows, and when it said so.
+type Presence = (bool, Vec<String>, i64);
 
 impl Default for Sessions {
     fn default() -> Self {
@@ -91,7 +94,7 @@ impl Sessions {
                 live: Mutex::new(HashMap::new()),
                 next_instance: std::sync::atomic::AtomicU64::new(1),
                 raw_counts: Mutex::new(HashMap::new()),
-                watched: Mutex::new((false, vec![], 0)),
+                watched: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -226,14 +229,18 @@ impl Sessions {
         self.update(app, id, |s| s.title = title.to_string()).await
     }
 
-    /// The UI reports which sessions it shows, and whether its window has the focus.
-    pub fn set_watched(&self, focused: bool, sessions: Vec<String>) {
-        *self.inner.watched.lock().unwrap() = (focused, sessions, now_ms());
+    /// Each window reports which sessions it shows, and whether it has the focus. `None` when it closes.
+    pub fn set_watched(&self, window: u64, presence: Option<(bool, Vec<String>)>) {
+        let mut w = self.inner.watched.lock().unwrap();
+        match presence {
+            Some((focused, sessions)) => w.insert(window, (focused, sessions, now_ms())),
+            None => w.remove(&window),
+        };
     }
 
     fn is_watched(&self, id: &str) -> bool {
         let w = self.inner.watched.lock().unwrap();
-        w.0 && now_ms() - w.2 < 10 * 60_000 && w.1.iter().any(|s| s == id)
+        w.values().any(|(focused, sessions, at)| *focused && now_ms() - at < 10 * 60_000 && sessions.iter().any(|s| s == id))
     }
 
     async fn persist(&self, app: &App, s: &Session) -> Result<()> {
@@ -442,6 +449,11 @@ impl Sessions {
             }
             Target::None => unreachable!(),
         };
+        if let (Some(ws), Some(project_id)) = (&spec.workspace_id, &project_id)
+            && let Err(e) = crate::workspace::add_project(app, ws, project_id).await
+        {
+            tracing::warn!("launch: could not add the project to its workspace: {e:#}");
+        }
         preview.prompt.push_str(&format!("\n\n{}", crate::suggestions::instruction(app, &id)));
         let now = now_ms();
         let session = Session {

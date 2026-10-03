@@ -5,6 +5,7 @@ import { Composer } from "@/features/launch/Composer";
 import { useConfig } from "@/lib/queries";
 import { useLayoutEffect } from "react";
 import { zoomScale } from "@/lib/zoom";
+import { useWorkspaceSync } from "@/lib/workspace";
 import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
@@ -12,6 +13,7 @@ import { TopBar } from "./TopBar";
 export function Shell() {
   const config = useConfig().data?.config;
   useLayoutEffect(() => { document.documentElement.style.zoom = String(zoomScale(config?.zoom ?? 2)); }, [config?.zoom]);
+  useWorkspaceSync();
   return (
     <div className="flex h-full flex-col">
       <IconSprite />

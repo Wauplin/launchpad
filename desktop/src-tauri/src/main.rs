@@ -9,6 +9,12 @@
 //! - `launchpad-desktop --hidden` (autostart at login) starts without showing the window;
 //! - starting `launchpad-desktop` again hands over to the running process (single instance), which shows
 //!   the window. `--open <route>` also navigates (used by notifications), `--quit` stops the shell.
+//!
+//! Workspaces: `--workspace <id or name>` shows a workspace, and `--new-window` opens one more window
+//! (the daemon runs `launchpad-desktop --new-window --workspace <id>` for the UI's New window button). Each
+//! window keeps its own workspace; its title follows the page title, which names the workspace. Only the
+//! main window stays warm: other windows close for real. Dev processes are not single-instance, so each
+//! dev process has its own window.
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -17,6 +23,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
+#[derive(Clone)]
 struct Profile {
     dev: bool,
     port: u16,
@@ -132,9 +139,19 @@ fn show_window(w: &WebviewWindow, argv: &[String]) {
     }
 }
 
+fn flag_value<'a>(argv: &'a [String], flag: &str) -> Option<&'a String> {
+    let i = argv.iter().position(|a| a == flag)?;
+    argv.get(i + 1)
+}
+
+/// `--open <route>`, with `ws=<workspace>` added for `--workspace`. The UI reads `ws` and removes it.
 fn open_route(argv: &[String]) -> Option<String> {
-    let i = argv.iter().position(|a| a == "--open")?;
-    argv.get(i + 1).filter(|r| r.starts_with('/')).cloned()
+    let route = flag_value(argv, "--open").filter(|r| r.starts_with('/')).cloned();
+    let Some(ws) = flag_value(argv, "--workspace") else { return route };
+    let route = route.unwrap_or_else(|| "/".into());
+    let sep = if route.contains('?') { '&' } else { '?' };
+    let ws: String = url::form_urlencoded::byte_serialize(ws.as_bytes()).collect();
+    Some(format!("{route}{sep}ws={ws}"))
 }
 
 /// Client-side navigation, so the open app does not reload.
@@ -164,6 +181,57 @@ fn show_error(w: &WebviewWindow, msg: &str) {
     ));
 }
 
+/// Builds a window on `url`. The main window hides on close when it stays warm; others close.
+fn build_window(app: &tauri::AppHandle, profile: &Profile, label: &str, url: WebviewUrl, visible: bool, keep_warm: bool) -> tauri::Result<WebviewWindow> {
+    let origin = profile.origin();
+    let window = WebviewWindowBuilder::new(app, label, url)
+        .title(if profile.dev { "Launchpad (dev)" } else { "Launchpad" })
+        .inner_size(1440.0, 920.0)
+        .min_inner_size(960.0, 600.0)
+        .disable_drag_drop_handler()
+        .visible(visible)
+        .on_document_title_changed(|w, title| {
+            if !title.is_empty() {
+                let _ = w.set_title(&title);
+            }
+        })
+        .on_navigation(move |url| {
+            let internal = url.as_str().starts_with(&origin) || url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost");
+            if !internal && matches!(url.scheme(), "http" | "https" | "mailto") {
+                // Links to GitHub and elsewhere open in the browser, never inside the app window.
+                let _ = std::process::Command::new("xdg-open").arg(url.as_str()).spawn();
+            }
+            internal
+        })
+        .build()?;
+    if keep_warm && label == "main" {
+        let w = window.clone();
+        window.on_window_event(move |ev| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = ev {
+                // Hide instead of quitting: the next dock click shows the window at once.
+                api.prevent_close();
+                let _ = w.hide();
+            }
+        });
+    }
+    Ok(window)
+}
+
+/// One more window in the warm process (`--new-window`), signed in like the first one.
+fn new_window(app: &tauri::AppHandle, profile: &Profile, argv: &[String]) {
+    let route = open_route(argv).unwrap_or_else(|| "/".into());
+    match app_url(profile, &route, now_ms()) {
+        Ok(url) => {
+            // The smallest free number, so window-state reuses sizes instead of growing per window.
+            let label = (2..).map(|n| format!("window-{n}")).find(|l| app.get_webview_window(l).is_none()).unwrap();
+            if let Ok(w) = build_window(app, profile, &label, WebviewUrl::External(url), true, true) {
+                let _ = w.set_focus();
+            }
+        }
+        Err(e) => eprintln!("launchpad-desktop: {e}"),
+    }
+}
+
 fn main() {
     let t0: u128 = std::env::var("LP_T_LAUNCH").ok().and_then(|v| v.parse().ok()).unwrap_or_else(now_ms);
     let profile = Profile::from_env();
@@ -176,13 +244,16 @@ fn main() {
     let mut builder = tauri::Builder::default();
     if keep_warm {
         // Dev windows are not single-instance, so a dev window can run next to the prod one.
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        let p = profile.clone();
+        builder = builder.plugin(tauri_plugin_single_instance::init(move |app, argv, _cwd| {
             if has_flag(&argv, "--quit") {
                 app.exit(0);
                 return;
             }
-            if let Some(w) = app.get_webview_window("main") {
-                show_window(&w, &argv);
+            match app.get_webview_window("main") {
+                // A hidden main window is reused before opening another one.
+                Some(w) if !has_flag(&argv, "--new-window") || !w.is_visible().unwrap_or(false) => show_window(&w, &argv),
+                _ => new_window(app, &p, &argv),
             }
         }));
     } else if has_flag(&args, "--quit") {
@@ -197,36 +268,11 @@ fn main() {
         )
         .setup(move |app| {
             let warm = healthy(profile.port);
-            let origin = profile.origin();
             let first_url = match (warm, app_url(&profile, &route, t0)) {
                 (true, Ok(url)) => WebviewUrl::External(url),
                 _ => WebviewUrl::App("index.html".into()),
             };
-            let window = WebviewWindowBuilder::new(app, "main", first_url)
-                .title(if profile.dev { "Launchpad (dev)" } else { "Launchpad" })
-                .inner_size(1440.0, 920.0)
-                .min_inner_size(960.0, 600.0)
-                .disable_drag_drop_handler()
-                .visible(!hidden)
-                .on_navigation(move |url| {
-                    let internal = url.as_str().starts_with(&origin) || url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost");
-                    if !internal && matches!(url.scheme(), "http" | "https" | "mailto") {
-                        // Links to GitHub and elsewhere open in the browser, never inside the app window.
-                        let _ = std::process::Command::new("xdg-open").arg(url.as_str()).spawn();
-                    }
-                    internal
-                })
-                .build()?;
-            if keep_warm {
-                let w = window.clone();
-                window.on_window_event(move |ev| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = ev {
-                        // Hide instead of quitting: the next dock click shows the window at once.
-                        api.prevent_close();
-                        let _ = w.hide();
-                    }
-                });
-            }
+            let window = build_window(app.handle(), &profile, "main", first_url, !hidden, keep_warm)?;
             if !warm {
                 std::thread::spawn(move || match start_daemon(&profile).and_then(|_| app_url(&profile, &route, t0)) {
                     Ok(url) => {

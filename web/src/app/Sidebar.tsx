@@ -1,4 +1,5 @@
-import { useInbox } from "@/features/inbox/InboxView";
+import { useInboxThreads } from "@/features/inbox/InboxView";
+import { useScope } from "@/lib/workspace";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import type { Project } from "@/gen/Project";
@@ -53,12 +54,15 @@ function ProjectLink({ p, sessions }: { p: Project; sessions: Session[] }) {
 }
 
 export function Sidebar() {
-  const unread = useInbox().data?.threads.filter((t) => t.unread).length ?? 0;
-  const projects = useProjects().data ?? [];
-  const sessions = useSessions().data ?? [];
+  const unread = useInboxThreads().threads.filter((t) => t.unread).length;
+  const scope = useScope();
+  const all = useProjects().data ?? [];
+  // A workspace lists all its projects; without one, the pinned projects.
+  const projects = scope.workspace ? scope.projects : all;
+  const sessions = (useSessions().data ?? []).filter(scope.hasSession);
   const done = sessions.filter(isDone).length;
   const running = sessions.filter(isRunning).length;
-  const pinned = projects.filter((p) => p.pinned && !p.is_temp);
+  const pinned = projects.filter((p) => (scope.workspace || p.pinned) && !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const temp = projects.filter((p) => p.is_temp).sort((a, b) => b.created_at - a.created_at);
   return (
     <aside className="flex w-[200px] flex-none flex-col gap-px overflow-y-auto border-r border-line bg-chrome px-2 py-2.5">
@@ -82,7 +86,8 @@ export function Sidebar() {
       <NavItem to="/projects" icon="folder">
         Projects
       </NavItem>
-      {pinned.length > 0 && <SideLabel>Pinned</SideLabel>}
+      {scope.workspace ? <SideLabel>{scope.workspace.name}</SideLabel> : pinned.length > 0 && <SideLabel>Pinned</SideLabel>}
+      {scope.workspace && pinned.length === 0 && <Link to="/workspaces" className="px-[9px] py-1 text-xs text-ink-3">No project yet: pick some</Link>}
       {pinned.map((p) => (
         <ProjectLink key={p.id} p={p} sessions={sessions} />
       ))}

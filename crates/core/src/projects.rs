@@ -146,7 +146,9 @@ pub async fn update(app: &App, id: &str, patch: ProjectPatch) -> Result<Project>
 /// Removes a project from the registry. The folder is left as is.
 pub async fn unregister(app: &App, id: &str) -> Result<()> {
     let id = id.to_string();
-    app.state_db.call(move |c| Ok(c.execute("DELETE FROM project WHERE id = ?1", [id])?)).await?;
+    let id2 = id.clone();
+    app.state_db.call(move |c| Ok(c.execute("DELETE FROM project WHERE id = ?1", [id2])?)).await?;
+    crate::workspace::forget_project(app, &id).await?;
     app.bus.publish("projects", "changed", serde_json::Value::Null);
     Ok(())
 }

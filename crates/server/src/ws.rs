@@ -13,13 +13,16 @@ pub async fn handler(State(s): State<Server>, ws: WebSocketUpgrade) -> Response 
     ws.on_upgrade(move |socket| run(s, socket))
 }
 
+static NEXT_WINDOW: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 async fn run(s: Server, socket: WebSocket) {
-    serve_socket(&s, socket).await;
-    // The window is gone: nothing is watched any more.
-    s.app.sessions.set_watched(false, vec![]);
+    let window = NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    serve_socket(&s, socket, window).await;
+    // The window is gone: it watches nothing any more.
+    s.app.sessions.set_watched(window, None);
 }
 
-async fn serve_socket(s: &Server, socket: WebSocket) {
+async fn serve_socket(s: &Server, socket: WebSocket, window: u64) {
     let (mut tx, mut rx) = socket.split();
     let mut events = s.app.bus.subscribe();
     let hello = serde_json::json!({"type": "hello", "profile": s.app.paths.profile.name(), "build": crate::ui::build_id()});
@@ -45,7 +48,7 @@ async fn serve_socket(s: &Server, socket: WebSocket) {
                 match msg {
                     Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
                     Some(Ok(Message::Ping(p))) => { let _ = tx.send(Message::Pong(p)).await; }
-                    Some(Ok(Message::Text(t))) => client_message(s, &t),
+                    Some(Ok(Message::Text(t))) => client_message(s, window, &t),
                     Some(Ok(_)) => {}
                 }
             }
@@ -55,10 +58,10 @@ async fn serve_socket(s: &Server, socket: WebSocket) {
 
 /// Messages from the UI. `presence`: whether the window has the focus and which sessions it shows,
 /// so the daemon does not notify about a session you are looking at.
-fn client_message(s: &Server, text: &str) {
+fn client_message(s: &Server, window: u64, text: &str) {
     let Ok(msg) = serde_json::from_str::<serde_json::Value>(text) else { return };
     if msg["type"] == "presence" {
         let sessions = msg["sessions"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
-        s.app.sessions.set_watched(msg["focused"].as_bool().unwrap_or(false), sessions);
+        s.app.sessions.set_watched(window, Some((msg["focused"].as_bool().unwrap_or(false), sessions)));
     }
 }

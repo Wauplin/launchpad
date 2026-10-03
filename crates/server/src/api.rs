@@ -8,6 +8,7 @@ use launchpad_core::model::*;
 use launchpad_core::paths::Profile;
 use launchpad_core::projects::{self, Discovered, ProjectPatch};
 use launchpad_core::sessions::Preview;
+use launchpad_core::workspace::{self, Workspace};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -21,6 +22,9 @@ pub fn router() -> Router<Server> {
         .route("/api/projects/{id}", get(get_project).patch(patch_project).delete(delete_project))
         .route("/api/projects/{id}/branches", get(branches))
         .route("/api/projects/{id}/promote", post(promote))
+        .route("/api/workspaces", get(list_workspaces).post(create_workspace))
+        .route("/api/workspaces/{id}", axum::routing::patch(patch_workspace).delete(delete_workspace))
+        .route("/api/window", post(open_window))
         .route("/api/launch/preview", post(preview))
         .route("/api/launch/schedules", get(schedules).post(schedule))
         .route("/api/launch/schedules/{id}", axum::routing::delete(cancel_schedule))
@@ -74,11 +78,54 @@ async fn get_project(State(s): State<Server>, Path(id): Path<String>) -> ApiResu
 #[derive(Deserialize)]
 struct AddProject {
     path: String,
+    /// The workspace of the window that adds it.
+    workspace_id: Option<String>,
 }
 
 async fn add_project(State(s): State<Server>, Json(b): Json<AddProject>) -> ApiResult<Project> {
     let path = launchpad_core::paths::expand_home(b.path.trim());
-    Ok(Json(projects::register(&s.app, &path, false).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
+    let p = projects::register(&s.app, &path, false).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    if let Some(ws) = &b.workspace_id {
+        workspace::add_project(&s.app, ws, &p.id).await?;
+    }
+    Ok(Json(p))
+}
+
+// ---------------------------------------------------------------- workspaces
+
+async fn list_workspaces(State(s): State<Server>) -> ApiResult<Vec<Workspace>> {
+    Ok(Json(workspace::list(&s.app).await?))
+}
+
+#[derive(Deserialize)]
+struct NewWorkspace {
+    name: String,
+    #[serde(default)]
+    project_ids: Vec<String>,
+}
+
+async fn create_workspace(State(s): State<Server>, Json(b): Json<NewWorkspace>) -> ApiResult<Workspace> {
+    Ok(Json(workspace::create(&s.app, &b.name, b.project_ids).await.map_err(bad)?))
+}
+
+async fn patch_workspace(State(s): State<Server>, Path(id): Path<String>, Json(patch): Json<workspace::Patch>) -> ApiResult<Workspace> {
+    Ok(Json(workspace::update(&s.app, &id, patch).await.map_err(bad)?))
+}
+
+async fn delete_workspace(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
+    workspace::delete(&s.app, &id).await?;
+    Ok(Json(json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+struct OpenWindow {
+    workspace_id: Option<String>,
+}
+
+/// Opens another desktop window. The UI falls back to a browser tab when this fails.
+async fn open_window(State(s): State<Server>, Json(b): Json<OpenWindow>) -> ApiResult<Value> {
+    workspace::open_window(&s.app, b.workspace_id.as_deref()).map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
 }
 
 async fn discover(State(s): State<Server>) -> ApiResult<Vec<Discovered>> {
@@ -126,12 +173,17 @@ async fn preview(State(s): State<Server>, Json(spec): Json<LaunchSpec>) -> ApiRe
     Ok(Json(s.app.sessions.preview(&s.app, &spec).await?))
 }
 
-async fn get_draft(State(s): State<Server>) -> ApiResult<Value> {
-    Ok(Json(launchpad_core::drafts::get(&s.app).await?))
+#[derive(Deserialize)]
+struct DraftQuery {
+    workspace: Option<String>,
 }
 
-async fn put_draft(State(s): State<Server>, Json(draft): Json<Value>) -> ApiResult<Value> {
-    launchpad_core::drafts::put(&s.app, &draft).await?;
+async fn get_draft(State(s): State<Server>, Query(q): Query<DraftQuery>) -> ApiResult<Value> {
+    Ok(Json(launchpad_core::drafts::get(&s.app, q.workspace.as_deref()).await?))
+}
+
+async fn put_draft(State(s): State<Server>, Query(q): Query<DraftQuery>, Json(draft): Json<Value>) -> ApiResult<Value> {
+    launchpad_core::drafts::put(&s.app, q.workspace.as_deref(), &draft).await?;
     Ok(Json(json!({"ok": true})))
 }
 
@@ -471,13 +523,13 @@ struct ImportSession { harness: HarnessKind, id: String }
 async fn import_session(State(s): State<Server>, Json(b): Json<ImportSession>) -> ApiResult<Session> {
     Ok(Json(launchpad_core::history::import(&s.app,b.harness,&b.id).await.map_err(bad)?))
 }
-async fn session_git(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<launchpad_core::workspace::GitStatus> {
-    Ok(Json(launchpad_core::workspace::status(&s.app,&id).await.map_err(bad)?))
+async fn session_git(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<launchpad_core::session_git::GitStatus> {
+    Ok(Json(launchpad_core::session_git::status(&s.app,&id).await.map_err(bad)?))
 }
 #[derive(Deserialize)]
 struct GitDiffQuery { path: String }
-async fn session_git_diff(State(s): State<Server>, Path(id): Path<String>, Query(q): Query<GitDiffQuery>) -> ApiResult<launchpad_core::workspace::GitDiff> {
-    Ok(Json(launchpad_core::workspace::diff(&s.app,&id,&q.path).await.map_err(bad)?))
+async fn session_git_diff(State(s): State<Server>, Path(id): Path<String>, Query(q): Query<GitDiffQuery>) -> ApiResult<launchpad_core::session_git::GitDiff> {
+    Ok(Json(launchpad_core::session_git::diff(&s.app,&id,&q.path).await.map_err(bad)?))
 }
 #[derive(Deserialize)]
 struct SessionSearch { q: String }
