@@ -426,9 +426,9 @@ async fn inbox_restore(State(s): State<Server>, Json(b): Json<InboxRestore>) -> 
 use launchpad_core::schedules::{self, LaunchDelay, ScheduledLaunch};
 
 #[derive(Deserialize)]
-struct ScheduleRequest { spec: LaunchSpec, delay: LaunchDelay }
+struct ScheduleRequest { spec: LaunchSpec, conditions: Vec<LaunchDelay> }
 async fn schedules(State(s): State<Server>) -> ApiResult<Vec<ScheduledLaunch>> { Ok(Json(schedules::list(&s.app).await?)) }
-async fn schedule(State(s): State<Server>, Json(b): Json<ScheduleRequest>) -> ApiResult<ScheduledLaunch> { Ok(Json(schedules::create(&s.app, b.spec, b.delay).await.map_err(bad)?)) }
+async fn schedule(State(s): State<Server>, Json(b): Json<ScheduleRequest>) -> ApiResult<ScheduledLaunch> { Ok(Json(schedules::create(&s.app, b.spec, b.conditions).await.map_err(bad)?)) }
 async fn cancel_schedule(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
     schedules::cancel(&s.app, &id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))

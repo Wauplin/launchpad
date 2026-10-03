@@ -35,8 +35,9 @@ export type LaunchContext = {
 type Composer = {
   open: boolean;
   spec: LaunchSpec;
-  delay: LaunchDelay | null;
-  setDelay: (delay: LaunchDelay | null) => void;
+  /** Start conditions; empty means launch now. */
+  conditions: LaunchDelay[];
+  setConditions: (conditions: LaunchDelay[]) => void;
   openAfterLaunch: boolean;
   loaded: boolean;
   start: (ctx?: LaunchContext) => void;
@@ -49,9 +50,9 @@ type Composer = {
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
-function save(spec: LaunchSpec, open: boolean, delay: LaunchDelay | null) {
+function save(spec: LaunchSpec, open: boolean, conditions: LaunchDelay[]) {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => void api.put("/api/launch/draft", { spec, open, delay }).catch(() => {}), 400);
+  saveTimer = setTimeout(() => void api.put("/api/launch/draft", { spec, open, conditions }).catch(() => {}), 400);
 }
 
 let lastLaunchAt = 0;
@@ -68,8 +69,8 @@ let lastLaunch: Pick<LaunchSpec, "harness" | "model" | "effort"> = { harness: "c
 export const useComposer = create<Composer>((set, get) => ({
   open: false,
   spec: emptySpec(),
-  delay: null,
-  setDelay: (delay) => { set({ delay }); save(get().spec, get().open, delay); },
+  conditions: [],
+  setConditions: (conditions) => { set({ conditions }); save(get().spec, get().open, conditions); },
   openAfterLaunch: false,
   loaded: false,
   rememberLaunch: (spec) => { lastLaunch = { harness: spec.harness, model: spec.model, effort: spec.effort }; },
@@ -83,21 +84,21 @@ export const useComposer = create<Composer>((set, get) => ({
     for (const c of ctx?.contextProjects ?? [])
       if (!spec.context_projects.some((p) => p.project_id === c.project_id)) spec.context_projects = [...spec.context_projects, c];
     set({ open: true, spec });
-    save(spec, true, get().delay);
+    save(spec, true, get().conditions);
   },
   update: (f) => {
     const spec = f(get().spec);
     set({ spec });
-    save(spec, get().open, get().delay);
+    save(spec, get().open, get().conditions);
   },
   close: () => {
     set({ open: false });
-    save(get().spec, false, get().delay);
+    save(get().spec, false, get().conditions);
   },
   discard: () => {
     const spec = { ...emptySpec(), harness: get().spec.harness };
-    set({ spec, open: false, delay: null });
-    save(spec, false, null);
+    set({ spec, open: false, conditions: [] });
+    save(spec, false, []);
   },
   setOpenAfterLaunch: (v) => set({ openAfterLaunch: v }),
   restore: async () => {
@@ -105,8 +106,8 @@ export const useComposer = create<Composer>((set, get) => ({
       const sessions = await api.get<Session[]>("/api/sessions");
       const latest = sessions.filter((s) => s.launch_spec.harness && s.last_seq > 0 && s.status !== "error").sort((a, b) => b.started_at - a.started_at)[0];
       if (latest) rememberSuccessfulSession(latest);
-      const d = await api.get<{ spec?: LaunchSpec; open?: boolean; delay?: LaunchDelay | null } | null>("/api/launch/draft");
-      if (d?.spec) set({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, delay: d.delay ?? null });
+      const d = await api.get<{ spec?: LaunchSpec; open?: boolean; conditions?: LaunchDelay[]; delay?: LaunchDelay | null } | null>("/api/launch/draft");
+      if (d?.spec) set({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, conditions: d.conditions ?? (d.delay ? [d.delay] : []) });
     } finally {
       set({ loaded: true });
     }

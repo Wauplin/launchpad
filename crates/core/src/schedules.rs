@@ -47,10 +47,11 @@ pub enum ScheduleStatus {
 pub struct ScheduledLaunch {
     pub id: String,
     pub spec: LaunchSpec,
-    pub delay: LaunchDelay,
+    /// All conditions must be met before the launch starts.
+    pub conditions: Vec<LaunchDelay>,
     pub title: String,
     pub created_at: i64,
-    /// Time and quota delays resolve once, at scheduling time (Unix milliseconds).
+    /// Latest time or quota condition, resolved once at scheduling time (Unix milliseconds).
     pub ready_at: Option<i64>,
     pub status: ScheduleStatus,
     pub error: Option<String>,
@@ -64,7 +65,14 @@ pub async fn list(app: &App) -> Result<Vec<ScheduledLaunch>> {
                 .query_map([], |r| r.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             rows.into_iter()
-                .map(|s| Ok(serde_json::from_str(&s)?))
+                .map(|s| {
+                    let mut v: serde_json::Value = serde_json::from_str(&s)?;
+                    // Records written before multiple conditions stored a single `delay`.
+                    if let Some(delay) = v.as_object_mut().and_then(|o| o.remove("delay")) {
+                        v["conditions"] = serde_json::json!([delay]);
+                    }
+                    Ok(serde_json::from_value(v)?)
+                })
                 .collect()
         })
         .await
@@ -75,7 +83,11 @@ fn changed(app: &App) {
         .publish("schedules", "changed", serde_json::Value::Null);
 }
 
-pub async fn create(app: &App, spec: LaunchSpec, delay: LaunchDelay) -> Result<ScheduledLaunch> {
+pub async fn create(
+    app: &App,
+    spec: LaunchSpec,
+    conditions: Vec<LaunchDelay>,
+) -> Result<ScheduledLaunch> {
     spec.harness.context("pick Claude Code or Codex")?;
     if spec.target == Target::None {
         bail!("pick a project or a temporary folder");
@@ -84,61 +96,68 @@ pub async fn create(app: &App, spec: LaunchSpec, delay: LaunchDelay) -> Result<S
     if preview.prompt.trim().is_empty() {
         bail!("the prompt is empty");
     }
+    if conditions.is_empty() {
+        bail!("pick at least one start condition");
+    }
     let now = now_ms();
-    let ready_at = match &delay {
-        LaunchDelay::In { minutes } => {
-            if *minutes == 0 || *minutes > 525_600 {
-                bail!("pick a delay from 1 minute to 1 year");
-            }
-            Some(now + i64::from(*minutes) * 60_000)
-        }
-        LaunchDelay::At { at } => {
-            if *at <= now || *at > now + 366 * 86_400_000 {
-                bail!("pick a future date within the next year");
-            }
-            Some(*at)
-        }
-        LaunchDelay::Agents { session_ids } => {
-            if session_ids.is_empty() {
-                bail!("pick at least one agent");
-            }
-            // Scheduled ids become session ids at launch, so dependencies need no rewriting.
-            let scheduled = list(app).await?;
-            for id in session_ids {
-                if app.sessions.get(id).is_none() && !scheduled.iter().any(|s| &s.id == id) {
-                    bail!("a selected agent no longer exists");
+    let scheduled = list(app).await?;
+    let mut ready_at = None;
+    for delay in &conditions {
+        let at = match delay {
+            LaunchDelay::In { minutes } => {
+                if *minutes == 0 || *minutes > 525_600 {
+                    bail!("pick a delay from 1 minute to 1 year");
                 }
+                Some(now + i64::from(*minutes) * 60_000)
             }
-            None
-        }
-        LaunchDelay::Quota { harness, window } => {
-            let status = app.status.get();
-            let h = match harness {
-                HarnessKind::Claude => status.claude,
-                HarnessKind::Codex => status.codex,
-            };
-            if h.quota_error.is_some() || h.quota_at.is_none_or(|at| now - at > 15 * 60_000) {
-                bail!("quota reset is unavailable; wait for a fresh quota reading");
+            LaunchDelay::At { at } => {
+                if *at <= now || *at > now + 366 * 86_400_000 {
+                    bail!("pick a future date within the next year");
+                }
+                Some(*at)
             }
-            let q = match window {
-                QuotaKind::FiveHour => h.five_hour,
-                QuotaKind::Weekly => h.weekly,
+            LaunchDelay::Agents { session_ids } => {
+                if session_ids.is_empty() {
+                    bail!("pick at least one agent");
+                }
+                // Scheduled ids become session ids at launch, so dependencies need no rewriting.
+                for id in session_ids {
+                    if app.sessions.get(id).is_none() && !scheduled.iter().any(|s| &s.id == id) {
+                        bail!("a selected agent no longer exists");
+                    }
+                }
+                None
             }
-            .context("quota reset is unknown")?;
-            let at = q
-                .resets_at
-                .checked_mul(1000)
-                .context("invalid quota reset")?;
-            if at <= now {
-                bail!("wait for the next quota reading before scheduling its reset");
+            LaunchDelay::Quota { harness, window } => {
+                let status = app.status.get();
+                let h = match harness {
+                    HarnessKind::Claude => status.claude,
+                    HarnessKind::Codex => status.codex,
+                };
+                if h.quota_error.is_some() || h.quota_at.is_none_or(|at| now - at > 15 * 60_000) {
+                    bail!("quota reset is unavailable; wait for a fresh quota reading");
+                }
+                let q = match window {
+                    QuotaKind::FiveHour => h.five_hour,
+                    QuotaKind::Weekly => h.weekly,
+                }
+                .context("quota reset is unknown")?;
+                let at = q
+                    .resets_at
+                    .checked_mul(1000)
+                    .context("invalid quota reset")?;
+                if at <= now {
+                    bail!("wait for the next quota reading before scheduling its reset");
+                }
+                Some(at)
             }
-            Some(at)
-        }
-    };
+        };
+        ready_at = ready_at.max(at);
+    }
     let launch = ScheduledLaunch {
         id: uuid::Uuid::new_v4().to_string(),
         spec,
-        delay,
+        conditions,
         title: preview.title,
         created_at: now,
         ready_at,
@@ -279,12 +298,14 @@ fn ready(record: &ScheduledLaunch, now: i64, done: impl Fn(&str) -> bool) -> boo
     if record.status != ScheduleStatus::Queued {
         return false;
     }
-    match &record.delay {
-        LaunchDelay::Agents { session_ids } => {
-            !session_ids.is_empty() && session_ids.iter().all(|id| done(id))
-        }
-        _ => record.ready_at.is_some_and(|at| at <= now),
-    }
+    !record.conditions.is_empty()
+        && record.ready_at.is_none_or(|at| at <= now)
+        && record.conditions.iter().all(|c| match c {
+            LaunchDelay::Agents { session_ids } => {
+                !session_ids.is_empty() && session_ids.iter().all(|id| done(id))
+            }
+            _ => true,
+        })
 }
 
 pub async fn recover(app: &App) -> Result<()> {
@@ -342,13 +363,13 @@ pub fn spawn(app: &App) {
 mod tests {
     use super::*;
     #[test]
-    fn readiness_requires_all_agents_done_and_a_queued_record() {
+    fn readiness_requires_every_condition_and_a_queued_record() {
         let mut r = ScheduledLaunch {
             id: "q".into(),
             spec: LaunchSpec::default(),
-            delay: LaunchDelay::Agents {
+            conditions: vec![LaunchDelay::Agents {
                 session_ids: vec!["a".into(), "b".into()],
-            },
+            }],
             title: String::new(),
             created_at: 0,
             ready_at: None,
@@ -360,18 +381,26 @@ mod tests {
         r.status = ScheduleStatus::Starting;
         assert!(!ready(&r, 100, |_| true));
         r.status = ScheduleStatus::Queued;
-        r.delay = LaunchDelay::Agents {
+        r.conditions = vec![LaunchDelay::Agents {
             session_ids: vec![],
-        };
+        }];
         assert!(!ready(&r, 100, |_| true));
-        r.delay = LaunchDelay::Quota {
+        r.conditions = vec![];
+        assert!(!ready(&r, 100, |_| true));
+        r.conditions = vec![LaunchDelay::Quota {
             harness: HarnessKind::Codex,
             window: QuotaKind::FiveHour,
-        };
-        assert!(!ready(&r, 100, |_| true));
+        }];
         r.ready_at = Some(101);
         assert!(!ready(&r, 100, |_| true));
         assert!(ready(&r, 101, |_| false));
+        // Combined conditions: the reset time and the agent must both be satisfied.
+        r.conditions.push(LaunchDelay::Agents {
+            session_ids: vec!["a".into()],
+        });
+        assert!(!ready(&r, 101, |_| false));
+        assert!(!ready(&r, 100, |_| true));
+        assert!(ready(&r, 101, |id| id == "a"));
         r.status = ScheduleStatus::Failed;
         assert!(!ready(&r, 102, |_| true));
     }

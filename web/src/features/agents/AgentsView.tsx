@@ -8,7 +8,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useRef, useState } from "react";
 import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
-import { delaySummary } from "@/features/launch/DelaySelector";
+import { conditionsSummary } from "@/features/launch/DelaySelector";
 import { ScheduledPane, useSchedules } from "./ScheduledPane";
 import type { Session } from "@/gen/Session";
 import { HarnessMark } from "@/components/HarnessMark";
@@ -189,7 +189,7 @@ export function AgentsView() {
           {virtual.getVirtualItems().map((v) => {
             const item = items[v.index];
             return <div key={v.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: v.size, transform: `translateY(${v.start}px)` }}>
-              {item.kind === "session" ? row(item.session) : item.kind === "schedule" ? <button onClick={() => setScheduledId(item.launch.id)} className={`grid h-[68px] w-full gap-1 border-b border-line px-3 py-2 text-left hover:bg-chrome ${scheduledId === item.launch.id ? "bg-select" : ""}`}><span className="truncate text-xs font-semibold">{item.launch.title}</span><span className="truncate text-[11px] text-ink-3" title={delaySummary(item.launch.delay, item.launch.ready_at, sessions, schedules)}>{item.launch.status === "failed" ? "Needs attention · " : item.launch.status === "starting" ? "Starting · " : ""}{delaySummary(item.launch.delay, item.launch.ready_at, sessions, schedules)}</span></button> : item.kind === "group" ? <Group title={item.title} count={item.count} highlight={item.highlight} collapsed={!!collapsedGroups[item.title]} onToggle={() => toggleGroup(item.title)} /> :
+              {item.kind === "session" ? row(item.session) : item.kind === "schedule" ? <button onClick={() => setScheduledId(item.launch.id)} className={`grid h-[68px] w-full gap-1 border-b border-line px-3 py-2 text-left hover:bg-chrome ${scheduledId === item.launch.id ? "bg-select" : ""}`}><span className="truncate text-xs font-semibold">{item.launch.title}</span><span className="truncate text-[11px] text-ink-3" title={conditionsSummary(item.launch, sessions, schedules)}>{item.launch.status === "failed" ? "Needs attention · " : item.launch.status === "starting" ? "Starting · " : ""}{conditionsSummary(item.launch, sessions, schedules)}</span></button> : item.kind === "group" ? <Group title={item.title} count={item.count} highlight={item.highlight} collapsed={!!collapsedGroups[item.title]} onToggle={() => toggleGroup(item.title)} /> :
                 <button className="px-3 py-2 text-left text-xs text-teal-ink hover:underline" onClick={() => setArchivedLimit((n) => n + 50)}>Show more</button>}
             </div>;
           })}

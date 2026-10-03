@@ -3,8 +3,12 @@ import type { LaunchDelay } from "./LaunchDelay";
 import type { LaunchSpec } from "./LaunchSpec";
 import type { ScheduleStatus } from "./ScheduleStatus";
 
-export type ScheduledLaunch = { id: string, spec: LaunchSpec, delay: LaunchDelay, title: string, created_at: number, 
+export type ScheduledLaunch = { id: string, spec: LaunchSpec, 
 /**
- * Time and quota delays resolve once, at scheduling time (Unix milliseconds).
+ * All conditions must be met before the launch starts.
+ */
+conditions: Array<LaunchDelay>, title: string, created_at: number, 
+/**
+ * Latest time or quota condition, resolved once at scheduling time (Unix milliseconds).
  */
 ready_at: number | null, status: ScheduleStatus, error: string | null, };
