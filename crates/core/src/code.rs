@@ -375,7 +375,7 @@ fn walk(root: &Path) -> Vec<String> {
         if entry.file_type().is_some_and(|t| t.is_file())
             && let Ok(rel) = entry.path().strip_prefix(root)
         {
-            out.push(rel.to_string_lossy().into_owned());
+            out.push(rel.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"));
             if out.len() >= 200_000 {
                 break;
             }
