@@ -61,7 +61,7 @@ fn tui_command(app: &App, s: &Session, is_temp: bool) -> Result<Vec<String>> {
             "-c".into(),
             "check_for_update_on_startup=false".into(),
             "-c".into(),
-            format!("projects.\"{}\".trust_level=\"trusted\"", s.cwd),
+            project_trust_override(&s.cwd),
         ],
     })
     .map(|mut c: Vec<String>| {
@@ -155,4 +155,20 @@ pub fn tui_running(_app: &App, s: &Session) -> bool {
     }
     #[cfg(target_os = "linux")]
     { false }
+}
+
+/// JSON quoting also escapes TOML basic-string keys, including Windows backslashes.
+fn project_trust_override(cwd: &str) -> String {
+    format!("projects.{}.trust_level=\"trusted\"", serde_json::to_string(cwd).expect("serialize a path string"))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn project_trust_keys_preserve_paths() {
+        for cwd in [r"C:\Users\O'Brien\projects\launchpad", r#"/home/user/a "quoted" folder"#] {
+            let config: toml::Value = toml::from_str(&super::project_trust_override(cwd)).unwrap();
+            assert_eq!(config["projects"][cwd]["trust_level"].as_str(), Some("trusted"));
+        }
+    }
 }
