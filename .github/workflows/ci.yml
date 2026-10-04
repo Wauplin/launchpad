@@ -25,6 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install desktop system dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
@@ -50,8 +51,12 @@ jobs:
         run: pnpm typecheck
 
   tests:
-    name: Tests
-    runs-on: ubuntu-24.04
+    name: Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -65,12 +70,25 @@ jobs:
         run: cargo test --locked
 
   build:
-    name: Build artifacts
-    runs-on: ubuntu-24.04
+    name: Build artifacts (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+          - os: macos-15
+            platform: macos-aarch64
+          - os: macos-15-intel
+            platform: macos-x86_64
+          - os: windows-2025
+            platform: windows-x86_64
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - name: Install desktop system dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
@@ -91,15 +109,27 @@ jobs:
           pnpm build
       - name: Build release binaries
         run: cargo build --release --locked -p launchpad -p launchpad-desktop
-      - name: Package binaries and UI (preserve executable permissions)
+      - name: Run release tests
+        run: cargo test --release --locked
+      - name: Smoke-test release CLI
+        shell: bash
+        run: target/release/launchpad --help
+      - name: Package release
+        shell: bash
         run: |
-          mkdir -p artifacts/bin artifacts/web
-          install -m755 target/release/launchpad target/release/launchpad-desktop artifacts/bin/
+          mkdir -p artifacts/target/release artifacts/web artifacts/desktop/src-tauri
+          cp target/release/launchpad${{ runner.os == 'Windows' && '.exe' || '' }} target/release/launchpad-desktop${{ runner.os == 'Windows' && '.exe' || '' }} artifacts/target/release/
+          cp -r packaging skills artifacts/
+          cp -r desktop/src-tauri/icons artifacts/desktop/src-tauri/
           cp -r web/dist artifacts/web/
-          tar -czf launchpad-linux-x86_64.tar.gz -C artifacts .
+          printf '%s\n' "$GITHUB_SHA" > artifacts/COMMIT
+          tar -czf launchpad-${{ matrix.platform }}.tar.gz -C artifacts .
+          if command -v sha256sum >/dev/null; then sha256sum launchpad-${{ matrix.platform }}.tar.gz; else shasum -a 256 launchpad-${{ matrix.platform }}.tar.gz; fi > launchpad-${{ matrix.platform }}.tar.gz.sha256
       - uses: actions/upload-artifact@v7
         with:
-          name: launchpad-linux-x86_64
-          path: launchpad-linux-x86_64.tar.gz
+          name: launchpad-${{ matrix.platform }}
+          path: |
+            launchpad-${{ matrix.platform }}.tar.gz
+            launchpad-${{ matrix.platform }}.tar.gz.sha256
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90

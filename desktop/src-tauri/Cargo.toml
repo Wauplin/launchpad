@@ -9,6 +9,7 @@ name = "launchpad-desktop"
 path = "src/main.rs"
 
 [dependencies]
+dirs = "7.0.0"
 libc = "0.2.189"
 tauri = "2.12.0"
 tauri-plugin-single-instance = "2.5.0"

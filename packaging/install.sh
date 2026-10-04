@@ -7,6 +7,7 @@
 #
 # Usage: packaging/install.sh [--force] [--prebuilt] [--show]
 set -euo pipefail
+if [ "$(uname -s)" = Darwin ]; then exec bash "$(dirname "$0")/install-macos.sh" "$@"; fi
 
 cd "$(dirname "$0")/.."
 FORCE=0
@@ -72,6 +73,7 @@ fi
 
 # 3. Install. Copy then rename, so running binaries are replaced safely.
 mkdir -p "$BIN" "$APPS" "$UNITS" "$AUTOSTART"
+cp -r skills "$BIN/"
 # The running shell (if any) keeps the old binary: stop it, it is started again below.
 if pgrep -x launchpad-deskt >/dev/null 2>&1; then
   "$BIN/launchpad-desktop" --quit >/dev/null 2>&1 || true

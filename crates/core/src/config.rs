@@ -85,14 +85,14 @@ impl Default for Config {
 
 impl Default for Commands {
     fn default() -> Self {
-        Commands { editor: "code".into(), browser: "xdg-open".into() }
+        Commands { editor: "code".into(), browser: if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer.exe" } else { "xdg-open" }.into() }
     }
 }
 
 impl Default for Terminal {
     fn default() -> Self {
         Terminal {
-            app: "terminator".into(),
+            app: if cfg!(target_os = "macos") { "terminal" } else if cfg!(windows) { "windows-terminal" } else { "terminator" }.into(),
             custom: vec!["kitty".into(), "--directory".into(), "{cwd}".into(), "{command}".into()],
         }
     }
@@ -161,7 +161,7 @@ impl ConfigHandle {
     pub fn load(paths: &Paths, bus: Bus) -> Result<ConfigHandle> {
         let path = paths.config_file();
         if !path.exists() {
-            std::fs::write(&path, DEFAULT_CONFIG).with_context(|| format!("write {}", path.display()))?;
+            std::fs::write(&path, DEFAULT_CONFIG.replace(r#"browser = "xdg-open""#, &format!("browser = {:?}", Commands::default().browser)).replace(r#"app = "terminator""#, &format!("app = {:?}", Terminal::default().app))).with_context(|| format!("write {}", path.display()))?;
         }
         let (config, error) = match read(&path) {
             Ok(c) => (c, None),

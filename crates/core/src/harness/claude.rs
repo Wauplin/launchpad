@@ -185,8 +185,13 @@ impl LiveSession for ClaudeSession {
         if let Some(pid) = self.child_pid {
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                #[cfg(unix)]
                 unsafe {
                     libc::kill(pid as i32, libc::SIGTERM);
+                }
+                #[cfg(windows)]
+                {
+                    let _ = tokio::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status().await;
                 }
             });
         }

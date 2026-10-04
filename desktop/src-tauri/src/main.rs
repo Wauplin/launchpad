@@ -33,7 +33,7 @@ struct Profile {
 impl Profile {
     fn from_env() -> Profile {
         let dev = std::env::var("LAUNCHPAD_PROFILE").as_deref() == Ok("dev");
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let home = dirs::home_dir().unwrap_or_default();
         Profile {
             dev,
             port: if dev { 7318 } else { 7317 },
@@ -77,7 +77,7 @@ fn wait_healthy(port: u16, timeout: Duration) -> bool {
 
 /// Starts the daemon: through systemd for prod, as a detached process otherwise.
 fn start_daemon(p: &Profile) -> Result<(), String> {
-    if !p.dev {
+    if !p.dev && cfg!(target_os = "linux") {
         let ok = std::process::Command::new("systemctl")
             .args(["--user", "start", "launchpad.service"])
             .status()
@@ -89,12 +89,13 @@ fn start_daemon(p: &Profile) -> Result<(), String> {
     }
     let exe = std::env::current_exe()
         .ok()
-        .and_then(|e| e.parent().map(|d| d.join("launchpad")))
+        .and_then(|e| e.parent().map(|d| d.join(format!("launchpad{}", std::env::consts::EXE_SUFFIX))))
         .filter(|p| p.exists())
         .unwrap_or_else(|| PathBuf::from("launchpad"));
     let mut cmd = std::process::Command::new(&exe);
     cmd.arg("daemon").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     // A new session, so the daemon outlives the window.
+    #[cfg(unix)]
     unsafe {
         use std::os::unix::process::CommandExt;
         cmd.pre_exec(|| {
@@ -199,7 +200,12 @@ fn build_window(app: &tauri::AppHandle, profile: &Profile, label: &str, url: Web
             let internal = url.as_str().starts_with(&origin) || url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost");
             if !internal && matches!(url.scheme(), "http" | "https" | "mailto") {
                 // Links to GitHub and elsewhere open in the browser, never inside the app window.
-                let _ = std::process::Command::new("xdg-open").arg(url.as_str()).spawn();
+                let mut cmd = if cfg!(target_os = "windows") {
+                    let mut cmd = std::process::Command::new("rundll32.exe");
+                    cmd.arg("url.dll,FileProtocolHandler");
+                    cmd
+                } else { std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" }) };
+                let _ = cmd.arg(url.as_str()).spawn();
             }
             internal
         })

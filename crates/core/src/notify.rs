@@ -23,7 +23,7 @@ pub fn session_done(app: &App, s: &Session) {
     };
     let body = s.title.clone();
     let route = format!("/agents?session={}", s.id);
-    let desktop = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("launchpad-desktop"))).filter(|p| p.exists());
+    let desktop = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(format!("launchpad-desktop{}", std::env::consts::EXE_SUFFIX)))).filter(|p| p.exists());
     let env = app.env.clone();
     let profile = app.paths.profile;
     std::thread::spawn(move || {

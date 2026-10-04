@@ -122,7 +122,7 @@ pub async fn forget_project(app: &App, project_id: &str) -> Result<()> {
 pub fn open_window(app: &App, id: Option<&str>) -> Result<()> {
     let exe = std::env::current_exe()
         .ok()
-        .and_then(|e| e.parent().map(|d| d.join("launchpad-desktop")))
+        .and_then(|e| e.parent().map(|d| d.join(format!("launchpad-desktop{}", std::env::consts::EXE_SUFFIX))))
         .filter(|p| p.exists())
         .or_else(|| app.env.which("launchpad-desktop"))
         .context("launchpad-desktop is not installed")?;
@@ -135,6 +135,7 @@ pub fn open_window(app: &App, id: Option<&str>) -> Result<()> {
     // The window must outlive the request and, for dev windows, the daemon.
     cmd.kill_on_drop(false);
     // SAFETY: setsid is async-signal-safe.
+    #[cfg(unix)]
     unsafe {
         cmd.pre_exec(|| {
             libc::setsid();

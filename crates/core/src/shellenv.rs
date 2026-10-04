@@ -6,8 +6,10 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+#[cfg(unix)]
 use std::time::Duration;
 
+#[cfg(unix)]
 const START: &str = "__LAUNCHPAD_ENV_START__";
 
 #[derive(Clone)]
@@ -44,11 +46,19 @@ impl UserEnv {
 
     /// Absolute path of a program, searched in the user `PATH`.
     pub fn which(&self, program: &str) -> Option<std::path::PathBuf> {
-        if program.contains('/') {
+        if program.contains('/') || program.contains('\\') {
             return Some(program.into());
         }
-        let path = self.get("PATH")?;
-        std::env::split_paths(path).map(|d| d.join(program)).find(|p| is_executable(p))
+        let path = self.get("PATH").or_else(|| self.get("Path"))?;
+        #[cfg(unix)]
+        let names = [program.to_string()];
+        #[cfg(windows)]
+        let mut names = vec![program.to_string()];
+        #[cfg(windows)]
+        if std::path::Path::new(program).extension().is_none() {
+            names.extend(self.get("PATHEXT").unwrap_or(".EXE;.CMD;.BAT").split(';').map(|ext| format!("{program}{ext}")));
+        }
+        std::env::split_paths(path).flat_map(|d| names.iter().map(move |name| d.join(name))).find(|p| is_executable(p))
     }
 }
 
@@ -63,10 +73,16 @@ pub fn is_harness_marker(key: &str) -> bool {
 }
 
 fn is_executable(p: &std::path::Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(p).map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(p).map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+    }
+    #[cfg(windows)]
+    { p.is_file() }
 }
 
+#[cfg(unix)]
 async fn from_login_shell() -> anyhow::Result<BTreeMap<String, String>> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into());
     let script = format!("printf '%s' '{START}'; env -0");
@@ -91,4 +107,9 @@ async fn from_login_shell() -> anyhow::Result<BTreeMap<String, String>> {
         vars.remove(k);
     }
     Ok(vars)
+}
+
+#[cfg(windows)]
+async fn from_login_shell() -> anyhow::Result<BTreeMap<String, String>> {
+    Ok(std::env::vars().collect())
 }

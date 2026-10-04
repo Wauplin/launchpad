@@ -52,10 +52,14 @@ pub async fn serve(app: App) -> Result<()> {
 
 async fn shutdown_signal() {
     let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("signal handler");
+    #[cfg(unix)]
     tokio::select! {
         _ = ctrl_c => {},
         _ = term.recv() => {},
     }
+    #[cfg(not(unix))]
+    let _ = ctrl_c.await;
     tracing::info!("shutting down");
 }

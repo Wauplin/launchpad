@@ -22,8 +22,10 @@ pub fn command(env: &UserEnv, program: &str, cwd: Option<&Path>) -> Command {
 
 /// Like [`command`], and the child gets SIGTERM when the daemon exits.
 pub fn child_command(env: &UserEnv, program: &str, cwd: Option<&Path>) -> Command {
+    #[allow(unused_mut)]
     let mut cmd = command(env, program, cwd);
     // SAFETY: prctl is async-signal-safe and only affects the child.
+    #[cfg(target_os = "linux")]
     unsafe {
         cmd.pre_exec(|| {
             libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);

@@ -152,7 +152,7 @@ export function SettingsView() {
           <Row title="Editor" hint='Used by "Open in editor".'>
             <input className="field-input font-mono text-xs" value={draft.commands.editor} onChange={(e) => set((c) => ({ ...c, commands: { ...c.commands, editor: e.target.value } }))} />
           </Row>
-          <Row title="App update" hint="Install the latest code from this checkout.">
+          <Row title="App update" hint="Install the GitHub build for the latest main commit.">
             <UpdateControl />
           </Row>
         </Card>

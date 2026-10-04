@@ -4,7 +4,7 @@ Status: Phase 0 done; Phases 1, 2, 2b, 3, 4, 5 and 6 built and awaiting their da
 
 ## 1. What Launchpad is
 
-Launchpad is a desktop app for Ubuntu, launched from the dock, that combines two things:
+Launchpad is a desktop app for Linux (primary target), macOS and Windows, launched from the dock, that combines two things:
 
 - an **agent launcher and workspace** for Claude Code and Codex: start a session in the right folder with the right context in a few clicks, watch and drive several sessions side by side;
 - a **fast GitHub client** for the parts of GitHub used every day: notifications, issues, pull requests, reviews, merges. Everything is cached locally so moving between items never reloads a page.
@@ -13,7 +13,7 @@ On top of these, Launchpad adds **local-first objects** that GitHub does not hav
 
 A read-only **code viewer** connects both sides: it shows the files of a project, of an agent's worktree, of a branch or of a PR head, and turns selected lines into context for an agent (see [8.1](#81-code-viewer)).
 
-It is a single-user tool. Light theme only. Linux only. No versioning, no backward compatibility, no migration framework.
+It is a single-user tool. Light theme only. Linux is the primary target, with macOS and Windows support. No versioning, no backward compatibility, no migration framework.
 
 ### Design principles
 
@@ -88,7 +88,7 @@ It is a single-user tool. Light theme only. Linux only. No versioning, no backwa
 - `packaging/install.sh` installs a `.desktop` entry, which can be pinned to the dock. On Wayland, the window's app id is `launchpad-desktop` (the binary name), so the entry has `StartupWMClass=launchpad-desktop` and the dock groups the window with the pinned icon. No `.deb` bundle is built.
 - App identity: the sculpted launch icon uses an ivory folded arrow, mint core and coral exhaust on a teal rounded tile. `packaging/icons/source.png` is the unchanged raster master; `packaging/generate-icons.py` derives PNG sizes, lossless WebP, a 64px web export (browser favicon and top bar logo) and a self-contained SVG wrapper. Tauri, Ubuntu packaging and the in-app top bar share this artwork. `packaging/install-icons.sh` updates only the installed icon files and GTK icon cache, leaving processes running.
 - After a daemon restart with a new UI build, the open page reloads itself: the WebSocket `hello` message carries a build id, and the UI compares it with the one it started with.
-- Settings → General offers a production-only update button. The authenticated API starts `packaging/update.sh` as a transient `systemd-run --user` service, outside the daemon's cgroup. The script checks UI types and Rust tests, builds the UI and release binaries, then calls `install.sh --prebuilt` to replace both binaries and relaunch. Its stage and log live under `~/.local/share/launchpad/`, so a daemon restart does not lose progress. The build starts while agents run, waits for a clean committed main checkout, and reserves the idle daemon before installation. A session manager gate serializes that reservation with launches, messages, answers, resumes and terminal handoffs; new work is refused during installation and the reservation is released on failure. Updates use local main and do not fetch remote changes. The running commit is embedded at compile time; the bottom status bar compares it with local main every five seconds and offers Update when main contains newer commits. Build output is rejected if the checkout changes during compilation.
+- Settings → General offers a production-only update button. The daemon embeds and starts a platform update script outside its lifetime: a transient systemd service on Linux, detached Bash on macOS, detached PowerShell on Windows. Updates resolve `Wauplin/launchpad` GitHub `main`, require a successful trusted `ci.yml` run for that exact commit (push or manual dispatch), and download the matching native artifact with `gh run download`. SHA-256 and the `COMMIT` manifest are checked before installation. Missing, expired, failed or unfinished builds fail visibly without selecting an older commit or building locally. The existing idle reservation serializes installation with agent starts and input. Update stage/log persist under the data directory. The status bar compares the embedded running commit to GitHub main, cached for 60 seconds; network failures do not imply an available update.
 
 ### 4.3 Lifecycle consequences
 
@@ -789,3 +789,8 @@ Cron agents, on 2026-10-03:
 Workspaces, on 2026-10-04:
 
 47. **Workspaces are sets of projects, chosen per window.** A workspace stores only project ids; sessions, scheduled launches, crons and inbox threads are filtered through their project or repository, so there is no second ownership model to keep in sync. Launches carry the window's workspace id and add their project to it. The selection is per window (`sessionStorage`), and switching is instant in the same window; another workspace in parallel is one click on New window. Several windows share the one daemon, which keeps running all agents; prod windows live in the single warm shell process, dev windows are separate processes. The existing session Git module was renamed `session_git` so "workspace" only names this concept, and the Agents toolbar label became "Panes".
+
+Platform support and GitHub builds, on 2026-10-04:
+
+48. **Linux first, native macOS and Windows builds.** The owner expanded the supported platforms. Unix-only signal, executable permission and session APIs are gated; Linux keeps systemd and parent-death signals, macOS uses launchd and detached processes, Windows uses login shortcuts and a detached daemon. Defaults use each platform’s browser and terminal. Home-relative config/data locations remain the same. CI tests and builds natively on Ubuntu, both macOS architectures and Windows x86_64; unsigned archives include installation resources and the agent skill. This supersedes the Linux-only scope in decision 28. Native build/test success does not replace daily-use desktop and harness acceptance on the new systems.
+49. **Update from GitHub-built latest main.** Continuous CI artifacts supply updates until release cycles are introduced. The exact GitHub main commit must have a successful trusted workflow run and a retained platform artifact; there is no source-build or older-commit fallback. Downloads and checks precede the existing idle installation reservation. This supersedes the local checkout update source in decisions 27 and 33. Agent suggestions remain local and only owner clicks publish them.

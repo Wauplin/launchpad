@@ -2,13 +2,17 @@
 # Runs as a transient systemd user service so it survives the daemon restart.
 set -Eeuo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")"
 STATUS="$HOME/.local/share/launchpad/update-status"
 LOG="$HOME/.local/share/launchpad/update.log"
 mkdir -p "$(dirname "$STATUS")"
 # Only one updater may write progress or build at a time.
 exec 9>"$HOME/.local/share/launchpad/update.lock"
-flock -n 9 || exit 0
+if command -v flock >/dev/null; then
+  flock -n 9 || exit 0
+else
+  mkdir "$HOME/.local/share/launchpad/update.lockdir" 2>/dev/null || exit 0
+fi
 exec >"$LOG" 2>&1
 stage="Preparing"
 status() {
@@ -17,6 +21,7 @@ status() {
 }
 reserved=0
 cleanup() {
+  rmdir "$HOME/.local/share/launchpad/update.lockdir" 2>/dev/null || true
   if [ "$reserved" -eq 1 ]; then
     LAUNCHPAD_PROFILE=prod target/release/launchpad update-install-lock --release || true
   fi
@@ -26,48 +31,27 @@ trap 'exit 143' TERM
 trap 'exit 130' INT
 trap 'status failed "Check $LOG (failed at line $LINENO)."' ERR
 
-# Never build unsaved work or a feature branch. The update source is local main.
-stage="Waiting for committed main"
+# Resolve GitHub main and require a successful trusted CI run for that exact commit.
+# There is deliberately no fallback to a local build or an older successful commit.
+stage="Downloading GitHub build"
 status running "$stage"
-while [ "$(git branch --show-current)" != main ] || [ -n "$(git status --porcelain)" ]; do sleep 5; done
-revision=$(git rev-parse HEAD)
-
-# The daemon passes its resolved login-shell PATH, and nvm selects the pinned Node version.
-if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
-  set +u
-  . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
-  nvm use --silent "$(cat web/.nvmrc)" >/dev/null
-  set -u
-fi
-
-stage="Installing UI dependencies"
-status running "$stage"
-(cd web && pnpm install --frozen-lockfile --config.confirmModulesPurge=false)
-
-stage="Checking UI types"
-status running "$stage"
-(cd web && pnpm typecheck)
-
-stage="Running Rust tests"
-status running "$stage"
-cargo test
-
-stage="Building UI"
-status running "$stage"
-(cd web && pnpm build)
-
-stage="Building release binaries"
-status running "$stage"
-cargo build --release -p launchpad -p launchpad-desktop
-
-# Refuse a mixed build if the checkout changed while compiling.
-check_revision() {
-  if [ "$(git rev-parse HEAD)" != "$revision" ] || [ -n "$(git status --porcelain)" ]; then
-    status failed "The checkout changed during the update. Retry after main is committed."
-    exit 1
-  fi
-}
-check_revision
+repo=Wauplin/launchpad
+revision=$(gh api "repos/$repo/commits/main" --jq .sha)
+run=$(gh api "repos/$repo/actions/workflows/ci.yml/runs?branch=main&head_sha=$revision&status=success&per_page=100" --jq '.workflow_runs | map(select(.event == "push" or .event == "workflow_dispatch")) | first | .id // empty')
+[ -n "$run" ] || { status failed "GitHub CI has not passed for latest main ($revision). Retry when it finishes."; exit 1; }
+case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64) platform=linux-x86_64 ;;
+  Darwin-arm64) platform=macos-aarch64 ;;
+  Darwin-x86_64) platform=macos-x86_64 ;;
+  *) status failed "Unsupported platform."; exit 1 ;;
+esac
+work=$(mktemp -d)
+gh run download "$run" --repo "$repo" --name "launchpad-$platform" --dir "$work"
+(cd "$work" && if command -v sha256sum >/dev/null; then sha256sum -c "launchpad-$platform.tar.gz.sha256"; else shasum -a 256 -c "launchpad-$platform.tar.gz.sha256"; fi)
+mkdir "$work/release"
+tar -xzf "$work/launchpad-$platform.tar.gz" -C "$work/release"
+cd "$work/release"
+[ "$(cat COMMIT)" = "$revision" ] || { status failed "GitHub artifact commit mismatch."; exit 1; }
 
 stage="Waiting for agents to stop"
 status running "$stage"
@@ -82,8 +66,6 @@ while true; do
   fi
   sleep 2
 done
-
-check_revision
 
 stage="Installing and relaunching"
 status running "$stage"

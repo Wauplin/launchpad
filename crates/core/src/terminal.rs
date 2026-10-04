@@ -8,11 +8,17 @@ use crate::App;
 use crate::model::{HarnessKind, Session};
 
 /// Built-in terminals: argument lists where `{cwd}` is replaced and `{command}` expands to the command.
+#[cfg(target_os = "linux")]
 pub const TERMINALS: &[(&str, &str, &[&str])] = &[
     ("terminator", "Terminator", &["terminator", "--working-directory={cwd}", "-x", "{command}"]),
     ("ghostty", "Ghostty", &["ghostty", "--working-directory={cwd}", "-e", "{command}"]),
     ("gnome-terminal", "GNOME Terminal", &["gnome-terminal", "--working-directory={cwd}", "--", "{command}"]),
 ];
+
+#[cfg(target_os = "macos")]
+pub const TERMINALS: &[(&str, &str, &[&str])] = &[("terminal", "Terminal", &["open", "-a", "Terminal"])];
+#[cfg(windows)]
+pub const TERMINALS: &[(&str, &str, &[&str])] = &[("windows-terminal", "Windows Terminal", &["wt.exe", "-d", "{cwd}", "{command}"])];
 
 #[derive(Clone, Debug, Serialize, TS)]
 pub struct TerminalOption {
@@ -40,7 +46,7 @@ fn tui_command(app: &App, s: &Session, is_temp: bool) -> Result<Vec<String>> {
     Ok(match s.harness {
         HarnessKind::Claude => {
             let mut c = vec![];
-            if is_temp {
+            if is_temp && cfg!(unix) {
                 // Skips the trust dialog in folders Launchpad created (docs/spikes/5-claude-trust-prompt.md).
                 c.extend(["env".into(), "CLAUDE_CODE_SANDBOXED=1".into()]);
             }
@@ -75,6 +81,15 @@ pub async fn open(app: &App, s: &Session) -> Result<()> {
     };
     let command = tui_command(app, s, is_temp)?;
     let cfg = app.config.get().terminal;
+    #[cfg(target_os = "macos")]
+    if cfg.app == "terminal" {
+        let line = format!("cd {} && {}", shell_join(&[s.cwd.clone()]), shell_join(&command));
+        let script = format!(r#"tell application "Terminal" to do script {}"#, serde_json::to_string(&line)?);
+        let mut cmd = crate::procs::command(&app.env, "osascript", None);
+        cmd.args(["-e", &script]).kill_on_drop(false);
+        cmd.spawn()?;
+        return Ok(());
+    }
     let template: Vec<String> = if cfg.app == "custom" {
         cfg.custom.clone()
     } else {
@@ -96,6 +111,7 @@ pub async fn open(app: &App, s: &Session) -> Result<()> {
     cmd.args(&argv[1..]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     // The terminal must outlive the daemon.
     cmd.kill_on_drop(false);
+    #[cfg(unix)]
     unsafe {
         cmd.pre_exec(|| {
             libc::setsid();
@@ -116,7 +132,18 @@ fn shell_join(argv: &[String]) -> String {
 /// Whether a TUI process still runs this session (checked before re-attaching).
 pub fn tui_running(_app: &App, s: &Session) -> bool {
     let Some(id) = &s.harness_session_id else { return false };
+    #[cfg(not(target_os = "linux"))]
+    {
+        let output = if cfg!(windows) {
+            std::process::Command::new("powershell.exe").args(["-NoProfile", "-Command", "Get-CimInstance Win32_Process | Select-Object -ExpandProperty CommandLine"]).output()
+        } else {
+            std::process::Command::new("ps").args(["-axo", "command="]).output()
+        };
+        return output.map(|out| String::from_utf8_lossy(&out.stdout).lines().any(|line| line.contains(id) && (line.contains("--resume") || line.contains(" resume ")))).unwrap_or(true);
+    }
+    #[cfg(target_os = "linux")]
     let Ok(dir) = std::fs::read_dir("/proc") else { return false };
+    #[cfg(target_os = "linux")]
     for entry in dir.flatten() {
         let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else { continue };
         let args: Vec<&[u8]> = cmdline.split(|b| *b == 0).collect();
@@ -126,5 +153,6 @@ pub fn tui_running(_app: &App, s: &Session) -> bool {
             return true;
         }
     }
-    false
+    #[cfg(target_os = "linux")]
+    { false }
 }

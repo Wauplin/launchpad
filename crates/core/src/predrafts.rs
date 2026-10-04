@@ -53,7 +53,8 @@ pub struct Publish {
 }
 
 pub fn link_skill() -> Result<()> {
-    let source = Path::new(crate::SOURCE).join("skills/launchpad");
+    let installed = std::env::current_exe()?.parent().context("binary directory")?.join("skills/launchpad");
+    let source = if installed.exists() { installed } else { Path::new(crate::SOURCE).join("skills/launchpad") };
     if !source.exists() {
         return Ok(());
     }
@@ -71,7 +72,13 @@ pub fn link_skill() -> Result<()> {
         }
         std::fs::remove_file(&dest)?;
     }
+    #[cfg(unix)]
     std::os::unix::fs::symlink(source, dest)?;
+    #[cfg(windows)]
+    {
+        std::fs::create_dir_all(&dest)?;
+        std::fs::copy(source.join("SKILL.md"), dest.join("SKILL.md"))?;
+    }
     Ok(())
 }
 async fn git(app: &App, root: &str, args: &[&str]) -> Result<String> {
