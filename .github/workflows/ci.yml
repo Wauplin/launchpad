@@ -98,6 +98,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: build
+          cache-on-failure: true
       - uses: actions/setup-node@v7
         with:
           node-version-file: web/.nvmrc
@@ -107,13 +108,26 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
           pnpm build
+      - name: Check Unix installer syntax
+        if: runner.os != 'Windows'
+        run: bash -n packaging/install.sh packaging/install-macos.sh packaging/update.sh
+      - name: Check Windows installer syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($file in @('packaging/install.ps1', 'packaging/update.ps1')) {
+            $parseErrors = $null
+            $tokens = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+          }
       - name: Build release binaries
         run: cargo build --release --locked -p launchpad -p launchpad-desktop
       - name: Run release tests
         run: cargo test --release --locked
       - name: Smoke-test release CLI
         shell: bash
-        run: target/release/launchpad --help
+        run: target/release/launchpad${{ runner.os == 'Windows' && '.exe' || '' }} --help
       - name: Package release
         shell: bash
         run: |

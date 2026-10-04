@@ -16,6 +16,8 @@
 //! main window stays warm: other windows close for real. Dev processes are not single-instance, so each
 //! dev process has its own window.
 
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
@@ -93,6 +95,11 @@ fn start_daemon(p: &Profile) -> Result<(), String> {
         .filter(|p| p.exists())
         .unwrap_or_else(|| PathBuf::from("launchpad"));
     let mut cmd = std::process::Command::new(&exe);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x00000008 | 0x00000200); // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    }
     cmd.arg("daemon").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     // A new session, so the daemon outlives the window.
     #[cfg(unix)]
@@ -244,6 +251,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let route = open_route(&args).unwrap_or_else(|| "/".into());
 
+    let quit = has_flag(&args, "--quit");
     let hidden = has_flag(&args, "--hidden");
     let keep_warm = !profile.dev;
 
@@ -273,6 +281,7 @@ fn main() {
                 .build(),
         )
         .setup(move |app| {
+            if quit { app.handle().exit(0); return Ok(()); }
             let warm = healthy(profile.port);
             let first_url = match (warm, app_url(&profile, &route, t0)) {
                 (true, Ok(url)) => WebviewUrl::External(url),

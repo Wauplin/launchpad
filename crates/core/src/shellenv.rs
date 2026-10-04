@@ -84,7 +84,7 @@ fn is_executable(p: &std::path::Path) -> bool {
 
 #[cfg(unix)]
 async fn from_login_shell() -> anyhow::Result<BTreeMap<String, String>> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into());
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/bash" }.into());
     let script = format!("printf '%s' '{START}'; env -0");
     let mut cmd = tokio::process::Command::new(&shell);
     cmd.args(["-l", "-i", "-c", &script])

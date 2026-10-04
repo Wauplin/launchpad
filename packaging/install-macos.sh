@@ -36,9 +36,10 @@ EOF
   launchctl bootstrap "gui/$(id -u)" "$plist"
 done
 # Finder launcher, with the two executables still together in BIN.
-mkdir -p "$HOME/Applications/Launchpad.app/Contents/MacOS"
+mkdir -p "$HOME/Applications/Launchpad.app/Contents/MacOS" "$HOME/Applications/Launchpad.app/Contents/Resources"
+cp desktop/src-tauri/icons/icon.icns "$HOME/Applications/Launchpad.app/Contents/Resources/icon.icns"
 cat > "$HOME/Applications/Launchpad.app/Contents/Info.plist" <<'EOF'
-<plist version="1.0"><dict><key>CFBundleExecutable</key><string>Launchpad</string><key>CFBundleIdentifier</key><string>local.launchpad</string><key>CFBundleName</key><string>Launchpad</string><key>CFBundlePackageType</key><string>APPL</string></dict></plist>
+<plist version="1.0"><dict><key>CFBundleExecutable</key><string>Launchpad</string><key>CFBundleIdentifier</key><string>local.launchpad</string><key>CFBundleIconFile</key><string>icon.icns</string><key>CFBundleName</key><string>Launchpad</string><key>CFBundlePackageType</key><string>APPL</string></dict></plist>
 EOF
 printf '#!/bin/bash\nexec %q "$@"\n' "$BIN/launchpad-desktop" > "$HOME/Applications/Launchpad.app/Contents/MacOS/Launchpad"
 chmod 755 "$HOME/Applications/Launchpad.app/Contents/MacOS/Launchpad"

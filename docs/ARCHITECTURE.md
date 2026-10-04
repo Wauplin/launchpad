@@ -29,7 +29,7 @@ It is a single-user tool. Light theme only. Linux is the primary target, with ma
 
 | Topic | Decision | Why |
 |---|---|---|
-| Process model | A background daemon (`launchpad daemon`, systemd user service) plus a thin Tauri window | Agents keep running when the window is closed or the UI is rebuilt. The daemon is always warm, so the window opens instantly. The same server can later run on a remote machine. |
+| Process model | A background daemon (`launchpad daemon`, systemd on Linux, launchd on macOS, detached on Windows) plus a thin Tauri window | Agents keep running when the window is closed or the UI is rebuilt. The daemon is always warm, so the window opens instantly. The same server can later run on a remote machine. |
 | UI ↔ backend | HTTP + WebSocket on `127.0.0.1`. The Tauri window loads the UI from the daemon | One transport for desktop and future remote access. The frontend has no Tauri dependency and also runs in a normal browser. |
 | Agent integration | Structured protocols: `claude -p` with stream-json, `codex app-server` (JSON-RPC) | Launchpad renders the conversation itself: exact copy of messages, token and cost numbers, grid layouts, cards for questions. An "Open in terminal" button covers features that only exist in the TUI. |
 | Frontend | React + TypeScript + Vite, TanStack Query / Router / Virtual, Tailwind, Radix primitives | Largest ecosystem, and the stack that coding agents write best, which matters for a codebase you extend with agents. |
@@ -72,11 +72,11 @@ It is a single-user tool. Light theme only. Linux is the primary target, with ma
 ### 4.1 Daemon
 
 - One Rust binary, `launchpad`, with subcommands: `launchpad daemon` (the server) and agent-facing commands such as `launchpad pr …` and `launchpad suggest …`.
-- Runs as a systemd user unit `launchpad.service`: starts at login, restarts on crash, logs to journald (`journalctl --user -u launchpad -f`).
+- On Linux, runs as a systemd user unit `launchpad.service`: starts at login, restarts on crash, logs to journald (`journalctl --user -u launchpad -f`).
 - Owns everything stateful: SQLite, GitHub sync loops, agent processes, quota polling, desktop notifications (D-Bus through `notify-rust`), and opening URLs, editors and terminals.
 - Listens on `127.0.0.1:7317` only.
-- Resolves the environment of your login shell once at startup (`$SHELL -l -i -c 'env -0'`, about 0.5 s) and uses it for every process it starts. Under systemd the daemon only gets a minimal `PATH`, and agents must see the same tools as in a terminal (nvm, cargo, `~/.local/bin`). Variables left by a parent agent session (`CLAUDECODE`, `CLAUDE_CODE_*`, …) are removed.
-- Harness processes get `PR_SET_PDEATHSIG`, so they stop when the daemon stops, even outside systemd (dev profile).
+- On Unix, resolves the environment of your login shell once at startup (`$SHELL -l -i -c 'env -0'`, about 0.5 s) and uses it for every process it starts. Under systemd the daemon only gets a minimal `PATH`, and agents must see the same tools as in a terminal (nvm, cargo, `~/.local/bin`). Variables left by a parent agent session (`CLAUDECODE`, `CLAUDE_CODE_*`, …) are removed.
+- On Linux, harness processes get `PR_SET_PDEATHSIG`, so they stop when the daemon stops, even outside systemd (dev profile).
 
 ### 4.2 Desktop shell
 

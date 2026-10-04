@@ -3,15 +3,16 @@
 set -Eeuo pipefail
 
 cd "$(dirname "$0")"
-STATUS="$HOME/.local/share/launchpad/update-status"
-LOG="$HOME/.local/share/launchpad/update.log"
+DATA="${LAUNCHPAD_UPDATE_DATA_DIR:-$HOME/.local/share/launchpad}"
+STATUS="$DATA/update-status"
+LOG="$DATA/update.log"
 mkdir -p "$(dirname "$STATUS")"
 # Only one updater may write progress or build at a time.
-exec 9>"$HOME/.local/share/launchpad/update.lock"
+exec 9>"$DATA/update.lock"
 if command -v flock >/dev/null; then
   flock -n 9 || exit 0
 else
-  mkdir "$HOME/.local/share/launchpad/update.lockdir" 2>/dev/null || exit 0
+  mkdir "$DATA/update.lockdir" 2>/dev/null || exit 0
 fi
 exec >"$LOG" 2>&1
 stage="Preparing"
@@ -21,10 +22,11 @@ status() {
 }
 reserved=0
 cleanup() {
-  rmdir "$HOME/.local/share/launchpad/update.lockdir" 2>/dev/null || true
+  rmdir "$DATA/update.lockdir" 2>/dev/null || true
   if [ "$reserved" -eq 1 ]; then
     LAUNCHPAD_PROFILE=prod target/release/launchpad update-install-lock --release || true
   fi
+  if [ -n "${work:-}" ]; then rm -rf "$work"; fi
 }
 trap cleanup EXIT
 trap 'exit 143' TERM
@@ -52,6 +54,12 @@ mkdir "$work/release"
 tar -xzf "$work/launchpad-$platform.tar.gz" -C "$work/release"
 cd "$work/release"
 [ "$(cat COMMIT)" = "$revision" ] || { status failed "GitHub artifact commit mismatch."; exit 1; }
+
+if [ "${1:-}" = --download-only ]; then
+  stage="Download verified"
+  status complete "Verified GitHub build $revision for $platform; installation skipped."
+  exit 0
+fi
 
 stage="Waiting for agents to stop"
 status running "$stage"

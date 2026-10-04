@@ -64,13 +64,21 @@ pub fn link_skill() -> Result<()> {
     std::fs::create_dir_all(dest.parent().unwrap())?;
     if let Ok(meta) = std::fs::symlink_metadata(&dest) {
         if !meta.file_type().is_symlink() {
+            #[cfg(windows)]
+            if dest.join(".launchpad-managed").exists() {
+                std::fs::copy(source.join("SKILL.md"), dest.join("SKILL.md"))?;
+                return Ok(());
+            }
             tracing::warn!("keeping existing launchpad skill directory");
             return Ok(());
         }
         if std::fs::read_link(&dest)? == source {
             return Ok(());
         }
+        #[cfg(unix)]
         std::fs::remove_file(&dest)?;
+        #[cfg(windows)]
+        std::fs::remove_dir(&dest)?;
     }
     #[cfg(unix)]
     std::os::unix::fs::symlink(source, dest)?;
@@ -78,6 +86,7 @@ pub fn link_skill() -> Result<()> {
     {
         std::fs::create_dir_all(&dest)?;
         std::fs::copy(source.join("SKILL.md"), dest.join("SKILL.md"))?;
+        std::fs::write(dest.join(".launchpad-managed"), "")?;
     }
     Ok(())
 }

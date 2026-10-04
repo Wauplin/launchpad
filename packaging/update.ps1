@@ -1,11 +1,13 @@
+param([switch]$DownloadOnly, [string]$DataDir = (Join-Path $HOME '.local/share/launchpad'))
 $ErrorActionPreference = 'Stop'
 $env:LAUNCHPAD_PROFILE = 'prod'
-$Data = Join-Path $HOME '.local/share/launchpad'
+$Data = $DataDir
 New-Item -ItemType Directory -Force $Data | Out-Null
-$Mutex = New-Object Threading.Mutex($false, 'Local\LaunchpadUpdate')
+$MutexName = if ($DownloadOnly) { 'Local\LaunchpadUpdateDownload' } else { 'Local\LaunchpadUpdate' }
+$Mutex = New-Object Threading.Mutex($false, $MutexName)
 if (-not $Mutex.WaitOne(0)) { exit 0 }
 $Reserved = $false
-$Cli = Join-Path $env:LAUNCHPAD_BIN_DIR 'launchpad.exe'
+$Cli = if ($env:LAUNCHPAD_BIN_DIR) { Join-Path $env:LAUNCHPAD_BIN_DIR 'launchpad.exe' } else { Join-Path $HOME '.local/bin/launchpad.exe' }
 function Status($State, $Stage, $Message) { [IO.File]::WriteAllText((Join-Path $Data 'update-status'), "$State`t$Stage`t$Message") }
 function Check { if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE" } }
 Start-Transcript -Path (Join-Path $Data 'update.log') -Force | Out-Null
@@ -26,6 +28,7 @@ try {
     New-Item -ItemType Directory $Release | Out-Null
     tar -xzf $Archive -C $Release; Check
     if ((Get-Content (Join-Path $Release 'COMMIT')) -ne $Revision) { throw 'Artifact commit mismatch' }
+    if ($DownloadOnly) { Status complete 'Download verified' "Verified GitHub build $Revision for windows-x86_64; installation skipped."; return }
     Status running 'Waiting for agents to stop' ''
     while ($true) {
         & $Cli update-install-lock
@@ -40,6 +43,8 @@ try {
 } catch { Status failed Failed $_.Exception.Message; throw }
 finally {
     if ($Reserved) { & $Cli update-install-lock --release }
+    Set-Location $Data
+    if ($Work -and (Test-Path $Work)) { Remove-Item $Work -Recurse -Force }
     Stop-Transcript | Out-Null
     $Mutex.ReleaseMutex(); $Mutex.Dispose()
 }

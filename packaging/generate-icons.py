@@ -24,6 +24,10 @@ for size in (16, 24, 32, 48, 64, 96, 128, 256, 512, 1024):
     if size == 512:
         image.save(icons / "launchpad.webp", lossless=True)
 
+# Native desktop resources, derived from the unchanged master.
+source.resize((256, 256), Image.Resampling.LANCZOS).save(desktop / "icon.ico", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+source.resize((1024, 1024), Image.Resampling.LANCZOS).save(desktop / "icon.icns")
+
 # The sculpted artwork is raster, so SVG carries the PNG rather than tracing it.
 encoded = base64.b64encode((icons / "1024x1024.png").read_bytes()).decode("ascii")
 (root / "packaging/launchpad.svg").write_text(

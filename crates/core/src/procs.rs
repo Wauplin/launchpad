@@ -12,6 +12,8 @@ use crate::shellenv::UserEnv;
 pub fn command(env: &UserEnv, program: &str, cwd: Option<&Path>) -> Command {
     let resolved = env.which(program).unwrap_or_else(|| program.into());
     let mut cmd = Command::new(resolved);
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW: pipes carry harness output.
     cmd.env_clear().envs(env.vars().iter());
     if let Some(cwd) = cwd {
         cmd.current_dir(cwd);
