@@ -1084,7 +1084,6 @@ Context:
         </div>
 
         <div style="min-height:0;display:flex;flex-direction:column">
-          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:7px;border-bottom:1px solid var(--line);background:var(--paper)"><b style="font-size:12px">Workspace</b><span class="btn sm">Focus pane 1</span><span class="btn sm">Focus pane 2</span><span class="btn sm">Focus pane 3</span><span class="btn sm">Focus pane 4</span><span class="btn sm">Save layout</span><span class="btn sm">Saved layouts ▾</span><span class="btn sm">Restore</span></div>
         <div class="grid4" style="flex:1">
           <!-- pane 1: Claude working -->
           <div class="pane">
@@ -1196,7 +1195,7 @@ chunk=256MB  run 3/5 …</pre>
   </div>
   <ol class="notes">
     <li><i class="pin">1</i><span><b>Scheduled, Running, Done, Archived.</b> Click a heading to collapse or expand its rows; counts stay visible and the app remembers each group’s expansion. Done waits for input. Running includes background and long commands, even when silent. Archived sessions can be resumed. Separate amber Done and blue Running counts appear beside Agents, with a spinner for running agents. Pinned projects show a done dot and a running spinner together when both apply.</span></li>
-    <li><i class="pin">2</i><span><b>Layouts 1, 2 and 4.</b> Buttons in the top bar. Clicking a session loads it in the focused pane (teal outline). Drag a row or title to another pane to move or swap sessions. Visible Focus pane and Move to pane controls do the same. Named layouts can be saved, restored and deleted.</span></li>
+    <li><i class="pin">2</i><span><b>Layouts 1, 2 and 4.</b> Buttons in the top bar. Clicking a session loads it in the focused pane (teal outline). Drag a row or title to another pane to move or swap sessions. Click inside a pane to focus it, or use the session header Move to pane selector. The current pane arrangement is remembered per workspace.</span></li>
     <li><i class="pin">3</i><span><b>Session header.</b> Pin, Rename, Git and Open in editor are visible controls, with a Move to pane selector in multi-pane layouts. Git shows branch, changed files and separate staged/working-tree patches without changing the repository. Titles are AI-generated from the initial prompt. Project, state and elapsed time, tokens, context usage and cost (Claude only). The X only closes the panel and leaves the session state unchanged. Archive stops the session and keeps it resumable in Archived. Stop interrupts the agent. "Open in terminal" hands the session to the terminal chosen in Settings (S6) and back.</span></li>
     <li><i class="pin">4</i><span><b>Compact tool calls.</b> Commands and file reads collapse into one line, edits show a small diff, the running command has a spinner. Click to expand.</span></li>
     <li><i class="pin">5</i><span><b>Copy exactly.</b> Each message has Copy (raw markdown) and Copy as text, and code blocks have their own button. No terminal line breaks or padding.</span></li>

@@ -97,11 +97,9 @@ export function AgentsView() {
   const [debounced, setDebounced] = useState("");
   const [pinsOnly, setPinsOnly] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [layoutName, setLayoutName] = useState("");
-  const [selectedLayout, setSelectedLayout] = useState("");
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   const pinned = useLayout((s) => s.pinned);
-  const { saved, saveLayout, restoreLayout, deleteLayout, place } = useLayout();
+  const place = useLayout((s) => s.place);
   useEffect(() => { const t = setTimeout(() => setDebounced(filter.trim()), 250); return () => clearTimeout(t); }, [filter]);
   const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
   const schedules = (useSchedules().data ?? []).filter((s) => scope.hasSpec(s.spec));
@@ -127,7 +125,6 @@ export function AgentsView() {
   const navigate = useNavigate();
   const [archivedLimit, setArchivedLimit] = useState(30);
   const listRef = useRef<HTMLDivElement>(null);
-  const paneRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   // From a desktop notification: /agents?session=<id>.
   useEffect(() => {
@@ -182,15 +179,6 @@ export function AgentsView() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line bg-paper p-2 text-xs">
-        <span className="font-semibold">Panes</span>
-        {Array.from({ length: layout }, (_, i) => <button key={i} className={`btn btn-sm ${focused === i ? "bg-teal-soft! text-teal-ink" : ""}`} aria-label={`Focus pane ${i + 1}`} onClick={() => { focus(i); paneRefs.current[i]?.querySelector<HTMLTextAreaElement>("textarea:not(:disabled)")?.focus(); }}>Pane {i + 1}</button>)}
-        <input aria-label="Layout name" className="field-input w-32" placeholder="Layout name" maxLength={50} value={layoutName} onChange={(e) => setLayoutName(e.target.value)} />
-        <button className="btn btn-sm" disabled={!layoutName.trim()} onClick={() => { saveLayout(layoutName); setSelectedLayout(layoutName.trim().slice(0,50)); setLayoutName(""); }}>Save layout</button>
-        <select aria-label="Saved layouts" className="field-input w-32" value={selectedLayout} onChange={(e) => setSelectedLayout(e.target.value)}><option value="">Saved layouts</option>{saved.map((s) => <option key={s.name}>{s.name}</option>)}</select>
-        <button className="btn btn-sm" disabled={!selectedLayout} onClick={() => { restoreLayout(selectedLayout); clearSide(); }}>Restore</button>
-        <button className="btn btn-sm" disabled={!selectedLayout} onClick={() => { deleteLayout(selectedLayout); setSelectedLayout(""); }}>Delete layout</button>
-      </div>
       {importing && <ImportHistory onClose={() => setImporting(false)} onImported={(id) => { show(id); setImporting(false); clearSide(); }} />}
       <div className="flex min-h-0 flex-1">
       <div className="flex w-[280px] flex-none flex-col border-r border-line bg-paper">
@@ -227,7 +215,7 @@ export function AgentsView() {
         {Array.from({ length: layout }, (_, i) => {
           const id = panes[i];
           return (
-            <div key={i} ref={(el) => { paneRefs.current[i] = el; }} className={`relative min-h-0 min-w-0 bg-paper ${dropTarget === i ? "outline-2 -outline-offset-2 outline-teal" : ""}`}
+            <div key={i} className={`relative min-h-0 min-w-0 bg-paper ${dropTarget === i ? "outline-2 -outline-offset-2 outline-teal" : ""}`}
               onDragOver={(e) => { if (e.dataTransfer.types.includes("application/x-launchpad-session")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropTarget(i); } }}
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropTarget(null); }}
               onDrop={(e) => { const id = e.dataTransfer.getData("application/x-launchpad-session"); if (id && sessions.some((s) => s.id === id)) { e.preventDefault(); place(id,i); clearSide(); } setDropTarget(null); }}
