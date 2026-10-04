@@ -97,7 +97,7 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: build
+          key: build-${{ matrix.os }}
           cache-on-failure: true
       - uses: actions/setup-node@v7
         with:
