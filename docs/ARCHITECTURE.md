@@ -338,6 +338,7 @@ Settings → General edits the projects root, the terminal and the editor. For t
 ## 8. Projects
 
 - A project is a folder in the projects root (setting `projects_root`, default `~/projects`) plus an optional GitHub remote (`owner/repo` parsed from `origin`, SSH or HTTPS form). A project can also be registered from another location by path.
+- **Remote metadata:** Project reads refresh `remote_url`, `gh_repo` (origin) and `gh_upstream` from local Git configuration, including linked worktrees. A daemon loop checks every 30 seconds and broadcasts `projects/changed` only when persisted metadata changes, so open windows update without re-registering folders or restarting. Added, changed and removed remotes replace the registration snapshot; temporarily missing folders retain their last known metadata. User-edited names, descriptions and pins remain independent. No network request is needed.
 - **Discovery:** "Scan projects root" lists git repositories with a GitHub `origin` (you have 184 folders in `~/projects`; most do not need to be registered). Registered projects can be pinned in the sidebar. Each project has a one-line description (for example "server-side codebase") that is used when the project is given as context.
 - **Repo → project mapping:** tells notifications, issues and PRs where to launch an agent and which local clone to use for diffs. For forks, the `upstream` remote is matched too.
 - **Temporary projects:**
@@ -796,3 +797,7 @@ Platform support and GitHub builds, on 2026-10-04:
 49. **Update from GitHub-built latest main.** Continuous CI artifacts supply updates until release cycles are introduced. The exact GitHub main commit must have a successful trusted workflow run and a retained platform artifact; there is no source-build or older-commit fallback. Downloads and checks precede the existing idle installation reservation. This supersedes the local checkout update source in decisions 27 and 33. Agent suggestions remain local and only owner clicks publish them.
 
 50. **Keep only the current pane arrangement.** Removed the Agents Panes toolbar and named layout save/restore/delete on 2026-10-04. The top-bar pane count switch, click-to-focus and session Move controls, drag/drop, and per-workspace persistence of the current arrangement remain.
+
+Project metadata refresh, on 2026-10-04:
+
+51. **Derive project remotes from current local configuration.** Registration is not the source of truth for origin and upstream. Refresh metadata on project reads and every 30 seconds in the daemon, and invalidate open UI project lists through change events. Missing project folders retain the last known mapping; local project edits remain independent of Git metadata.

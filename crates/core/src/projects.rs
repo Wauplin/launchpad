@@ -47,20 +47,85 @@ pub struct ProjectPatch {
 }
 
 pub async fn list(app: &App) -> Result<Vec<Project>> {
-    app.state_db
+    let projects = app
+        .state_db
         .call(|c| {
             let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM project ORDER BY is_temp, lower(name)"))?;
             let rows = st.query_map([], from_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(rows)
         })
-        .await
+        .await?;
+    refresh_metadata(app, projects).await
 }
 
 pub async fn get(app: &App, id: &str) -> Result<Option<Project>> {
     let id = id.to_string();
-    app.state_db
+    let project = app
+        .state_db
         .call(move |c| Ok(c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE id = ?1"), [id], from_row).optional()?))
-        .await
+        .await?;
+    Ok(refresh_metadata(app, project.into_iter().collect()).await?.pop())
+}
+
+/// Remote metadata is derived from disk, never from the registration-time snapshot.
+async fn refresh_metadata(app: &App, projects: Vec<Project>) -> Result<Vec<Project>> {
+    if projects.is_empty() {
+        return Ok(projects);
+    }
+    let (projects, refreshed) = tokio::task::spawn_blocking(move || {
+        let mut refreshed = Vec::new();
+        let projects = projects.into_iter().map(|mut p| {
+            // Keep the last known mapping when a folder is temporarily unavailable.
+            if Path::new(&p.path).is_dir() {
+                let (remote_url, gh_repo, gh_upstream) = remote_info(Path::new(&p.path));
+                if p.remote_url != remote_url || p.gh_repo != gh_repo || p.gh_upstream != gh_upstream {
+                    (p.remote_url, p.gh_repo, p.gh_upstream) = (remote_url, gh_repo, gh_upstream);
+                    refreshed.push(p.clone());
+                }
+            }
+            p
+        }).collect::<Vec<_>>();
+        (projects, refreshed)
+    }).await?;
+    if refreshed.is_empty() {
+        return Ok(projects);
+    }
+    let changed = app
+        .state_db
+        .call(move |c| {
+            let tx = c.transaction()?;
+            let mut changed = false;
+            for p in refreshed {
+                changed |= tx.execute(
+                    "UPDATE project SET remote_url = ?1, gh_repo = ?2, gh_upstream = ?3
+                     WHERE id = ?4 AND path = ?5
+                     AND (remote_url IS NOT ?1 OR gh_repo IS NOT ?2 OR gh_upstream IS NOT ?3)",
+                    params![p.remote_url, p.gh_repo, p.gh_upstream, p.id, p.path],
+                )? > 0;
+            }
+            tx.commit()?;
+            Ok(changed)
+        })
+        .await?;
+    if changed {
+        app.bus.publish("projects", "changed", serde_json::Value::Null);
+    }
+    Ok(projects)
+}
+
+/// Keep open windows current even when no project endpoint is being requested.
+pub fn spawn(app: &App) {
+    let app = app.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tick.tick().await;
+            if let Err(e) = list(&app).await {
+                tracing::warn!("project metadata refresh: {e:#}");
+            }
+        }
+    });
 }
 
 /// Project whose folder contains `cwd` (the longest match).
@@ -118,7 +183,7 @@ pub async fn register(app: &App, path: &Path, is_temp: bool) -> Result<Project> 
             Ok(None)
         })
         .await?;
-    let project = existing.unwrap_or(saved);
+    let project = refresh_metadata(app, vec![existing.unwrap_or(saved)]).await?.pop().unwrap();
     app.bus.publish("projects", "changed", serde_json::Value::Null);
     Ok(project)
 }

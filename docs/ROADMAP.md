@@ -71,6 +71,8 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 
 **Progress:**
 
+- Project metadata correction (2026-10-04): registered origin URLs and origin/upstream GitHub mappings refresh on reads and every 30 seconds, with change events updating open windows. Registration no longer leaves existing projects with stale metadata. Phase 1 remains built and awaiting daily use.
+
 - Built on 2026-10-02, and checked against the real CLIs (Claude Haiku and Codex GPT-6-Luna) through the API and the UI:
   - Projects: registry, "Scan projects root" (149 repositories in 48 ms), descriptions, pinning, add by path, repo → project mapping (origin, then upstream).
   - Composer: harness toggle, project picker (or a new temporary folder), prompt with `@` and `#` suggestions, context projects with a branch picker, "+ GitHub link" with the title fetched, the three presets and their settings editor, model and effort pickers showing "Default (…)", live prompt preview, "Open after launch", draft kept on the daemon.

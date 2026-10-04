@@ -95,6 +95,7 @@ impl App {
         harness::spawn_model_refresh(&app);
         harness::spawn_codex_updates(&app);
         inbox::spawn(&app);
+        projects::spawn(&app);
         Ok(app)
     }
 }
