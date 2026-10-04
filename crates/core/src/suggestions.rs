@@ -267,10 +267,8 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
 }
 /// Included in every launched session, with the exact daemon and session identity.
 pub fn instruction(app: &App, session: &str) -> String {
-    let cli = std::env::current_exe().unwrap_or_else(|_| "launchpad".into());
     format!(
-        "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `LAUNCHPAD_PROFILE={} '{}' suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes. For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
-        app.paths.profile.name(),
-        cli.to_string_lossy().trim_end_matches(" (deleted)")
+        "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `{} suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes. For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
+        app.paths.cli_command()
     )
 }

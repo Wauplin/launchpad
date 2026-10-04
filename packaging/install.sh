@@ -27,8 +27,8 @@ ICONS="$HOME/.local/share/icons/hicolor"
 UNITS="$HOME/.config/systemd/user"
 AUTOSTART="$HOME/.config/autostart"
 
-# Node version from web/.nvmrc, when nvm is installed.
-if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
+# Source builds select Node; downloaded prebuilt packages need no Node or checkout.
+if [ "$PREBUILT" -eq 0 ] && [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
   set +u
   . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
   nvm use --silent "$(cat web/.nvmrc)" >/dev/null

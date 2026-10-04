@@ -34,6 +34,14 @@ for kind in daemon desktop; do
 <plist version="1.0"><dict><key>Label</key><string>local.launchpad.$kind</string><key>ProgramArguments</key><array><string>$escaped/$binary</string><string>$arg</string></array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/></dict></plist>
 EOF
   launchctl bootstrap "gui/$(id -u)" "$plist"
+  if [ "$kind" = daemon ]; then
+    # Wait before starting the warm desktop, whose fallback would otherwise race launchd.
+    for ((wait_attempt=0;wait_attempt<100;wait_attempt++)); do
+      curl -sf http://127.0.0.1:7317/api/health >/dev/null && break
+      sleep 0.1
+    done
+    curl -sf http://127.0.0.1:7317/api/health >/dev/null || { echo 'The launchd daemon did not start.' >&2; exit 1; }
+  fi
 done
 # Finder launcher, with the two executables still together in BIN.
 mkdir -p "$HOME/Applications/Launchpad.app/Contents/MacOS" "$HOME/Applications/Launchpad.app/Contents/Resources"

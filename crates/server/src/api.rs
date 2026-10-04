@@ -336,12 +336,12 @@ async fn terminals(State(s): State<Server>) -> Json<Vec<launchpad_core::terminal
 
 async fn update_status(State(s): State<Server>) -> ApiResult<Value> {
     // Cache the remote lookup: the status bar polls every five seconds.
-    static LATEST: std::sync::OnceLock<tokio::sync::Mutex<(std::time::Instant, Option<String>)>> = std::sync::OnceLock::new();
-    let cache = LATEST.get_or_init(|| tokio::sync::Mutex::new((std::time::Instant::now() - std::time::Duration::from_secs(61), None)));
+    static LATEST: std::sync::OnceLock<tokio::sync::Mutex<(Option<std::time::Instant>, Option<String>)>> = std::sync::OnceLock::new();
+    let cache = LATEST.get_or_init(|| tokio::sync::Mutex::new((None, None)));
     let mut cache = cache.lock().await;
-    if cache.0.elapsed() >= std::time::Duration::from_secs(60) {
+    if cache.0.is_none_or(|checked| checked.elapsed() >= std::time::Duration::from_secs(60)) {
         cache.1 = launchpad_core::procs::output(&s.app.env, "gh", &["api", "repos/Wauplin/launchpad/commits/main", "--jq", ".sha"], None).await.ok();
-        cache.0 = std::time::Instant::now();
+        cache.0 = Some(std::time::Instant::now());
     }
     let latest = cache.1.clone();
     drop(cache);

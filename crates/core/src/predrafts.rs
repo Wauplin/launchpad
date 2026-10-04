@@ -273,14 +273,10 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
     Ok(p)
 }
 pub fn instruction(app: &App, p: &Predraft) -> String {
-    let cli = std::env::current_exe().unwrap_or_else(|_| "launchpad".into());
-    let cli = cli.to_string_lossy();
-    let cli = cli.strip_suffix(" (deleted)").unwrap_or(&cli);
     format!(
-        "You are working in a dedicated git worktree on branch `{}`. Commit your work on this branch. Do not push and do not open a pull request on GitHub. Do not remove this worktree. When done, set the title and description with `LAUNCHPAD_PROFILE={} '{}' pr update --title \"…\" --body-file <file>`. Pre-draft id: {}.",
+        "You are working in a dedicated git worktree on branch `{}`. Commit your work on this branch. Do not push and do not open a pull request on GitHub. Do not remove this worktree. When done, set the title and description with `{} pr update --title \"…\" --body-file <file>`. Pre-draft id: {}.",
         p.branch,
-        app.paths.profile.name(),
-        cli,
+        app.paths.cli_command(),
         p.id
     )
 }

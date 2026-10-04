@@ -86,6 +86,18 @@ impl Paths {
         }
     }
 
+    /// Shell invocation included in agent prompts, with this daemon's profile and exact CLI.
+    pub fn cli_command(&self) -> String {
+        let cli = std::env::current_exe().unwrap_or_else(|_| "launchpad".into());
+        let cli = cli.to_string_lossy();
+        let cli = cli.trim_end_matches(" (deleted)");
+        if cfg!(windows) {
+            format!("$env:LAUNCHPAD_PROFILE = '{}'; & '{}'", self.profile.name(), cli.replace('\'', "''"))
+        } else {
+            format!("LAUNCHPAD_PROFILE={} '{}'", self.profile.name(), cli.replace('\'', "'\\''"))
+        }
+    }
+
     pub fn base_url(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
     }

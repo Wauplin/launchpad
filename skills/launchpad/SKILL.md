@@ -22,3 +22,7 @@ Use the exact CLI path, profile and session id supplied in the Launchpad session
 For a PR review, inspect a specific committed head and use `launchpad suggest review --repo owner/repo --number 123 --head <40-character-commit> --body-file /path/to/review.md --session-id <session-id>`. The default is a comment review; use `--event approve` or `--event request-changes` when appropriate. Use the commit you actually reviewed, never substitute a newer PR head without reviewing it. Inline suggestions are not supported yet; describe paths and lines in the review body.
 
 For a local pre-draft, replace `--repo` and `--number` with `--predraft <id>`. Its card lets the owner add the text to local review notes. Publishing the pre-draft does not publish these suggestions. The owner can edit, post or discard GitHub drafts in the issue or PR conversation. Stop after saving the suggestion and report its id; leave posting to the owner.
+
+## Platform shell syntax
+
+Use the exact profile and CLI invocation in the session prompt. Unix prompts use `LAUNCHPAD_PROFILE=dev '/path/to/launchpad'`; Windows prompts use PowerShell syntax, `$env:LAUNCHPAD_PROFILE = 'dev'; & 'C:\path\launchpad.exe'`. Append the requested `pr` or `suggest` arguments to that invocation. The publication rules are identical on every platform: suggestions stay local until the owner clicks Post.
