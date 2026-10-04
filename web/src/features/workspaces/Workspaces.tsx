@@ -1,26 +1,24 @@
 // Workspaces (ARCHITECTURE.md, 9.1.2): the top bar switcher and the page that edits them.
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { Workspace } from "@/gen/Workspace";
 import { Icon } from "@/components/Icon";
-import { Popover } from "@/components/Popover";
 import { toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useProjects } from "@/lib/queries";
 import { openWindow, useWorkspaces } from "@/lib/workspace";
 import { useWorkspace } from "@/stores/workspace";
 
-function SwitchRow({ label, detail, active, onSwitch, onWindow }: { label: string; detail: string; active: boolean; onSwitch: () => void; onWindow: () => void }) {
+function WorkspaceButton({ label, detail, active, onSwitch, onWindow }: { label: string; detail: string; active: boolean; onSwitch: () => void; onWindow: () => void }) {
   return (
-    <div className={`flex items-center rounded-md hover:bg-select ${active ? "bg-select" : ""}`}>
-      <button className="grid min-w-0 flex-1 px-[9px] py-[6px] text-left" onClick={onSwitch} title="Show it in this window">
-        <span className={`truncate text-[12.5px] ${active ? "font-semibold" : ""}`}>{label}</span>
-        <span className="truncate text-[11.5px] text-ink-3">{detail}</span>
+    <div className={`flex min-w-0 items-center rounded-md border ${active ? "border-teal/40 bg-teal-soft text-teal-ink" : "border-line bg-paper text-ink-2"}`}>
+      <button className="min-w-0 rounded-l-md px-2.5 py-1 text-[12.5px] hover:bg-select" onClick={onSwitch} aria-pressed={active} title={`${label} · ${detail} · Show in this window`}>
+        <span className={`block truncate ${active ? "font-semibold" : ""}`}>{label}</span>
       </button>
-      <button className="iconbtn mr-1" title="Open in a new window" aria-label={`Open ${label} in a new window`} onClick={onWindow}>
-        <Icon name="window" size={14} />
+      <button className="iconbtn mr-0.5 shrink-0" title={`Open ${label} in a new window`} aria-label={`Open ${label} in a new window`} onClick={onWindow}>
+        <Icon name="window" size={13} />
       </button>
     </div>
   );
@@ -30,33 +28,19 @@ export function WorkspaceSwitcher() {
   const { current, switchTo } = useWorkspace();
   const workspaces = useWorkspaces().data ?? [];
   const projects = useProjects().data?.length ?? 0;
-  const navigate = useNavigate();
   const active = workspaces.find((w) => w.id === current);
   const count = (n: number) => `${n} project${n === 1 ? "" : "s"}`;
   return (
-    <Popover
-      width={270}
-      trigger={({ toggle }) => (
-        <button className="btn btn-sm max-w-[220px]" onClick={toggle} title="Switch workspace or open another window">
-          <span className="truncate">{active?.name ?? "All projects"}</span>
-          <Icon name="chev" size={12} />
-        </button>
-      )}
-    >
-      {(close) => (
-        <>
-          <div className="px-[9px] pt-1 pb-1 seclabel">Workspace of this window</div>
-          <SwitchRow label="All projects" detail={`No filter · ${count(projects)}`} active={!active} onSwitch={() => (switchTo(null), close())} onWindow={() => (void openWindow(null), close())} />
-          {workspaces.map((w) => (
-            <SwitchRow key={w.id} label={w.name} detail={count(w.project_ids.length)} active={w.id === active?.id} onSwitch={() => (switchTo(w.id), close())} onWindow={() => (void openWindow(w.id), close())} />
-          ))}
-          <button className="mt-1 flex items-center gap-2 rounded-md border-t border-line-2 px-[9px] py-[7px] text-left text-[12.5px] hover:bg-select" onClick={() => (void navigate({ to: "/workspaces" }), close())}>
-            <Icon name="sliders" size={13} />
-            Manage workspaces
-          </button>
-        </>
-      )}
-    </Popover>
+    <div className="flex flex-wrap items-center gap-1.5 border-t border-line-2 px-3.5 py-1.5" role="group" aria-label="Workspace of this window">
+      <WorkspaceButton label="All projects" detail={`No filter · ${count(projects)}`} active={!active} onSwitch={() => switchTo(null)} onWindow={() => void openWindow(null)} />
+      {workspaces.map((w) => (
+        <WorkspaceButton key={w.id} label={w.name} detail={count(w.project_ids.length)} active={w.id === active?.id} onSwitch={() => switchTo(w.id)} onWindow={() => void openWindow(w.id)} />
+      ))}
+      <Link className="btn btn-sm btn-ghost ml-auto shrink-0" to="/workspaces" title="Create, rename and edit workspaces">
+        <Icon name="sliders" size={13} />
+        Manage workspaces
+      </Link>
+    </div>
   );
 }
 

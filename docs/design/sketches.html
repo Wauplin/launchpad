@@ -657,6 +657,7 @@ footer.end code { font: 12.5px var(--font-mono); }
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <defs>
+    <symbol id="i-window" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 6h13"/></g></symbol>
     <symbol id="i-claude" viewBox="0 0 24 24"><path d="M12.00 9.40L12.00 2.60M13.53 9.90L16.70 5.53M14.47 11.20L20.94 9.10M14.47 12.80L19.61 14.47M13.53 14.10L17.53 19.60M12.00 14.60L12.00 20.00M10.47 14.10L6.47 19.60M9.53 12.80L4.39 14.47M9.53 11.20L3.06 9.10M10.47 9.90L7.30 5.53" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
     <symbol id="i-codex" viewBox="0 0 24 24"><path d="M6.5 7.5 11 12l-4.5 4.5M13 17h5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-issue" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/></symbol>
@@ -734,16 +735,21 @@ footer.end code { font: 12.5px var(--font-mono); }
   <div class="sketch-head">
     <span class="sketch-id">S1 · Inbox</span>
     <h2>Notifications triaged from the local cache</h2>
-    <p>The default screen. List and preview sit side by side, so going from one thread to the next never loads a page. Everything here renders from SQLite and refreshes in the background. The top bar menu picks this window's workspace (a named set of projects) or opens another window on a different one; the sidebar, agents and inbox then only show that workspace, and the inbox has an All repos button to see every notification.</p>
+    <p>The default screen. List and preview sit side by side, so going from one thread to the next never loads a page. Everything here renders from SQLite and refreshes in the background. Visible buttons below the top bar pick this window's workspace (a named set of projects) in one click or open another window on a different one; the sidebar, agents and inbox then only show that workspace, and the inbox has an All repos button to see every notification.</p>
   </div>
   <div class="frame">
     <div class="win" role="img" aria-label="Inbox mockup">
       <div class="topbar">
         <div class="brand"><span class="logo"><img src="../../packaging/launchpad.svg" alt=""/></span>Launchpad</div>
-        <span class="btn" title="Workspace of this window">HF Hub<svg class="ic sm"><use href="#i-chev"/></svg></span>
         <div class="crumbs"><b>Inbox</b></div>
         <span class="btn primary tb-launch"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
         <div class="wctl"><span></span><span></span><span></span></div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 14px;background:var(--chrome);border-bottom:1px solid var(--line)">
+        <span class="btn">All projects <svg class="ic sm"><use href="#i-window"/></svg></span>
+        <span class="btn" style="background:var(--teal-soft);color:var(--teal-ink);border-color:var(--teal)">HF Hub <svg class="ic sm"><use href="#i-window"/></svg></span>
+        <span class="btn">Launchpad <svg class="ic sm"><use href="#i-window"/></svg></span>
+        <span class="btn" style="margin-left:auto">Manage workspaces</span>
       </div>
       <div class="app s1">
         <aside class="side">
