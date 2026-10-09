@@ -68,6 +68,8 @@ cargo +1.93.1 test --locked
 cargo +1.93.1 build --release --locked -p launchpad -p launchpad-desktop
 ```
 
+CI runs lint and native Linux/macOS/Windows debug tests on main pushes, pull requests and tags. Release builds, release tests and downloadable binaries run only on tag refs, including manual dispatch on a tag; manual runs on main skip binaries. Linux release builds use Ubuntu 22.04, with macOS ARM64/Intel and Windows x86_64 built natively.
+
 Install the CI toolchain if needed: `rustup toolchain install 1.93.1 --profile minimal --component clippy`.
 
 ## macOS and Windows
@@ -76,4 +78,4 @@ Linux remains the primary daily-use target. On macOS, `bash packaging/install.sh
 
 For source builds, install the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/) (Xcode command-line tools on macOS; MSVC C++ Build Tools and WebView2 on Windows), Rust 1.93.1, Node 24 and Corepack/pnpm. Build the UI before `cargo build --release --locked -p launchpad -p launchpad-desktop`. Native tests use `cargo test --locked` and `cargo test --release --locked`. In PowerShell, set a dev profile with `$env:LAUNCHPAD_PROFILE = 'dev'` before `cargo run -p launchpad -- daemon`.
 
-To verify the updater without installing or restarting anything, use `LAUNCHPAD_UPDATE_DATA_DIR=/tmp/launchpad-download-check bash packaging/update.sh --download-only` on Linux/macOS, or `powershell -ExecutionPolicy Bypass -File packaging/update.ps1 -DownloadOnly -DataDir "$env:TEMP/launchpad-download-check"` on Windows. These modes download and verify the exact latest main artifact and save progress/logs in the specified temporary directory.
+To verify the updater without installing or restarting anything, use `LAUNCHPAD_UPDATE_DATA_DIR=/tmp/launchpad-download-check bash packaging/update.sh --download-only` on Linux/macOS, or `powershell -ExecutionPolicy Bypass -File packaging/update.ps1 -DownloadOnly -DataDir "$env:TEMP/launchpad-download-check"` on Windows. These modes download and verify the exact latest main artifact and save progress/logs in the specified temporary directory. The updater still searches main-branch runs and cannot consume the new tag-only artifacts, so updates are unavailable for new commits until its source is changed to tags.

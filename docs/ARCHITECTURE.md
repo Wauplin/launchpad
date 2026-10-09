@@ -135,7 +135,7 @@ Tests are kept to the minimum:
 
 ### 5.3 Continuous integration
 
-GitHub Actions runs three independent jobs on Ubuntu 24.04: strict Clippy for all workspace targets plus UI type checks, the existing Rust tests for default members (excluding the desktop shell), and release builds of the daemon/CLI and desktop shell. The build job produces `web/dist` before compiling the daemon, which embeds those assets. It uploads a tar archive of both executable binaries and the standalone UI, retained for seven days. CI only builds artifacts; installation and production restarts stay local. Rust is pinned to 1.93.1 so new Clippy versions do not change the lint gate unexpectedly; Node and pnpm use the existing repository declarations and both package managers use locked dependencies.
+GitHub Actions runs Linux Clippy and UI type checks plus native debug tests on main pushes, pull requests, tags and manual dispatch. Release builds/tests and CLI smoke checks run only when the ref is a tag, on Ubuntu 22.04, macOS 15 (ARM64 and Intel) and Windows 2025 (x86_64). The build job produces `web/dist` before compiling the daemon, which embeds those assets. It uploads a tar archive with executable binaries, UI and installation resources plus its SHA-256, retained for 90 days. CI only builds artifacts; installation and production restarts stay local. Rust is pinned to 1.93.1 so new Clippy versions do not change the lint gate unexpectedly; Node and pnpm use the existing repository declarations and both package managers use locked dependencies.
 
 ## 6. Backend
 
@@ -811,3 +811,5 @@ Project metadata refresh, on 2026-10-04:
 53. **Edit session titles in place.** On 2026-10-09, replaced the separate Rename button and rename row with an inline title field and Save title/Cancel controls. Replaced Pin with a star on the right of the title, and grouped Git and Open in editor with Files and Archive in the header action row.
 
 54. **One agent panel per window.** Removed the 1/2/4-pane switch, pane arrays and focus state, session move/swap controls and session drag/drop on 2026-10-09. Each workspace remembers one selected session, pins and collapsed groups. Cron and Scheduled details replace the conversation; notification presence reports only the visible session. Several agents can still run concurrently. Image paste and drop remain supported.
+
+55. **Tag-only release builds.** On 2026-10-09, restricted native release builds, release tests and artifact uploads to tag refs. Main pushes and pull requests retain lint and debug tests; manual dispatch builds binaries only on a tag. This supersedes continuous artifact production in decision 49. The updater still searches for the exact main commit in main-branch runs, so adapting it to tagged builds remains pending.
