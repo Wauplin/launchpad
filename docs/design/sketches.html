@@ -730,19 +730,19 @@ footer.end code { font: 12.5px var(--font-mono); }
   <div class="sketch-head">
     <span class="sketch-id">S1 · Inbox</span>
     <h2>Notifications triaged from the local cache</h2>
-    <p>The default screen. List and preview sit side by side, so going from one thread to the next never loads a page. Everything here renders from SQLite and refreshes in the background. Visible buttons in the top bar, next to Launch, pick this window's workspace (a named set of projects) in one click or open another window on a different one; Settings → Workspaces edits them; the sidebar, agents and inbox then only show that workspace, and the inbox has an All repos button to see every notification.</p>
+    <p>The default screen. List and preview sit side by side, so going from one thread to the next never loads a page. Everything here renders from SQLite and refreshes in the background. Visible buttons on the left of the top bar, beside Launchpad, pick this window's workspace (a named set of projects) in one click or open another window on a different one; Settings → Workspaces edits them; the sidebar, agents and inbox then only show that workspace, and the inbox has an All repos button to see every notification.</p>
   </div>
   <div class="frame">
     <div class="win" role="img" aria-label="Inbox mockup">
       <div class="topbar">
         <div class="brand"><span class="logo"><img src="../../packaging/launchpad.svg" alt=""/></span>Launchpad</div>
-        <div class="crumbs"><b>Inbox</b></div>
-        <div style="display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:6px;margin-left:auto">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
           <span class="btn">All projects <svg class="ic sm"><use href="#i-window"/></svg></span>
           <span class="btn" style="background:var(--teal-soft);color:var(--teal-ink);border-color:var(--teal)">HF Hub <svg class="ic sm"><use href="#i-window"/></svg></span>
           <span class="btn">Launchpad <svg class="ic sm"><use href="#i-window"/></svg></span>
         </div>
-        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
+        <div class="crumbs"><b>Inbox</b></div>
+        <span class="btn primary" style="margin-left:auto"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
         <div class="wctl"><span></span><span></span><span></span></div>
       </div>
       <div class="app s1">

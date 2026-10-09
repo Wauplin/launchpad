@@ -18,6 +18,7 @@ export function TopBar() {
         <img src={logo} alt="" className="size-[22px]" />
         Launchpad
       </div>
+      <WorkspaceSwitcher />
       <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-ink-2">
         {project ? (
           <>
@@ -38,13 +39,9 @@ export function TopBar() {
           <b className="font-semibold text-ink">{title}</b>
         )}
       </div>
-      {/* One row when everything fits; otherwise the workspace buttons and Launch move to a second line, then wrap. */}
-      <div className="ml-auto flex min-w-0 items-center gap-3.5">
-        <WorkspaceSwitcher />
-        <span className="shrink-0">
-          <LaunchButton ctx={project ? { projectId: project.id } : undefined} />
-        </span>
-      </div>
+      <span className="ml-auto shrink-0">
+        <LaunchButton ctx={project ? { projectId: project.id } : undefined} />
+      </span>
     </header>
   );
 }
