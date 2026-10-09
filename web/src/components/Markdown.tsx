@@ -38,7 +38,7 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
   if (local) tokens[idx].attrSet("src", local);
   return defaultImage(tokens, idx, options, env, self);
 };
-// Links open in the browser through the daemon (see onClick below).
+// Link clicks are handled below so session files can open in the code viewer.
 md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
   tokens[idx].attrSet("data-external", "1");
   return self.renderToken(tokens, idx, options);
@@ -71,8 +71,18 @@ export const Markdown = memo(function Markdown({ text, className = "", links }: 
     const a = target.closest<HTMLAnchorElement>("a[data-external]");
     if (a) {
       e.preventDefault();
-      if (links?.link(a.getAttribute("href") ?? "")) return;
-      void fetch("/api/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: a.href }) });
+      const href = a.getAttribute("href") ?? "";
+      if (links?.link(href)) return;
+      if (/^https?:\/\//i.test(href)) {
+        void fetch("/api/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: href }) });
+        return;
+      }
+      if (href.startsWith("#")) return;
+      let file = href.split(/[?#]/, 1)[0];
+      try { file = decodeURIComponent(file); } catch { /* Keep the original path. */ }
+      const hit = codeLinks?.resolve(file);
+      if (hit) codeLinks!.open(hit.path, hit.line);
+      else if (codeLinks) toast("File is not available in this session's code viewer");
     }
   };
   return <div className={`lp-md ${className}`} onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
