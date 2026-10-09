@@ -1,6 +1,7 @@
-// Settings (sketch S6): General and Presets. Saved to config.toml, which can also be edited by hand.
+// Settings (sketch S6): General and Presets, saved to config.toml, which can also be edited by hand. Workspaces have their own page.
 
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { Config } from "@/gen/Config";
 import type { Preset } from "@/gen/Preset";
@@ -11,7 +12,7 @@ import { useAppUpdate } from "@/lib/app-update";
 import { ZOOM_LEVELS } from "@/lib/zoom";
 import { useConfig, useTerminals } from "@/lib/queries";
 
-function Card({ title, end, children, id }: { title: string; end?: React.ReactNode; children: React.ReactNode; id?: string }) {
+export function Card({ title, end, children, id }: { title: string; end?: React.ReactNode; children: React.ReactNode; id?: string }) {
   return (
     <section id={id} className="overflow-hidden rounded-[10px] border border-line">
       <div className="flex items-center gap-2 border-b border-line bg-chrome px-3.5 py-[11px] text-[12.5px] text-ink-2">
@@ -21,6 +22,21 @@ function Card({ title, end, children, id }: { title: string; end?: React.ReactNo
       </div>
       <div className="grid gap-2.5 p-3.5">{children}</div>
     </section>
+  );
+}
+
+/** The layout of every Settings page, with visible buttons to switch between them. */
+export function SettingsPage({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto grid max-w-[860px] grid-cols-[minmax(0,1fr)] gap-5 p-6">
+        <nav className="flex gap-1.5" aria-label="Settings pages">
+          <Link to="/settings" className="btn" activeProps={{ className: "bg-select!" }} activeOptions={{ exact: true }}>General</Link>
+          <Link to="/settings/workspaces" className="btn" activeProps={{ className: "bg-select!" }}>Workspaces</Link>
+        </nav>
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -61,7 +77,7 @@ export function SettingsView() {
   useEffect(() => {
     if (location.hash === "#presets") document.getElementById("presets")?.scrollIntoView();
   }, [draft]);
-  if (!draft || !q.data) return <div className="p-6 text-ink-3">Loading…</div>;
+  if (!draft || !q.data) return <SettingsPage><div className="text-ink-3">Loading…</div></SettingsPage>;
   const saved = q.data.config;
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
   const save = async () => {
@@ -96,109 +112,107 @@ export function SettingsView() {
   );
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto grid max-w-[860px] grid-cols-[minmax(0,1fr)] gap-5 p-6">
-        {q.data.error && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">config.toml has an error, the previous settings are in use: {q.data.error}</div>}
-        <Card title="General" end={actions}>
-          <Row title="Zoom" hint="Make the whole interface larger. The middle position is the default.">
-            <label className="grid gap-2">
-              <span className="font-semibold">{ZOOM_LEVELS[draft.zoom]}%{draft.zoom === 2 ? " (default)" : ""}</span>
-              <input aria-label="Interface zoom" type="range" min={0} max={4} step={1} value={draft.zoom} onChange={(e) => set((c) => ({ ...c, zoom: Number(e.target.value) }))} className="w-full accent-teal" />
-              <span className="flex justify-between text-xs text-ink-2">{ZOOM_LEVELS.map((z) => <span key={z}>{z}%</span>)}</span>
-            </label>
-          </Row>
-          <Row title="Projects root" hint="Where projects are found, and where temporary folders and worktrees are created.">
-            <input className="field-input font-mono text-xs" value={draft.projects_root} onChange={(e) => set((c) => ({ ...c, projects_root: e.target.value }))} />
-          </Row>
-          <Row title="Published pre-draft worktrees" hint="Keep the local worktree by default. Cleanup only removes clean worktrees after a successful publication.">
-            <label className="flex items-center gap-2"><input type="checkbox" checked={draft.remove_published_worktree} onChange={(e) => set((c) => ({ ...c, remove_published_worktree: e.target.checked }))} />Remove after publishing</label>
-          </Row>
-          <Row title="Terminal" hint='Used by "Open in terminal".'>
-            <div className="grid gap-1.5">
-              {terminals.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => set((c) => ({ ...c, terminal: { ...c.terminal, app: t.id } }))}
-                  className={`grid grid-cols-[14px_1fr] items-start gap-[9px] rounded-[7px] border px-2.5 py-2 text-left ${draft.terminal.app === t.id ? "border-teal bg-[#F4FAF8]" : "border-line bg-paper"}`}
-                >
-                  <span className={`mt-0.5 size-3.5 rounded-full ${draft.terminal.app === t.id ? "border-4 border-teal" : "border-[1.5px] border-ink-3"}`} />
-                  <span className="grid min-w-0 gap-0.5 text-[12.5px]">
-                    <b className="font-[650]">
-                      {t.name} {t.found ? <span className="ml-1 text-[10.5px] text-gh-open">found</span> : <span className="ml-1 text-[10.5px] text-ink-3">not installed</span>}
-                    </b>
-                    <span className="font-mono text-[11px] break-all text-ink-2">{t.template}</span>
-                  </span>
-                </button>
-              ))}
+    <SettingsPage>
+      {q.data.error && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">config.toml has an error, the previous settings are in use: {q.data.error}</div>}
+      <Card title="General" end={actions}>
+        <Row title="Zoom" hint="Make the whole interface larger. The middle position is the default.">
+          <label className="grid gap-2">
+            <span className="font-semibold">{ZOOM_LEVELS[draft.zoom]}%{draft.zoom === 2 ? " (default)" : ""}</span>
+            <input aria-label="Interface zoom" type="range" min={0} max={4} step={1} value={draft.zoom} onChange={(e) => set((c) => ({ ...c, zoom: Number(e.target.value) }))} className="w-full accent-teal" />
+            <span className="flex justify-between text-xs text-ink-2">{ZOOM_LEVELS.map((z) => <span key={z}>{z}%</span>)}</span>
+          </label>
+        </Row>
+        <Row title="Projects root" hint="Where projects are found, and where temporary folders and worktrees are created.">
+          <input className="field-input font-mono text-xs" value={draft.projects_root} onChange={(e) => set((c) => ({ ...c, projects_root: e.target.value }))} />
+        </Row>
+        <Row title="Published pre-draft worktrees" hint="Keep the local worktree by default. Cleanup only removes clean worktrees after a successful publication.">
+          <label className="flex items-center gap-2"><input type="checkbox" checked={draft.remove_published_worktree} onChange={(e) => set((c) => ({ ...c, remove_published_worktree: e.target.checked }))} />Remove after publishing</label>
+        </Row>
+        <Row title="Terminal" hint='Used by "Open in terminal".'>
+          <div className="grid gap-1.5">
+            {terminals.map((t) => (
               <button
-                onClick={() => set((c) => ({ ...c, terminal: { ...c.terminal, app: "custom" } }))}
-                className={`grid grid-cols-[14px_1fr] items-start gap-[9px] rounded-[7px] border px-2.5 py-2 text-left ${draft.terminal.app === "custom" ? "border-teal bg-[#F4FAF8]" : "border-line bg-paper"}`}
+                key={t.id}
+                onClick={() => set((c) => ({ ...c, terminal: { ...c.terminal, app: t.id } }))}
+                className={`grid grid-cols-[14px_1fr] items-start gap-[9px] rounded-[7px] border px-2.5 py-2 text-left ${draft.terminal.app === t.id ? "border-teal bg-[#F4FAF8]" : "border-line bg-paper"}`}
               >
-                <span className={`mt-0.5 size-3.5 rounded-full ${draft.terminal.app === "custom" ? "border-4 border-teal" : "border-[1.5px] border-ink-3"}`} />
-                <span className="grid gap-0.5 text-[12.5px]">
-                  <b className="font-[650]">Custom command</b>
-                  <span className="text-[11.5px] text-ink-3">Any other terminal. Use {"{cwd}"} and {"{command}"} in the command, one argument per space.</span>
+                <span className={`mt-0.5 size-3.5 rounded-full ${draft.terminal.app === t.id ? "border-4 border-teal" : "border-[1.5px] border-ink-3"}`} />
+                <span className="grid min-w-0 gap-0.5 text-[12.5px]">
+                  <b className="font-[650]">
+                    {t.name} {t.found ? <span className="ml-1 text-[10.5px] text-gh-open">found</span> : <span className="ml-1 text-[10.5px] text-ink-3">not installed</span>}
+                  </b>
+                  <span className="font-mono text-[11px] break-all text-ink-2">{t.template}</span>
                 </span>
               </button>
-              {draft.terminal.app === "custom" && (
-                <input
-                  className="field-input font-mono text-xs"
-                  value={draft.terminal.custom.join(" ")}
-                  onChange={(e) => set((c) => ({ ...c, terminal: { ...c.terminal, custom: e.target.value.split(" ").filter(Boolean) } }))}
-                />
-              )}
-            </div>
-          </Row>
-          <Row title="Editor" hint='Used by "Open in editor".'>
-            <input className="field-input font-mono text-xs" value={draft.commands.editor} onChange={(e) => set((c) => ({ ...c, commands: { ...c.commands, editor: e.target.value } }))} />
-          </Row>
-          <Row title="App update" hint="Install the GitHub build for the latest main commit.">
-            <UpdateControl />
-          </Row>
-        </Card>
-
-        <Card
-          id="presets"
-          title="Presets"
-          end={
-            <>
-              <button
-                className="btn btn-sm"
-                onClick={() => set((c) => ({ ...c, presets: [...c.presets, { id: `preset-${Date.now().toString(36)}`, label: "new preset", text: "" }] }))}
-              >
-                <Icon name="plus" size={12} />
-                New preset
-              </button>
-              {actions}
-            </>
-          }
-        >
-          {draft.presets.map((p, i) => (
-            <div key={p.id} className="grid grid-cols-[22px_150px_1fr_26px] items-start gap-2.5 rounded-lg border border-line p-2.5">
-              <span className="grid">
-                <button className="text-ink-3 hover:text-ink disabled:opacity-30" disabled={i === 0} title="Move up" onClick={() => move(i, -1)}>
-                  ▲
-                </button>
-                <button className="text-ink-3 hover:text-ink disabled:opacity-30" disabled={i === draft.presets.length - 1} title="Move down" onClick={() => move(i, 1)}>
-                  ▼
-                </button>
+            ))}
+            <button
+              onClick={() => set((c) => ({ ...c, terminal: { ...c.terminal, app: "custom" } }))}
+              className={`grid grid-cols-[14px_1fr] items-start gap-[9px] rounded-[7px] border px-2.5 py-2 text-left ${draft.terminal.app === "custom" ? "border-teal bg-[#F4FAF8]" : "border-line bg-paper"}`}
+            >
+              <span className={`mt-0.5 size-3.5 rounded-full ${draft.terminal.app === "custom" ? "border-4 border-teal" : "border-[1.5px] border-ink-3"}`} />
+              <span className="grid gap-0.5 text-[12.5px]">
+                <b className="font-[650]">Custom command</b>
+                <span className="text-[11.5px] text-ink-3">Any other terminal. Use {"{cwd}"} and {"{command}"} in the command, one argument per space.</span>
               </span>
-              <input className="field-input h-[30px] text-[12.5px] font-semibold" value={p.label} onChange={(e) => setPreset(i, { label: e.target.value })} />
-              <textarea
-                rows={2}
-                className="field-input h-auto min-h-[30px] resize-y py-1.5 text-[12.5px]"
-                value={p.text}
-                placeholder="The sentence added to the prompt"
-                onChange={(e) => setPreset(i, { text: e.target.value })}
+            </button>
+            {draft.terminal.app === "custom" && (
+              <input
+                className="field-input font-mono text-xs"
+                value={draft.terminal.custom.join(" ")}
+                onChange={(e) => set((c) => ({ ...c, terminal: { ...c.terminal, custom: e.target.value.split(" ").filter(Boolean) } }))}
               />
-              <button className="iconbtn" title="Delete" onClick={() => set((c) => ({ ...c, presets: c.presets.filter((_, j) => j !== i) }))}>
-                <Icon name="trash" size={14} />
+            )}
+          </div>
+        </Row>
+        <Row title="Editor" hint='Used by "Open in editor".'>
+          <input className="field-input font-mono text-xs" value={draft.commands.editor} onChange={(e) => set((c) => ({ ...c, commands: { ...c.commands, editor: e.target.value } }))} />
+        </Row>
+        <Row title="App update" hint="Install the GitHub build for the latest main commit.">
+          <UpdateControl />
+        </Row>
+      </Card>
+
+      <Card
+        id="presets"
+        title="Presets"
+        end={
+          <>
+            <button
+              className="btn btn-sm"
+              onClick={() => set((c) => ({ ...c, presets: [...c.presets, { id: `preset-${Date.now().toString(36)}`, label: "new preset", text: "" }] }))}
+            >
+              <Icon name="plus" size={12} />
+              New preset
+            </button>
+            {actions}
+          </>
+        }
+      >
+        {draft.presets.map((p, i) => (
+          <div key={p.id} className="grid grid-cols-[22px_150px_1fr_26px] items-start gap-2.5 rounded-lg border border-line p-2.5">
+            <span className="grid">
+              <button className="text-ink-3 hover:text-ink disabled:opacity-30" disabled={i === 0} title="Move up" onClick={() => move(i, -1)}>
+                ▲
               </button>
-            </div>
-          ))}
-          <div className="text-[11.5px] text-ink-3">The order here is the order used in prompts. Saved to config.toml, which you can also edit by hand.</div>
-        </Card>
-      </div>
-    </div>
+              <button className="text-ink-3 hover:text-ink disabled:opacity-30" disabled={i === draft.presets.length - 1} title="Move down" onClick={() => move(i, 1)}>
+                ▼
+              </button>
+            </span>
+            <input className="field-input h-[30px] text-[12.5px] font-semibold" value={p.label} onChange={(e) => setPreset(i, { label: e.target.value })} />
+            <textarea
+              rows={2}
+              className="field-input h-auto min-h-[30px] resize-y py-1.5 text-[12.5px]"
+              value={p.text}
+              placeholder="The sentence added to the prompt"
+              onChange={(e) => setPreset(i, { text: e.target.value })}
+            />
+            <button className="iconbtn" title="Delete" onClick={() => set((c) => ({ ...c, presets: c.presets.filter((_, j) => j !== i) }))}>
+              <Icon name="trash" size={14} />
+            </button>
+          </div>
+        ))}
+        <div className="text-[11.5px] text-ink-3">The order here is the order used in prompts. Saved to config.toml, which you can also edit by hand.</div>
+      </Card>
+    </SettingsPage>
   );
 }

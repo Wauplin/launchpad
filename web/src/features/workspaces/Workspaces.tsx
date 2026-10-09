@@ -1,10 +1,11 @@
-// Workspaces (ARCHITECTURE.md, 9.1.2): the top bar switcher and the page that edits them.
+// Workspaces (ARCHITECTURE.md, 9.1.2): the top bar switcher and the Settings page that edits them.
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { Workspace } from "@/gen/Workspace";
 import { Icon } from "@/components/Icon";
+import { Card, SettingsPage } from "@/features/settings/SettingsView";
 import { toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useProjects } from "@/lib/queries";
@@ -31,15 +32,11 @@ export function WorkspaceSwitcher() {
   const active = workspaces.find((w) => w.id === current);
   const count = (n: number) => `${n} project${n === 1 ? "" : "s"}`;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-t border-line-2 px-3.5 py-1.5" role="group" aria-label="Workspace of this window">
+    <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5" role="group" aria-label="Workspace of this window">
       <WorkspaceButton label="All projects" detail={`No filter · ${count(projects)}`} active={!active} onSwitch={() => switchTo(null)} onWindow={() => void openWindow(null)} />
       {workspaces.map((w) => (
         <WorkspaceButton key={w.id} label={w.name} detail={count(w.project_ids.length)} active={w.id === active?.id} onSwitch={() => switchTo(w.id)} onWindow={() => void openWindow(w.id)} />
       ))}
-      <Link className="btn btn-sm btn-ghost ml-auto shrink-0" to="/workspaces" title="Create, rename and edit workspaces">
-        <Icon name="sliders" size={13} />
-        Manage workspaces
-      </Link>
     </div>
   );
 }
@@ -109,12 +106,9 @@ export function WorkspacesView() {
     onError: toastError,
   });
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
-        <div className="grid gap-1">
-          <h2 className="m-0 text-lg font-semibold">Workspaces</h2>
-          <p className="m-0 text-xs text-ink-3">A workspace is a set of projects. A window that shows it lists only their agents, scheduled launches, crons and inbox notifications. Each window has its own workspace; agents launched from a window add their project to its workspace.</p>
-        </div>
+    <SettingsPage>
+      <Card title="Workspaces">
+        <p className="m-0 text-xs text-ink-3">A workspace is a set of projects. A window that shows it lists only their agents, scheduled launches, crons and inbox notifications. Each window has its own workspace, picked with the buttons in the top bar; agents launched from a window add their project to its workspace. Changes here are saved at once.</p>
         <div className="flex gap-2">
           <input aria-label="New workspace name" className="field-input h-8 w-64" placeholder="New workspace name" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} />
           <button className="btn" disabled={!name.trim() || create.isPending} onClick={() => create.mutate()}>
@@ -122,9 +116,9 @@ export function WorkspacesView() {
             Create and show here
           </button>
         </div>
-        {workspaces.length === 0 && <p className="text-[12.5px] text-ink-2">No workspace yet. Without one, every window shows all projects.</p>}
+        {workspaces.length === 0 && <p className="m-0 text-[12.5px] text-ink-2">No workspace yet. Without one, every window shows all projects.</p>}
         {workspaces.map((w) => <WorkspaceCard key={w.id} w={w} />)}
-      </div>
-    </div>
+      </Card>
+    </SettingsPage>
   );
 }

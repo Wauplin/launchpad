@@ -735,21 +735,20 @@ footer.end code { font: 12.5px var(--font-mono); }
   <div class="sketch-head">
     <span class="sketch-id">S1 · Inbox</span>
     <h2>Notifications triaged from the local cache</h2>
-    <p>The default screen. List and preview sit side by side, so going from one thread to the next never loads a page. Everything here renders from SQLite and refreshes in the background. Visible buttons below the top bar pick this window's workspace (a named set of projects) in one click or open another window on a different one; the sidebar, agents and inbox then only show that workspace, and the inbox has an All repos button to see every notification.</p>
+    <p>The default screen. List and preview sit side by side, so going from one thread to the next never loads a page. Everything here renders from SQLite and refreshes in the background. Visible buttons in the top bar, next to Launch, pick this window's workspace (a named set of projects) in one click or open another window on a different one; Settings → Workspaces edits them; the sidebar, agents and inbox then only show that workspace, and the inbox has an All repos button to see every notification.</p>
   </div>
   <div class="frame">
     <div class="win" role="img" aria-label="Inbox mockup">
       <div class="topbar">
         <div class="brand"><span class="logo"><img src="../../packaging/launchpad.svg" alt=""/></span>Launchpad</div>
         <div class="crumbs"><b>Inbox</b></div>
-        <span class="btn primary tb-launch"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
+        <div style="display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:6px;margin-left:auto">
+          <span class="btn">All projects <svg class="ic sm"><use href="#i-window"/></svg></span>
+          <span class="btn" style="background:var(--teal-soft);color:var(--teal-ink);border-color:var(--teal)">HF Hub <svg class="ic sm"><use href="#i-window"/></svg></span>
+          <span class="btn">Launchpad <svg class="ic sm"><use href="#i-window"/></svg></span>
+        </div>
+        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
         <div class="wctl"><span></span><span></span><span></span></div>
-      </div>
-      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 14px;background:var(--chrome);border-bottom:1px solid var(--line)">
-        <span class="btn">All projects <svg class="ic sm"><use href="#i-window"/></svg></span>
-        <span class="btn" style="background:var(--teal-soft);color:var(--teal-ink);border-color:var(--teal)">HF Hub <svg class="ic sm"><use href="#i-window"/></svg></span>
-        <span class="btn">Launchpad <svg class="ic sm"><use href="#i-window"/></svg></span>
-        <span class="btn" style="margin-left:auto">Manage workspaces</span>
       </div>
       <div class="app s1">
         <aside class="side">
@@ -1500,7 +1499,7 @@ chunk=256MB  run 3/5 …</pre>
   <div class="sketch-head">
     <span class="sketch-id">S6 · Settings, temporary folders, quotas</span>
     <h2>Settings and smaller pieces</h2>
-    <p>Two Settings screens (presets and general settings), the header of a temporary project, and the popover behind the status bar quotas.</p>
+    <p>Two Settings screens (presets and general settings), the header of a temporary project, and the popover behind the status bar quotas. Settings has General and Workspaces tabs; the Workspaces page creates, renames and deletes workspaces and picks their projects.</p>
   </div>
   <div class="s6">
     <div class="stack">

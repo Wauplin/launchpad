@@ -87,7 +87,7 @@ export function Sidebar() {
         Projects
       </NavItem>
       {scope.workspace ? <SideLabel>{scope.workspace.name}</SideLabel> : pinned.length > 0 && <SideLabel>Pinned</SideLabel>}
-      {scope.workspace && pinned.length === 0 && <Link to="/workspaces" className="px-[9px] py-1 text-xs text-ink-3">No project yet: pick some</Link>}
+      {scope.workspace && pinned.length === 0 && <Link to="/settings/workspaces" className="px-[9px] py-1 text-xs text-ink-3">No project yet: pick some</Link>}
       {pinned.map((p) => (
         <ProjectLink key={p.id} p={p} sessions={sessions} />
       ))}

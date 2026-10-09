@@ -26,7 +26,7 @@ const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/projects/$id", component: ProjectPage }),
   createRoute({ getParentRoute: () => root, path: "/projects/$id/code", component: CodeView, validateSearch: validateCodeSearch }),
   createRoute({ getParentRoute: () => root, path: "/settings", component: SettingsView }),
-  createRoute({ getParentRoute: () => root, path: "/workspaces", component: WorkspacesView }),
+  createRoute({ getParentRoute: () => root, path: "/settings/workspaces", component: WorkspacesView }),
   // Spike 4 benchmark page, not linked from the UI.
   createRoute({
     getParentRoute: () => root,
