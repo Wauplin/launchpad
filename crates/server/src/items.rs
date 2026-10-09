@@ -62,7 +62,10 @@ async fn action(
 }
 async fn list(State(s): State<Server>, Path((o, r)): Path<(String, String)>) -> ApiResult<Value> {
     let repo = format!("{o}/{r}");
-    if let Some(v) = items::cached(&s.app, format!("project-items:{repo}")).await? {
+    if let Some(v) = items::cached(&s.app, format!("project-items:{repo}")).await?
+        && v["prs"].is_array()
+        && v["issues"].is_array()
+    {
         return Ok(Json(v));
     }
     Ok(Json(items::project_items(&s.app, &repo, false).await?))

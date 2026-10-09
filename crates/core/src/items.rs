@@ -139,6 +139,8 @@ pub async fn project_items(app: &App, repo: &str, force: bool) -> Result<Value> 
     let key = format!("project-items:{repo}");
     if !force
         && let Some(v) = cached(app, key.clone()).await?
+        && v["prs"].is_array()
+        && v["issues"].is_array()
         && now_ms() - v["fetched_at"].as_i64().unwrap_or(0) < 300_000
     {
         return Ok(v);
@@ -151,6 +153,12 @@ pub async fn project_items(app: &App, repo: &str, force: bool) -> Result<Value> 
         json!(name)
     );
     let data = app.github.graphql(query).await?;
+    ensure!(data["repository"].is_object(), "GitHub repository {repo} is unavailable");
+    ensure!(
+        data["repository"]["pullRequests"]["nodes"].is_array()
+            && data["repository"]["issues"]["nodes"].is_array(),
+        "GitHub did not return issue and pull request lists for {repo}"
+    );
     let v = json!({"fetched_at":now_ms(),"prs":data["repository"]["pullRequests"]["nodes"],"issues":data["repository"]["issues"]["nodes"]});
     store(app, key, &v).await?;
     Ok(v)

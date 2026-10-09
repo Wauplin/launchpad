@@ -113,7 +113,7 @@ export function RepoItems({
     if (
       q.data &&
       (Date.now() - q.data.fetched_at > 300_000 ||
-        [...q.data.prs, ...q.data.issues].some((i) => !i.labels))
+        [...(q.data.prs ?? []), ...(q.data.issues ?? [])].some((i) => !i.labels))
     )
       void refresh();
   }, [q.data?.fetched_at]);
@@ -163,13 +163,13 @@ export function RepoItems({
           className={`btn ${tab === "prs" ? "bg-select!" : ""}`}
           onClick={() => setTab("prs")}
         >
-          Pull requests {(q.data?.prs.length ?? 0) + predrafts.length}
+          Pull requests {(q.data?.prs?.length ?? 0) + predrafts.length}
         </button>
         <button
           className={`btn ${tab === "issues" ? "bg-select!" : ""}`}
           onClick={() => setTab("issues")}
         >
-          Issues {q.data?.issues.length ?? ""}
+          Issues {q.data?.issues?.length ?? ""}
         </button>
         <button
           className="btn ml-auto"
