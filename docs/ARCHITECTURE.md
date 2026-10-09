@@ -407,6 +407,8 @@ A Done session has no harness process after a daemon restart; sending it a messa
 
 The top bar switches between one, two or four panes. Each session header has a Move to pane selector in multi-pane mode; clicking a session pane or an empty pane focuses it. Drag a session row or its title onto a pane to move it there; occupied panes swap sessions. Clicking a session still opens it in the focused pane. The current arrangement and session pins live in the existing persisted browser layout store. Pins sort first inside each state group rather than introducing another session state. Search filters titles, project names, folders and initial prompts immediately, and debounces a daemon query over stored user/assistant message text. Filtered groups retain their counts and independent collapse controls.
 
+Session titles are edited in the header: click the title to replace it with a text field and visible Save title and Cancel buttons. Saving persists the trimmed, nonempty title through the existing rename endpoint; failures keep the draft open. A star to the right toggles the persisted pin, with an accessible label and pressed state. Git and Open in editor sit in the action row beside Files and Archive.
+
 ### 9.1.2 Workspaces
 
 A workspace is a named set of registered projects, stored as JSON in the `workspace` table of `state.db`. A project can belong to several workspaces. Everything else follows from the projects: a session belongs to a workspace when its project id or folder belongs to one of its projects, or when it was launched from that workspace; scheduled launches and crons use their target project or the workspace that created them. Inbox threads belong to a workspace when their repository is the `origin` or `upstream` of one of its projects. "All projects" is the absence of a workspace and shows everything, as before.
@@ -805,3 +807,5 @@ Project metadata refresh, on 2026-10-04:
 51. **Visible workspace switching.** Replaced the workspace dropdown on 2026-10-04 with a wrapping button row below the top bar, so every workspace can be selected in one click. Keep All projects, the current selection, New window buttons and Manage workspaces visible.
 
 52. **Single-row top bar.** Moved the workspace buttons into the top bar row on 2026-10-09 to save vertical space, and moved workspace management to a Settings → Workspaces page. The buttons stay one click away and only wrap to a second line when the window is too narrow. This supersedes the dedicated row and the visible Manage workspaces button of decision 51.
+
+53. **Edit session titles in place.** On 2026-10-09, replaced the separate Rename button and rename row with an inline title field and Save title/Cancel controls. Replaced Pin with a star on the right of the title, and grouped Git and Open in editor with Files and Archive in the header action row.

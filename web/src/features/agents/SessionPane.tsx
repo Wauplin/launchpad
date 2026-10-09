@@ -144,6 +144,7 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
+  useEffect(() => { setRenaming(false); setTitle(""); }, [sessionId]);
   const { pinned, togglePin, layout, panes, place } = useLayout();
   const dropImages = useRef<((files: File[]) => void) | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -217,9 +218,16 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
         <span className="order-1 row-span-2 self-start pt-px">
           <HarnessMark harness={s.harness} size={18} />
         </span>
-        <span draggable onDragStart={(e) => { e.dataTransfer.setData("application/x-launchpad-session",s.id); e.dataTransfer.effectAllowed = "move"; }} className="order-2 cursor-grab truncate text-[12.5px] font-[650]" title={`${s.title} · Drag to another pane`}>
-          {s.title}
-        </span>
+        <div className="order-2 flex min-w-0 items-center gap-1">
+          {renaming ? <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+            <input autoFocus aria-label="Session title" className="field-input min-w-0 flex-1 basis-32 text-[12.5px] font-[650]" maxLength={100} value={title} disabled={savingTitle} onChange={(e) => setTitle(e.target.value)} />
+            <button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, { title: title.trim() }); setRenaming(false); } catch (e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button>
+            <button className="btn btn-sm" disabled={savingTitle} onClick={() => setRenaming(false)}>Cancel</button>
+          </div> : <button draggable onDragStart={(e) => { e.dataTransfer.setData("application/x-launchpad-session", s.id); e.dataTransfer.effectAllowed = "move"; }} className="min-w-0 flex-1 truncate text-left text-[12.5px] font-[650] hover:text-teal-ink" title={`${s.title} · Click to edit · Drag to another pane`} aria-label={`Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
+            {s.title}
+          </button>}
+          <button className={`iconbtn shrink-0 self-start ${pinned.includes(s.id) ? "text-teal-ink!" : ""}`} title={pinned.includes(s.id) ? "Unpin session" : "Pin session"} aria-label={pinned.includes(s.id) ? "Unpin session" : "Pin session"} aria-pressed={pinned.includes(s.id)} onClick={() => togglePin(s.id)}>{pinned.includes(s.id) ? "★" : "☆"}</button>
+        </div>
         <span className="order-4 col-span-2 flex flex-wrap gap-0.5 self-start pt-1">
           {running && (
             <button className="iconbtn" title="Stop: interrupt the agent" onClick={() => void act(s.id, "interrupt")}>
@@ -246,6 +254,8 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
               Files
             </button>
           )}
+          <button className={`btn btn-sm ${gitOpen ? "bg-select!" : ""}`} aria-pressed={gitOpen} onClick={() => setGitOpen(!gitOpen)}>Git</button>
+          <button className="btn btn-sm" onClick={() => void api.post("/api/open-editor", { path: s.cwd }).catch(toastError)}>Open in editor</button>
           {resumable && (
             <button className="btn btn-sm" title="Resume the session" onClick={() => void act(s.id, "resume")}>
               Resume
@@ -269,14 +279,9 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
       </div>
 
       <div className="flex flex-wrap items-center gap-1 border-b border-line-2 px-2 py-1 text-xs">
-        <button className="btn btn-sm" aria-pressed={pinned.includes(s.id)} onClick={() => togglePin(s.id)}>{pinned.includes(s.id) ? "★ Unpin" : "☆ Pin"}</button>
-        <button className="btn btn-sm" onClick={() => { setTitle(s.title); setRenaming(!renaming); }}>Rename</button>
-        <button className={`btn btn-sm ${gitOpen ? "bg-select!" : ""}`} aria-pressed={gitOpen} onClick={() => setGitOpen(!gitOpen)}>Git</button>
-        <button className="btn btn-sm" onClick={() => void api.post("/api/open-editor", { path:s.cwd }).catch(toastError)}>Open in editor</button>
         {layout > 1 && <select aria-label="Move session to pane" className="field-input max-w-32" value="" onChange={(e) => place(s.id,Number(e.target.value))}><option value="">Move to pane…</option>{Array.from({length:layout},(_,i) => panes[i] !== s.id && <option key={i} value={i}>Pane {i+1}</option>)}</select>}
         <span className="ml-auto text-ink-3">{new Date(s.started_at).toLocaleDateString()}</span>
       </div>
-      {renaming && <div className="flex gap-2 border-b border-line p-2"><input aria-label="Session title" className="field-input min-w-0 flex-1" maxLength={100} value={title} onChange={(e) => setTitle(e.target.value)} /><button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, {title}); setRenaming(false); } catch(e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button><button className="btn btn-sm" onClick={() => setRenaming(false)}>Cancel</button></div>}
       {gitOpen && <GitPanel sessionId={s.id} />}
       <CodeLinksContext.Provider value={codeLinks}>
       <div

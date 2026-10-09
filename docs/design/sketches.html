@@ -1094,8 +1094,8 @@ Context:
           <div class="pane">
             <div class="ph">
               <span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
-              <span class="t">Xet refresh token endpoint</span>
-              <span class="acts"><i class="pin">3</i><span class="iconbtn" title="Stop"><svg class="ic sm"><use href="#i-stop"/></svg></span><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span></span>
+              <span class="t" title="Click to edit title">Xet refresh token endpoint <button class="iconbtn" title="Pin session" aria-label="Pin session">☆</button></span>
+              <span class="acts"><span class="btn sm">Files</span><span class="btn sm">Git</span><span class="btn sm">Open in editor</span><i class="pin">3</i><span class="iconbtn" title="Stop"><svg class="ic sm"><use href="#i-stop"/></svg></span><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span></span>
               <span class="m">moon-landing · <span class="st work">Working 12:04</span> 182k tokens · 18% context · $1.84</span>
             </div>
             <div class="pbody">
@@ -1115,8 +1115,8 @@ Context:
           <div class="pane focus">
             <div class="ph">
               <span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span>
-              <span class="t">Fix listJobs CI failure</span>
-              <span class="acts"><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span><span class="btn sm" title="Archive the session (it stays resumable)">Archive</span><span class="iconbtn" title="Close panel"><svg class="ic sm"><use href="#i-x"/></svg></span></span>
+              <span class="t" title="Click to edit title">Fix listJobs CI failure <button class="iconbtn" title="Pin session" aria-label="Pin session">☆</button></span>
+              <span class="acts"><span class="btn sm">Files</span><span class="btn sm">Git</span><span class="btn sm">Open in editor</span><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span><span class="btn sm" title="Archive the session (it stays resumable)">Archive</span><span class="iconbtn" title="Close panel"><svg class="ic sm"><use href="#i-x"/></svg></span></span>
               <span class="m">huggingface.js · <span class="st needs">Done 3 min</span> 41.2k tokens · gpt-6-sol medium</span>
             </div>
             <div class="pbody">
@@ -1139,8 +1139,8 @@ Context:
           <div class="pane">
             <div class="ph">
               <span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
-              <span class="t">Check #3412 / #3420</span>
-              <span class="acts"><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span><span class="btn sm" title="Archive the session (it stays resumable)">Archive</span><span class="iconbtn" title="Close panel"><svg class="ic sm"><use href="#i-x"/></svg></span></span>
+              <span class="t" title="Click to edit title">Check #3412 / #3420 <button class="iconbtn" title="Pin session" aria-label="Pin session">☆</button></span>
+              <span class="acts"><span class="btn sm">Files</span><span class="btn sm">Git</span><span class="btn sm">Open in editor</span><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span><span class="btn sm" title="Archive the session (it stays resumable)">Archive</span><span class="iconbtn" title="Close panel"><svg class="ic sm"><use href="#i-x"/></svg></span></span>
               <span class="m">huggingface_hub · <span class="st needs">Question</span> 64k tokens · $0.58</span>
             </div>
             <div class="pbody">
@@ -1201,7 +1201,7 @@ chunk=256MB  run 3/5 …</pre>
   <ol class="notes">
     <li><i class="pin">1</i><span><b>Scheduled, Running, Done, Archived.</b> Click a heading to collapse or expand its rows; counts stay visible and the app remembers each group’s expansion. Done waits for input. Running includes background and long commands, even when silent. Archived sessions can be resumed. Separate amber Done and blue Running counts appear beside Agents, with a spinner for running agents. Pinned projects show a done dot and a running spinner together when both apply.</span></li>
     <li><i class="pin">2</i><span><b>Layouts 1, 2 and 4.</b> Buttons in the top bar. Clicking a session loads it in the focused pane (teal outline). Drag a row or title to another pane to move or swap sessions. Click inside a pane to focus it, or use the session header Move to pane selector. The current pane arrangement is remembered per workspace.</span></li>
-    <li><i class="pin">3</i><span><b>Session header.</b> Pin, Rename, Git and Open in editor are visible controls, with a Move to pane selector in multi-pane layouts. Git shows branch, changed files and separate staged/working-tree patches without changing the repository. Titles are AI-generated from the initial prompt. Project, state and elapsed time, tokens, context usage and cost (Claude only). The X only closes the panel and leaves the session state unchanged. Archive stops the session and keeps it resumable in Archived. Stop interrupts the agent. "Open in terminal" hands the session to the terminal chosen in Settings (S6) and back.</span></li>
+    <li><i class="pin">3</i><span><b>Session header.</b> Click the title to edit it in place with Save title and Cancel controls; a star on its right toggles the pin. Git and Open in editor share the action row with Files and Archive, with a Move to pane selector in multi-pane layouts. Git shows branch, changed files and separate staged/working-tree patches without changing the repository. Titles are AI-generated from the initial prompt. Project, state and elapsed time, tokens, context usage and cost (Claude only). The X only closes the panel and leaves the session state unchanged. Archive stops the session and keeps it resumable in Archived. Stop interrupts the agent. "Open in terminal" hands the session to the terminal chosen in Settings (S6) and back.</span></li>
     <li><i class="pin">4</i><span><b>Compact tool calls.</b> Commands and file reads collapse into one line, edits show a small diff, the running command has a spinner. Click to expand.</span></li>
     <li><i class="pin">5</i><span><b>Copy exactly.</b> Each message has Copy (raw markdown) and Copy as text, and code blocks have their own button. No terminal line breaks or padding.</span></li>
     <li><i class="pin">6</i><span><b>Questions become buttons.</b> When an agent asks something, its options are clickable and numbered. Typing a free answer still works.</span></li>
