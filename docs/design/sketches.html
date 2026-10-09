@@ -597,8 +597,8 @@ mark.cv-m.cur { background: #FFB347; box-shadow: 0 0 0 1.5px #C77700; }
 .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--sunk); font-size: 11.5px; font-weight: 600; }
 .seg span { height: 20px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 5px; color: var(--ink-3); }
 .seg span.on { background: var(--paper); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
-.sview { flex: 1; min-height: 0; overflow: hidden; background: var(--chrome); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
-.sview.static { gap: 9px; padding: 12px; }
+.sview { flex: 1; min-height: 0; overflow: hidden; background: var(--paper); padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+.sview.static { padding: 12px; }
 .band { display: flex; align-items: center; gap: 9px; padding: 8px 11px; border-radius: 8px; font-size: 13px; font-weight: 700; border: 1px solid; }
 .band .ic { width: 18px; height: 18px; }
 .band small { font-size: 11.5px; font-weight: 500; color: var(--ink-2); }
@@ -610,7 +610,8 @@ mark.cv-m.cur { background: #FFB347; box-shadow: 0 0 0 1.5px #C77700; }
 .band.failed { background: #FCEBEC; border-color: #F1B5B9; color: var(--gh-closed); }
 .band.arch { background: var(--paper); border-color: var(--line); color: var(--ink-2); }
 .band.sched { background: var(--teal-soft); border-color: #9DCBC2; color: var(--teal-ink); }
-.scard { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; display: grid; gap: 6px; box-shadow: 0 1px 2px rgba(23,32,43,.05); min-width: 0; }
+.scard { display: grid; gap: 6px; min-width: 0; }
+.scard + .scard { border-top: 1px solid var(--line-2); padding-top: 10px; }
 .scard > .sh { display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
 .scard > .sh .end { margin-left: auto; display: flex; gap: 3px; letter-spacing: 0; text-transform: none; }
 .smeta { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin: 0; font-size: 11.5px; align-items: baseline; font-variant-numeric: tabular-nums; }
@@ -626,8 +627,8 @@ mark.cv-m.cur { background: #FFB347; box-shadow: 0 0 0 1.5px #C77700; }
 .sfinal.cut { overflow: hidden; }
 .sfinal.cut::after { content: ""; position: absolute; inset: auto 0 0 0; height: 30px; background: linear-gradient(rgba(255,255,255,0), var(--paper)); }
 .smore { font-size: 11.5px; font-weight: 600; color: var(--teal-ink); }
-.snext { display: grid; gap: 5px; }
-.snext .nx { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--chrome); font-size: 12px; }
+.snext { display: grid; gap: 2px; }
+.snext .nx { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
 .snext .nx .src { font-size: 10.5px; font-weight: 650; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; width: 58px; flex: none; }
 .snext .nx .btn { margin-left: auto; }
 .sacts { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -1751,7 +1752,7 @@ Context:
   <div class="sketch-head">
     <span class="sketch-id">S8 · Session summary · draft for discussion</span>
     <h2>When an agent stops, show the outcome first, not the trace</h2>
-    <p>Each time the panel loads a session that is not running (Done, stopped, interrupted, failed or archived), it opens on a summary view instead of the trace. A colored band shows the state at a glance. Below it, in a single column, are the final message, next steps and run metadata. The full trace is one click away with the Trace toggle. Running sessions always show the trace. This is a sketch only; nothing is implemented.</p>
+    <p>Each time the panel loads a session that is not running (Done, stopped, interrupted, failed or archived), it opens on a summary view instead of the trace. A colored band shows the state at a glance. Below it, in one plain column separated by thin lines, are the run metadata, the task, the final message and next steps. The full trace is one click away with the Trace toggle. Running sessions always show the trace. This is a sketch only; nothing is implemented.</p>
   </div>
   <div class="frame">
     <div class="win" role="img" aria-label="Session summary mockup">
@@ -1794,26 +1795,7 @@ Context:
             <div class="sview">
               <div class="band done"><svg class="ic"><use href="#i-okcircle"/></svg>Done <small>waiting for you</small><span class="end">finished 14:32 · 3 min ago</span><i class="pin">1</i></div>
               <div class="scard">
-                <div class="sh">Final message <i class="pin">3</i><span class="end"><span class="btn sm"><svg class="ic sm"><use href="#i-copy"/></svg>Copy</span><span class="btn sm">Copy as text</span></span></div>
-                <div class="sfinal">
-                  <p>Done. <code class="i">GET /api/repos/:id?expand=xetRefreshToken</code> now returns a fresh refresh token. It reuses <code class="i">issueXetToken()</code>, so expiry and scopes stay the same as the dedicated endpoint:</p>
-<pre>if (expand.includes("xetRefreshToken")) {
-info.xetRefreshToken = await issueXetToken(repo, user);
-}</pre>
-                  <ul><li>Changed <code class="i">server/routes/api/repos.ts</code> and its spec.</li><li>Added a test for users without write access: they get no token.</li><li>Not done: the OpenAPI schema. It is generated in CI and I could not run the generator locally.</li></ul>
-                  <p>Both commits are on <code class="i">lp/xet-refresh</code>. Nothing is pushed.</p>
-                </div>
-              </div>
-              <div class="scard">
-                <div class="sh">Next steps <i class="pin">4</i></div>
-                <div class="snext">
-                  <div class="nx"><span class="src">Git</span>2 commits not pushed, no PR yet<span class="btn sm"><svg class="ic sm"><use href="#i-pr-local"/></svg>Open pre-draft PR</span></div>
-                  <div class="nx"><span class="src">Git</span>3 files changed since <code class="i">main</code><span class="btn sm"><svg class="ic sm"><use href="#i-code"/></svg>Review diff</span></div>
-                  <div class="nx"><span class="src">Session</span>Continue later, for example after the quota reset<span class="btn sm"><svg class="ic sm"><use href="#i-clock"/></svg>Schedule follow-up</span></div>
-                </div>
-              </div>
-              <div class="scard">
-                <div class="sh">Run <i class="pin">5</i></div>
+                <div class="sh">Run <i class="pin">3</i></div>
                 <dl class="smeta two">
                   <dt>Time</dt><dd>18 min 40 s · 4 turns</dd>
                   <dt>Cost</dt><dd>$2.31 · 241k tokens</dd>
@@ -1824,7 +1806,29 @@ info.xetRefreshToken = await issueXetToken(repo, user);
                   <dt>Context</dt><dd>#3412 · issue</dd>
                   <dt>Last cmd</dt><dd class="mono">pnpm test <span style="color:var(--gh-open)">exit 0</span></dd>
                 </dl>
-                <div class="stask"><b>Task:</b> Add the xet refresh token to the repo info endpoint so the client can renew it without a second call.</div>
+              </div>
+              <div class="scard">
+                <div class="sh">Task <span class="faint" style="text-transform:none;letter-spacing:0;font-weight:500">first prompt</span></div>
+                <div class="stask">Add the xet refresh token to the repo info endpoint so the client can renew it without a second call.</div>
+              </div>
+              <div class="scard">
+                <div class="sh">Final message <i class="pin">4</i><span class="end"><span class="btn sm"><svg class="ic sm"><use href="#i-copy"/></svg>Copy</span><span class="btn sm">Copy as text</span></span></div>
+                <div class="sfinal">
+                  <p>Done. <code class="i">GET /api/repos/:id?expand=xetRefreshToken</code> now returns a fresh refresh token. It reuses <code class="i">issueXetToken()</code>, so expiry and scopes stay the same as the dedicated endpoint:</p>
+<pre>if (expand.includes("xetRefreshToken")) {
+info.xetRefreshToken = await issueXetToken(repo, user);
+}</pre>
+                  <ul><li>Changed <code class="i">server/routes/api/repos.ts</code> and its spec.</li><li>Added a test for users without write access: they get no token.</li><li>Not done: the OpenAPI schema. It is generated in CI and I could not run the generator locally.</li></ul>
+                  <p>Both commits are on <code class="i">lp/xet-refresh</code>. Nothing is pushed.</p>
+                </div>
+              </div>
+              <div class="scard">
+                <div class="sh">Next steps <i class="pin">5</i></div>
+                <div class="snext">
+                  <div class="nx"><span class="src">Git</span>2 commits not pushed, no PR yet<span class="btn sm"><svg class="ic sm"><use href="#i-pr-local"/></svg>Open pre-draft PR</span></div>
+                  <div class="nx"><span class="src">Git</span>3 files changed since <code class="i">main</code><span class="btn sm"><svg class="ic sm"><use href="#i-code"/></svg>Review diff</span></div>
+                  <div class="nx"><span class="src">Session</span>Continue later, for example after the quota reset<span class="btn sm"><svg class="ic sm"><use href="#i-clock"/></svg>Schedule follow-up</span></div>
+                </div>
               </div>
             </div>
             <div class="pin-input"><div class="inp">Message Claude to continue. The view switches to the trace when the turn starts. <i class="pin">6</i><span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
@@ -1850,16 +1854,20 @@ info.xetRefreshToken = await issueXetToken(repo, user);
         <div class="sview static">
           <div class="band stopped"><svg class="ic"><use href="#i-stop"/></svg>Stopped <small>by you, during a turn</small><span class="end">14:05 · 30 min ago</span><i class="pin">7</i></div>
           <div class="scard">
-            <div class="sh">Last agent message<span class="end"><span class="btn sm"><svg class="ic sm"><use href="#i-copy"/></svg>Copy</span></span></div>
-            <div class="sfinal"><p>4 of 7 spec files are converted. I am running the suite to check that the snapshots did not change before I convert the last 3 files (<code class="i">list-files</code>, <code class="i">commit</code>, <code class="i">upload</code>).</p></div>
-          </div>
-          <div class="scard">
             <dl class="smeta two">
               <dt>Time</dt><dd>7 min 12 s · 2 turns</dd>
               <dt>Tokens</dt><dd>88k</dd>
               <dt>Branch</dt><dd>main · 6 files uncommitted</dd>
               <dt>Cut off</dt><dd class="mono">pnpm vitest run</dd>
             </dl>
+          </div>
+          <div class="scard">
+            <div class="sh">Task</div>
+            <div class="stask">Migrate the snapshot tests from jest to vitest and keep the snapshots identical.</div>
+          </div>
+          <div class="scard">
+            <div class="sh">Last agent message<span class="end"><span class="btn sm"><svg class="ic sm"><use href="#i-copy"/></svg>Copy</span></span></div>
+            <div class="sfinal"><p>4 of 7 spec files are converted. I am running the suite to check that the snapshots did not change before I convert the last 3 files (<code class="i">list-files</code>, <code class="i">commit</code>, <code class="i">upload</code>).</p></div>
           </div>
           <div class="scard">
             <div class="sh">Next steps</div>
@@ -1886,6 +1894,18 @@ info.xetRefreshToken = await issueXetToken(repo, user);
         <div class="fh"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span><b>Release notes for v1.4</b><span class="end"><span class="seg"><span class="on">Summary</span><span>Trace</span></span></span></div>
         <div class="sview static">
           <div class="band arch"><svg class="ic"><use href="#i-archive"/></svg>Archived <small>after Done · resumable</small><span class="end">archived 2 h ago</span><i class="pin">8</i></div>
+          <div class="scard">
+            <dl class="smeta two">
+              <dt>Time</dt><dd>9 min · 1 turn</dd>
+              <dt>Cost</dt><dd>$0.92</dd>
+              <dt>Branch</dt><dd>release-notes-1.4 · pushed</dd>
+              <dt>Changes</dt><dd>1 file <span class="add">+86</span></dd>
+            </dl>
+          </div>
+          <div class="scard">
+            <div class="sh">Task</div>
+            <div class="stask">Write the release notes for v1.4 from the PRs merged since v1.3 and open a draft PR.</div>
+          </div>
           <div class="scard">
             <div class="sh">Final message</div>
             <div class="sfinal"><p>Release notes are in <code class="i">docs/source/en/release_notes/v1.4.md</code> and draft PR #3431 is open. I grouped the 23 merged PRs into 4 sections.</p></div>
@@ -1928,9 +1948,9 @@ info.xetRefreshToken = await issueXetToken(repo, user);
   <ol class="notes">
     <li><i class="pin">1</i><span><b>State band.</b> The first line of the summary gives the state in words, with a color and an icon that match the sidebar badge: amber Done, dashed Stopped, gray Interrupted and Archived, red Failed. It also shows when the session ended.</span></li>
     <li><i class="pin">2</i><span><b>Summary or Trace.</b> A toggle in the session header. Each time the panel loads a session that is not running (click in the list, startup, workspace switch), it opens on Summary. Trace shows the full conversation until another session is loaded. A turn that ends while the trace is open does not switch the view; the state bar (9) appears instead. The header keeps Files, Git, Open in editor, Open in terminal, Archive and the X, so the summary has no separate action bar. The X still only closes the panel.</span></li>
-    <li><i class="pin">3</i><span><b>Final message.</b> The last agent message, rendered as markdown at full width, with Copy and Copy as text. Very long messages fold after about 30 lines with "Show full message". No AI summary: what you read is what the agent wrote.</span></li>
-    <li><i class="pin">4</i><span><b>Next steps.</b> Only facts that Launchpad already has: unpushed commits, uncommitted files, a turn that did not finish. Session rows hold the actions that depend on the state and are not in the header: Resume, Schedule follow-up, linked PRs and issues. If the last message is a question with options, the options are added as Agent rows; a click sends the answer. Launchpad does not parse free text and does not ask agents for a special format. Each row has one button.</span></li>
-    <li><i class="pin">5</i><span><b>Run metadata.</b> Duration and turns, cost and tokens (cost for Claude only), model and context, folder, branch and push state, changed files compared to <code>main</code>, context items, and the exit code of the last command. The first prompt is shown so you remember the task.</span></li>
+    <li><i class="pin">3</i><span><b>Run metadata.</b> Duration and turns, cost and tokens (cost for Claude only), model and context, folder, branch and push state, changed files compared to <code>main</code>, context items, and the exit code of the last command. Below it, <b>Task</b> shows the first prompt of the session, so you remember what was asked; long prompts fold after a few lines.</span></li>
+    <li><i class="pin">4</i><span><b>Final message.</b> The last agent message, rendered as markdown at full width, with Copy and Copy as text. Very long messages fold after about 30 lines with "Show full message". No AI summary: what you read is what the agent wrote.</span></li>
+    <li><i class="pin">5</i><span><b>Next steps.</b> Only facts that Launchpad already has: unpushed commits, uncommitted files, a turn that did not finish. Session rows hold the actions that depend on the state and are not in the header: Resume, Schedule follow-up, linked PRs and issues. If the last message is a question with options, the options are added as Agent rows; a click sends the answer. Launchpad does not parse free text and does not ask agents for a special format. Each row has one button.</span></li>
     <li><i class="pin">6</i><span><b>Write a new message.</b> The message box stays at the bottom of the summary. Sending starts a turn; the session goes back to Running and the panel shows the trace.</span></li>
     <li><i class="pin">7</i><span><b>Stopped sessions.</b> They show the last agent message instead of a final message, and the command that was cut off. Resume continues the turn; a message in the box resumes with new instructions; Schedule follow-up resumes it later.</span></li>
     <li><i class="pin">8</i><span><b>Archived sessions.</b> Same summary, with fewer rows. Resume moves the session out of Archived. Schedule follow-up resumes it later with a new message. Linked PRs and issues are buttons.</span></li>
@@ -1947,7 +1967,7 @@ info.xetRefreshToken = await issueXetToken(repo, user);
     <li><span><b>Opens on every load.</b> Every time the panel loads a session that is not running, it shows Summary first.</span></li>
     <li><span><b>Simple next steps.</b> Only Launchpad facts and the options of an agent question. No change to the Launchpad skill and no parsing of a "Next steps" list.</span></li>
     <li><span><b>Follow-up, not relaunch.</b> Continue in the same session with Schedule follow-up or the message box. No Relaunch button to start a new session with the same spec.</span></li>
-    <li><span><b>Single column, no action bar.</b> Final message, next steps and run metadata are stacked. Archive and Summary/Trace live in the header; other state-specific actions are Next steps rows.</span></li>
+    <li><span><b>One plain column, no action bar.</b> Run metadata, task, final message and next steps follow each other on one white surface, separated by thin lines, without cards or gray gaps. Archive and Summary/Trace live in the header; other state-specific actions are Next steps rows.</span></li>
     <li><span><b>One panel size.</b> The agents page shows one session at a time, so there is no compact version for small panes.</span></li>
   </ol>
 
