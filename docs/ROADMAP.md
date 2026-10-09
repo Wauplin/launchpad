@@ -71,6 +71,7 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 
 **Progress:**
 
+- Project page polish (2026-10-09): Running agents appear above GitHub items, followed by Worktrees and All agents (including running sessions). Empty GitHub tabs no longer reserve a full-height list. Agent lists use fixed-height virtualization. Phase 1 remains built and awaiting daily use.
 - Project metadata correction (2026-10-04): registered origin URLs and origin/upstream GitHub mappings refresh on reads and every 30 seconds, with change events updating open windows. Registration no longer leaves existing projects with stale metadata. Phase 1 remains built and awaiting daily use.
 
 - Built on 2026-10-02, and checked against the real CLIs (Claude Haiku and Codex GPT-6-Luna) through the API and the UI:

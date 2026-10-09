@@ -1,5 +1,9 @@
-// A project: header, description, its worktrees and its sessions. Issues and PRs arrive in Phase 3.
+// A project: running agents, GitHub items, worktrees and all agents.
 
+import { memo, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import type { Session } from "@/gen/Session";
+import { isRunning } from "@/lib/sessionStatus";
 import { RepoItems } from "@/features/github/RepoItems";
 import { Link, useParams } from "@tanstack/react-router";
 import { HarnessMark } from "@/components/HarnessMark";
@@ -17,8 +21,6 @@ export function ProjectPage() {
   const { id } = useParams({ strict: false }) as { id: string };
   const p = useProject(id);
   const sessions = (useSessions().data ?? []).filter((s) => s.project_id === id);
-  const show = useLayout((s) => s.show);
-  const navigate = useNavigate();
   const worktrees = (useCodeSources(p?.id).data?.worktrees ?? []).filter((w) => !w.main);
   if (!p) return <div className="p-6 text-ink-3">This project is not registered.</div>;
   return (
@@ -49,6 +51,7 @@ export function ProjectPage() {
           </div>
         </div>
         {p.is_temp && <TempProjectCard p={p} />}
+        <ProjectAgents title="Running agents" sessions={sessions.filter(isRunning)} empty="No running agents in this project." />
         <RepoItems key={p.gh_repo ?? p.id} repo={p.gh_repo ?? ""} projectId={p.id} />
         {worktrees.length > 0 && (
           <>
@@ -68,26 +71,56 @@ export function ProjectPage() {
             </div>
           </>
         )}
-        <div className="seclabel">Sessions</div>
-        <div className="overflow-hidden rounded-lg border border-line">
-          {sessions.length === 0 && <div className="p-4 text-[12.5px] text-ink-2">No session in this project yet.</div>}
-          {sessions.map((s) => (
-            <button
-              key={s.id}
-              className="flex w-full items-center gap-2.5 border-b border-line-2 px-4 py-2 text-left last:border-0 hover:bg-[#f5f8fb]"
-              onClick={() => {
-                show(s.id);
-                void navigate({ to: "/agents" });
-              }}
-            >
-              <HarnessMark harness={s.harness} size={16} />
-              <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold">{s.title}</span>
-              <StatusBadge s={s} />
-              <span className="text-xs text-ink-3">{new Date(s.started_at).toLocaleDateString()}</span>
-            </button>
-          ))}
-        </div>
+        <ProjectAgents title="All agents" sessions={sessions} empty="No agents in this project yet." />
       </div>
     </div>
   );
 }
+
+function ProjectAgents({ title, sessions, empty }: { title: string; sessions: Session[]; empty: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const v = useVirtualizer({
+    count: sessions.length,
+    getScrollElement: () => ref.current,
+    estimateSize: () => 40,
+    overscan: 3,
+    useFlushSync: false,
+  });
+  return (
+    <section className="grid gap-3">
+      <div className="seclabel">{title} · {sessions.length}</div>
+      <div ref={ref} className="overflow-auto rounded-lg border border-line" style={sessions.length ? { height: Math.min(sessions.length, 8) * 40 + 2 } : undefined}>
+        {sessions.length === 0 ? (
+          <div className="p-4 text-[12.5px] text-ink-2">{empty}</div>
+        ) : (
+          <div className="relative" style={{ height: v.getTotalSize() }}>
+            {v.getVirtualItems().map((row) => (
+              <div key={sessions[row.index].id} className="absolute w-full" style={{ transform: `translateY(${row.start}px)` }}>
+                <ProjectAgentRow s={sessions[row.index]} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+const ProjectAgentRow = memo(function ProjectAgentRow({ s }: { s: Session }) {
+  const show = useLayout((s) => s.show);
+  const navigate = useNavigate();
+  return (
+    <button
+      className="flex h-10 w-full items-center gap-2.5 border-b border-line-2 px-4 text-left hover:bg-[#f5f8fb]"
+      onClick={() => {
+        show(s.id);
+        void navigate({ to: "/agents" });
+      }}
+    >
+      <HarnessMark harness={s.harness} size={16} />
+      <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold">{s.title}</span>
+      <StatusBadge s={s} />
+      <span className="text-xs text-ink-3">{new Date(s.started_at).toLocaleDateString()}</span>
+    </button>
+  );
+});

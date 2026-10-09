@@ -337,6 +337,8 @@ Settings → General edits the projects root, the terminal and the editor. For t
 
 ## 8. Projects
 
+- **Project page:** Running agents come first, followed by GitHub pull requests/issues, Worktrees, and All agents (including running sessions). Both agent lists use memoized, fixed-height virtualized rows and the shared Running predicate. Empty GitHub tabs shrink to their message instead of reserving the full list height.
+
 - A project is a folder in the projects root (setting `projects_root`, default `~/projects`) plus an optional GitHub remote (`owner/repo` parsed from `origin`, SSH or HTTPS form). A project can also be registered from another location by path.
 - **Remote metadata:** Project reads refresh `remote_url`, `gh_repo` (origin) and `gh_upstream` from local Git configuration, including linked worktrees. A daemon loop checks every 30 seconds and broadcasts `projects/changed` only when persisted metadata changes, so open windows update without re-registering folders or restarting. Added, changed and removed remotes replace the registration snapshot; temporarily missing folders retain their last known metadata. User-edited names, descriptions and pins remain independent. No network request is needed.
 - **Discovery:** "Scan projects root" lists git repositories with a GitHub `origin` (you have 184 folders in `~/projects`; most do not need to be registered). Registered projects can be pinned in the sidebar. Each project has a one-line description (for example "server-side codebase") that is used when the project is given as context.

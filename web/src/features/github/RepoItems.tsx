@@ -247,8 +247,8 @@ export function RepoItems({
         </div>
       )}
       {q.error && <p className="p-3 text-gh-closed">{String(q.error)}</p>}
-      <div ref={ref} className="h-[456px] overflow-auto">
-        <div className="relative" style={{ height: v.getTotalSize() }}>
+      <div ref={ref} className={list.length ? "h-[456px] overflow-auto" : "overflow-auto"}>
+        <div className="relative" style={list.length ? { height: v.getTotalSize() } : undefined}>
           {v.getVirtualItems().map((row) => {
             const i = list[row.index];
             if ("branch" in i)

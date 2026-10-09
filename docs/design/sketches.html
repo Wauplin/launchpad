@@ -421,7 +421,7 @@ code.i { font: 12px var(--font-mono); background: var(--sunk); padding: 0 4px; b
 /* ---------- S5 project + pre-draft ---------- */
 .s5 { grid-template-columns: 52px 420px 1fr; height: 800px; }
 .s5 .projcol, .s5 .pdcol { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
-.s5 .projcol { border-right: 1px solid var(--line); }
+.s5 .projcol { border-right: 1px solid var(--line); overflow-y: auto; }
 .phead { padding: 14px 16px 0; display: grid; gap: 6px; }
 .phead .name { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 700; }
 .phead .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; color: var(--ink-3); }
@@ -1290,7 +1290,7 @@ Context:
   <div class="sketch-head">
     <span class="sketch-id">S5 · Project page and pre-draft PR</span>
     <h2>A pull request that stays on your laptop until it is worth publishing</h2>
-    <p>Pre-draft PRs share the project PR list with GitHub PRs, in teal. Their review screen has Description, Files changed, Commits and Notes tabs. Nothing is pushed, no CI runs and nobody is notified until you choose Publish.</p>
+    <p>Project pages show Running agents first, then the GitHub panel, Worktrees and All agents (including running sessions). Empty GitHub tabs shrink to their message. Pre-draft PRs share the project PR list with GitHub PRs, in teal. Their review screen has Description, Files changed, Commits and Notes tabs. Nothing is pushed, no CI runs and nobody is notified until you choose Publish.</p>
   </div>
   <div class="frame">
     <div class="win" role="img" aria-label="Project page with pre-draft PR mockup">
@@ -1316,7 +1316,9 @@ Context:
             <div class="meta"><span class="mono">~/projects/huggingface_hub</span><span>huggingface/huggingface_hub</span><span><svg class="ic sm"><use href="#i-branch"/></svg> main <span class="clean">clean</span></span></div>
             <div class="acts"><span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span><span class="btn sm"><svg class="ic sm"><use href="#i-code"/></svg>Code</span><span class="btn sm">Editor</span><span class="btn sm"><svg class="ic sm"><use href="#i-term"/></svg>Terminal</span><span class="btn sm"><svg class="ic sm"><use href="#i-ext"/></svg>GitHub</span></div>
           </div>
-          <div class="tabs"><span class="tab on">Pull requests <span class="cnt">16</span></span><span class="tab">Issues <span class="cnt">52</span></span><span class="tab">Sessions <span class="cnt">9</span></span><span class="tab">Worktrees <span class="cnt">3</span></span></div>
+          <div class="seclabel" style="padding:16px 16px 4px">Running agents · 1</div>
+          <div class="prow"><svg class="ic"><use href="#i-agents"/></svg><span class="t">Resumable uploads with xet</span><span class="m"><span class="st work">Working</span> · Codex</span></div>
+          <div class="tabs"><span class="tab on">Pull requests <span class="cnt">16</span></span><span class="tab">Issues <span class="cnt">52</span></span></div>
           <div class="lfilter"><span class="fchip on">Open</span><span class="fchip">Pre-drafts <b>2</b></span><span class="fchip">Review requested <b>1</b></span><span class="fchip">Mine</span><span class="fchip">Label: All labels ▾</span></div>
           <div class="prow local sel">
             <svg class="ic c-local"><use href="#i-pr-local"/></svg>
@@ -1353,6 +1355,12 @@ Context:
             <span class="t">Paginate list_repo_tree with cursors</span>
             <span class="m">#3398 · elise-m · 4 days</span>
           </div>
+          <div class="seclabel" style="padding:16px 16px 4px">Worktrees · 2</div>
+          <div class="prow"><svg class="ic"><use href="#i-branch"/></svg><span class="t mono">lp/glob-revision</span><span class="m">Pre-draft worktree</span></div>
+          <div class="prow"><svg class="ic"><use href="#i-branch"/></svg><span class="t mono">lp/xet-resume</span><span class="m">Pre-draft worktree</span></div>
+          <div class="seclabel" style="padding:16px 16px 4px">All agents · 2</div>
+          <div class="prow"><svg class="ic"><use href="#i-agents"/></svg><span class="t">Resumable uploads with xet</span><span class="m"><span class="st work">Working</span> · Codex</span></div>
+          <div class="prow"><svg class="ic"><use href="#i-agents"/></svg><span class="t">Check revision filters</span><span class="m"><span class="st done">Done</span> · Claude</span></div>
         </div>
 
         <div class="pdcol">

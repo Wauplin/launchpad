@@ -61,6 +61,7 @@ These rules apply unless the owner says otherwise for a given task.
 
 - Phase 7 is an unselected list of candidates. Do not implement its extensions without a concrete owner-approved scope and acceptance check. Session workers, embedded terminals and remote browser mode were reverted; the daemon owns harnesses and restarting it interrupts active turns.
 
+- Project pages show Running agents, GitHub items, Worktrees, then All agents (including running sessions). Use the shared Running predicate and virtualize both agent lists. Empty GitHub tabs shrink to their message.
 - Agent groups: Done means waiting for input; Running includes starting, working and background commands. Never infer Done from a command being silent. Sidebar counts and project markers must use the same predicates.
 - Agent list groups collapse independently using their headings. Keep counts visible, remember collapse state in the persisted UI layout, and omit hidden rows from the virtualizer.
 - Session titles are editable in place by clicking the title, with visible Save title and Cancel buttons. A star on the right toggles the pin. Git and Open in editor share the header action row with Files and Archive.
