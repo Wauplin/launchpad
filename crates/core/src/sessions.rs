@@ -5,7 +5,7 @@
 //! Adapters report through a [`Sink`], which numbers events, stores them, pushes them over the
 //! WebSocket and keeps the session record (status, usage, cost) up to date.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -57,6 +57,13 @@ impl std::fmt::Display for InstallingUpdate {
 
 impl std::error::Error for InstallingUpdate {}
 
+#[derive(Debug)]
+pub(crate) struct FollowUpBusy;
+impl std::fmt::Display for FollowUpBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("The session is running, in a terminal or awaiting an answer; the follow-up stays queued.") }
+}
+impl std::error::Error for FollowUpBusy {}
+
 #[derive(Clone)]
 pub struct Sessions {
     inner: Arc<Inner>,
@@ -66,6 +73,7 @@ type LiveSessions = HashMap<String, (u64, Arc<dyn LiveSession>)>;
 
 struct Inner {
     records: Mutex<HashMap<String, Session>>,
+    stop_requests: Mutex<HashSet<String>>,
     /// Serializes new turns with the final updater idle check. True blocks new work until restart.
     installing: tokio::sync::Mutex<bool>,
     /// Attached processes, with an instance number: the exit of an old process never detaches a newer one.
@@ -90,6 +98,7 @@ impl Sessions {
         Sessions {
             inner: Arc::new(Inner {
                 records: Mutex::new(HashMap::new()),
+                stop_requests: Mutex::new(HashSet::new()),
                 installing: tokio::sync::Mutex::new(false),
                 live: Mutex::new(HashMap::new()),
                 next_instance: std::sync::atomic::AtomicU64::new(1),
@@ -568,8 +577,19 @@ impl Sessions {
     }
 
     pub async fn send(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>) -> Result<()> {
+        self.send_inner(app, id, text, images, false).await
+    }
+
+    pub async fn send_follow_up(&self, app: &App, id: &str, text: &str) -> Result<()> {
+        self.send_inner(app, id, text, vec![], true).await
+    }
+
+    async fn send_inner(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, follow_up: bool) -> Result<()> {
         let _guard = self.allow_work().await?;
         let s = self.get(id).context("no such session")?;
+        if follow_up && (s.status.is_running() || s.open_question || s.status == SessionStatus::InTerminal) {
+            return Err(FollowUpBusy.into());
+        }
         crate::predrafts::check_session_work(app, &s.cwd).await?;
         if s.status == SessionStatus::InTerminal {
             bail!("the session is open in a terminal: re-attach it first");
@@ -578,19 +598,33 @@ impl Sessions {
         let live = self.reattach(app, id).await?;
         let sink = self.sink(app, id);
         if resumed {
+            sink.set_open_question(false).await;
             sink.emit(EventBody::Notice { text: "Resumed".into() }).await;
         }
+        self.inner.stop_requests.lock().unwrap().remove(id);
         let client_id = uuid::Uuid::new_v4().to_string();
         let queued = s.status.is_running() && !resumed;
         sink.emit(EventBody::UserMessage { text: text.to_string(), client_id: client_id.clone(), queued, images: images.clone() }).await;
         if !queued {
             sink.set_status(SessionStatus::Working).await;
         }
-        live.send(text, &client_id, &images).await
+        if let Err(e) = live.send(text, &client_id, &images).await {
+            sink.fail(&format!("{e:#}")).await;
+            return Err(e);
+        }
+        Ok(())
     }
 
-    pub async fn interrupt(&self, _app: &App, id: &str) -> Result<()> {
-        self.live(id).context("the session has no running process")?.interrupt().await
+    pub async fn interrupt(&self, app: &App, id: &str) -> Result<()> {
+        let live = self.live(id).context("the session has no running process")?;
+        let sink = self.sink(app, id);
+        self.inner.stop_requests.lock().unwrap().insert(id.to_string());
+        if let Err(e) = live.interrupt().await {
+            self.inner.stop_requests.lock().unwrap().remove(id);
+            return Err(e);
+        }
+        sink.set_open_question(false).await;
+        Ok(())
     }
 
     pub async fn answer(&self, app: &App, id: &str, request_id: &str, answers: Vec<String>) -> Result<()> {
@@ -719,7 +753,7 @@ impl Sessions {
         if s.status.is_running() {
             match error {
                 Some(e) => sink.fail(&e).await,
-                None => sink.set_status(SessionStatus::Interrupted).await,
+                None => sink.set_status(if sink.stop_requested() { SessionStatus::Stopped } else { SessionStatus::Interrupted }).await,
             }
         } else if let Some(e) = error {
             sink.emit(EventBody::Error { message: e }).await;
@@ -817,11 +851,18 @@ impl Sink {
             .await;
     }
 
+    pub fn stop_requested(&self) -> bool {
+        self.sessions.inner.stop_requests.lock().unwrap().contains(&self.id)
+    }
+
     pub fn status(&self) -> Option<SessionStatus> {
         self.sessions.get(&self.id).map(|s| s.status)
     }
 
     pub async fn set_status(&self, status: SessionStatus) {
+        if matches!(status, SessionStatus::Stopped | SessionStatus::Closed | SessionStatus::Interrupted | SessionStatus::Error) {
+            self.sessions.inner.stop_requests.lock().unwrap().remove(&self.id);
+        }
         let Some(before) = self.sessions.get(&self.id) else { return };
         if before.status == status {
             return;
@@ -831,6 +872,7 @@ impl Sink {
             .update(&self.app, &self.id, |s| {
                 s.status = status;
                 s.status_since = now_ms();
+                if status.is_running() { s.ended_at = None; }
             })
             .await;
         self.emit(EventBody::Status { status }).await;

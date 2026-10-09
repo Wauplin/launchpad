@@ -27,6 +27,7 @@ pub fn router() -> Router<Server> {
         .route("/api/window", post(open_window))
         .route("/api/launch/preview", post(preview))
         .route("/api/launch/schedules", get(schedules).post(schedule))
+        .route("/api/sessions/{id}/follow-up", post(follow_up))
         .route("/api/launch/schedules/{id}", axum::routing::delete(cancel_schedule))
         .route("/api/launch/schedules/{id}/start", post(start_schedule))
         .route("/api/launch/crons", get(crons).post(create_cron))
@@ -494,6 +495,11 @@ use launchpad_core::schedules::{self, LaunchDelay, ScheduledLaunch};
 
 #[derive(Deserialize)]
 struct ScheduleRequest { spec: LaunchSpec, conditions: Vec<LaunchDelay> }
+#[derive(Deserialize)]
+struct FollowUpRequest { message: String, conditions: Vec<LaunchDelay> }
+async fn follow_up(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<FollowUpRequest>) -> ApiResult<ScheduledLaunch> {
+    Ok(Json(schedules::follow_up(&s.app, &id, b.message, b.conditions).await.map_err(bad)?))
+}
 async fn schedules(State(s): State<Server>) -> ApiResult<Vec<ScheduledLaunch>> { Ok(Json(schedules::list(&s.app).await?)) }
 async fn schedule(State(s): State<Server>, Json(b): Json<ScheduleRequest>) -> ApiResult<ScheduledLaunch> { Ok(Json(schedules::create(&s.app, b.spec, b.conditions).await.map_err(bad)?)) }
 async fn cancel_schedule(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
@@ -538,9 +544,9 @@ async fn session_git(State(s): State<Server>, Path(id): Path<String>) -> ApiResu
     Ok(Json(launchpad_core::session_git::status(&s.app,&id).await.map_err(bad)?))
 }
 #[derive(Deserialize)]
-struct GitDiffQuery { path: String }
+struct GitDiffQuery { path: String, #[serde(default)] main: bool }
 async fn session_git_diff(State(s): State<Server>, Path(id): Path<String>, Query(q): Query<GitDiffQuery>) -> ApiResult<launchpad_core::session_git::GitDiff> {
-    Ok(Json(launchpad_core::session_git::diff(&s.app,&id,&q.path).await.map_err(bad)?))
+    Ok(Json(launchpad_core::session_git::diff(&s.app,&id,&q.path,q.main).await.map_err(bad)?))
 }
 #[derive(Deserialize)]
 struct SessionSearch { q: String }

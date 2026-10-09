@@ -1,6 +1,7 @@
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
+import { SessionSummary, StateBand, FollowUpBands } from "./SessionSummary";
 import { GitPanel } from "./GitPanel";
 import { useLayout } from "@/stores/layout";
 import { useQuery } from "@tanstack/react-query";
@@ -28,7 +29,7 @@ function act(id: string, action: string) {
 
 type PendingAsk = { request_id: string; count: number } | null;
 
-function MessageBox({ sessionId, placeholder, disabled, ask, dropImages }: { sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null> }) {
+function MessageBox({ sessionId, placeholder, disabled, ask, dropImages, onSent }: { sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null>; onSent: () => void }) {
   const text = useMessageDrafts((s) => s.drafts[sessionId] ?? "");
   const setDraft = useMessageDrafts((s) => s.set);
   const setText = (t: string) => setDraft(sessionId, t);
@@ -77,6 +78,7 @@ function MessageBox({ sessionId, placeholder, disabled, ask, dropImages }: { ses
       } else {
         await api.post(`/api/sessions/${sessionId}/input`, { text: t, images });
       }
+      onSent();
       setText("");
       setImages([]);
     } catch (e) {
@@ -148,7 +150,11 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
   const dropImages = useRef<((files: File[]) => void) | null>(null);
   const [dragging, setDragging] = useState(false);
   const s = useSession(sessionId);
-  const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => p.root === s?.cwd);
+  const [gitMain, setGitMain] = useState(false);
+  const [view, setView] = useState<"summary" | "trace" | null>(null);
+  useEffect(() => { if (s && view === null) setView(isRunning(s) ? "trace" : "summary"); else if (s && isRunning(s) && view !== "trace") setView("trace"); }, [s, view]);
+  const summary = !s || !isRunning(s) && view !== "trace";
+  const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => p.root === s?.cwd || p.id === localStorage.getItem(`launchpad.session-predraft.${sessionId}`));
   const projects = useProjects().data;
   const navigate = useNavigate();
   const codeLinks = useCodeLinks(s);
@@ -171,11 +177,11 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
-  const v = useVirtualizer({ count: rows.length, getScrollElement: () => scrollRef.current, estimateSize: () => 48, overscan: 6, useFlushSync: false });
+  const v = useVirtualizer({ enabled: !summary && !gitOpen, count: rows.length, getScrollElement: () => scrollRef.current, estimateSize: () => 48, overscan: 6, useFlushSync: false });
   const total = v.getTotalSize();
   useLayoutEffect(() => {
     if (atBottom.current && rows.length) v.scrollToIndex(rows.length - 1, { align: "end" });
-  }, [rows.length, total, v]);
+  }, [rows.length, total, v, summary, gitOpen]);
   // Re-render every 20 s for elapsed times.
   const [, tick] = useState(0);
   useEffect(() => {
@@ -191,7 +197,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
     );
   }
   const running = isRunning(s);
-  const resumable = s.status === "closed" || s.status === "interrupted" || s.status === "error";
+  const resumable = s.status === "closed" || s.status === "stopped" || s.status === "interrupted" || s.status === "error";
   const name = s.harness === "claude" ? "Claude" : "Codex";
   const placeholder =
     s.status === "in_terminal"
@@ -228,6 +234,10 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
           <button className={`iconbtn shrink-0 self-start ${pinned.includes(s.id) ? "text-teal-ink!" : ""}`} title={pinned.includes(s.id) ? "Unpin session" : "Pin session"} aria-label={pinned.includes(s.id) ? "Unpin session" : "Pin session"} aria-pressed={pinned.includes(s.id)} onClick={() => togglePin(s.id)}>{pinned.includes(s.id) ? "★" : "☆"}</button>
         </div>
         <span className="order-4 col-span-2 flex flex-wrap gap-0.5 self-start pt-1">
+          <span className="mr-1 inline-flex gap-0.5 rounded border border-line p-0.5" aria-label="Session view">
+            <button className={`btn btn-sm ${summary ? "bg-select!" : ""}`} aria-pressed={summary} disabled={running} onClick={() => { setView("summary"); setGitOpen(false); }}>Summary</button>
+            <button className={`btn btn-sm ${!summary ? "bg-select!" : ""}`} aria-pressed={!summary} onClick={() => { setView("trace"); setGitOpen(false); }}>Trace</button>
+          </span>
           {running && (
             <button className="iconbtn" title="Stop: interrupt the agent" onClick={() => void act(s.id, "interrupt")}>
               <Icon name="stop" size={14} />
@@ -253,13 +263,8 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
               Files
             </button>
           )}
-          <button className={`btn btn-sm ${gitOpen ? "bg-select!" : ""}`} aria-pressed={gitOpen} onClick={() => setGitOpen(!gitOpen)}>Git</button>
+          <button className={`btn btn-sm ${gitOpen ? "bg-select!" : ""}`} aria-pressed={gitOpen} onClick={() => { setGitMain(false); setGitOpen(!gitOpen); }}>Git</button>
           <button className="btn btn-sm" onClick={() => void api.post("/api/open-editor", { path: s.cwd }).catch(toastError)}>Open in editor</button>
-          {resumable && (
-            <button className="btn btn-sm" title="Resume the session" onClick={() => void act(s.id, "resume")}>
-              Resume
-            </button>
-          )}
           {s.status !== "closed" && (
             <button className="btn btn-sm" title="Archive the session (it stays resumable)" onClick={() => void act(s.id, "close")}>
               Archive
@@ -278,11 +283,16 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
         </span>
       </div>
 
-      {gitOpen && <GitPanel sessionId={s.id} />}
+      {gitOpen && <GitPanel initialMain={gitMain} sessionId={s.id} />}
       <CodeLinksContext.Provider value={codeLinks}>
+      {!gitOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">Loading…</div> : <SessionSummary key={s.id} session={s} rows={rows} localPr={localPr} reviewDiff={(main) => { setGitMain(main); setGitOpen(true); }} showTrace={() => setView("trace")} />)}
+      {!summary && !gitOpen && !running && <><StateBand session={s}>
+        <button className="btn btn-sm" disabled={!rows.some((r) => r.t === "assistant")} onClick={() => { atBottom.current = false; const i = rows.findLastIndex((r) => r.t === "assistant"); if (i >= 0) v.scrollToIndex(i, { align: "start" }); }}>Final message</button>
+        <button className="btn btn-sm" onClick={() => setView("summary")}>Summary</button>
+      </StateBand><FollowUpBands sessionId={s.id} /></>}
       <div
         ref={scrollRef}
-        className={`min-h-0 flex-1 overflow-y-auto px-3 ${gitOpen ? "hidden" : ""}`}
+        className={`min-h-0 flex-1 overflow-y-auto px-3 ${gitOpen || summary ? "hidden" : ""}`}
         onScroll={(e) => {
           const el = e.currentTarget;
           atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
@@ -313,7 +323,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
         )}
       </div>
       </CodeLinksContext.Provider>
-      <MessageBox key={s.id} dropImages={dropImages} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal"} ask={s.open_question && s.live ? ask : null} />
+      <MessageBox onSent={() => setView("trace")} key={s.id} dropImages={dropImages} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal"} ask={s.open_question && s.live ? ask : null} />
     </div>
   );
 }

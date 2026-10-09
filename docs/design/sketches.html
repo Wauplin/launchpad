@@ -1750,9 +1750,9 @@ Context:
 <!-- ======================= S8 SESSION SUMMARY ======================= -->
 <section class="sketch" id="s8">
   <div class="sketch-head">
-    <span class="sketch-id">S8 · Session summary · draft for discussion</span>
+    <span class="sketch-id">S8 · Session summary</span>
     <h2>When an agent stops, show the outcome first, not the trace</h2>
-    <p>Each time the panel loads a session that is not running (Done, stopped, interrupted, failed or archived), it opens on a summary view instead of the trace. A colored band shows the state at a glance. Below it, in one plain column separated by thin lines, are the run metadata, the task, the final message and next steps. The full trace is one click away with the Trace toggle. Running sessions always show the trace. This is a sketch only; nothing is implemented.</p>
+    <p>Each time the panel loads a session that is not running (Done, Question, stopped, interrupted, failed or archived), it opens on a summary view instead of the trace. A colored band shows the state at a glance. Below it, in one plain column separated by thin lines, are the run metadata, the task, the final message and next steps. The full trace is one click away with the Trace toggle. Running sessions always show the trace. Implemented on 10 October. Metadata is shown only when recorded; Git push information uses cached remote refs.</p>
   </div>
   <div class="frame">
     <div class="win" role="img" aria-label="Session summary mockup">
@@ -1797,11 +1797,11 @@ Context:
               <div class="scard">
                 <div class="sh">Run <i class="pin">3</i></div>
                 <dl class="smeta two">
-                  <dt>Time</dt><dd>18 min 40 s · 4 turns</dd>
+                  <dt>Time</dt><dd>18 min 40 s · 4 recorded turns</dd>
                   <dt>Cost</dt><dd>$2.31 · 241k tokens</dd>
                   <dt>Model</dt><dd>claude-opus-5-5 · 22% context</dd>
                   <dt>Folder</dt><dd class="mono">.worktrees/moon-landing/xet-refresh</dd>
-                  <dt>Branch</dt><dd>lp/xet-refresh · 2 commits, not pushed · clean</dd>
+                  <dt>Branch</dt><dd>lp/xet-refresh · 2 commits absent from cached remote refs · clean</dd>
                   <dt>Changes</dt><dd>3 files <span class="add">+64</span> <span class="del">−9</span></dd>
                   <dt>Context</dt><dd>#3412 · issue</dd>
                   <dt>Last cmd</dt><dd class="mono">pnpm test <span style="color:var(--gh-open)">exit 0</span></dd>
@@ -1825,7 +1825,7 @@ info.xetRefreshToken = await issueXetToken(repo, user);
               <div class="scard">
                 <div class="sh">Next steps <i class="pin">5</i></div>
                 <div class="snext">
-                  <div class="nx"><span class="src">Git</span>2 commits not pushed, no PR yet<span class="btn sm"><svg class="ic sm"><use href="#i-pr-local"/></svg>Open pre-draft PR</span></div>
+                  <div class="nx"><span class="src">Git</span>2 commits absent from cached remote refs<span class="btn sm"><svg class="ic sm"><use href="#i-pr-local"/></svg>Open pre-draft PR</span></div>
                   <div class="nx"><span class="src">Git</span>3 files changed since <code class="i">main</code><span class="btn sm"><svg class="ic sm"><use href="#i-code"/></svg>Review diff</span></div>
                   <div class="nx"><span class="src">Session</span>Continue later, for example after the quota reset<span class="btn sm"><svg class="ic sm"><use href="#i-clock"/></svg>Schedule follow-up</span></div>
                 </div>
@@ -1855,7 +1855,7 @@ info.xetRefreshToken = await issueXetToken(repo, user);
           <div class="band stopped"><svg class="ic"><use href="#i-stop"/></svg>Stopped <small>by you, during a turn</small><span class="end">14:05 · 30 min ago</span><i class="pin">7</i></div>
           <div class="scard">
             <dl class="smeta two">
-              <dt>Time</dt><dd>7 min 12 s · 2 turns</dd>
+              <dt>Time</dt><dd>7 min 12 s · 2 recorded turns</dd>
               <dt>Tokens</dt><dd>88k</dd>
               <dt>Branch</dt><dd>main · 6 files uncommitted</dd>
               <dt>Cut off</dt><dd class="mono">pnpm vitest run</dd>
@@ -1898,7 +1898,7 @@ info.xetRefreshToken = await issueXetToken(repo, user);
             <dl class="smeta two">
               <dt>Time</dt><dd>9 min · 1 turn</dd>
               <dt>Cost</dt><dd>$0.92</dd>
-              <dt>Branch</dt><dd>release-notes-1.4 · pushed</dd>
+              <dt>Branch</dt><dd>release-notes-1.4 · present in cached remote refs</dd>
               <dt>Changes</dt><dd>1 file <span class="add">+86</span></dd>
             </dl>
           </div>
@@ -1939,7 +1939,7 @@ info.xetRefreshToken = await issueXetToken(repo, user);
           <div class="opt"><svg class="ic sm"><use href="#i-clock"/></svg>At a time<span class="faint">today 18:00</span></div>
           <div class="opt"><svg class="ic sm"><use href="#i-agents"/></svg>After another session is Done<span class="faint">Investigate shard retry…</span></div>
           <div class="inp" style="min-height:52px">Update the OpenAPI schema, then push the branch.</div>
-          <div class="sacts"><span class="btn sm primary">Schedule</span><span class="btn sm">Open in composer</span></div>
+          <div class="sacts"><span class="btn sm primary">Schedule</span><span class="btn sm">Cancel</span></div>
         </div>
       </div>
     </div>
@@ -1948,15 +1948,15 @@ info.xetRefreshToken = await issueXetToken(repo, user);
   <ol class="notes">
     <li><i class="pin">1</i><span><b>State band.</b> The first line of the summary gives the state in words, with a color and an icon that match the sidebar badge: amber Done, dashed Stopped, gray Interrupted and Archived, red Failed. It also shows when the session ended.</span></li>
     <li><i class="pin">2</i><span><b>Summary or Trace.</b> A toggle in the session header. Each time the panel loads a session that is not running (click in the list, startup, workspace switch), it opens on Summary. Trace shows the full conversation until another session is loaded. A turn that ends while the trace is open does not switch the view; the state bar (9) appears instead. The header keeps Files, Git, Open in editor, Open in terminal, Archive and the X, so the summary has no separate action bar. The X still only closes the panel.</span></li>
-    <li><i class="pin">3</i><span><b>Run metadata.</b> Duration and turns, cost and tokens (cost for Claude only), model and context, folder, branch and push state, changed files compared to <code>main</code>, context items, and the exit code of the last command. Below it, <b>Task</b> shows the first prompt of the session, so you remember what was asked; long prompts fold after a few lines.</span></li>
-    <li><i class="pin">4</i><span><b>Final message.</b> The last agent message, rendered as markdown at full width, with Copy and Copy as text. Very long messages fold after about 30 lines with "Show full message". No AI summary: what you read is what the agent wrote.</span></li>
+    <li><i class="pin">3</i><span><b>Run metadata.</b> Recorded turn duration and count (idle time excluded), cost and tokens (cost for Claude only), model and context, folder, branch and push state, changed files compared to <code>main</code>, context items, and the exit code of the last command. Below it, <b>Task</b> shows the first prompt of the session, so you remember what was asked; long prompts fold after a few lines.</span></li>
+    <li><i class="pin">4</i><span><b>Final message.</b> The last agent message, rendered as markdown at full width, with Copy and Copy as text. Very long messages fold after about 30 lines with "Show full message". No AI summary: what you read is what the agent wrote. Missing values are hidden; Interrupted reports when interruption was detected when the exact end time is unknown.</span></li>
     <li><i class="pin">5</i><span><b>Next steps.</b> Only facts that Launchpad already has: unpushed commits, uncommitted files, a turn that did not finish. Session rows hold the actions that depend on the state and are not in the header: Resume, Schedule follow-up, linked PRs and issues. If the last message is a question with options, the options are added as Agent rows; a click sends the answer. Launchpad does not parse free text and does not ask agents for a special format. Each row has one button.</span></li>
     <li><i class="pin">6</i><span><b>Write a new message.</b> The message box stays at the bottom of the summary. Sending starts a turn; the session goes back to Running and the panel shows the trace.</span></li>
-    <li><i class="pin">7</i><span><b>Stopped sessions.</b> They show the last agent message instead of a final message, and the command that was cut off. Resume continues the turn; a message in the box resumes with new instructions; Schedule follow-up resumes it later.</span></li>
+    <li><i class="pin">7</i><span><b>Stopped sessions.</b> They show the last agent message instead of a final message, and the last recorded command (with its exit code when reported). Resume sends “Continue the unfinished turn.” in the same session; a message in the box resumes with new instructions; Schedule follow-up resumes it later.</span></li>
     <li><i class="pin">8</i><span><b>Archived sessions.</b> Same summary, with fewer rows. Resume moves the session out of Archived. Schedule follow-up resumes it later with a new message. Linked PRs and issues are buttons.</span></li>
     <li><i class="pin">9</i><span><b>Trace view.</b> A thin bar at the top of the trace keeps the state visible, with buttons that jump to the final message or go back to Summary.</span></li>
     <li><i class="pin">10</i><span><b>One band per end state.</b> Question is a Done variant: its options become Agent rows in Next steps, so they can be answered from the summary. A scheduled follow-up adds a teal band with a Cancel button, and the session also appears in Scheduled.</span></li>
-    <li><i class="pin">11</i><span><b>Schedule follow-up.</b> It reuses the start conditions of scheduled launches (time, quota reset with a fresh reading, another session Done), but sends a message to the same session instead of starting a new one. All selected conditions must be met.</span></li>
+    <li><i class="pin">11</i><span><b>Schedule follow-up.</b> It reuses the start conditions of scheduled launches (time, quota reset with a fresh reading, another session Done), but sends a message to the same session instead of starting a new one. All selected conditions must be met. Follow-ups wait while their session is running, is in a terminal or has an unanswered question; a claimed follow-up is never retried automatically after a crash.</span></li>
   </ol>
 
   <div class="sketch-head s8-open">

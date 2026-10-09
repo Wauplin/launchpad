@@ -73,6 +73,7 @@ export function AgentsView() {
   const scope = useScope();
   const allSessions = useSessions().data ?? [];
   const sessions = allSessions.filter(scope.hasSession);
+  const [panelLoad, setPanelLoad] = useState(0);
   const [filter, setFilter] = useState("");
   const [debounced, setDebounced] = useState("");
   const [pinsOnly, setPinsOnly] = useState(false);
@@ -83,6 +84,7 @@ export function AgentsView() {
   const schedules = (useSchedules().data ?? []).filter((s) => scope.hasSpec(s.spec));
   const [scheduledId, setScheduledIdState] = useState<string | null>(null);
   const scheduled = schedules.find((s) => s.id === scheduledId);
+  const scheduledTarget = useRef<{ id: string; session: string } | null>(null);
   const crons = (useCrons().data ?? []).filter((c) => scope.hasSpec(c.spec));
   const [cronId, setCronIdState] = useState<string | null>(null);
   const cron = crons.find((c) => c.id === cronId);
@@ -91,8 +93,10 @@ export function AgentsView() {
   const setScheduledId = (id: string | null) => { setScheduledIdState(id); if (id) setCronIdState(null); };
   const clearSide = () => { setScheduledIdState(null); setCronIdState(null); };
   useEffect(() => {
+    if (scheduled) scheduledTarget.current = { id: scheduled.id, session: scheduled.resume_session_id ?? scheduled.id };
     if (scheduledId && !scheduled) {
-      if (allSessions.some((s) => s.id === scheduledId)) useLayout.getState().show(scheduledId);
+      const id = scheduledTarget.current?.id === scheduledId ? scheduledTarget.current.session : scheduledId;
+      if (allSessions.some((s) => s.id === id)) useLayout.getState().show(id);
       setScheduledIdState(null);
     }
   }, [scheduledId, scheduled, allSessions]);
@@ -109,6 +113,7 @@ export function AgentsView() {
     if (search.session) {
       clearSide();
       show(search.session);
+      setPanelLoad((n) => n + 1);
       void navigate({ to: "/agents", search: {}, replace: true });
     }
   }, [search.session, show, navigate]);
@@ -152,7 +157,7 @@ export function AgentsView() {
   ];
   const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => items[i].kind === "session" || items[i].kind === "schedule" || items[i].kind === "cron" ? 68 : 34, getItemKey: (i) => items[i].kind === "session" ? items[i].session.id : items[i].kind === "schedule" ? items[i].launch.id : items[i].kind === "cron" ? `cron-${items[i].cron.id}` : items[i].kind === "group" ? `group-${items[i].title}` : "more-archived", overscan: 6, useFlushSync: false });
   const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
-  const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} selected={s.id === visibleSession} onClick={() => { clearSide(); show(s.id); }} />;
+  const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} selected={s.id === visibleSession} onClick={() => { clearSide(); show(s.id); setPanelLoad((n) => n + 1); }} />;
 
   return (
     <div className="flex h-full min-h-0">
@@ -186,11 +191,11 @@ export function AgentsView() {
       </div>
       <div className="min-h-0 min-w-0 flex-1 bg-paper">
         {cron ? (
-          <CronPane key={cron.id} cron={cron} onClose={() => setCronId(null)} onOpen={(s) => { clearSide(); show(s.id); }} />
+          <CronPane key={cron.id} cron={cron} onClose={() => setCronId(null)} onOpen={(s) => { clearSide(); show(s.id); setPanelLoad((n) => n + 1); }} />
         ) : scheduled ? (
-          <ScheduledPane key={scheduled.id} launch={scheduled} onClose={clearSide} onStart={(s) => { clearSide(); show(s.id); }} />
+          <ScheduledPane key={scheduled.id} launch={scheduled} onClose={clearSide} onStart={(s) => { clearSide(); show(s.id); setPanelLoad((n) => n + 1); }} />
         ) : visibleSession ? (
-          <SessionPane key={visibleSession} sessionId={visibleSession} onClear={() => clearSession(visibleSession)} />
+          <SessionPane key={`${scope.workspace?.id ?? "all"}:${visibleSession}:${panelLoad}`} sessionId={visibleSession} onClear={() => clearSession(visibleSession)} />
         ) : (
           <div className="grid h-full place-items-center text-[12.5px] text-ink-3">Pick a session on the left, or launch a new one.</div>
         )}

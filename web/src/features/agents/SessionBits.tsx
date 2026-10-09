@@ -15,7 +15,7 @@ export function compact(n: number): string {
   return String(n);
 }
 
-const STYLES = {
+export const STYLES = {
   work: "bg-work-soft text-work",
   needs: "bg-attn-soft text-attn",
   bg: "bg-paper text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]",
@@ -38,17 +38,19 @@ export function statusInfo(s: Session): { label: string; style: keyof typeof STY
       return { label: `Archived ${formatAge(s.ended_at ?? s.status_since)} ago`, style: "done" };
     case "in_terminal":
       return { label: "In terminal", style: "int" };
+    case "stopped":
+      return { label: "Stopped", style: "int" };
     case "interrupted":
       return { label: "Interrupted", style: "int" };
     case "error":
-      return { label: "Error", style: "err" };
+      return { label: "Failed", style: "err" };
   }
 }
 
 export function StatusBadge({ s }: { s: Session }) {
   const { label, style } = statusInfo(s);
   return (
-    <span className={`inline-flex h-5 items-center gap-[5px] rounded-full px-2 text-[11.5px] font-semibold whitespace-nowrap ${STYLES[style]}`}>
+    <span className={`inline-flex h-5 items-center gap-[5px] rounded-full px-2 text-[11.5px] font-semibold whitespace-nowrap ${STYLES[style]} ${s.status === "stopped" ? "border border-dashed border-line" : ""}`}>
       <span className={`size-1.5 rounded-full ${style === "bg" || style === "int" ? "border-[1.5px] border-current" : "bg-current"}`} />
       {label}
     </span>

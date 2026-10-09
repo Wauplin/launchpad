@@ -3,4 +3,4 @@
 /**
  * Session states, the same for every harness (ARCHITECTURE.md, section 9.1).
  */
-export type SessionStatus = "starting" | "working" | "waiting" | "background" | "closed" | "in_terminal" | "interrupted" | "error";
+export type SessionStatus = "starting" | "working" | "waiting" | "background" | "closed" | "in_terminal" | "stopped" | "interrupted" | "error";

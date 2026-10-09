@@ -16,6 +16,18 @@ pub struct GitFile {
 pub struct GitStatus {
     pub branch: String,
     pub files: Vec<GitFile>,
+    /// Commits absent from locally cached remote refs; no fetch is performed.
+    pub unpushed_commits: Option<u32>,
+    /// Working tree compared with main, including staged and unstaged tracked changes.
+    pub main_changes: Option<GitChanges>,
+    pub main_files: Vec<GitFile>,
+}
+#[derive(Serialize, TS)]
+#[ts(rename = "SessionGitChanges")]
+pub struct GitChanges {
+    pub files: u32,
+    pub additions: Option<u32>,
+    pub deletions: Option<u32>,
 }
 #[derive(Serialize, TS)]
 #[ts(rename = "SessionGitDiff")]
@@ -65,12 +77,99 @@ pub async fn status(app: &App, id: &str) -> Result<GitStatus> {
             previous,
         });
     }
-    Ok(GitStatus { branch, files })
+    let unpushed_commits = if procs::output(&app.env, "git", &["remote"], Some(cwd))
+        .await
+        .is_ok_and(|s| !s.is_empty())
+    {
+        procs::output(
+            &app.env,
+            "git",
+            &["rev-list", "--count", "HEAD", "--not", "--remotes"],
+            Some(cwd),
+        )
+        .await
+        .ok()
+        .and_then(|s| s.parse().ok())
+    } else {
+        None
+    };
+    let main_stat = procs::output(
+        &app.env,
+        "git",
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--numstat",
+            "main",
+            "--",
+        ],
+        Some(cwd),
+    )
+    .await
+    .ok();
+    let main_changes = main_stat.map(|stat| {
+        let mut changes = GitChanges {
+            files: 0,
+            additions: Some(0),
+            deletions: Some(0),
+        };
+        for line in stat.lines() {
+            let mut parts = line.split('\t');
+            changes.files += 1;
+            changes.additions = changes
+                .additions
+                .zip(parts.next().and_then(|s| s.parse::<u32>().ok()))
+                .map(|(a, b)| a + b);
+            changes.deletions = changes
+                .deletions
+                .zip(parts.next().and_then(|s| s.parse::<u32>().ok()))
+                .map(|(a, b)| a + b);
+        }
+        changes
+    });
+    let main_names = procs::command(&app.env, "git", Some(cwd))
+        .args([
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--name-only",
+            "-z",
+            "main",
+            "--",
+        ])
+        .output()
+        .await
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+        .unwrap_or_default();
+    let main_files = main_names
+        .split('\0')
+        .filter(|s| !s.is_empty())
+        .map(|path| GitFile {
+            path: path.to_string(),
+            status: "Δ".into(),
+            previous: None,
+        })
+        .collect();
+    Ok(GitStatus {
+        branch,
+        files,
+        unpushed_commits,
+        main_changes,
+        main_files,
+    })
 }
 
-pub async fn diff(app: &App, id: &str, path: &str) -> Result<GitDiff> {
+pub async fn diff(app: &App, id: &str, path: &str, main: bool) -> Result<GitDiff> {
     let s = app.sessions.get(id).context("no such session")?;
-    let files = status(app, id).await?.files;
+    let status = status(app, id).await?;
+    let files = if main {
+        status.main_files
+    } else {
+        status.files
+    };
     let file = files
         .iter()
         .find(|f| f.path == path)
@@ -79,6 +178,29 @@ pub async fn diff(app: &App, id: &str, path: &str) -> Result<GitDiff> {
     let mut paths = vec![path];
     if let Some(previous) = &file.previous {
         paths.push(previous);
+    }
+    if main {
+        let patch = procs::output(
+            &app.env,
+            "git",
+            &[
+                "--literal-pathspecs",
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--no-color",
+                "main",
+                "--",
+                path,
+            ],
+            Some(cwd),
+        )
+        .await?;
+        return Ok(GitDiff {
+            staged: String::new(),
+            truncated: patch.len() > 200_000,
+            unstaged: truncate_output(&patch, 200_000),
+        });
     }
     let read = |staged: bool| {
         let paths = paths.clone();

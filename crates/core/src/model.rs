@@ -45,6 +45,8 @@ pub enum SessionStatus {
     Background,
     Closed,
     InTerminal,
+    /// The owner stopped an unfinished turn. Resumable, but not Done.
+    Stopped,
     /// The daemon stopped during a turn. Resumable.
     Interrupted,
     Error,
@@ -59,6 +61,7 @@ impl SessionStatus {
             SessionStatus::Background => "background",
             SessionStatus::Closed => "closed",
             SessionStatus::InTerminal => "in_terminal",
+            SessionStatus::Stopped => "stopped",
             SessionStatus::Interrupted => "interrupted",
             SessionStatus::Error => "error",
         }
@@ -71,6 +74,7 @@ impl SessionStatus {
             "background" => SessionStatus::Background,
             "closed" => SessionStatus::Closed,
             "in_terminal" => SessionStatus::InTerminal,
+            "stopped" => SessionStatus::Stopped,
             "interrupted" => SessionStatus::Interrupted,
             _ => SessionStatus::Error,
         }

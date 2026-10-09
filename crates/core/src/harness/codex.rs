@@ -372,7 +372,9 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             if turn["status"] == "failed" {
                 sink.emit(EventBody::Error { message: error.unwrap_or_else(|| "the turn failed".into()) }).await;
             }
-            sink.set_status(SessionStatus::Waiting).await;
+            sink.set_status(if turn["status"] == "failed" { SessionStatus::Error }
+                else if sink.stop_requested() { SessionStatus::Stopped }
+                else if interrupted { SessionStatus::Interrupted } else { SessionStatus::Waiting }).await;
         }
         "error" => {
             if let Some(m) = p["error"]["message"].as_str() {

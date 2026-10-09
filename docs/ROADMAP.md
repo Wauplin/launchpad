@@ -1,6 +1,6 @@
 # Launchpad roadmap
 
-Status: implementation and acceptance tracker (updated 2026-10-03). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
+Status: implementation and acceptance tracker (updated 2026-10-10). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
 
 ## How to read this
 
@@ -20,7 +20,7 @@ Status: implementation and acceptance tracker (updated 2026-10-03). See [ARCHITE
 | 2b | Code viewer | You read code (an agent's worktree, a branch, a PR head) without opening an editor | In progress |
 | 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com | In progress |
 | 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | In progress |
-| 5 | Workspace polish | Several sessions are easy to arrange, find and resume | In progress |
+| 5 | Workspace polish | Sessions are easy to find, inspect and resume, with summaries and same-session follow-ups | In progress |
 | 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | In progress |
 | 7 | Optional extensions requiring a new scope | Candidate ideas only; no selected implementation | Next |
 
@@ -211,6 +211,7 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 - Simplified on 2026-10-09: Agents shows one detail panel per window. Removed the layout switch, pane grid, focus state, Move selector and session drag/drop; image drops remain supported. Selected sessions, pins and collapsed groups persist per workspace, and notification suppression uses only the visible conversation. UI type checking and the production build pass. Checked against the dev daemon in Chrome: switching sessions, one conversation after reload, retained pins and group collapse, obsolete grid state discarded, Close panel preserving session state, and presence messages containing at most one session. Both agent sketches now show one panel.
 - Replaced the workspace dropdown with a wrapping row of visible one-click buttons below the top bar, including All projects, a highlighted selection, separate New window controls and Manage workspaces. Checked in the dev daemon and Chrome: switching, selected state and window titles, reload persistence, management navigation, a new dev desktop window, and layout at all five zoom positions in 1440 px and 800 px windows. UI type checking and the production UI build pass.
 - Single-row top bar, on 2026-10-09: the workspace buttons moved into the top bar next to Launch, and Manage workspaces became Settings → Workspaces (`/settings/workspaces`, with General/Workspaces tabs). Checked in the dev daemon and Chrome: the top bar keeps its 46 px height in a 1440 px window at all five zoom positions, workspace buttons and Launch move together to a second line in an 800 px window from 110% zoom, switching and window titles, the Settings tabs and the Settings → Workspaces breadcrumb. UI type checking and the production UI build pass.
+- Owner-approved S8 scope, built on 2026-10-10: non-running sessions open a plain-column Summary with state, recorded run metadata, first task, exact final markdown and factual next steps. Summary/Trace shares the existing header; completion preserves Trace with a state bar. Stop confirmation persists Stopped separately from Interrupted and Failed. Follow-ups reuse scheduled-launch AND conditions and resume the same session with the saved message, appear in Scheduled and the teal band, and support Cancel. Claimed follow-ups require manual inspection after crashes; no automatic retry. Checked in the dev daemon and Chrome: Done, Question, Stopped and Archived summaries; reloads, repeated session clicks and workspace switches; Trace state bars and final-message navigation; long-message folding; question answers, Resume and message sending; same-session follow-ups with combined time/agent conditions, reported quota deadlines, Scheduled details and cancellation; Git patches against main and a local pre-draft copied from a throwaway remote. Test follow-ups were cancelled and test agents archived. Strict workspace Clippy, the 12 existing Rust tests and UI type checking/build pass. Daily-use acceptance remains pending.
 - Left for the **Done when** check: daily use with four agents and older conversations, and daily use of two workspaces in two windows.
 
 ## Phase 6: agent-written suggestions

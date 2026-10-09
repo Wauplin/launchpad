@@ -311,7 +311,10 @@ async fn handle(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>
             if !st.lock().unwrap().questions.is_empty() {
                 return;
             }
-            sink.set_status(if background { SessionStatus::Background } else { SessionStatus::Waiting }).await;
+            sink.set_status(if error.is_some() { SessionStatus::Error }
+                else if sink.stop_requested() { SessionStatus::Stopped }
+                else if interrupted { SessionStatus::Interrupted }
+                else if background { SessionStatus::Background } else { SessionStatus::Waiting }).await;
         }
         "rate_limit_event" => sink.app().status.claude_rate_limit_event(&msg["rate_limit_info"]),
         "control_request" => {

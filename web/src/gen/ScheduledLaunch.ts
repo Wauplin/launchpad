@@ -3,11 +3,15 @@ import type { LaunchDelay } from "./LaunchDelay";
 import type { LaunchSpec } from "./LaunchSpec";
 import type { ScheduleStatus } from "./ScheduleStatus";
 
-export type ScheduledLaunch = { id: string, spec: LaunchSpec, 
+export type ScheduledLaunch = { id: string, spec: LaunchSpec,
+/**
+ * None starts a new session; Some sends spec.text verbatim to that existing session.
+ */
+resume_session_id: string | null,
 /**
  * All conditions must be met before the launch starts.
  */
-conditions: Array<LaunchDelay>, title: string, created_at: number, 
+conditions: Array<LaunchDelay>, title: string, created_at: number,
 /**
  * Latest time or quota condition, resolved once at scheduling time (Unix milliseconds).
  */

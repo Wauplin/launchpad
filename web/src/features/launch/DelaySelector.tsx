@@ -92,7 +92,7 @@ function AgentPicker({ ids, onChange }: { ids: string[]; onChange: (ids: string[
   const queue = scheduled.data ?? [];
   const sessionIds = new Set(existing.map((s) => s.id));
   const agents = [
-    ...queue.filter((s) => !sessionIds.has(s.id)).map(scheduledDependency),
+    ...queue.filter((s) => !s.resume_session_id && !sessionIds.has(s.id)).map(scheduledDependency),
     ...existing.filter((s) => s.status !== "closed" || ids.includes(s.id)).map(sessionDependency),
   ];
   const sessions = agents.filter((s) => s.title.toLowerCase().includes(filter.toLowerCase()));

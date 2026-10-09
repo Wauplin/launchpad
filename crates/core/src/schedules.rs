@@ -47,6 +47,9 @@ pub enum ScheduleStatus {
 pub struct ScheduledLaunch {
     pub id: String,
     pub spec: LaunchSpec,
+    /// None starts a new session; Some sends spec.text verbatim to that existing session.
+    #[serde(default)]
+    pub resume_session_id: Option<String>,
     /// All conditions must be met before the launch starts.
     pub conditions: Vec<LaunchDelay>,
     pub title: String,
@@ -88,14 +91,52 @@ pub async fn create(
     spec: LaunchSpec,
     conditions: Vec<LaunchDelay>,
 ) -> Result<ScheduledLaunch> {
-    spec.harness.context("pick Claude Code or Codex")?;
-    if spec.target == Target::None {
-        bail!("pick a project or a temporary folder");
-    }
-    let preview = app.sessions.preview(app, &spec).await?;
-    if preview.prompt.trim().is_empty() {
-        bail!("the prompt is empty");
-    }
+    create_target(app, spec, conditions, None).await
+}
+
+pub async fn follow_up(
+    app: &App,
+    id: &str,
+    message: String,
+    conditions: Vec<LaunchDelay>,
+) -> Result<ScheduledLaunch> {
+    let session = app.sessions.get(id).context("no such session")?;
+    anyhow::ensure!(
+        !session.status.is_running(),
+        "wait for the session to stop first"
+    );
+    anyhow::ensure!(!message.trim().is_empty(), "the message is empty");
+    let mut spec = session.launch_spec;
+    spec.harness = Some(session.harness);
+    spec.text = message;
+    // Use the actual session project for workspace filtering, without creating a worktree.
+    spec.target = session
+        .project_id
+        .map(|project_id| Target::Project { project_id })
+        .unwrap_or(Target::None);
+    create_target(app, spec, conditions, Some(id.to_string())).await
+}
+
+async fn create_target(
+    app: &App,
+    spec: LaunchSpec,
+    conditions: Vec<LaunchDelay>,
+    resume_session_id: Option<String>,
+) -> Result<ScheduledLaunch> {
+    let title = if let Some(id) = &resume_session_id {
+        let s = app.sessions.get(id).context("no such session")?;
+        format!("Follow-up · {}", s.title)
+    } else {
+        spec.harness.context("pick Claude Code or Codex")?;
+        if spec.target == Target::None {
+            bail!("pick a project or a temporary folder");
+        }
+        let preview = app.sessions.preview(app, &spec).await?;
+        if preview.prompt.trim().is_empty() {
+            bail!("the prompt is empty");
+        }
+        preview.title
+    };
     if conditions.is_empty() {
         bail!("pick at least one start condition");
     }
@@ -122,7 +163,11 @@ pub async fn create(
                 }
                 // Scheduled ids become session ids at launch, so dependencies need no rewriting.
                 for id in session_ids {
-                    if app.sessions.get(id).is_none() && !scheduled.iter().any(|s| &s.id == id) {
+                    if app.sessions.get(id).is_none()
+                        && !scheduled
+                            .iter()
+                            .any(|s| &s.id == id && s.resume_session_id.is_none())
+                    {
                         bail!("a selected agent no longer exists");
                     }
                 }
@@ -154,11 +199,26 @@ pub async fn create(
         };
         ready_at = ready_at.max(at);
     }
+    if let Some(id) = &resume_session_id {
+        anyhow::ensure!(
+            !scheduled
+                .iter()
+                .any(|s| s.resume_session_id.as_ref() == Some(id)),
+            "this session already has a follow-up"
+        );
+        anyhow::ensure!(
+            !conditions.iter().any(
+                |c| matches!(c, LaunchDelay::Agents { session_ids } if session_ids.contains(id))
+            ),
+            "a follow-up cannot wait for its own session"
+        );
+    }
     let launch = ScheduledLaunch {
         id: uuid::Uuid::new_v4().to_string(),
         spec,
         conditions,
-        title: preview.title,
+        title,
+        resume_session_id,
         created_at: now,
         ready_at,
         status: ScheduleStatus::Queued,
@@ -167,6 +227,10 @@ pub async fn create(
     let record = launch.clone();
     app.state_db
         .call(move |c| {
+            if let Some(id) = &record.resume_session_id {
+                let exists: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM scheduled_launch WHERE json_extract(json, '$.resume_session_id') = ?1)", [id], |r| r.get(0))?;
+                anyhow::ensure!(!exists, "this session already has a follow-up");
+            }
             c.execute(
                 "INSERT INTO scheduled_launch (id, json) VALUES (?1, ?2)",
                 params![record.id, serde_json::to_string(&record)?],
@@ -255,20 +319,29 @@ async fn finish(app: &App, mut record: ScheduledLaunch, error: Option<String>) -
 
 async fn run(app: &App, record: ScheduledLaunch) -> Result<Session> {
     // A stable session id makes crash recovery unambiguous, even before the harness attaches.
-    let result = match app.sessions.get(&record.id) {
-        Some(s) => Ok(s),
-        None => {
-            app.sessions
-                .launch_with_id(app, record.spec.clone(), record.id.clone())
-                .await
+    let result = if let Some(id) = &record.resume_session_id {
+        app.sessions
+            .send_follow_up(app, id, &record.spec.text)
+            .await
+            .and_then(|()| {
+                app.sessions
+                    .get(id)
+                    .context("session disappeared after sending")
+            })
+    } else {
+        match app.sessions.get(&record.id) {
+            Some(s) => Ok(s),
+            None => {
+                app.sessions
+                    .launch_with_id(app, record.spec.clone(), record.id.clone())
+                    .await
+            }
         }
     };
-    if result
-        .as_ref()
-        .err()
-        .is_some_and(|e| e.is::<crate::sessions::InstallingUpdate>())
-    {
-        // Installation is temporary: preserve this launch for the replacement daemon.
+    if result.as_ref().err().is_some_and(|e| {
+        e.is::<crate::sessions::InstallingUpdate>() || e.is::<crate::sessions::FollowUpBusy>()
+    }) {
+        // Installation or a concurrent turn is temporary: preserve this queued work.
         let mut record = record;
         record.status = ScheduleStatus::Queued;
         app.state_db
@@ -311,10 +384,12 @@ fn ready(record: &ScheduledLaunch, now: i64, done: impl Fn(&str) -> bool) -> boo
 pub async fn recover(app: &App) -> Result<()> {
     for record in list(app).await? {
         if record.status == ScheduleStatus::Starting {
-            let error = if app.sessions.get(&record.id).is_some() {
+            let error = if record.resume_session_id.is_none()
+                && app.sessions.get(&record.id).is_some()
+            {
                 None
             } else {
-                Some("Daemon stopped before launch completed. Click Start now to retry.".into())
+                Some("Daemon stopped during a claimed start. Inspect the session before manually retrying; the message may already have been sent.".into())
             };
             finish(app, record, error).await?;
         }
@@ -339,6 +414,15 @@ pub fn spawn(app: &App) {
                 }
             };
             for record in records {
+                if record.resume_session_id.as_ref().is_some_and(|id| {
+                    app.sessions.get(id).is_some_and(|s| {
+                        s.status.is_running()
+                            || s.open_question
+                            || s.status == crate::model::SessionStatus::InTerminal
+                    })
+                }) {
+                    continue;
+                }
                 if ready(&record, now_ms(), |id| {
                     app.sessions.get(id).is_some_and(|s| s.status.is_done())
                 }) {
@@ -367,6 +451,7 @@ mod tests {
         let mut r = ScheduledLaunch {
             id: "q".into(),
             spec: LaunchSpec::default(),
+            resume_session_id: None,
             conditions: vec![LaunchDelay::Agents {
                 session_ids: vec!["a".into(), "b".into()],
             }],
