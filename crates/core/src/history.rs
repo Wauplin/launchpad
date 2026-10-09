@@ -432,6 +432,7 @@ pub async fn import(app: &App, harness: HarnessKind, id: &str) -> Result<Session
         ended_at: Some(now),
         last_seq: 0,
         launch_spec: LaunchSpec::default(),
+        quota_pause: None,
     };
     app.sessions.import_history(app, s, events).await
 }

@@ -47,6 +47,8 @@ pub enum SessionStatus {
     InTerminal,
     /// The owner stopped an unfinished turn. Resumable, but not Done.
     Stopped,
+    /// Included subscription quota exhausted; continuation is held locally.
+    QuotaPaused,
     /// The daemon stopped during a turn. Resumable.
     Interrupted,
     Error,
@@ -62,6 +64,7 @@ impl SessionStatus {
             SessionStatus::Closed => "closed",
             SessionStatus::InTerminal => "in_terminal",
             SessionStatus::Stopped => "stopped",
+            SessionStatus::QuotaPaused => "quota_paused",
             SessionStatus::Interrupted => "interrupted",
             SessionStatus::Error => "error",
         }
@@ -75,6 +78,7 @@ impl SessionStatus {
             "closed" => SessionStatus::Closed,
             "in_terminal" => SessionStatus::InTerminal,
             "stopped" => SessionStatus::Stopped,
+            "quota_paused" => SessionStatus::QuotaPaused,
             "interrupted" => SessionStatus::Interrupted,
             _ => SessionStatus::Error,
         }
@@ -128,6 +132,8 @@ pub struct Session {
     #[ts(type = "number")]
     pub last_seq: i64,
     pub launch_spec: LaunchSpec,
+    #[serde(default)]
+    pub quota_pause: Option<QuotaPause>,
 }
 
 /// An image attached to a user message, kept locally in the event log.
@@ -262,6 +268,8 @@ pub struct QuestionOption {
 #[derive(Clone, Debug, Serialize, Deserialize, TS, Default)]
 #[serde(default)]
 pub struct LaunchSpec {
+    /// Permit additional paid usage after included subscription quotas are exhausted.
+    pub allow_paid_usage: bool,
     pub harness: Option<HarnessKind>,
     pub target: Target,
     pub text: String,
@@ -355,4 +363,27 @@ pub struct HarnessDefaults {
     pub models: Vec<ModelInfo>,
     /// Effort levels when the model is not known.
     pub efforts: Vec<String>,
+}
+
+/// A durable pending continuation. Claim it before sending; uncertain claims need user action.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct QuotaPause {
+    pub phase: QuotaPausePhase,
+    pub blockers: Vec<QuotaBlock>,
+    pub message: String,
+    pub images: Vec<ImageAttachment>,
+    /// Existing queued input, or None for an interrupted turn's continuation message.
+    pub client_id: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QuotaPausePhase { Pausing, Paused, Resuming, NeedsAttention }
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct QuotaBlock {
+    pub window: String,
+    #[ts(type = "number")]
+    pub resets_at: i64,
 }

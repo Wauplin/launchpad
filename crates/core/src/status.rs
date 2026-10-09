@@ -1,9 +1,10 @@
 //! Status bar data: harness versions and quotas.
 //!
 //! - Versions: `claude --version` and `codex --version` at startup and every 30 minutes.
-//! - Claude quota: `/api/oauth/usage` every 5 minutes with the read-only OAuth token, plus
+//! - Claude quota: `/api/oauth/usage` every 5 minutes (60 seconds while protecting sessions), plus
 //!   `rate_limit_event` from running sessions. The token is never refreshed here (docs/spikes/2-…).
-//! - Codex quota: `account/rateLimits/read` every 2 minutes, plus `account/rateLimits/updated`.
+//! - Codex quota: `account/rateLimits/read` every 2 minutes (30 seconds while protecting sessions),
+//!   plus `account/rateLimits/updated`.
 
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -53,6 +54,7 @@ pub struct QuotaWindow {
 pub struct SessionCounts {
     pub running: u32,
     pub done: u32,
+    pub quota_paused: u32,
 }
 
 #[derive(Clone)]
@@ -86,7 +88,7 @@ impl StatusHandle {
         let win = |k: &str| -> Option<QuotaWindow> {
             let w = &windows[k];
             Some(QuotaWindow {
-                used_percent: (w["utilization"].as_f64()? * 100.0).round(),
+                used_percent: w["utilization"].as_f64()? * 100.0,
                 resets_at: w["resetsAt"].as_i64()?,
             })
         };
@@ -95,8 +97,8 @@ impl StatusHandle {
             return;
         }
         self.update(|s| {
-            s.claude.five_hour = five.or(s.claude.five_hour.take());
-            s.claude.weekly = week.or(s.claude.weekly.take());
+            s.claude.five_hour = five;
+            s.claude.weekly = week;
             s.claude.quota_at = Some(now_ms());
             s.claude.quota_error = None;
         });
@@ -157,7 +159,7 @@ pub fn spawn_monitors(app: &App) {
                     a.status.update(|s| s.claude.quota_error = Some(format!("{e:#}")));
                 }
             }
-            tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+            wait_poll(&a, crate::model::HarnessKind::Claude, 300, 60).await;
         }
     });
 
@@ -186,7 +188,7 @@ pub fn spawn_monitors(app: &App) {
                     a.status.update(|s| s.codex.quota_error = Some(format!("{e:#}")));
                 }
             }
-            tokio::time::sleep(Duration::from_secs(2 * 60)).await;
+            wait_poll(&a, crate::model::HarnessKind::Codex, 120, 30).await;
         }
     });
 }
@@ -250,4 +252,13 @@ async fn claude_usage(client: &reqwest::Client) -> Result<(Option<QuotaWindow>, 
         Some(QuotaWindow { used_percent: w["utilization"].as_f64()?, resets_at: t.unix_timestamp() })
     };
     Ok((win("five_hour"), win("seven_day")))
+}
+
+async fn wait_poll(app: &App, harness: crate::model::HarnessKind, idle: u64, active: u64) {
+    let start = std::time::Instant::now();
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let delay = if crate::quota::monitoring(app, harness) { active } else { idle };
+        if start.elapsed().as_secs() >= delay { return; }
+    }
 }

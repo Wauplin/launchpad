@@ -8,7 +8,11 @@ import type { Target } from "./Target";
 /**
  * What to launch (ARCHITECTURE.md, section 9.7).
  */
-export type LaunchSpec = { harness: HarnessKind | null, target: Target, text: string, presets: Array<string>, context_projects: Array<ContextProject>, github_refs: Array<GitHubRef>,
+export type LaunchSpec = {
+/**
+ * Permit additional paid usage after included subscription quotas are exhausted.
+ */
+allow_paid_usage: boolean, harness: HarnessKind | null, target: Target, text: string, presets: Array<string>, context_projects: Array<ContextProject>, github_refs: Array<GitHubRef>,
 /**
  * Files and line ranges added from the code viewer.
  */

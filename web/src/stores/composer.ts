@@ -13,6 +13,7 @@ import { draftQuery, useWorkspace } from "./workspace";
 
 export const emptySpec = (): LaunchSpec => ({
   harness: null,
+  allow_paid_usage: false,
   target: { kind: "none" },
   text: "",
   presets: [],

@@ -38,6 +38,7 @@ struct State {
     /// gives the block index used by the stream events.
     msg_blocks: HashMap<String, usize>,
     stopping: bool,
+    turn_running: bool,
     cwd: String,
 }
 
@@ -82,6 +83,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
         .stderr(std::process::Stdio::piped());
     let mut child = cmd.spawn().context("start claude")?;
     sink.raw("cmd", &format!("claude {}", args.join(" "))).await;
+    sink.set_harness_id(&harness_id).await;
     let stdin = child.stdin.take().unwrap();
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
@@ -145,12 +147,20 @@ impl LiveSession for ClaudeSession {
             let media_type = header.strip_prefix("data:").and_then(|h| h.strip_suffix(";base64")).context("invalid image media type")?;
             content.push(json!({"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}));
         }
+        self.state.lock().unwrap().turn_running = true;
         self.write(&json!({
             "type": "user",
             "uuid": client_id,
             "message": {"role": "user", "content": content},
         }))
         .await
+    }
+
+    fn turn_active(&self) -> bool { self.state.lock().unwrap().turn_running }
+
+    fn ready_for_turn(&self) -> bool {
+        let s = self.state.lock().unwrap();
+        !s.turn_running && s.background.is_empty() && s.questions.is_empty()
     }
 
     async fn interrupt(&self) -> Result<()> {
@@ -283,6 +293,7 @@ async fn handle(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>
             }
         }
         "result" => {
+            st.lock().unwrap().turn_running = false;
             let error = if msg["is_error"].as_bool() == Some(true) && msg["subtype"] != "error_during_execution" {
                 Some(msg["result"].as_str().unwrap_or(msg["subtype"].as_str().unwrap_or("error")).to_string())
             } else {
@@ -372,6 +383,7 @@ async fn handle_system(sink: &Sink, st: &Arc<Mutex<State>>, msg: &Value) {
     match msg["subtype"].as_str().unwrap_or("") {
         // Sent at the start of every turn, including turns Claude starts by itself after a background task.
         "init" => {
+            st.lock().unwrap().turn_running = true;
             if let Some(model) = msg["model"].as_str() {
                 sink.set_model(model).await;
             }

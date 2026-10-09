@@ -49,6 +49,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/answer", post(answer))
         .route("/api/sessions/{id}/close", post(close))
         .route("/api/sessions/{id}/resume", post(resume))
+        .route("/api/sessions/{id}/resume-paid", post(resume_paid))
         .route("/api/sessions/{id}/open-terminal", post(open_terminal))
         .route("/api/sessions/{id}/task-output", get(task_output))
         .route("/api/inbox", get(inbox))
@@ -270,6 +271,11 @@ async fn close(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Val
 
 async fn resume(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
     s.app.sessions.resume(&s.app, &id).await.map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+async fn resume_paid(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
+    s.app.sessions.resume_paid(&s.app, &id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 

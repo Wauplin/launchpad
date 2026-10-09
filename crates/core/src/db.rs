@@ -140,6 +140,12 @@ CREATE TABLE IF NOT EXISTS predraft (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cron_agent (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS workspace (id TEXT PRIMARY KEY, json TEXT NOT NULL);",
     )?;
+    // Some development databases retain schema numbers from reverted work. Check this
+    // additive column directly, like the unversioned tables above.
+    let has_quota_pause = conn.prepare("PRAGMA table_info(session)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?.iter().any(|name| name == "quota_pause_json");
+    if !has_quota_pause { conn.execute_batch("ALTER TABLE session ADD COLUMN quota_pause_json TEXT;")?; }
     Ok(Db::spawn(conn, "state"))
 }
 

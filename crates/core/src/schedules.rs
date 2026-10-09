@@ -417,6 +417,7 @@ pub fn spawn(app: &App) {
                 if record.resume_session_id.as_ref().is_some_and(|id| {
                     app.sessions.get(id).is_some_and(|s| {
                         s.status.is_running()
+                            || s.quota_pause.is_some()
                             || s.open_question
                             || s.status == crate::model::SessionStatus::InTerminal
                     })

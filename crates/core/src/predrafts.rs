@@ -294,7 +294,7 @@ fn idle(app: &App, p: &Predraft) -> Result<()> {
             .list()
             .iter()
             .any(|s| s.cwd == p.root
-                && (s.status.is_running() || s.status == SessionStatus::InTerminal)),
+                && (app.sessions.is_busy(s) || s.status == SessionStatus::InTerminal)),
         "the worktree has an active agent; wait for it to finish"
     );
     Ok(())

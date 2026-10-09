@@ -491,11 +491,16 @@ export function Composer() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 border-t border-line bg-chrome px-3.5 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-t border-line bg-chrome px-3.5 py-3">
         <label className="mr-auto inline-flex items-center gap-[7px] text-xs text-ink-2" style={scheduled || cron ? { visibility: "hidden" } : undefined}>
           <input type="checkbox" className="accent-teal" disabled={scheduled || !!cron} checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
           Open after launch
         </label>
+        <label className="inline-flex items-center gap-[7px] text-xs text-ink-2" title="Continue using additional credits when included subscription quota runs out. Unchecked: pause and resume automatically, best effort.">
+          <input type="checkbox" className="accent-teal" checked={spec.allow_paid_usage} onChange={(e) => set((s) => ({ ...s, allow_paid_usage: e.target.checked }))} />
+          Allow paid usage
+        </label>
+        <span className="basis-full text-[11px] text-ink-3">{spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption."}</span>
         <button className="btn btn-ghost" onClick={() => { setCron(null); discard(); }} title="Clear the composer">
           Discard
         </button>

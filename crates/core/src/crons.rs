@@ -316,7 +316,7 @@ async fn tick(app: &App, record: CronAgent) -> Result<()> {
         .runs
         .last()
         .and_then(|id| app.sessions.get(id))
-        .is_some_and(|s| s.status.is_running());
+        .is_some_and(|s| app.sessions.is_busy(&s) || s.quota_pause.is_some());
     let reason = if late {
         Some("the daemon was not running at the scheduled time".into())
     } else {

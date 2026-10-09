@@ -3,7 +3,7 @@
 //! The router (one task) reads every app-server message and hands those with a `threadId` to the
 //! session of that thread.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
@@ -26,6 +26,7 @@ pub struct CodexSession {
 #[derive(Default)]
 struct State {
     turn_id: Option<String>,
+    commands: HashSet<String>,
     /// Items started and not completed: id → (type, start time, last output time).
     open: HashMap<String, (String, i64, i64)>,
     /// Pending `item/tool/requestUserInput`: our request id → (JSON-RPC id, question ids).
@@ -103,6 +104,13 @@ impl LiveSession for CodexSession {
             self.state.lock().unwrap().turn_id = Some(id.to_string());
         }
         Ok(())
+    }
+
+    fn turn_active(&self) -> bool { self.state.lock().unwrap().turn_id.is_some() }
+
+    fn ready_for_turn(&self) -> bool {
+        let s = self.state.lock().unwrap();
+        s.turn_id.is_none() && s.commands.is_empty() && s.requests.is_empty()
     }
 
     async fn interrupt(&self) -> Result<()> {
@@ -238,6 +246,7 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
                     }
                 }
                 t if TOOL_ITEMS.contains(&t) => {
+                    if t == "commandExecution" { st.lock().unwrap().commands.insert(id.clone()); }
                     st.lock().unwrap().open.insert(id.clone(), (t.to_string(), now_ms(), now_ms()));
                     let (name, summary) = item_summary(item);
                     sink.emit(EventBody::ToolCall { item_id: id, name, summary, input: item.clone() }).await;
@@ -262,6 +271,7 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             let item = &p["item"];
             let (t, id) = (item["type"].as_str().unwrap_or(""), item["id"].as_str().unwrap_or("").to_string());
             st.lock().unwrap().open.remove(&id);
+            st.lock().unwrap().commands.remove(&id);
             match t {
                 "agentMessage" => {
                     let text = item["text"].as_str().unwrap_or("").to_string();

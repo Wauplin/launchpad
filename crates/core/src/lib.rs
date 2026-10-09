@@ -24,6 +24,7 @@ pub mod schedules;
 pub mod sessions;
 pub mod shellenv;
 pub mod status;
+pub mod quota;
 pub mod suggestions;
 pub mod terminal;
 mod titles;
@@ -91,6 +92,7 @@ impl App {
         schedules::spawn(&app);
         crons::spawn(&app);
         status::spawn_monitors(&app);
+        quota::spawn(&app);
         harness::codex::spawn_router(&app);
         harness::spawn_model_refresh(&app);
         harness::spawn_codex_updates(&app);

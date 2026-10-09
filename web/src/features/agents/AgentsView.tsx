@@ -14,7 +14,7 @@ import { CronPane, cronSummary } from "./CronPane";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { Session } from "@/gen/Session";
 import { HarnessMark } from "@/components/HarnessMark";
-import { isRunning, isDone } from "@/lib/sessionStatus";
+import { isRunning, isDone, isQuotaPaused } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useCrons, useProjects, useSessions } from "@/lib/queries";
@@ -26,6 +26,7 @@ import { StatusBadge } from "./SessionBits";
 
 const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onClick }: { s: Session; project: string; selected: boolean; pinned: boolean; onClick: () => void }) {
   const dim = s.status === "closed";
+  const quotaDetail = s.quota_pause?.error ?? s.quota_pause?.blockers.map((b) => `${b.window} reset ${new Date(b.resets_at * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`).join(" · ");
   return (
     <button
       onClick={onClick}
@@ -38,9 +39,11 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
         {pinned ? "★ " : ""}{s.title}
       </span>
       <span className="flex items-center gap-x-2 overflow-hidden whitespace-nowrap text-[11.5px] text-ink-3">
-        <span className="max-w-[110px] truncate">{project}</span>
-        <StatusBadge s={s} />
-        {s.usage.cost_usd != null && <span>${s.usage.cost_usd.toFixed(2)}</span>}
+        {s.quota_pause ? <span className="truncate text-attn" title={`${project} · ${quotaDetail}`}>{quotaDetail || "Waiting for a quota update"}</span> : <>
+          <span className="max-w-[110px] truncate">{project}</span>
+          <StatusBadge s={s} />
+          {s.usage.cost_usd != null && <span>${s.usage.cost_usd.toFixed(2)}</span>}
+        </>}
       </span>
     </button>
   );
@@ -141,7 +144,8 @@ export function AgentsView() {
   const filteredSchedules = pinsOnly ? [] : schedules.filter((s) => !needle || `${s.title} ${s.spec.text}`.toLocaleLowerCase().includes(needle));
   const done = filtered.filter((s) => isDone(s)).sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)) || a.status_since - b.status_since);
   const running = filtered.filter((s) => isRunning(s)).sort(order);
-  const archived = filtered.filter((s) => !isDone(s) && !isRunning(s)).sort(order);
+  const quotaPaused = filtered.filter(isQuotaPaused).sort(order);
+  const archived = filtered.filter((s) => !isDone(s) && !isRunning(s) && !isQuotaPaused(s)).sort(order);
   const items: ({ kind: "group"; title: AgentGroup; count: number; highlight?: boolean } | { kind: "session"; session: Session } | { kind: "schedule"; launch: ScheduledLaunch } | { kind: "cron"; cron: CronAgent } | { kind: "more" })[] = [
     { kind: "group", title: "Cron", count: filteredCrons.length },
     ...(collapsedGroups.Cron ? [] : filteredCrons).map((cron) => ({ kind: "cron" as const, cron })),
@@ -149,6 +153,8 @@ export function AgentsView() {
     ...(collapsedGroups.Scheduled ? [] : filteredSchedules).map((launch) => ({ kind: "schedule" as const, launch })),
     { kind: "group", title: "Running", count: running.length },
     ...(collapsedGroups.Running ? [] : running).map((session) => ({ kind: "session" as const, session })),
+    { kind: "group", title: "Quota paused", count: quotaPaused.length },
+    ...(collapsedGroups["Quota paused"] ? [] : quotaPaused).map((session) => ({ kind: "session" as const, session })),
     { kind: "group", title: "Done", count: done.length, highlight: true },
     ...(collapsedGroups.Done ? [] : done).map((session) => ({ kind: "session" as const, session })),
     { kind: "group", title: "Archived", count: archived.length },

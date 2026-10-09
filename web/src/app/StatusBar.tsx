@@ -10,7 +10,7 @@ import { api } from "@/lib/api";
 import { formatAge, formatReset } from "@/lib/format";
 import { onConnectionChange } from "@/lib/ws";
 import { useSessions } from "@/lib/queries";
-import { isDone, isRunning } from "@/lib/sessionStatus";
+import { isDone, isRunning, isQuotaPaused } from "@/lib/sessionStatus";
 import { useScope } from "@/lib/workspace";
 
 export function useStatus() {
@@ -73,7 +73,7 @@ export function StatusBar() {
   // A workspace counts its own agents, with the sidebar's predicates.
   const scope = useScope();
   const scoped = useSessions().data?.filter(scope.hasSession);
-  const counts = scope.workspace && scoped ? { running: scoped.filter(isRunning).length, done: scoped.filter(isDone).length } : data?.sessions;
+  const counts = scope.workspace && scoped ? { running: scoped.filter(isRunning).length, done: scoped.filter(isDone).length, quota_paused: scoped.filter(isQuotaPaused).length } : data?.sessions;
   const [online, setOnline] = useState(true);
   useEffect(() => onConnectionChange(setOnline), []);
   // Re-render every 30 s so ages and reset times stay current.
@@ -101,6 +101,7 @@ export function StatusBar() {
             {data.profile === "dev" && <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn">dev profile</span>}
             <span>
               {counts?.running ?? 0} running ·{" "}
+              {(counts?.quota_paused ?? 0) > 0 && <span>{counts!.quota_paused} quota paused · </span>}
               <span className={(counts?.done ?? 0) > 0 ? "font-bold text-attn" : ""}>{counts?.done ?? 0} done</span>
             </span>
           </span>

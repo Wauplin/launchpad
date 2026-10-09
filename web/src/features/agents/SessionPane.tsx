@@ -1,7 +1,7 @@
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
-import { SessionSummary, StateBand, FollowUpBands } from "./SessionSummary";
+import { SessionSummary, StateBand, QuotaBand, FollowUpBands } from "./SessionSummary";
 import { GitPanel } from "./GitPanel";
 import { useLayout } from "@/stores/layout";
 import { useQuery } from "@tanstack/react-query";
@@ -238,8 +238,8 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
             <button className={`btn btn-sm ${summary ? "bg-select!" : ""}`} aria-pressed={summary} disabled={running} onClick={() => { setView("summary"); setGitOpen(false); }}>Summary</button>
             <button className={`btn btn-sm ${!summary ? "bg-select!" : ""}`} aria-pressed={!summary} onClick={() => { setView("trace"); setGitOpen(false); }}>Trace</button>
           </span>
-          {running && (
-            <button className="iconbtn" title="Stop: interrupt the agent" onClick={() => void act(s.id, "interrupt")}>
+          {(running || s.status === "quota_paused") && (
+            <button className="iconbtn" title={s.status === "quota_paused" ? "Stop: cancel automatic continuation" : "Stop: interrupt the agent"} onClick={() => void act(s.id, "interrupt")}>
               <Icon name="stop" size={14} />
             </button>
           )}
@@ -248,7 +248,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
               Re-attach
             </button>
           ) : (
-            !running && (
+            !running && s.status !== "quota_paused" && (
               <button className="iconbtn" title="Open in terminal" onClick={() => void act(s.id, "open-terminal")}>
                 <Icon name="term" size={14} />
               </button>
@@ -289,7 +289,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
       {!summary && !gitOpen && !running && <><StateBand session={s}>
         <button className="btn btn-sm" disabled={!rows.some((r) => r.t === "assistant")} onClick={() => { atBottom.current = false; const i = rows.findLastIndex((r) => r.t === "assistant"); if (i >= 0) v.scrollToIndex(i, { align: "start" }); }}>Final message</button>
         <button className="btn btn-sm" onClick={() => setView("summary")}>Summary</button>
-      </StateBand><FollowUpBands sessionId={s.id} /></>}
+      </StateBand><FollowUpBands sessionId={s.id} /><QuotaBand session={s} /></>}
       <div
         ref={scrollRef}
         className={`min-h-0 flex-1 overflow-y-auto px-3 ${gitOpen || summary ? "hidden" : ""}`}
@@ -323,7 +323,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
         )}
       </div>
       </CodeLinksContext.Provider>
-      <MessageBox onSent={() => setView("trace")} key={s.id} dropImages={dropImages} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal"} ask={s.open_question && s.live ? ask : null} />
+      <MessageBox onSent={() => setView("trace")} key={s.id} dropImages={dropImages} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal" || s.status === "quota_paused"} ask={s.open_question && s.live ? ask : null} />
     </div>
   );
 }

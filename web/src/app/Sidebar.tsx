@@ -3,7 +3,7 @@ import { useScope } from "@/lib/workspace";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import type { Project } from "@/gen/Project";
-import { isDone, isRunning } from "@/lib/sessionStatus";
+import { isDone, isRunning, isQuotaPaused } from "@/lib/sessionStatus";
 import type { Session } from "@/gen/Session";
 import { Icon, type IconName } from "@/components/Icon";
 import { formatAge } from "@/lib/format";
@@ -32,6 +32,7 @@ function RunDot({ p, sessions }: { p: Project; sessions: Session[] }) {
   const active = sessions.filter((s) => s.project_id === p.id || s.cwd === p.path || s.cwd.startsWith(p.path + "/"));
   return <span className="flex items-center gap-1.5">
     {active.some(isDone) && <span className="size-[7px] rounded-full bg-attn" title="Done: waiting for input" />}
+    {active.some(isQuotaPaused) && <span className="size-[7px] rounded-full border border-attn" title="Quota paused" />}
     {active.some(isRunning) && <span className="lp-spin" title="Running" />}
   </span>;
 }
@@ -62,6 +63,7 @@ export function Sidebar() {
   const sessions = (useSessions().data ?? []).filter(scope.hasSession);
   const done = sessions.filter(isDone).length;
   const running = sessions.filter(isRunning).length;
+  const quotaPaused = sessions.filter(isQuotaPaused).length;
   const pinned = projects.filter((p) => (scope.workspace || p.pinned) && !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const temp = projects.filter((p) => p.is_temp).sort((a, b) => b.created_at - a.created_at);
   return (
@@ -75,6 +77,7 @@ export function Sidebar() {
         end={
           <span className="flex items-center gap-2 text-[11px] font-semibold tabular-nums">
             <span className="rounded-full bg-attn-soft px-1.5 text-attn" title={`${done} Done: waiting for input`}>{done}</span>
+            {quotaPaused > 0 && <span className="rounded-full border border-attn-line px-1.5 text-attn" title={`${quotaPaused} Quota paused`}>{quotaPaused}</span>}
             <span className="flex items-center gap-1 text-work" title={`${running} Running`}>
               {running > 0 && <span className="lp-spin" />}{running}
             </span>

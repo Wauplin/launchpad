@@ -1012,6 +1012,7 @@ Context:
           </div>
           <div class="dr-foot">
             <span class="check"><span class="cb"></span>Open after launch</span>
+            <span class="check" title="Best effort: pause at included quota limits"><span class="cb"></span>Allow paid usage</span>
             <span class="btn">Save draft</span>
             <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
           </div>
@@ -1069,14 +1070,16 @@ Context:
 
         <div class="slist">
           <div style="padding:8px;border-bottom:1px solid var(--line)"><input class="input" aria-label="Search sessions" placeholder="Search sessions and messages…" style="width:100%;margin-bottom:6px"/><span class="btn sm">★ Pinned</span> <span class="btn sm">Import history</span></div>
-          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Done <b>2</b> <i class="pin">1</i></button>
-          <div class="srow sel"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">★ Fix listJobs CI failure</span><span class="m">huggingface.js <span class="st needs">Done 3 min</span></span></div>
-          <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Check #3412 / #3420</span><span class="m">huggingface_hub <span class="st needs">Question</span></span></div>
           <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Running <span class="faint">3</span></button>
           <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Benchmark upload chunk sizes</span><span class="m">tmp-1002-xet-bench <span class="st bgc">Running · background 6 min</span></span></div>
           <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Xet refresh token endpoint</span><span class="m">moon-landing <span class="st work">12 min</span> $1.84</span></div>
           <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Investigate shard retry logic</span><span class="m">transformers <span class="st work">2 min</span> $0.21</span></div>
-          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Archived <span class="faint">3</span></button>
+<button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Quota paused <span class="faint">1</span></button>
+          <div class="srow"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Review dependency cleanup</span><span class="m">launchpad <span class="st bgc">Weekly reset · Sunday 16:21</span></span></div>
+          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Done <b>2</b> <i class="pin">1</i></button>
+          <div class="srow sel"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">★ Fix listJobs CI failure</span><span class="m">huggingface.js <span class="st needs">Done 3 min</span></span></div>
+          <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Check #3412 / #3420</span><span class="m">huggingface_hub <span class="st needs">Question</span></span></div>
+                    <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Archived <span class="faint">3</span></button>
           <div class="srow dim"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Release notes for v1.4</span><span class="m">huggingface_hub <span class="st done">Archived 2 h ago</span> $0.92</span></div>
           <div class="srow dim"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Fix flaky test_list_models</span><span class="m">huggingface_hub <span class="st int">Interrupted</span> Resume</span></div>
           <div class="srow dim"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Proofread the xet blog post</span><span class="m">blog <span class="st done">Archived yesterday</span></span></div>
@@ -1124,7 +1127,7 @@ Context:
     </div>
   </div>
   <ol class="notes">
-    <li><i class="pin">1</i><span><b>Scheduled, Running, Done, Archived.</b> Click a heading to collapse or expand its rows; counts stay visible and the app remembers each group’s expansion. Done waits for input. Running includes background and long commands, even when silent. Archived sessions can be resumed. Separate amber Done and blue Running counts appear beside Agents, with a spinner for running agents. Pinned projects show a done dot and a running spinner together when both apply.</span></li>
+    <li><i class="pin">1</i><span><b>Scheduled, Running, Quota paused, Done, Archived.</b> Click a heading to collapse or expand its rows; counts stay visible and the app remembers each group’s expansion. Quota paused resumes automatically after fresh readings confirm capacity; Stop cancels continuation into Done and Resume with paid usage permits additional credits. Allow paid usage starts unchecked in the composer. Protection is best effort. Done waits for input. Running includes background and long commands, even when silent. Archived sessions can be resumed. Separate amber Done and blue Running counts appear beside Agents, with a spinner for running agents. Pinned projects show a done dot and a running spinner together when both apply.</span></li>
     <li><i class="pin">2</i><span><b>One agent at a time.</b> Clicking a session on the left replaces the conversation. The selected session is remembered per workspace. Other agents keep running, and another window can show another session.</span></li>
     <li><i class="pin">3</i><span><b>Session header.</b> Click the title to edit it in place with Save title and Cancel controls; a star on its right toggles the pin. Git and Open in editor share the action row with Files and Archive. Git shows branch, changed files and separate staged/working-tree patches without changing the repository. Titles are AI-generated from the initial prompt. Project, state and elapsed time, tokens, context usage and cost (Claude only). The X only closes the panel and leaves the session state unchanged. Archive stops the session and keeps it resumable in Archived. Stop interrupts the agent. "Open in terminal" hands the session to the terminal chosen in Settings (S6) and back.</span></li>
     <li><i class="pin">4</i><span><b>Compact tool calls.</b> Commands and file reads collapse into one line, edits show a small diff, the running command has a spinner. Click to expand.</span></li>
@@ -1775,10 +1778,12 @@ Context:
         <div class="slist">
           <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Running <span class="faint">1</span></button>
           <div class="srow"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Investigate shard retry logic</span><span class="m">transformers <span class="st work">2 min</span> $0.21</span></div>
-          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Done <b>2</b></button>
+          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Quota paused <span class="faint">1</span></button>
+          <div class="srow"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Review dependency cleanup</span><span class="m">launchpad <span class="st bgc">Weekly reset · Sunday 16:21</span></span></div>
+          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Done <b>1</b></button>
           <div class="srow sel"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Xet refresh token endpoint</span><span class="m">moon-landing <span class="st needs">Done 3 min</span> $2.31</span></div>
+          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Archived <span class="faint">3</span></button>
           <div class="srow"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Migrate snapshot tests to vitest</span><span class="m">huggingface.js <span class="st int">Stopped</span></span></div>
-          <button class="sgroup" aria-expanded="true" onclick="toggleAgentGroup(this)"><svg class="ic sm"><use href="#i-chev"/></svg>Archived <span class="faint">2</span></button>
           <div class="srow dim"><span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span><span class="t">Release notes for v1.4</span><span class="m">huggingface_hub <span class="st done">Archived 2 h ago</span> $0.92</span></div>
           <div class="srow dim"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Proofread the xet blog post</span><span class="m">blog <span class="st done">Archived yesterday</span></span></div>
         </div>

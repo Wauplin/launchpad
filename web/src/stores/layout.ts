@@ -7,7 +7,7 @@ import { useWorkspace } from "./workspace";
 /** All projects keep the original key. */
 const storageKey = (workspace: string | null) => (workspace ? `launchpad.layout.${workspace}` : "launchpad.layout");
 
-export type AgentGroup = "Cron" | "Done" | "Running" | "Scheduled" | "Archived";
+export type AgentGroup = "Cron" | "Done" | "Running" | "Quota paused" | "Scheduled" | "Archived";
 
 type LayoutStore = {
   pinned: string[];
