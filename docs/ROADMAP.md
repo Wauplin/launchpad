@@ -123,7 +123,7 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which reuses its code renderer for Files changed. Design in [ARCHITECTURE.md, section 8.1](ARCHITECTURE.md#81-code-viewer) and sketch S7.
 
 - Daemon `code` module: sources (checkout, worktrees, branches, tags, fetched PR refs), file list with change letters, file content with changed line ranges, `git grep` search, path checks.
-- Viewer screen `/projects/{id}/code`: source picker, virtualized file tree with "Go to file" and "Changed only", tabs, code lines (virtualized, fixed row height, Shiki in a Web Worker) with bars on changed lines, Markdown preview, images.
+- Viewer screen `/projects/{id}/code`: source picker, virtualized file tree with "Go to file" and "Changed only", tabs, code lines (virtualized, fixed row height, Shiki in a Web Worker) with bars on changed lines, Markdown and static HTML previews, images.
 - Find bar: Find button and `Ctrl+F`, match case, whole word, regex; `Enter`, `Shift+Enter` and `Escape` in its field.
 - Search in project, grouped by file.
 - Line selection: copy, copy reference, GitHub link, open in editor at the line, add to agent (composer chip or a session's message box).
@@ -136,7 +136,7 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 
 - Built on 2026-10-02:
   - Daemon `code` module and `/api/code/*`: sources (checkout, `git worktree list`, local and remote branches, tags, `refs/launchpad/pr/*`), file lists with M, A and U letters since the merge base with the default branch, file contents with changed line ranges (modified, added, deleted), images, binary and size limits, `git grep` search capped at 1,000 results and cancelled with its request, the commit and its GitHub repository for permalinks. Roots must be registered projects or their git worktrees, paths stay inside the root, and revisions are resolved to a commit id first.
-  - Viewer `/projects/{id}/code`: source picker, virtualized tree with compact folders, "Go to file" and "Changed only", tabs, fixed-height virtualized code lines with Shiki colors from a Web Worker, change bars, Markdown preview (relative images and links resolved in the same source), images.
+  - Viewer `/projects/{id}/code`: source picker, virtualized tree with compact folders, "Go to file" and "Changed only", tabs, fixed-height virtualized code lines with Shiki colors from a Web Worker, change bars, Markdown preview (relative images and links resolved in the same source), static HTML preview (inline styles and embedded images/fonts; scripts, navigation and external files disabled), images.
   - Find bar: Find button and `Ctrl+F`, match case, whole word, regex, `Enter`, `Shift+Enter` and `Escape`; matches over the whole file.
   - Search in project as you type, grouped by file with four lines until "Show more".
   - Line selection: Copy, Copy reference, GitHub link (copied; only when a remote branch has the commit and the file has no uncommitted change), Add to agent (composer chip or a session's message box), Editor at the line (working trees).
@@ -144,6 +144,7 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
   - Session Markdown links to files in the session's working tree open the code viewer; unavailable local paths show a message instead of opening a daemon URL.
   - The open file and the file list reload when a session reports a `file_change` in the same working tree.
 - Checked with the dev daemon and Chrome through the DevTools protocol: this repository, its `code-viewer` worktree and branch, huggingface_hub (503 files in 0.3 s, a 15,442-line file from `origin/main`, permalinks to `huggingface/huggingface_hub`), an empty repository without commits; colors, find navigation, selection by click and shift-click, Go to file, search, README preview, image, Changed only, the composer prompt with a file chip, a session message box reference, and the 150% zoom position. A Claude Haiku session that edited the open file reloaded it in place within 5 seconds, with the scroll position kept. Opening the editor was not exercised during automated checks.
+- Added static HTML previews on 2026-10-10. Checked in Chrome against the dev daemon: `.htm` Preview/Source toggle, inline styles, embedded image rendering, script and navigation removal, and the existing Markdown preview. UI type checking and the production UI build pass.
 - Left for the **Done when** check: a week of daily use. "View file" on diffs comes with Phases 3 and 4.
 
 ## Phase 3: issues and pull requests

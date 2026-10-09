@@ -14,6 +14,7 @@ import type { Session } from "@/gen/Session";
 import { HarnessMark } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { Markdown } from "@/components/Markdown";
+import DOMPurify from "dompurify";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
@@ -286,6 +287,7 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
   const findRef = useRef<HTMLInputElement>(null);
   const lines = useRef<CodeLinesHandle>(null);
   const markdown = f?.language === "markdown";
+  const html = f?.language === "html";
   const isText = f?.kind === "text" && f.text !== null;
 
   const openFind = useCallback(() => {
@@ -334,8 +336,8 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
               Find <span className="rounded border border-line px-1 font-mono text-[10px] text-ink-3">Ctrl+F</span>
             </button>
           )}
-          {markdown && isText && (
-            <button className="btn btn-sm" title={preview ? "Show the source" : "Show the rendered Markdown"} onClick={() => setPreview((p) => !p)}>
+          {(markdown || html) && isText && (
+            <button className="btn btn-sm" title={preview ? "Show the source" : `Show the rendered ${html ? "HTML" : "Markdown"}`} onClick={() => setPreview((p) => !p)}>
               <Icon name={preview ? "file" : "eye"} size={12} />
               {preview ? "Source" : "Preview"}
             </button>
@@ -373,7 +375,9 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
             )}
           </div>
         </div>
-      ) : preview ? (
+      ) : preview && html ? (
+        <HtmlPreview text={f.text ?? ""} path={path} />
+      ) : preview && markdown ? (
         <MarkdownPreview text={f.text ?? ""} root={root} rev={rev} path={path} projectId={project.id} />
       ) : (
         <TextView
@@ -423,6 +427,26 @@ function FileMeta({ f, letter }: { f: CodeFile; letter: string | undefined }) {
         </span>
       ))}
     </span>
+  );
+}
+
+function HtmlPreview({ text, path }: { text: string; path: string }) {
+  const document = useMemo(() => {
+    // Keep document styles, but never let file content run code or navigate to daemon URLs.
+    const safe = DOMPurify.sanitize(text, {
+      WHOLE_DOCUMENT: true,
+      ADD_TAGS: ["style"],
+      FORBID_TAGS: ["base", "meta", "link"],
+      FORBID_ATTR: ["href"],
+    });
+    const policy = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'; base-uri 'none'">`;
+    return safe.replace("<head>", `<head>${policy}`);
+  }, [text]);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="border-b border-line-2 px-3.5 py-2 text-xs text-ink-3">Static HTML preview · Inline styles and embedded images only. Scripts, links and external files are disabled.</div>
+      <iframe title={`HTML preview: ${path}`} sandbox="" referrerPolicy="no-referrer" srcDoc={document} className="min-h-0 w-full flex-1 border-0 bg-white" />
+    </div>
   );
 }
 
