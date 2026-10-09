@@ -139,13 +139,12 @@ function useCodeLinks(s: { project_id: string | null; cwd: string } | null): Cod
   }, [files, s?.project_id, s?.cwd, navigate]);
 }
 
-export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionId: string; focused: boolean; onFocus: () => void; onClear: () => void }) {
+export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear: () => void }) {
   const [gitOpen, setGitOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
-  useEffect(() => { setRenaming(false); setTitle(""); }, [sessionId]);
-  const { pinned, togglePin, layout, panes, place } = useLayout();
+  const { pinned, togglePin } = useLayout();
   const dropImages = useRef<((files: File[]) => void) | null>(null);
   const [dragging, setDragging] = useState(false);
   const s = useSession(sessionId);
@@ -186,7 +185,7 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
 
   if (!s) {
     return (
-      <div className="grid h-full place-items-center text-ink-3" onMouseDown={onFocus}>
+      <div className="grid h-full place-items-center text-ink-3">
         This session no longer exists.
       </div>
     );
@@ -208,7 +207,7 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
             : `Message ${name}`;
 
   return (
-    <div className={`relative flex h-full min-h-0 min-w-0 flex-col bg-paper ${focused ? "z-[1] shadow-[inset_0_0_0_2px_var(--color-teal)]" : ""}`} onMouseDown={onFocus}
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col bg-paper"
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
       onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(false); dropImages.current?.(Array.from(e.dataTransfer.files)); } }}
@@ -223,7 +222,7 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
             <input autoFocus aria-label="Session title" className="field-input min-w-0 flex-1 basis-32 text-[12.5px] font-[650]" maxLength={100} value={title} disabled={savingTitle} onChange={(e) => setTitle(e.target.value)} />
             <button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, { title: title.trim() }); setRenaming(false); } catch (e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button>
             <button className="btn btn-sm" disabled={savingTitle} onClick={() => setRenaming(false)}>Cancel</button>
-          </div> : <button draggable onDragStart={(e) => { e.dataTransfer.setData("application/x-launchpad-session", s.id); e.dataTransfer.effectAllowed = "move"; }} className="min-w-0 flex-1 truncate text-left text-[12.5px] font-[650] hover:text-teal-ink" title={`${s.title} · Click to edit · Drag to another pane`} aria-label={`Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
+          </div> : <button className="min-w-0 flex-1 truncate text-left text-[12.5px] font-[650] hover:text-teal-ink" title={`${s.title} · Click to edit`} aria-label={`Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
             {s.title}
           </button>}
           <button className={`iconbtn shrink-0 self-start ${pinned.includes(s.id) ? "text-teal-ink!" : ""}`} title={pinned.includes(s.id) ? "Unpin session" : "Pin session"} aria-label={pinned.includes(s.id) ? "Unpin session" : "Pin session"} aria-pressed={pinned.includes(s.id)} onClick={() => togglePin(s.id)}>{pinned.includes(s.id) ? "★" : "☆"}</button>
@@ -275,13 +274,10 @@ export function SessionPane({ sessionId, focused, onFocus, onClear }: { sessionI
         <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
           <StatusBadge s={s} />
           <span>{usageLine(s)}</span>
+          <span className="ml-auto">{new Date(s.started_at).toLocaleDateString()}</span>
         </span>
       </div>
 
-      <div className="flex flex-wrap items-center gap-1 border-b border-line-2 px-2 py-1 text-xs">
-        {layout > 1 && <select aria-label="Move session to pane" className="field-input max-w-32" value="" onChange={(e) => place(s.id,Number(e.target.value))}><option value="">Move to pane…</option>{Array.from({length:layout},(_,i) => panes[i] !== s.id && <option key={i} value={i}>Pane {i+1}</option>)}</select>}
-        <span className="ml-auto text-ink-3">{new Date(s.started_at).toLocaleDateString()}</span>
-      </div>
       {gitOpen && <GitPanel sessionId={s.id} />}
       <CodeLinksContext.Provider value={codeLinks}>
       <div

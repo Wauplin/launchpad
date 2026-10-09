@@ -1,4 +1,4 @@
-// Persistent session panes and pins, one set per workspace (see workspace.ts).
+// Persistent session selection and pins, one set per workspace (see workspace.ts).
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -7,68 +7,40 @@ import { useWorkspace } from "./workspace";
 /** All projects keep the original key. */
 const storageKey = (workspace: string | null) => (workspace ? `launchpad.layout.${workspace}` : "launchpad.layout");
 
-export type Layout = 1 | 2 | 4;
 export type AgentGroup = "Cron" | "Done" | "Running" | "Scheduled" | "Archived";
 
 type LayoutStore = {
   pinned: string[];
   togglePin: (id: string) => void;
-  place: (id: string, pane: number) => void;
-  layout: Layout;
   collapsedGroups: Partial<Record<AgentGroup, boolean>>;
   toggleGroup: (group: AgentGroup) => void;
-  panes: (string | null)[];
-  focused: number;
-  setLayout: (l: Layout) => void;
-  focus: (i: number) => void;
-  /** Shows a session in the focused pane (or focuses the pane that already shows it). */
+  selectedSession: string | null;
   show: (id: string) => void;
   clearSession: (id: string) => void;
 };
 
-const defaults = { layout: 1 as Layout, pinned: [], collapsedGroups: {}, panes: [null, null, null, null], focused: 0 };
+const defaults = { pinned: [], collapsedGroups: {}, selectedSession: null };
 
 export const useLayout = create<LayoutStore>()(
   persist(
     (set, get) => ({
       ...defaults,
-      layout: 1,
-      pinned: [],
       togglePin: (id) => set({ pinned: get().pinned.includes(id) ? get().pinned.filter((p) => p !== id) : [...get().pinned, id] }),
-      place: (id, pane) => {
-        const { panes, layout } = get();
-        if (pane < 0 || pane >= layout) return;
-        const next = [...panes];
-        const from = next.indexOf(id);
-        if (from >= 0) next[from] = next[pane];
-        next[pane] = id;
-        set({ panes: next, focused: pane });
-      },
-      collapsedGroups: {},
       toggleGroup: (group) => set({ collapsedGroups: { ...get().collapsedGroups, [group]: !get().collapsedGroups[group] } }),
-      panes: [null, null, null, null],
-      focused: 0,
-      setLayout: (layout) => set({ layout, focused: Math.min(get().focused, layout - 1) }),
-      focus: (focused) => { if (focused >= 0 && focused < get().layout) set({ focused }); },
-      show: (id) => {
-        const { panes, layout, focused } = get();
-        const at = panes.slice(0, layout).indexOf(id);
-        if (at >= 0) return set({ focused: at });
-        get().place(id, focused);
-      },
-      clearSession: (id) => set({ panes: get().panes.map((p) => (p === id ? null : p)) }),
+      show: (selectedSession) => set({ selectedSession }),
+      clearSession: (id) => { if (get().selectedSession === id) set({ selectedSession: null }); },
     }),
     {
       name: storageKey(useWorkspace.getState().current),
       merge: (persisted, current) => {
-        const { layout, pinned, collapsedGroups, panes, focused } = { ...defaults, ...(persisted as Partial<LayoutStore>) };
-        return { ...current, layout, pinned, collapsedGroups, panes, focused };
+        const { pinned, collapsedGroups, selectedSession } = { ...defaults, ...(persisted as Partial<LayoutStore>) };
+        return { ...current, pinned, collapsedGroups, selectedSession };
       },
     },
   ),
 );
 
-/** Loads the panes of another workspace when this window switches. */
+/** Loads the selected session and pins of another workspace when this window switches. */
 useWorkspace.subscribe((s, prev) => {
   if (s.current === prev.current) return;
   const name = storageKey(s.current);

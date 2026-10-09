@@ -29,9 +29,6 @@ export type IconName =
   | "comment"
   | "commit"
   | "eye"
-  | "pane1"
-  | "pane2"
-  | "pane4"
   | "grip"
   | "pencil"
   | "trash"
@@ -74,9 +71,6 @@ export function IconSprite() {
     <symbol id="i-comment" viewBox="0 0 16 16"><path d="M2.5 3.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H7.2L4.5 13.6v-2.1h-1a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></symbol>
     <symbol id="i-commit" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><circle cx="8" cy="8" r="2.5"/><path d="M1.5 8h4M10.5 8h4"/></g></symbol>
     <symbol id="i-eye" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></g></symbol>
-    <symbol id="i-pane1" viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5"/></symbol>
-    <symbol id="i-pane2" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M8 2.5v11"/></g></symbol>
-    <symbol id="i-pane4" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M8 2.5v11M2 8h12"/></g></symbol>
     <symbol id="i-grip" viewBox="0 0 16 16"><g fill="currentColor"><circle cx="6" cy="4" r="1.1"/><circle cx="10" cy="4" r="1.1"/><circle cx="6" cy="8" r="1.1"/><circle cx="10" cy="8" r="1.1"/><circle cx="6" cy="12" r="1.1"/><circle cx="10" cy="12" r="1.1"/></g></symbol>
     <symbol id="i-pencil" viewBox="0 0 16 16"><path d="M10.5 2.75l2.75 2.75-7.5 7.5H3v-2.75z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></symbol>
     <symbol id="i-trash" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.75 4.5h10.5"/><path d="M6.25 4.5V3h3.5v1.5"/><path d="M4.25 4.5l.6 9h6.3l.6-9"/></g></symbol>

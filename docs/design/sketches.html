@@ -303,12 +303,9 @@ code.i { font: 12px var(--font-mono); background: var(--sunk); padding: 0 4px; b
 .srow .m { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 11.5px; color: var(--ink-3); }
 .srow.sel { background: var(--select); }
 .srow.dim .t { font-weight: 500; color: var(--ink-2); }
-.layout-sw { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--sunk); }
-.layout-sw span { width: 28px; height: 24px; display: grid; place-items: center; border-radius: 6px; color: var(--ink-3); }
-.layout-sw span.on { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px rgba(23,32,43,.12), inset 0 0 0 1px var(--line); }
-.grid4 { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1px; background: var(--line); min-height: 0; }
+.agent-panel { display: flex; flex-direction: column; min-height: 0; }
+.agent-panel > .pane { flex: 1; }
 .pane { background: var(--paper); display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
-.pane.focus { box-shadow: inset 0 0 0 2px var(--teal); z-index: 1; }
 .ph { display: grid; grid-template-columns: 18px 1fr auto; gap: 2px 9px; padding: 8px 10px 7px 12px; border-bottom: 1px solid var(--line-2); align-items: center; }
 .ph .hm { grid-row: span 2; align-self: start; margin-top: 1px; }
 .ph .t { font-weight: 650; font-size: 12.5px; }
@@ -597,7 +594,6 @@ mark.cv-m.cur { background: #FFB347; box-shadow: 0 0 0 1.5px #C77700; }
 
 /* ---------- S8 session summary overlay ---------- */
 .s8 { grid-template-columns: 52px 248px 1fr; height: 940px; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); min-height: 0; }
 .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--sunk); font-size: 11.5px; font-weight: 600; }
 .seg span { height: 20px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 5px; color: var(--ink-3); }
 .seg span.on { background: var(--paper); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
@@ -688,9 +684,6 @@ footer.end code { font: 12.5px var(--font-mono); }
     <symbol id="i-comment" viewBox="0 0 16 16"><path d="M2.5 3.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H7.2L4.5 13.6v-2.1h-1a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
     <symbol id="i-commit" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="2.5"/><path d="M1.5 8h4M10.5 8h4"/></g></symbol>
     <symbol id="i-eye" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></g></symbol>
-    <symbol id="i-pane1" viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
-    <symbol id="i-pane2" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M8 2.5v11"/></g></symbol>
-    <symbol id="i-pane4" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M8 2.5v11M2 8h12"/></g></symbol>
     <symbol id="i-grip" viewBox="0 0 16 16"><g fill="currentColor"><circle cx="6" cy="4" r="1.1"/><circle cx="10" cy="4" r="1.1"/><circle cx="6" cy="8" r="1.1"/><circle cx="10" cy="8" r="1.1"/><circle cx="6" cy="12" r="1.1"/><circle cx="10" cy="12" r="1.1"/></g></symbol>
     <symbol id="i-pencil" viewBox="0 0 16 16"><path d="M10.5 2.75l2.75 2.75-7.5 7.5H3v-2.75z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
     <symbol id="i-trash" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.75 4.5h10.5"/><path d="M6.25 4.5V3h3.5v1.5"/><path d="M4.25 4.5l.6 9h6.3l.6-9"/></g></symbol>
@@ -1050,15 +1043,14 @@ Context:
 <section class="sketch" id="s3">
   <div class="sketch-head">
     <span class="sketch-id">S3 · Agents workspace</span>
-    <h2>Four sessions at once, rendered as conversations</h2>
+    <h2>One selected session, rendered as a conversation</h2>
     <p>Sessions stream into Launchpad's own view, not a terminal. That makes messages copyable as clean markdown, lets tool calls collapse, and turns agent questions into buttons. The sidebar folds to icons here.</p>
   </div>
   <div class="frame">
-    <div class="win" role="img" aria-label="Agents grid mockup">
+    <div class="win" role="img" aria-label="Agents conversation mockup">
       <div class="topbar">
         <div class="brand"><span class="logo"><img src="../../packaging/launchpad.svg" alt=""/></span>Launchpad</div>
         <div class="crumbs"><b>Agents</b></div>
-        <span class="layout-sw" style="margin-left:18px"><span><svg class="ic sm"><use href="#i-pane1"/></svg></span><span><svg class="ic sm"><use href="#i-pane2"/></svg></span><span class="on"><svg class="ic sm"><use href="#i-pane4"/></svg></span></span>
         <i class="pin">2</i>
         <span class="btn primary tb-launch"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
         <div class="wctl"><span></span><span></span><span></span></div>
@@ -1089,30 +1081,9 @@ Context:
         </div>
 
         <div style="min-height:0;display:flex;flex-direction:column">
-        <div class="grid4" style="flex:1">
-          <!-- pane 1: Claude working -->
+        <div class="agent-panel" style="flex:1">
+          <!-- selected session: Codex waiting -->
           <div class="pane">
-            <div class="ph">
-              <span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
-              <span class="t" title="Click to edit title">Xet refresh token endpoint <button class="iconbtn" title="Pin session" aria-label="Pin session">☆</button></span>
-              <span class="acts"><span class="btn sm">Files</span><span class="btn sm">Git</span><span class="btn sm">Open in editor</span><i class="pin">3</i><span class="iconbtn" title="Stop"><svg class="ic sm"><use href="#i-stop"/></svg></span><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span></span>
-              <span class="m">moon-landing · <span class="st work">Working 12:04</span> 182k tokens · 18% context · $1.84</span>
-            </div>
-            <div class="pbody">
-              <div class="msg-u">Add the xet refresh token to the repo info endpoint so the client can renew it without a second call.</div>
-              <div class="msg-a"><p>Token issuance lives in <code class="i">server/lib/xet/tokens.ts</code>. I'll reuse <code class="i">issueXetToken()</code> in the repo info handler, behind the existing <code class="i">expand</code> parameter.</p></div>
-              <div class="tool"><svg class="ic sm"><use href="#i-chev"/></svg><span class="n">Ran 3 commands, read 5 files</span><span class="end">41 s</span> <i class="pin">4</i></div>
-              <div class="edit">
-                <div class="eh"><svg class="ic sm"><use href="#i-pencil"/></svg>server/routes/api/repos.ts <span class="add">+18</span> <span class="del">−2</span></div>
-<pre><span class="a">+    if (expand.includes("xetRefreshToken")) {</span><span class="a">+      info.xetRefreshToken = await issueXetToken(repo, user);</span><span class="a">+    }</span></pre>
-              </div>
-              <div class="tool run"><span class="spin"></span><span class="n">Bash</span><span class="mono">pnpm test -- repos.spec.ts</span><span class="end">8 s</span></div>
-            </div>
-            <div class="pin-input"><div class="inp">Message Claude. It is read after the current step. <i class="pin">7</i><span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
-          </div>
-
-          <!-- pane 2: Codex waiting (focused) -->
-          <div class="pane focus">
             <div class="ph">
               <span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span>
               <span class="t" title="Click to edit title">Fix listJobs CI failure <button class="iconbtn" title="Pin session" aria-label="Pin session">☆</button></span>
@@ -1134,54 +1105,6 @@ Context:
             </div>
             <div class="pin-input"><div class="inp focus">Great. Add a changeset entry too, then push.<span class="caret"></span><span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
           </div>
-
-          <!-- pane 3: Claude question -->
-          <div class="pane">
-            <div class="ph">
-              <span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
-              <span class="t" title="Click to edit title">Check #3412 / #3420 <button class="iconbtn" title="Pin session" aria-label="Pin session">☆</button></span>
-              <span class="acts"><span class="btn sm">Files</span><span class="btn sm">Git</span><span class="btn sm">Open in editor</span><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span><span class="btn sm" title="Archive the session (it stays resumable)">Archive</span><span class="iconbtn" title="Close panel"><svg class="ic sm"><use href="#i-x"/></svg></span></span>
-              <span class="m">huggingface_hub · <span class="st needs">Question</span> 64k tokens · $0.58</span>
-            </div>
-            <div class="pbody">
-              <div class="msg-a"><p><b>#3412 is still relevant</b> on <code class="i">main</code>. #3420 fixes <code class="i">snapshot_download</code>, but <code class="i">HfFileSystem.glob</code> also filters before resolving the revision.</p></div>
-              <div class="ask">
-                <div class="q">How should I continue? <i class="pin">6</i></div>
-                <div class="opt">Draft a review comment on #3420</div>
-                <div class="opt">Open a pre-draft PR with the glob fix</div>
-                <div class="opt">Stop here</div>
-                <div class="other">Or type another answer below.</div>
-              </div>
-            </div>
-            <div class="pin-input"><div class="inp">Answer or message Claude<span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
-          </div>
-
-          <!-- pane 4: Claude done on a background command -->
-          <div class="pane">
-            <div class="ph">
-              <span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
-              <span class="t">Benchmark upload chunk sizes</span>
-              <span class="acts"><span class="iconbtn" title="Open in terminal"><svg class="ic sm"><use href="#i-term"/></svg></span><span class="btn sm" title="Archive the session (it stays resumable)">Archive</span><span class="iconbtn" title="Close panel"><svg class="ic sm"><use href="#i-x"/></svg></span></span>
-              <span class="m">tmp-1002-xet-bench · <span class="st bgc">Background command</span> 22.8k tokens · $0.31</span>
-            </div>
-            <div class="pbody">
-              <div class="msg-u">Benchmark upload throughput for 64, 128 and 256 MB chunks on a 2 GB file. Private repo, 5 runs each.</div>
-              <div class="plan">
-                <div class="pl done"><span class="bx"></span>Write bench.py with 3 chunk sizes</div>
-                <div class="pl now"><span class="bx"></span>Run 5 uploads per chunk size</div>
-                <div class="pl"><span class="bx"></span>Summarize results in RESULTS.md</div>
-              </div>
-              <div class="msg-a"><p>The full run takes about 10 minutes, so it runs in the background. I'll write <code class="i">RESULTS.md</code> when it finishes.</p></div>
-              <div class="bgtask">
-                <div class="bh"><span class="spin"></span><span class="n">Background</span><span class="mono">python bench.py --runs 5</span><span class="end">6 min <i class="pin">8</i></span></div>
-<pre class="term">chunk=64MB   p50=212ms  p95=388ms  301 MB/s
-chunk=128MB  p50=401ms  p95=655ms  318 MB/s
-chunk=256MB  run 3/5 …</pre>
-              </div>
-              <div class="turn">Turn finished · waiting on 1 background command</div>
-            </div>
-            <div class="pin-input"><div class="inp">Message Claude<span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
-          </div>
         </div>
       </div>
       </div>
@@ -1200,8 +1123,8 @@ chunk=256MB  run 3/5 …</pre>
   </div>
   <ol class="notes">
     <li><i class="pin">1</i><span><b>Scheduled, Running, Done, Archived.</b> Click a heading to collapse or expand its rows; counts stay visible and the app remembers each group’s expansion. Done waits for input. Running includes background and long commands, even when silent. Archived sessions can be resumed. Separate amber Done and blue Running counts appear beside Agents, with a spinner for running agents. Pinned projects show a done dot and a running spinner together when both apply.</span></li>
-    <li><i class="pin">2</i><span><b>Layouts 1, 2 and 4.</b> Buttons in the top bar. Clicking a session loads it in the focused pane (teal outline). Drag a row or title to another pane to move or swap sessions. Click inside a pane to focus it, or use the session header Move to pane selector. The current pane arrangement is remembered per workspace.</span></li>
-    <li><i class="pin">3</i><span><b>Session header.</b> Click the title to edit it in place with Save title and Cancel controls; a star on its right toggles the pin. Git and Open in editor share the action row with Files and Archive, with a Move to pane selector in multi-pane layouts. Git shows branch, changed files and separate staged/working-tree patches without changing the repository. Titles are AI-generated from the initial prompt. Project, state and elapsed time, tokens, context usage and cost (Claude only). The X only closes the panel and leaves the session state unchanged. Archive stops the session and keeps it resumable in Archived. Stop interrupts the agent. "Open in terminal" hands the session to the terminal chosen in Settings (S6) and back.</span></li>
+    <li><i class="pin">2</i><span><b>One agent at a time.</b> Clicking a session on the left replaces the conversation. The selected session is remembered per workspace. Other agents keep running, and another window can show another session.</span></li>
+    <li><i class="pin">3</i><span><b>Session header.</b> Click the title to edit it in place with Save title and Cancel controls; a star on its right toggles the pin. Git and Open in editor share the action row with Files and Archive. Git shows branch, changed files and separate staged/working-tree patches without changing the repository. Titles are AI-generated from the initial prompt. Project, state and elapsed time, tokens, context usage and cost (Claude only). The X only closes the panel and leaves the session state unchanged. Archive stops the session and keeps it resumable in Archived. Stop interrupts the agent. "Open in terminal" hands the session to the terminal chosen in Settings (S6) and back.</span></li>
     <li><i class="pin">4</i><span><b>Compact tool calls.</b> Commands and file reads collapse into one line, edits show a small diff, the running command has a spinner. Click to expand.</span></li>
     <li><i class="pin">5</i><span><b>Copy exactly.</b> Each message has Copy (raw markdown) and Copy as text, and code blocks have their own button. No terminal line breaks or padding.</span></li>
     <li><i class="pin">6</i><span><b>Questions become buttons.</b> When an agent asks something, its options are clickable and numbered. Typing a free answer still works.</span></li>
@@ -1826,7 +1749,6 @@ chunk=256MB  run 3/5 …</pre>
       <div class="topbar">
         <div class="brand"><span class="logo"><img src="../../packaging/launchpad.svg" alt=""/></span>Launchpad</div>
         <div class="crumbs"><b>Agents</b></div>
-        <span class="layout-sw" style="margin-left:18px"><span><svg class="ic sm"><use href="#i-pane1"/></svg></span><span class="on"><svg class="ic sm"><use href="#i-pane2"/></svg></span><span><svg class="ic sm"><use href="#i-pane4"/></svg></span></span>
         <span class="btn primary tb-launch"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
         <div class="wctl"><span></span><span></span><span></span></div>
       </div>
@@ -1851,9 +1773,9 @@ chunk=256MB  run 3/5 …</pre>
           <div class="srow dim"><span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span><span class="t">Proofread the xet blog post</span><span class="m">blog <span class="st done">Archived yesterday</span></span></div>
         </div>
 
-        <div class="grid2">
-          <!-- pane 1: Claude done -->
-          <div class="pane focus">
+        <div class="agent-panel">
+          <!-- selected session: Claude done -->
+          <div class="pane">
             <div class="ph">
               <span class="hm c" title="Claude Code"><svg><use href="#i-claude"/></svg></span>
               <span class="t">Xet refresh token endpoint</span>
@@ -1902,54 +1824,6 @@ chunk=256MB  run 3/5 …</pre>
               </div>
             </div>
             <div class="pin-input"><div class="inp">Message Claude to continue. The summary closes when the turn starts. <i class="pin">7</i><span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
-          </div>
-
-          <!-- pane 2: Codex stopped by the user -->
-          <div class="pane">
-            <div class="ph">
-              <span class="hm x" title="Codex"><svg><use href="#i-codex"/></svg></span>
-              <span class="t">Migrate snapshot tests to vitest</span>
-              <span class="acts"><span class="seg"><span class="on">Summary</span><span>Trace</span></span><span class="btn sm" title="Archive the session (it stays resumable)">Archive</span><span class="iconbtn" title="Close panel"><svg class="ic sm"><use href="#i-x"/></svg></span></span>
-              <span class="m">huggingface.js · <span class="st int">Stopped 14:05</span> 88k tokens · gpt-6-sol medium</span>
-            </div>
-            <div class="stage">
-              <div class="pbody">
-                <div class="msg-a"><p>Converting <code class="i">packages/hub/test/snapshots/*.spec.ts</code> one by one.</p></div>
-                <div class="tool"><svg class="ic sm"><use href="#i-chev"/></svg><span class="n">Ran 4 commands, edited 6 files</span><span class="end">3 min</span></div>
-                <div class="turn">Stopped by you · 14:05</div>
-              </div>
-              <div class="sov">
-                <div class="band stopped"><svg class="ic"><use href="#i-stop"/></svg>Stopped <small>by you, during a turn</small><span class="end">14:05 · 30 min ago</span></div>
-                <div class="scard">
-                  <div class="sh">Run</div>
-                  <dl class="smeta">
-                    <dt>Time</dt><dd>7 min 12 s · 2 turns</dd>
-                    <dt>Tokens</dt><dd>88k</dd>
-                    <dt>Folder</dt><dd class="mono">~/projects/huggingface.js</dd>
-                    <dt>Changes</dt><dd>6 files <span class="add">+142</span> <span class="del">−131</span></dd>
-                    <dt>Git</dt><dd>main · uncommitted</dd>
-                    <dt>Cut off</dt><dd class="mono">pnpm vitest run (killed)</dd>
-                  </dl>
-                  <div class="stask"><b>Task:</b> Migrate the snapshot tests from jest to vitest and keep the snapshots identical.</div>
-                </div>
-                <div class="scard">
-                  <div class="sh">Last agent message <i class="pin">8</i><span class="end"><span class="btn sm"><svg class="ic sm"><use href="#i-copy"/></svg>Copy</span></span></div>
-                  <div class="sfinal" style="max-height:92px">
-                    <p>4 of 7 spec files are converted. I am running the suite to check that the snapshots did not change before I convert the last 3 files (<code class="i">list-files</code>, <code class="i">commit</code>, <code class="i">upload</code>).</p>
-                  </div>
-                  <span class="smore">Show full message</span>
-                </div>
-                <div class="scard">
-                  <div class="sh">Next steps</div>
-                  <div class="snext">
-                    <div class="nx"><span class="src">Session</span>The turn did not finish<span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg>Resume</span></div>
-                    <div class="nx"><span class="src">Git</span>6 uncommitted files on <code class="i">main</code><span class="btn sm"><svg class="ic sm"><use href="#i-code"/></svg>Review diff</span></div>
-                  </div>
-                </div>
-                <div class="sacts"><span class="btn sm">Show trace</span><span class="btn sm"><svg class="ic sm"><use href="#i-clock"/></svg>Resume later</span><span class="btn sm"><svg class="ic sm"><use href="#i-refresh"/></svg>Relaunch</span><span class="btn sm"><svg class="ic sm"><use href="#i-archive"/></svg>Archive</span></div>
-              </div>
-            </div>
-            <div class="pin-input"><div class="inp">Message Codex to resume with new instructions<span class="end"><span class="iconbtn box" title="Send"><svg class="ic sm"><use href="#i-send"/></svg></span></span></div></div>
           </div>
         </div>
       </div>
@@ -2045,7 +1919,6 @@ chunk=256MB  run 3/5 …</pre>
     <li><span><b>When does it open?</b> Every time a pane loads a session that is not running, or only after a state change that you have not seen yet?</span></li>
     <li><span><b>Next steps from the agent.</b> Read them only from the agent's last question, or also ask agents (through the Launchpad skill) to end with a short "Next steps" list that Launchpad can parse?</span></li>
     <li><span><b>Follow-up in the same session or a new one?</b> Schedule follow-up sends a message to the same session. Is a new session with the same spec (Relaunch) needed often enough to keep both?</span></li>
-    <li><span><b>Small panes.</b> In the 4-pane layout, the overlay keeps only the band, the final message and the actions. Metadata could fold into one line.</span></li>
   </ol>
 </section>
 

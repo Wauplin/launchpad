@@ -1,5 +1,5 @@
-// Agents (sketch S3): sessions grouped as Cron, Scheduled, Running, Done and Archived, shown in 1, 2 or 4 panes.
-// Clicking a session loads it in the focused pane. The window's workspace narrows every group.
+// Agents (sketch S3): sessions grouped as Cron, Scheduled, Running, Done and Archived, showing one session at a time.
+// Clicking a session opens its conversation. The window's workspace narrows every group.
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -20,7 +20,7 @@ import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useCrons, useProjects, useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
 import { sendPresence } from "@/lib/ws";
-import { useLayout, type AgentGroup, type Layout } from "@/stores/layout";
+import { useLayout, type AgentGroup } from "@/stores/layout";
 import { SessionPane } from "./SessionPane";
 import { StatusBadge } from "./SessionBits";
 
@@ -29,8 +29,6 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
   return (
     <button
       onClick={onClick}
-      draggable
-      onDragStart={(e) => { e.dataTransfer.setData("application/x-launchpad-session", s.id); e.dataTransfer.effectAllowed = "move"; }}
       className={`grid h-[68px] w-full grid-cols-[18px_1fr] gap-x-[9px] gap-y-[3px] border-b border-line-2 px-3 py-2 text-left hover:bg-[#f5f8fb] ${selected ? "bg-select!" : ""}`}
     >
       <span className="row-span-2 mt-px">
@@ -71,24 +69,6 @@ function Group({ title, count, highlight, collapsed, onToggle }: { title: AgentG
   );
 }
 
-export function LayoutSwitch() {
-  const { layout, setLayout } = useLayout();
-  return (
-    <span className="inline-flex gap-0.5 rounded-lg bg-sunk p-0.5">
-      {([1, 2, 4] as Layout[]).map((l) => (
-        <button
-          key={l}
-          title={`${l} pane${l > 1 ? "s" : ""}`}
-          onClick={() => setLayout(l)}
-          className={`grid h-6 w-7 place-items-center rounded-md ${layout === l ? "bg-paper text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-3"}`}
-        >
-          <Icon name={l === 1 ? "pane1" : l === 2 ? "pane2" : "pane4"} size={14} />
-        </button>
-      ))}
-    </span>
-  );
-}
-
 export function AgentsView() {
   const scope = useScope();
   const allSessions = useSessions().data ?? [];
@@ -97,9 +77,7 @@ export function AgentsView() {
   const [debounced, setDebounced] = useState("");
   const [pinsOnly, setPinsOnly] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [dropTarget, setDropTarget] = useState<number | null>(null);
   const pinned = useLayout((s) => s.pinned);
-  const place = useLayout((s) => s.place);
   useEffect(() => { const t = setTimeout(() => setDebounced(filter.trim()), 250); return () => clearTimeout(t); }, [filter]);
   const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
   const schedules = (useSchedules().data ?? []).filter((s) => scope.hasSpec(s.spec));
@@ -108,7 +86,7 @@ export function AgentsView() {
   const crons = (useCrons().data ?? []).filter((c) => scope.hasSpec(c.spec));
   const [cronId, setCronIdState] = useState<string | null>(null);
   const cron = crons.find((c) => c.id === cronId);
-  // A cron and a scheduled launch share the focused pane, so selecting one clears the other.
+  // A cron and a scheduled launch share the detail panel, so selecting one clears the other.
   const setCronId = (id: string | null) => { setCronIdState(id); if (id) setScheduledIdState(null); };
   const setScheduledId = (id: string | null) => { setScheduledIdState(id); if (id) setCronIdState(null); };
   const clearSide = () => { setScheduledIdState(null); setCronIdState(null); };
@@ -120,7 +98,7 @@ export function AgentsView() {
   }, [scheduledId, scheduled, allSessions]);
   useEffect(() => { if (cronId && !crons.some((c) => c.id === cronId)) setCronIdState(null); }, [cronId, crons]);
   const projects = useProjects().data;
-  const { layout, panes, focused, focus, show, clearSession, collapsedGroups, toggleGroup } = useLayout();
+  const { selectedSession, show, clearSession, collapsedGroups, toggleGroup } = useLayout();
   const search = useSearch({ strict: false }) as { session?: string };
   const navigate = useNavigate();
   const [archivedLimit, setArchivedLimit] = useState(30);
@@ -136,9 +114,9 @@ export function AgentsView() {
   }, [search.session, show, navigate]);
 
   // Tell the daemon which sessions are on screen, so it does not notify about them.
-  const visible = panes.slice(0, layout).filter(Boolean) as string[];
+  const visibleSession = !cron && !scheduled && sessions.some((s) => s.id === selectedSession) ? selectedSession : null;
   useEffect(() => {
-    const report = () => sendPresence(document.hasFocus() && document.visibilityState === "visible", visible);
+    const report = () => sendPresence(document.hasFocus() && document.visibilityState === "visible", visibleSession ? [visibleSession] : []);
     report();
     window.addEventListener("focus", report);
     window.addEventListener("blur", report);
@@ -149,7 +127,7 @@ export function AgentsView() {
       document.removeEventListener("visibilitychange", report);
       sendPresence(false, []);
     };
-  }, [visible.join(",")]);
+  }, [visibleSession]);
 
   const needle = filter.trim().toLocaleLowerCase();
   const filtered = sessions.filter((s) => (!pinsOnly || pinned.includes(s.id)) && (!needle || [s.title, s.cwd, s.prompt, projectName(projects, s.project_id, s.cwd)].some((t) => t.toLocaleLowerCase().includes(needle)) || (debounced === filter.trim() && matches.data?.includes(s.id))));
@@ -174,13 +152,11 @@ export function AgentsView() {
   ];
   const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => items[i].kind === "session" || items[i].kind === "schedule" || items[i].kind === "cron" ? 68 : 34, getItemKey: (i) => items[i].kind === "session" ? items[i].session.id : items[i].kind === "schedule" ? items[i].launch.id : items[i].kind === "cron" ? `cron-${items[i].cron.id}` : items[i].kind === "group" ? `group-${items[i].title}` : "more-archived", overscan: 6, useFlushSync: false });
   const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
-  const selected = panes[focused];
-  const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} selected={s.id === selected} onClick={() => { clearSide(); show(s.id); }} />;
+  const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} selected={s.id === visibleSession} onClick={() => { clearSide(); show(s.id); }} />;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0">
       {importing && <ImportHistory onClose={() => setImporting(false)} onImported={(id) => { show(id); setImporting(false); clearSide(); }} />}
-      <div className="flex min-h-0 flex-1">
       <div className="flex w-[280px] flex-none flex-col border-r border-line bg-paper">
         <div className="grid gap-2 border-b border-line p-2">
           <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setArchivedLimit(30); }} />
@@ -208,36 +184,16 @@ export function AgentsView() {
         </div>
         </div>
       </div>
-      <div
-        className={`grid min-w-0 flex-1 gap-px bg-line ${layout === 1 ? "grid-cols-1" : layout === 2 ? "grid-cols-2" : "grid-cols-2 grid-rows-2"}`}
-        style={layout === 4 ? { gridTemplateRows: "minmax(0,1fr) minmax(0,1fr)" } : { gridTemplateRows: "minmax(0,1fr)" }}
-      >
-        {Array.from({ length: layout }, (_, i) => {
-          const id = panes[i];
-          return (
-            <div key={i} className={`relative min-h-0 min-w-0 bg-paper ${dropTarget === i ? "outline-2 -outline-offset-2 outline-teal" : ""}`}
-              onDragOver={(e) => { if (e.dataTransfer.types.includes("application/x-launchpad-session")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropTarget(i); } }}
-              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropTarget(null); }}
-              onDrop={(e) => { const id = e.dataTransfer.getData("application/x-launchpad-session"); if (id && sessions.some((s) => s.id === id)) { e.preventDefault(); place(id,i); clearSide(); } setDropTarget(null); }}
-            >
-              {cron && i === focused ? (
-                <CronPane key={cron.id} cron={cron} onClose={() => setCronId(null)} onOpen={(s) => { setCronIdState(null); show(s.id); }} />
-              ) : scheduled && i === focused ? (
-                <ScheduledPane key={scheduled.id} launch={scheduled} onClose={() => clearSide()} onStart={(s) => { clearSide(); show(s.id); }} />
-              ) : id ? (
-                <SessionPane sessionId={id} focused={layout > 1 && i === focused} onFocus={() => focus(i)} onClear={() => clearSession(id)} />
-              ) : (
-                <div
-                  className={`grid h-full place-items-center text-[12.5px] text-ink-3 ${layout > 1 && i === focused ? "shadow-[inset_0_0_0_2px_var(--color-teal)]" : ""}`}
-                  onMouseDown={() => focus(i)}
-                >
-                  {layout > 1 ? "Click a session on the left to show it here." : "Pick a session on the left, or launch a new one."}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      <div className="min-h-0 min-w-0 flex-1 bg-paper">
+        {cron ? (
+          <CronPane key={cron.id} cron={cron} onClose={() => setCronId(null)} onOpen={(s) => { clearSide(); show(s.id); }} />
+        ) : scheduled ? (
+          <ScheduledPane key={scheduled.id} launch={scheduled} onClose={clearSide} onStart={(s) => { clearSide(); show(s.id); }} />
+        ) : visibleSession ? (
+          <SessionPane key={visibleSession} sessionId={visibleSession} onClear={() => clearSession(visibleSession)} />
+        ) : (
+          <div className="grid h-full place-items-center text-[12.5px] text-ink-3">Pick a session on the left, or launch a new one.</div>
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,5 @@
 import { useRouterState } from "@tanstack/react-router";
 import logo from "@/assets/launchpad.png";
-import { LayoutSwitch } from "@/features/agents/AgentsView";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { useProjects } from "@/lib/queries";
 import { WorkspaceSwitcher } from "@/features/workspaces/Workspaces";
@@ -39,11 +38,6 @@ export function TopBar() {
           <b className="font-semibold text-ink">{title}</b>
         )}
       </div>
-      {path.startsWith("/agents") && (
-        <span className="ml-[18px] shrink-0">
-          <LayoutSwitch />
-        </span>
-      )}
       {/* One row when everything fits; otherwise the workspace buttons and Launch move to a second line, then wrap. */}
       <div className="ml-auto flex min-w-0 items-center gap-3.5">
         <WorkspaceSwitcher />
