@@ -1834,7 +1834,7 @@ Context:
                 </div>
                 <div class="scard">
                   <div class="sh">Actions <i class="pin">6</i></div>
-                  <div class="sacts col"><span class="btn sm">Show trace</span><span class="btn sm"><svg class="ic sm"><use href="#i-clock"/></svg>Schedule follow-up</span><span class="btn sm"><svg class="ic sm"><use href="#i-refresh"/></svg>Relaunch with the same spec</span><span class="btn sm"><svg class="ic sm"><use href="#i-archive"/></svg>Archive</span></div>
+                  <div class="sacts col"><span class="btn sm">Show trace</span><span class="btn sm"><svg class="ic sm"><use href="#i-clock"/></svg>Schedule follow-up</span><span class="btn sm"><svg class="ic sm"><use href="#i-archive"/></svg>Archive</span></div>
                 </div>
               </div>
             </div>
@@ -1879,7 +1879,7 @@ Context:
               <div class="nx"><span class="src">Git</span>6 uncommitted files on <code class="i">main</code><span class="btn sm"><svg class="ic sm"><use href="#i-code"/></svg>Review diff</span></div>
             </div>
           </div>
-          <div class="sacts"><span class="btn sm">Show trace</span><span class="btn sm"><svg class="ic sm"><use href="#i-clock"/></svg>Resume later</span><span class="btn sm"><svg class="ic sm"><use href="#i-refresh"/></svg>Relaunch</span><span class="btn sm"><svg class="ic sm"><use href="#i-archive"/></svg>Archive</span></div>
+          <div class="sacts"><span class="btn sm">Show trace</span><span class="btn sm"><svg class="ic sm"><use href="#i-clock"/></svg>Resume later</span><span class="btn sm"><svg class="ic sm"><use href="#i-archive"/></svg>Archive</span></div>
         </div>
       </div>
       <div class="frag" role="img" aria-label="Trace view mockup">
@@ -1901,7 +1901,7 @@ Context:
             <div class="sh">Final message</div>
             <div class="sfinal"><p>Release notes are in <code class="i">docs/source/en/release_notes/v1.4.md</code> and draft PR #3431 is open. I grouped the 23 merged PRs into 4 sections.</p></div>
           </div>
-          <div class="sacts"><span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg>Resume</span><span class="btn sm">Show trace</span><span class="btn sm"><svg class="ic sm"><use href="#i-refresh"/></svg>Relaunch</span><span class="btn sm"><svg class="ic sm"><use href="#i-clock"/></svg>Schedule relaunch</span><span class="btn sm"><svg class="ic sm"><use href="#i-pr-draft"/></svg>Open #3431</span></div>
+          <div class="sacts"><span class="btn sm primary"><svg class="ic sm"><use href="#i-play"/></svg>Resume</span><span class="btn sm">Show trace</span><span class="btn sm"><svg class="ic sm"><use href="#i-clock"/></svg>Schedule follow-up</span><span class="btn sm"><svg class="ic sm"><use href="#i-pr-draft"/></svg>Open #3431</span></div>
         </div>
       </div>
       <div class="frag" role="img" aria-label="State bands mockup">
@@ -1935,10 +1935,10 @@ Context:
     <li><i class="pin">3</i><span><b>Final message.</b> The last agent message, rendered as markdown at full width, with Copy and Copy as text. Very long messages fold after about 30 lines with "Show full message". No AI summary: what you read is what the agent wrote.</span></li>
     <li><i class="pin">4</i><span><b>Next steps.</b> Only facts that Launchpad already has: unpushed commits, uncommitted files, a turn that did not finish. If the last message is a question with options, the options are added as Agent rows; a click sends the answer. Launchpad does not parse free text and does not ask agents for a special format. Each row has one button.</span></li>
     <li><i class="pin">5</i><span><b>Run metadata.</b> Duration and turns, cost and tokens (cost for Claude only), model and context, folder, branch and push state, changed files compared to <code>main</code>, context items, and the exit code of the last command. The first prompt is shown so you remember the task.</span></li>
-    <li><i class="pin">6</i><span><b>Actions.</b> Show trace, Schedule follow-up, Relaunch (opens the composer with the same launch spec, as a new session) and Archive. Files, Git, Open in editor and Open in terminal stay in the header. The actions depend on the state: Resume comes first for Stopped, Interrupted and Archived sessions.</span></li>
+    <li><i class="pin">6</i><span><b>Actions.</b> Show trace, Schedule follow-up and Archive. There is no Relaunch: a follow-up continues the same session. Files, Git, Open in editor and Open in terminal stay in the header. The actions depend on the state: Resume comes first for Stopped, Interrupted and Archived sessions.</span></li>
     <li><i class="pin">7</i><span><b>Write a new message.</b> The message box stays at the bottom of the summary. Sending starts a turn; the session goes back to Running and the panel shows the trace.</span></li>
     <li><i class="pin">8</i><span><b>Stopped sessions.</b> They show the last agent message instead of a final message, and the command that was cut off. Resume continues the turn; a message in the box resumes with new instructions; "Resume later" opens the follow-up scheduler.</span></li>
-    <li><i class="pin">9</i><span><b>Archived sessions.</b> Same summary, with fewer rows. Resume moves the session out of Archived. Relaunch and Schedule relaunch start a new session with the same spec. Linked PRs and issues are buttons.</span></li>
+    <li><i class="pin">9</i><span><b>Archived sessions.</b> Same summary, with fewer rows. Resume moves the session out of Archived. Schedule follow-up resumes it later with a new message. Linked PRs and issues are buttons.</span></li>
     <li><i class="pin">10</i><span><b>Trace view.</b> A thin bar at the top of the trace keeps the state visible, with buttons that jump to the final message or go back to Summary.</span></li>
     <li><i class="pin">11</i><span><b>One band per end state.</b> Question is a Done variant: its options become Agent rows in Next steps, so they can be answered from the summary. A scheduled follow-up adds a teal band with a Cancel button, and the session also appears in Scheduled.</span></li>
     <li><i class="pin">12</i><span><b>Schedule follow-up.</b> It reuses the start conditions of scheduled launches (time, quota reset with a fresh reading, another session Done), but sends a message to the same session instead of starting a new one. All selected conditions must be met.</span></li>
@@ -1951,15 +1951,10 @@ Context:
     <li><span><b>A summary view, not an overlay.</b> The summary replaces the trace in the panel. No transparency or blur.</span></li>
     <li><span><b>Opens on every load.</b> Every time the panel loads a session that is not running, it shows Summary first.</span></li>
     <li><span><b>Simple next steps.</b> Only Launchpad facts and the options of an agent question. No change to the Launchpad skill and no parsing of a "Next steps" list.</span></li>
+    <li><span><b>Follow-up, not relaunch.</b> Continue in the same session with Schedule follow-up or the message box. No Relaunch button to start a new session with the same spec.</span></li>
     <li><span><b>One panel size.</b> The agents page shows one session at a time, so there is no compact version for small panes.</span></li>
   </ol>
 
-  <div class="sketch-head s8-open">
-    <h3>Open question</h3>
-  </div>
-  <ol class="notes s8-q">
-    <li><span><b>Follow-up in the same session or a new one?</b> Schedule follow-up sends a message to the same session. Relaunch starts a new session with the same spec. Are both needed often enough to keep both buttons?</span></li>
-  </ol>
 </section>
 
 <footer class="end">
