@@ -286,3 +286,7 @@ Left: `vim`/`htop` and two-window checks in the desktop window, and macOS/Window
 ## Not planned
 
 Keyboard shortcuts other than `Ctrl+F` in the code viewer and keys sent to a focused integrated terminal (for now), a large test suite or mocks, dark theme, multiple users, GitHub search, Actions logs, release versioning, data migrations for the cache.
+
+## UI and UX review proposals (2026-10-10)
+
+The [UI and UX review](research/ui-ux-review/index.html) is complete as a research artifact and published in a protected Hugging Face Space. It proposes an incremental improvement sequence with concrete acceptance checks for adaptive layout, session hierarchy, launch disclosure, attention/triage, local review access and shared controls. No implementation item is selected by this review; existing phase statuses and daily-use checks remain unchanged. Owner selection is required before adopting a proposal as implementation scope.

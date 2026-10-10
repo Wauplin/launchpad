@@ -905,3 +905,7 @@ Project metadata refresh, on 2026-10-04:
 ## Remote access feasibility research (2026-10-10)
 
 The [static remote access and mobile report](research/remote-access/index.html) documents the current HTTP/WebSocket and desktop-shell boundaries, VPS versus laptop execution tradeoffs, mobile presentation reuse, failure recovery and possible Android shells. It proposes a single execution host and shared React features, with separate scopes for mobile, push and process restart survival. This is research only: no architecture decision was adopted and Phase 7 remains deferred pending owner-approved scope and acceptance.
+
+## UI and UX review (2026-10-10)
+
+The [static UI and UX review](research/ui-ux-review/index.html) audits the shared shell and major user-facing workflows against commit `96ad476`, with source evidence, 28 prioritized recommendations, five interactive concept sketches and acceptance checks. Its proposed direction uses adaptive panels, progressive disclosure, outcome-first session content, selected-thread triage and easier access to local review drafts. These are research proposals; no design decision, lifecycle predicate, publication boundary or approved Phase 7 scope changes. See its [README](research/ui-ux-review/README.md) for hosting, validation and limits.
