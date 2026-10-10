@@ -521,11 +521,14 @@ pub const REGISTRATION: super::Registration = super::Registration {
             archived_history: true,
             terminal: true,
             quota: true,
+            cost: false,
         },
     },
     create: |env| {
         Arc::new(Adapter {
+            env: env.clone(),
             server: CodexServer::new(env.clone()),
+            variant_servers: Mutex::default(),
             threads: Arc::default(),
         })
     },
@@ -535,14 +538,32 @@ pub const REGISTRATION: super::Registration = super::Registration {
             || key == "CODEX_SANDBOX_NETWORK_DISABLED"
     },
 };
+type VariantEnv = Vec<(String, String)>;
 pub struct Adapter {
+    env: crate::shellenv::UserEnv,
+    /// The shared app-server, also used for quotas, models and history.
     server: CodexServer,
+    /// One app-server per distinct variant environment (`CODEX_HOME`, API keys), started on first use,
+    /// with its own thread routes: an app-server exit only ends its own threads.
+    variant_servers: Mutex<HashMap<VariantEnv, (CodexServer, Threads)>>,
     threads: Threads,
 }
 #[async_trait]
 impl super::Harness for Adapter {
-    async fn start(&self, _app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
-        start(&self.server, &self.threads, spec, sink).await
+    async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
+        if spec.env.is_empty() {
+            return start(&self.server, &self.threads, spec, sink).await;
+        }
+        let (server, threads) = {
+            let mut servers = self.variant_servers.lock().unwrap();
+            servers.entry(spec.env.clone()).or_insert_with(|| {
+                let server = CodexServer::new(self.env.with(&spec.env));
+                let threads = Threads::default();
+                spawn_router(app, &server, &threads);
+                (server, threads)
+            }).clone()
+        };
+        start(&server, &threads, spec, sink).await
     }
     async fn models(&self, _app: &App) -> Result<Vec<ModelInfo>> {
         models(&self.server).await

@@ -43,6 +43,8 @@ struct State {
     stopping: bool,
     turn_running: bool,
     cwd: String,
+    /// Cost reported by earlier processes of this session.
+    cost_base: f64,
 }
 
 pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
@@ -79,6 +81,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     }
     let mut cmd = crate::procs::child_command(&app.env, "claude", Some(&spec.cwd));
     cmd.args(&args)
+        .envs(spec.env.iter().cloned())
         .env("LAUNCHPAD_PROFILE", app.paths.profile.name())
         .env("LAUNCHPAD_SESSION_ID", &spec.session_id)
         .stdin(std::process::Stdio::piped())
@@ -90,7 +93,9 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     let stdin = child.stdin.take().unwrap();
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
-    let state = Arc::new(Mutex::new(State { cwd: spec.cwd.to_string_lossy().to_string(), ..Default::default() }));
+    // `total_cost_usd` counts from the start of each process: add what earlier processes reported.
+    let cost_base = app.sessions.get(&spec.session_id).and_then(|s| s.usage.cost_usd).unwrap_or(0.0);
+    let state = Arc::new(Mutex::new(State { cwd: spec.cwd.to_string_lossy().to_string(), cost_base, ..Default::default() }));
     let session = Arc::new(ClaudeSession { stdin: tokio::sync::Mutex::new(Some(stdin)), state: state.clone(), child_pid: child.id() });
 
     let stderr_tail = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -306,6 +311,7 @@ async fn handle(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>
             let interrupted = msg["subtype"] == "error_during_execution";
             sink.emit(EventBody::TurnEnd { duration_ms: msg["duration_ms"].as_i64(), interrupted, error: error.clone() }).await;
             let u = &msg["usage"];
+            let cost_base = st.lock().unwrap().cost_base;
             let window = msg["modelUsage"].as_object().and_then(|m| m.values().filter_map(|v| v["contextWindow"].as_u64()).max());
             if let Some(w) = window {
                 st.lock().unwrap().context_window = Some(w);
@@ -315,7 +321,7 @@ async fn handle(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>
                 us.cached_tokens += u["cache_read_input_tokens"].as_u64().unwrap_or(0);
                 us.output_tokens += u["output_tokens"].as_u64().unwrap_or(0);
                 if let Some(c) = msg["total_cost_usd"].as_f64() {
-                    us.cost_usd = Some(c);
+                    us.cost_usd = Some(cost_base + c);
                 }
                 if window.is_some() {
                     us.context_window = window;
@@ -609,6 +615,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
             archived_history: false,
             terminal: true,
             quota: true,
+            cost: true,
         },
     },
     create: |_| Arc::new(Adapter),

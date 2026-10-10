@@ -36,6 +36,13 @@ impl UserEnv {
         UserEnv { vars: Arc::new(vars) }
     }
 
+    /// This environment with variant overrides.
+    pub fn with(&self, overrides: &[(String, String)]) -> UserEnv {
+        let mut vars = (*self.vars).clone();
+        vars.extend(overrides.iter().cloned());
+        UserEnv { vars: Arc::new(vars) }
+    }
+
     pub fn vars(&self) -> &BTreeMap<String, String> {
         &self.vars
     }

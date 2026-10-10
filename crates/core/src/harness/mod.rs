@@ -32,6 +32,8 @@ pub struct HarnessCapabilities {
     pub terminal: bool,
     /// Included subscription quotas can be monitored by this integration.
     pub quota: bool,
+    /// Reports the cumulative USD cost of a session, so cost limits can apply.
+    pub cost: bool,
 }
 
 #[derive(Clone, Copy, Serialize, TS)]

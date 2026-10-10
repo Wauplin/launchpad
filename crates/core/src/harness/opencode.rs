@@ -23,6 +23,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
             archived_history: false,
             terminal: true,
             quota: false,
+            cost: true,
         },
     },
     create: |_| Arc::new(Adapter),
@@ -36,7 +37,8 @@ impl super::Harness for Adapter {
         command
             .arg("acp")
             .env("LAUNCHPAD_PROFILE", app.paths.profile.name())
-            .env("LAUNCHPAD_SESSION_ID", &spec.session_id);
+            .env("LAUNCHPAD_SESSION_ID", &spec.session_id)
+            .envs(spec.env.iter().cloned());
         sink.raw("cmd", "opencode acp").await;
         super::acp::start(command, spec, sink).await
     }

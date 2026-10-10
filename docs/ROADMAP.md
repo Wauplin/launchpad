@@ -22,7 +22,7 @@ Status: implementation and acceptance tracker (updated 2026-10-10). See [ARCHITE
 | 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | In progress |
 | 5 | Workspace polish | Sessions are easy to find, inspect and resume, with summaries and same-session follow-ups | In progress |
 | 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | In progress |
-| 7 | Scoped optional extensions | Harness registry and OpenCode built; other candidates await selection | In progress |
+| 7 | Scoped optional extensions | Harness registry, OpenCode, local variants and cost limits built; other candidates await selection | In progress |
 | 7a | Integrated terminal (scoped) | Shells and harness TUIs run in a dock inside Launchpad instead of external terminals | In progress |
 
 Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
@@ -251,7 +251,12 @@ Owner-selected first step (2026-10-10): harness registration and OpenCode.
 
 - Built: stable registry IDs, adapter factories and lifecycle hooks; capabilities and assets returned to the UI; native discovery, quotas, titles, history, inherited markers and terminal behavior isolated in adapters; shared ACP client and OpenCode registration.
 - Acceptance: existing Claude/Codex behavior remains available, OpenCode launches and resumes through ACP with streamed events and cancellation, and another module can register without editing identity switches in core/server/React. Native CLI and isolated dev checks accompany this change; daily-use checks remain with the owner.
-- Deferred: Pi (the follow-up integration example), named variants/settings, SSH, billing ledgers and per-session PAYG dollar limits.
+- Deferred: Pi (the follow-up integration example), SSH and billing ledgers.
+
+Owner-selected follow-up (2026-10-10): named local variants/settings and reported-cost PAYG limits, with [scope and acceptance](harness-variants-plan.md).
+
+- Built: Settings → Harnesses, stable variant IDs, local environment overrides, model/effort defaults and billing; composer selection, per-session USD limit editing and header progress; cost-gated input and best-effort interruption for Claude/OpenCode. Codex environments use isolated app-servers and have no USD limits. Prompt-based titles avoid auxiliary charges for PAYG and limited sessions. Pi and remote/SSH agents are excluded.
+- Checked in dev and Chrome: save/reload and stable IDs, composer limits, session progress, blocked input/answers, limit editing, config validation/permissions, restart persistence and settings layout across all five zoom positions at 1440 px and 800 px. Inspected recovered native variant smoke-check traces. Strict workspace Clippy, 16 existing Rust tests, UI typecheck/build and daemon/desktop builds pass. Acceptance and remaining daily-use limits are recorded in the scope document.
 
 Candidate ideas:
 

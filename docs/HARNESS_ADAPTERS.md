@@ -32,7 +32,7 @@ OpenCode is the first consumer of `harness::acp::start(command, spec, sink)`. It
 
 ACP permission responses select an advertised option; arbitrary typed answers are rejected. Image support is checked against the negotiated agent capability as well as the static integration descriptor; a selected model may still reject an unsupported image. ACP tool output snapshots are converted to incremental output, and reported before/after texts become unified diff previews. Native agents may report only the replaced fragment; the Git panel remains the source for full-file diffs. Reported USD usage is cumulative, without claiming that the provider billed that amount.
 
-Current OpenCode limits are explicit: no messages while a turn is running, effort override, external history import, auxiliary AI title, subscription quota monitor or spending cap. Native configuration, credentials, model defaults and permissions remain OpenCode's responsibility. Named variants, custom env/SSH settings and billing policies are separate follow-ups.
+Current OpenCode limits are explicit: no messages while a turn is running, effort override, external history import, auxiliary AI title, subscription quota monitor or hard spending cap. Native configuration, credentials, model defaults and permissions remain OpenCode's responsibility. Named local variants pass environment overrides through `StartSpec.env`; adapters must apply them to every native session process. The host resolves variant defaults and billing, and `capabilities.cost` enables limits based on cumulative reported USD usage. Claude and OpenCode support this; Codex does not report dollars. SSH and billing ledgers remain deferred.
 
 ## Checks
 

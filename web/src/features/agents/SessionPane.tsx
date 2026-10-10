@@ -1,7 +1,8 @@
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
-import { SessionSummary, StateBand, QuotaBand, FollowUpBands, PaidUsageToggle, ModelSwitch } from "./SessionSummary";
+import { useVariant } from "@/lib/variants";
+import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle, ModelSwitch } from "./SessionSummary";
 import { GitPanel } from "./GitPanel";
 import { useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
@@ -161,6 +162,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
   const summary = !s || !isRunning(s) && view !== "trace";
   const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => p.root === s?.cwd || p.id === localStorage.getItem(`launchpad.session-predraft.${sessionId}`));
   const projects = useProjects().data;
+  const variantName = useVariant(s?.launch_spec.variant)?.name;
   const navigate = useNavigate();
   const codeLinks = useCodeLinks(s);
   const log = useSessionLogs((st) => st.logs[sessionId]);
@@ -292,8 +294,10 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
         <span className="order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3 tabular-nums">
           {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Pre-draft PR</button>}
         <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
+          {s.launch_spec.variant && <span title="Harness variant">{variantName ?? `${s.launch_spec.variant} (deleted variant)`}</span>}
           <StatusBadge s={s} />
           <PaidUsageToggle session={s} badge />
+          <CostLimit session={s} badge />
           <ModelSwitch session={s} />
           <span>{usageLine(s)}</span>
           <span className="ml-auto">{new Date(s.started_at).toLocaleDateString()}</span>

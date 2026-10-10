@@ -8,4 +8,8 @@ messages_while_running: boolean, history: boolean, archived_history: boolean, te
 /**
  * Included subscription quotas can be monitored by this integration.
  */
-quota: boolean, };
+quota: boolean,
+/**
+ * Reports the cumulative USD cost of a session, so cost limits can apply.
+ */
+cost: boolean, };

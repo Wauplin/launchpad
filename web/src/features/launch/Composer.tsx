@@ -7,6 +7,7 @@ import { Fragment, useEffect, useState } from "react";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { HarnessKind } from "@/gen/HarnessKind";
+import type { HarnessVariant } from "@/gen/HarnessVariant";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
 import type { Project } from "@/gen/Project";
@@ -17,6 +18,7 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/queries";
+import { parseUsd, usd, useVariants } from "@/lib/variants";
 import { useScope } from "@/lib/workspace";
 import { rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
@@ -148,6 +150,12 @@ export function Composer() {
   const config = useConfig().data?.config;
   const defaults = useHarnessDefaults(spec.harness).data;
   const harness = useHarnessInfo(spec.harness);
+  const variants = useVariants();
+  const variant = variants.find((v) => v.id === spec.variant) ?? null;
+  const payg = variant?.billing === "pay_as_you_go";
+  const [budgetText, setBudgetText] = useState<string | null>(null);
+  // Typed text is kept only while editing; reopening shows the draft's limit.
+  useEffect(() => setBudgetText(null), [open]);
   const queryClient = useQueryClient();
   const refreshModels = useMutation({
     mutationFn: (h: HarnessKind) => api.post<HarnessDefaults>(`/api/harness/${h}/defaults`),
@@ -187,10 +195,13 @@ export function Composer() {
   const inScope = (p: Project) => Number(!!scope.workspace && scope.hasProject(p.id));
   const sorted = [...projects.filter((p) => !p.is_temp)].sort((a, b) => inScope(b) - inScope(a) || Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
   const firstOther = scope.workspace ? sorted.find((p) => !scope.hasProject(p.id)) : undefined;
-  const model = spec.model ? defaults?.models.find((m) => m.id === spec.model) : defaults?.models.find((m) => m.id === defaults?.model);
+  const model = defaults?.models.find((m) => m.id === (spec.model ?? variant?.model ?? defaults?.model));
   const efforts = model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
   const scheduled = conditions.length > 0;
-  const canLaunch = (cron ? cronValid : delayValid && !conditionsError(conditions)) && !!spec.harness && spec.target.kind !== "none" && !preview.isError && !preview.isFetching && debouncedSpec === spec && !!preview.data?.prompt.trim();
+  const budgetInput = budgetText ?? (spec.budget_usd != null ? String(spec.budget_usd) : "");
+  const budgetValid = parseUsd(budgetInput) !== undefined;
+  const missingVariant = !!spec.variant && !variant;
+  const canLaunch = (cron ? cronValid : delayValid && !conditionsError(conditions)) && budgetValid && !missingVariant && !!spec.harness && spec.target.kind !== "none" && !preview.isError && !preview.isFetching && debouncedSpec === spec && !!preview.data?.prompt.trim();
 
   const addProjectContext = (p: Project) =>
     set((s) => (s.context_projects.some((c) => c.project_id === p.id) || ((s.target.kind === "project" || s.target.kind === "predraft") && s.target.project_id === p.id) ? s : { ...s, context_projects: [...s.context_projects, { project_id: p.id, branch: null }] }));
@@ -259,16 +270,21 @@ export function Composer() {
       <div className="flex flex-wrap items-center gap-2.5 border-b border-line px-3.5 py-3">
         <span className="flex-1 whitespace-nowrap text-sm font-bold">New agent</span>
         <span className="order-3 inline-flex basis-full flex-wrap gap-0.5 rounded-lg bg-sunk p-0.5">
-          {harnesses.map(({ id: h }) => (
+          {[...harnesses.map((h) => ({ key: h.id, harness: h.id, variant: null as HarnessVariant | null, label: h.name })), ...variants.map((v) => ({ key: `variant:${v.id}`, harness: v.harness, variant: v, label: v.name }))].map((o) => (
             <button
-              key={h}
-              onClick={() => set((s) => ({ ...s, harness: h, model: s.harness === h ? s.model : null, effort: s.harness === h ? s.effort : null }))}
+              key={o.key}
+              title={o.variant ? `${harnessName(o.harness)} variant${o.variant.billing === "pay_as_you_go" ? " · pay as you go" : ""}` : undefined}
+              onClick={() => { setBudgetText(null); set((s) => {
+                const same = s.harness === o.harness && (s.variant ?? null) === (o.variant?.id ?? null);
+                const cost = harnesses.find((h) => h.id === o.harness)?.capabilities.cost;
+                return { ...s, harness: o.harness, variant: o.variant?.id ?? null, model: same ? s.model : null, effort: same ? s.effort : null, budget_usd: same ? s.budget_usd : cost ? (o.variant?.budget_usd ?? null) : null };
+              }); }}
               className={`inline-flex h-[26px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[12.5px] ${
-                spec.harness === h ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"
+                spec.harness === o.harness && (spec.variant ?? null) === (o.variant?.id ?? null) ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"
               }`}
             >
-              <HarnessMark harness={h} size={15} />
-              {harnessName(h)}
+              <HarnessMark harness={o.harness} size={15} />
+              {o.label}
             </button>
           ))}
         </span>
@@ -464,7 +480,7 @@ export function Composer() {
                 <SelectButton onClick={toggle}>
                   {spec.model ?? (
                     <>
-                      Default <span className="text-ink-3">· {defaults?.model ?? "harness default"}</span>
+                      Default <span className="text-ink-3">· {variant?.model ?? defaults?.model ?? "harness default"}</span>
                     </>
                   )}
                 </SelectButton>
@@ -474,7 +490,7 @@ export function Composer() {
                 <>
                   <MenuItem icon={<Icon name="refresh" size={13} className={refreshingModels ? "animate-spin" : ""} />} label={refreshingModels ? "Refreshing models…" : "Refresh models"} detail="Query the selected harness again" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} />
                   {!defaults?.models.length && <div className="px-2 py-1 text-xs text-ink-3">No models loaded. Click Refresh models to retry.</div>}
-                  <MenuItem label={`Default (${defaults?.model ?? "harness default"})`} detail="What the agent picks on its own" active={!spec.model} onClick={() => (set((s) => ({ ...s, model: null })), closeMenu())} />
+                  <MenuItem label={`Default (${variant?.model ?? defaults?.model ?? "harness default"})`} detail={variant?.model ? `Default of ${variant.name}` : "What the agent picks on its own"} active={!spec.model} onClick={() => (set((s) => ({ ...s, model: null })), closeMenu())} />
                   {(defaults?.models ?? []).map((m) => (
                     <MenuItem key={m.id} label={m.display_name || m.id} detail={`${m.id} · ${m.description}`} active={spec.model === m.id} onClick={() => (set((s) => ({ ...s, model: m.id })), closeMenu())} />
                   ))}
@@ -489,7 +505,7 @@ export function Composer() {
                 <SelectButton onClick={toggle}>
                   {spec.effort ?? (
                     <>
-                      Default <span className="text-ink-3">· {defaults?.effort ?? "harness default"}</span>
+                      Default <span className="text-ink-3">· {variant?.effort ?? defaults?.effort ?? "harness default"}</span>
                     </>
                   )}
                 </SelectButton>
@@ -497,7 +513,7 @@ export function Composer() {
             >
               {(closeMenu) => (
                 <>
-                  <MenuItem label={`Default (${defaults?.effort ?? "harness default"})`} active={!spec.effort} onClick={() => (set((s) => ({ ...s, effort: null })), closeMenu())} />
+                  <MenuItem label={`Default (${variant?.effort ?? defaults?.effort ?? "harness default"})`} active={!spec.effort} onClick={() => (set((s) => ({ ...s, effort: null })), closeMenu())} />
                   {efforts.map((e) => (
                     <MenuItem key={e} label={e} active={spec.effort === e} onClick={() => (set((s) => ({ ...s, effort: e })), closeMenu())} />
                   ))}
@@ -506,6 +522,14 @@ export function Composer() {
             </Popover>
           </Field>}
         </div>
+
+        {missingVariant && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">The harness variant {spec.variant} no longer exists. Pick a harness or variant above.</div>}
+        {harness?.capabilities.cost && <Field label="Cost limit">
+          <span className="flex items-center gap-2">
+            <input className="field-input w-28 font-mono text-xs" aria-label="Cost limit in USD" placeholder="No limit" value={budgetInput} onChange={(e) => { setBudgetText(e.target.value); const v = parseUsd(e.target.value); if (v !== undefined) set((s) => ({ ...s, budget_usd: v })); }} />
+            <span className={`text-[11px] ${budgetValid ? "text-ink-3" : "text-attn"}`}>{budgetValid ? "USD of reported cost. At the limit, the running turn stops and no new turn starts. Empty: no limit." : "Enter a positive amount in USD, or leave empty."}</span>
+          </span>
+        </Field>}
 
         <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); }} onValidityChange={setCronValid} />
         {!cron && <DelaySelector conditions={conditions} harness={spec.harness} onChange={setConditions} onValidityChange={setDelayValid} />}
@@ -530,11 +554,11 @@ export function Composer() {
           <input type="checkbox" className="accent-teal" disabled={scheduled || !!cron} checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
           Open after launch
         </label>
-        {harness?.capabilities.quota && <label className="inline-flex items-center gap-[7px] text-xs text-ink-2" title="Continue using additional credits when included subscription quota runs out. Unchecked: pause and resume automatically, best effort.">
+        {harness?.capabilities.quota && !payg && <label className="inline-flex items-center gap-[7px] text-xs text-ink-2" title="Continue using additional credits when included subscription quota runs out. Unchecked: pause and resume automatically, best effort.">
           <input type="checkbox" className="accent-teal" checked={spec.allow_paid_usage} onChange={(e) => set((s) => ({ ...s, allow_paid_usage: e.target.checked }))} />
           Allow paid usage
         </label>}
-        <span className="basis-full text-[11px] text-ink-3">{harness && !harness.capabilities.quota ? "This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas or limit spending yet." : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption."}</span>
+        <span className="basis-full text-[11px] text-ink-3">{payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${variant!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption."}</span>
         <button className="btn btn-ghost" onClick={() => { setCron(null); discard(); }} title="Clear the composer">
           Discard
         </button>

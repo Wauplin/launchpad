@@ -53,6 +53,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/resume-paid", post(resume_paid))
         .route("/api/sessions/{id}/paid-usage", post(set_paid_usage))
         .route("/api/sessions/{id}/model", post(set_model))
+        .route("/api/sessions/{id}/budget", post(set_budget))
         .route("/api/sessions/{id}/terminal", post(open_terminal))
         .route("/api/sessions/{id}/task-output", get(task_output))
         .route("/api/inbox", get(inbox))
@@ -307,6 +308,12 @@ async fn resume_paid(State(s): State<Server>, Path(id): Path<String>) -> ApiResu
 struct PaidUsage { allow: bool }
 async fn set_paid_usage(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<PaidUsage>) -> ApiResult<Session> {
     Ok(Json(s.app.sessions.set_paid_usage(&s.app, &id, b.allow).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct SessionBudget { budget_usd: Option<f64> }
+async fn set_budget(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<SessionBudget>) -> ApiResult<Session> {
+    Ok(Json(s.app.sessions.set_budget(&s.app, &id, b.budget_usd).await.map_err(bad)?))
 }
 
 #[derive(Deserialize)]

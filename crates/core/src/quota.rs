@@ -1,7 +1,7 @@
 //! Best-effort per-session protection against additional subscription spending.
 use crate::{
     App,
-    model::{HarnessKind, QuotaBlock, SessionStatus},
+    model::{HarnessKind, LaunchSpec, QuotaBlock, SessionStatus},
     status::HarnessStatus,
 };
 
@@ -46,10 +46,17 @@ pub fn available(s: &HarnessStatus, now: i64) -> bool {
         })
 }
 
+/// Subscription protection applies: a monitored harness, paid usage not allowed, and not a pay-as-you-go variant.
+pub fn protected(app: &App, harness: HarnessKind, spec: &LaunchSpec) -> bool {
+    crate::harness::registration(harness).descriptor.capabilities.quota
+        && !spec.allow_paid_usage
+        && !crate::variants::pay_as_you_go(app, spec)
+}
+
 pub fn monitoring(app: &App, h: HarnessKind) -> bool {
     app.sessions.list().iter().any(|s| {
         s.harness == h
-            && !s.launch_spec.allow_paid_usage
+            && protected(app, s.harness, &s.launch_spec)
             && (s.status.is_running() || s.status == SessionStatus::QuotaPaused)
     })
 }

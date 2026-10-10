@@ -189,7 +189,7 @@ impl Terminals {
         Ok(())
     }
 
-    fn spawn(&self, app: &App, mut info: TerminalInfo, argv: Vec<String>, env: &[(&str, &str)]) -> Result<TerminalInfo> {
+    fn spawn(&self, app: &App, mut info: TerminalInfo, argv: Vec<String>, env: Vec<(String, String)>) -> Result<TerminalInfo> {
         // The PTY would otherwise start the process in another folder.
         if !Path::new(&info.cwd).is_dir() {
             bail!("the folder {} no longer exists", info.cwd);
@@ -292,7 +292,7 @@ impl Terminals {
             exit_code: None,
             created_at: now_ms(),
         };
-        self.spawn(app, info, shell(app), &[])
+        self.spawn(app, info, shell(app), vec![])
     }
 
     /// Opens the harness TUI of a session. The caller detaches the headless harness first.
@@ -302,7 +302,9 @@ impl Terminals {
             None => false,
         };
         let argv = tui_command(app, s, is_temp)?;
-        let env = app.harnesses.get(s.harness).terminal_env(is_temp);
+        // The TUI uses the same variant environment as the headless process (account, API key).
+        let mut env = crate::variants::env(app, s.harness, &s.launch_spec)?;
+        env.extend(app.harnesses.get(s.harness).terminal_env(is_temp).iter().map(|(k, v)| (k.to_string(), v.to_string())));
         let info = TerminalInfo {
             id: uuid::Uuid::new_v4().to_string(),
             kind: TerminalKind::Tui,

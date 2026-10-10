@@ -48,6 +48,8 @@ pub struct StartSpec {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub add_dirs: Vec<String>,
+    /// Variant environment overrides; adapters add them to every native process of the session.
+    pub env: Vec<(String, String)>,
 }
 
 const RAW_LINES_CAP: i64 = 20_000;
@@ -72,6 +74,8 @@ struct Inner {
     quota_stops: Mutex<HashSet<String>>,
     title_requests: Mutex<HashSet<String>>,
     quota_interrupts: Mutex<HashMap<String, i64>>,
+    /// Running turns interrupted at their cost limit, with the time of the last attempt.
+    budget_interrupts: Mutex<HashMap<String, i64>>,
     /// Sessions whose process must restart to use a new model or effort, once their turn ends.
     model_restarts: Mutex<HashSet<String>>,
     /// Serializes user actions and quota decisions; adapter events never take this lock.
@@ -104,6 +108,7 @@ impl Sessions {
                 quota_stops: Mutex::new(HashSet::new()),
                 title_requests: Mutex::new(HashSet::new()),
                 quota_interrupts: Mutex::new(HashMap::new()),
+                budget_interrupts: Mutex::new(HashMap::new()),
                 model_restarts: Mutex::new(HashSet::new()),
                 actions: tokio::sync::Mutex::new(()),
                 work: tokio::sync::Mutex::new(()),
@@ -448,6 +453,13 @@ impl Sessions {
         if spec.target == Target::None {
             bail!("pick a project or a temporary folder");
         }
+        let variant = crate::variants::resolve(app, harness, &spec)?;
+        let env = crate::variants::env(app, harness, &spec)?;
+        check_budget(harness, spec.budget_usd)?;
+        let (model, effort) = (
+            spec.model.clone().or_else(|| variant.as_ref().and_then(|v| v.model.clone())),
+            spec.effort.clone().or_else(|| variant.as_ref().and_then(|v| v.effort.clone())),
+        );
         let mut preview = self.preview(app, &spec).await?;
         if preview.prompt.trim().is_empty() {
             bail!("the prompt is empty");
@@ -521,8 +533,8 @@ impl Sessions {
             status_since: now,
             live: false,
             open_question: false,
-            model: spec.model.clone(),
-            effort: spec.effort.clone(),
+            model: model.clone(),
+            effort: effort.clone(),
             prompt: preview.prompt.clone(),
             usage: Usage::default(),
             started_at: now,
@@ -549,19 +561,14 @@ impl Sessions {
         app.bus.publish("sessions", "updated", serde_json::to_value(&session)?);
         self.publish_counts(app);
 
-        if !session.launch_spec.allow_paid_usage && !crate::quota::blockers(app, harness).is_empty() {
+        let protected = crate::quota::protected(app, harness, &session.launch_spec);
+        if protected && !crate::quota::blockers(app, harness).is_empty() {
             self.update(app, &id, |s| s.harness_session_id = None).await?;
             self.hold_input(app, &id, &preview.prompt, vec![]).await?;
             return Ok(self.get(&id).unwrap());
         }
 
-        if !session.launch_spec.allow_paid_usage
-            && crate::harness::registration(harness)
-                .descriptor
-                .capabilities
-                .quota
-            && !crate::quota::available(&crate::quota::reading(app, harness), now_ms())
-        {
+        if protected && !crate::quota::available(&crate::quota::reading(app, harness), now_ms()) {
             self.sink(app, &id).emit(EventBody::Notice { text: "Quota reading unavailable or stale. Starting with best-effort protection; additional spending cannot be ruled out until quota is known.".into() }).await;
         }
         let start = StartSpec {
@@ -570,9 +577,10 @@ impl Sessions {
             resume: false,
             cwd: cwd.into(),
             title: preview.title,
-            model: spec.model,
-            effort: spec.effort,
+            model,
+            effort,
             add_dirs: preview.add_dirs,
+            env,
         };
         let sink = self.sink(app, &id);
         match self.attach(app, harness, start, sink.clone()).await {
@@ -639,6 +647,7 @@ impl Sessions {
             model: s.model.clone(),
             effort: s.effort.clone(),
             add_dirs,
+            env: crate::variants::env(app, s.harness, &s.launch_spec)?,
         };
         if !start.cwd.exists() {
             bail!("the folder {} no longer exists", s.cwd);
@@ -670,7 +679,17 @@ impl Sessions {
             if s.live && s.quota_pause.is_none() && (s.status.is_running() || s.status.is_done()) {
                 crate::titles::generate(app, &s);
             }
-            if s.launch_spec.allow_paid_usage && s.quota_pause.is_none() { continue; }
+            if s.budget_reached() && s.status.is_running() && !s.open_question
+                && let Some(live) = self.live(&s.id).filter(|l| l.turn_active())
+                && self.inner.budget_interrupts.lock().unwrap().get(&s.id).is_none_or(|at| now_ms() - at >= 10_000) {
+                // Ends as Stopped, like an owner Stop; the reached limit was announced when the cost was reported.
+                self.inner.budget_interrupts.lock().unwrap().insert(s.id.clone(), now_ms());
+                self.inner.stop_requests.lock().unwrap().insert(s.id.clone());
+                if let Err(e) = live.interrupt().await {
+                    tracing::warn!("cost limit interrupt {}: {e:#}", s.id);
+                }
+            }
+            if !crate::quota::protected(app, s.harness, &s.launch_spec) && s.quota_pause.is_none() { continue; }
             let blockers = crate::quota::blockers(app, s.harness);
             if s.quota_pause.is_none() && s.status.is_running() && !blockers.is_empty() {
                 // A question is already idle: leave it answerable after the quota resets.
@@ -691,7 +710,7 @@ impl Sessions {
                 }
             }
             let Some(current) = self.get(&s.id) else { continue };
-            let Some(p) = current.quota_pause else { continue };
+            let Some(p) = current.quota_pause.clone() else { continue };
             if matches!(p.phase, QuotaPausePhase::Pausing | QuotaPausePhase::Paused) && !crate::quota::blockers(app, s.harness).is_empty()
                 && self.live(&s.id).is_some_and(|l| l.turn_active())
                 && self.inner.quota_interrupts.lock().unwrap().get(&s.id).is_none_or(|at| now_ms() - at >= 10_000) {
@@ -704,7 +723,7 @@ impl Sessions {
             if p.phase == QuotaPausePhase::Pausing {
                 self.update(app, &s.id, |s| { if let Some(p) = &mut s.quota_pause { p.phase = QuotaPausePhase::Paused; } }).await?;
             }
-            if crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()) {
+            if !current.budget_reached() && crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()) {
                 match self.continue_quota(app, &s.id, false).await {
                     Ok(()) => {}
                     Err(e) => tracing::warn!("quota continuation {}: {e:#}", s.id),
@@ -725,9 +744,26 @@ impl Sessions {
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.quota,
             "This integration does not monitor subscription quotas; native provider billing settings apply.");
+        anyhow::ensure!(!crate::variants::pay_as_you_go(app, &s.launch_spec),
+            "This pay-as-you-go variant has no subscription quota protection; use its cost limit instead.");
         if s.launch_spec.allow_paid_usage == allow { return Ok(s); }
         let s = self.update(app, id, |s| s.launch_spec.allow_paid_usage = allow).await?;
         self.sink(app, id).emit(EventBody::Notice { text: if allow { "Paid usage allowed for this session; additional credits may be used after included quota runs out." } else { "Paid usage disabled; this session pauses at included quota limits." }.into() }).await;
+        Ok(s)
+    }
+
+    /// Sets or removes the cost limit of one session. A running turn above the new limit is interrupted by the guard.
+    pub async fn set_budget(&self, app: &App, id: &str, budget_usd: Option<f64>) -> Result<Session> {
+        let _action = self.inner.actions.lock().await;
+        let s = self.get(id).context("no such session")?;
+        check_budget(s.harness, budget_usd)?;
+        if s.launch_spec.budget_usd == budget_usd { return Ok(s); }
+        let s = self.update(app, id, |s| s.launch_spec.budget_usd = budget_usd).await?;
+        let spent = s.usage.cost_usd.unwrap_or(0.0);
+        self.sink(app, id).emit(EventBody::Notice { text: match budget_usd {
+            Some(b) => format!("Cost limit set to ${b:.2} (${spent:.2} reported so far).{}", if s.budget_reached() { " The limit is reached: a running turn stops and no new turn starts." } else { "" }),
+            None => "Cost limit removed.".into(),
+        } }).await;
         Ok(s)
     }
 
@@ -765,7 +801,8 @@ impl Sessions {
     async fn continue_quota(&self, app: &App, id: &str, paid: bool) -> Result<()> {
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
-        let p = s.quota_pause.context("The session is not quota paused")?;
+        let p = s.quota_pause.clone().context("The session is not quota paused")?;
+        ensure_budget(&s)?;
         anyhow::ensure!(!s.open_question && self.live(id).is_none_or(|l| l.ready_for_turn()), "Wait for the interrupted turn and outstanding commands to finish.");
         if !paid {
             anyhow::ensure!(p.phase == QuotaPausePhase::Paused && crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()), "Waiting for a fresh quota reading");
@@ -839,7 +876,9 @@ impl Sessions {
             bail!("the session is open in a terminal: re-attach it first");
         }
         anyhow::ensure!(s.quota_pause.is_none(), "This session is quota paused. Stop it or use Resume with paid usage first.");
-        if !s.launch_spec.allow_paid_usage && !crate::quota::blockers(app, s.harness).is_empty() {
+        ensure_budget(&s)?;
+        let protected = crate::quota::protected(app, s.harness, &s.launch_spec);
+        if protected && !crate::quota::blockers(app, s.harness).is_empty() {
             if s.status.is_running() || s.open_question { bail!("Included quota exhausted; wait for quota to reset before sending input or answering this question."); }
             self.hold_input(app, id, text, images).await?;
             return Ok(());
@@ -850,13 +889,7 @@ impl Sessions {
                 || self.live(id).is_none_or(|l| l.ready_for_turn()),
             "Wait for outstanding commands to finish before starting another turn."
         );
-        if !s.launch_spec.allow_paid_usage
-            && crate::harness::registration(s.harness)
-                .descriptor
-                .capabilities
-                .quota
-            && !crate::quota::available(&crate::quota::reading(app, s.harness), now_ms())
-        {
+        if protected && !crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()) {
             self.sink(app, id).emit(EventBody::Notice { text: "Quota reading unavailable or stale; continuing with best-effort protection.".into() }).await;
         }
         let resumed = self.live(id).is_none();
@@ -868,6 +901,7 @@ impl Sessions {
         }
         self.inner.stop_requests.lock().unwrap().remove(id);
         self.inner.quota_stops.lock().unwrap().remove(id);
+        self.inner.budget_interrupts.lock().unwrap().remove(id);
         let client_id = uuid::Uuid::new_v4().to_string();
         let queued = s.status.is_running() && !resumed;
         sink.emit(EventBody::UserMessage { text: text.to_string(), client_id: client_id.clone(), queued, images: images.clone() }).await;
@@ -907,7 +941,8 @@ impl Sessions {
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(s.quota_pause.is_none(), "The session is quota paused.");
-        anyhow::ensure!(s.launch_spec.allow_paid_usage || crate::quota::blockers(app, s.harness).is_empty(), "Included quota exhausted; wait for the quota pause.");
+        anyhow::ensure!(!crate::quota::protected(app, s.harness, &s.launch_spec) || crate::quota::blockers(app, s.harness).is_empty(), "Included quota exhausted; wait for the quota pause.");
+        ensure_budget(&s)?;
         let live = self.live(id).context("the session has no running process")?;
         live.answer(request_id, answers.clone()).await?;
         let sink = self.sink(app, id);
@@ -1065,6 +1100,20 @@ impl Sessions {
     }
 }
 
+fn check_budget(harness: HarnessKind, budget_usd: Option<f64>) -> Result<()> {
+    let Some(b) = budget_usd else { return Ok(()) };
+    anyhow::ensure!(b.is_finite() && b > 0.0, "The cost limit must be a positive amount.");
+    anyhow::ensure!(crate::harness::registration(harness).descriptor.capabilities.cost,
+        "{} does not report costs, so a cost limit cannot apply.", harness.display());
+    Ok(())
+}
+
+fn ensure_budget(s: &Session) -> Result<()> {
+    anyhow::ensure!(!s.budget_reached(), "Cost limit reached: ${:.2} reported of ${:.2}. Raise or remove the limit to continue.",
+        s.usage.cost_usd.unwrap_or(0.0), s.launch_spec.budget_usd.unwrap_or(0.0));
+    Ok(())
+}
+
 #[derive(Clone, Debug, serde::Serialize, ts_rs::TS)]
 pub struct Preview {
     pub title: String,
@@ -1216,7 +1265,18 @@ impl Sink {
     }
 
     pub async fn update_usage(&self, f: impl FnOnce(&mut Usage)) {
-        let _ = self.sessions.update(&self.app, &self.id, |s| f(&mut s.usage)).await;
+        let mut crossed = false;
+        let _ = self.sessions.update(&self.app, &self.id, |s| {
+            let before = s.budget_reached();
+            f(&mut s.usage);
+            crossed = !before && s.budget_reached();
+        }).await;
+        if crossed && let Some(s) = self.sessions.get(&self.id) {
+            self.emit(EventBody::Notice { text: format!(
+                "Cost limit reached: ${:.2} reported of ${:.2}. A running turn is stopped and no new turn starts until you raise or remove the limit.",
+                s.usage.cost_usd.unwrap_or(0.0), s.launch_spec.budget_usd.unwrap_or(0.0),
+            ) }).await;
+        }
     }
 
     pub async fn fail(&self, message: &str) {

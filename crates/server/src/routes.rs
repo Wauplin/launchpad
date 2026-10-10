@@ -31,6 +31,7 @@ async fn get_config(State(s): State<Server>) -> Json<Value> {
 }
 
 async fn put_config(State(s): State<Server>, Json(config): Json<Config>) -> ApiResult<Value> {
+    config.validate().map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
     s.app.config.save(config)?;
     Ok(Json(json!({"config": s.app.config.get(), "error": null})))
 }

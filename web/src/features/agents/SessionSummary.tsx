@@ -1,4 +1,4 @@
-import { useHarnessInfo } from "@/components/HarnessMark";
+import { useHarnessInfo, useHarnessName } from "@/components/HarnessMark";
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -16,6 +16,7 @@ import { copyText } from "@/lib/clipboard";
 import { formatAge } from "@/lib/format";
 import { useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { conditionsSummary, DelaySelector } from "@/features/launch/DelaySelector";
+import { budgetReached, parseUsd, usd, useVariant } from "@/lib/variants";
 import { compact, statusInfo, STYLES } from "./SessionBits";
 import type { Row } from "./rows";
 
@@ -107,11 +108,14 @@ export function SessionSummary({ session: s, rows, localPr, reviewDiff, showTrac
   if (localPr?.published_url && !refs.some((r) => r.url === localPr.published_url)) refs.push({ url: localPr.published_url, kind: "pr", repo: "", number: localPr.published_number, title: localPr.title });
   const tokens = s.usage.input_tokens + s.usage.cached_tokens + s.usage.output_tokens;
   const changes = git.data?.main_changes;
+  const supportsCost = useHarnessInfo(s.harness)?.capabilities.cost ?? false;
   const metadata: [string, ReactNode][] = [];
   if (turns.length) metadata.push(["Time", `${duration == null ? "" : `${Math.floor(duration / 60000)} min ${Math.round(duration / 1000) % 60} s · `}${turns.length} recorded ${turns.length === 1 ? "turn" : "turns"}`]);
   if (s.usage.cost_usd != null) metadata.push(["Reported cost", `$${s.usage.cost_usd.toFixed(2)}${tokens ? ` · ${compact(tokens)} tokens` : ""}`]);
   else if (tokens) metadata.push(["Tokens", compact(tokens)]);
   const contextShare = s.usage.context_tokens != null && s.usage.context_window ? `${Math.round(100 * s.usage.context_tokens / s.usage.context_window)}% context` : null;
+  if (s.launch_spec.variant) metadata.push(["Harness", <VariantLabel session={s} />]);
+  if (supportsCost) metadata.push(["Cost limit", <CostLimit session={s} />]);
   metadata.push(["Model", <span className="inline-flex flex-wrap items-center gap-2"><ModelSwitch session={s} />{contextShare}</span>]);
   metadata.push(["Paid usage", <PaidUsageToggle session={s} />]);
   metadata.push(["Folder", s.cwd]);
@@ -158,6 +162,8 @@ export function SessionSummary({ session: s, rows, localPr, reviewDiff, showTrac
 /** Shows whether this session may use paid credits after included quota, with a button to switch. `badge` only renders when paid usage is on. */
 export function PaidUsageToggle({ session: s, badge = false }: { session: Session; badge?: boolean }) {
   const supportsQuota = useHarnessInfo(s.harness)?.capabilities.quota ?? false;
+  const supportsCost = useHarnessInfo(s.harness)?.capabilities.cost ?? false;
+  const variant = useVariant(s.launch_spec.variant);
   const [busy, setBusy] = useState(false);
   const allow = s.launch_spec.allow_paid_usage;
   const set = async (value: boolean) => {
@@ -165,9 +171,54 @@ export function PaidUsageToggle({ session: s, badge = false }: { session: Sessio
     try { await api.post(`/api/sessions/${s.id}/paid-usage`, { allow: value }); } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   const off = <button className="btn btn-sm" disabled={busy} title="Pause this session at included quota limits again" onClick={() => void set(false)}>Use subscription only</button>;
+  if (variant?.billing === "pay_as_you_go") return badge ? null : <span>Pay as you go: subscription quotas are not monitored for {variant.name}. {supportsCost ? "Use the cost limit." : "This harness does not report USD costs, so no cost limit is available."}</span>;
   if (!supportsQuota) return badge ? null : <span>Native provider billing settings apply. Subscription quotas are not monitored by Launchpad.</span>;
   if (badge) return allow ? <span className="inline-flex items-center gap-1.5 rounded bg-attn-soft px-1.5 py-0.5 font-semibold text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]">Paid usage on{off}</span> : null;
   return <span className="inline-flex flex-wrap items-center gap-2">{allow ? <><b className="text-attn">Allowed: additional credits may be used after included quota runs out</b>{off}</> : <>Subscription only: quota protection enabled (best effort)<button className="btn btn-sm" disabled={busy} title="Allow additional credits after included quota runs out. A quota-paused session still waits for Resume." onClick={() => void set(true)}>Allow paid usage</button></>}</span>;
+}
+
+/** The base harness and variant name; a deleted variant is shown as such, since resuming it fails. */
+export function VariantLabel({ session: s }: { session: Session }) {
+  const variant = useVariant(s.launch_spec.variant);
+  const name = useHarnessName()(s.harness);
+  if (!s.launch_spec.variant) return null;
+  if (!variant) return <span className="text-attn">{name} · variant {s.launch_spec.variant} no longer exists; add it again in Settings → Harnesses to resume</span>;
+  return <span>{name} · {variant.name}{variant.billing === "pay_as_you_go" ? " · pay as you go" : ""}</span>;
+}
+
+/** The session cost limit with an editor. `badge` renders a compact header button, only when a limit is set. */
+export function CostLimit({ session: s, badge = false }: { session: Session; badge?: boolean }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const limit = s.launch_spec.budget_usd;
+  const spent = s.usage.cost_usd ?? 0;
+  const reached = budgetReached(s);
+  const parsed = parseUsd(text);
+  const save = async (budget_usd: number | null, close: () => void) => {
+    setBusy(true);
+    try { await api.post(`/api/sessions/${s.id}/budget`, { budget_usd }); close(); } catch (e) { toastError(e); } finally { setBusy(false); }
+  };
+  if (badge && limit == null) return null;
+  const label = limit == null ? "No limit" : `${usd(spent)} of ${usd(limit)}${reached ? " · limit reached" : ""}`;
+  return <Popover
+    width={280}
+    trigger={({ toggle }) => <button
+      className={`btn btn-sm ${reached ? "bg-attn-soft! font-semibold text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]" : ""}`}
+      title="Change the cost limit of this session"
+      onClick={() => { setText(limit == null ? "" : String(limit)); toggle(); }}
+    >{badge ? `Cost ${label}` : label}<Icon name="chev" size={12} /></button>}
+  >
+    {(close) => <div className="grid gap-2 p-2 text-xs">
+      <b>Cost limit (USD)</b>
+      <input className="field-input font-mono text-xs" aria-label="Cost limit in USD" placeholder="No limit" value={text} onChange={(e) => setText(e.target.value)} />
+      <span className={parsed === undefined ? "text-attn" : "text-ink-3"}>{parsed === undefined ? "Enter a positive amount, or leave empty for no limit." : `${usd(spent)} reported so far. At the limit, the running turn stops and no new turn starts. Costs are reported by the harness, at the end of each turn for Claude Code.`}</span>
+      <span className="flex gap-2">
+        <button className="btn btn-sm btn-primary" disabled={busy || parsed === undefined} onClick={() => void save(parsed ?? null, close)}>Save limit</button>
+        {limit != null && <button className="btn btn-sm" disabled={busy} onClick={() => void save(null, close)}>Remove limit</button>}
+        <button className="btn btn-sm btn-ghost" onClick={close}>Cancel</button>
+      </span>
+    </div>}
+  </Popover>;
 }
 
 /** Model and supported effort choices come from the registered adapter. */

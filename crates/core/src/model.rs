@@ -142,6 +142,13 @@ pub struct Session {
     pub quota_pause: Option<QuotaPause>,
 }
 
+impl Session {
+    /// The reported cost reached the session cost limit: no new turn may start.
+    pub fn budget_reached(&self) -> bool {
+        self.launch_spec.budget_usd.is_some_and(|b| self.usage.cost_usd.unwrap_or(0.0) >= b)
+    }
+}
+
 /// An image attached to a user message, kept locally in the event log.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct ImageAttachment {
@@ -278,6 +285,10 @@ pub struct LaunchSpec {
     /// Permit additional paid usage after included subscription quotas are exhausted.
     pub allow_paid_usage: bool,
     pub harness: Option<HarnessKind>,
+    /// A named variant of `harness` from `config.toml` (environment, defaults, billing).
+    pub variant: Option<String>,
+    /// Stop new turns once the harness-reported cumulative cost reaches this many USD.
+    pub budget_usd: Option<f64>,
     pub target: Target,
     pub text: String,
     pub presets: Vec<String>,

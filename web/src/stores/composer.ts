@@ -14,6 +14,8 @@ import { draftQuery, useWorkspace } from "./workspace";
 
 export const emptySpec = (): LaunchSpec => ({
   harness: null,
+  variant: null,
+  budget_usd: null,
   allow_paid_usage: false,
   target: { kind: "none" },
   text: "",
@@ -78,7 +80,7 @@ export function rememberSuccessfulSession(session: Session) {
   }
 }
 
-let lastLaunch: Pick<LaunchSpec, "harness" | "model" | "effort"> = { harness: null, model: null, effort: null };
+let lastLaunch: Pick<LaunchSpec, "harness" | "variant" | "budget_usd" | "model" | "effort"> = { harness: null, variant: null, budget_usd: null, model: null, effort: null };
 
 export const useComposer = create<Composer>((set, get) => ({
   open: false,
@@ -87,7 +89,7 @@ export const useComposer = create<Composer>((set, get) => ({
   setConditions: (conditions) => { set({ conditions }); save(get().spec, get().open, conditions); },
   openAfterLaunch: false,
   loaded: false,
-  rememberLaunch: (spec) => { lastLaunch = { harness: spec.harness, model: spec.model, effort: spec.effort }; },
+  rememberLaunch: (spec) => { lastLaunch = { harness: spec.harness, variant: spec.variant ?? null, budget_usd: spec.budget_usd ?? null, model: spec.model, effort: spec.effort }; },
   start: (ctx) => {
     const cur = get().spec;
     const spec: LaunchSpec = { ...cur, ...lastLaunch };
@@ -111,7 +113,8 @@ export const useComposer = create<Composer>((set, get) => ({
     save(get().spec, false, get().conditions);
   },
   discard: () => {
-    const spec = { ...emptySpec(), harness: get().spec.harness };
+    const { harness, variant, budget_usd } = get().spec;
+    const spec = { ...emptySpec(), harness, variant, budget_usd };
     set({ spec, open: false, conditions: [] });
     save(spec, false, []);
   },
@@ -123,7 +126,7 @@ export const useComposer = create<Composer>((set, get) => ({
       if (latest) rememberSuccessfulSession(latest);
       const d = await api.get<{ spec?: LaunchSpec; open?: boolean; conditions?: LaunchDelay[]; delay?: LaunchDelay | null } | null>(`/api/launch/draft${draftQuery()}`);
       if (d?.spec) set({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, conditions: d.conditions ?? (d.delay ? [d.delay] : []) });
-      else set({ spec: { ...emptySpec(), harness: get().spec.harness }, open: false, conditions: [] });
+      else set({ spec: { ...emptySpec(), harness: get().spec.harness, variant: get().spec.variant ?? null, budget_usd: get().spec.budget_usd ?? null }, open: false, conditions: [] });
     } finally {
       set({ loaded: true });
     }

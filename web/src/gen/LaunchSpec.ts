@@ -13,7 +13,15 @@ export type LaunchSpec = {
 /**
  * Permit additional paid usage after included subscription quotas are exhausted.
  */
-allow_paid_usage: boolean, harness: HarnessKind | null, target: Target, text: string, presets: Array<string>, context_projects: Array<ContextProject>, github_refs: Array<GitHubRef>,
+allow_paid_usage: boolean, harness: HarnessKind | null,
+/**
+ * A named variant of `harness` from `config.toml` (environment, defaults, billing).
+ */
+variant: string | null,
+/**
+ * Stop new turns once the harness-reported cumulative cost reaches this many USD.
+ */
+budget_usd: number | null, target: Target, text: string, presets: Array<string>, context_projects: Array<ContextProject>, github_refs: Array<GitHubRef>,
 /**
  * Files and line ranges added from the code viewer.
  */

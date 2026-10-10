@@ -15,10 +15,10 @@ import { CloseAllTerminals } from "@/features/terminals/TerminalDock";
 export function Card({ title, end, children, id }: { title: string; end?: React.ReactNode; children: React.ReactNode; id?: string }) {
   return (
     <section id={id} className="overflow-hidden rounded-[10px] border border-line">
-      <div className="flex items-center gap-2 border-b border-line bg-chrome px-3.5 py-[11px] text-[12.5px] text-ink-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line bg-chrome px-3.5 py-[11px] text-[12.5px] text-ink-2">
         <Icon name="sliders" size={14} />
         Settings <span className="text-ink-3">/</span> <b className="font-[650] text-ink">{title}</b>
-        {end && <span className="ml-auto flex gap-1.5">{end}</span>}
+        {end && <span className="ml-auto flex max-w-full flex-wrap justify-end gap-1.5">{end}</span>}
       </div>
       <div className="grid gap-2.5 p-3.5">{children}</div>
     </section>
@@ -33,6 +33,7 @@ export function SettingsPage({ children }: { children: React.ReactNode }) {
         <nav className="flex gap-1.5" aria-label="Settings pages">
           <Link to="/settings" className="btn" activeProps={{ className: "bg-select!" }} activeOptions={{ exact: true }}>General</Link>
           <Link to="/settings/workspaces" className="btn" activeProps={{ className: "bg-select!" }}>Workspaces</Link>
+          <Link to="/settings/harnesses" className="btn" activeProps={{ className: "bg-select!" }}>Harnesses</Link>
         </nav>
         {children}
       </div>
@@ -64,10 +65,12 @@ export function SettingsView() {
   }, [draft]);
   if (!draft || !q.data) return <SettingsPage><div className="text-ink-3">Loading…</div></SettingsPage>;
   const saved = q.data.config;
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  // Variants are edited on their own page: always keep the saved ones.
+  const merged = { ...draft, variants: saved.variants };
+  const dirty = JSON.stringify(merged) !== JSON.stringify(saved);
   const save = async () => {
     try {
-      const res = await api.put<{ config: Config }>("/api/config", draft);
+      const res = await api.put<{ config: Config }>("/api/config", merged);
       qc.setQueryData(["config"], { config: res.config, error: null });
       setDraft(res.config);
       toast("Settings saved");
