@@ -45,6 +45,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/history", get(session_history).post(import_session))
         .route("/api/sessions/search", get(search_sessions))
         .route("/api/sessions/{id}/events", get(events))
+        .route("/api/sessions/{id}/trace", get(trace))
         .route("/api/sessions/{id}/input", post(input).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/sessions/{id}/interrupt", post(interrupt))
         .route("/api/sessions/{id}/answer", post(answer))
@@ -228,6 +229,16 @@ struct After {
 
 async fn events(State(s): State<Server>, Path(id): Path<String>, Query(q): Query<After>) -> ApiResult<Vec<SessionEvent>> {
     Ok(Json(s.app.sessions.events(&s.app, &id, q.after.unwrap_or(0)).await?))
+}
+
+#[derive(Deserialize)]
+struct Through {
+    through: Option<i64>,
+}
+
+/// Plain-text trace for agents that received a trace reference as launch context.
+async fn trace(State(s): State<Server>, Path(id): Path<String>, Query(q): Query<Through>) -> Result<String, ApiError> {
+    s.app.sessions.trace_text(&s.app, &id, q.through).await.map_err(bad)
 }
 
 #[derive(Deserialize)]

@@ -277,7 +277,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
               Files
             </button>
           )}
-          <button className="btn btn-sm" disabled={s.last_seq === 0} title="Attach the stored trace so far to a new agent's input" onClick={() => useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] })}>Add trace as context</button>
+          <button className="btn btn-sm" disabled={s.last_seq === 0} title="Reference the stored trace so far in a new agent's prompt; the agent loads it on demand" onClick={() => useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] })}>Add trace as context</button>
           <button className={`btn btn-sm ${gitOpen ? "bg-select!" : ""}`} aria-pressed={gitOpen} onClick={() => { setGitMain(false); setGitOpen(!gitOpen); }}>Git</button>
           <button className="btn btn-sm" onClick={() => void api.post("/api/open-editor", { path: s.cwd }).catch(toastError)}>Open in editor</button>
           {s.status !== "closed" && (

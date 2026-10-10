@@ -25,6 +25,13 @@ enum Command {
         #[command(subcommand)]
         command: Suggest,
     },
+    /// Print the stored trace of an agent session, for use as reference context.
+    Trace {
+        session_id: String,
+        /// Last event included (defaults to the latest stored event).
+        #[arg(long)]
+        through: Option<i64>,
+    },
     /// Run the daemon (HTTP + WebSocket on 127.0.0.1).
     Daemon,
     /// Print the daemon status as JSON.
@@ -157,6 +164,22 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Suggest { command } => suggest_command(&paths, command).await,
         Command::Pr { command } => pr_command(&paths, command).await,
+        Command::Trace { session_id, through } => {
+            let mut url = reqwest::Url::parse(&format!("{}/api/sessions", paths.base_url()))?;
+            url.path_segments_mut().map_err(|_| anyhow::anyhow!("invalid daemon address"))?.extend([session_id.as_str(), "trace"]);
+            if let Some(through) = through {
+                url.query_pairs_mut().append_pair("through", &through.to_string());
+            }
+            let res = reqwest::Client::new().get(url).bearer_auth(paths.token()?).send().await.context("is the daemon running?")?;
+            let status = res.status();
+            let text = res.text().await?;
+            if !status.is_success() {
+                let body: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+                anyhow::bail!("{}", body["error"].as_str().unwrap_or("request failed"));
+            }
+            println!("{text}");
+            Ok(())
+        }
         Command::Daemon => {
             init_tracing();
             tracing::info!("profile {}, data in {}", paths.profile.name(), paths.data_dir.display());

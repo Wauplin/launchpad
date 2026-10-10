@@ -392,6 +392,16 @@ impl Sessions {
             .await
     }
 
+    /// The stored trace of a session through a fixed event, as text for another agent.
+    pub async fn trace_text(&self, app: &App, id: &str, through_seq: Option<i64>) -> Result<String> {
+        let source = self.get(id).context("no such session")?;
+        let through_seq = through_seq.unwrap_or(source.last_seq);
+        anyhow::ensure!(through_seq > 0 && through_seq <= source.last_seq, "invalid trace sequence");
+        let events = self.events_through(app, &source.id, 0, through_seq).await?;
+        anyhow::ensure!(events.last().is_some_and(|e| e.seq == through_seq), "trace is unavailable");
+        crate::compose::render_trace(&source, through_seq, &events)
+    }
+
     pub fn sink(&self, app: &App, id: &str) -> Sink {
         Sink { app: app.clone(), sessions: self.clone(), id: id.to_string(), instance: 0 }
     }
@@ -419,13 +429,17 @@ impl Sessions {
                 .retain(|id| id != "draft-pr" && id != "worktree");
         }
         let mut prompt = render_prompt(&rendered_spec, &context, &config.presets);
+        let mut traces = Vec::new();
         for trace in &spec.agent_traces {
             let source = self.get(&trace.session_id).context("context agent no longer exists")?;
             anyhow::ensure!(trace.through_seq > 0 && trace.through_seq <= source.last_seq, "invalid context trace sequence");
-            let events = self.events_through(app, &source.id, 0, trace.through_seq).await?;
-            anyhow::ensure!(events.last().is_some_and(|e| e.seq == trace.through_seq), "context trace is unavailable");
-            prompt.push_str("\n\n");
-            prompt.push_str(&crate::compose::render_trace(&source, trace.through_seq, &events)?);
+            traces.push((source, trace.through_seq));
+        }
+        if !traces.is_empty() {
+            if !prompt.is_empty() {
+                prompt.push_str("\n\n");
+            }
+            prompt.push_str(&crate::compose::trace_references(&traces, &app.paths.cli_command()));
         }
         if !prompt.trim().is_empty() && matches!(
             spec.target,
