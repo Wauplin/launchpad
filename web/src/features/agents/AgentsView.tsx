@@ -1,4 +1,4 @@
-// Agents (sketch S3): sessions grouped as Cron, Scheduled, Running, Done and Archived, showing one session at a time.
+// Agents (sketch S3): sessions grouped by state, showing one session at a time.
 // Clicking a session opens its conversation. The window's workspace narrows every group.
 
 import { useQuery } from "@tanstack/react-query";
@@ -146,7 +146,10 @@ export function AgentsView() {
   const running = filtered.filter((s) => isRunning(s)).sort(order);
   const quotaPaused = filtered.filter(isQuotaPaused).sort(order);
   const stopped = filtered.filter(isStopped).sort(order);
-  const archived = filtered.filter((s) => !isDone(s) && !isRunning(s) && !isQuotaPaused(s) && !isStopped(s)).sort(order);
+  const interrupted = filtered.filter((s) => s.status === "interrupted").sort(order);
+  const failed = filtered.filter((s) => s.status === "error").sort(order);
+  const inTerminal = filtered.filter((s) => s.status === "in_terminal").sort(order);
+  const archived = filtered.filter((s) => s.status === "closed").sort(order);
   type Item = { kind: "group"; title: AgentGroup; count: number; highlight?: boolean } | { kind: "session"; session: Session } | { kind: "schedule"; launch: ScheduledLaunch } | { kind: "cron"; cron: CronAgent } | { kind: "more" };
   // Groups with no items are not shown at all.
   const group = (title: AgentGroup, rows: Item[], highlight?: boolean): Item[] => rows.length ? [{ kind: "group", title, count: rows.length, highlight }, ...(collapsedGroups[title] ? [] : rows)] : [];
@@ -157,6 +160,9 @@ export function AgentsView() {
     ...group("Running", sessionRows(running)),
     ...group("Quota paused", sessionRows(quotaPaused)),
     ...group("Stopped", sessionRows(stopped)),
+    ...group("Interrupted", sessionRows(interrupted)),
+    ...group("Failed", sessionRows(failed)),
+    ...group("In terminal", sessionRows(inTerminal)),
     ...group("Done", sessionRows(done), true),
     ...(archived.length ? [{ kind: "group" as const, title: "Archived" as const, count: archived.length }] : []),
     ...(collapsedGroups.Archived ? [] : sessionRows(archived.slice(0, archivedLimit))),

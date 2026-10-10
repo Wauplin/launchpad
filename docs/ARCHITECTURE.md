@@ -409,7 +409,7 @@ A Done session has no harness process after a daemon restart; sending it a messa
 
 ### 9.1.1 Agent selection
 
-The Agents view shows one detail panel per window. Clicking a session replaces the selected conversation; Cron and Scheduled details use the same panel. There are no layout, pane focus, move or session drag/drop controls. The selected session and pins live in the existing persisted browser layout store. Only the session actually visible in the current workspace is reported for notification suppression. Pins sort first inside each state group rather than introducing another session state. Search filters titles, project names, folders and initial prompts immediately, and debounces a daemon query over stored user/assistant message text. Filtered groups retain their counts and independent collapse controls.
+The Agents view shows one detail panel per window. Clicking a session replaces the selected conversation; Cron and Scheduled details use the same panel. There are no layout, pane focus, move or session drag/drop controls. The selected session and pins live in the existing persisted browser layout store. Only the session actually visible in the current workspace is reported for notification suppression. Pins sort first inside each state group rather than introducing another session state. Search filters titles, project names, folders and initial prompts immediately, and debounces a daemon query over stored user/assistant message text. Filtered groups retain their counts and independent collapse controls. Session groups are Running, Quota paused, Stopped, Interrupted, Failed, In terminal, Done and Archived; Archived selects only `closed` sessions. Empty groups stay hidden.
 
 Session titles are edited in the header: click the title to replace it with a text field and visible Save title and Cancel buttons. Saving persists the trimmed, nonempty title through the existing rename endpoint; failures keep the draft open. A star to the right toggles the persisted pin, with an accessible label and pressed state. Git and Open in editor sit in the action row beside Files and Archive.
 
@@ -868,6 +868,8 @@ Project metadata refresh, on 2026-10-04:
 63. **Previous agent traces as launch context.** On 2026-10-10, added explicit selection of stored traces through a fixed event boundary. Inline the normalized stored events in the shared preview/launch prompt so both harnesses receive the same reference material, without requiring access to another harness’s native history.
 
 64. **Per-session model switch.** On 2026-10-10, made model and effort editable on launched sessions. Codex takes them per `turn/start`; Claude has no verified live control for both, so its idle process is restarted with `--resume`, deferred to the next turn while it works. The change updates the session, not its launch spec, so launch defaults still follow the latest successful launch.
+
+65. **Explicit session state groups.** On 2026-10-10, removed the Archived catch-all. Interrupted, Failed and In terminal each have a separate virtualized, independently collapsible group after Stopped and before Done. Only `closed` sessions enter Archived; empty groups stay hidden and expansion persists per workspace.
 
 ## Remote access feasibility research (2026-10-10)
 
