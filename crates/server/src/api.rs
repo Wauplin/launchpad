@@ -35,7 +35,7 @@ pub fn router() -> Router<Server> {
         .route("/api/launch/crons/{id}", axum::routing::patch(update_cron).delete(delete_cron))
         .route("/api/launch/crons/{id}/run", post(run_cron))
         .route("/api/launch/draft", get(get_draft).put(put_draft))
-        .route("/api/harness/{kind}/defaults", get(defaults))
+        .route("/api/harness/{kind}/defaults", get(defaults).post(refresh_defaults))
         .route("/api/sessions", get(list_sessions).post(launch))
         .route("/api/sessions/{id}", get(get_session))
         .route("/api/sessions/{id}/rename", post(rename_session))
@@ -193,6 +193,11 @@ async fn put_draft(State(s): State<Server>, Query(q): Query<DraftQuery>, Json(dr
 async fn defaults(State(s): State<Server>, Path(kind): Path<String>) -> ApiResult<HarnessDefaults> {
     let h = HarnessKind::parse(&kind).ok_or_else(|| ApiError::not_found("unknown harness"))?;
     Ok(Json(s.app.models.defaults(h)))
+}
+
+async fn refresh_defaults(State(s): State<Server>, Path(kind): Path<String>) -> ApiResult<HarnessDefaults> {
+    let h = HarnessKind::parse(&kind).ok_or_else(|| ApiError::not_found("unknown harness"))?;
+    Ok(Json(s.app.models.refresh(&s.app, h).await?))
 }
 
 // ---------------------------------------------------------------- sessions

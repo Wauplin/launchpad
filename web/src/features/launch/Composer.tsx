@@ -1,10 +1,11 @@
 // Composer drawer (sketch S2): stays open on the right while you navigate, so context can be added
 // from anywhere. The preview shows the exact prompt sent to the agent.
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Fragment, useEffect, useState } from "react";
 import type { GitHubRef } from "@/gen/GitHubRef";
+import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
@@ -144,6 +145,15 @@ export function Composer() {
   }, [sessions]);
   const config = useConfig().data?.config;
   const defaults = useHarnessDefaults(spec.harness).data;
+  const queryClient = useQueryClient();
+  const refreshModels = useMutation({
+    mutationFn: (h: HarnessKind) => api.post<HarnessDefaults>(`/api/harness/${h}/defaults`),
+    onSuccess: (data, h) => {
+      queryClient.setQueryData(["harness-defaults", h], data);
+      toast(`${HARNESS_NAME[h]} models refreshed`);
+    },
+    onError: toastError,
+  });
   const navigate = useNavigate();
   const showSession = useLayout((s) => s.show);
   const [delayValid, setDelayValid] = useState(true);
@@ -164,6 +174,10 @@ export function Composer() {
   const recentSessions = (sessions ?? []).filter(scope.hasSession);
   if (!open) return null;
 
+  const refreshingModels = refreshModels.isPending;
+  const refreshModelList = () => {
+    if (spec.harness && !refreshingModels) refreshModels.mutate(spec.harness);
+  };
   const set = (f: (s: LaunchSpec) => LaunchSpec) => update(f);
   const target = (spec.target.kind === "project" || spec.target.kind === "predraft") ? projects.find((p) => p.id === (spec.target as { project_id: string }).project_id) : existing ? projects.find((p) => p.id === existing.project_id) : null;
   const repo = target?.gh_repo ?? target?.gh_upstream ?? null;
@@ -436,7 +450,12 @@ export function Composer() {
         </Field>
 
         <div className="grid grid-cols-2 gap-2.5">
-          <Field label="Model">
+          <Field label="Model" end={
+            <button className="inline-flex items-center gap-1 font-normal hover:text-ink disabled:opacity-50" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} title="Query the selected harness for its model list">
+              <Icon name="refresh" size={12} className={refreshingModels ? "animate-spin" : ""} />
+              {refreshingModels ? "Refreshing…" : "Refresh models"}
+            </button>
+          }>
             <Popover
               width={300}
               trigger={({ toggle }) => (
@@ -451,6 +470,8 @@ export function Composer() {
             >
               {(closeMenu) => (
                 <>
+                  <MenuItem icon={<Icon name="refresh" size={13} className={refreshingModels ? "animate-spin" : ""} />} label={refreshingModels ? "Refreshing models…" : "Refresh models"} detail="Query the selected harness again" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} />
+                  {!defaults?.models.length && <div className="px-2 py-1 text-xs text-ink-3">No models loaded. Click Refresh models to retry.</div>}
                   <MenuItem label={`Default (${defaults?.model ?? "harness default"})`} detail="What the agent picks on its own" active={!spec.model} onClick={() => (set((s) => ({ ...s, model: null })), closeMenu())} />
                   {(defaults?.models ?? []).map((m) => (
                     <MenuItem key={m.id} label={m.display_name || m.id} detail={`${m.id} · ${m.description}`} active={spec.model === m.id} onClick={() => (set((s) => ({ ...s, model: m.id })), closeMenu())} />

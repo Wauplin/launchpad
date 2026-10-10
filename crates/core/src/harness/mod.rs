@@ -23,9 +23,27 @@ pub fn efforts(h: HarnessKind) -> Vec<String> {
 #[derive(Clone, Default)]
 pub struct ModelCache {
     inner: Arc<RwLock<HashMap<HarnessKind, Vec<ModelInfo>>>>,
+    claude_refresh: Arc<tokio::sync::Mutex<()>>,
+    codex_refresh: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl ModelCache {
+    /// Query the harness again, keeping the last successful list if discovery fails.
+    pub async fn refresh(&self, app: &App, h: HarnessKind) -> anyhow::Result<HarnessDefaults> {
+        let lock = match h {
+            HarnessKind::Claude => &self.claude_refresh,
+            HarnessKind::Codex => &self.codex_refresh,
+        };
+        let _guard = lock.lock().await;
+        let models = match h {
+            HarnessKind::Claude => claude::models(app).await?,
+            HarnessKind::Codex => codex::models(app).await?,
+        };
+        anyhow::ensure!(!models.is_empty(), "no models returned by {h:?}");
+        self.inner.write().unwrap().insert(h, models);
+        Ok(self.defaults(h))
+    }
+
     pub fn defaults(&self, h: HarnessKind) -> HarnessDefaults {
         let (model, effort) = match h {
             HarnessKind::Claude => claude::defaults(),
@@ -41,17 +59,10 @@ pub fn spawn_model_refresh(app: &App) {
         // Let the daemon finish starting first.
         tokio::time::sleep(Duration::from_secs(2)).await;
         loop {
-            match claude::models(&a).await {
-                Ok(m) => {
-                    a.models.inner.write().unwrap().insert(HarnessKind::Claude, m);
+            for h in [HarnessKind::Claude, HarnessKind::Codex] {
+                if let Err(e) = a.models.refresh(&a, h).await {
+                    tracing::info!("{h:?} models: {e:#}");
                 }
-                Err(e) => tracing::info!("claude models: {e:#}"),
-            }
-            match codex::models(&a).await {
-                Ok(m) => {
-                    a.models.inner.write().unwrap().insert(HarnessKind::Codex, m);
-                }
-                Err(e) => tracing::info!("codex models: {e:#}"),
             }
             tokio::time::sleep(Duration::from_secs(30 * 60)).await;
         }
