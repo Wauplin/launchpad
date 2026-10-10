@@ -5,19 +5,17 @@
 # Then restarts the daemon and the background window. Restarting stops running agents, so the script asks
 # first when some are running.
 #
-# Usage: packaging/install.sh [--force] [--prebuilt] [--show]
+# Usage: packaging/install.sh [--force] [--prebuilt]
 set -euo pipefail
 if [ "$(uname -s)" = Darwin ]; then exec bash "$(dirname "$0")/install-macos.sh" "$@"; fi
 
 cd "$(dirname "$0")/.."
 FORCE=0
 PREBUILT=0
-SHOW=0
 for arg in "$@"; do
   case "$arg" in
     --force) FORCE=1 ;;
     --prebuilt) PREBUILT=1 ;;
-    --show) SHOW=1 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -105,16 +103,7 @@ for _ in $(seq 1 100); do
 done
 if curl -sf http://127.0.0.1:7317/api/health >/dev/null 2>&1; then
   if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
-    if [ "$SHOW" -eq 1 ]; then
-      # The updater itself runs in a transient unit. A separate unit keeps the new window alive.
-      window_env=()
-      for key in DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS; do
-        if [ -n "${!key:-}" ]; then window_env+=("--setenv=$key=${!key}"); fi
-      done
-      systemd-run --user --collect "--unit=launchpad-desktop-update-$(date +%s)" "${window_env[@]}" "$BIN/launchpad-desktop"
-    else
-      setsid "$BIN/launchpad-desktop" --hidden >/dev/null 2>&1 < /dev/null &
-    fi
+    setsid "$BIN/launchpad-desktop" --hidden >/dev/null 2>&1 < /dev/null &
   fi
   echo "Launchpad installed. The daemon runs on http://127.0.0.1:7317 (logs: journalctl --user -u launchpad -f)."
   echo "Open it from the applications grid and pin it to the dock (right click > Add to Favorites)."

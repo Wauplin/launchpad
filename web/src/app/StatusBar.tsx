@@ -5,7 +5,6 @@ import type { HarnessStatus } from "@/gen/HarnessStatus";
 import type { QuotaWindow } from "@/gen/QuotaWindow";
 import type { Status } from "@/gen/Status";
 import { HarnessMark, useHarnessInfo, useHarnesses, type Harness } from "@/components/HarnessMark";
-import { useAppUpdate } from "@/lib/app-update";
 import { api } from "@/lib/api";
 import { formatAge, formatReset } from "@/lib/format";
 import { onConnectionChange } from "@/lib/ws";
@@ -72,7 +71,6 @@ function HarnessPart({ harness, s }: { harness: Harness; s: HarnessStatus }) {
 export function StatusBar() {
   const harnesses = useHarnesses();
   const { data } = useStatus();
-  const update = useAppUpdate();
   const limits = useInbox().data?.limits;
   // A workspace counts its own agents, with the sidebar's predicates.
   const scope = useScope();
@@ -95,11 +93,9 @@ export function StatusBar() {
           <span className="text-ink-3" title={Object.entries(limits ?? {}).map(([k,v]) => `${k}: ${v.remaining} remaining, resets ${formatReset(v.reset_at)}`).join("; ")}>{Object.entries(limits ?? {}).map(([k,v]) => `GH ${k} ${v.remaining}`).join(" · ")}</span>
           <span className="ml-auto inline-flex items-center gap-3.5">
             {!online && <span className="font-semibold text-gh-closed">Daemon disconnected, reconnecting…</span>}
-            {update.data && <span className="inline-flex items-center gap-1.5" title={`Running commit: ${update.data.commit}${update.data.latest_commit ? `; main: ${update.data.latest_commit}` : ""}`}>
-              Launchpad <span className="font-mono">{update.data.commit.slice(0, 7)}</span>
-              {update.busy ? <span className="text-teal-ink" title={update.data.stage}>{update.data.stage.startsWith("Waiting") ? "Waiting to update…" : "Updating…"}</span> : update.data.outdated && update.data.state !== "unavailable" && <button className="rounded border border-line px-1.5 text-teal-ink hover:bg-paper" onClick={() => update.start.mutate()} title="Build in the background; install once all agents stop">Update</button>}
-              {update.data.state === "failed" && <span className="text-attn" title={`${update.data.message} See Settings → General for the log.`}>Update failed</span>}
-            </span>}
+            <span className="inline-flex items-center gap-1.5" title={`Running commit: ${data.commit}`}>
+              Launchpad <span className="font-mono">{data.commit.slice(0, 7)}</span>
+            </span>
             <TerminalButton />
             {data.profile === "dev" && <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn">dev profile</span>}
             <span>

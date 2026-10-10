@@ -2,4 +2,4 @@
 import type { HarnessStatus } from "./HarnessStatus";
 import type { SessionCounts } from "./SessionCounts";
 
-export type Status = { profile: string, harnesses: { [key in string]: HarnessStatus }, sessions: SessionCounts, };
+export type Status = { profile: string, commit: string, harnesses: { [key in string]: HarnessStatus }, sessions: SessionCounts, };

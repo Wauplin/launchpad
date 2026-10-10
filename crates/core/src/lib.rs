@@ -31,8 +31,9 @@ pub mod util;
 pub mod session_git;
 pub mod workspace;
 
-/// Source revision embedded in the running binary, and the main checkout used for updates.
+/// Source revision embedded in the running binary.
 pub const COMMIT: &str = env!("LAUNCHPAD_COMMIT");
+/// Main checkout used to find the repository skill in source builds.
 pub const SOURCE: &str = env!("LAUNCHPAD_SOURCE");
 
 use std::sync::Arc;

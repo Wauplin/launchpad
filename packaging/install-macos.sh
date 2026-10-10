@@ -6,9 +6,6 @@ if [ "${1:-}" != --prebuilt ]; then
   (cd web && corepack enable && pnpm install --frozen-lockfile && pnpm build)
   cargo build --release --locked -p launchpad -p launchpad-desktop
 fi
-if [ -x "$BIN/launchpad" ] && curl -sf http://127.0.0.1:7317/api/health >/dev/null; then
-  "$BIN/launchpad" update-install-lock
-fi
 mkdir -p "$BIN" "$HOME/Library/LaunchAgents" "$HOME/.local/share/launchpad"
 # Keep the old daemon available until every replacement file is staged.
 for binary in launchpad launchpad-desktop; do

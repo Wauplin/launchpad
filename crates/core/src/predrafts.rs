@@ -461,7 +461,7 @@ async fn cleanup(app: &App, p: &Predraft, delete_branch: bool) -> Result<()> {
     Ok(())
 }
 pub async fn discard(app: &App, id: &str) -> Result<Predraft> {
-    let _work = app.sessions.allow_work().await?;
+    let _work = app.sessions.allow_work().await;
     let _lock = app.predraft_lock.lock().await;
     let mut p = get(app, id).await?;
     editable(&p)?;
@@ -475,7 +475,7 @@ pub async fn discard(app: &App, id: &str) -> Result<Predraft> {
     Ok(p)
 }
 pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
-    let _work = app.sessions.allow_work().await?;
+    let _work = app.sessions.allow_work().await;
     let _lock = app.predraft_lock.lock().await;
     let mut p = get(app, id).await?;
     if p.published_url.is_some() {

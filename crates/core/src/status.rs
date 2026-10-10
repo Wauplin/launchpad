@@ -15,6 +15,7 @@ use crate::events::Bus;
 #[derive(Clone, Debug, Default, Serialize, TS)]
 pub struct Status {
     pub profile: String,
+    pub commit: String,
     pub harnesses: std::collections::HashMap<String, HarnessStatus>,
     pub sessions: SessionCounts,
 }
@@ -86,6 +87,7 @@ impl StatusHandle {
 pub fn spawn_monitors(app: &App) {
     app.status.update(|s| {
         s.profile = app.paths.profile.name().to_string();
+        s.commit = crate::COMMIT.to_string();
         for registration in crate::harness::REGISTRATIONS {
             s.harnesses
                 .entry(registration.descriptor.id.as_str().into())

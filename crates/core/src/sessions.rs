@@ -53,17 +53,6 @@ pub struct StartSpec {
 const RAW_LINES_CAP: i64 = 20_000;
 
 #[derive(Debug)]
-pub(crate) struct InstallingUpdate;
-
-impl std::fmt::Display for InstallingUpdate {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Launchpad is installing an update. Try again after it reconnects.")
-    }
-}
-
-impl std::error::Error for InstallingUpdate {}
-
-#[derive(Debug)]
 pub(crate) struct FollowUpBusy;
 impl std::fmt::Display for FollowUpBusy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("The session is running, in a terminal or awaiting an answer; the follow-up stays queued.") }
@@ -87,8 +76,8 @@ struct Inner {
     model_restarts: Mutex<HashSet<String>>,
     /// Serializes user actions and quota decisions; adapter events never take this lock.
     actions: tokio::sync::Mutex<()>,
-    /// Serializes new turns with the final updater idle check. True blocks new work until restart.
-    installing: tokio::sync::Mutex<bool>,
+    /// Serializes new work with pre-draft publication and cleanup.
+    work: tokio::sync::Mutex<()>,
     /// Attached processes, with an instance number: the exit of an old process never detaches a newer one.
     live: Mutex<LiveSessions>,
     next_instance: std::sync::atomic::AtomicU64,
@@ -117,7 +106,7 @@ impl Sessions {
                 quota_interrupts: Mutex::new(HashMap::new()),
                 model_restarts: Mutex::new(HashSet::new()),
                 actions: tokio::sync::Mutex::new(()),
-                installing: tokio::sync::Mutex::new(false),
+                work: tokio::sync::Mutex::new(()),
                 live: Mutex::new(HashMap::new()),
                 next_instance: std::sync::atomic::AtomicU64::new(1),
                 raw_counts: Mutex::new(HashMap::new()),
@@ -201,34 +190,8 @@ impl Sessions {
         Ok(())
     }
 
-    /// Reserves the daemon for an update installation, or says why it is busy.
-    pub async fn prepare_install(&self, app: &App, release: bool) -> std::result::Result<(), String> {
-        let mut installing = self.inner.installing.lock().await;
-        if release {
-            *installing = false;
-            return Ok(());
-        }
-        if self.list().iter().any(|s| self.is_busy(s)) {
-            return Err("agents are running".into());
-        }
-        // Terminals open under the same lock (`allow_work`), so none can start after this check.
-        match app.terminals.alive_count() {
-            0 => {}
-            1 => return Err("1 terminal is open".into()),
-            n => return Err(format!("{n} terminals are open")),
-        }
-        *installing = true;
-        Ok(())
-    }
-
-    pub(crate) async fn installing(&self) -> bool {
-        *self.inner.installing.lock().await
-    }
-
-    pub(crate) async fn allow_work(&self) -> Result<tokio::sync::MutexGuard<'_, bool>> {
-        let guard = self.inner.installing.lock().await;
-        if *guard { bail!(InstallingUpdate); }
-        Ok(guard)
+    pub(crate) async fn allow_work(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.inner.work.lock().await
     }
 
     pub fn list(&self) -> Vec<Session> {
@@ -252,7 +215,7 @@ impl Sessions {
     /// Imports a snapshot atomically. It never attaches a harness or changes an existing session.
     pub async fn import_history(&self, app: &App, mut s: Session, events: Vec<(i64, EventBody)>) -> Result<Session> {
         let _action = self.inner.actions.lock().await;
-        let _guard = self.allow_work().await?;
+        let _guard = self.allow_work().await;
         if let Some(existing) = self.list().into_iter().find(|e| e.harness == s.harness && e.harness_session_id == s.harness_session_id) {
             return Ok(existing);
         }
@@ -480,7 +443,7 @@ impl Sessions {
 
     pub(crate) async fn launch_with_id(&self, app: &App, spec: LaunchSpec, id: String) -> Result<Session> {
         let _action = self.inner.actions.lock().await;
-        let _guard = self.allow_work().await?;
+        let _guard = self.allow_work().await;
         let harness = spec.harness.context("pick a harness")?;
         if spec.target == Target::None {
             bail!("pick a project or a temporary folder");
@@ -703,9 +666,8 @@ impl Sessions {
     /// Runs under the action lock, preventing user Stop and an automatic continuation from racing.
     pub(crate) async fn check_quotas(&self, app: &App) -> Result<()> {
         let _action = self.inner.actions.lock().await;
-        let naming_allowed = !*self.inner.installing.lock().await;
         for s in self.list() {
-            if naming_allowed && s.live && s.quota_pause.is_none() && (s.status.is_running() || s.status.is_done()) {
+            if s.live && s.quota_pause.is_none() && (s.status.is_running() || s.status.is_done()) {
                 crate::titles::generate(app, &s);
             }
             if s.launch_spec.allow_paid_usage && s.quota_pause.is_none() { continue; }
@@ -745,7 +707,6 @@ impl Sessions {
             if crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()) {
                 match self.continue_quota(app, &s.id, false).await {
                     Ok(()) => {}
-                    Err(e) if e.is::<InstallingUpdate>() => {}
                     Err(e) => tracing::warn!("quota continuation {}: {e:#}", s.id),
                 }
             }
@@ -795,14 +756,14 @@ impl Sessions {
             sink.emit(EventBody::Notice { text: format!("Model set to {label}; the agent restarts with it after the current turn.") }).await;
             return Ok(s);
         }
-        let _guard = self.allow_work().await?;
+        let _guard = self.allow_work().await;
         self.reattach(app, id).await?;
         sink.emit(EventBody::Notice { text: format!("Restarted with {label}.") }).await;
         self.get(id).context("no such session")
     }
 
     async fn continue_quota(&self, app: &App, id: &str, paid: bool) -> Result<()> {
-        let _guard = self.allow_work().await?;
+        let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         let p = s.quota_pause.context("The session is not quota paused")?;
         anyhow::ensure!(!s.open_question && self.live(id).is_none_or(|l| l.ready_for_turn()), "Wait for the interrupted turn and outstanding commands to finish.");
@@ -857,7 +818,7 @@ impl Sessions {
 
     async fn send_inner(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, follow_up: bool) -> Result<()> {
         let _action = self.inner.actions.lock().await;
-        let _guard = self.allow_work().await?;
+        let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         if follow_up && (s.status.is_running() || s.open_question || s.status == SessionStatus::InTerminal || s.quota_pause.is_some()) {
             return Err(FollowUpBusy.into());
@@ -943,7 +904,7 @@ impl Sessions {
 
     pub async fn answer(&self, app: &App, id: &str, request_id: &str, answers: Vec<String>) -> Result<()> {
         let _action = self.inner.actions.lock().await;
-        let _guard = self.allow_work().await?;
+        let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(s.quota_pause.is_none(), "The session is quota paused.");
         anyhow::ensure!(s.launch_spec.allow_paid_usage || crate::quota::blockers(app, s.harness).is_empty(), "Included quota exhausted; wait for the quota pause.");
@@ -986,7 +947,7 @@ impl Sessions {
     /// With `close_terminal`, an integrated terminal still running the session's TUI is closed first.
     pub async fn resume(&self, app: &App, id: &str, close_terminal: bool) -> Result<()> {
         let _action = self.inner.actions.lock().await;
-        let _guard = self.allow_work().await?;
+        let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(s.quota_pause.is_none(), "Use Resume with paid usage to continue a quota-paused session.");
         crate::predrafts::check_session_work(app, &s.cwd).await?;
@@ -1018,7 +979,7 @@ impl Sessions {
     /// Hands the session to its harness TUI in an integrated terminal.
     pub async fn open_terminal(&self, app: &App, id: &str) -> Result<crate::terminals::TerminalInfo> {
         let _action = self.inner.actions.lock().await;
-        let _guard = self.allow_work().await?;
+        let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.terminal, "This harness does not support a terminal TUI.");
         if let Some(t) = app.terminals.tui_of(id) {

@@ -70,10 +70,7 @@ The project rules require a defined scope before any Phase 7 work, so here it is
 
 - **Pre-draft PRs:** `predrafts::idle`, launching into an existing pre-draft and `check_session_work` count any open terminal whose folder is inside the pre-draft worktree as activity. Publication and cleanup wait until those terminals are closed.
 - **Temporary projects:** cleanup (`close_in`) and promotion (`move_cwd`) close the terminals in that folder.
-- **Updater:**
-  - The install lock is refused while any terminal process is still running, with the message "N terminals are open".
-  - Settings shows a Close all terminals button.
-  - `allow_work` blocks new terminals while an update installs.
+- **Manual updates:** Settings shows a Close all terminals button. `allow_work` serializes new terminals with pre-draft publication and cleanup. The in-app updater and install lock were removed on 2026-10-10.
 
 ### UI (`web/src/features/terminals/`)
 
@@ -125,7 +122,7 @@ The project rules require a defined scope before any Phase 7 work, so here it is
   - Update the table in section 2 and sections 3, 6.5, 9.x and 13.
   - Remove the terminal templates table.
 - **`docs/ROADMAP.md`:** move "Embedded terminal mode" out of the Phase 7 candidates, as a scoped item with its own Status.
-- **`CLAUDE.md` and `AGENTS.md`:** the keyboard exception, the end of "embedded terminals were reverted", "TUIs in integrated terminals are outside quota protection", and the updater and pre-draft rules for terminals.
+- **`CLAUDE.md` and `AGENTS.md`:** the keyboard exception, the end of "embedded terminals were reverted", "TUIs in integrated terminals are outside quota protection", and the pre-draft rules for terminals.
 - **`README.md`** and **`docs/design/sketches.html`:** add a dock sketch and republish the artifact.
 
 ## Implementation order
@@ -133,7 +130,7 @@ The project rules require a defined scope before any Phase 7 work, so here it is
 1. Daemon: `terminals.rs`, the API and the WebSocket. Check them from a small dev page.
 2. Switch "Open in terminal" to the integrated terminal, then remove the external terminal code and its config.
 3. UI: `TerminalView`, the dock, the entry points, the zoom fix and the `Ctrl+F` guard.
-4. Pre-draft, temporary project and updater checks.
+4. Pre-draft and temporary project checks.
 5. Documentation, then run `clippy` and `pnpm typecheck` and do the manual checks below.
 
 Rough size: about 450 lines of Rust and about 500 lines of TypeScript. No new tests; the existing `project_trust_override` test stays.
@@ -150,7 +147,6 @@ Rough size: about 450 lines of Rust and about 500 lines of TypeScript. No new te
 - Open the same terminal in two windows, and reload a window: the buffered output reappears.
 - With a terminal open:
   - Pre-draft publication is blocked.
-  - The updater lock is refused; check this only with `update-install-lock` on the dev daemon.
 - Restarting the dev daemon marks the terminals as gone.
 - Repeat on Windows and macOS through the CI builds.
 

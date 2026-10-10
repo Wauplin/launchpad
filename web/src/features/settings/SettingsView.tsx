@@ -8,7 +8,6 @@ import type { Preset } from "@/gen/Preset";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
-import { useAppUpdate } from "@/lib/app-update";
 import { ZOOM_LEVELS } from "@/lib/zoom";
 import { useConfig } from "@/lib/queries";
 import { CloseAllTerminals } from "@/features/terminals/TerminalDock";
@@ -49,20 +48,6 @@ function Row({ title, hint, children }: { title: string; hint: string; children:
         <span className="text-[11.5px] text-ink-3">{hint}</span>
       </div>
       <div>{children}</div>
-    </div>
-  );
-}
-
-function UpdateControl() {
-  const { data, start, busy } = useAppUpdate();
-  return (
-    <div className="grid gap-2 text-[12.5px]">
-      <button className="btn btn-primary w-fit" disabled={!data || busy || data.state === "unavailable"} onClick={() => start.mutate()}>
-        {start.isPending ? "Starting…" : busy ? "Updating…" : "Check and update Launchpad"}
-      </button>
-      <span className="text-ink-2">Runs UI type checks, Rust tests and release builds in the background, then waits until all agents stop before installing and relaunching Launchpad.</span>
-      {data && data.state !== "idle" && <span className={data.state === "failed" ? "text-attn" : "text-ink-2"}>{data.stage}{data.stage && data.message ? ": " : ""}{data.message}</span>}
-      {data?.log && data.state === "failed" && <details><summary className="cursor-pointer">Show update log</summary><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-chrome p-2 font-mono text-[11px]">{data.log}</pre></details>}
     </div>
   );
 }
@@ -128,14 +113,11 @@ export function SettingsView() {
         <Row title="Published pre-draft worktrees" hint="Keep the local worktree by default. Cleanup only removes clean worktrees after a successful publication.">
           <label className="flex items-center gap-2"><input type="checkbox" checked={draft.remove_published_worktree} onChange={(e) => set((c) => ({ ...c, remove_published_worktree: e.target.checked }))} />Remove after publishing</label>
         </Row>
-        <Row title="Terminals" hint="Integrated terminals run in the daemon. An update installs only once they are all closed.">
+        <Row title="Terminals" hint="Integrated terminals run in the daemon. Restarting it closes them.">
           <CloseAllTerminals />
         </Row>
         <Row title="Editor" hint='Used by "Open in editor".'>
           <input className="field-input font-mono text-xs" value={draft.commands.editor} onChange={(e) => set((c) => ({ ...c, commands: { ...c.commands, editor: e.target.value } }))} />
-        </Row>
-        <Row title="App update" hint="Install the GitHub build for the latest main commit.">
-          <UpdateControl />
         </Row>
       </Card>
 

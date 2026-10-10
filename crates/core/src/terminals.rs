@@ -271,7 +271,7 @@ impl Terminals {
 
     /// Opens a login shell in an allowed folder.
     pub async fn open_shell(&self, app: &App, cwd: &str) -> Result<TerminalInfo> {
-        let _guard = app.sessions.allow_work().await?;
+        let _guard = app.sessions.allow_work().await;
         let (cwd, project) = check_cwd(app, cwd).await?;
         let cwd_s = cwd.to_string_lossy().to_string();
         crate::predrafts::check_session_work(app, &cwd_s).await?;

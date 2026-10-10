@@ -13,7 +13,7 @@ use crate::{
     util::now_ms,
 };
 
-/// Runs later than this (daemon stopped, update installing) are skipped instead of started.
+/// Runs later than this (daemon stopped) are skipped instead of started.
 const MISSED_GRACE_MS: i64 = 60 * 60_000;
 const RUNS_KEPT: usize = 50;
 
@@ -340,9 +340,6 @@ pub fn spawn(app: &App) {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
         loop {
             interval.tick().await;
-            if app.sessions.installing().await {
-                continue;
-            }
             let records = match list(&app).await {
                 Ok(records) => records,
                 Err(e) => {

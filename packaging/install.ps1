@@ -10,15 +10,11 @@ if (-not $Prebuilt) {
 }
 $Cli = Join-Path $BinDir 'launchpad.exe'
 $Desktop = Join-Path $BinDir 'launchpad-desktop.exe'
-if (Test-Path $Cli) {
-    try { $Health = Invoke-WebRequest 'http://127.0.0.1:7317/api/health' -UseBasicParsing -TimeoutSec 2 } catch { $Health = $null }
-    if ($Health) { & $Cli update-install-lock; Check }
-}
 New-Item -ItemType Directory -Force $BinDir | Out-Null
 foreach ($Binary in @('launchpad.exe', 'launchpad-desktop.exe')) { Copy-Item "target/release/$Binary" (Join-Path $BinDir "$Binary.new") -Force }
 Copy-Item skills $BinDir -Recurse -Force
 if (Test-Path $Desktop) { & $Desktop --quit; Start-Sleep -Seconds 1 }
-# Stop only this installation's daemon, after the idle reservation succeeded.
+# Stop only this installation's daemon.
 Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $Cli -and $_.CommandLine -match '\sdaemon(?:\s|$)' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Start-Sleep -Milliseconds 500
 foreach ($Binary in @('launchpad.exe', 'launchpad-desktop.exe')) { Move-Item (Join-Path $BinDir "$Binary.new") (Join-Path $BinDir $Binary) -Force }

@@ -5,7 +5,6 @@ use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use launchpad_core::model::*;
-use launchpad_core::paths::Profile;
 use launchpad_core::projects::{self, Discovered, ProjectPatch};
 use launchpad_core::sessions::Preview;
 use launchpad_core::workspace::{self, Workspace};
@@ -64,8 +63,6 @@ pub fn router() -> Router<Server> {
         .route("/api/inbox/{id}/reply", post(inbox_reply))
         .route("/api/gh/resolve", post(gh_resolve))
         .route("/api/gh/{owner}/{repo}/suggest", get(gh_suggest))
-        .route("/api/settings/update", get(update_status).post(start_update))
-        .route("/api/settings/update/install-lock", post(install_lock))
         .route("/api/open", post(open_url))
         .route("/api/open-editor", post(open_editor))
 }
@@ -375,76 +372,6 @@ async fn gh_suggest(
 
 // ---------------------------------------------------------------- settings and desktop helpers
 
-
-async fn update_status(State(s): State<Server>) -> ApiResult<Value> {
-    // Cache the remote lookup: the status bar polls every five seconds.
-    static LATEST: std::sync::OnceLock<tokio::sync::Mutex<(Option<std::time::Instant>, Option<String>)>> = std::sync::OnceLock::new();
-    let cache = LATEST.get_or_init(|| tokio::sync::Mutex::new((None, None)));
-    let mut cache = cache.lock().await;
-    if cache.0.is_none_or(|checked| checked.elapsed() >= std::time::Duration::from_secs(60)) {
-        cache.1 = launchpad_core::procs::output(&s.app.env, "gh", &["api", "repos/Wauplin/launchpad/commits/main", "--jq", ".sha"], None).await.ok();
-        cache.0 = Some(std::time::Instant::now());
-    }
-    let latest = cache.1.clone();
-    drop(cache);
-    let outdated = latest.as_ref().is_some_and(|commit| commit != launchpad_core::COMMIT);
-    let file = s.app.paths.data_dir.join("update-status");
-    let line = std::fs::read_to_string(&file).unwrap_or_default();
-    let mut fields = line.trim().splitn(3, '\t');
-    let state = fields.next().filter(|v| !v.is_empty()).unwrap_or("idle");
-    let state = if s.app.paths.profile == Profile::Prod { state } else { "unavailable" };
-    let stage = fields.next().unwrap_or("");
-    let message = fields.next().unwrap_or("");
-    let message = if s.app.paths.profile == Profile::Prod { message } else { "Updates are available in the production app." };
-    let log = std::fs::read_to_string(file.with_file_name("update.log")).unwrap_or_default();
-    let log = log.chars().rev().take(6000).collect::<String>().chars().rev().collect::<String>();
-    Ok(Json(json!({"state": state, "stage": stage, "message": message, "log": log, "commit": launchpad_core::COMMIT, "latest_commit": latest, "outdated": outdated})))
-}
-
-#[derive(Deserialize)]
-struct InstallLock { #[serde(default)] release: bool }
-
-async fn install_lock(State(s): State<Server>, Json(b): Json<InstallLock>) -> ApiResult<Value> {
-    if s.app.paths.profile != Profile::Prod {
-        return Err(ApiError::bad_request("Installation is production-only."));
-    }
-    Ok(Json(match s.app.sessions.prepare_install(&s.app, b.release).await {
-        Ok(()) => json!({"ready": true}),
-        Err(reason) => json!({"ready": false, "reason": reason}),
-    }))
-}
-
-async fn start_update(State(s): State<Server>) -> ApiResult<Value> {
-    if s.app.paths.profile != Profile::Prod {
-        return Err(ApiError::bad_request("Open the production app to update Launchpad."));
-    }
-    s.app.paths.ensure_dirs()?;
-    let script = s.app.paths.data_dir.join(if cfg!(windows) { "update.ps1" } else { "update.sh" });
-    std::fs::write(&script, if cfg!(windows) { include_str!("../../../packaging/update.ps1") } else { include_str!("../../../packaging/update.sh") })?;
-    let exe = std::env::current_exe()?;
-    let mut cmd;
-    if cfg!(target_os = "linux") {
-        cmd = launchpad_core::procs::command(&s.app.env, "systemd-run", None);
-        cmd.args(["--user", "--collect", "--unit=launchpad-update", "--property=Type=exec"]);
-        for key in ["PATH", "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"] {
-            if let Some(value) = s.app.env.get(key) { cmd.arg(format!("--setenv={key}={value}")); }
-        }
-        cmd.arg("/bin/bash").arg(script);
-        let out = cmd.output().await?;
-        if !out.status.success() {
-            return Err(ApiError::conflict(format!("Could not start update: {}", String::from_utf8_lossy(&out.stderr).trim())));
-        }
-    } else {
-        cmd = launchpad_core::procs::command(&s.app.env, if cfg!(windows) { "powershell.exe" } else { "bash" }, None);
-        if cfg!(windows) { cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]); }
-        cmd.arg(script).env("LAUNCHPAD_BIN_DIR", exe.parent().unwrap()).kill_on_drop(false);
-        cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-        #[cfg(unix)]
-        { cmd.process_group(0); }
-        cmd.spawn()?;
-    }
-    Ok(Json(json!({"ok": true})))
-}
 
 #[derive(Deserialize)]
 struct OpenUrl {

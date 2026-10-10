@@ -342,9 +342,9 @@ async fn run(app: &App, record: ScheduledLaunch) -> Result<Session> {
         }
     };
     if result.as_ref().err().is_some_and(|e| {
-        e.is::<crate::sessions::InstallingUpdate>() || e.is::<crate::sessions::FollowUpBusy>()
+        e.is::<crate::sessions::FollowUpBusy>()
     }) {
-        // Installation or a concurrent turn is temporary: preserve this queued work.
+        // A concurrent turn is temporary: preserve this queued work.
         let mut record = record;
         record.status = ScheduleStatus::Queued;
         app.state_db
@@ -406,9 +406,6 @@ pub fn spawn(app: &App) {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
         loop {
             interval.tick().await;
-            if app.sessions.installing().await {
-                continue;
-            }
             let records = match list(&app).await {
                 Ok(records) => records,
                 Err(e) => {
