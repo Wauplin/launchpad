@@ -1,7 +1,7 @@
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
-import { SessionSummary, StateBand, QuotaBand, FollowUpBands, PaidUsageToggle } from "./SessionSummary";
+import { SessionSummary, StateBand, QuotaBand, FollowUpBands, PaidUsageToggle, ModelSwitch } from "./SessionSummary";
 import { GitPanel } from "./GitPanel";
 import { useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
@@ -281,6 +281,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
         <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
           <StatusBadge s={s} />
           <PaidUsageToggle session={s} badge />
+          <ModelSwitch session={s} />
           <span>{usageLine(s)}</span>
           <span className="ml-auto">{new Date(s.started_at).toLocaleDateString()}</span>
         </span>

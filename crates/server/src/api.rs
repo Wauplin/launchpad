@@ -51,6 +51,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/resume", post(resume))
         .route("/api/sessions/{id}/resume-paid", post(resume_paid))
         .route("/api/sessions/{id}/paid-usage", post(set_paid_usage))
+        .route("/api/sessions/{id}/model", post(set_model))
         .route("/api/sessions/{id}/open-terminal", post(open_terminal))
         .route("/api/sessions/{id}/task-output", get(task_output))
         .route("/api/inbox", get(inbox))
@@ -289,6 +290,12 @@ async fn resume_paid(State(s): State<Server>, Path(id): Path<String>) -> ApiResu
 struct PaidUsage { allow: bool }
 async fn set_paid_usage(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<PaidUsage>) -> ApiResult<Session> {
     Ok(Json(s.app.sessions.set_paid_usage(&s.app, &id, b.allow).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct SessionModel { model: Option<String>, effort: Option<String> }
+async fn set_model(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<SessionModel>) -> ApiResult<Session> {
+    Ok(Json(s.app.sessions.set_model(&s.app, &id, b.model, b.effort).await.map_err(bad)?))
 }
 
 async fn open_terminal(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {

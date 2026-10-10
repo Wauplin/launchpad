@@ -19,7 +19,8 @@ use crate::util::now_ms;
 pub struct CodexSession {
     app: App,
     thread_id: String,
-    effort: Option<String>,
+    /// Model and effort for the next turns: (model, effort).
+    model: Mutex<(Option<String>, Option<String>)>,
     state: Arc<Mutex<State>>,
 }
 
@@ -50,7 +51,13 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
         app.codex
             .request(
                 "thread/resume",
-                json!({"threadId": id, "cwd": cwd, "excludeTurns": true, "approvalPolicy": "never", "sandbox": "danger-full-access"}),
+                {
+                    let mut params = json!({"threadId": id, "cwd": cwd, "excludeTurns": true, "approvalPolicy": "never", "sandbox": "danger-full-access"});
+                    if let Some(m) = &spec.model {
+                        params["model"] = json!(m);
+                    }
+                    params
+                },
             )
             .await
             .context("thread/resume")?;
@@ -70,7 +77,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     };
     let state = Arc::new(Mutex::new(State { cwd, ..Default::default() }));
     threads().lock().unwrap().insert(thread_id.clone(), (sink.clone(), state.clone()));
-    Ok(Arc::new(CodexSession { app: app.clone(), thread_id, effort: spec.effort, state }))
+    Ok(Arc::new(CodexSession { app: app.clone(), thread_id, model: Mutex::new((spec.model, spec.effort)), state }))
 }
 
 #[async_trait]
@@ -96,7 +103,11 @@ impl LiveSession for CodexSession {
             // The turn ended in the meantime: start a new one.
         }
         let mut params = json!({"threadId": self.thread_id, "input": input, "clientUserMessageId": client_id});
-        if let Some(e) = &self.effort {
+        let (model, effort) = self.model.lock().unwrap().clone();
+        if let Some(m) = model {
+            params["model"] = json!(m);
+        }
+        if let Some(e) = effort {
             params["effort"] = json!(e);
         }
         let res = self.app.codex.request("turn/start", params).await?;
@@ -107,6 +118,11 @@ impl LiveSession for CodexSession {
     }
 
     fn turn_active(&self) -> bool { self.state.lock().unwrap().turn_id.is_some() }
+
+    fn set_model(&self, model: Option<&str>, effort: Option<&str>) -> bool {
+        *self.model.lock().unwrap() = (model.map(str::to_string), effort.map(str::to_string));
+        true
+    }
 
     fn ready_for_turn(&self) -> bool {
         let s = self.state.lock().unwrap();

@@ -33,6 +33,8 @@ pub trait LiveSession: Send + Sync {
     async fn answer(&self, request_id: &str, answers: Vec<String>) -> Result<()>;
     /// Stops the process; the conversation stays resumable.
     async fn stop(&self) -> Result<()>;
+    /// Uses this model and effort from the next turn. Returns false when the process must restart to apply them.
+    fn set_model(&self, _model: Option<&str>, _effort: Option<&str>) -> bool { false }
 }
 
 /// Everything an adapter needs to start or resume a session.
@@ -80,6 +82,8 @@ struct Inner {
     quota_stops: Mutex<HashSet<String>>,
     title_requests: Mutex<HashSet<String>>,
     quota_interrupts: Mutex<HashMap<String, i64>>,
+    /// Sessions whose process must restart to use a new model or effort, once their turn ends.
+    model_restarts: Mutex<HashSet<String>>,
     /// Serializes user actions and quota decisions; adapter events never take this lock.
     actions: tokio::sync::Mutex<()>,
     /// Serializes new turns with the final updater idle check. True blocks new work until restart.
@@ -110,6 +114,7 @@ impl Sessions {
                 quota_stops: Mutex::new(HashSet::new()),
                 title_requests: Mutex::new(HashSet::new()),
                 quota_interrupts: Mutex::new(HashMap::new()),
+                model_restarts: Mutex::new(HashSet::new()),
                 actions: tokio::sync::Mutex::new(()),
                 installing: tokio::sync::Mutex::new(false),
                 live: Mutex::new(HashMap::new()),
@@ -605,16 +610,21 @@ impl Sessions {
             HarnessKind::Codex => crate::harness::codex::start(app, start, sink.clone()).await?,
         };
         self.inner.live.lock().unwrap().insert(id.clone(), (instance, live.clone()));
+        self.inner.model_restarts.lock().unwrap().remove(&id);
         self.update(app, &id, |s| s.live = true).await?;
         Ok(live)
     }
 
     /// Starts a process for a session that has none (resume).
+    /// An idle process waiting for a model or effort change is replaced.
     async fn reattach(&self, app: &App, id: &str) -> Result<Arc<dyn LiveSession>> {
-        if let Some(l) = self.live(id) {
-            return Ok(l);
-        }
         let s = self.get(id).context("no such session")?;
+        if let Some(l) = self.live(id) {
+            if !self.inner.model_restarts.lock().unwrap().contains(id) || s.status.is_running() || s.open_question || !l.ready_for_turn() {
+                return Ok(l);
+            }
+            self.detach(id).await;
+        }
         if s.launch_spec.harness.is_none() && crate::terminal::tui_running(app, &s) {
             bail!("This imported conversation is still running in another client. Finish it there first.");
         }
@@ -723,6 +733,36 @@ impl Sessions {
         let s = self.update(app, id, |s| s.launch_spec.allow_paid_usage = allow).await?;
         self.sink(app, id).emit(EventBody::Notice { text: if allow { "Paid usage allowed for this session; additional credits may be used after included quota runs out." } else { "Paid usage disabled; this session pauses at included quota limits." }.into() }).await;
         Ok(s)
+    }
+
+    /// Changes the model and effort of a launched session. Codex uses them from the next turn; Claude
+    /// restarts its process with `--resume`, now when idle or before the next turn otherwise.
+    pub async fn set_model(&self, app: &App, id: &str, model: Option<String>, effort: Option<String>) -> Result<Session> {
+        let _action = self.inner.actions.lock().await;
+        let s = self.get(id).context("no such session")?;
+        anyhow::ensure!(s.status != SessionStatus::InTerminal, "The session is open in a terminal: re-attach it first.");
+        if s.model == model && s.effort == effort { return Ok(s); }
+        let (m, e) = (model.clone(), effort.clone());
+        let s = self.update(app, id, |s| { s.model = m; s.effort = e; }).await?;
+        let label = [model.as_deref().unwrap_or("default model"), effort.as_deref().unwrap_or("default effort")].join(" · ");
+        let sink = self.sink(app, id);
+        let Some(live) = self.live(id) else {
+            sink.emit(EventBody::Notice { text: format!("Model set to {label}; it applies when the session resumes.") }).await;
+            return Ok(s);
+        };
+        if live.set_model(model.as_deref(), effort.as_deref()) {
+            sink.emit(EventBody::Notice { text: format!("Model set to {label} from the next turn.") }).await;
+            return Ok(s);
+        }
+        self.inner.model_restarts.lock().unwrap().insert(id.to_string());
+        if s.status.is_running() || s.open_question || !live.ready_for_turn() {
+            sink.emit(EventBody::Notice { text: format!("Model set to {label}; the agent restarts with it after the current turn.") }).await;
+            return Ok(s);
+        }
+        let _guard = self.allow_work().await?;
+        self.reattach(app, id).await?;
+        sink.emit(EventBody::Notice { text: format!("Restarted with {label}.") }).await;
+        self.get(id).context("no such session")
     }
 
     async fn continue_quota(&self, app: &App, id: &str, paid: bool) -> Result<()> {

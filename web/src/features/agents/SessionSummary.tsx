@@ -7,12 +7,13 @@ import type { LaunchDelay } from "@/gen/LaunchDelay";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import { Icon } from "@/components/Icon";
 import { Markdown } from "@/components/Markdown";
+import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useStatus } from "@/app/StatusBar";
 import { copyText } from "@/lib/clipboard";
 import { formatAge } from "@/lib/format";
-import { useProjects, useSchedules, useSessions } from "@/lib/queries";
+import { useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { conditionsSummary, DelaySelector } from "@/features/launch/DelaySelector";
 import { compact, statusInfo, STYLES } from "./SessionBits";
 import type { Row } from "./rows";
@@ -109,8 +110,8 @@ export function SessionSummary({ session: s, rows, localPr, reviewDiff, showTrac
   if (turns.length) metadata.push(["Time", `${duration == null ? "" : `${Math.floor(duration / 60000)} min ${Math.round(duration / 1000) % 60} s · `}${turns.length} recorded ${turns.length === 1 ? "turn" : "turns"}`]);
   if (s.harness === "claude" && s.usage.cost_usd != null) metadata.push(["Cost", `$${s.usage.cost_usd.toFixed(2)}${tokens ? ` · ${compact(tokens)} tokens` : ""}`]);
   else if (tokens) metadata.push(["Tokens", compact(tokens)]);
-  const model = [s.model, s.effort, s.usage.context_tokens != null && s.usage.context_window ? `${Math.round(100 * s.usage.context_tokens / s.usage.context_window)}% context` : null].filter(Boolean).join(" · ");
-  if (model) metadata.push(["Model", model]);
+  const contextShare = s.usage.context_tokens != null && s.usage.context_window ? `${Math.round(100 * s.usage.context_tokens / s.usage.context_window)}% context` : null;
+  metadata.push(["Model", <span className="inline-flex flex-wrap items-center gap-2"><ModelSwitch session={s} />{contextShare}</span>]);
   metadata.push(["Paid usage", <PaidUsageToggle session={s} />]);
   metadata.push(["Folder", s.cwd]);
   if (git.data) metadata.push(["Branch", `${git.data.branch} · ${git.data.files.length ? `${git.data.files.length} uncommitted files` : "clean"}${git.data.unpushed_commits == null ? "" : git.data.unpushed_commits ? ` · ${git.data.unpushed_commits} commits absent from cached remote refs` : " · present in cached remote refs"}`]);
@@ -164,6 +165,38 @@ export function PaidUsageToggle({ session: s, badge = false }: { session: Sessio
   const off = <button className="btn btn-sm" disabled={busy} title="Pause this session at included quota limits again" onClick={() => void set(false)}>Use subscription only</button>;
   if (badge) return allow ? <span className="inline-flex items-center gap-1.5 rounded bg-attn-soft px-1.5 py-0.5 font-semibold text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]">Paid usage on{off}</span> : null;
   return <span className="inline-flex flex-wrap items-center gap-2">{allow ? <><b className="text-attn">Allowed: additional credits may be used after included quota runs out</b>{off}</> : <>Subscription only: quota protection enabled (best effort)<button className="btn btn-sm" disabled={busy} title="Allow additional credits after included quota runs out. A quota-paused session still waits for Resume." onClick={() => void set(true)}>Allow paid usage</button></>}</span>;
+}
+
+/** Shows the model and effort of a launched session, with a menu to change them. Codex applies a change from the next turn; Claude restarts its idle process (or after the running turn) with `--resume`. */
+export function ModelSwitch({ session: s }: { session: Session }) {
+  const [busy, setBusy] = useState(false);
+  const defaults = useHarnessDefaults(s.harness).data;
+  const current = defaults?.models.find((m) => m.id === (s.model ?? defaults?.model));
+  const efforts = current?.efforts.length ? current.efforts : (defaults?.efforts ?? []);
+  const set = async (model: string | null, effort: string | null) => {
+    setBusy(true);
+    try { await api.post(`/api/sessions/${s.id}/model`, { model, effort }); } catch (e) { toastError(e); } finally { setBusy(false); }
+  };
+  // Keep the effort when the new model supports it.
+  const pickModel = (id: string) => {
+    const m = defaults?.models.find((x) => x.id === id);
+    void set(id, s.effort && (!m?.efforts.length || m.efforts.includes(s.effort)) ? s.effort : null);
+  };
+  return <Popover
+    width={300}
+    trigger={({ toggle }) => <button className="btn btn-sm" disabled={busy || s.status === "in_terminal"} title="Change the model and effort of this session" onClick={toggle}>
+      {s.model ?? `Default model${defaults?.model ? ` (${defaults.model})` : ""}`} · {s.effort ?? `default effort${defaults?.effort ? ` (${defaults.effort})` : ""}`}<Icon name="chev" size={12} />
+    </button>}
+  >
+    {(close) => <>
+      <div className="px-[9px] pt-1 text-[11px] font-semibold text-ink-3">Model</div>
+      {s.model && !defaults?.models.some((m) => m.id === s.model) && <MenuItem label={s.model} detail="Current" active onClick={close} />}
+      {(defaults?.models ?? []).map((m) => <MenuItem key={m.id} label={m.display_name || m.id} detail={`${m.id} · ${m.description}`} active={s.model === m.id} onClick={() => { close(); if (s.model !== m.id) pickModel(m.id); }} />)}
+      <div className="px-[9px] pt-2 text-[11px] font-semibold text-ink-3">Effort</div>
+      {efforts.map((e) => <MenuItem key={e} label={e} active={s.effort === e} onClick={() => { close(); if (s.effort !== e) void set(s.model, e); }} />)}
+      <div className="px-[9px] py-1 text-[11px] text-ink-3">{s.harness === "codex" ? "Applies from the next turn." : "Claude restarts with --resume to apply it, after the running turn if any."}</div>
+    </>}
+  </Popover>;
 }
 
 export function QuotaBand({ session: s }: { session: Session }) {

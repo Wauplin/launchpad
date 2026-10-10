@@ -68,6 +68,5 @@ export function usageLine(s: Session): string {
     if (u.context_window) parts.push(`${Math.round((100 * u.context_tokens) / u.context_window)}% context`);
   }
   if (u.cost_usd != null) parts.push(`$${u.cost_usd.toFixed(2)}`);
-  else if (s.model) parts.push([s.model, s.effort].filter(Boolean).join(" "));
   return parts.join(" · ");
 }
