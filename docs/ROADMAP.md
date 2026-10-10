@@ -290,3 +290,5 @@ Keyboard shortcuts other than `Ctrl+F` in the code viewer and keys sent to a foc
 ## UI and UX review proposals (2026-10-10)
 
 The [UI and UX review](research/ui-ux-review/index.html) is complete as a research artifact and published in a protected Hugging Face Space. It proposes an incremental improvement sequence with concrete acceptance checks for adaptive layout, session hierarchy, launch disclosure, attention/triage, local review access and shared controls. No implementation item is selected by this review; existing phase statuses and daily-use checks remain unchanged. Owner selection is required before adopting a proposal as implementation scope.
+
+The [UX suggestions](research/ux-suggestions/index.html) review adds 12 ranked proposals (Needs-you group with a seen state for Done, a minimizable composer, a prompt-first composer, state-driven session actions, a To publish list, Inbox triage). None is selected for implementation; several require the product rule changes listed at the end of the report.

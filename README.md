@@ -93,4 +93,6 @@ For source builds, install the [Tauri platform prerequisites](https://v2.tauri.a
 
 ## UI and UX review
 
+The [UX suggestions](docs/research/ux-suggestions/index.html) (October 2026) are an independent second review: 12 ranked changes focused on reaching the next action quickly without adding chrome, with interactive sketches. They are hosted in the [protected Hugging Face Space](https://huggingface.co/spaces/Wauplin/launchpad-ux-suggestions) and remain proposals.
+
 The [UI and UX review](docs/research/ui-ux-review/index.html) covers the current desktop workflows with 28 prioritized findings, five interactive concept sketches and acceptance checks. It is hosted in the [protected Hugging Face Space](https://huggingface.co/spaces/Wauplin/launchpad-ui-ux-review); protected hides repository source while the rendered report is publicly accessible. Recommendations remain proposals, not approved implementation scope. Local preview, publication commands and verification limits are in its [README](docs/research/ui-ux-review/README.md).
