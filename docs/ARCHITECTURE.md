@@ -854,3 +854,7 @@ Project metadata refresh, on 2026-10-04:
 59. **Workspace navigation beside the brand.** On 2026-10-10, moved All projects and workspace buttons to the left beside Launchpad, before the page breadcrumb, while Launch stays at the right. Keep left-aligned wrapping and separate New window controls at narrow widths. This adjusts decision 52.
 
 60. **Combined workspace folder pins.** On 2026-10-10, renamed All projects to All workspaces and combined every workspace’s non-temporary sidebar folders with explicit global project pins. Shared projects appear once, sorted by name; the unfiltered view still includes every project and session.
+
+## Remote access feasibility research (2026-10-10)
+
+The [static remote access and mobile report](research/remote-access/index.html) documents the current HTTP/WebSocket and desktop-shell boundaries, VPS versus laptop execution tradeoffs, mobile presentation reuse, failure recovery and possible Android shells. It proposes a single execution host and shared React features, with separate scopes for mobile, push and process restart survival. This is research only: no architecture decision was adopted and Phase 7 remains deferred pending owner-approved scope and acceptance.

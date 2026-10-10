@@ -41,6 +41,7 @@ Status: Phase 0 done, Phases 1, 2, 2b, 3, 4, 5 and 6 built and awaiting daily-us
 - `docs/ARCHITECTURE.md`: architecture and the decisions log. Read it before changing the design, and update it when a decision changes.
 - `docs/ROADMAP.md`: phases, and what "done" means for each one.
 - `docs/spikes/`: notes from the Phase 0 spikes (exact harness behavior, with sample output).
+- `docs/research/remote-access/index.html`: static VPS/web/mobile/Android feasibility report, with evidence and concept sketches. Research only, not an approved Phase 7 implementation. Its README records local preview and HF CLI publication commands.
 - `crates/core` (domain and services), `crates/server` (axum API, WebSocket, auth, embedded UI), `crates/cli` (`launchpad` binary), `web/` (React app), `desktop/` (Tauri shell), `packaging/` (systemd unit, `.desktop` file, install script).
 - `docs/design/sketches.html`: UI sketches (static HTML, open it in a browser). It is also published as a private artifact at https://claude.ai/code/artifact/916895f3-aa0f-4378-96da-b971415d6a5a. After changing the file, republish it to that same URL when the Artifact tool is available.
 

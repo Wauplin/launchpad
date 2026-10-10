@@ -239,6 +239,8 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 
 Phase 7 is deferred. The implementation in commit `7b670af` was reverted on 2026-10-03 at the owner’s request because the phase was not well scoped. Restart survival, embedded terminals and remote browser mode are no longer built features. The list below is a menu of candidates, not an approved implementation plan. Select and scope one item before doing further Phase 7 work; define its user need, ownership and recovery rules, non-goals, and acceptance check. Complete the outstanding Phases 1–6 acceptance checks and address correctness findings before expanding the scope.
 
+A [remote access and mobile feasibility report](research/remote-access/index.html), prepared on 2026-10-10, compares single-host VPS execution, a laptop relay, shared responsive UI and future Android packaging. Its staged scope and acceptance checks are proposals only; no candidate was selected or implemented.
+
 Candidate ideas:
 
 - Sessions that survive daemon restarts (session shim, or Codex's shared app-server daemon).
