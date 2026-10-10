@@ -5,23 +5,25 @@ import type { HarnessKind } from "@/gen/HarnessKind";
 import type { Session } from "@/gen/Session";
 import { api } from "@/lib/api";
 import { toastError } from "@/components/Toast";
-import { HarnessMark } from "@/components/HarnessMark";
+import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import type { HistoryPage as Page } from "@/gen/HistoryPage";
 export function ImportHistory({ onClose, onImported }: { onClose: () => void; onImported: (id: string) => void }) {
-  const [harness, setHarness] = useState<HarnessKind>("claude");
+  const harnesses = useHarnesses().filter((h) => h.capabilities.history);
+  const [harness, setHarness] = useState<HarnessKind | null>(null);
+  const selectedHarness = harness ?? harnesses[0]?.id;
   const [archived, setArchived] = useState(false);
   const [cursor, setCursor] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
   const client = useQueryClient();
-  const q = useQuery({ queryKey: ["external-history",harness,archived,cursor], queryFn: () => api.get<Page>(`/api/sessions/history?harness=${harness}&archived=${archived}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`) });
+  const q = useQuery({ queryKey: ["external-history",selectedHarness,archived,cursor], enabled: !!selectedHarness, queryFn: () => api.get<Page>(`/api/sessions/history?harness=${selectedHarness}&archived=${archived}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`) });
   const rows = (q.data?.sessions ?? []).filter((s) => `${s.title} ${s.cwd}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase()));
   const ref = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => ref.current, estimateSize: () => 64, overscan: 4, useFlushSync: false });
   return <div role="dialog" aria-label="Import session history" className="border-b border-line bg-paper p-3">
     <div className="mb-2 flex flex-wrap items-center gap-2 text-xs"><b>Import session history</b>
-      <select aria-label="History harness" className="field-input" value={harness} onChange={(e) => { setHarness(e.target.value as HarnessKind); setCursor(null); }}><option value="claude">Claude</option><option value="codex">Codex</option></select>
-      {harness === "codex" && <label className="flex items-center gap-1"><input type="checkbox" checked={archived} onChange={(e) => { setArchived(e.target.checked); setCursor(null); }} />Archived in Codex</label>}
+      <select aria-label="History harness" className="field-input" value={selectedHarness} onChange={(e) => { setHarness(e.target.value as HarnessKind); setArchived(false); setCursor(null); }}>{harnesses.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}</select>
+      {harnesses.find((h) => h.id === selectedHarness)?.capabilities.archived_history && <label className="flex items-center gap-1"><input type="checkbox" checked={archived} onChange={(e) => { setArchived(e.target.checked); setCursor(null); }} />Archived in native history</label>}
       <input aria-label="Filter external history" className="field-input" placeholder="Filter this page…" value={filter} onChange={(e) => setFilter(e.target.value)} />
       <button className="btn btn-sm" disabled={q.isFetching || busy} onClick={() => void q.refetch()}>Refresh</button>
       <button className="btn btn-sm ml-auto" onClick={onClose}>Close history</button>

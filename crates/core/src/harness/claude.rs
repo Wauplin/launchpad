@@ -1,10 +1,13 @@
 //! Claude Code adapter: one `claude -p` process per session, stream-json on stdin and stdout.
 //! The exact behavior is recorded in docs/spikes/1-claude-stream-json.md.
 
+mod history;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, Result};
+use crate::util::now_ms;
+use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -168,6 +171,7 @@ impl LiveSession for ClaudeSession {
         self.write(&json!({"type": "control_request", "request_id": id, "request": {"subtype": "interrupt"}})).await
     }
 
+    fn has_open_questions(&self) -> bool { !self.state.lock().unwrap().questions.is_empty() }
     async fn answer(&self, request_id: &str, answers: Vec<String>) -> Result<()> {
         let input = self.state.lock().unwrap().questions.remove(request_id).context("this question was already answered")?;
         let questions = input["questions"].as_array().cloned().unwrap_or_default();
@@ -327,7 +331,7 @@ async fn handle(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>
                 else if interrupted { SessionStatus::Interrupted }
                 else if background { SessionStatus::Background } else { SessionStatus::Waiting }).await;
         }
-        "rate_limit_event" => sink.app().status.claude_rate_limit_event(&msg["rate_limit_info"]),
+        "rate_limit_event" => rate_limit_event(&sink.app().status, &msg["rate_limit_info"]),
         "control_request" => {
             let req = &msg["request"];
             let request_id = msg["request_id"].as_str().unwrap_or("").to_string();
@@ -588,4 +592,226 @@ pub fn defaults() -> (Option<String>, Option<String>) {
     let path = dirs::home_dir().unwrap_or_default().join(".claude/settings.json");
     let v: Value = std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
     (v["model"].as_str().map(str::to_string), v["effortLevel"].as_str().map(str::to_string))
+}
+
+pub const ID: HarnessKind = HarnessKind::new("claude");
+pub const REGISTRATION: super::Registration = super::Registration {
+    descriptor: super::HarnessDescriptor {
+        id: ID,
+        name: "Claude Code",
+        icon_svg: include_str!("icons/claude.svg"),
+        color: "#b46a4b",
+        working_message: "Message Claude. It is read after the current step.",
+        capabilities: super::HarnessCapabilities {
+            images: true,
+            messages_while_running: true,
+            history: true,
+            archived_history: false,
+            terminal: true,
+            quota: true,
+        },
+    },
+    create: |_| Arc::new(Adapter),
+    environment_marker: |key| {
+        key == "CLAUDECODE"
+            || key.starts_with("CLAUDE_CODE_")
+            || key == "CLAUDE_PID"
+            || key == "CLAUDE_EFFORT"
+    },
+};
+pub struct Adapter;
+#[async_trait]
+impl super::Harness for Adapter {
+    async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
+        start(app, spec, sink).await
+    }
+    async fn models(&self, app: &App) -> Result<Vec<ModelInfo>> {
+        models(app).await
+    }
+    fn defaults(&self) -> (Option<String>, Option<String>) {
+        defaults()
+    }
+    fn efforts(&self) -> Vec<String> {
+        ["low", "medium", "high", "xhigh", "max"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    }
+    async fn version(&self, app: &App) -> Result<String> {
+        Ok(
+            crate::procs::output(&app.env, "claude", &["--version"], None)
+                .await?
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .into(),
+        )
+    }
+    fn spawn_services(&self, app: &App) {
+        spawn_quota(app);
+    }
+    fn project_moved(&self, old_s: &str, new_s: &str) {
+        let (old_t, new_t) = (
+            claude_transcripts_dir(old_s),
+            claude_transcripts_dir(new_s),
+        );
+        if old_t.exists()
+            && !new_t.exists()
+            && let Err(e) = std::fs::rename(&old_t, &new_t)
+        {
+            tracing::warn!("promote: could not move Claude transcripts: {e}");
+        }
+    }
+    fn terminal_resume_markers(&self) -> &'static [&'static str] {
+        &["--resume", "--session-id"]
+    }
+    fn terminal_command(&self, s: &Session, _is_temp: bool) -> Result<Vec<String>> {
+        let id = s
+            .harness_session_id
+            .clone()
+            .context("the session has no conversation yet")?;
+        let mut args = vec![];
+        args.extend([
+            "claude".into(),
+            "--resume".into(),
+            id,
+            "--dangerously-skip-permissions".into(),
+        ]);
+        Ok(args)
+    }
+    fn terminal_env(&self, is_temp: bool) -> &'static [(&'static str, &'static str)] {
+        // Skip the trust dialog for folders created by Launchpad.
+        if is_temp { &[("CLAUDE_CODE_SANDBOXED", "1")] } else { &[] }
+    }
+    async fn history_list(
+        &self,
+        app: &App,
+        cursor: Option<String>,
+        archived: bool,
+    ) -> Result<crate::history::Page> {
+        history::list(app, cursor, archived).await
+    }
+    async fn history_read(&self, app: &App, id: &str) -> Result<crate::history::Snapshot> {
+        history::read(app, id).await
+    }
+    fn title_command(
+        &self,
+        app: &App,
+        _session: &Session,
+        cwd: &std::path::Path,
+    ) -> Option<tokio::process::Command> {
+        let mut cmd = crate::procs::child_command(&app.env, "claude", Some(cwd));
+        cmd.args([
+            "-p",
+            "--model",
+            "haiku",
+            "--tools",
+            "",
+            "--no-session-persistence",
+            "--output-format",
+            "text",
+            "--strict-mcp-config",
+        ]);
+        Some(cmd)
+    }
+}
+/// Quota from a Claude `rate_limit_event` (fractions and Unix seconds).
+pub fn rate_limit_event(status: &crate::status::StatusHandle, info: &Value) {
+    let windows = &info["unifiedWindows"];
+    let win = |k: &str| -> Option<crate::status::QuotaWindow> {
+        let w = &windows[k];
+        Some(crate::status::QuotaWindow {
+            used_percent: w["utilization"].as_f64()? * 100.0,
+            resets_at: w["resetsAt"].as_i64()?,
+        })
+    };
+    let (five, week) = (win("five_hour"), win("seven_day"));
+    if five.is_none() && week.is_none() {
+        return;
+    }
+    status.update_harness(ID, |s| {
+        s.five_hour = five;
+        s.weekly = week;
+        s.quota_at = Some(now_ms());
+        s.quota_error = None;
+    });
+}
+
+fn spawn_quota(app: &App) {
+    let a = app.clone();
+    tokio::spawn(async move {
+        let client = crate::status::http_client();
+        loop {
+            match claude_usage(&client).await {
+                Ok((five, week)) => a.status.update_harness(ID, |s| {
+                    s.five_hour = five;
+                    s.weekly = week;
+                    s.quota_at = Some(now_ms());
+                    s.quota_error = None;
+                }),
+                Err(e) => {
+                    tracing::info!("claude usage: {e:#}");
+                    a.status
+                        .update_harness(ID, |s| s.quota_error = Some(format!("{e:#}")));
+                }
+            }
+            crate::status::wait_poll(&a, crate::harness::claude::ID, 300, 60).await;
+        }
+    });
+}
+/// Reads `/api/oauth/usage`. Skips the call when the access token has expired: Claude Code refreshes it.
+async fn claude_usage(
+    client: &reqwest::Client,
+) -> Result<(
+    Option<crate::status::QuotaWindow>,
+    Option<crate::status::QuotaWindow>,
+)> {
+    let path = dirs::home_dir()
+        .unwrap_or_default()
+        .join(".claude/.credentials.json");
+    let creds: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).context("read Claude credentials")?)?;
+    let oauth = &creds["claudeAiOauth"];
+    let token = oauth["accessToken"]
+        .as_str()
+        .context("no Claude OAuth token")?;
+    if let Some(exp) = oauth["expiresAt"].as_i64()
+        && exp <= now_ms()
+    {
+        bail!("Claude OAuth token expired, waiting for Claude Code to refresh it");
+    }
+    let res = client
+        .get("https://api.anthropic.com/api/oauth/usage")
+        .bearer_auth(token)
+        .header("Content-Type", "application/json")
+        .send()
+        .await?;
+    let code = res.status();
+    if !code.is_success() {
+        bail!("usage endpoint returned {code}");
+    }
+    let body: Value = res.json().await?;
+    let win = |k: &str| -> Option<crate::status::QuotaWindow> {
+        let w = &body[k];
+        let resets = w["resets_at"].as_str()?;
+        let t = time::OffsetDateTime::parse(resets, &time::format_description::well_known::Rfc3339)
+            .ok()?;
+        Some(crate::status::QuotaWindow {
+            used_percent: w["utilization"].as_f64()?,
+            resets_at: t.unix_timestamp(),
+        })
+    };
+    Ok((win("five_hour"), win("seven_day")))
+}
+
+/// Claude stores transcripts in `~/.claude/projects/<path with every non-alphanumeric character as ->`.
+fn claude_transcripts_dir(cwd: &str) -> std::path::PathBuf {
+    let encoded: String = cwd
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".claude/projects")
+        .join(encoded)
 }

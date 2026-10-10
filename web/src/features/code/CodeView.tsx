@@ -11,7 +11,7 @@ import type { FileRef } from "@/gen/FileRef";
 import type { Project } from "@/gen/Project";
 import type { SessionEvent } from "@/gen/SessionEvent";
 import type { Session } from "@/gen/Session";
-import { HarnessMark } from "@/components/HarnessMark";
+import { HarnessMark, useHarnessName } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { Markdown } from "@/components/Markdown";
 import DOMPurify from "dompurify";
@@ -197,6 +197,7 @@ function tabHint(t: string, tabs: string[]): string | null {
 // ---------------------------------------------------------------- source picker
 
 function SourcePicker({ project, root, rev, path }: { project: Project; root: string; rev: string | null; path: string | null }) {
+  const harnessName = useHarnessName();
   const navigate = useNavigate();
   const sources = useCodeSources(project.id).data;
   const sessions = useSessions().data ?? [];
@@ -210,7 +211,7 @@ function SourcePicker({ project, root, rev, path }: { project: Project; root: st
   const detail = (wt: string) => {
     const here = sessions.filter((s) => s.cwd === wt && (isRunning(s) || isDone(s)));
     const s = here.find(isRunning) ?? here[0];
-    if (s) return `${s.harness === "claude" ? "Claude" : "Codex"} ${isRunning(s) ? "is working here" : "is done here"}`;
+    if (s) return `${harnessName(s.harness)} ${isRunning(s) ? "is working here" : "is done here"}`;
     return wt.replace(/^\/home\/[^/]+/, "~");
   };
   return (

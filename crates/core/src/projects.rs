@@ -283,14 +283,8 @@ pub async fn delete_temp(app: &App, id: &str) -> Result<()> {
     unregister(app, id).await
 }
 
-/// Claude stores transcripts in `~/.claude/projects/<path with every non-alphanumeric character as ->`.
-pub fn claude_transcripts_dir(cwd: &str) -> PathBuf {
-    let encoded: String = cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
-    dirs::home_dir().unwrap_or_default().join(".claude/projects").join(encoded)
-}
-
 /// Renames a temporary folder to `<projects_root>/<name>` and makes it a normal project. Moves the
-/// Claude transcripts too, so past sessions stay resumable. Refused while a session runs there.
+/// Native adapter history too, so past sessions stay resumable. Refused while a session runs there.
 pub async fn promote(app: &App, id: &str, name: &str) -> Result<Project> {
     let p = get(app, id).await?.context("no such project")?;
     let old = check_temp(app, &p)?;
@@ -305,11 +299,14 @@ pub async fn promote(app: &App, id: &str, name: &str) -> Result<Project> {
     // A shell would keep running in the renamed folder under its old path.
     app.terminals.close_in(&old.to_string_lossy()).await?;
     std::fs::rename(&old, &new).with_context(|| format!("rename to {}", new.display()))?;
-    let (old_s, new_s) = (old.to_string_lossy().to_string(), new.to_string_lossy().to_string());
-    let (old_t, new_t) = (claude_transcripts_dir(&old_s), claude_transcripts_dir(&new_s));
-    if old_t.exists() && !new_t.exists()
-        && let Err(e) = std::fs::rename(&old_t, &new_t) {
-        tracing::warn!("promote: could not move Claude transcripts: {e}");
+    let (old_s, new_s) = (
+        old.to_string_lossy().to_string(),
+        new.to_string_lossy().to_string(),
+    );
+    for descriptor in app.harnesses.descriptors() {
+        app.harnesses
+            .get(descriptor.id)
+            .project_moved(&old_s, &new_s);
     }
     let (id2, name2) = (id.to_string(), name.to_string());
     let new_path = new_s.clone();

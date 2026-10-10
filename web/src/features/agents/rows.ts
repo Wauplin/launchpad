@@ -7,6 +7,7 @@ import type { SessionLog } from "@/lib/sessionStore";
 
 export type Call = {
   id: string;
+  revision: number;
   name: string;
   summary: string;
   input: unknown;
@@ -55,7 +56,12 @@ export function buildRows(log: SessionLog): Row[] {
         rows.push({ key, v: "", t: "reasoning", text: b.text });
         break;
       case "tool_call": {
-        const call: Call = { id: b.item_id, name: b.name, summary: b.summary, input: b.input, ts: e.ts };
+        const existing = calls.get(b.item_id);
+        if (existing) {
+          existing.name = b.name; existing.summary = b.summary; existing.input = b.input; existing.revision = e.seq;
+          break;
+        }
+        const call: Call = { id: b.item_id, revision: e.seq, name: b.name, summary: b.summary, input: b.input, ts: e.ts };
         calls.set(b.item_id, call);
         const last = rows[rows.length - 1];
         if (last?.t === "tools") last.calls.push(call);
@@ -120,7 +126,7 @@ export function buildRows(log: SessionLog): Row[] {
   }
   // Versions, so memoized rows only render again when they change.
   for (const r of rows) {
-    if (r.t === "tools") r.v = r.calls.map((c) => `${c.id}${c.result ? "r" : ""}${c.live?.length ?? ""}`).join(",");
+    if (r.t === "tools") r.v = r.calls.map((c) => `${c.id}:${c.revision}${c.result ? "r" : ""}${c.live?.length ?? ""}`).join(",");
     else if (r.t === "ask") r.v = r.answers ? "a" : "";
     else if (r.t === "bg") r.v = `${r.status}${r.output_file ?? ""}`;
     else if (r.t === "user") r.v = r.queued ? "q" : "";

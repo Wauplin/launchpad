@@ -1,7 +1,6 @@
 //! Domain types and services of the Launchpad daemon.
 
 pub mod code;
-pub mod codex_rpc;
 pub mod compose;
 pub mod config;
 pub mod crons;
@@ -50,7 +49,7 @@ pub struct App {
     pub bus: events::Bus,
     pub env: shellenv::UserEnv,
     pub status: status::StatusHandle,
-    pub codex: codex_rpc::CodexServer,
+    pub harnesses: harness::Registry,
     pub sessions: sessions::Sessions,
     pub github: github::GitHub,
     pub inbox: inbox::Inbox,
@@ -70,7 +69,7 @@ impl App {
         let cache_db = db::open_cache(&paths.cache_db())?;
         let env = shellenv::UserEnv::resolve().await;
         let status = status::StatusHandle::new(bus.clone());
-        let codex = codex_rpc::CodexServer::new(env.clone());
+        let harnesses = harness::Registry::new(&env);
         let github = github::GitHub::new(env.clone(), cache_db.clone());
         let app = App {
             paths,
@@ -80,7 +79,7 @@ impl App {
             bus,
             env,
             status,
-            codex,
+            harnesses,
             sessions: sessions::Sessions::new(),
             github,
             inbox: inbox::Inbox::new(),
@@ -95,9 +94,8 @@ impl App {
         crons::spawn(&app);
         status::spawn_monitors(&app);
         quota::spawn(&app);
-        harness::codex::spawn_router(&app);
+        app.harnesses.spawn_services(&app);
         harness::spawn_model_refresh(&app);
-        harness::spawn_codex_updates(&app);
         inbox::spawn(&app);
         projects::spawn(&app);
         Ok(app)
@@ -118,6 +116,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     model::SessionEvent::export_all(&cfg)?;
     model::Project::export_all(&cfg)?;
     model::HarnessDefaults::export_all(&cfg)?;
+    harness::HarnessDescriptor::export_all(&cfg)?;
     projects::Discovered::export_all(&cfg)?;
     projects::ProjectPatch::export_all(&cfg)?;
     sessions::Preview::export_all(&cfg)?;

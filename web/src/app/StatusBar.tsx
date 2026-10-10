@@ -1,10 +1,10 @@
 import { useInbox } from "@/features/inbox/InboxView";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { HarnessStatus } from "@/gen/HarnessStatus";
 import type { QuotaWindow } from "@/gen/QuotaWindow";
 import type { Status } from "@/gen/Status";
-import { HarnessMark, type Harness } from "@/components/HarnessMark";
+import { HarnessMark, useHarnessInfo, useHarnesses, type Harness } from "@/components/HarnessMark";
 import { useAppUpdate } from "@/lib/app-update";
 import { api } from "@/lib/api";
 import { formatAge, formatReset } from "@/lib/format";
@@ -19,10 +19,11 @@ export function useStatus() {
 }
 
 function Meter({ value, harness }: { value: number; harness: Harness }) {
-  const color = value >= 90 ? "bg-gh-closed" : harness === "claude" ? "bg-clay" : "bg-graphite";
+  const info = useHarnessInfo(harness);
+  const color = value >= 90 ? "bg-gh-closed" : "";
   return (
     <span className="inline-block h-1.5 w-[34px] overflow-hidden rounded-[3px] bg-meter">
-      <i className={`block h-full rounded-[3px] ${color}`} style={{ width: `${Math.min(100, Math.max(2, value))}%` }} />
+      <i className={`block h-full rounded-[3px] ${color}`} style={{ width: `${Math.min(100, Math.max(2, value))}%`, backgroundColor: value >= 90 ? undefined : info?.color }} />
     </span>
   );
 }
@@ -45,7 +46,8 @@ function Window({ label, w, harness }: { label: string; w: QuotaWindow | null; h
 }
 
 function HarnessPart({ harness, s }: { harness: Harness; s: HarnessStatus }) {
-  const name = harness === "claude" ? "Claude" : "Codex";
+  const info = useHarnessInfo(harness);
+  const name = info?.name ?? harness;
   const stale = s.quota_at !== null && Date.now() - s.quota_at > 15 * 60_000;
   return (
     <>
@@ -58,16 +60,17 @@ function HarnessPart({ harness, s }: { harness: Harness; s: HarnessStatus }) {
           </span>
         )}
       </span>
-      <span className="contents" title={s.quota_error ?? undefined}>
+      {info?.capabilities.quota && <span className="contents" title={s.quota_error ?? undefined}>
         <Window label="5h" w={s.five_hour} harness={harness} />
         <Window label="week" w={s.weekly} harness={harness} />
-      </span>
+      </span>}
       {stale && s.quota_at && <span className="text-ink-3" title={s.quota_error ?? undefined}>({formatAge(s.quota_at)} ago)</span>}
     </>
   );
 }
 
 export function StatusBar() {
+  const harnesses = useHarnesses();
   const { data } = useStatus();
   const update = useAppUpdate();
   const limits = useInbox().data?.limits;
@@ -88,9 +91,7 @@ export function StatusBar() {
     <footer className="flex min-h-[30px] flex-none flex-wrap items-center gap-x-2.5 gap-y-1 py-1 border-t border-line bg-chrome px-3 text-[11.5px] whitespace-nowrap text-ink-2 tabular-nums">
       {data ? (
         <>
-          <HarnessPart harness="claude" s={data.claude} />
-          <span className="h-3.5 w-px bg-line" />
-          <HarnessPart harness="codex" s={data.codex} />
+          {harnesses.map((h, i) => <Fragment key={h.id}>{i > 0 && <span className="h-3.5 w-px bg-line" />}<HarnessPart harness={h.id} s={data.harnesses[h.id] ?? { version: null, version_error: null, updating_to: null, five_hour: null, weekly: null, quota_at: null, quota_error: null }} /></Fragment>)}
           <span className="text-ink-3" title={Object.entries(limits ?? {}).map(([k,v]) => `${k}: ${v.remaining} remaining, resets ${formatReset(v.reset_at)}`).join("; ")}>{Object.entries(limits ?? {}).map(([k,v]) => `GH ${k} ${v.remaining}`).join(" · ")}</span>
           <span className="ml-auto inline-flex items-center gap-3.5">
             {!online && <span className="font-semibold text-gh-closed">Daemon disconnected, reconnecting…</span>}

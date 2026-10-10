@@ -5,7 +5,7 @@ import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import { useStatus } from "@/app/StatusBar";
-import { HARNESS_NAME, HarnessMark } from "@/components/HarnessMark";
+import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import { useSchedules, useSessions } from "@/lib/queries";
 import { isDone } from "@/lib/sessionStatus";
 
@@ -28,7 +28,7 @@ export function dependencyAgent(id: string, sessions: Session[], schedules: Sche
 
 function conditionLabel(delay: LaunchDelay, sessions: Session[], schedules: ScheduledLaunch[]): string | null {
   if (delay.kind === "agents") return `When ${delay.session_ids.map((id) => dependencyAgent(id, sessions, schedules)?.title ?? "missing or cancelled agent").join(" and ")} ${delay.session_ids.length === 1 ? "is" : "are"} Done`;
-  if (delay.kind === "quota") return `${HARNESS_NAME[delay.harness]} ${delay.window === "five_hour" ? "5h" : "weekly"} reset`;
+  if (delay.kind === "quota") return `${delay.harness} ${delay.window === "five_hour" ? "5h" : "weekly"} reset`;
   return null;
 }
 
@@ -63,7 +63,7 @@ function newCondition(kind: string, harness: HarnessKind | null): LaunchDelay | 
     case "in": return { kind: "in", minutes: 30 };
     case "at": { const d = new Date(); d.setHours(7, 0, 0, 0); if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1); return { kind: "at", at: d.getTime() }; }
     case "agents": return { kind: "agents", session_ids: [] };
-    case "quota": return { kind: "quota", harness: harness ?? "codex", window: "five_hour" };
+    case "quota": return harness ? { kind: "quota", harness, window: "five_hour" } : null;
     default: return null;
   }
 }
@@ -113,7 +113,7 @@ function AgentPicker({ ids, onChange }: { ids: string[]; onChange: (ids: string[
 
 function quotaReset(delay: LaunchDelay, status: ReturnType<typeof useStatus>["data"]): { reset: number | null; error: string | null } {
   if (delay.kind !== "quota") return { reset: null, error: null };
-  const h = status?.[delay.harness];
+  const h = status?.harnesses[delay.harness];
   const q = h?.[delay.window];
   const reset = q ? q.resets_at * 1000 : null;
   if (!h || h.quota_error || !h.quota_at || Date.now() - h.quota_at > 15 * 60000 || !reset || reset <= Date.now()) return { reset, error: "Quota reset is unavailable. Wait for a fresh quota reading, or choose a time." };
@@ -121,6 +121,7 @@ function quotaReset(delay: LaunchDelay, status: ReturnType<typeof useStatus>["da
 }
 
 function ConditionEditor({ delay, onChange, onRemove }: { delay: LaunchDelay; onChange: (delay: LaunchDelay) => void; onRemove: () => void }) {
+  const quotaHarnesses = useHarnesses().filter((h) => h.capabilities.quota);
   const quota = quotaReset(delay, useStatus().data);
   const error = conditionError(delay) ?? quota.error;
   const reset = quota.reset;
@@ -137,7 +138,7 @@ function ConditionEditor({ delay, onChange, onRemove }: { delay: LaunchDelay; on
     {delay.kind === "agents" && <AgentPicker ids={delay.session_ids} onChange={(session_ids) => onChange({ kind: "agents", session_ids })} />}
     {delay.kind === "quota" && <>
       <div className="grid grid-cols-2 gap-2">
-        <select aria-label="Quota provider" className="field-input" value={delay.harness} onChange={(e) => onChange({ ...delay, harness: e.target.value as HarnessKind })}><option value="codex">Codex</option><option value="claude">Claude Code</option></select>
+        <select aria-label="Quota provider" className="field-input" value={delay.harness} onChange={(e) => onChange({ ...delay, harness: e.target.value as HarnessKind })}>{quotaHarnesses.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}</select>
         <select aria-label="Quota window" className="field-input" value={delay.window} onChange={(e) => onChange({ ...delay, window: e.target.value as "five_hour" | "weekly" })}><option value="five_hour">5-hour quota</option><option value="weekly">Weekly quota</option></select>
       </div>
       {reset && !error && <p className="text-xs text-ink-2">Resets {new Date(reset).toLocaleString()}. This reset time is saved when you schedule.</p>}
@@ -147,6 +148,8 @@ function ConditionEditor({ delay, onChange, onRemove }: { delay: LaunchDelay; on
 }
 
 export function DelaySelector({ conditions, harness, onChange, onValidityChange }: { conditions: LaunchDelay[]; harness: HarnessKind | null; onChange: (conditions: LaunchDelay[]) => void; onValidityChange: (valid: boolean) => void }) {
+  const quotaHarnesses = useHarnesses().filter((h) => h.capabilities.quota);
+  const quotaHarness = quotaHarnesses.find((h) => h.id === harness)?.id ?? quotaHarnesses[0]?.id ?? null;
   const status = useStatus().data;
   const [, tick] = useState(0);
   useEffect(() => { const timer = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(timer); }, []);
@@ -157,7 +160,7 @@ export function DelaySelector({ conditions, harness, onChange, onValidityChange 
     <label className="text-[11.5px] font-[650] text-ink-2" htmlFor="launch-start">Start</label>
     <p className="text-xs text-ink-3">{!conditions.length ? "Now, when you click Launch. Add conditions to schedule it." : conditions.length === 1 ? "When this condition is met." : "When all of these conditions are met."}</p>
     {conditions.map((c, i) => <ConditionEditor key={i} delay={c} onChange={(next) => onChange(conditions.map((x, j) => j === i ? next : x))} onRemove={() => onChange(conditions.filter((_, j) => j !== i))} />)}
-    <select id="launch-start" className="field-input h-8" value="" onChange={(e) => { const c = newCondition(e.target.value, harness); if (c) onChange([...conditions, c]); }}>
+    <select id="launch-start" className="field-input h-8" value="" onChange={(e) => { const c = newCondition(e.target.value, e.target.value === "quota" ? quotaHarness : harness); if (c) onChange([...conditions, c]); }}>
       <option value="">{conditions.length ? "Add another condition…" : "Add a start condition…"}</option>
       {KINDS.map((k) => <option key={k.kind} value={k.kind} disabled={k.kind === "agents" && hasAgents}>{k.label}…</option>)}
     </select>

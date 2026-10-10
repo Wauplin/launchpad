@@ -1,97 +1,205 @@
-//! Harness adapters, and what the composer needs to know about each harness (models, defaults).
-
+//! Registration and the common contract. Native protocols and optional services belong to adapters.
+pub mod acp;
 pub mod claude;
 pub mod codex;
+pub mod opencode;
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use crate::{
+    App, history,
+    model::{HarnessDefaults, HarnessKind, ModelInfo, Session},
+    sessions::{LiveSession, Sink, StartSpec},
+    shellenv::UserEnv,
+};
+use anyhow::{Result, bail};
+use async_trait::async_trait;
+use serde::Serialize;
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
+use tokio::process::Command;
+use ts_rs::TS;
 
-use crate::App;
-use crate::model::{HarnessDefaults, HarnessKind, ModelInfo};
-
-/// Effort levels accepted by each CLI (`claude --help`, Codex `model/list`), used when a model is unknown.
-pub fn efforts(h: HarnessKind) -> Vec<String> {
-    let v: &[&str] = match h {
-        HarnessKind::Claude => &["low", "medium", "high", "xhigh", "max"],
-        HarnessKind::Codex => &["low", "medium", "high", "xhigh", "max"],
-    };
-    v.iter().map(|s| s.to_string()).collect()
+#[derive(Clone, Copy, Serialize, TS)]
+pub struct HarnessCapabilities {
+    pub images: bool,
+    /// Native steering or queuing while a turn runs.
+    pub messages_while_running: bool,
+    pub history: bool,
+    pub archived_history: bool,
+    pub terminal: bool,
+    /// Included subscription quotas can be monitored by this integration.
+    pub quota: bool,
 }
 
-/// Model lists, refreshed in the background (reading them takes a process start).
+#[derive(Clone, Copy, Serialize, TS)]
+pub struct HarnessDescriptor {
+    pub id: HarnessKind,
+    pub name: &'static str,
+    pub icon_svg: &'static str,
+    pub color: &'static str,
+    pub working_message: &'static str,
+    pub capabilities: HarnessCapabilities,
+}
+
+pub struct Registration {
+    pub descriptor: HarnessDescriptor,
+    pub create: fn(&UserEnv) -> Arc<dyn Harness>,
+    pub environment_marker: fn(&str) -> bool,
+}
+
+/// Add an adapter here and declare its module above; no host dispatch needs to change.
+pub const REGISTRATIONS: &[Registration] = &[
+    claude::REGISTRATION,
+    codex::REGISTRATION,
+    opencode::REGISTRATION,
+];
+
+pub fn registration(id: HarnessKind) -> &'static Registration {
+    REGISTRATIONS
+        .iter()
+        .find(|r| r.descriptor.id == id)
+        .expect("registered harness ID")
+}
+
+#[async_trait]
+pub trait Harness: Send + Sync {
+    async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>>;
+    async fn models(&self, _app: &App) -> Result<Vec<ModelInfo>> {
+        Ok(vec![])
+    }
+    fn defaults(&self) -> (Option<String>, Option<String>) {
+        (None, None)
+    }
+    fn efforts(&self) -> Vec<String> {
+        vec![]
+    }
+    async fn version(&self, app: &App) -> Result<String>;
+    fn spawn_services(&self, _app: &App) {}
+    fn terminal_command(&self, _session: &Session, _is_temp: bool) -> Result<Vec<String>> {
+        bail!("terminal handoff is not supported")
+    }
+    fn terminal_env(&self, _is_temp: bool) -> &'static [(&'static str, &'static str)] {
+        &[]
+    }
+    fn project_moved(&self, _old: &str, _new: &str) {}
+    fn terminal_resume_markers(&self) -> &'static [&'static str] {
+        &[]
+    }
+    async fn history_list(
+        &self,
+        _app: &App,
+        _cursor: Option<String>,
+        _archived: bool,
+    ) -> Result<history::Page> {
+        bail!("history import is not supported")
+    }
+    async fn history_read(&self, _app: &App, _id: &str) -> Result<history::Snapshot> {
+        bail!("history import is not supported")
+    }
+    fn title_command(&self, _app: &App, _session: &Session, _cwd: &Path) -> Option<Command> {
+        None
+    }
+    fn title_response(&self, stdout: String) -> Result<String> {
+        Ok(stdout)
+    }
+}
+
+#[derive(Clone)]
+pub struct Registry(Arc<HashMap<HarnessKind, Arc<dyn Harness>>>);
+impl Registry {
+    pub fn new(env: &UserEnv) -> Self {
+        let mut entries = HashMap::new();
+        for registration in REGISTRATIONS {
+            assert!(
+                entries
+                    .insert(registration.descriptor.id, (registration.create)(env))
+                    .is_none(),
+                "duplicate harness registration"
+            );
+        }
+        Self(Arc::new(entries))
+    }
+    pub fn get(&self, id: HarnessKind) -> &Arc<dyn Harness> {
+        self.0.get(&id).expect("registered harness ID")
+    }
+    pub fn descriptors(&self) -> Vec<HarnessDescriptor> {
+        REGISTRATIONS.iter().map(|r| r.descriptor).collect()
+    }
+    pub fn spawn_services(&self, app: &App) {
+        for registration in REGISTRATIONS {
+            self.get(registration.descriptor.id).spawn_services(app);
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct ModelCache {
     inner: Arc<RwLock<HashMap<HarnessKind, Vec<ModelInfo>>>>,
-    claude_refresh: Arc<tokio::sync::Mutex<()>>,
-    codex_refresh: Arc<tokio::sync::Mutex<()>>,
+    refresh_locks: Arc<std::sync::Mutex<HashMap<HarnessKind, Arc<tokio::sync::Mutex<()>>>>>,
 }
-
 impl ModelCache {
-    /// Query the harness again, keeping the last successful list if discovery fails.
-    pub async fn refresh(&self, app: &App, h: HarnessKind) -> anyhow::Result<HarnessDefaults> {
-        let lock = match h {
-            HarnessKind::Claude => &self.claude_refresh,
-            HarnessKind::Codex => &self.codex_refresh,
-        };
+    /// Query this adapter again, preserving the last successful list on failure.
+    pub async fn refresh(&self, app: &App, id: HarnessKind) -> Result<HarnessDefaults> {
+        let lock = self.refresh_locks.lock().unwrap().entry(id).or_default().clone();
         let _guard = lock.lock().await;
-        let models = match h {
-            HarnessKind::Claude => claude::models(app).await?,
-            HarnessKind::Codex => codex::models(app).await?,
-        };
-        anyhow::ensure!(!models.is_empty(), "no models returned by {h:?}");
-        self.inner.write().unwrap().insert(h, models);
-        Ok(self.defaults(h))
+        let models = tokio::time::timeout(
+            Duration::from_secs(60), app.harnesses.get(id).models(app),
+        ).await??;
+        anyhow::ensure!(!models.is_empty(), "no models returned by {}", id.as_str());
+        self.inner.write().unwrap().insert(id, models);
+        Ok(self.defaults(app, id))
     }
 
-    pub fn defaults(&self, h: HarnessKind) -> HarnessDefaults {
-        let (model, effort) = match h {
-            HarnessKind::Claude => claude::defaults(),
-            HarnessKind::Codex => codex::defaults(),
-        };
-        HarnessDefaults { model, effort, models: self.inner.read().unwrap().get(&h).cloned().unwrap_or_default(), efforts: efforts(h) }
+    pub fn defaults(&self, app: &App, id: HarnessKind) -> HarnessDefaults {
+        let adapter = app.harnesses.get(id);
+        let (model, effort) = adapter.defaults();
+        HarnessDefaults {
+            model,
+            effort,
+            models: self
+                .inner
+                .read()
+                .unwrap()
+                .get(&id)
+                .cloned()
+                .unwrap_or_default(),
+            efforts: adapter.efforts(),
+        }
     }
 }
 
 pub fn spawn_model_refresh(app: &App) {
-    let a = app.clone();
-    tokio::spawn(async move {
-        // Let the daemon finish starting first.
-        tokio::time::sleep(Duration::from_secs(2)).await;
-        loop {
-            for h in [HarnessKind::Claude, HarnessKind::Codex] {
-                if let Err(e) = a.models.refresh(&a, h).await {
-                    tracing::info!("{h:?} models: {e:#}");
+    // An unavailable adapter must not block discovery for the others.
+    for registration in REGISTRATIONS {
+        let id = registration.descriptor.id;
+        let app = app.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            loop {
+                if let Err(error) = app.models.refresh(&app, id).await {
+                    tracing::info!("{} model discovery: {error:#}", id.as_str());
                 }
+                tokio::time::sleep(Duration::from_secs(30 * 60)).await;
             }
-            tokio::time::sleep(Duration::from_secs(30 * 60)).await;
-        }
-    });
+        });
+    }
 }
 
-/// Updates Codex in the background at startup and every 6 hours. Running sessions keep the binary
-/// they started with; headless modes never show the update prompt.
-pub fn spawn_codex_updates(app: &App) {
-    let a = app.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(20)).await;
-        loop {
-            a.status.update(|s| s.codex.updating_to = Some("latest".into()));
-            let res = crate::procs::command(&a.env, "codex", None)
-                .args(["update"])
-                .stdin(std::process::Stdio::null())
-                .output()
-                .await;
-            match res {
-                Ok(out) => {
-                    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-                    tracing::info!("codex update ({}): {}", out.status, text.trim().lines().last().unwrap_or(""));
-                }
-                Err(e) => tracing::warn!("codex update: {e}"),
-            }
-            a.status.update(|s| s.codex.updating_to = None);
-            crate::status::refresh_versions(&a).await;
-            tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn registry_ids_round_trip_without_falling_back_to_another_adapter() {
+        let mut ids = std::collections::HashSet::new();
+        for registration in REGISTRATIONS {
+            let id = registration.descriptor.id;
+            assert!(ids.insert(id));
+            assert_eq!(serde_json::from_value::<HarnessKind>(serde_json::json!(id)).unwrap(), id);
+            assert_eq!(serde_json::to_value(id).unwrap(), serde_json::json!(id.as_str()));
         }
-    });
+        assert!(serde_json::from_str::<HarnessKind>("\"unregistered\"").is_err());
+    }
 }

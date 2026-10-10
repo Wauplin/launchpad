@@ -11,7 +11,7 @@ import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
 import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
-import { HarnessMark, HARNESS_NAME } from "@/components/HarnessMark";
+import { HarnessMark, useHarnessName, useHarnesses, useHarnessInfo } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
@@ -135,6 +135,8 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export function Composer() {
+  const harnessName = useHarnessName();
+  const harnesses = useHarnesses();
   const { open, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, conditions, setConditions } = useComposer();
   const projects = useProjects().data ?? [];
   const scope = useScope();
@@ -145,12 +147,13 @@ export function Composer() {
   }, [sessions]);
   const config = useConfig().data?.config;
   const defaults = useHarnessDefaults(spec.harness).data;
+  const harness = useHarnessInfo(spec.harness);
   const queryClient = useQueryClient();
   const refreshModels = useMutation({
     mutationFn: (h: HarnessKind) => api.post<HarnessDefaults>(`/api/harness/${h}/defaults`),
     onSuccess: (data, h) => {
       queryClient.setQueryData(["harness-defaults", h], data);
-      toast(`${HARNESS_NAME[h]} models refreshed`);
+      toast(`${harnesses.find((entry) => entry.id === h)?.name ?? h} models refreshed`);
     },
     onError: toastError,
   });
@@ -243,7 +246,7 @@ export function Composer() {
         void navigate({ to: "/agents" });
       };
       if (openAfterLaunch) openIt();
-      else toast(`${HARNESS_NAME[s.harness]} started in ${where}`, { label: "Open", run: openIt });
+      else toast(`${harnessName(s.harness)} started in ${where}`, { label: "Open", run: openIt });
     } catch (e) {
       toastError(e);
     } finally {
@@ -253,19 +256,19 @@ export function Composer() {
 
   return (
     <aside className="relative flex w-[440px] flex-none flex-col border-l border-line bg-paper shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]">
-      <div className="flex items-center gap-2.5 border-b border-line px-3.5 py-3">
-        <span className="text-sm font-bold">New agent</span>
-        <span className="inline-flex gap-0.5 rounded-lg bg-sunk p-0.5">
-          {(["claude", "codex"] as HarnessKind[]).map((h) => (
+      <div className="flex flex-wrap items-center gap-2.5 border-b border-line px-3.5 py-3">
+        <span className="flex-1 whitespace-nowrap text-sm font-bold">New agent</span>
+        <span className="order-3 inline-flex basis-full flex-wrap gap-0.5 rounded-lg bg-sunk p-0.5">
+          {harnesses.map(({ id: h }) => (
             <button
               key={h}
               onClick={() => set((s) => ({ ...s, harness: h, model: s.harness === h ? s.model : null, effort: s.harness === h ? s.effort : null }))}
-              className={`inline-flex h-[26px] items-center gap-1.5 rounded-md px-2.5 text-[12.5px] ${
+              className={`inline-flex h-[26px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[12.5px] ${
                 spec.harness === h ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"
               }`}
             >
               <HarnessMark harness={h} size={15} />
-              {HARNESS_NAME[h]}
+              {harnessName(h)}
             </button>
           ))}
         </span>
@@ -449,7 +452,7 @@ export function Composer() {
           </div>
         </Field>
 
-        <div className="grid grid-cols-2 gap-2.5">
+        <div className={`grid gap-2.5 ${efforts.length ? "grid-cols-2" : "grid-cols-1"}`}>
           <Field label="Model" end={
             <button className="inline-flex size-5 items-center justify-center rounded hover:bg-select hover:text-ink disabled:opacity-50" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} title={refreshingModels ? "Refreshing models…" : "Refresh models"} aria-label={refreshingModels ? "Refreshing models" : "Refresh models"} aria-busy={refreshingModels}>
               <Icon name="refresh" size={12} className={refreshingModels ? "animate-spin" : ""} />
@@ -479,7 +482,7 @@ export function Composer() {
               )}
             </Popover>
           </Field>
-          <Field label="Effort">
+          {!!efforts.length && <Field label="Effort">
             <Popover
               width={220}
               trigger={({ toggle }) => (
@@ -501,7 +504,7 @@ export function Composer() {
                 </>
               )}
             </Popover>
-          </Field>
+          </Field>}
         </div>
 
         <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); }} onValidityChange={setCronValid} />
@@ -509,7 +512,7 @@ export function Composer() {
 
         <div className="rounded-lg border border-line bg-chrome">
           <div className="flex items-center gap-2 border-b border-line px-2.5 py-1.5 text-[11.5px] font-[650] text-ink-2">
-            Prompt sent to {spec.harness ? HARNESS_NAME[spec.harness] : "the agent"}
+            Prompt sent to {spec.harness ? harnessName(spec.harness) : "the agent"}
             <button className="ml-auto font-normal text-ink-3 hover:text-ink" onClick={() => setShowAll((v) => !v)}>
               {preview.data?.prompt.length ?? 0} characters · {showAll ? "show less" : "show all"}
             </button>
@@ -527,11 +530,11 @@ export function Composer() {
           <input type="checkbox" className="accent-teal" disabled={scheduled || !!cron} checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
           Open after launch
         </label>
-        <label className="inline-flex items-center gap-[7px] text-xs text-ink-2" title="Continue using additional credits when included subscription quota runs out. Unchecked: pause and resume automatically, best effort.">
+        {harness?.capabilities.quota && <label className="inline-flex items-center gap-[7px] text-xs text-ink-2" title="Continue using additional credits when included subscription quota runs out. Unchecked: pause and resume automatically, best effort.">
           <input type="checkbox" className="accent-teal" checked={spec.allow_paid_usage} onChange={(e) => set((s) => ({ ...s, allow_paid_usage: e.target.checked }))} />
           Allow paid usage
-        </label>
-        <span className="basis-full text-[11px] text-ink-3">{spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption."}</span>
+        </label>}
+        <span className="basis-full text-[11px] text-ink-3">{harness && !harness.capabilities.quota ? "This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas or limit spending yet." : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption."}</span>
         <button className="btn btn-ghost" onClick={() => { setCron(null); discard(); }} title="Clear the composer">
           Discard
         </button>

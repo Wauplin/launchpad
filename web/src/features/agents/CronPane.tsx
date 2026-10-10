@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { Session } from "@/gen/Session";
 import type { Preview } from "@/gen/Preview";
-import { HARNESS_NAME } from "@/components/HarnessMark";
+import { useHarnessName } from "@/components/HarnessMark";
 import { toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useProjects, useSessions } from "@/lib/queries";
@@ -16,6 +16,7 @@ export function cronSummary(cron: CronAgent): string {
 }
 
 export function CronPane({ cron, onOpen, onClose }: { cron: CronAgent; onOpen: (session: Session) => void; onClose: () => void }) {
+  const harnessName = useHarnessName();
   const sessions = useSessions().data ?? [];
   const projects = useProjects().data ?? [];
   const [busy, setBusy] = useState(false);
@@ -45,7 +46,7 @@ export function CronPane({ cron, onOpen, onClose }: { cron: CronAgent; onOpen: (
           </div>
         </> : <>
           <p><span className="font-mono">{cron.schedule}</span> · {cron.paused ? "No run is planned." : cron.next_run_at ? `Next run ${new Date(cron.next_run_at).toLocaleString()}` : ""}</p>
-          {cron.conditions.length ? <ul className="list-disc pl-5 text-xs text-ink-2">{cron.conditions.map((c, i) => <li key={i}>{conditionSummary(c, cron.spec.harness)}</li>)}</ul> : <p className="text-xs text-ink-2">No conditions: every scheduled time starts a run.</p>}
+          {cron.conditions.length ? <ul className="list-disc pl-5 text-xs text-ink-2">{cron.conditions.map((c, i) => <li key={i}>{conditionSummary(c, cron.spec.harness, harnessName)}</li>)}</ul> : <p className="text-xs text-ink-2">No conditions: every scheduled time starts a run.</p>}
           {cron.last_outcome && <p className={`text-xs ${cron.last_outcome.startsWith("Started") ? "text-ink-2" : "text-gh-closed"}`}>Last check{cron.last_check_at ? ` ${new Date(cron.last_check_at).toLocaleString()}` : ""}: {cron.last_outcome}</p>}
           <p className="text-xs text-ink-3">The daemon starts each run automatically. It does not need an open window. Run now ignores the conditions and keeps the schedule.</p>
           <div className="flex flex-wrap gap-2">
@@ -56,7 +57,7 @@ export function CronPane({ cron, onOpen, onClose }: { cron: CronAgent; onOpen: (
           </div>
         </>}
       </div>
-      <p className="text-ink-2">{cron.spec.harness ? HARNESS_NAME[cron.spec.harness] : "Agent"} · {name} · {cron.spec.model ?? "Default model"} · {cron.spec.effort ?? "Default effort"}</p>
+      <p className="text-ink-2">{cron.spec.harness ? harnessName(cron.spec.harness) : "Agent"} · {name} · {cron.spec.model ?? "Default model"} · {cron.spec.effort ?? "Default effort"}</p>
       <div className="grid gap-1">
         <b className="text-xs text-ink-2">Runs ({cron.runs.length})</b>
         {runs.length ? runs.map(({ id, session }) => <button key={id} disabled={!session} onClick={() => session && onOpen(session)} className="flex items-center gap-2 rounded-md border border-line px-2 py-1.5 text-left text-xs hover:bg-chrome disabled:opacity-60">

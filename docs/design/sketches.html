@@ -909,7 +909,7 @@ footer.end code { font: 12.5px var(--font-mono); }
       <i class="pin abs" style="right:208px; top:40px">1</i>
     </div>
     <ol class="notes launch-notes">
-      <li><i class="pin">1</i><span><b>Direct launch.</b> Every Launch button opens the composer immediately. Harness, model and effort come from the latest launched agent; unsent edits do not change the defaults.</span></li>
+      <li><i class="pin">1</i><span><b>Direct launch.</b> Every Launch button opens the composer immediately. Harness choices come from the Rust registry (Claude Code, Codex and OpenCode). Model and effort come from the latest launched agent; unsent edits do not change the defaults. Subscription controls appear only for integrations with quota readings; OpenCode uses native provider billing.</span></li>
     </ol>
   </div>
 
@@ -961,9 +961,9 @@ footer.end code { font: 12.5px var(--font-mono); }
         </div>
 
         <aside class="drawer">
-          <div class="dr-head">
-            <span class="t">New agent</span>
-            <span class="seg"><span class="on"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Claude Code</span><span><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex</span></span>
+          <div class="dr-head" style="flex-wrap:wrap">
+            <span class="t" style="flex:1">New agent</span>
+            <span class="seg" style="order:3;flex-basis:100%;flex-wrap:wrap"><span class="on"><span class="hm c sm" title="Claude Code"><svg><use href="#i-claude"/></svg></span>Claude Code</span><span><span class="hm x sm" title="Codex"><svg><use href="#i-codex"/></svg></span>Codex</span><span><b aria-label="OpenCode">O</b> OpenCode</span></span>
             <span class="iconbtn x"><svg class="ic sm"><use href="#i-x"/></svg></span>
           </div>
           <div class="dr-body">

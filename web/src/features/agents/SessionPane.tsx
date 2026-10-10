@@ -10,7 +10,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ImageAttachment } from "@/gen/ImageAttachment";
-import { HarnessMark } from "@/components/HarnessMark";
+import { HarnessMark, useHarnessInfo } from "@/components/HarnessMark";
 import { CodeLinksContext, type CodeLinks } from "@/components/Markdown";
 import { pathResolver, useCodeFiles } from "@/features/code/lib";
 import { useMessageDrafts } from "@/stores/messages";
@@ -31,7 +31,7 @@ function act(id: string, action: string) {
 
 type PendingAsk = { request_id: string; count: number } | null;
 
-function MessageBox({ sessionId, placeholder, disabled, ask, dropImages, onSent }: { sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null>; onSent: () => void }) {
+function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, dropImages, onSent }: { acceptsImages: boolean; sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null>; onSent: () => void }) {
   const text = useMessageDrafts((s) => s.drafts[sessionId] ?? "");
   const setDraft = useMessageDrafts((s) => s.set);
   const setText = (t: string) => setDraft(sessionId, t);
@@ -40,7 +40,7 @@ function MessageBox({ sessionId, placeholder, disabled, ask, dropImages, onSent 
   const [reading, setReading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const addImages = async (files: File[]) => {
-    if (disabled || busy || reading) return;
+    if (!acceptsImages || disabled || busy || reading) return;
     setReading(true);
     try {
       if (images.length + files.length > 8) throw new Error("Attach at most 8 images.");
@@ -96,10 +96,10 @@ function MessageBox({ sessionId, placeholder, disabled, ask, dropImages, onSent 
         <img src={image.data_url} alt={image.name} title={image.name} className="h-16 max-w-28 rounded-md border border-line object-contain" />
         <button className="iconbtn absolute -top-1 -right-1 bg-paper!" title={`Remove ${image.name}`} disabled={busy || reading} onClick={() => setImages((current) => current.filter((_, j) => j !== i))}><Icon name="x" size={12} /></button>
       </div>)}</div>}
-      <div className="mb-1 flex items-center gap-2 text-[11.5px] text-ink-3">
+      {acceptsImages && <div className="mb-1 flex items-center gap-2 text-[11.5px] text-ink-3">
         <button className="btn btn-sm" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>Attach images</button>
         <span>{reading ? "Reading images…" : "Drop images here or paste into the message box"}</span>
-      </div>
+      </div>}
       <div className="flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
         <textarea
           ref={ref}
@@ -194,6 +194,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
     return () => clearInterval(t);
   }, []);
 
+  const harness = useHarnessInfo(s?.harness ?? null);
   if (!s) {
     return (
       <div className="grid h-full place-items-center text-ink-3">
@@ -203,16 +204,14 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
   }
   const running = isRunning(s);
   const resumable = s.status === "closed" || s.status === "stopped" || s.status === "interrupted" || s.status === "error";
-  const name = s.harness === "claude" ? "Claude" : "Codex";
+  const name = harness?.name ?? s.harness;
   const placeholder =
     s.status === "in_terminal"
       ? "Open in the terminal: re-attach it to continue here"
       : s.open_question
         ? `Answer or message ${name}`
         : running
-          ? s.harness === "claude"
-            ? "Message Claude. It is read after the current step."
-            : "Message Codex. It steers the running turn."
+          ? harness?.working_message ?? `Message ${name}`
           : resumable
             ? `Message ${name} to resume the session`
             : `Message ${name}`;
@@ -259,7 +258,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
               </button>
             </>
           ) : (
-            !running && s.status !== "quota_paused" && (
+            !running && harness?.capabilities.terminal && s.status !== "quota_paused" && (
               <button className="btn btn-sm" title={`Continue in the ${name} TUI, in an integrated terminal (outside quota protection)`} onClick={() => void openTerminal.tui(s.id)}>
                 Open in terminal
               </button>
@@ -341,7 +340,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
         )}
       </div>
       </CodeLinksContext.Provider>
-      <MessageBox onSent={() => setView("trace")} key={s.id} dropImages={dropImages} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal" || s.status === "quota_paused"} ask={s.open_question && s.live ? ask : null} />
+      <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal" || s.status === "quota_paused" || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={s.open_question && s.live ? ask : null} />
     </div>
   );
 }

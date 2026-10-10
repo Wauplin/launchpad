@@ -19,9 +19,16 @@ use crate::shellenv::UserEnv;
 /// A message from the app-server that is not a response to one of our requests.
 #[derive(Clone, Debug)]
 pub enum Incoming {
-    Notification { method: String, params: Value },
+    Notification {
+        method: String,
+        params: Value,
+    },
     /// A request from the server (approvals, user input). Must be answered with [`CodexServer::respond`].
-    Request { id: Value, method: String, params: Value },
+    Request {
+        id: Value,
+        method: String,
+        params: Value,
+    },
     /// The process exited. Running turns are lost.
     Exited,
 }
@@ -60,7 +67,8 @@ impl CodexServer {
     async fn get(&self) -> Result<Arc<Proc>> {
         let mut guard = self.proc.lock().await;
         if let Some(p) = guard.as_ref()
-            && p.alive.load(Ordering::Relaxed) {
+            && p.alive.load(Ordering::Relaxed)
+        {
             return Ok(p.clone());
         }
         // The lock stays held until `initialize` is done, so no request goes out before it.
@@ -75,7 +83,12 @@ impl CodexServer {
             )
             .await
             .context("codex app-server initialize")?;
-        tracing::info!("codex app-server started: {}", init.get("userAgent").and_then(|v| v.as_str()).unwrap_or("?"));
+        tracing::info!(
+            "codex app-server started: {}",
+            init.get("userAgent")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+        );
         write_line(&p, &json!({"method": "initialized"})).await?;
         *guard = Some(p.clone());
         Ok(p)
@@ -114,7 +127,10 @@ impl CodexServer {
                     tracing::warn!("codex app-server: invalid line: {line}");
                     continue;
                 };
-                let method = msg.get("method").and_then(|m| m.as_str()).map(str::to_string);
+                let method = msg
+                    .get("method")
+                    .and_then(|m| m.as_str())
+                    .map(str::to_string);
                 let id = msg.get("id").cloned();
                 match (method, id) {
                     (Some(method), Some(id)) => {
@@ -182,7 +198,10 @@ async fn write_line(p: &Proc, msg: &Value) -> Result<()> {
     let mut line = serde_json::to_string(msg)?;
     line.push('\n');
     let mut stdin = p.stdin.lock().await;
-    stdin.write_all(line.as_bytes()).await.context("write to codex app-server")?;
+    stdin
+        .write_all(line.as_bytes())
+        .await
+        .context("write to codex app-server")?;
     stdin.flush().await?;
     Ok(())
 }

@@ -6,11 +6,12 @@ use crate::{
 };
 
 pub fn reading(app: &App, harness: HarnessKind) -> HarnessStatus {
-    let s = app.status.get();
-    match harness {
-        HarnessKind::Claude => s.claude,
-        HarnessKind::Codex => s.codex,
-    }
+    app.status
+        .get()
+        .harnesses
+        .get(harness.as_str())
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// Keep an exhausted reading blocking until a newer reading confirms availability.

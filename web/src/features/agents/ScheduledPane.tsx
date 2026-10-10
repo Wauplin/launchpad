@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
 import type { Preview } from "@/gen/Preview";
-import { HARNESS_NAME } from "@/components/HarnessMark";
+import { useHarnessName } from "@/components/HarnessMark";
 import { toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useProjects, useSchedules, useSessions } from "@/lib/queries";
@@ -12,6 +12,7 @@ import { conditionsSummary, dependencyAgent } from "@/features/launch/DelaySelec
 export { useSchedules } from "@/lib/queries";
 
 export function ScheduledPane({ launch, onStart, onClose }: { launch: ScheduledLaunch; onStart: (session: Session) => void; onClose: () => void }) {
+  const harnessName = useHarnessName();
   const schedules = useSchedules().data ?? [];
   const sessions = useSessions().data ?? [];
   const projects = useProjects().data ?? [];
@@ -44,7 +45,7 @@ export function ScheduledPane({ launch, onStart, onClose }: { launch: ScheduledL
           <button className="btn" disabled={busy || launch.status === "starting"} onClick={() => void act(false)}>{launch.resume_session_id ? "Cancel follow-up" : "Cancel launch"}</button>
         </div>
       </div>
-      <p className="text-ink-2">{launch.spec.harness ? HARNESS_NAME[launch.spec.harness] : "Agent"} · {name} · {launch.spec.model ?? "Default model"} · {launch.spec.effort ?? "Default effort"}</p>
+      <p className="text-ink-2">{launch.spec.harness ? harnessName(launch.spec.harness) : "Agent"} · {name} · {launch.spec.model ?? "Default model"} · {launch.spec.effort ?? "Default effort"}</p>
       <div><b className="text-xs text-ink-2">{launch.resume_session_id ? "Follow-up message (same session)" : "Prompt preview"}</b><pre className="mt-2 rounded-lg border border-line p-3 text-xs whitespace-pre-wrap">{launch.resume_session_id ? launch.spec.text : preview.data?.prompt ?? (preview.isError ? "Project context is unavailable. Cancel and schedule again with another project." : "Loading…")}</pre></div>
     </div>
   </div>;

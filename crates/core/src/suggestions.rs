@@ -125,10 +125,12 @@ pub async fn create(app: &App, q: Create) -> Result<Suggestion> {
         );
     }
     let author = match q.session_id.as_deref() {
-        Some(id) => match app.sessions.get(id).context("session not found")?.harness {
-            crate::model::HarnessKind::Claude => "Claude",
-            crate::model::HarnessKind::Codex => "Codex",
-        },
+        Some(id) => app
+            .sessions
+            .get(id)
+            .context("session not found")?
+            .harness
+            .display(),
         None => "Agent",
     }
     .to_string();

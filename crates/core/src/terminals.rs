@@ -16,7 +16,7 @@ use tokio::sync::broadcast;
 use ts_rs::TS;
 
 use crate::App;
-use crate::model::{HarnessKind, Session};
+use crate::model::Session;
 use crate::util::now_ms;
 
 const BUFFER: usize = 1 << 20;
@@ -301,9 +301,8 @@ impl Terminals {
             Some(id) => crate::projects::get(app, id).await?.is_some_and(|p| p.is_temp),
             None => false,
         };
-        let argv = tui_command(app, s)?;
-        // Skips the trust dialog in folders Launchpad created (docs/spikes/5-claude-trust-prompt.md).
-        let env: &[(&str, &str)] = if is_temp && s.harness == HarnessKind::Claude { &[("CLAUDE_CODE_SANDBOXED", "1")] } else { &[] };
+        let argv = tui_command(app, s, is_temp)?;
+        let env = app.harnesses.get(s.harness).terminal_env(is_temp);
         let info = TerminalInfo {
             id: uuid::Uuid::new_v4().to_string(),
             kind: TerminalKind::Tui,
@@ -356,31 +355,22 @@ async fn check_cwd(app: &App, cwd: &str) -> Result<(PathBuf, Option<crate::model
 }
 
 /// The command that resumes the session in a TUI.
-fn tui_command(app: &App, s: &Session) -> Result<Vec<String>> {
-    let id = s.harness_session_id.clone().context("the session has no conversation yet")?;
-    let mut c: Vec<String> = match s.harness {
-        HarnessKind::Claude => vec!["claude".into(), "--resume".into(), id, "--dangerously-skip-permissions".into()],
-        HarnessKind::Codex => vec![
-            "codex".into(),
-            "resume".into(),
-            id,
-            "--dangerously-bypass-approvals-and-sandbox".into(),
-            "-c".into(),
-            "check_for_update_on_startup=false".into(),
-            "-c".into(),
-            project_trust_override(&s.cwd),
-        ],
-    };
-    if let Some(p) = app.env.which(&c[0]) {
-        c[0] = p.to_string_lossy().to_string();
+fn tui_command(app: &App, s: &Session, is_temp: bool) -> Result<Vec<String>> {
+    let mut command = app.harnesses.get(s.harness).terminal_command(s, is_temp)?;
+    anyhow::ensure!(!command.is_empty(), "empty harness terminal command");
+    if let Some(path) = app.env.which(&command[0]) {
+        command[0] = path.to_string_lossy().to_string();
     }
-    Ok(c)
+    Ok(command)
 }
 
 /// Whether a TUI process still runs this session (checked before re-attaching), including one
 /// opened in another client.
-pub fn tui_running(_app: &App, s: &Session) -> bool {
-    let Some(id) = &s.harness_session_id else { return false };
+pub fn tui_running(app: &App, s: &Session) -> bool {
+    let Some(id) = &s.harness_session_id else {
+        return false;
+    };
+    let markers = app.harnesses.get(s.harness).terminal_resume_markers();
     #[cfg(not(target_os = "linux"))]
     {
         let output = if cfg!(windows) {
@@ -388,7 +378,13 @@ pub fn tui_running(_app: &App, s: &Session) -> bool {
         } else {
             std::process::Command::new("ps").args(["-axo", "command="]).output()
         };
-        return output.map(|out| String::from_utf8_lossy(&out.stdout).lines().any(|line| line.contains(id) && (line.contains("--resume") || line.contains(" resume ")))).unwrap_or(true);
+        return output
+            .map(|out| {
+                String::from_utf8_lossy(&out.stdout).lines().any(|line| {
+                    line.contains(id) && markers.iter().any(|marker| line.contains(marker))
+                })
+            })
+            .unwrap_or(true);
     }
     #[cfg(target_os = "linux")]
     let Ok(dir) = std::fs::read_dir("/proc") else { return false };
@@ -397,27 +393,13 @@ pub fn tui_running(_app: &App, s: &Session) -> bool {
         let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else { continue };
         let args: Vec<&[u8]> = cmdline.split(|b| *b == 0).collect();
         let has_id = args.contains(&id.as_bytes());
-        let is_resume = args.iter().any(|a| *a == b"--resume" || *a == b"resume" || *a == b"--session-id");
+        let is_resume = args
+            .iter()
+            .any(|arg| markers.iter().any(|marker| *arg == marker.as_bytes()));
         if has_id && is_resume {
             return true;
         }
     }
     #[cfg(target_os = "linux")]
     { false }
-}
-
-/// JSON quoting also escapes TOML basic-string keys, including Windows backslashes.
-fn project_trust_override(cwd: &str) -> String {
-    format!("projects.{}.trust_level=\"trusted\"", serde_json::to_string(cwd).expect("serialize a path string"))
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn project_trust_keys_preserve_paths() {
-        for cwd in [r"C:\Users\O'Brien\projects\launchpad", r#"/home/user/a "quoted" folder"#] {
-            let config: toml::Value = toml::from_str(&super::project_trust_override(cwd)).unwrap();
-            assert_eq!(config["projects"][cwd]["trust_level"].as_str(), Some("trusted"));
-        }
-    }
 }

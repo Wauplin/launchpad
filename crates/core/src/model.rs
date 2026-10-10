@@ -4,32 +4,34 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Hash)]
-#[serde(rename_all = "lowercase")]
-pub enum HarnessKind {
-    Claude,
-    Codex,
-}
+/// A registered harness ID. Adding an adapter does not change this type or its wire format.
+#[derive(Clone, Copy, Debug, Serialize, TS, PartialEq, Eq, Hash)]
+#[ts(type = "string")]
+pub struct HarnessKind(&'static str);
 
 impl HarnessKind {
+    pub const fn new(id: &'static str) -> Self {
+        Self(id)
+    }
     pub fn as_str(self) -> &'static str {
-        match self {
-            HarnessKind::Claude => "claude",
-            HarnessKind::Codex => "codex",
-        }
+        self.0
     }
     pub fn display(self) -> &'static str {
-        match self {
-            HarnessKind::Claude => "Claude",
-            HarnessKind::Codex => "Codex",
-        }
+        crate::harness::registration(self).descriptor.name
     }
-    pub fn parse(s: &str) -> Option<HarnessKind> {
-        match s {
-            "claude" => Some(HarnessKind::Claude),
-            "codex" => Some(HarnessKind::Codex),
-            _ => None,
-        }
+    pub fn parse(id: &str) -> Option<Self> {
+        crate::harness::REGISTRATIONS
+            .iter()
+            .find(|r| r.descriptor.id.as_str() == id)
+            .map(|r| r.descriptor.id)
+    }
+}
+
+impl<'de> Deserialize<'de> for HarnessKind {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let id = String::deserialize(deserializer)?;
+        Self::parse(&id)
+            .ok_or_else(|| serde::de::Error::custom(format!("unregistered harness: {id}")))
     }
 }
 
@@ -100,7 +102,7 @@ pub struct Usage {
     pub input_tokens: u64,
     pub cached_tokens: u64,
     pub output_tokens: u64,
-    /// Claude only (`total_cost_usd`, cumulative for the session).
+    /// Reported cumulative USD cost when the harness exposes it; not necessarily a billed charge.
     pub cost_usd: Option<f64>,
 }
 
@@ -108,7 +110,7 @@ pub struct Usage {
 pub struct Session {
     pub id: String,
     pub harness: HarnessKind,
-    /// Claude session id (same as `id`) or Codex thread id.
+    /// Opaque native conversation ID, interpreted only by its adapter.
     pub harness_session_id: Option<String>,
     pub project_id: Option<String>,
     pub cwd: String,
@@ -170,6 +172,7 @@ pub enum EventBody {
     AssistantDelta { item_id: String, text: String },
     AssistantMessage { item_id: String, text: String },
     Reasoning { item_id: String, text: String },
+    /// Upserts tool metadata by item ID; some protocols fill input/title in after the pending event.
     ToolCall {
         item_id: String,
         name: String,

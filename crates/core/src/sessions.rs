@@ -29,6 +29,7 @@ pub trait LiveSession: Send + Sync {
     /// Safe to begin another turn, including commands that outlive interruption.
     fn ready_for_turn(&self) -> bool;
     fn turn_active(&self) -> bool;
+    fn has_open_questions(&self) -> bool { false }
     /// Answers an `ask_user` request: one answer per question.
     async fn answer(&self, request_id: &str, answers: Vec<String>) -> Result<()>;
     /// Stops the process; the conversation stays resumable.
@@ -149,7 +150,7 @@ impl Sessions {
                             spec.harness.is_some() && !spec.text.trim().is_empty() && title == title_from(&spec.text, ""));
                         Ok(Session {
                             id: r.get(0)?,
-                            harness: HarnessKind::parse(&r.get::<_, String>(1)?).unwrap_or(HarnessKind::Claude),
+                            harness: HarnessKind::parse(&r.get::<_, String>(1)?).ok_or_else(|| rusqlite::Error::InvalidParameterName("unregistered stored harness".into()))?,
                             harness_session_id: r.get(2)?,
                             project_id: r.get(3)?,
                             cwd: r.get(4)?,
@@ -466,7 +467,7 @@ impl Sessions {
     pub(crate) async fn launch_with_id(&self, app: &App, spec: LaunchSpec, id: String) -> Result<Session> {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await?;
-        let harness = spec.harness.context("pick Claude Code or Codex")?;
+        let harness = spec.harness.context("pick a harness")?;
         if spec.target == Target::None {
             bail!("pick a project or a temporary folder");
         }
@@ -534,7 +535,7 @@ impl Sessions {
         let session = Session {
             id: id.clone(),
             harness,
-            harness_session_id: if harness == HarnessKind::Claude { Some(id.clone()) } else { None },
+            harness_session_id: None,
             project_id,
             cwd: cwd.clone(),
             title: preview.title.clone(),
@@ -577,7 +578,13 @@ impl Sessions {
             return Ok(self.get(&id).unwrap());
         }
 
-        if !session.launch_spec.allow_paid_usage && !crate::quota::available(&crate::quota::reading(app, harness), now_ms()) {
+        if !session.launch_spec.allow_paid_usage
+            && crate::harness::registration(harness)
+                .descriptor
+                .capabilities
+                .quota
+            && !crate::quota::available(&crate::quota::reading(app, harness), now_ms())
+        {
             self.sink(app, &id).emit(EventBody::Notice { text: "Quota reading unavailable or stale. Starting with best-effort protection; additional spending cannot be ruled out until quota is known.".into() }).await;
         }
         let start = StartSpec {
@@ -612,11 +619,16 @@ impl Sessions {
         let id = start.session_id.clone();
         let instance = self.inner.next_instance.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         sink.instance = instance;
-        let live: Arc<dyn LiveSession> = match harness {
-            HarnessKind::Claude => crate::harness::claude::start(app, start, sink.clone()).await?,
-            HarnessKind::Codex => crate::harness::codex::start(app, start, sink.clone()).await?,
-        };
-        self.inner.live.lock().unwrap().insert(id.clone(), (instance, live.clone()));
+        let live = app
+            .harnesses
+            .get(harness)
+            .start(app, start, sink.clone())
+            .await?;
+        self.inner
+            .live
+            .lock()
+            .unwrap()
+            .insert(id.clone(), (instance, live.clone()));
         self.inner.model_restarts.lock().unwrap().remove(&id);
         self.update(app, &id, |s| s.live = true).await?;
         Ok(live)
@@ -736,18 +748,21 @@ impl Sessions {
     pub async fn set_paid_usage(&self, app: &App, id: &str, allow: bool) -> Result<Session> {
         let _action = self.inner.actions.lock().await;
         let s = self.get(id).context("no such session")?;
+        anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.quota,
+            "This integration does not monitor subscription quotas; native provider billing settings apply.");
         if s.launch_spec.allow_paid_usage == allow { return Ok(s); }
         let s = self.update(app, id, |s| s.launch_spec.allow_paid_usage = allow).await?;
         self.sink(app, id).emit(EventBody::Notice { text: if allow { "Paid usage allowed for this session; additional credits may be used after included quota runs out." } else { "Paid usage disabled; this session pauses at included quota limits." }.into() }).await;
         Ok(s)
     }
 
-    /// Changes the model and effort of a launched session. Codex uses them from the next turn; Claude
-    /// restarts its process with `--resume`, now when idle or before the next turn otherwise.
+    /// Changes model and effort through the live adapter, or resumes a replacement process once idle.
     pub async fn set_model(&self, app: &App, id: &str, model: Option<String>, effort: Option<String>) -> Result<Session> {
         let _action = self.inner.actions.lock().await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(s.status != SessionStatus::InTerminal, "The session is open in a terminal: re-attach it first.");
+        let defaults = app.models.defaults(app, s.harness);
+        anyhow::ensure!(effort.is_none() || !defaults.efforts.is_empty() || defaults.models.iter().any(|m| !m.efforts.is_empty()), "This harness does not support an effort override.");
         if s.model == model && s.effort == effort { return Ok(s); }
         let (m, e) = (model.clone(), effort.clone());
         let s = self.update(app, id, |s| { s.model = m; s.effort = e; }).await?;
@@ -833,6 +848,17 @@ impl Sessions {
         if follow_up && (s.status.is_running() || s.open_question || s.status == SessionStatus::InTerminal || s.quota_pause.is_some()) {
             return Err(FollowUpBusy.into());
         }
+        let capabilities = crate::harness::registration(s.harness)
+            .descriptor
+            .capabilities;
+        anyhow::ensure!(
+            images.is_empty() || capabilities.images,
+            "This harness does not support images."
+        );
+        anyhow::ensure!(
+            !s.status.is_running() || capabilities.messages_while_running,
+            "Wait for this harness to finish its current turn before sending another message."
+        );
         crate::predrafts::check_session_work(app, &s.cwd).await?;
         if s.status == SessionStatus::InTerminal {
             bail!("the session is open in a terminal: re-attach it first");
@@ -843,8 +869,19 @@ impl Sessions {
             self.hold_input(app, id, text, images).await?;
             return Ok(());
         }
-        anyhow::ensure!(s.open_question || s.status.is_running() || self.live(id).is_none_or(|l| l.ready_for_turn()), "Wait for outstanding commands to finish before starting another turn.");
-        if !s.launch_spec.allow_paid_usage && !crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()) {
+        anyhow::ensure!(
+            s.open_question
+                || s.status.is_running()
+                || self.live(id).is_none_or(|l| l.ready_for_turn()),
+            "Wait for outstanding commands to finish before starting another turn."
+        );
+        if !s.launch_spec.allow_paid_usage
+            && crate::harness::registration(s.harness)
+                .descriptor
+                .capabilities
+                .quota
+            && !crate::quota::available(&crate::quota::reading(app, s.harness), now_ms())
+        {
             self.sink(app, id).emit(EventBody::Notice { text: "Quota reading unavailable or stale; continuing with best-effort protection.".into() }).await;
         }
         let resumed = self.live(id).is_none();
@@ -900,7 +937,7 @@ impl Sessions {
         live.answer(request_id, answers.clone()).await?;
         let sink = self.sink(app, id);
         sink.emit(EventBody::AskAnswered { request_id: request_id.to_string(), answers }).await;
-        sink.set_open_question(false).await;
+        sink.set_open_question(live.has_open_questions()).await;
         sink.set_status(SessionStatus::Working).await;
         Ok(())
     }
@@ -969,6 +1006,7 @@ impl Sessions {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await?;
         let s = self.get(id).context("no such session")?;
+        anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.terminal, "This harness does not support a terminal TUI.");
         if let Some(t) = app.terminals.tui_of(id) {
             return app.terminals.list().into_iter().find(|i| i.id == t).context("no such terminal");
         }

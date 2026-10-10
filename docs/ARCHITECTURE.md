@@ -1,6 +1,6 @@
 # Launchpad architecture
 
-Status: Phase 0 done; Phases 1, 2, 2b, 3, 4, 5 and 6 built and awaiting their daily-use acceptance checks. Phase 7 is deferred after its 2026-10-03 implementation was reverted; its candidate ideas require a new scope before implementation. Main decisions confirmed (see [Decisions log](#17-decisions-log)). Companion documents: [ROADMAP.md](ROADMAP.md), the UI sketches in [design/sketches.html](design/sketches.html), and the spike notes in [spikes/](spikes/).
+Status: Phase 0 done; Phases 1, 2, 2b, 3, 4, 5 and 6 built and awaiting their daily-use acceptance checks. The scoped harness registry/OpenCode extension and integrated terminals are built. Other Phase 7 candidates remain deferred after the 2026-10-03 implementation was reverted and require a new scope before implementation. Main decisions confirmed (see [Decisions log](#17-decisions-log)). Companion documents: [ROADMAP.md](ROADMAP.md), the UI sketches in [design/sketches.html](design/sketches.html), and the spike notes in [spikes/](spikes/).
 
 ## 1. What Launchpad is
 
@@ -157,10 +157,10 @@ GitHub Actions runs Linux Clippy and UI type checks plus native debug tests on m
 | `sync` | Notification poller, prioritized on-demand refresh queue, prefetch |
 | `sessions` | Session registry, state machine, event log, input routing |
 | `terminals` | Integrated terminals: daemon-owned PTYs (`portable-pty`) running a login shell or a harness TUI, 1 MB in-memory output buffer each (see [13.1](#131-integrated-terminals)) |
-| `harness::{claude, codex}` | Harness adapters (see [9](#9-agent-sessions)) |
+| `harness` | Static registrations, adapter contract, native protocols and optional services (see [9](#9-agent-sessions)) |
 | `compose` | Turns a launch spec into a prompt and harness arguments |
 | `predraft` | Pre-draft PR records, worktrees, publish and discard flows |
-| `quota` | Harness versions, rate limits, Codex background update |
+| `status`, `quota` | Registry-keyed status and shared included-quota protection; native polling and updates live in adapters |
 | `events` | In-process broadcast bus. Every state change emits an event, forwarded to WebSocket clients |
 
 ### 6.3 API shape
@@ -411,7 +411,7 @@ Session titles are edited in the header: click the title to replace it with a te
 
 Each panel load of a non-running session (including a repeated click, startup and workspace switch) opens Summary. Running always shows the virtualized trace. A user-selected Trace stays selected through turn completion, with a thin state bar offering Final message (scrolls to the last assistant row) and Summary. The header retains its existing actions and adds Summary/Trace; the message box remains at the bottom and successful input or a structured answer selects Trace. No generated summary, free-text action parsing or harness output convention is used.
 
-The summary is one white column separated by thin lines and small uppercase headings: state band, Run, Task, Final message, Next steps. Task is the first saved user prompt, folded after four lines; the exact last assistant markdown folds after about 30 display lines and supports raw markdown and rendered text copies. Missing metadata is hidden. Run duration sums reported `turn_end.duration_ms` only when every recorded turn has a duration, and the count is recorded turn ends, excluding idle time and unrecorded unfinished turns. Tokens use recorded input/cache/output totals; cost is Claude-only. Launch context comes from the saved spec. The last Bash/Shell event supplies the command and its reported exit code. The read-only Git endpoint includes tracked differences against local `main` and commits absent from cached remote refs, with no fetch or claim about current remote state; binary line counts are hidden. Git’s existing panel adds a Compared with main mode for those tracked patches. Untracked files remain in Working tree.
+The summary is one white column separated by thin lines and small uppercase headings: state band, Run, Task, Final message, Next steps. Task is the first saved user prompt, folded after four lines; the exact last assistant markdown folds after about 30 display lines and supports raw markdown and rendered text copies. Missing metadata is hidden. Run duration sums reported `turn_end.duration_ms` only when every recorded turn has a duration, and the count is recorded turn ends, excluding idle time and unrecorded unfinished turns. Tokens use recorded input/cache/output totals; cost is the harness-reported cumulative USD amount when available, not a claim about billed PAYG spending. Launch context comes from the saved spec. The last Bash/Shell event supplies the command and its reported exit code. The read-only Git endpoint includes tracked differences against local `main` and commits absent from cached remote refs, with no fetch or claim about current remote state; binary line counts are hidden. Git’s existing panel adds a Compared with main mode for those tracked patches. Untracked files remain in Working tree.
 
 A stop request is kept in memory until the harness ends the turn, which then persists `stopped`. It stays Running while interrupt confirmation is pending, including silent commands. A restart during a pending stop is Interrupted. Reported failed turns use Error (displayed as Failed); a process exit without a failure is generically Interrupted. Restart detection records when the interruption was detected, rather than inventing the turn’s end time. Stopped/Error/Interrupted never satisfy the Done predicate. Next steps use only Git status, linked local pre-drafts, saved GitHub references, session state and structured questions. Opening a new pre-draft copies the session’s committed head through the existing cwd-based creation path; the UI remembers that source-session-to-pre-draft link in localStorage, so repeated opens return to that record. Uncommitted changes must be committed before the existing creation path can copy them. Unfinished Resume sends the visible action’s fixed instruction “Continue the unfinished turn.” in that session; archived Resume uses the existing re-attach action. Question choices use `/answer` while attached, or a new message with those structured questions and selected answers after a restart; multiple questions collect one choice each before sending.
 
@@ -441,28 +441,39 @@ The per-session Git panel only runs read-only commands against that session's sa
 
 Recent composer chips come from the launch specs of successfully launched sessions, newest first. They preserve project branches, GitHub references and file line references, skip selected contexts, and show at most six suggestions. Unsent edits and imported history do not feed these suggestions.
 
-### 9.2 Harness adapter interface
+### 9.2 Harness registration and adapter interface
+
+`harness::REGISTRATIONS` is the ordered source of truth for installed integrations. A registration provides a stable string ID, display name, SVG mark, color, running-input hint, capabilities, inherited environment markers, and an adapter factory. The daemon owns one adapter instance per registration. `HarnessKind` is a registered ID rather than a closed enum; JSON keeps the existing `claude` and `codex` strings and accepts `opencode`. Unknown API or stored IDs fail explicitly rather than selecting a different harness.
+
+`GET /api/harnesses` exports descriptors to React. The composer, status bar, history picker, session actions, image controls and subscription controls use metadata and capabilities. Status is keyed by harness ID. Optional capabilities are images, input while running, external history and its archived selector, integrated terminal handoff, and monitored subscription quotas. They describe this integration's support, not every feature of the upstream product. Quota conditions are rejected for integrations without native readings.
 
 ```rust
 #[async_trait]
 trait Harness: Send + Sync {
-    async fn start(&self, launch: &ResolvedLaunch, sink: EventSink) -> Result<Box<dyn LiveSession>>;
-    async fn resume(&self, session: &SessionRecord, sink: EventSink) -> Result<Box<dyn LiveSession>>;
-    async fn version(&self) -> Result<String>;
-    async fn models(&self) -> Result<Vec<ModelInfo>>;           // composer pickers
-    async fn defaults(&self) -> Result<ModelDefaults>;           // model + effort used when not overridden
-    async fn rate_limits(&self) -> Result<Option<RateLimits>>;
-    fn terminal_command(&self, session: &SessionRecord) -> std::process::Command;
-}
-
-#[async_trait]
-trait LiveSession: Send + Sync {
-    async fn send(&self, text: String) -> Result<()>;            // new turn, or steer while working
-    async fn interrupt(&self) -> Result<()>;
-    async fn answer(&self, request_id: String, answer: serde_json::Value) -> Result<()>;
-    async fn stop(&self) -> Result<()>;
+    async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>>;
+    async fn version(&self, app: &App) -> Result<String>;
+    async fn models(&self, app: &App) -> Result<Vec<ModelInfo>>; // optional
+    fn defaults(&self) -> (Option<String>, Option<String>);     // optional
+    fn efforts(&self) -> Vec<String>;                          // optional
+    fn spawn_services(&self, app: &App);                       // optional native monitors/updates
+    fn terminal_command(&self, session: &Session, is_temp: bool) -> Result<Vec<String>>;
+    fn terminal_env(&self, is_temp: bool) -> &'static [(&'static str, &'static str)];
+    fn terminal_resume_markers(&self) -> &'static [&'static str];
+    async fn history_list(&self, app: &App, cursor: Option<String>, archived: bool) -> Result<history::Page>;
+    async fn history_read(&self, app: &App, id: &str) -> Result<history::Snapshot>;
+    fn project_moved(&self, old: &str, new: &str);               // optional native history relocation
+    fn title_command(&self, app: &App, session: &Session, cwd: &Path) -> Option<Command>;
+    fn title_response(&self, stdout: String) -> Result<String>;
 }
 ```
+
+`start` handles both a new conversation and native resume through `StartSpec.resume` and its opaque native ID. `LiveSession` owns send (including images and delivery ID), interrupt, structured answer, stop, and the `turn_active`/`ready_for_turn` predicates. Adapters normalize into `Sink`; the host owns persistence, launch orchestration, scheduling, quota holds and publication guards. Done requires a completed turn and outstanding tools must remain busy. Tool-call events update metadata by item ID when a protocol fills it in after the initial pending event; they do not create duplicate trace cards. Native Codex RPC state and its thread router belong to its adapter, without process-wide session maps. Claude and Codex history parsing, quota parsing, polling, updates, terminal flags and auxiliary title requests also belong to their adapters.
+
+To add a harness, implement one module (with private helpers/assets if needed), then add its module declaration and registration in `harness/mod.rs`. No core, server or React identity dispatch is required. An ACP harness can reuse `harness::acp::start(command, spec, sink)` and only describe its executable, discovery and capabilities. [The adapter author guide](HARNESS_ADAPTERS.md) gives the integration checklist.
+
+OpenCode uses one `opencode acp` stdio JSON-RPC process per Launchpad session. The shared ACP v1 client negotiates initialization, creates or resumes native sessions, chooses models through config options (with the legacy model method as fallback), streams text/reasoning, tools, reported file-change previews, plans and usage, and renders permission requests as existing question cards. It waits for the prompt result after cancellation and for outstanding tools before leaving Running. Resume uses the negotiated resume extension or suppresses historical replay from `session/load` because the trace is already persisted locally. Transport failure closes pending requests and stops the unreachable process.
+
+OpenCode keeps its native configuration and authentication. Models come from `opencode models`; default model selection remains native. Follow-up messages wait for the current turn to finish; ACP steering, effort overrides and external history import are not exposed. Terminal handoff uses `opencode --session <native-id>`. Permission choices are supported; the adapter does not invent free-form question events that upstream ACP does not expose. OpenCode keeps prompt-based local titles, avoiding an extra model request. Subscription polling is not implemented for this integration: the launch and summary explain native provider billing, hide subscription-only controls, and show reported USD cost when available. This cost is not a spend ledger or a dollar-budget guarantee. Named variants, SSH transports, configurable env/logo/name, richer billing policy and per-session PAYG limits remain follow-ups; Pi is deliberately reserved as an integration exercise.
 
 ### 9.3 Claude Code adapter
 
@@ -878,6 +889,8 @@ Project metadata refresh, on 2026-10-04:
 65. **Explicit session state groups.** On 2026-10-10, removed the Archived catch-all. Interrupted, Failed and In terminal each have a separate virtualized, independently collapsible group after Stopped and before Done. Only `closed` sessions enter Archived; empty groups stay hidden and expansion persists per workspace.
 
 66. **Integrated terminals.** On 2026-10-10, implemented the owner-approved scope in `docs/integrated-terminal-plan.md` with its recommended options: a bottom dock in every view, terminals lost on daemon restart (no restart-safe workers), and harness TUIs that keep the session "In terminal" until Re-attach. The daemon owns `portable-pty` terminals with a 1 MB in-memory buffer and one WebSocket per viewer; output never uses the global bus. "Open in terminal" runs the TUI there, and the external terminal templates, the `[terminal]` config section and `/api/settings/terminals` are removed. A focused terminal is a new exception to the click-only rule. Replaces decisions 1 (embedded terminal part) and 9 and supersedes the terminal part of 44. See [13.1](#131-integrated-terminals).
+
+67. **Harness registration and OpenCode.** On 2026-10-10, selected a bounded first step of the harness plan: isolate native behavior behind a static Rust registry and adapter hooks, expose metadata/capabilities to the UI, and integrate OpenCode through a reusable ACP client. Preserve Claude/Codex subscription protection, show unsupported billing protection explicitly, and defer Pi, named variants, SSH and PAYG budgets.
 
 ## Remote access feasibility research (2026-10-10)
 

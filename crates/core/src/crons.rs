@@ -7,7 +7,7 @@ use ts_rs::TS;
 
 use crate::{
     App,
-    model::{HarnessKind, LaunchSpec, Session, Target},
+    model::{LaunchSpec, Session, Target},
     schedules::QuotaKind,
     status::HarnessStatus,
     util::now_ms,
@@ -185,7 +185,7 @@ pub async fn create(
     schedule: String,
     conditions: Vec<CronCondition>,
 ) -> Result<CronAgent> {
-    spec.harness.context("pick Claude Code or Codex")?;
+    let harness = spec.harness.context("pick a harness")?;
     if spec.target == Target::None {
         bail!("pick a project or a temporary folder");
     }
@@ -194,6 +194,7 @@ pub async fn create(
         bail!("the prompt is empty");
     }
     validate_conditions(&conditions)?;
+    validate_harness_conditions(harness, &conditions)?;
     let now = now_ms();
     let schedule = schedule.split_whitespace().collect::<Vec<_>>().join(" ");
     let next = next_after(&schedule, now)?;
@@ -236,6 +237,7 @@ pub async fn update(app: &App, id: &str, patch: CronPatch) -> Result<CronAgent> 
             r.schedule = s;
         }
         if let Some(c) = patch.conditions {
+            validate_harness_conditions(r.spec.harness.context("pick a harness")?, &c)?;
             r.conditions = c;
         }
         if let Some(p) = patch.paused {
@@ -306,12 +308,11 @@ async fn tick(app: &App, record: CronAgent) -> Result<()> {
         Ok(due.is_some_and(|d| now - d > MISSED_GRACE_MS))
     })
     .await?;
-    let harness = record.spec.harness.unwrap_or(HarnessKind::Claude);
-    let status = app.status.get();
-    let quota = match harness {
-        HarnessKind::Claude => status.claude,
-        HarnessKind::Codex => status.codex,
-    };
+    let harness = record
+        .spec
+        .harness
+        .context("cron has no registered harness")?;
+    let quota = crate::quota::reading(app, harness);
     let previous_running = record
         .runs
         .last()
@@ -362,4 +363,21 @@ pub fn spawn(app: &App) {
             }
         }
     });
+}
+
+fn validate_harness_conditions(
+    harness: crate::model::HarnessKind,
+    conditions: &[CronCondition],
+) -> Result<()> {
+    anyhow::ensure!(
+        crate::harness::registration(harness)
+            .descriptor
+            .capabilities
+            .quota
+            || !conditions
+                .iter()
+                .any(|c| matches!(c, CronCondition::QuotaLeft { .. })),
+        "This harness does not expose subscription quota readings"
+    );
+    Ok(())
 }

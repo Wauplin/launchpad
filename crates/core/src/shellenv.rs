@@ -63,13 +63,9 @@ impl UserEnv {
 }
 
 pub fn is_harness_marker(key: &str) -> bool {
-    key == "CLAUDECODE"
-        || key.starts_with("CLAUDE_CODE_")
-        || key == "CLAUDE_PID"
-        || key == "CLAUDE_EFFORT"
-        || key.starts_with("CODEX_THREAD")
-        || key == "CODEX_SANDBOX"
-        || key == "CODEX_SANDBOX_NETWORK_DISABLED"
+    crate::harness::REGISTRATIONS
+        .iter()
+        .any(|registration| (registration.environment_marker)(key))
 }
 
 fn is_executable(p: &std::path::Path) -> bool {

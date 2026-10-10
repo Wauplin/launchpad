@@ -7,7 +7,7 @@ import type { Usage } from "./Usage";
 
 export type Session = { id: string, harness: HarnessKind,
 /**
- * Claude session id (same as `id`) or Codex thread id.
+ * Opaque native conversation ID, interpreted only by its adapter.
  */
 harness_session_id: string | null, project_id: string | null, cwd: string, title: string, status: SessionStatus,
 /**

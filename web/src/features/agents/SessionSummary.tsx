@@ -1,3 +1,4 @@
+import { useHarnessInfo } from "@/components/HarnessMark";
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -108,7 +109,7 @@ export function SessionSummary({ session: s, rows, localPr, reviewDiff, showTrac
   const changes = git.data?.main_changes;
   const metadata: [string, ReactNode][] = [];
   if (turns.length) metadata.push(["Time", `${duration == null ? "" : `${Math.floor(duration / 60000)} min ${Math.round(duration / 1000) % 60} s · `}${turns.length} recorded ${turns.length === 1 ? "turn" : "turns"}`]);
-  if (s.harness === "claude" && s.usage.cost_usd != null) metadata.push(["Cost", `$${s.usage.cost_usd.toFixed(2)}${tokens ? ` · ${compact(tokens)} tokens` : ""}`]);
+  if (s.usage.cost_usd != null) metadata.push(["Reported cost", `$${s.usage.cost_usd.toFixed(2)}${tokens ? ` · ${compact(tokens)} tokens` : ""}`]);
   else if (tokens) metadata.push(["Tokens", compact(tokens)]);
   const contextShare = s.usage.context_tokens != null && s.usage.context_window ? `${Math.round(100 * s.usage.context_tokens / s.usage.context_window)}% context` : null;
   metadata.push(["Model", <span className="inline-flex flex-wrap items-center gap-2"><ModelSwitch session={s} />{contextShare}</span>]);
@@ -156,6 +157,7 @@ export function SessionSummary({ session: s, rows, localPr, reviewDiff, showTrac
 
 /** Shows whether this session may use paid credits after included quota, with a button to switch. `badge` only renders when paid usage is on. */
 export function PaidUsageToggle({ session: s, badge = false }: { session: Session; badge?: boolean }) {
+  const supportsQuota = useHarnessInfo(s.harness)?.capabilities.quota ?? false;
   const [busy, setBusy] = useState(false);
   const allow = s.launch_spec.allow_paid_usage;
   const set = async (value: boolean) => {
@@ -163,11 +165,12 @@ export function PaidUsageToggle({ session: s, badge = false }: { session: Sessio
     try { await api.post(`/api/sessions/${s.id}/paid-usage`, { allow: value }); } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   const off = <button className="btn btn-sm" disabled={busy} title="Pause this session at included quota limits again" onClick={() => void set(false)}>Use subscription only</button>;
+  if (!supportsQuota) return badge ? null : <span>Native provider billing settings apply. Subscription quotas are not monitored by Launchpad.</span>;
   if (badge) return allow ? <span className="inline-flex items-center gap-1.5 rounded bg-attn-soft px-1.5 py-0.5 font-semibold text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]">Paid usage on{off}</span> : null;
   return <span className="inline-flex flex-wrap items-center gap-2">{allow ? <><b className="text-attn">Allowed: additional credits may be used after included quota runs out</b>{off}</> : <>Subscription only: quota protection enabled (best effort)<button className="btn btn-sm" disabled={busy} title="Allow additional credits after included quota runs out. A quota-paused session still waits for Resume." onClick={() => void set(true)}>Allow paid usage</button></>}</span>;
 }
 
-/** Shows the model and effort of a launched session, with a menu to change them. Codex applies a change from the next turn; Claude restarts its idle process (or after the running turn) with `--resume`. */
+/** Model and supported effort choices come from the registered adapter. */
 export function ModelSwitch({ session: s }: { session: Session }) {
   const [busy, setBusy] = useState(false);
   const defaults = useHarnessDefaults(s.harness).data;
@@ -185,23 +188,23 @@ export function ModelSwitch({ session: s }: { session: Session }) {
   return <Popover
     width={300}
     trigger={({ toggle }) => <button className="btn btn-sm" disabled={busy || s.status === "in_terminal"} title="Change the model and effort of this session" onClick={toggle}>
-      {s.model ?? `Default model${defaults?.model ? ` (${defaults.model})` : ""}`} · {s.effort ?? `default effort${defaults?.effort ? ` (${defaults.effort})` : ""}`}<Icon name="chev" size={12} />
+      {s.model ?? `Default model${defaults?.model ? ` (${defaults.model})` : ""}`}{efforts.length > 0 && <> · {s.effort ?? `default effort${defaults?.effort ? ` (${defaults.effort})` : ""}`}</>}<Icon name="chev" size={12} />
     </button>}
   >
     {(close) => <>
       <div className="px-[9px] pt-1 text-[11px] font-semibold text-ink-3">Model</div>
       {s.model && !defaults?.models.some((m) => m.id === s.model) && <MenuItem label={s.model} detail="Current" active onClick={close} />}
       {(defaults?.models ?? []).map((m) => <MenuItem key={m.id} label={m.display_name || m.id} detail={`${m.id} · ${m.description}`} active={s.model === m.id} onClick={() => { close(); if (s.model !== m.id) pickModel(m.id); }} />)}
-      <div className="px-[9px] pt-2 text-[11px] font-semibold text-ink-3">Effort</div>
+      {efforts.length > 0 && <div className="px-[9px] pt-2 text-[11px] font-semibold text-ink-3">Effort</div>}
       {efforts.map((e) => <MenuItem key={e} label={e} active={s.effort === e} onClick={() => { close(); if (s.effort !== e) void set(s.model, e); }} />)}
-      <div className="px-[9px] py-1 text-[11px] text-ink-3">{s.harness === "codex" ? "Applies from the next turn." : "Claude restarts with --resume to apply it, after the running turn if any."}</div>
+      <div className="px-[9px] py-1 text-[11px] text-ink-3">Applies from the next turn. The harness may restart once idle.</div>
     </>}
   </Popover>;
 }
 
 export function QuotaBand({ session: s }: { session: Session }) {
   const [busy, setBusy] = useState(false);
-  const quota = useStatus().data?.[s.harness];
+  const quota = useStatus().data?.harnesses[s.harness];
   const p = s.quota_pause;
   if (!p) return null;
   const act = async (action: string) => {

@@ -78,7 +78,7 @@ export function rememberSuccessfulSession(session: Session) {
   }
 }
 
-let lastLaunch: Pick<LaunchSpec, "harness" | "model" | "effort"> = { harness: "claude", model: null, effort: null };
+let lastLaunch: Pick<LaunchSpec, "harness" | "model" | "effort"> = { harness: null, model: null, effort: null };
 
 export const useComposer = create<Composer>((set, get) => ({
   open: false,

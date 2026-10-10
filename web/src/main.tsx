@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { HarnessProvider } from "@/components/HarnessMark";
 import { router } from "@/app/router";
 import { logToDaemon } from "@/lib/api";
 import { connectEvents } from "@/lib/ws";
@@ -25,7 +26,7 @@ window.addEventListener("unhandledrejection", (e) => logToDaemon(`unhandled reje
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <HarnessProvider><RouterProvider router={router} /></HarnessProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

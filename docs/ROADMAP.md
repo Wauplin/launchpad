@@ -22,7 +22,7 @@ Status: implementation and acceptance tracker (updated 2026-10-10). See [ARCHITE
 | 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | In progress |
 | 5 | Workspace polish | Sessions are easy to find, inspect and resume, with summaries and same-session follow-ups | In progress |
 | 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | In progress |
-| 7 | Optional extensions requiring a new scope | Candidate ideas only; no selected implementation | Next |
+| 7 | Scoped optional extensions | Harness registry and OpenCode built; other candidates await selection | In progress |
 | 7a | Integrated terminal (scoped) | Shells and harness TUIs run in a dock inside Launchpad instead of external terminals | In progress |
 
 Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
@@ -243,15 +243,21 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 
 ## Phase 7: hardening and options
 
-Phase 7 is deferred. The implementation in commit `7b670af` was reverted on 2026-10-03 at the owner’s request because the phase was not well scoped. Restart survival and remote browser mode are no longer built features; integrated terminals were later rebuilt with their own scope (Phase 7a). The list below is a menu of candidates, not an approved implementation plan. Select and scope one item before doing further Phase 7 work; define its user need, ownership and recovery rules, non-goals, and acceptance check. Complete the outstanding Phases 1–6 acceptance checks and address correctness findings before expanding the scope.
+Other Phase 7 candidates are deferred. The implementation in commit `7b670af` was reverted on 2026-10-03 at the owner’s request because the phase was not well scoped. Restart survival and remote browser mode are no longer built features; integrated terminals were later rebuilt with their own scope (Phase 7a). The list below is a menu of candidates, not an approved implementation plan. Select and scope one item before doing further Phase 7 work; define its user need, ownership and recovery rules, non-goals, and acceptance check. Complete the outstanding Phases 1–6 acceptance checks and address correctness findings before expanding the scope.
 
 A [remote access and mobile feasibility report](research/remote-access/index.html), prepared on 2026-10-10, compares single-host VPS execution, a laptop relay, shared responsive UI and future Android packaging. Its staged scope and acceptance checks are proposals only; no candidate was selected or implemented.
+
+Owner-selected first step (2026-10-10): harness registration and OpenCode.
+
+- Built: stable registry IDs, adapter factories and lifecycle hooks; capabilities and assets returned to the UI; native discovery, quotas, titles, history, inherited markers and terminal behavior isolated in adapters; shared ACP client and OpenCode registration.
+- Acceptance: existing Claude/Codex behavior remains available, OpenCode launches and resumes through ACP with streamed events and cancellation, and another module can register without editing identity switches in core/server/React. Native CLI and isolated dev checks accompany this change; daily-use checks remain with the owner.
+- Deferred: Pi (the follow-up integration example), named variants/settings, SSH, billing ledgers and per-session PAYG dollar limits.
 
 Candidate ideas:
 
 - Sessions that survive daemon restarts (session shim, or Codex's shared app-server daemon).
 - Remote access through a tunnel and a browser.
-- Another harness (one adapter module).
+- Another harness (Pi as the next adapter-only integration exercise).
 - Inline review comments.
 - Optional inlining of cached GitHub threads in prompts.
 - Light editing in the code viewer (CodeMirror 6), if reading is not enough.

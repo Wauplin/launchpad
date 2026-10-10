@@ -127,7 +127,7 @@ async fn create_target(
         let s = app.sessions.get(id).context("no such session")?;
         format!("Follow-up · {}", s.title)
     } else {
-        spec.harness.context("pick Claude Code or Codex")?;
+        spec.harness.context("pick a harness")?;
         if spec.target == Target::None {
             bail!("pick a project or a temporary folder");
         }
@@ -174,11 +174,14 @@ async fn create_target(
                 None
             }
             LaunchDelay::Quota { harness, window } => {
-                let status = app.status.get();
-                let h = match harness {
-                    HarnessKind::Claude => status.claude,
-                    HarnessKind::Codex => status.codex,
-                };
+                anyhow::ensure!(
+                    crate::harness::registration(*harness)
+                        .descriptor
+                        .capabilities
+                        .quota,
+                    "This harness has no monitored subscription quota"
+                );
+                let h = crate::quota::reading(app, *harness);
                 if h.quota_error.is_some() || h.quota_at.is_none_or(|at| now - at > 15 * 60_000) {
                     bail!("quota reset is unavailable; wait for a fresh quota reading");
                 }
@@ -474,7 +477,7 @@ mod tests {
         r.conditions = vec![];
         assert!(!ready(&r, 100, |_| true));
         r.conditions = vec![LaunchDelay::Quota {
-            harness: HarnessKind::Codex,
+            harness: crate::harness::codex::ID,
             window: QuotaKind::FiveHour,
         }];
         r.ready_at = Some(101);
