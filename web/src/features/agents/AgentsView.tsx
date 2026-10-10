@@ -14,7 +14,7 @@ import { CronPane, cronSummary } from "./CronPane";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { Session } from "@/gen/Session";
 import { HarnessMark } from "@/components/HarnessMark";
-import { isRunning, isDone, isQuotaPaused } from "@/lib/sessionStatus";
+import { isRunning, isDone, isQuotaPaused, isStopped } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useCrons, useProjects, useSessions } from "@/lib/queries";
@@ -145,20 +145,21 @@ export function AgentsView() {
   const done = filtered.filter((s) => isDone(s)).sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)) || a.status_since - b.status_since);
   const running = filtered.filter((s) => isRunning(s)).sort(order);
   const quotaPaused = filtered.filter(isQuotaPaused).sort(order);
-  const archived = filtered.filter((s) => !isDone(s) && !isRunning(s) && !isQuotaPaused(s)).sort(order);
-  const items: ({ kind: "group"; title: AgentGroup; count: number; highlight?: boolean } | { kind: "session"; session: Session } | { kind: "schedule"; launch: ScheduledLaunch } | { kind: "cron"; cron: CronAgent } | { kind: "more" })[] = [
-    { kind: "group", title: "Cron", count: filteredCrons.length },
-    ...(collapsedGroups.Cron ? [] : filteredCrons).map((cron) => ({ kind: "cron" as const, cron })),
-    { kind: "group", title: "Scheduled", count: filteredSchedules.length },
-    ...(collapsedGroups.Scheduled ? [] : filteredSchedules).map((launch) => ({ kind: "schedule" as const, launch })),
-    { kind: "group", title: "Running", count: running.length },
-    ...(collapsedGroups.Running ? [] : running).map((session) => ({ kind: "session" as const, session })),
-    { kind: "group", title: "Quota paused", count: quotaPaused.length },
-    ...(collapsedGroups["Quota paused"] ? [] : quotaPaused).map((session) => ({ kind: "session" as const, session })),
-    { kind: "group", title: "Done", count: done.length, highlight: true },
-    ...(collapsedGroups.Done ? [] : done).map((session) => ({ kind: "session" as const, session })),
-    { kind: "group", title: "Archived", count: archived.length },
-    ...(collapsedGroups.Archived ? [] : archived.slice(0, archivedLimit)).map((session) => ({ kind: "session" as const, session })),
+  const stopped = filtered.filter(isStopped).sort(order);
+  const archived = filtered.filter((s) => !isDone(s) && !isRunning(s) && !isQuotaPaused(s) && !isStopped(s)).sort(order);
+  type Item = { kind: "group"; title: AgentGroup; count: number; highlight?: boolean } | { kind: "session"; session: Session } | { kind: "schedule"; launch: ScheduledLaunch } | { kind: "cron"; cron: CronAgent } | { kind: "more" };
+  // Groups with no items are not shown at all.
+  const group = (title: AgentGroup, rows: Item[], highlight?: boolean): Item[] => rows.length ? [{ kind: "group", title, count: rows.length, highlight }, ...(collapsedGroups[title] ? [] : rows)] : [];
+  const sessionRows = (list: Session[]) => list.map((session) => ({ kind: "session" as const, session }));
+  const items: Item[] = [
+    ...group("Cron", filteredCrons.map((cron) => ({ kind: "cron" as const, cron }))),
+    ...group("Scheduled", filteredSchedules.map((launch) => ({ kind: "schedule" as const, launch }))),
+    ...group("Running", sessionRows(running)),
+    ...group("Quota paused", sessionRows(quotaPaused)),
+    ...group("Stopped", sessionRows(stopped)),
+    ...group("Done", sessionRows(done), true),
+    ...(archived.length ? [{ kind: "group" as const, title: "Archived" as const, count: archived.length }] : []),
+    ...(collapsedGroups.Archived ? [] : sessionRows(archived.slice(0, archivedLimit))),
     ...(!collapsedGroups.Archived && archived.length > archivedLimit ? [{ kind: "more" as const }] : []),
   ];
   const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => items[i].kind === "session" || items[i].kind === "schedule" || items[i].kind === "cron" ? 68 : 34, getItemKey: (i) => items[i].kind === "session" ? items[i].session.id : items[i].kind === "schedule" ? items[i].launch.id : items[i].kind === "cron" ? `cron-${items[i].cron.id}` : items[i].kind === "group" ? `group-${items[i].title}` : "more-archived", overscan: 6, useFlushSync: false });

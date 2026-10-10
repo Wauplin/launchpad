@@ -375,14 +375,15 @@ A read-only viewer for the code of a project: file tree, tabs, syntax highlighti
 
 States are the same for every harness:
 
-The agent session groups are Running, Quota paused, Done and Archived (Cron and Scheduled remain separate):
+The agent session groups are Running, Quota paused, Stopped, Done and Archived (Cron and Scheduled remain separate). A group with no items is not shown at all:
 
 - **Done:** `waiting`, when a turn has finished or the agent asks for user input. It stays here until the next prompt or Archive. Closing its panel does not change its state.
 - **Running:** `starting`, `working` and `background`. Long commands stay Running even when they produce no output. Codex no longer uses a silence timer to change the session state.
 - **Quota paused:** `quota_paused`, between Running and Done. A protected session is held locally or interrupted when a reported included 5-hour or weekly quota reaches 100%. It never satisfies Done dependencies. Stop cancels its automatic continuation and moves it to Done; Resume with paid usage allows additional spending for the rest of that session and continues the pending input or interrupted task.
-- **Archived:** closed, stopped, interrupted, errored and externally attached sessions, as before. Archived conversations remain resumable. The separate Archive button stops the process and uses the existing `closed` state and `/close` endpoint; the header X only removes the session from the pane, including while Running.
+- **Stopped:** `stopped`, between Quota paused and Done. Sessions the owner stopped manually with Stop. They never count as Done and remain resumable.
+- **Archived:** closed, interrupted, errored and externally attached sessions, as before. Archived conversations remain resumable. The separate Archive button stops the process and uses the existing `closed` state and `/close` endpoint; the header X only removes the session from the pane, including while Running.
 
-Each group heading is a button with a chevron and an always-visible count. Groups start expanded and collapse independently; their collapse state is kept with the UI layout in `localStorage` across navigation and reloads. Hidden session rows and Archived’s Show more button are omitted from the virtualized list. Collapsing a group does not change session state or close an open pane.
+Each visible group heading is a button with a chevron and an always-visible count. Groups start expanded and collapse independently; their collapse state is kept with the UI layout in `localStorage` across navigation and reloads. Hidden session rows and Archived’s Show more button are omitted from the virtualized list. Collapsing a group does not change session state or close an open pane.
 
 The Agents sidebar item shows separate amber Done, outlined Quota paused and blue Running counts; a discreet spinner appears beside a nonzero Running count. Pinned projects show an amber dot when any associated session is Done and a spinner when any is Running, including both when applicable. Sessions match projects by project id or folder, so worktree sessions retain their project marker.
 
@@ -854,6 +855,8 @@ Project metadata refresh, on 2026-10-04:
 59. **Workspace navigation beside the brand.** On 2026-10-10, moved All projects and workspace buttons to the left beside Launchpad, before the page breadcrumb, while Launch stays at the right. Keep left-aligned wrapping and separate New window controls at narrow widths. This adjusts decision 52.
 
 60. **Combined workspace folder pins.** On 2026-10-10, renamed All projects to All workspaces and combined every workspace’s non-temporary sidebar folders with explicit global project pins. Shared projects appear once, sorted by name; the unfiltered view still includes every project and session.
+
+61. **Stopped agent group and hidden empty groups.** On 2026-10-10, manually stopped sessions moved out of Archived into their own Stopped group between Quota paused and Done; they never count as Done and remain resumable. Agent list groups with no items are no longer shown.
 
 ## Remote access feasibility research (2026-10-10)
 
