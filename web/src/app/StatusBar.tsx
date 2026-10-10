@@ -12,6 +12,7 @@ import { onConnectionChange } from "@/lib/ws";
 import { useSessions } from "@/lib/queries";
 import { isDone, isRunning, isQuotaPaused } from "@/lib/sessionStatus";
 import { useScope } from "@/lib/workspace";
+import { TerminalButton } from "@/features/terminals/TerminalDock";
 
 export function useStatus() {
   return useQuery({ queryKey: ["status"], queryFn: () => api.get<Status>("/api/status"), staleTime: Infinity });
@@ -98,6 +99,7 @@ export function StatusBar() {
               {update.busy ? <span className="text-teal-ink" title={update.data.stage}>{update.data.stage.startsWith("Waiting") ? "Waiting to update…" : "Updating…"}</span> : update.data.outdated && update.data.state !== "unavailable" && <button className="rounded border border-line px-1.5 text-teal-ink hover:bg-paper" onClick={() => update.start.mutate()} title="Build in the background; install once all agents stop">Update</button>}
               {update.data.state === "failed" && <span className="text-attn" title={`${update.data.message} See Settings → General for the log.`}>Update failed</span>}
             </span>}
+            <TerminalButton />
             {data.profile === "dev" && <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn">dev profile</span>}
             <span>
               {counts?.running ?? 0} running ·{" "}

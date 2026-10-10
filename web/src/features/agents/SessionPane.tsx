@@ -23,6 +23,7 @@ import { useSessionLogs } from "@/lib/sessionStore";
 import { buildRows } from "./rows";
 import { EventRow } from "./EventRow";
 import { StatusBadge, usageLine } from "./SessionBits";
+import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
 
 function act(id: string, action: string) {
   return api.post(`/api/sessions/${id}/${action}`).catch(toastError);
@@ -147,7 +148,10 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
-  const { pinned, togglePin } = useLayout();
+  const { pinned, togglePin, setDock } = useLayout();
+  const openTerminal = useOpenTerminal();
+  const tui = useTerminals().data?.find((t) => t.alive && t.kind === "tui" && t.session_id === sessionId);
+  const [reattaching, setReattaching] = useState(false);
   const dropImages = useRef<((files: File[]) => void) | null>(null);
   const [dragging, setDragging] = useState(false);
   const s = useSession(sessionId);
@@ -245,16 +249,26 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
             </button>
           )}
           {s.status === "in_terminal" ? (
-            <button className="btn btn-sm" title="Continue this session in Launchpad" onClick={() => void act(s.id, "resume")}>
-              Re-attach
-            </button>
+            tui && reattaching ? <>
+              <button className="btn btn-sm btn-primary" onClick={() => { setReattaching(false); void api.post(`/api/sessions/${s.id}/resume`, { close_terminal: true }).catch(toastError); }}>Close the TUI and re-attach</button>
+              <button className="btn btn-sm" onClick={() => setReattaching(false)}>Cancel</button>
+            </> : <>
+              {tui && <button className="btn btn-sm" title="Show the TUI in the terminal dock" onClick={() => setDock({ open: true, active: tui.id })}>Show TUI</button>}
+              <button className="btn btn-sm" title="Continue this session in Launchpad" onClick={() => (tui ? setReattaching(true) : void act(s.id, "resume"))}>
+                Re-attach
+              </button>
+            </>
           ) : (
             !running && s.status !== "quota_paused" && (
-              <button className="iconbtn" title="Open in terminal" onClick={() => void act(s.id, "open-terminal")}>
-                <Icon name="term" size={14} />
+              <button className="btn btn-sm" title={`Continue in the ${name} TUI, in an integrated terminal (outside quota protection)`} onClick={() => void openTerminal.tui(s.id)}>
+                Open in terminal
               </button>
             )
           )}
+          <button className="btn btn-sm" title={`Open a shell in ${s.cwd}`} onClick={() => void openTerminal.shell(s.cwd)}>
+            <Icon name="term" size={12} />
+            Terminal
+          </button>
           {s.project_id && (
             <button
               className="btn btn-sm"

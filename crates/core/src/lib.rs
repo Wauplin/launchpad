@@ -26,7 +26,7 @@ pub mod shellenv;
 pub mod status;
 pub mod quota;
 pub mod suggestions;
-pub mod terminal;
+pub mod terminals;
 mod titles;
 pub mod util;
 pub mod session_git;
@@ -56,6 +56,7 @@ pub struct App {
     pub inbox: inbox::Inbox,
     pub models: harness::ModelCache,
     pub predraft_lock: Arc<tokio::sync::Mutex<()>>,
+    pub terminals: terminals::Terminals,
 }
 
 impl App {
@@ -85,6 +86,7 @@ impl App {
             inbox: inbox::Inbox::new(),
             models: harness::ModelCache::default(),
             predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
+            terminals: terminals::Terminals::default(),
         };
         predrafts::link_skill()?;
         app.sessions.load(&app).await?;
@@ -124,7 +126,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     github::GhItem::export_all(&cfg)?;
     inbox::InboxSnapshot::export_all(&cfg)?;
     inbox::ThreadPreview::export_all(&cfg)?;
-    terminal::TerminalOption::export_all(&cfg)?;
+    terminals::TerminalInfo::export_all(&cfg)?;
     code::CodeSources::export_all(&cfg)?;
     code::FileList::export_all(&cfg)?;
     code::CodeFile::export_all(&cfg)?;

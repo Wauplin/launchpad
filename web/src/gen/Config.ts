@@ -3,7 +3,6 @@ import type { Agents } from "./Agents";
 import type { Commands } from "./Commands";
 import type { GitHub } from "./GitHub";
 import type { Preset } from "./Preset";
-import type { Terminal } from "./Terminal";
 
 export type Config = {
 /**
@@ -17,4 +16,4 @@ zoom: number,
 /**
  * Remove a clean pre-draft worktree after successful publication.
  */
-remove_published_worktree: boolean, commands: Commands, terminal: Terminal, github: GitHub, agents: Agents, presets: Array<Preset>, };
+remove_published_worktree: boolean, commands: Commands, github: GitHub, agents: Agents, presets: Array<Preset>, };

@@ -52,7 +52,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/resume-paid", post(resume_paid))
         .route("/api/sessions/{id}/paid-usage", post(set_paid_usage))
         .route("/api/sessions/{id}/model", post(set_model))
-        .route("/api/sessions/{id}/open-terminal", post(open_terminal))
+        .route("/api/sessions/{id}/terminal", post(open_terminal))
         .route("/api/sessions/{id}/task-output", get(task_output))
         .route("/api/inbox", get(inbox))
         .route("/api/inbox/sync", post(inbox_sync))
@@ -62,7 +62,6 @@ pub fn router() -> Router<Server> {
         .route("/api/inbox/{id}/reply", post(inbox_reply))
         .route("/api/gh/resolve", post(gh_resolve))
         .route("/api/gh/{owner}/{repo}/suggest", get(gh_suggest))
-        .route("/api/settings/terminals", get(terminals))
         .route("/api/settings/update", get(update_status).post(start_update))
         .route("/api/settings/update/install-lock", post(install_lock))
         .route("/api/open", post(open_url))
@@ -276,8 +275,11 @@ async fn close(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Val
     Ok(Json(json!({"ok": true})))
 }
 
-async fn resume(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
-    s.app.sessions.resume(&s.app, &id).await.map_err(bad)?;
+#[derive(Deserialize, Default)]
+struct Resume { #[serde(default)] close_terminal: bool }
+async fn resume(State(s): State<Server>, Path(id): Path<String>, body: Option<Json<Resume>>) -> ApiResult<Value> {
+    let close_terminal = body.map(|b| b.0.close_terminal).unwrap_or_default();
+    s.app.sessions.resume(&s.app, &id, close_terminal).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 
@@ -298,9 +300,8 @@ async fn set_model(State(s): State<Server>, Path(id): Path<String>, Json(b): Jso
     Ok(Json(s.app.sessions.set_model(&s.app, &id, b.model, b.effort).await.map_err(bad)?))
 }
 
-async fn open_terminal(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
-    s.app.sessions.open_terminal(&s.app, &id).await.map_err(bad)?;
-    Ok(Json(json!({"ok": true})))
+async fn open_terminal(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<launchpad_core::terminals::TerminalInfo> {
+    Ok(Json(s.app.sessions.open_terminal(&s.app, &id).await.map_err(bad)?))
 }
 
 #[derive(Deserialize)]
@@ -356,9 +357,6 @@ async fn gh_suggest(
 
 // ---------------------------------------------------------------- settings and desktop helpers
 
-async fn terminals(State(s): State<Server>) -> Json<Vec<launchpad_core::terminal::TerminalOption>> {
-    Json(launchpad_core::terminal::options(&s.app))
-}
 
 async fn update_status(State(s): State<Server>) -> ApiResult<Value> {
     // Cache the remote lookup: the status bar polls every five seconds.
@@ -392,7 +390,10 @@ async fn install_lock(State(s): State<Server>, Json(b): Json<InstallLock>) -> Ap
     if s.app.paths.profile != Profile::Prod {
         return Err(ApiError::bad_request("Installation is production-only."));
     }
-    Ok(Json(json!({"ready": s.app.sessions.prepare_install(b.release).await})))
+    Ok(Json(match s.app.sessions.prepare_install(&s.app, b.release).await {
+        Ok(()) => json!({"ready": true}),
+        Err(reason) => json!({"ready": false, "reason": reason}),
+    }))
 }
 
 async fn start_update(State(s): State<Server>) -> ApiResult<Value> {

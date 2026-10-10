@@ -297,6 +297,8 @@ fn idle(app: &App, p: &Predraft) -> Result<()> {
                 && (app.sessions.is_busy(s) || s.status == SessionStatus::InTerminal)),
         "the worktree has an active agent; wait for it to finish"
     );
+    let open = app.terminals.alive_in(&p.root).len();
+    ensure!(open == 0, "{open} terminal(s) are open in the worktree; close them first");
     Ok(())
 }
 pub async fn update(app: &App, id: &str, q: Patch) -> Result<Predraft> {

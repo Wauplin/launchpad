@@ -10,7 +10,8 @@ import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useAppUpdate } from "@/lib/app-update";
 import { ZOOM_LEVELS } from "@/lib/zoom";
-import { useConfig, useTerminals } from "@/lib/queries";
+import { useConfig } from "@/lib/queries";
+import { CloseAllTerminals } from "@/features/terminals/TerminalDock";
 
 export function Card({ title, end, children, id }: { title: string; end?: React.ReactNode; children: React.ReactNode; id?: string }) {
   return (
@@ -68,7 +69,6 @@ function UpdateControl() {
 
 export function SettingsView() {
   const q = useConfig();
-  const terminals = useTerminals().data ?? [];
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Config | null>(null);
   useEffect(() => {
@@ -128,41 +128,8 @@ export function SettingsView() {
         <Row title="Published pre-draft worktrees" hint="Keep the local worktree by default. Cleanup only removes clean worktrees after a successful publication.">
           <label className="flex items-center gap-2"><input type="checkbox" checked={draft.remove_published_worktree} onChange={(e) => set((c) => ({ ...c, remove_published_worktree: e.target.checked }))} />Remove after publishing</label>
         </Row>
-        <Row title="Terminal" hint='Used by "Open in terminal".'>
-          <div className="grid gap-1.5">
-            {terminals.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => set((c) => ({ ...c, terminal: { ...c.terminal, app: t.id } }))}
-                className={`grid grid-cols-[14px_1fr] items-start gap-[9px] rounded-[7px] border px-2.5 py-2 text-left ${draft.terminal.app === t.id ? "border-teal bg-[#F4FAF8]" : "border-line bg-paper"}`}
-              >
-                <span className={`mt-0.5 size-3.5 rounded-full ${draft.terminal.app === t.id ? "border-4 border-teal" : "border-[1.5px] border-ink-3"}`} />
-                <span className="grid min-w-0 gap-0.5 text-[12.5px]">
-                  <b className="font-[650]">
-                    {t.name} {t.found ? <span className="ml-1 text-[10.5px] text-gh-open">found</span> : <span className="ml-1 text-[10.5px] text-ink-3">not installed</span>}
-                  </b>
-                  <span className="font-mono text-[11px] break-all text-ink-2">{t.template}</span>
-                </span>
-              </button>
-            ))}
-            <button
-              onClick={() => set((c) => ({ ...c, terminal: { ...c.terminal, app: "custom" } }))}
-              className={`grid grid-cols-[14px_1fr] items-start gap-[9px] rounded-[7px] border px-2.5 py-2 text-left ${draft.terminal.app === "custom" ? "border-teal bg-[#F4FAF8]" : "border-line bg-paper"}`}
-            >
-              <span className={`mt-0.5 size-3.5 rounded-full ${draft.terminal.app === "custom" ? "border-4 border-teal" : "border-[1.5px] border-ink-3"}`} />
-              <span className="grid gap-0.5 text-[12.5px]">
-                <b className="font-[650]">Custom command</b>
-                <span className="text-[11.5px] text-ink-3">Any other terminal. Use {"{cwd}"} and {"{command}"} in the command, one argument per space.</span>
-              </span>
-            </button>
-            {draft.terminal.app === "custom" && (
-              <input
-                className="field-input font-mono text-xs"
-                value={draft.terminal.custom.join(" ")}
-                onChange={(e) => set((c) => ({ ...c, terminal: { ...c.terminal, custom: e.target.value.split(" ").filter(Boolean) } }))}
-              />
-            )}
-          </div>
+        <Row title="Terminals" hint="Integrated terminals run in the daemon. An update installs only once they are all closed.">
+          <CloseAllTerminals />
         </Row>
         <Row title="Editor" hint='Used by "Open in editor".'>
           <input className="field-input font-mono text-xs" value={draft.commands.editor} onChange={(e) => set((c) => ({ ...c, commands: { ...c.commands, editor: e.target.value } }))} />

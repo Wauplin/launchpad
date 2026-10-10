@@ -21,7 +21,7 @@ It is a single-user tool. Light theme only. Linux is the primary target, with ma
 2. **Launching an agent is the main action.** A minimal launch is three clicks plus the prompt. A rich launch uses the same flow with more chips. Both must feel natural.
 3. **The core does not depend on a harness.** Claude Code and Codex are adapters behind one session model. Adding a third harness means writing one adapter.
 4. **Local first, publish later.** Anything that would create noise on GitHub (pre-draft PRs, agent-written comments) stays local until you publish it. These objects share one color in the UI (teal).
-5. **Click only.** No keyboard shortcuts, at least at first, with one exception: `Ctrl+F` opens the find bar in the code viewer (see [8.1](#81-code-viewer)). Every action is a visible button where it is needed, and the UI should be good enough that shortcuts are not missed. Text fields only type text, with three exceptions: in the composer prompt, `@` and `#` at the start of a word open a suggestion list (projects, issues and PRs, see [9.7](#97-prompt-composition)); in the session message box `Enter` sends, `Shift+Enter` adds a new line and standard clipboard paste accepts images; in the find field of the code viewer, `Enter` and `Shift+Enter` go to the next and previous match and `Escape` closes the bar.
+5. **Click only.** No keyboard shortcuts, at least at first, with two exceptions: `Ctrl+F` opens the find bar in the code viewer (see [8.1](#81-code-viewer)), and a focused integrated terminal receives every key (see [13.1](#131-integrated-terminals)). Every action is a visible button where it is needed, and the UI should be good enough that shortcuts are not missed. Text fields only type text, with three exceptions: in the composer prompt, `@` and `#` at the start of a word open a suggestion list (projects, issues and PRs, see [9.7](#97-prompt-composition)); in the session message box `Enter` sends, `Shift+Enter` adds a new line and standard clipboard paste accepts images; in the find field of the code viewer, `Enter` and `Shift+Enter` go to the next and previous match and `Escape` closes the bar.
 6. **Owned and easy to extend.** A mainstream stack that coding agents handle well (Rust, React, TypeScript, Tailwind), configuration in a plain TOML file, GitHub payloads stored as JSON so new fields need no schema change.
 7. **Move fast, test little.** This is a personal project: speed of change matters more than protection against breakage. Most code has no tests. See [5.2](#52-testing).
 
@@ -31,7 +31,7 @@ It is a single-user tool. Light theme only. Linux is the primary target, with ma
 |---|---|---|
 | Process model | A background daemon (`launchpad daemon`, systemd on Linux, launchd on macOS, detached on Windows) plus a thin Tauri window | Agents keep running when the window is closed or the UI is rebuilt. The daemon is always warm, so the window opens instantly. The same server can later run on a remote machine. |
 | UI ↔ backend | HTTP + WebSocket on `127.0.0.1`. The Tauri window loads the UI from the daemon | One transport for desktop and future remote access. The frontend has no Tauri dependency and also runs in a normal browser. |
-| Agent integration | Structured protocols: `claude -p` with stream-json, `codex app-server` (JSON-RPC) | Launchpad renders the conversation itself: exact copy of messages, token and cost numbers, cards for questions. An "Open in terminal" button covers features that only exist in the TUI. |
+| Agent integration | Structured protocols: `claude -p` with stream-json, `codex app-server` (JSON-RPC) | Launchpad renders the conversation itself: exact copy of messages, token and cost numbers, cards for questions. "Open in terminal" runs the harness TUI in an integrated terminal for features that only exist there. |
 | Frontend | React + TypeScript + Vite, TanStack Query / Router / Virtual, Tailwind, Radix primitives | Largest ecosystem, and the stack that coding agents write best, which matters for a codebase you extend with agents. |
 | Storage | SQLite (WAL). `state.db` for your data, `cache.db` for GitHub data | The cache can be deleted and rebuilt on any schema change, so no migrations are needed for it. |
 | GitHub access | Token from `gh auth token`, direct REST + GraphQL calls from Rust | Much faster than spawning `gh` for each call. GraphQL fetches participants and PR details in batches. |
@@ -59,6 +59,7 @@ It is a single-user tool. Light theme only. Linux is the primary target, with ma
                           │  session manager ──▶ harness adapters                  │
                           │  GitHub client + sync        git service    projects   │
                           │  prompt composer             quota monitor  notifier   │
+                          │  integrated terminals (PTY, 1 WebSocket per viewer)    │
                           │  SQLite: state.db, cache.db  config.toml watcher       │
                           └────┬───────────────┬───────────────┬───────────────┬───┘
                                │               │               │               │
@@ -147,7 +148,7 @@ GitHub Actions runs Linux Clippy and UI type checks plus native debug tests on m
 
 | Module | Responsibility |
 |---|---|
-| `config` | Load and watch `config.toml`: presets, external commands (editor, terminal), poll intervals |
+| `config` | Load and watch `config.toml`: presets, external commands (editor, browser), poll intervals |
 | `projects` | Registry, discovery in the projects root, repo ↔ project mapping, temporary projects |
 | `workspace` | Workspaces (named sets of projects), new desktop windows (see [9.1.2](#912-workspaces)) |
 | `git` | Status, branches, worktrees, PR ref fetch, diff parsing into files/hunks/lines |
@@ -155,6 +156,7 @@ GitHub Actions runs Linux Clippy and UI type checks plus native debug tests on m
 | `github` | HTTP client (REST + GraphQL), ETag store, rate-limit tracking |
 | `sync` | Notification poller, prioritized on-demand refresh queue, prefetch |
 | `sessions` | Session registry, state machine, event log, input routing |
+| `terminals` | Integrated terminals: daemon-owned PTYs (`portable-pty`) running a login shell or a harness TUI, 1 MB in-memory output buffer each (see [13.1](#131-integrated-terminals)) |
 | `harness::{claude, codex}` | Harness adapters (see [9](#9-agent-sessions)) |
 | `compose` | Turns a launch spec into a prompt and harness arguments |
 | `predraft` | Pre-draft PR records, worktrees, publish and discard flows |
@@ -190,7 +192,10 @@ POST   /api/open-editor                         {path, line?}: VS Code and Curso
 POST   /api/launch/preview                      launch spec → rendered prompt, no side effect
 POST   /api/sessions                            launch spec → new session
 GET    /api/sessions    GET /api/sessions/{id}/events?after={seq}
-POST   /api/sessions/{id}/input|interrupt|answer|stop|resume|open-terminal
+POST   /api/sessions/{id}/input|interrupt|answer|stop|resume|terminal
+GET    /api/terminals   POST /api/terminals {cwd}   POST /api/terminals/close-all
+POST   /api/terminals/{id}/close   DELETE /api/terminals/{id}   (an exited terminal)
+GET    /api/terminals/{id}/ws                   one terminal: buffered then live output (binary), keystrokes (binary), resize (JSON)
 GET    /api/predrafts   POST /api/predrafts   PATCH /api/predrafts/{id}
 POST   /api/predrafts/{id}/publish|discard|feedback
 GET    /img?u={url}                             image proxy with disk cache
@@ -249,10 +254,6 @@ projects_root = "~/projects"        # discovery, temporary folders, worktrees
 editor = "code"
 browser = "xdg-open"
 
-[terminal]                          # used by "Open in terminal"
-app = "terminator"                  # terminator | ghostty | gnome-terminal | custom
-custom = ["kitty", "--directory", "{cwd}", "{command}"]   # only used when app = "custom"
-
 [github]
 poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
@@ -265,14 +266,7 @@ label = "worktree"
 text = "Please use a local git worktree and delete it once you're done."
 ```
 
-Settings → General edits the projects root, the terminal and the editor. For the terminal, it lists the terminals found on `PATH` and offers a custom command. Built-in templates:
-
-| Terminal | Command |
-|---|---|
-| Terminator (default) | `terminator --working-directory={cwd} -x {command}` |
-| Ghostty | `ghostty --working-directory={cwd} -e {command}` |
-| GNOME Terminal | `gnome-terminal --working-directory={cwd} -- {command}` |
-| Custom | the `custom` list, with `{cwd}` and `{command}` replaced |
+Settings → General edits the projects root and the editor. Terminals are integrated and have no setting; an old `[terminal]` section is ignored and dropped at the next save.
 
 ## 7. GitHub integration
 
@@ -345,7 +339,7 @@ Settings → General edits the projects root, the terminal and the editor. For t
 - **Repo → project mapping:** tells notifications, issues and PRs where to launch an agent and which local clone to use for diffs. For forks, the `upstream` remote is matched too.
 - **Temporary projects:**
   - Create: `<projects_root>/tmp-<MMDD>-<slug>`, where the slug comes from the first words of the prompt (for example `tmp-1002-xet-upload-bench`). Optional `git init` (setting). Registered with `is_temp = 1` and listed in a "Temporary" group with their age.
-  - Trust: headless modes show no trust prompt (`claude -p` skips the trust dialog; `codex app-server` does not prompt). For "Open in terminal", Codex gets `-c 'projects."<path>".trust_level="trusted"'`. The Claude TUI shows its trust dialog in a git repository whose root is not trusted, even under a trusted `~/projects` and even with `--dangerously-skip-permissions` ([spike 5](spikes/5-claude-trust-prompt.md)). For temporary projects, "Open in terminal" sets `CLAUDE_CODE_SANDBOXED=1` in the command's environment, which skips the dialog. Launchpad never writes `~/.claude.json`.
+  - Trust: headless modes show no trust prompt (`claude -p` skips the trust dialog; `codex app-server` does not prompt). For "Open in terminal" (the TUI in an integrated terminal), Codex gets `-c 'projects."<path>".trust_level="trusted"'`. The Claude TUI shows its trust dialog in a git repository whose root is not trusted, even under a trusted `~/projects` and even with `--dangerously-skip-permissions` ([spike 5](spikes/5-claude-trust-prompt.md)). For temporary projects, "Open in terminal" sets `CLAUDE_CODE_SANDBOXED=1` in the command's environment, which skips the dialog. Launchpad never writes `~/.claude.json`.
   - Clean up: one button stops the sessions running there, deletes the folder and unregisters it. The confirmation is part of the button (second click), not a dialog.
   - Promote: pick a name, the folder is renamed (by default the `tmp-<MMDD>-` prefix is dropped) and `is_temp` is cleared. Renaming is refused while a session runs there. Claude stores transcripts in a folder derived from the path (`~/.claude/projects/<encoded-path>/`), so promotion also moves that folder to keep past sessions resumable.
 
@@ -491,7 +485,7 @@ trait LiveSession: Send + Sync {
 - **Questions from the agent:** AskUserQuestion is only offered to the model when the host takes permission prompts (`--permission-prompt-tool stdio`). It then arrives as a `can_use_tool` control request (`requires_user_interaction: true`), rendered as a card. The answer is a `control_response` with `behavior: "allow"` and `updatedInput.answers` (question text → chosen label). All other tools still run without a request because of `--dangerously-skip-permissions`. Any other `can_use_tool` request is allowed automatically and logged.
 - **Resume:** the same command with `--resume <session-id>` instead of `--session-id <uuid>` (Claude refuses both together unless `--fork-session` is given).
 - **Model change:** a launched session can switch model and effort (`POST /api/sessions/{id}/model`). An idle Claude process is closed and resumed at once with `--resume` and the new `--model`/`--effort`; during a turn, a pending question or outstanding commands, the restart waits until the next turn starts. Verified in dev: the resumed conversation keeps its history.
-- **Open in terminal:** wait for `waiting`, close stdin (the process exits), then run the terminal chosen in Settings (see [6.5](#65-configuration-file)) with `claude --resume <id> --dangerously-skip-permissions` in the session cwd (plus `CLAUDE_CODE_SANDBOXED=1` for temporary projects, see [8](#8-projects)). The session shows "in terminal". "Re-attach" resumes it in Launchpad later. A session never has two live processes.
+- **Open in terminal:** wait for `waiting`, close stdin (the process exits), then start `claude --resume <id> --dangerously-skip-permissions` in an integrated terminal in the session cwd (plus `CLAUDE_CODE_SANDBOXED=1` for temporary projects, see [8](#8-projects); see [13.1](#131-integrated-terminals)). The session shows "in terminal" until the owner clicks "Re-attach", even after the TUI exits. Re-attach can close a TUI that is still running, after an inline confirmation. A session never has two live processes.
 - **Defaults:** without `--model` or `--effort`, Claude Code uses `~/.claude/settings.json` (today `model: opus[1m]`, `effortLevel: xhigh`). The composer reads that file and shows "Default (opus[1m] · xhigh)".
 - Subscription login works in print mode (OAuth). Do not use `--bare`: it disables OAuth.
 
@@ -504,7 +498,7 @@ trait LiveSession: Send + Sync {
 - **Long commands:** an open `commandExecution` stays Running until the turn finishes or Codex asks for user input. Silence is not a signal that the agent is Done.
 - **Server requests:** `item/tool/requestUserInput` becomes an `ask_user` card. Approval requests should not happen with `approvalPolicy: "never"`; if one arrives, it is declined automatically and logged.
 - **Resume after a restart:** `thread/resume {threadId}`.
-- **Open in terminal:** `codex resume <thread-id>` with `-c check_for_update_on_startup=false` and the trust override for the cwd.
+- **Open in terminal:** `codex resume <thread-id>` in an integrated terminal, with `-c check_for_update_on_startup=false` and the trust override for the cwd.
 - **Protocol types:** `codex app-server generate-json-schema` produces the full schema (104 client methods, 83 notifications in 0.159.3). Launchpad hand-writes Rust types for the subset it uses. After a Codex update, a small dev script regenerates the schema and lists the changes in the methods Launchpad uses. It is run by hand, not as a test.
 - **Option for later:** Codex now ships a shared local app-server daemon (`codex app-server daemon`, `codex agents`, `codex --remote unix://…`). Connecting to it instead of a private child process would let Codex threads survive Launchpad restarts and be attached from a terminal TUI. It is marked experimental, so it is not part of v1.
 
@@ -690,13 +684,25 @@ Local PR description cards use Add to local notes instead of a GitHub publicatio
 - **Layout:** left sidebar (Inbox, Agents, Projects, pinned projects, temporary projects, Settings; collapses to icons), main area, composer drawer on the right, status bar at the bottom.
 - **Harness marks:** the official Claude and Codex logos (SVG files in `web/src/assets/`) everywhere a harness appears: session lists, pane headers, status bar.
 - **Speed tactics:** render from cache; prefetch on selection; keep list views mounted so scroll position and selection survive navigation; optimistic actions; virtualized lists; every frequent action one click away.
-- **Click only:** no keyboard shortcuts except `Ctrl+F` in the code viewer (see principle 5). Frequent actions are visible buttons where they are used: hover actions on notification rows, a Launch button on every notification, issue, PR and project, Refresh and Open on GitHub on every cached object. Icon-only buttons have a hover title. Context is added to the composer with buttons, or with `@` and `#` suggestions in the prompt (see [9.7](#97-prompt-composition)).
+- **Click only:** no keyboard shortcuts except `Ctrl+F` in the code viewer (see principle 5); a focused integrated terminal sends every key to its process. Frequent actions are visible buttons where they are used: hover actions on notification rows, a Launch button on every notification, issue, PR and project, Refresh and Open on GitHub on every cached object. Icon-only buttons have a hover title. Context is added to the composer with buttons, or with `@` and `#` suggestions in the prompt (see [9.7](#97-prompt-composition)).
 - **WebKitGTK:** the Tauri webview on Linux is WebKit, not Chromium. Measured in [spike 4](spikes/4-webkitgtk.md): a virtualized 5,000-line diff and a 2,000-event session scroll at 60 fps on an idle machine. With all CPU threads busy (a large build), WebKitGTK drops to about 20 fps where Chrome stays at 60 fps, and mounting thousands of plain rows is about 14 times slower than in Chrome. Rules that follow: virtualize every long list, memoize row components, create virtualizers with `useFlushSync: false`, prefer fixed row heights, keep overscan small. The page `/dev/perf?auto=1` repeats the measurement. If the window renders blank with some GPU drivers, `WEBKIT_DISABLE_DMABUF_RENDERER=1` is the usual workaround. Because the UI is a plain web app, it can be developed in Chrome against the dev daemon, and switching the shell to Chromium (`--app=` mode) stays possible if scrolling during builds becomes a problem.
 
 ## 13. Desktop integration
 
 - Desktop notifications are sent by the daemon, so they work when the window is closed. Examples: "Claude is waiting in huggingface_hub", "Review requested: huggingface_hub#3420". Clicking one focuses the window on the item (`launchpad-desktop --open <route>`).
-- External apps are chosen in Settings → General (stored in `config.toml`, see [6.5](#65-configuration-file)): the terminal used by "Open in terminal" (Terminator by default; Ghostty, GNOME Terminal or a custom command), the editor (`code` by default; Cursor is also installed) and the browser (`xdg-open`).
+- External apps are chosen in Settings → General (stored in `config.toml`, see [6.5](#65-configuration-file)): the editor (`code` by default; Cursor is also installed) and the browser (`xdg-open`). Terminals are integrated (13.1).
+
+### 13.1 Integrated terminals
+
+- **Need:** use a shell or a harness TUI without leaving Launchpad. Scope and acceptance check: [integrated-terminal-plan.md](integrated-terminal-plan.md).
+- **Ownership:** the daemon starts and owns each terminal (`crates/core/src/terminals.rs`), a `portable-pty` child (ConPTY on Windows). Shells are `$SHELL -l` (`pwsh.exe` or `powershell.exe` on Windows) with the login-shell environment plus `TERM=xterm-256color`, `COLORTERM=truecolor` and `LAUNCHPAD_PROFILE`. At most 12 terminals run at once.
+- **Folders:** `POST /api/terminals` accepts a registered project, one of its git worktrees, or the folder of a session, like `code::open`. Opening one in a pre-draft worktree whose publication started is refused.
+- **Output:** a reader thread keeps the last 1 MB per terminal in memory. Each viewer has its own WebSocket (`/api/terminals/{id}/ws`): a `reset` control message, the buffered output, then live output as binary frames. A viewer that falls behind gets a new `reset` and snapshot instead of a gap. Keystrokes are binary frames and resizes are JSON text frames. The global bus only carries `terminals` list changes (opened, exited, removed), never output.
+- **Failure behavior:** restarting the daemon ends every terminal; nothing is stored in `state.db`. Close sends SIGHUP and SIGTERM to the process group (interactive shells ignore SIGTERM alone), then SIGKILL after 5 seconds; on Windows it kills the ConPTY child.
+- **Interactions:** pre-draft publication and cleanup wait until no terminal runs in the worktree. Temporary project cleanup and promotion close the terminals in the folder first. The updater install lock is refused with "N terminals are open" while any terminal runs, Settings → General has Close all terminals, and new terminals are blocked while an update installs. Harness TUIs are outside quota protection.
+- **UI** (`web/src/features/terminals/`): a bottom dock under the main area, with one tab per terminal of the current workspace (through its project or folder, `useScope()`), New terminal (in the folder on screen), Copy selection, Paste, Clear, S/M/L heights and Hide (processes keep running). The status bar Terminal button shows the count. Visibility, height and the active tab live in the persisted layout store. Entry points: project header, worktree rows, session header (Terminal and Open in terminal), pre-draft view and code viewer sidebar.
+- **Rendering:** `@xterm/xterm` with the DOM renderer (WebGL is unreliable in WebKitGTK), a light theme and 5,000 lines of scrollback. The interface zoom is CSS `zoom` on `<html>`, which breaks xterm.js mouse coordinates, so the terminal container sets `zoom: 1/scale` and the font is scaled instead.
+- **Keyboard:** a focused terminal receives every key, `Ctrl+C` and `Ctrl+F` included. The code viewer's `Ctrl+F` handler ignores keys from inside a terminal.
 
 ## 14. Security
 
@@ -718,7 +724,7 @@ The UI is already served by the daemon over HTTP and WebSocket. Remote access me
 | Claude stream-json output changes after an auto-update | Adapter breaks | Raw event log, so the normalizer can be fixed and re-run on recorded sessions; `claude install <version>` to pin a known-good version |
 | Claude usage endpoint is undocumented | Quota bar shows "unknown" | Fallback to `rate_limit_event`; isolated module |
 | `codex app-server` is marked experimental | Breaking protocol changes | Schema diff script after updates; version shown in the status bar |
-| TUI-only features are missing in headless sessions (slash commands, rewind, interactive pickers) | Some workflows still need the terminal | "Open in terminal" and "Re-attach" |
+| TUI-only features are missing in headless sessions (slash commands, rewind, interactive pickers) | Some workflows still need the TUI | "Open in terminal" (integrated terminal) and "Re-attach" |
 | No "mark as unread" API on GitHub | Launchpad and github.com disagree | Local override, documented in the UI |
 | WebKitGTK performance | Slow large diffs or long sessions | Virtualization, early measurement, Chromium shell as fallback |
 | Expiring image URLs in private repositories | Broken images | Image proxy with a disk cache, filled at sync time |
@@ -729,7 +735,7 @@ The UI is already served by the daemon over HTTP and WebSocket. Remote access me
 
 Confirmed on 2026-10-02:
 
-1. **Headless sessions.** Launchpad renders sessions itself. Losing TUI-only features is fine; "Open in terminal" is the escape hatch. No embedded terminal for now.
+1. **Headless sessions.** Launchpad renders sessions itself. Losing TUI-only features is fine; "Open in terminal" is the escape hatch. "No embedded terminal" is replaced by decision 66.
 2. **Background daemon.** The systemd user service with a thin Tauri window is the target architecture.
 3. **Agent groups.** Updated by decision 23: Done waits for input; Running includes background and long commands; Archived remains resumable (see [9.1](#91-session-model)).
 4. **Pre-draft PRs.** Launchpad creates the branch and worktree under `<projects_root>/.worktrees/` and links a `launchpad` skill into `~/.agents/skills`.
@@ -737,7 +743,7 @@ Confirmed on 2026-10-02:
 6. **Claude quota.** Launchpad may read the OAuth access token in `~/.claude/.credentials.json` to call the usage endpoint, never refreshing it.
 7. **Harness icons.** Harness marks use the Claude and Codex logos. Launch buttons open the composer directly (updated by decision 23).
 8. **Click-only UI.** No keyboard shortcuts, at least at first. Two typing behaviors only: `@` and `#` suggestions in the composer prompt (added on 2026-10-02, see [9.7](#97-prompt-composition)), and `Enter` to send in a session's message box. Shortcuts may be added later if they are really missed. Amended on 2026-10-02 by decision 22 (`Ctrl+F` in the code viewer).
-9. **Terminal is a setting.** "Open in terminal" uses the terminal chosen in Settings: Terminator by default, Ghostty, GNOME Terminal, or a custom command.
+9. **Terminal is a setting.** Replaced by decision 66: terminals are integrated and have no setting.
 10. **Minimal tests.** Move fast and break things. Test only small, specific parts that clearly benefit from it. No mocks, no tests that need a server, and the whole run takes a few seconds at most. Details in [5.2](#52-testing).
 
 Phase 0 spikes, on 2026-10-02 (notes in [docs/spikes/](spikes/)):
@@ -816,7 +822,7 @@ Phase 6 implementation, on 2026-10-03:
 
 Scope correction, on 2026-10-03:
 
-44. **Defer Phase 7 until an item is scoped.** Revert commit `7b670af`, including session workers, private session sockets, the embedded PTY/TUI and remote browser options. Keep the daemon-owned headless adapters, external terminal handoff and native resume from Phases 0–6. A daemon restart interrupts running turns; restart survival remains a future candidate. Phase 7 is an unselected options list, not a commitment to build several extensions together. Before selecting an item, define its user need, ownership and failure behavior, non-goals and acceptance check. Phases 1–6 still need their daily-use checks.
+44. **Defer Phase 7 until an item is scoped.** Revert commit `7b670af`, including session workers, private session sockets, the embedded PTY/TUI and remote browser options. Keep the daemon-owned headless adapters, external terminal handoff and native resume from Phases 0–6 (the external terminal handoff is superseded by decision 66). A daemon restart interrupts running turns; restart survival remains a future candidate. Phase 7 is an unselected options list, not a commitment to build several extensions together. Before selecting an item, define its user need, ownership and failure behavior, non-goals and acceptance check. Phases 1–6 still need their daily-use checks.
 
 Scheduled launch conditions, on 2026-10-03:
 
@@ -870,6 +876,8 @@ Project metadata refresh, on 2026-10-04:
 64. **Per-session model switch.** On 2026-10-10, made model and effort editable on launched sessions. Codex takes them per `turn/start`; Claude has no verified live control for both, so its idle process is restarted with `--resume`, deferred to the next turn while it works. The change updates the session, not its launch spec, so launch defaults still follow the latest successful launch.
 
 65. **Explicit session state groups.** On 2026-10-10, removed the Archived catch-all. Interrupted, Failed and In terminal each have a separate virtualized, independently collapsible group after Stopped and before Done. Only `closed` sessions enter Archived; empty groups stay hidden and expansion persists per workspace.
+
+66. **Integrated terminals.** On 2026-10-10, implemented the owner-approved scope in `docs/integrated-terminal-plan.md` with its recommended options: a bottom dock in every view, terminals lost on daemon restart (no restart-safe workers), and harness TUIs that keep the session "In terminal" until Re-attach. The daemon owns `portable-pty` terminals with a 1 MB in-memory buffer and one WebSocket per viewer; output never uses the global bus. "Open in terminal" runs the TUI there, and the external terminal templates, the `[terminal]` config section and `/api/settings/terminals` are removed. A focused terminal is a new exception to the click-only rule. Replaces decisions 1 (embedded terminal part) and 9 and supersedes the terminal part of 44. See [13.1](#131-integrated-terminals).
 
 ## Remote access feasibility research (2026-10-10)
 

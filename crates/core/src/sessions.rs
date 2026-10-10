@@ -200,17 +200,24 @@ impl Sessions {
         Ok(())
     }
 
-    pub async fn prepare_install(&self, release: bool) -> bool {
+    /// Reserves the daemon for an update installation, or says why it is busy.
+    pub async fn prepare_install(&self, app: &App, release: bool) -> std::result::Result<(), String> {
         let mut installing = self.inner.installing.lock().await;
         if release {
             *installing = false;
-            return true;
+            return Ok(());
         }
         if self.list().iter().any(|s| self.is_busy(s)) {
-            return false;
+            return Err("agents are running".into());
+        }
+        // Terminals open under the same lock (`allow_work`), so none can start after this check.
+        match app.terminals.alive_count() {
+            0 => {}
+            1 => return Err("1 terminal is open".into()),
+            n => return Err(format!("{n} terminals are open")),
         }
         *installing = true;
-        true
+        Ok(())
     }
 
     pub(crate) async fn installing(&self) -> bool {
@@ -625,7 +632,7 @@ impl Sessions {
             }
             self.detach(id).await;
         }
-        if s.launch_spec.harness.is_none() && crate::terminal::tui_running(app, &s) {
+        if s.launch_spec.harness.is_none() && crate::terminals::tui_running(app, &s) {
             bail!("This imported conversation is still running in another client. Finish it there first.");
         }
         let mut add_dirs = Vec::new();
@@ -925,14 +932,21 @@ impl Sessions {
     }
 
     /// Resumes a closed or interrupted session in Launchpad, without sending anything.
-    pub async fn resume(&self, app: &App, id: &str) -> Result<()> {
+    /// With `close_terminal`, an integrated terminal still running the session's TUI is closed first.
+    pub async fn resume(&self, app: &App, id: &str, close_terminal: bool) -> Result<()> {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await?;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(s.quota_pause.is_none(), "Use Resume with paid usage to continue a quota-paused session.");
         crate::predrafts::check_session_work(app, &s.cwd).await?;
-        if s.status == SessionStatus::InTerminal && crate::terminal::tui_running(app, &s) {
-            bail!("the session is still open in a terminal: close it there first");
+        if let Some(t) = app.terminals.tui_of(id) {
+            if !close_terminal {
+                bail!("the session is still open in an integrated terminal: close it first");
+            }
+            app.terminals.close_and_wait(&[t]).await?;
+        }
+        if s.status == SessionStatus::InTerminal && crate::terminals::tui_running(app, &s) {
+            bail!("the session is still open in another terminal: close it there first");
         }
         self.inner.quota_stops.lock().unwrap().remove(id);
         self.reattach(app, id).await?;
@@ -950,11 +964,14 @@ impl Sessions {
         Ok(())
     }
 
-    /// Hands the session to the terminal chosen in Settings.
-    pub async fn open_terminal(&self, app: &App, id: &str) -> Result<()> {
+    /// Hands the session to its harness TUI in an integrated terminal.
+    pub async fn open_terminal(&self, app: &App, id: &str) -> Result<crate::terminals::TerminalInfo> {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await?;
         let s = self.get(id).context("no such session")?;
+        if let Some(t) = app.terminals.tui_of(id) {
+            return app.terminals.list().into_iter().find(|i| i.id == t).context("no such terminal");
+        }
         crate::predrafts::check_session_work(app, &s.cwd).await?;
         if s.status.is_running() || s.quota_pause.is_some() {
             bail!("stop the session before opening it in a terminal; terminal sessions are outside quota protection");
@@ -969,15 +986,16 @@ impl Sessions {
             s.open_question = false;
         })
         .await?;
-        crate::terminal::open(app, &s).await?;
+        let terminal = app.terminals.open_tui(app, &s).await?;
         let sink = self.sink(app, id);
         sink.emit(EventBody::Notice { text: "Opened in the terminal".into() }).await;
         sink.set_status(SessionStatus::InTerminal).await;
-        Ok(())
+        Ok(terminal)
     }
 
-    /// Stops and forgets the sessions running in a folder (temporary project clean-up).
+    /// Stops and forgets the sessions and terminals running in a folder (temporary project clean-up).
     pub async fn close_in(&self, app: &App, path: &str) -> Result<()> {
+        app.terminals.close_in(path).await?;
         let ids: Vec<String> =
             self.list().into_iter().filter(|s| s.cwd == path || s.cwd.starts_with(&format!("{path}/"))).map(|s| s.id).collect();
         for id in ids {
@@ -989,6 +1007,7 @@ impl Sessions {
     }
 
     /// After a folder rename (promote): sessions in `old` now run in `new`.
+    /// Terminals there are closed by the caller before the rename.
     pub async fn move_cwd(&self, app: &App, old: &str, new: &str) -> Result<()> {
         let ids: Vec<String> = self.list().into_iter().filter(|s| s.cwd == old || s.cwd.starts_with(&format!("{old}/"))).map(|s| s.id).collect();
         for id in ids {

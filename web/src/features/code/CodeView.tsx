@@ -31,6 +31,7 @@ import { cachedTokens, highlight, type Tokens } from "./highlight";
 import { basename, dirname, findAll, githubUrl, lineRef, matcher, rawUrl, useCodeFile, useCodeFiles, useCodeSources, useCommit, type FindOpts } from "./lib";
 import { FilesPanel, FindToggles, SearchPanel } from "./SidePanel";
 import { sourceKey, useCode, type CodeSearch } from "./store";
+import { useOpenTerminal } from "@/features/terminals/lib";
 
 const MAX_COLORS_BYTES = 1024 * 1024;
 const MAX_COLORS_LINES = 20_000;
@@ -75,6 +76,7 @@ function Viewer({ project, root, rev, path, line }: { project: Project; root: st
   const openTab = useCode((s) => s.openTab);
   const closeTab = useCode((s) => s.closeTab);
   const [panel, setPanel] = useState<"files" | "search">("files");
+  const openTerminal = useOpenTerminal();
   const [searchState, setSearchState] = useState<{ q: string; opts: FindOpts }>({ q: "", opts: { case: false, word: false, regex: false } });
 
   const go = useCallback(
@@ -119,7 +121,13 @@ function Viewer({ project, root, rev, path, line }: { project: Project; root: st
     <div className="grid h-full grid-cols-[284px_minmax(0,1fr)]">
       <aside className="flex min-h-0 min-w-0 flex-col border-r border-line bg-paper">
         <div className="grid grid-cols-[minmax(0,1fr)] gap-2 px-2.5 pt-2.5 pb-1">
-          <SourcePicker project={project} root={root} rev={rev} path={path} />
+          <div className="flex min-w-0 gap-1.5">
+            <div className="min-w-0 flex-1"><SourcePicker project={project} root={root} rev={rev} path={path} /></div>
+            <button className="btn h-[34px]!" title={`Open a shell in ${root}`} onClick={() => void openTerminal.shell(root)}>
+              <Icon name="term" size={14} />
+              Terminal
+            </button>
+          </div>
           <span className="inline-flex gap-0.5 rounded-lg bg-sunk p-0.5">
             {(["files", "search"] as const).map((p) => (
               <button
@@ -301,6 +309,8 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
   // Ctrl+F while the viewer is on screen: the only keyboard shortcut in Launchpad (decision 22).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A focused terminal gets every key, Ctrl+F included.
+      if (e.target instanceof Element && e.target.closest(".xterm")) return;
       if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         if (isText) openFind();

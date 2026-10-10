@@ -1,4 +1,4 @@
-//! Child processes started by the daemon: harnesses, git, terminals.
+//! Child processes started by the daemon: harnesses and git. Integrated terminals use a PTY (`terminals.rs`).
 
 use std::path::Path;
 

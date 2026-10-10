@@ -166,7 +166,7 @@ pub async fn open(app: &App, root: &str, rev: Option<&str>) -> Result<Source> {
 
 /// The main checkout of a linked worktree, checked against git's own records: the worktree's `.git`
 /// file points to `<main>/.git/worktrees/<name>`, whose `gitdir` file points back to the worktree.
-fn main_worktree(root: &Path) -> Option<PathBuf> {
+pub(crate) fn main_worktree(root: &Path) -> Option<PathBuf> {
     let dir = crate::git::git_dir(root)?;
     let back = std::fs::read_to_string(dir.join("gitdir")).ok()?;
     if std::fs::canonicalize(back.trim()).ok()? != std::fs::canonicalize(root.join(".git")).ok()? {

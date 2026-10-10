@@ -2,6 +2,7 @@ import { Outlet } from "@tanstack/react-router";
 import { IconSprite } from "@/components/Icon";
 import { Toasts } from "@/components/Toast";
 import { Composer } from "@/features/launch/Composer";
+import { TerminalDock } from "@/features/terminals/TerminalDock";
 import { useConfig } from "@/lib/queries";
 import { useLayoutEffect } from "react";
 import { zoomScale } from "@/lib/zoom";
@@ -20,9 +21,12 @@ export function Shell() {
       <TopBar />
       <div className="flex min-h-0 flex-1">
         <Sidebar />
-        <main className="relative min-w-0 flex-1 overflow-hidden bg-paper">
-          <Outlet />
-        </main>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-paper">
+            <Outlet />
+          </main>
+          <TerminalDock />
+        </div>
         <Composer />
       </div>
       <StatusBar />

@@ -8,7 +8,6 @@ import type { HarnessKind } from "@/gen/HarnessKind";
 import type { Project } from "@/gen/Project";
 import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
-import type { TerminalOption } from "@/gen/TerminalOption";
 import { api } from "./api";
 
 export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: () => api.get<Project[]>("/api/projects"), staleTime: Infinity });
@@ -35,8 +34,6 @@ export const useHarnessDefaults = (h: HarnessKind | null) =>
     enabled: !!h,
     staleTime: 60_000,
   });
-
-export const useTerminals = () => useQuery({ queryKey: ["terminals"], queryFn: () => api.get<TerminalOption[]>("/api/settings/terminals") });
 
 export function projectName(projects: Project[] | undefined, id: string | null, cwd?: string) {
   return projects?.find((p) => p.id === id)?.name ?? cwd?.split("/").pop() ?? "";

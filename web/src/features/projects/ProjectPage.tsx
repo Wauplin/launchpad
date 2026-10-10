@@ -15,6 +15,7 @@ import { api } from "@/lib/api";
 import { useProject, useSessions } from "@/lib/queries";
 import { useLayout } from "@/stores/layout";
 import { useNavigate } from "@tanstack/react-router";
+import { useOpenTerminal } from "@/features/terminals/lib";
 import { Description, TempProjectCard } from "./ProjectsView";
 
 export function ProjectPage() {
@@ -22,6 +23,7 @@ export function ProjectPage() {
   const p = useProject(id);
   const sessions = (useSessions().data ?? []).filter((s) => s.project_id === id);
   const worktrees = (useCodeSources(p?.id).data?.worktrees ?? []).filter((w) => !w.main);
+  const terminal = useOpenTerminal();
   if (!p) return <div className="p-6 text-ink-3">This project is not registered.</div>;
   return (
     <div className="h-full overflow-y-auto">
@@ -43,6 +45,10 @@ export function ProjectPage() {
               <Icon name="search" size={14} />
               Code
             </Link>
+            <button className="btn" title={`Open a shell in ${p.path}`} onClick={() => void terminal.shell(p.path)}>
+              <Icon name="term" size={14} />
+              Terminal
+            </button>
             <button className="btn" title="Open in editor" onClick={() => void api.post("/api/open-editor", { path: p.path })}>
               <Icon name="file" size={14} />
               Editor
@@ -66,6 +72,10 @@ export function ProjectPage() {
                     <Icon name="search" size={12} />
                     Code
                   </Link>
+                  <button className="btn btn-sm" title={`Open a shell in ${w.path}`} onClick={() => void terminal.shell(w.path)}>
+                    <Icon name="term" size={12} />
+                    Terminal
+                  </button>
                 </div>
               ))}
             </div>

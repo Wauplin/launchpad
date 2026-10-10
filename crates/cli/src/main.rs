@@ -183,7 +183,10 @@ async fn main() -> Result<()> {
                 .send().await?.error_for_status()?.json().await?;
             match body["ready"].as_bool() {
                 Some(true) => {}
-                Some(false) => std::process::exit(3),
+                Some(false) => {
+                    eprintln!("Launchpad is busy: {}", body["reason"].as_str().unwrap_or("agents are running"));
+                    std::process::exit(3)
+                }
                 None => anyhow::bail!("invalid installation reservation response"),
             }
             Ok(())

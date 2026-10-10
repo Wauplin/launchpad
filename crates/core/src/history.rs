@@ -195,7 +195,7 @@ pub async fn import(app: &App, harness: HarnessKind, id: &str) -> Result<Session
                     .context("transcript not found")?;
                 anyhow::ensure!(
                     std::fs::metadata(&path)?.len() <= 64 * 1024 * 1024,
-                    "Transcript exceeds 64 MB; open it in the terminal."
+                    "Transcript exceeds 64 MB; use Open in terminal to continue it in the harness TUI."
                 );
                 let candidate = claude_candidate(&path).context("missing transcript metadata")?;
                 let mut events = vec![];

@@ -11,6 +11,7 @@ import { FilesChanged } from "@/features/github/FilesChanged";
 import { Markdown } from "@/components/Markdown";
 import { LocalSuggestions } from "@/features/suggestions/Suggestions";
 import { useComposer } from "@/stores/composer";
+import { useOpenTerminal } from "@/features/terminals/lib";
 import { useLayout } from "@/stores/layout";
 type Detail = Diff & { predraft: Predraft; status: string | null; commits: string[]; base_ahead: number; dirty: boolean; default_remote_branch: string };
 export function PredraftView() {
@@ -21,6 +22,7 @@ function Review({ id }: { id: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const show = useLayout((s) => s.show);
+  const terminal = useOpenTerminal();
   const q = useQuery({ queryKey: ["predrafts", id], queryFn: () => api.get<Detail>(`/api/predrafts/${id}`) });
   const p = q.data?.predraft;
   const [editing, setEditing] = useState(false);
@@ -84,6 +86,7 @@ function Review({ id }: { id: string }) {
         {active && !p.pushed_head && !p.session_id && <button className="btn btn-sm" disabled={busy} onClick={() => { useComposer.getState().start({ projectId: p.project_id }); useComposer.getState().update((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: p.id }, text: `Continue this local PR: ${p.title}` })); }}>Launch agent</button>}
         {p.session_id && <button className="btn btn-sm" onClick={() => { show(p.session_id!); void navigate({ to: "/agents" }); }}>Agent session</button>}
         {!p.archived && <Link className="btn btn-sm no-underline" to="/projects/$id/code" params={{ id: p.project_id }} search={{ root: p.root }}>Code</Link>}
+        {!p.archived && <button className="btn btn-sm" title={`Open a shell in ${p.root}`} onClick={() => void terminal.shell(p.root)}>Terminal</button>}
       </div>
       <h2 className="my-2 text-lg font-semibold">{p.title}</h2>
       {p.published_url && <button className="text-teal-ink hover:underline" onClick={() => openGitHub(p.published_url!)}>Published on GitHub #{p.published_number}</button>}

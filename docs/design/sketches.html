@@ -722,6 +722,7 @@ footer.end code { font: 12.5px var(--font-mono); }
     <a href="#s6"><b>S6</b>Settings, temp folders, quotas</a>
     <a href="#s7"><b>S7</b>Code viewer</a>
     <a href="#s8"><b>S8</b>Session summary</a>
+    <a href="#s9"><b>S9</b>Terminal dock</a>
   </nav>
 </header>
 
@@ -1454,14 +1455,7 @@ Context:
         <div class="fb">
           <div class="setrow"><div class="sl"><b>Zoom</b><span>Scale the entire interface.</span></div><div><input type="range" min="0" max="4" step="1" value="2" aria-label="Zoom size"><div>100% · 110% · <b>120% (default)</b> · 135% · 150%</div></div></div>
           <div class="setrow"><div class="sl"><b>Projects root</b><span>Where projects are found, and where temporary folders and worktrees are created.</span></div><div class="field-i">~/projects</div></div>
-          <div class="setrow"><div class="sl"><b>Terminal <i class="pin">4</i></b><span>Used by "Open in terminal".</span></div>
-            <div class="radios">
-              <div class="radio on"><span class="rb"></span><div><b>Terminator <span class="found">found</span></b><span class="mono">terminator --working-directory={cwd} -x {command}</span></div></div>
-              <div class="radio"><span class="rb"></span><div><b>Ghostty <span class="found">found</span></b><span class="mono">ghostty --working-directory={cwd} -e {command}</span></div></div>
-              <div class="radio"><span class="rb"></span><div><b>GNOME Terminal <span class="found">found</span></b><span class="mono">gnome-terminal --working-directory={cwd} -- {command}</span></div></div>
-              <div class="radio"><span class="rb"></span><div><b>Custom command</b><span class="faint">Any other terminal. Use {cwd} and {command} in the command.</span></div></div>
-            </div>
-          </div>
+          <div class="setrow"><div class="sl"><b>Terminals <i class="pin">4</i></b><span>Integrated terminals run in the daemon. An update installs only once they are all closed.</span></div><div>2 terminals are open. <span class="btn sm">Close all terminals</span></div></div>
           <div class="setrow"><div class="sl"><b>Editor</b><span>Used by "Open in editor".</span></div><div class="select">VS Code <span class="def">· code</span><svg class="ic sm"><use href="#i-chev"/></svg></div></div>
         </div>
       </div>
@@ -1498,7 +1492,7 @@ Context:
     <li><i class="pin">1</i><span><b>Presets editor.</b> A label and a sentence per preset. Add, edit, delete, reorder. Only the three presets you listed exist at first.</span></li>
     <li><i class="pin">2</i><span><b>Temporary projects.</b> They live in the projects root (<code>~/projects</code> by default, configurable). Promote renames the folder and keeps its sessions resumable. Delete asks for a second click on the same button instead of a dialog.</span></li>
     <li><i class="pin">3</i><span><b>Quota detail.</b> Clicking the status bar shows both windows with exact reset times and the update state of each harness. Codex numbers are real values read from <code>codex app-server</code> on 2 October.</span></li>
-    <li><i class="pin">4</i><span><b>General settings.</b> The projects root (<code>~/projects</code> by default), the terminal used by "Open in terminal" (Terminator by default, Ghostty, GNOME Terminal, or any terminal through a custom command) and the editor. Terminals installed on the machine are marked "found".</span></li>
+    <li><i class="pin">4</i><span><b>General settings.</b> The projects root (<code>~/projects</code> by default) and the editor. Terminals are integrated (S9) and have no setting; Close all terminals stops every terminal, for example so a waiting update can install.</span></li>
   </ol>
 </section>
 
@@ -1978,6 +1972,39 @@ info.xetRefreshToken = await issueXetToken(repo, user);
     <li><span><b>One panel size.</b> The agents page shows one session at a time, so there is no compact version for small panes.</span></li>
   </ol>
 
+</section>
+
+<!-- ======================= S9 TERMINAL DOCK ======================= -->
+<section class="sketch" id="s9">
+  <div class="sketch-head">
+    <span class="sketch-id">S9 · Terminal dock</span>
+    <h2>A shell or a harness TUI without leaving Launchpad</h2>
+    <p>Terminals open in a dock under the main area, in every view. The daemon owns their processes, so Hide keeps them running and restarting the daemon ends them. Tabs show the terminals of the current workspace. Open one with a Terminal button on a project, a worktree row, a session, a pre-draft or the code viewer, or with New terminal in the dock; "Open in terminal" in a session header runs the Claude or Codex TUI here.</p>
+  </div>
+  <div class="frame">
+    <div class="frag" role="img" aria-label="Terminal dock mockup">
+      <div class="fh" style="flex-wrap:wrap;gap:6px">
+        <span class="btn sm" style="border-color:var(--teal,#16766C)"><svg class="ic sm"><use href="#i-term"/></svg>launchpad · main <span style="color:#1A7F37">running</span> ✕</span>
+        <span class="btn sm"><svg class="ic sm"><use href="#i-term"/></svg><b style="color:#0D7266">TUI</b>&nbsp;Fix upload retries <span class="faint">exited 0</span> ✕</span>
+        <i class="pin">1</i>
+        <span class="end" style="display:inline-flex;gap:4px"><span class="btn sm">New terminal</span><span class="btn sm">Copy selection</span><span class="btn sm">Paste</span><span class="btn sm">Clear</span><span class="btn sm">S</span><span class="btn sm" style="background:#E6EEF6">M</span><span class="btn sm">L</span><span class="btn sm">Hide</span><i class="pin">2</i></span>
+      </div>
+      <div class="fb mono" style="background:#fff;font-size:12px;line-height:1.5;min-height:150px">
+        <div><span style="color:#1A7F37">➜</span> <span style="color:#0D7266">launchpad</span> <span style="color:#1F63B0">git:(</span><span style="color:#B42318">main</span><span style="color:#1F63B0">)</span> cargo test -q</div>
+        <div>running 11 tests</div>
+        <div>...........</div>
+        <div>test result: <span style="color:#1A7F37">ok</span>. 11 passed; 0 failed</div>
+        <div><span style="color:#1A7F37">➜</span> <span style="color:#0D7266">launchpad</span> <span style="color:#1F63B0">git:(</span><span style="color:#B42318">main</span><span style="color:#1F63B0">)</span> ▏ <i class="pin">3</i></div>
+      </div>
+      <div class="fh" style="justify-content:flex-end;gap:8px"><span class="faint">Claude 2.1 · Codex 0.162 · …</span><span class="btn sm"><svg class="ic sm"><use href="#i-term"/></svg>Terminal · 1</span><i class="pin">4</i></div>
+    </div>
+  </div>
+  <ol class="notes">
+    <li><i class="pin">1</i><span><b>Tabs.</b> Title (project · branch, or the session title for a TUI), status (running or "exited N") and Close. Close stops a running process; on an exited terminal it removes the tab.</span></li>
+    <li><i class="pin">2</i><span><b>Visible buttons.</b> New terminal opens a shell in the folder on screen. Copy selection, Paste and Clear act on the active tab. S, M and L set the height instead of a drag handle. Hide keeps the processes running.</span></li>
+    <li><i class="pin">3</i><span><b>Keys go to the process.</b> A focused terminal receives every key, <code>Ctrl+C</code> and <code>Ctrl+F</code> included; it is the documented exception to the click-only rule. The output keeps the last 1 MB and reappears after a reload or in another window.</span></li>
+    <li><i class="pin">4</i><span><b>Status bar.</b> The Terminal button shows how many terminals run in the workspace and shows or hides the dock. Visibility, height and the active tab are remembered.</span></li>
+  </ol>
 </section>
 
 <footer class="end">

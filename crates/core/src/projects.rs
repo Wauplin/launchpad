@@ -302,6 +302,8 @@ pub async fn promote(app: &App, id: &str, name: &str) -> Result<Project> {
     if new.exists() {
         bail!("{} already exists", new.display());
     }
+    // A shell would keep running in the renamed folder under its old path.
+    app.terminals.close_in(&old.to_string_lossy()).await?;
     std::fs::rename(&old, &new).with_context(|| format!("rename to {}", new.display()))?;
     let (old_s, new_s) = (old.to_string_lossy().to_string(), new.to_string_lossy().to_string());
     let (old_t, new_t) = (claude_transcripts_dir(&old_s), claude_transcripts_dir(&new_s));

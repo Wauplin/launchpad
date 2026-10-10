@@ -22,7 +22,6 @@ pub struct Config {
     /// Remove a clean pre-draft worktree after successful publication.
     pub remove_published_worktree: bool,
     pub commands: Commands,
-    pub terminal: Terminal,
     pub github: GitHub,
     pub agents: Agents,
     pub presets: Vec<Preset>,
@@ -33,15 +32,6 @@ pub struct Config {
 pub struct Commands {
     pub editor: String,
     pub browser: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
-#[serde(default)]
-pub struct Terminal {
-    /// `terminator`, `ghostty`, `gnome-terminal` or `custom`.
-    pub app: String,
-    /// Only used when `app = "custom"`. `{cwd}` and `{command}` are replaced.
-    pub custom: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
@@ -72,7 +62,6 @@ impl Default for Config {
             zoom: 2,
             remove_published_worktree: false,
             commands: Commands::default(),
-            terminal: Terminal::default(),
             github: GitHub::default(),
             agents: Agents::default(),
             presets: vec![
@@ -86,15 +75,6 @@ impl Default for Config {
 impl Default for Commands {
     fn default() -> Self {
         Commands { editor: "code".into(), browser: if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer.exe" } else { "xdg-open" }.into() }
-    }
-}
-
-impl Default for Terminal {
-    fn default() -> Self {
-        Terminal {
-            app: if cfg!(target_os = "macos") { "terminal" } else if cfg!(windows) { "windows-terminal" } else { "terminator" }.into(),
-            custom: vec!["kitty".into(), "--directory".into(), "{cwd}".into(), "{command}".into()],
-        }
     }
 }
 
@@ -119,10 +99,6 @@ remove_published_worktree = false   # keep local PR worktrees after publication
 [commands]
 editor = "code"
 browser = "xdg-open"
-
-[terminal]                          # used by "Open in terminal"
-app = "terminator"                  # terminator | ghostty | gnome-terminal | custom
-custom = ["kitty", "--directory", "{cwd}", "{command}"]   # only used when app = "custom"
 
 [github]
 poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
@@ -161,7 +137,7 @@ impl ConfigHandle {
     pub fn load(paths: &Paths, bus: Bus) -> Result<ConfigHandle> {
         let path = paths.config_file();
         if !path.exists() {
-            std::fs::write(&path, DEFAULT_CONFIG.replace(r#"browser = "xdg-open""#, &format!("browser = {:?}", Commands::default().browser)).replace(r#"app = "terminator""#, &format!("app = {:?}", Terminal::default().app))).with_context(|| format!("write {}", path.display()))?;
+            std::fs::write(&path, DEFAULT_CONFIG.replace(r#"browser = "xdg-open""#, &format!("browser = {:?}", Commands::default().browser))).with_context(|| format!("write {}", path.display()))?;
         }
         let (config, error) = match read(&path) {
             Ok(c) => (c, None),

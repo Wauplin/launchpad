@@ -23,6 +23,7 @@ Status: implementation and acceptance tracker (updated 2026-10-10). See [ARCHITE
 | 5 | Workspace polish | Sessions are easy to find, inspect and resume, with summaries and same-session follow-ups | In progress |
 | 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | In progress |
 | 7 | Optional extensions requiring a new scope | Candidate ideas only; no selected implementation | Next |
+| 7a | Integrated terminal (scoped) | Shells and harness TUIs run in a dock inside Launchpad instead of external terminals | In progress |
 
 Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
 
@@ -64,8 +65,8 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 - **Adapters:** Claude and Codex, normalized events, event log in `state.db`, WebSocket streaming with replay.
 - **Agents view:** list grouped as Done (waiting for input), Running (including background and long commands) and Archived; session pane (messages, collapsed tool calls, inline diffs, copy buttons, input, interrupt, archive, close panel, resume), one selected session panel per window.
 - **Signals:** tokens, context usage and cost per session; desktop notification when a session becomes Done.
-- **Maintenance:** background `codex update`; "Open in terminal" and "Re-attach".
-- **Settings → General:** projects root, terminal used by "Open in terminal" (Terminator by default, Ghostty, GNOME Terminal or a custom command), editor.
+- **Maintenance:** background `codex update`; "Open in terminal" (integrated terminal since Phase 7a) and "Re-attach".
+- **Settings → General:** projects root, editor. (The external terminal setting was removed by Phase 7a.)
 
 **Done when:** for one week, every agent you start goes through Launchpad.
 
@@ -84,7 +85,7 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
   - Agents view: independently collapsible Done, Running and Archived groups with remembered expansion state; session pane with messages, collapsed tool calls, inline diffs, plan, question cards, background commands with their output, copy buttons, message box (`Enter` sends), Stop, Archive, Close panel, Resume, Open in terminal and Re-attach; one selected session panel per window.
   - Signals: context tokens and usage, cost (Claude), desktop notification when a session becomes Done.
   - Maintenance: `codex update` at daemon start and every 6 hours.
-  - Settings → General (projects root, terminal with "found" markers, editor) and Presets.
+  - Settings → General (projects root, editor; the terminal setting was later removed by Phase 7a) and Presets.
 - Usability updates on 2026-10-02: direct Launch with remembered selections; image attachments by file picker, console drop and clipboard paste for both harnesses; larger 120% default UI with stronger contrast and five saved zoom positions; Done/Running/Archived with long commands kept Running; separate colored sidebar counts and simultaneous project dots/spinners; virtualized session list; AI-generated session titles based on the initial prompt.
 - The bottom status bar displays the running Launchpad commit and offers Update when GitHub main differs. The production updater downloads the successful CI artifact for that exact commit, verifies it, and reserves idle agents before reinstalling. It does not build from a local checkout or fall back to older commits. Settings shares the updater, progress and logs.
 - Platform support expanded on 2026-10-04: Linux remains primary, with a Ubuntu 22.04 release baseline and 24.04 lint/debug tests; native macOS ARM64/Intel and Windows x86_64 release builds/tests, OS-specific process/default handling, launchd installation and Windows login shortcuts. Native CI checks release builds and tests; daily-use macOS/Windows acceptance remains outstanding.
@@ -242,20 +243,35 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 
 ## Phase 7: hardening and options
 
-Phase 7 is deferred. The implementation in commit `7b670af` was reverted on 2026-10-03 at the owner’s request because the phase was not well scoped. Restart survival, embedded terminals and remote browser mode are no longer built features. The list below is a menu of candidates, not an approved implementation plan. Select and scope one item before doing further Phase 7 work; define its user need, ownership and recovery rules, non-goals, and acceptance check. Complete the outstanding Phases 1–6 acceptance checks and address correctness findings before expanding the scope.
+Phase 7 is deferred. The implementation in commit `7b670af` was reverted on 2026-10-03 at the owner’s request because the phase was not well scoped. Restart survival and remote browser mode are no longer built features; integrated terminals were later rebuilt with their own scope (Phase 7a). The list below is a menu of candidates, not an approved implementation plan. Select and scope one item before doing further Phase 7 work; define its user need, ownership and recovery rules, non-goals, and acceptance check. Complete the outstanding Phases 1–6 acceptance checks and address correctness findings before expanding the scope.
 
 A [remote access and mobile feasibility report](research/remote-access/index.html), prepared on 2026-10-10, compares single-host VPS execution, a laptop relay, shared responsive UI and future Android packaging. Its staged scope and acceptance checks are proposals only; no candidate was selected or implemented.
 
 Candidate ideas:
 
 - Sessions that survive daemon restarts (session shim, or Codex's shared app-server daemon).
-- Embedded terminal mode (xterm.js + PTY) for full TUI fidelity when needed.
 - Remote access through a tunnel and a browser.
 - Another harness (one adapter module).
 - Inline review comments.
 - Optional inlining of cached GitHub threads in prompts.
 - Light editing in the code viewer (CodeMirror 6), if reading is not enough.
 
+## Phase 7a: integrated terminal
+
+Scope, design and acceptance check: [integrated-terminal-plan.md](integrated-terminal-plan.md), with the recommended owner options (bottom dock, terminals lost on daemon restart, manual Re-attach after a TUI exits). Design: [ARCHITECTURE.md, section 13.1](ARCHITECTURE.md#131-integrated-terminals).
+
+**Done when:** you no longer open an external terminal window for Launchpad work, and the acceptance check of the plan passes.
+
+Done:
+
+- Daemon-owned `portable-pty` terminals (`terminals.rs`), 1 MB in-memory buffer, cap of 12, close by process-group signals; `/api/terminals` endpoints and one WebSocket per viewer with snapshot-then-live output and resync on lag.
+- "Open in terminal" runs the Claude or Codex TUI in an integrated terminal; Re-attach can close it after an inline confirmation. External terminal templates, the `[terminal]` config section, `/api/settings/terminals` and the Settings row are removed.
+- Bottom dock with workspace-scoped tabs, New terminal, Copy selection, Paste, Clear, S/M/L heights and Hide; status bar Terminal button; entry points in the project header, worktree rows, session header, pre-draft view and code viewer sidebar. Zoom fix and `Ctrl+F` guard.
+- Pre-draft idle checks, temporary project cleanup and promotion, and the updater install lock account for terminals; Settings → General has Close all terminals.
+- Checked on the dev daemon (Chrome and WebSocket scripts): `pwd`, colors, `stty size` after resize, `TERM`/`COLORTERM`/`LAUNCHPAD_PROFILE`, exit codes, close, rejected folders, `yes | head -n 200000` (viewer resynced, daemon responsive), mouse selection at 120% and 150% zoom, `Ctrl+F` inside and outside a terminal in the code viewer, Claude and Codex TUIs with Re-attach closing them, pre-draft discard refused while a terminal is open, and terminals cleared by a dev daemon restart. Clippy, UI type checks and build pass.
+
+Left: `vim`/`htop` and two-window checks in the desktop window, the updater lock refusal (the install lock endpoint is production-only), and macOS/Windows checks through CI builds.
+
 ## Not planned
 
-Keyboard shortcuts other than `Ctrl+F` in the code viewer (for now), a large test suite or mocks, dark theme, multiple users, GitHub search, Actions logs, release versioning, data migrations for the cache.
+Keyboard shortcuts other than `Ctrl+F` in the code viewer and keys sent to a focused integrated terminal (for now), a large test suite or mocks, dark theme, multiple users, GitHub search, Actions logs, release versioning, data migrations for the cache.
