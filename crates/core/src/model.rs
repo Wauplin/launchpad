@@ -278,6 +278,8 @@ pub struct LaunchSpec {
     pub github_refs: Vec<GitHubRef>,
     /// Files and line ranges added from the code viewer.
     pub files: Vec<FileRef>,
+    /// Stored trace through a fixed sequence number, selected as launch context.
+    pub agent_traces: Vec<AgentTraceRef>,
     pub model: Option<String>,
     pub effort: Option<String>,
     /// The workspace of the window that launched it: the target project joins that workspace.
@@ -300,6 +302,13 @@ pub enum Target {
     },
     /// A new temporary folder in the projects root.
     Temp,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct AgentTraceRef {
+    pub session_id: String,
+    #[ts(type = "number")]
+    pub through_seq: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]

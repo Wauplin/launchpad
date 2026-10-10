@@ -594,6 +594,8 @@ label = "no unit test"
 text = "No need to add any unit tests for that PR."
 ```
 
+Previous agent traces are another launch context type: `LaunchSpec.agent_traces` stores a session id and its last stored sequence number when selected. The composer offers a searchable, virtualized Agent trace picker scoped to the window’s workspace, including archived and imported sessions; the session header also offers Add trace as context. Chips show the boundary and can be removed. Preview and launch resolve the same bounded stored event log and inline it as explicitly labeled reference material: user and assistant messages, reasoning, tool calls/results, file changes and other recorded activity. Images are named without their data URLs; ephemeral partial output is excluded. Later turns cannot enlarge a saved draft, delayed launch or cron’s context. Missing sources or invalid boundaries fail visibly instead of dropping context.
+
 ### 9.7.1 Delayed starts
 
 The composer Start section launches now by default. An "Add a start condition…" selector adds conditions, each in its own card with a Remove button: After a delay (minutes with 15/30/60-minute buttons), At a date and time (local calendar/time input), After agents are Done (searchable multi-select of sessions and scheduled launches, at most one such condition) or When a quota resets (Claude/Codex and 5h/weekly window). Several conditions combine with AND: for example, the weekly Claude reset and agent X Done. The launch button becomes Schedule when at least one condition is present. The condition list belongs to the saved composer draft, separately from the launch spec, and is cleared after submission. Scheduling does not change remembered harness/model/effort defaults; an actual successful launch does.
@@ -859,6 +861,8 @@ Project metadata refresh, on 2026-10-04:
 61. **Stopped agent group and hidden empty groups.** On 2026-10-10, manually stopped sessions moved out of Archived into their own Stopped group between Quota paused and Done; they never count as Done and remain resumable. Agent list groups with no items are no longer shown.
 
 62. **Reversible paid usage.** On 2026-10-10, made `allow_paid_usage` switchable on existing sessions in both directions, because Resume with paid usage previously left no way back to subscription-only work. The header badge makes paid sessions visible at a glance; enabling still requires an explicit button.
+
+63. **Previous agent traces as launch context.** On 2026-10-10, added explicit selection of stored traces through a fixed event boundary. Inline the normalized stored events in the shared preview/launch prompt so both harnesses receive the same reference material, without requiring access to another harness’s native history.
 
 ## Remote access feasibility research (2026-10-10)
 

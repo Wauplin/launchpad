@@ -19,6 +19,7 @@ import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/q
 import { useScope } from "@/lib/workspace";
 import { rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
+import { AgentTracePicker } from "./AgentTracePicker";
 import { DelaySelector, conditionsError } from "./DelaySelector";
 import { CronSelector, type CronDraft } from "./CronSelector";
 import { itemIcon, PromptField } from "./PromptField";
@@ -172,7 +173,7 @@ export function Composer() {
   const model = spec.model ? defaults?.models.find((m) => m.id === spec.model) : defaults?.models.find((m) => m.id === defaults?.model);
   const efforts = model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
   const scheduled = conditions.length > 0;
-  const canLaunch = (cron ? cronValid : delayValid && !conditionsError(conditions)) && !!spec.harness && spec.target.kind !== "none" && !!preview.data?.prompt.trim();
+  const canLaunch = (cron ? cronValid : delayValid && !conditionsError(conditions)) && !!spec.harness && spec.target.kind !== "none" && !preview.isError && !preview.isFetching && debouncedSpec === spec && !!preview.data?.prompt.trim();
 
   const addProjectContext = (p: Project) =>
     set((s) => (s.context_projects.some((c) => c.project_id === p.id) || ((s.target.kind === "project" || s.target.kind === "predraft") && s.target.project_id === p.id) ? s : { ...s, context_projects: [...s.context_projects, { project_id: p.id, branch: null }] }));
@@ -327,6 +328,13 @@ export function Composer() {
         <Field label="Context" hint="type @ or # in the prompt, use the buttons, or add lines from the code viewer">
           <div className="grid gap-[5px]">
             {!!recentContexts.length && <div className="grid gap-1"><span className="text-[11.5px] text-ink-3">Recent contexts</span><div className="flex flex-wrap gap-1">{recentContexts.slice(0,6).map((c) => <button key={c.key} className="btn btn-sm max-w-full truncate" title={c.label} onClick={c.add}>+ {c.label}</button>)}</div></div>}
+            {(spec.agent_traces ?? []).map((trace) => (
+              <div key={trace.session_id} className="flex items-center gap-2 rounded-[7px] border border-line bg-chrome px-2 py-1.5 text-xs">
+                <Icon name="agents" size={14} />
+                <span className="min-w-0 flex-1 truncate" title={`Stored trace through event #${trace.through_seq} · ${trace.session_id}`}>Trace snapshot · {sessions?.find((s) => s.id === trace.session_id)?.title ?? "Missing agent"}</span>
+                <button title="Remove agent trace" className="text-ink-3 hover:text-ink" onClick={() => set((s) => ({ ...s, agent_traces: s.agent_traces.filter((t) => t.session_id !== trace.session_id) }))}><Icon name="x" size={13} /></button>
+              </div>
+            ))}
             {spec.github_refs.map((g) => {
               const ic = itemIcon(g.kind === "pr" ? "pr" : "issue", "open");
               return (
@@ -391,6 +399,9 @@ export function Composer() {
                       ))}
                   </>
                 )}
+              </Popover>
+              <Popover width={340} trigger={({ toggle }) => <button className="btn btn-sm" onClick={toggle}><Icon name="plus" size={12} />Agent trace</button>}>
+                {(closeMenu) => <AgentTracePicker sessions={recentSessions} selected={spec.agent_traces ?? []} onPick={(trace) => { set((s) => ({ ...s, agent_traces: [...(s.agent_traces ?? []), trace] })); closeMenu(); }} />}
               </Popover>
               <GitHubLinkField onAdd={(r) => set((s) => (s.github_refs.some((g) => g.url === r.url) ? s : { ...s, github_refs: [...s.github_refs, r] }))} />
             </div>
@@ -486,7 +497,7 @@ export function Composer() {
           <pre
             className={`m-0 px-2.5 py-2 font-mono text-[11.5px] leading-normal whitespace-pre-wrap text-ink-2 ${showAll ? "" : "max-h-[110px] overflow-hidden [mask-image:linear-gradient(#000_70%,transparent)]"}`}
           >
-            {preview.data?.prompt || <span className="text-ink-3">The prompt appears here as you type.</span>}
+            {preview.isError ? <span className="text-red-700">{preview.error.message}</span> : preview.data?.prompt || <span className="text-ink-3">The prompt appears here as you type.</span>}
           </pre>
         </div>
       </div>

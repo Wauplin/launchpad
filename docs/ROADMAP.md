@@ -192,6 +192,8 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 
 ## Phase 5: workspace polish
 
+- Previous run context (2026-10-10): attach a stored agent conversation and tool trace from the composer’s searchable, virtualized Agent trace picker or the session header. The attachment freezes the selected event boundary, persists in drafts/schedules/crons and appears in the exact prompt preview. Archived and imported sessions are available; images are listed by name and live partial output is excluded. Phase 5 remains built and awaiting daily use. Checked the UI build, strict workspace Clippy, all 13 existing Rust tests, and an isolated dev instance with an archived trace: fixed-boundary preview, invalid-reference rejection, saved drafts, search, add/remove, reload persistence and the session-header shortcut.
+
 - One agent panel per window, remembered session selection per workspace, session rename, pin and search.
 - Workspaces: named sets of projects that narrow agents, projects and the inbox, chosen per window, with one-click switching and new windows.
 - Import sessions started outside Launchpad (Claude transcripts in `~/.claude/projects/`, Codex `thread/list`) as history that can be resumed.

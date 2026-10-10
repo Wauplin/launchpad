@@ -341,12 +341,16 @@ impl Sessions {
     }
 
     pub async fn events(&self, app: &App, id: &str, after: i64) -> Result<Vec<SessionEvent>> {
+        self.events_through(app, id, after, i64::MAX).await
+    }
+
+    async fn events_through(&self, app: &App, id: &str, after: i64, through: i64) -> Result<Vec<SessionEvent>> {
         let id = id.to_string();
         app.state_db
             .call(move |c| {
-                let mut st = c.prepare("SELECT seq, ts, json FROM session_event WHERE session_id = ?1 AND seq > ?2 ORDER BY seq")?;
+                let mut st = c.prepare("SELECT seq, ts, json FROM session_event WHERE session_id = ?1 AND seq > ?2 AND seq <= ?3 ORDER BY seq")?;
                 let rows = st
-                    .query_map(params![id, after], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))?
+                    .query_map(params![id, after, through], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))?
                     .filter_map(|r| r.ok())
                     .filter_map(|(seq, ts, json)| {
                         serde_json::from_str::<EventBody>(&json).ok().map(|body| SessionEvent { session_id: id.clone(), seq, ts, body })
@@ -384,6 +388,14 @@ impl Sessions {
                 .retain(|id| id != "draft-pr" && id != "worktree");
         }
         let mut prompt = render_prompt(&rendered_spec, &context, &config.presets);
+        for trace in &spec.agent_traces {
+            let source = self.get(&trace.session_id).context("context agent no longer exists")?;
+            anyhow::ensure!(trace.through_seq > 0 && trace.through_seq <= source.last_seq, "invalid context trace sequence");
+            let events = self.events_through(app, &source.id, 0, trace.through_seq).await?;
+            anyhow::ensure!(events.last().is_some_and(|e| e.seq == trace.through_seq), "context trace is unavailable");
+            prompt.push_str("\n\n");
+            prompt.push_str(&crate::compose::render_trace(&source, trace.through_seq, &events)?);
+        }
         if !prompt.trim().is_empty() && matches!(
             spec.target,
             Target::Predraft { .. } | Target::ExistingPredraft { .. }

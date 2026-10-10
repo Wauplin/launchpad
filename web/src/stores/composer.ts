@@ -2,6 +2,7 @@
 // window or restarting the app.
 
 import { create } from "zustand";
+import type { AgentTraceRef } from "@/gen/AgentTraceRef";
 import type { ContextProject } from "@/gen/ContextProject";
 import type { FileRef } from "@/gen/FileRef";
 import type { GitHubRef } from "@/gen/GitHubRef";
@@ -20,6 +21,7 @@ export const emptySpec = (): LaunchSpec => ({
   context_projects: [],
   github_refs: [],
   files: [],
+  agent_traces: [],
   model: null,
   effort: null,
   workspace_id: null,
@@ -33,6 +35,7 @@ export type LaunchContext = {
   contextProjects?: ContextProject[];
   /** Lines from the code viewer. */
   files?: FileRef[];
+  agentTraces?: AgentTraceRef[];
 };
 
 type Composer = {
@@ -94,6 +97,7 @@ export const useComposer = create<Composer>((set, get) => ({
     for (const f of ctx?.files ?? []) if (!(spec.files ?? []).some((g) => same(f, g))) spec.files = [...(spec.files ?? []), f];
     for (const c of ctx?.contextProjects ?? [])
       if (!spec.context_projects.some((p) => p.project_id === c.project_id)) spec.context_projects = [...spec.context_projects, c];
+    for (const trace of ctx?.agentTraces ?? []) if (!(spec.agent_traces ?? []).some((t) => t.session_id === trace.session_id)) spec.agent_traces = [...(spec.agent_traces ?? []), trace];
     set({ open: true, spec });
     save(spec, true, get().conditions);
   },
