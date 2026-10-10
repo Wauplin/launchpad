@@ -3,7 +3,6 @@
 //! The router (one task) reads every app-server message and hands those with a `threadId` to the
 //! session of that thread.
 
-mod history;
 mod rpc;
 
 use std::collections::{HashMap, HashSet};
@@ -517,8 +516,6 @@ pub const REGISTRATION: super::Registration = super::Registration {
         capabilities: super::HarnessCapabilities {
             images: true,
             messages_while_running: true,
-            history: true,
-            archived_history: true,
             terminal: true,
             quota: true,
             cost: false,
@@ -541,7 +538,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
 type VariantEnv = Vec<(String, String)>;
 pub struct Adapter {
     env: crate::shellenv::UserEnv,
-    /// The shared app-server, also used for quotas, models and history.
+    /// The shared app-server, also used for quotas and models.
     server: CodexServer,
     /// One app-server per distinct variant environment (`CODEX_HOME`, API keys), started on first use,
     /// with its own thread routes: an app-server exit only ends its own threads.
@@ -608,17 +605,6 @@ impl super::Harness for Adapter {
             "-c".into(),
             project_trust_override(&s.cwd),
         ])
-    }
-    async fn history_list(
-        &self,
-        _app: &App,
-        cursor: Option<String>,
-        archived: bool,
-    ) -> Result<crate::history::Page> {
-        history::list(&self.server, cursor, archived).await
-    }
-    async fn history_read(&self, _app: &App, id: &str) -> Result<crate::history::Snapshot> {
-        history::read(&self.server, id).await
     }
     fn title_command(
         &self,

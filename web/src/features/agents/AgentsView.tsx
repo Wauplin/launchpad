@@ -3,7 +3,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { ImportHistory } from "./ImportHistory";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useRef, useState } from "react";
@@ -80,7 +79,6 @@ export function AgentsView() {
   const [filter, setFilter] = useState("");
   const [debounced, setDebounced] = useState("");
   const [pinsOnly, setPinsOnly] = useState(false);
-  const [importing, setImporting] = useState(false);
   const pinned = useLayout((s) => s.pinned);
   useEffect(() => { const t = setTimeout(() => setDebounced(filter.trim()), 250); return () => clearTimeout(t); }, [filter]);
   const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
@@ -174,11 +172,10 @@ export function AgentsView() {
 
   return (
     <div className="flex h-full min-h-0">
-      {importing && <ImportHistory onClose={() => setImporting(false)} onImported={(id) => { show(id); setImporting(false); clearSide(); }} />}
       <div className="flex w-[280px] flex-none flex-col border-r border-line bg-paper">
         <div className="grid gap-2 border-b border-line p-2">
           <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setArchivedLimit(30); }} />
-          <div className="flex gap-2"><button className={`btn btn-sm ${pinsOnly ? "bg-teal-soft!" : ""}`} aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button><button className="btn btn-sm" onClick={() => setImporting(!importing)}>Import history</button></div>
+          <div className="flex gap-2"><button className={`btn btn-sm ${pinsOnly ? "bg-teal-soft!" : ""}`} aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button></div>
           {matches.isFetching && <span className="text-xs text-ink-3">Searching messages…</span>}
           {matches.error && <span className="text-xs text-danger">{matches.error.message}</span>}
         </div>

@@ -10,7 +10,6 @@ pub mod events;
 pub mod git;
 pub mod github;
 pub mod harness;
-pub mod history;
 pub mod inbox;
 pub mod items;
 pub mod model;
@@ -133,8 +132,6 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     code::CodeFile::export_all(&cfg)?;
     code::SearchResult::export_all(&cfg)?;
     code::CommitInfo::export_all(&cfg)?;
-    history::Candidate::export_all(&cfg)?;
-    history::Page::export_all(&cfg)?;
     session_git::GitFile::export_all(&cfg)?;
     session_git::GitStatus::export_all(&cfg)?;
     session_git::GitDiff::export_all(&cfg)?;

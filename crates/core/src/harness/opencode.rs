@@ -19,8 +19,6 @@ pub const REGISTRATION: super::Registration = super::Registration {
         capabilities: super::HarnessCapabilities {
             images: true,
             messages_while_running: false,
-            history: false,
-            archived_history: false,
             terminal: true,
             quota: false,
             cost: true,

@@ -4,7 +4,7 @@ export type HarnessCapabilities = { images: boolean,
 /**
  * Native steering or queuing while a turn runs.
  */
-messages_while_running: boolean, history: boolean, archived_history: boolean, terminal: boolean,
+messages_while_running: boolean, terminal: boolean,
 /**
  * Included subscription quotas can be monitored by this integration.
  */

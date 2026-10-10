@@ -4,7 +4,7 @@ The registration list in `crates/core/src/harness/mod.rs` is the only host list 
 
 ## Files to change
 
-1. Add `crates/core/src/harness/<name>.rs`, with private protocol/history helpers and an SVG asset if needed.
+1. Add `crates/core/src/harness/<name>.rs`, with private protocol helpers and an SVG asset if needed.
 2. Declare the module and add its `REGISTRATION` to `REGISTRATIONS` in `harness/mod.rs`.
 3. Run `cargo run -p launchpad -- gen-types` when changing shared metadata types. Registering an adapter alone does not change the shared types.
 
@@ -18,7 +18,6 @@ A registration contains an ID (`HarnessKind::new("stable-id")`), display metadat
 - `LiveSession`: implement input and delivery acknowledgments, interruption, structured answers and final process stop. `turn_active` covers a turn waiting for input too. `ready_for_turn` must remain false until outstanding commands and questions settle. A silent command is still running. Expose `has_open_questions` if multiple requests can be pending. Optional `set_model` applies model/effort overrides from the next turn; return false to have the host replace the idle process with a native resume on the next input. Tool-call events upsert metadata by item ID when native inputs/titles arrive later. Emit final messages and `TurnEnd` before the final status; preserve Stopped/Interrupted on cancellation.
 - `models`, `defaults`, `efforts`, `version`: read native discovery/configuration. The host polls model lists independently so one missing executable does not block other integrations. Version errors appear beside the harness in the status bar.
 - `spawn_services`: start native quota readers, notification routing or updates. Publish quota data through `StatusHandle::update_harness(ID, ...)`; do not put provider parsing or daemon-owned native process fields in `App`.
-- `history_list`/`history_read`: read and normalize external history. Validate native IDs and paths here. The host deduplicates imports and persists an archived snapshot.
 - `terminal_command`/`terminal_env`/`terminal_resume_markers`: return an argument vector, native environment overrides and markers identifying the native resume command. The host resolves the executable and opens the integrated terminal on Linux/macOS/Windows.
 - `project_moved`: relocate native path-dependent history when a temporary project is promoted, if necessary.
 - `title_command`/`title_response`: optional auxiliary title request. The host handles timeout and subscription protection. With no hook, the local prompt-based title stays.
@@ -32,7 +31,7 @@ OpenCode is the first consumer of `harness::acp::start(command, spec, sink)`. It
 
 ACP permission responses select an advertised option; arbitrary typed answers are rejected. Image support is checked against the negotiated agent capability as well as the static integration descriptor; a selected model may still reject an unsupported image. ACP tool output snapshots are converted to incremental output, and reported before/after texts become unified diff previews. Native agents may report only the replaced fragment; the Git panel remains the source for full-file diffs. Reported USD usage is cumulative, without claiming that the provider billed that amount.
 
-Current OpenCode limits are explicit: no messages while a turn is running, effort override, external history import, auxiliary AI title, subscription quota monitor or hard spending cap. Native configuration, credentials, model defaults and permissions remain OpenCode's responsibility. Named local variants pass environment overrides through `StartSpec.env`; adapters must apply them to every native session process. The host resolves variant defaults and billing, and `capabilities.cost` enables limits based on cumulative reported USD usage. Claude and OpenCode support this; Codex does not report dollars. SSH and billing ledgers remain deferred.
+Current OpenCode limits are explicit: no messages while a turn is running, effort override, auxiliary AI title, subscription quota monitor or hard spending cap. Native configuration, credentials, model defaults and permissions remain OpenCode's responsibility. Named local variants pass environment overrides through `StartSpec.env`; adapters must apply them to every native session process. The host resolves variant defaults and billing, and `capabilities.cost` enables limits based on cumulative reported USD usage. Claude and OpenCode support this; Codex does not report dollars. SSH and billing ledgers remain deferred.
 
 ## Checks
 

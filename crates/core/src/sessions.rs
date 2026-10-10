@@ -217,29 +217,6 @@ impl Sessions {
         self.inner.records.lock().unwrap().values().find(|s| s.harness_session_id.as_deref() == Some(harness_id)).cloned()
     }
 
-    /// Imports a snapshot atomically. It never attaches a harness or changes an existing session.
-    pub async fn import_history(&self, app: &App, mut s: Session, events: Vec<(i64, EventBody)>) -> Result<Session> {
-        let _action = self.inner.actions.lock().await;
-        let _guard = self.allow_work().await;
-        if let Some(existing) = self.list().into_iter().find(|e| e.harness == s.harness && e.harness_session_id == s.harness_session_id) {
-            return Ok(existing);
-        }
-        s.last_seq = events.len() as i64;
-        let record = s.clone();
-        app.state_db.call(move |c| {
-            let tx = c.transaction()?;
-            tx.execute("INSERT INTO session (id,harness,harness_session_id,project_id,cwd,title,status,status_since,open_question,launch_spec_json,prompt,usage_json,started_at,ended_at,last_seq,model,effort) VALUES (?1,?2,?3,?4,?5,?6,'closed',?7,0,?8,?9,'{}',?10,?7,?11,?12,?13)", params![record.id,record.harness.as_str(),record.harness_session_id,record.project_id,record.cwd,record.title,record.status_since,serde_json::to_string(&record.launch_spec)?,record.prompt,record.started_at,record.last_seq,record.model,record.effort])?;
-            for (i, (ts, body)) in events.into_iter().enumerate() {
-                tx.execute("INSERT INTO session_event (session_id,seq,ts,kind,json) VALUES (?1,?2,?3,?4,?5)", params![record.id,(i+1) as i64,ts,body.kind(),serde_json::to_string(&body)?])?;
-            }
-            tx.commit()?;
-            Ok(())
-        }).await?;
-        self.inner.records.lock().unwrap().insert(s.id.clone(), s.clone());
-        app.bus.publish("sessions", "updated", serde_json::to_value(&s)?);
-        Ok(s)
-    }
-
     pub async fn rename(&self, app: &App, id: &str, title: &str) -> Result<Session> {
         let title = title.trim();
         anyhow::ensure!(!title.is_empty() && title.chars().count() <= 100 && !title.contains(['\n', '\r']), "Use a title of 1 to 100 characters on one line.");

@@ -1,8 +1,6 @@
 //! Claude Code adapter: one `claude -p` process per session, stream-json on stdin and stdout.
 //! The exact behavior is recorded in docs/spikes/1-claude-stream-json.md.
 
-mod history;
-
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -611,8 +609,6 @@ pub const REGISTRATION: super::Registration = super::Registration {
         capabilities: super::HarnessCapabilities {
             images: true,
             messages_while_running: true,
-            history: true,
-            archived_history: false,
             terminal: true,
             quota: true,
             cost: true,
@@ -689,17 +685,6 @@ impl super::Harness for Adapter {
     fn terminal_env(&self, is_temp: bool) -> &'static [(&'static str, &'static str)] {
         // Skip the trust dialog for folders created by Launchpad.
         if is_temp { &[("CLAUDE_CODE_SANDBOXED", "1")] } else { &[] }
-    }
-    async fn history_list(
-        &self,
-        app: &App,
-        cursor: Option<String>,
-        archived: bool,
-    ) -> Result<crate::history::Page> {
-        history::list(app, cursor, archived).await
-    }
-    async fn history_read(&self, app: &App, id: &str) -> Result<crate::history::Snapshot> {
-        history::read(app, id).await
     }
     fn title_command(
         &self,

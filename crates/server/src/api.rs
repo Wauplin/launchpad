@@ -41,7 +41,6 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/rename", post(rename_session))
         .route("/api/sessions/{id}/git", get(session_git))
         .route("/api/sessions/{id}/git-diff", get(session_git_diff))
-        .route("/api/sessions/history", get(session_history).post(import_session))
         .route("/api/sessions/search", get(search_sessions))
         .route("/api/sessions/{id}/events", get(events))
         .route("/api/sessions/{id}/trace", get(trace))
@@ -507,16 +506,6 @@ async fn run_cron(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<
 struct RenameSession { title: String }
 async fn rename_session(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<RenameSession>) -> ApiResult<Session> {
     Ok(Json(s.app.sessions.rename(&s.app, &id, &b.title).await.map_err(bad)?))
-}
-#[derive(Deserialize)]
-struct HistoryQuery { harness: HarnessKind, cursor: Option<String>, #[serde(default)] archived: bool }
-async fn session_history(State(s): State<Server>, Query(q): Query<HistoryQuery>) -> ApiResult<launchpad_core::history::Page> {
-    Ok(Json(launchpad_core::history::list(&s.app,q.harness,q.cursor,q.archived).await.map_err(bad)?))
-}
-#[derive(Deserialize)]
-struct ImportSession { harness: HarnessKind, id: String }
-async fn import_session(State(s): State<Server>, Json(b): Json<ImportSession>) -> ApiResult<Session> {
-    Ok(Json(launchpad_core::history::import(&s.app,b.harness,&b.id).await.map_err(bad)?))
 }
 async fn session_git(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<launchpad_core::session_git::GitStatus> {
     Ok(Json(launchpad_core::session_git::status(&s.app,&id).await.map_err(bad)?))

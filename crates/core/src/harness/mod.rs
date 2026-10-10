@@ -5,7 +5,7 @@ pub mod codex;
 pub mod opencode;
 
 use crate::{
-    App, history,
+    App,
     model::{HarnessDefaults, HarnessKind, ModelInfo, Session},
     sessions::{LiveSession, Sink, StartSpec},
     shellenv::UserEnv,
@@ -27,8 +27,6 @@ pub struct HarnessCapabilities {
     pub images: bool,
     /// Native steering or queuing while a turn runs.
     pub messages_while_running: bool,
-    pub history: bool,
-    pub archived_history: bool,
     pub terminal: bool,
     /// Included subscription quotas can be monitored by this integration.
     pub quota: bool,
@@ -89,17 +87,6 @@ pub trait Harness: Send + Sync {
     fn project_moved(&self, _old: &str, _new: &str) {}
     fn terminal_resume_markers(&self) -> &'static [&'static str] {
         &[]
-    }
-    async fn history_list(
-        &self,
-        _app: &App,
-        _cursor: Option<String>,
-        _archived: bool,
-    ) -> Result<history::Page> {
-        bail!("history import is not supported")
-    }
-    async fn history_read(&self, _app: &App, _id: &str) -> Result<history::Snapshot> {
-        bail!("history import is not supported")
     }
     fn title_command(&self, _app: &App, _session: &Session, _cwd: &Path) -> Option<Command> {
         None

@@ -197,7 +197,6 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 
 - One agent panel per window, remembered session selection per workspace, session rename, pin and search.
 - Workspaces: named sets of projects that narrow agents, projects and the inbox, chosen per window, with one-click switching and new windows.
-- Import sessions started outside Launchpad (Claude transcripts in `~/.claude/projects/`, Codex `thread/list`) as history that can be resumed.
 - Git panel per session (status and diff of its cwd; reading its files is the code viewer of Phase 2b), "Open in editor".
 - Composer: recent contexts offered as one-click chips.
 
@@ -206,7 +205,7 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 **Progress:**
 
 - Built on 2026-10-02: session list and title drag/drop into any pane (swap when both are occupied), visible Focus pane and Move to pane controls, up to twelve named saved layouts with restore/delete, persistent pins sorted first within each state group and a Pinned filter, inline title editing with Save title/Cancel controls, and search over titles, projects, working directories, initial prompts and stored conversation messages. Group counts reflect the current filter and long lists remain virtualized.
-- Explicit Import history discovers paginated Claude transcripts and Codex threads (including Codex's archived history), excludes already imported conversations, and stores selected conversations atomically as Archived snapshots without launching an agent. Resume uses the original harness conversation id and cwd. Imported history does not change launch defaults. Native transcripts remain untouched; complete a conversation in its other client before resuming it here.
+- Removed external history import on 2026-10-10 at the owner’s request: UI buttons and picker, discovery/readers, API, persistence helper and harness capabilities. Previously imported sessions remain saved and resumable. Phase 5 remains built and awaiting daily use. Checked strict workspace Clippy, UI type checking/build and the Agents screen in Chrome: search and the pinned filter remain, with no import button or dialog.
 - Each session has a read-only Git panel with branch, two-column status, renames, selected-file staged and working-tree diffs, safe untracked-file reading through the code viewer, five-second refresh and virtualized file/diff rows. Files opens the existing code viewer; Open in editor opens the session folder. Since 2026-10-09, Git and Open in editor share the header action row with Files and Archive; a star beside the editable title toggles the pin. Checked in the dev app: inline title save/cancel, blank-title validation, pin persistence after reload, Git toggle, and layout at 1440 px and 800 px. UI type checking and the production UI build pass.
 - Composer offers six recent context chips from launched sessions, covering projects and their selected branches, GitHub links and file references. Already selected contexts are omitted.
 - Checked with real external Claude Haiku and Codex GPT-6-Luna conversations: discovery, duplicate prevention, imported messages, manual rename, stored-message search, and resume with remembered conversation context. Four real agents ran together and finished cleanly. Dev browser checks cover pins, filters, staged/unstaged/untracked patches, drag/drop, move and focus, named layout restore after reload, and import selectors. All five zoom sizes fit the four-pane workspace, and recent context chips add context in one click. Imported event history, renamed titles and message search survive a dev-daemon restart. The dev desktop opens successfully. Strict workspace Clippy, UI type checking/build, desktop build and the eleven fast Rust tests pass. A small UTF-8 output truncation regression test covers large Unicode patches.
@@ -249,7 +248,7 @@ A [remote access and mobile feasibility report](research/remote-access/index.htm
 
 Owner-selected first step (2026-10-10): harness registration and OpenCode.
 
-- Built: stable registry IDs, adapter factories and lifecycle hooks; capabilities and assets returned to the UI; native discovery, quotas, titles, history, inherited markers and terminal behavior isolated in adapters; shared ACP client and OpenCode registration.
+- Built: stable registry IDs, adapter factories and lifecycle hooks; capabilities and assets returned to the UI; native discovery, quotas, titles, inherited markers and terminal behavior isolated in adapters; shared ACP client and OpenCode registration.
 - Acceptance: existing Claude/Codex behavior remains available, OpenCode launches and resumes through ACP with streamed events and cancellation, and another module can register without editing identity switches in core/server/React. Native CLI and isolated dev checks accompany this change; daily-use checks remain with the owner.
 - Deferred: Pi (the follow-up integration example), SSH and billing ledgers.
 
