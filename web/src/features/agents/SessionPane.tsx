@@ -1,7 +1,7 @@
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
-import { SessionSummary, StateBand, QuotaBand, FollowUpBands } from "./SessionSummary";
+import { SessionSummary, StateBand, QuotaBand, FollowUpBands, PaidUsageToggle } from "./SessionSummary";
 import { GitPanel } from "./GitPanel";
 import { useLayout } from "@/stores/layout";
 import { useQuery } from "@tanstack/react-query";
@@ -278,6 +278,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
           {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Pre-draft PR</button>}
         <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
           <StatusBadge s={s} />
+          <PaidUsageToggle session={s} badge />
           <span>{usageLine(s)}</span>
           <span className="ml-auto">{new Date(s.started_at).toLocaleDateString()}</span>
         </span>

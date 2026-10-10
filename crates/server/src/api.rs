@@ -50,6 +50,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/close", post(close))
         .route("/api/sessions/{id}/resume", post(resume))
         .route("/api/sessions/{id}/resume-paid", post(resume_paid))
+        .route("/api/sessions/{id}/paid-usage", post(set_paid_usage))
         .route("/api/sessions/{id}/open-terminal", post(open_terminal))
         .route("/api/sessions/{id}/task-output", get(task_output))
         .route("/api/inbox", get(inbox))
@@ -277,6 +278,12 @@ async fn resume(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Va
 async fn resume_paid(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
     s.app.sessions.resume_paid(&s.app, &id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+struct PaidUsage { allow: bool }
+async fn set_paid_usage(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<PaidUsage>) -> ApiResult<Session> {
+    Ok(Json(s.app.sessions.set_paid_usage(&s.app, &id, b.allow).await.map_err(bad)?))
 }
 
 async fn open_terminal(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {

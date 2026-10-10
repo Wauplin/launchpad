@@ -523,7 +523,7 @@ The composer has an unchecked Allow paid usage checkbox beside Open after launch
 
 User actions and quota decisions share an action lock. Automatic continuation claims the pause before attaching or sending, honors the updater guard and pre-draft publication checks, and never retries uncertain sends. A paused record survives restart; a claimed continuation becomes needs_attention and requires inspection before manual paid resume or Stop. Stop on a quota pause cancels held continuation and enters Done, while ordinary user interruptions retain Stopped. Scheduled follow-ups wait behind quota pauses. A cron condition requiring its previous run to finish also waits while that run is quota paused. Publication and installation idle checks include commands that outlive an interrupt. Title-generation requests for protected sessions require fresh available quota and are cancelled when it becomes unavailable.
 
-The quota band appears in Summary and Trace, shows blocking windows and reset times, explains failed readings and interruption limits, and has visible Stop and Resume with paid usage buttons. Quota paused has its own virtualized, independently collapsible group and workspace-scoped counts in the sidebar and status bar; project markers use the same predicate.
+The quota band appears in Summary and Trace, shows blocking windows and reset times, explains failed readings and interruption limits, and has visible Stop and Resume with paid usage buttons. Paid usage stays switchable per session: the session header shows a Paid usage on badge with a Use subscription only button, and the Summary Run row shows the current mode with a button to switch (`POST /api/sessions/{id}/paid-usage`). Turning it off returns the session to quota protection at the next one-second guard check; turning it on does not resume an existing quota pause. Quota paused has its own virtualized, independently collapsible group and workspace-scoped counts in the sidebar and status bar; project markers use the same predicate.
 
 ### 9.6 Session view (UI)
 
@@ -857,6 +857,8 @@ Project metadata refresh, on 2026-10-04:
 60. **Combined workspace folder pins.** On 2026-10-10, renamed All projects to All workspaces and combined every workspace’s non-temporary sidebar folders with explicit global project pins. Shared projects appear once, sorted by name; the unfiltered view still includes every project and session.
 
 61. **Stopped agent group and hidden empty groups.** On 2026-10-10, manually stopped sessions moved out of Archived into their own Stopped group between Quota paused and Done; they never count as Done and remain resumable. Agent list groups with no items are no longer shown.
+
+62. **Reversible paid usage.** On 2026-10-10, made `allow_paid_usage` switchable on existing sessions in both directions, because Resume with paid usage previously left no way back to subscription-only work. The header badge makes paid sessions visible at a glance; enabling still requires an explicit button.
 
 ## Remote access feasibility research (2026-10-10)
 

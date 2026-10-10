@@ -105,13 +105,13 @@ export function SessionSummary({ session: s, rows, localPr, reviewDiff, showTrac
   if (localPr?.published_url && !refs.some((r) => r.url === localPr.published_url)) refs.push({ url: localPr.published_url, kind: "pr", repo: "", number: localPr.published_number, title: localPr.title });
   const tokens = s.usage.input_tokens + s.usage.cached_tokens + s.usage.output_tokens;
   const changes = git.data?.main_changes;
-  const metadata: [string, string][] = [];
+  const metadata: [string, ReactNode][] = [];
   if (turns.length) metadata.push(["Time", `${duration == null ? "" : `${Math.floor(duration / 60000)} min ${Math.round(duration / 1000) % 60} s · `}${turns.length} recorded ${turns.length === 1 ? "turn" : "turns"}`]);
   if (s.harness === "claude" && s.usage.cost_usd != null) metadata.push(["Cost", `$${s.usage.cost_usd.toFixed(2)}${tokens ? ` · ${compact(tokens)} tokens` : ""}`]);
   else if (tokens) metadata.push(["Tokens", compact(tokens)]);
   const model = [s.model, s.effort, s.usage.context_tokens != null && s.usage.context_window ? `${Math.round(100 * s.usage.context_tokens / s.usage.context_window)}% context` : null].filter(Boolean).join(" · ");
   if (model) metadata.push(["Model", model]);
-  metadata.push(["Paid usage", s.launch_spec.allow_paid_usage ? "Allowed" : "Quota protection enabled (best effort)"]);
+  metadata.push(["Paid usage", <PaidUsageToggle session={s} />]);
   metadata.push(["Folder", s.cwd]);
   if (git.data) metadata.push(["Branch", `${git.data.branch} · ${git.data.files.length ? `${git.data.files.length} uncommitted files` : "clean"}${git.data.unpushed_commits == null ? "" : git.data.unpushed_commits ? ` · ${git.data.unpushed_commits} commits absent from cached remote refs` : " · present in cached remote refs"}`]);
   if (changes) metadata.push(["Changes", `${changes.files} tracked files compared with main${changes.additions == null ? "" : ` · +${changes.additions} −${changes.deletions}`}`]);
@@ -151,6 +151,19 @@ export function SessionSummary({ session: s, rows, localPr, reviewDiff, showTrac
       {scheduling && <div className="grid gap-3 border-t border-line py-3"><b className="text-xs">Schedule follow-up · same session, new message</b><textarea className="field-input min-h-20" aria-label="Follow-up message" placeholder="Message to send later…" value={message} onChange={(e) => setMessage(e.target.value)} /><DelaySelector conditions={conditions} harness={s.harness} onChange={setConditions} onValidityChange={setValid} /><p className="text-xs text-ink-3">If this session is running, in a terminal or awaiting an answer at that time, the follow-up stays queued until it is ready.</p><div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !message.trim() || !conditions.length || !valid} onClick={() => void run(async () => { await api.post(`/api/sessions/${s.id}/follow-up`, { message, conditions }); setScheduling(false); setMessage(""); })}>Schedule</button><button className="btn btn-sm" onClick={() => setScheduling(false)}>Cancel</button></div></div>}
     </Section>
   </div>;
+}
+
+/** Shows whether this session may use paid credits after included quota, with a button to switch. `badge` only renders when paid usage is on. */
+export function PaidUsageToggle({ session: s, badge = false }: { session: Session; badge?: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const allow = s.launch_spec.allow_paid_usage;
+  const set = async (value: boolean) => {
+    setBusy(true);
+    try { await api.post(`/api/sessions/${s.id}/paid-usage`, { allow: value }); } catch (e) { toastError(e); } finally { setBusy(false); }
+  };
+  const off = <button className="btn btn-sm" disabled={busy} title="Pause this session at included quota limits again" onClick={() => void set(false)}>Use subscription only</button>;
+  if (badge) return allow ? <span className="inline-flex items-center gap-1.5 rounded bg-attn-soft px-1.5 py-0.5 font-semibold text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]">Paid usage on{off}</span> : null;
+  return <span className="inline-flex flex-wrap items-center gap-2">{allow ? <><b className="text-attn">Allowed: additional credits may be used after included quota runs out</b>{off}</> : <>Subscription only: quota protection enabled (best effort)<button className="btn btn-sm" disabled={busy} title="Allow additional credits after included quota runs out. A quota-paused session still waits for Resume." onClick={() => void set(true)}>Allow paid usage</button></>}</span>;
 }
 
 export function QuotaBand({ session: s }: { session: Session }) {

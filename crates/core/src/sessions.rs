@@ -680,6 +680,16 @@ impl Sessions {
         self.continue_quota(app, id, true).await
     }
 
+    /// Toggles paid usage for one session. Turning it off puts the session back under quota protection at the next guard check.
+    pub async fn set_paid_usage(&self, app: &App, id: &str, allow: bool) -> Result<Session> {
+        let _action = self.inner.actions.lock().await;
+        let s = self.get(id).context("no such session")?;
+        if s.launch_spec.allow_paid_usage == allow { return Ok(s); }
+        let s = self.update(app, id, |s| s.launch_spec.allow_paid_usage = allow).await?;
+        self.sink(app, id).emit(EventBody::Notice { text: if allow { "Paid usage allowed for this session; additional credits may be used after included quota runs out." } else { "Paid usage disabled; this session pauses at included quota limits." }.into() }).await;
+        Ok(s)
+    }
+
     async fn continue_quota(&self, app: &App, id: &str, paid: bool) -> Result<()> {
         let _guard = self.allow_work().await?;
         let s = self.get(id).context("no such session")?;
