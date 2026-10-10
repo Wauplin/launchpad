@@ -33,7 +33,7 @@ export function WorkspaceSwitcher() {
   const count = (n: number) => `${n} project${n === 1 ? "" : "s"}`;
   return (
     <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5" role="group" aria-label="Workspace of this window">
-      <WorkspaceButton label="All projects" detail={`No filter · ${count(projects)}`} active={!active} onSwitch={() => switchTo(null)} onWindow={() => void openWindow(null)} />
+      <WorkspaceButton label="All workspaces" detail={`No filter · ${count(projects)}`} active={!active} onSwitch={() => switchTo(null)} onWindow={() => void openWindow(null)} />
       {workspaces.map((w) => (
         <WorkspaceButton key={w.id} label={w.name} detail={count(w.project_ids.length)} active={w.id === active?.id} onSwitch={() => switchTo(w.id)} onWindow={() => void openWindow(w.id)} />
       ))}

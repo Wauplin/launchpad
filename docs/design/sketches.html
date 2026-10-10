@@ -730,14 +730,14 @@ footer.end code { font: 12.5px var(--font-mono); }
   <div class="sketch-head">
     <span class="sketch-id">S1 · Inbox</span>
     <h2>Notifications triaged from the local cache</h2>
-    <p>The default screen. List and preview sit side by side, so going from one thread to the next never loads a page. Everything here renders from SQLite and refreshes in the background. Visible buttons on the left of the top bar, beside Launchpad, pick this window's workspace (a named set of projects) in one click or open another window on a different one; Settings → Workspaces edits them; the sidebar, agents and inbox then only show that workspace, and the inbox has an All repos button to see every notification.</p>
+    <p>The default screen. List and preview sit side by side, so going from one thread to the next never loads a page. Everything here renders from SQLite and refreshes in the background. Visible buttons on the left of the top bar, beside Launchpad, pick this window's workspace (a named set of projects) in one click or open another window on a different one; Settings → Workspaces edits them; All workspaces combines every workspace’s sidebar folders and explicit project pins without duplicates; the sidebar, agents and inbox then only show that workspace, and the inbox has an All repos button to see every notification.</p>
   </div>
   <div class="frame">
     <div class="win" role="img" aria-label="Inbox mockup">
       <div class="topbar">
         <div class="brand"><span class="logo"><img src="../../packaging/launchpad.svg" alt=""/></span>Launchpad</div>
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
-          <span class="btn">All projects <svg class="ic sm"><use href="#i-window"/></svg></span>
+          <span class="btn">All workspaces <svg class="ic sm"><use href="#i-window"/></svg></span>
           <span class="btn" style="background:var(--teal-soft);color:var(--teal-ink);border-color:var(--teal)">HF Hub <svg class="ic sm"><use href="#i-window"/></svg></span>
           <span class="btn">Launchpad <svg class="ic sm"><use href="#i-window"/></svg></span>
         </div>

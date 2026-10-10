@@ -1,5 +1,5 @@
 import { useInboxThreads } from "@/features/inbox/InboxView";
-import { useScope } from "@/lib/workspace";
+import { useScope, useWorkspaces } from "@/lib/workspace";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import type { Project } from "@/gen/Project";
@@ -58,13 +58,14 @@ export function Sidebar() {
   const unread = useInboxThreads().threads.filter((t) => t.unread).length;
   const scope = useScope();
   const all = useProjects().data ?? [];
-  // A workspace lists all its projects; without one, the pinned projects.
+  // A workspace lists its projects; All workspaces combines them with explicit global pins.
+  const workspaceProjects = new Set((useWorkspaces().data ?? []).flatMap((w) => w.project_ids));
   const projects = scope.workspace ? scope.projects : all;
   const sessions = (useSessions().data ?? []).filter(scope.hasSession);
   const done = sessions.filter(isDone).length;
   const running = sessions.filter(isRunning).length;
   const quotaPaused = sessions.filter(isQuotaPaused).length;
-  const pinned = projects.filter((p) => (scope.workspace || p.pinned) && !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
+  const pinned = projects.filter((p) => (scope.workspace || p.pinned || workspaceProjects.has(p.id)) && !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const temp = projects.filter((p) => p.is_temp).sort((a, b) => b.created_at - a.created_at);
   return (
     <aside className="flex w-[200px] flex-none flex-col gap-px overflow-y-auto border-r border-line bg-chrome px-2 py-2.5">

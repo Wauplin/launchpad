@@ -15,7 +15,7 @@ import { useProjects } from "./queries";
 export const useWorkspaces = () => useQuery({ queryKey: ["workspaces"], queryFn: () => api.get<Workspace[]>("/api/workspaces"), staleTime: Infinity });
 
 export type Scope = {
-  /** null: all projects. */
+  /** null: all workspaces. */
   workspace: Workspace | null;
   /** The projects of the workspace (every project when there is none). */
   projects: Project[];
@@ -65,7 +65,7 @@ export function useWorkspaceSync() {
     if (requested !== null) {
       const want = requested.toLowerCase();
       const w = workspaces.find((w) => w.id === requested || w.name.toLowerCase() === want);
-      if (!w && want !== "" && want !== "all") toast(`No workspace named ${requested}: showing all projects`);
+      if (!w && want !== "" && want !== "all") toast(`No workspace named ${requested}: showing all workspaces`);
       switchTo(w?.id ?? null);
     } else if (current && !workspaces.some((w) => w.id === current)) {
       switchTo(null);
@@ -75,7 +75,7 @@ export function useWorkspaceSync() {
   useEffect(() => { document.title = name ? `${name} · Launchpad` : "Launchpad"; }, [name]);
 }
 
-/** Opens another window on a workspace (null: all projects). Outside the desktop shell, a browser tab. */
+/** Opens another window on a workspace (null: all workspaces). Outside the desktop shell, a browser tab. */
 export async function openWindow(workspaceId: string | null) {
   try {
     await api.post("/api/window", { workspace_id: workspaceId });

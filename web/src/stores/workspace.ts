@@ -1,4 +1,4 @@
-// The workspace shown in this window (ARCHITECTURE.md, 9.1.2). null means all projects.
+// The workspace shown in this window (ARCHITECTURE.md, 9.1.2). null means all workspaces.
 //
 // sessionStorage is per window, so several windows show different workspaces and each keeps its own after
 // a reload. localStorage remembers the last choice for the next window. `?ws=<id or name>` (from
