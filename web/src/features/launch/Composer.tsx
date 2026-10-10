@@ -451,9 +451,8 @@ export function Composer() {
 
         <div className="grid grid-cols-2 gap-2.5">
           <Field label="Model" end={
-            <button className="inline-flex items-center gap-1 font-normal hover:text-ink disabled:opacity-50" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} title="Query the selected harness for its model list">
+            <button className="inline-flex size-5 items-center justify-center rounded hover:bg-select hover:text-ink disabled:opacity-50" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} title={refreshingModels ? "Refreshing models…" : "Refresh models"} aria-label={refreshingModels ? "Refreshing models" : "Refresh models"} aria-busy={refreshingModels}>
               <Icon name="refresh" size={12} className={refreshingModels ? "animate-spin" : ""} />
-              {refreshingModels ? "Refreshing…" : "Refresh models"}
             </button>
           }>
             <Popover
