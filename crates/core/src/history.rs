@@ -420,6 +420,7 @@ pub async fn import(app: &App, harness: HarnessKind, id: &str) -> Result<Session
         project_id: project.map(|p| p.id),
         cwd: candidate.cwd,
         title: candidate.title,
+        title_pending: false,
         status: SessionStatus::Closed,
         status_since: now,
         live: false,

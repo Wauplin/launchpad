@@ -78,6 +78,7 @@ struct Inner {
     records: Mutex<HashMap<String, Session>>,
     stop_requests: Mutex<HashSet<String>>,
     quota_stops: Mutex<HashSet<String>>,
+    title_requests: Mutex<HashSet<String>>,
     quota_interrupts: Mutex<HashMap<String, i64>>,
     /// Serializes user actions and quota decisions; adapter events never take this lock.
     actions: tokio::sync::Mutex<()>,
@@ -107,6 +108,7 @@ impl Sessions {
                 records: Mutex::new(HashMap::new()),
                 stop_requests: Mutex::new(HashSet::new()),
                 quota_stops: Mutex::new(HashSet::new()),
+                title_requests: Mutex::new(HashSet::new()),
                 quota_interrupts: Mutex::new(HashMap::new()),
                 actions: tokio::sync::Mutex::new(()),
                 installing: tokio::sync::Mutex::new(false),
@@ -126,7 +128,7 @@ impl Sessions {
             .call(|c| {
                 let mut st = c.prepare(
                     "SELECT id, harness, harness_session_id, project_id, cwd, title, status, status_since, open_question, model,
-                            effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json, quota_pause_json
+                            effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json, quota_pause_json, title_pending
                      FROM session",
                 )?;
                 let rows = st
@@ -135,13 +137,19 @@ impl Sessions {
                         let mut usage: Usage = usage.and_then(|u| serde_json::from_str(&u).ok()).unwrap_or_default();
                         usage.cost_usd = r.get(13)?;
                         let spec: String = r.get(17)?;
+                        let spec: LaunchSpec = serde_json::from_str(&spec).unwrap_or_default();
+                        let title: String = r.get(5)?;
+                        // Older records have no naming state: retry only launch-derived titles.
+                        let title_pending = r.get::<_, Option<bool>>(19)?.unwrap_or_else(||
+                            spec.harness.is_some() && !spec.text.trim().is_empty() && title == title_from(&spec.text, ""));
                         Ok(Session {
                             id: r.get(0)?,
                             harness: HarnessKind::parse(&r.get::<_, String>(1)?).unwrap_or(HarnessKind::Claude),
                             harness_session_id: r.get(2)?,
                             project_id: r.get(3)?,
                             cwd: r.get(4)?,
-                            title: r.get(5)?,
+                            title,
+                            title_pending,
                             status: SessionStatus::parse(&r.get::<_, String>(6)?),
                             status_since: r.get(7)?,
                             live: false,
@@ -153,7 +161,7 @@ impl Sessions {
                             started_at: r.get(14)?,
                             ended_at: r.get(15)?,
                             last_seq: r.get(16)?,
-                            launch_spec: serde_json::from_str(&spec).unwrap_or_default(),
+                            launch_spec: spec,
                             quota_pause: r.get::<_, Option<String>>(18)?.and_then(|v| serde_json::from_str(&v).ok()),
                         })
                     })?
@@ -254,7 +262,16 @@ impl Sessions {
     pub async fn rename(&self, app: &App, id: &str, title: &str) -> Result<Session> {
         let title = title.trim();
         anyhow::ensure!(!title.is_empty() && title.chars().count() <= 100 && !title.contains(['\n', '\r']), "Use a title of 1 to 100 characters on one line.");
-        self.update(app, id, |s| s.title = title.to_string()).await
+        self.update(app, id, |s| { s.title = title.to_string(); s.title_pending = false; }).await
+    }
+
+    pub(crate) fn claim_title_request(&self, id: &str) -> bool {
+        let mut requests = self.inner.title_requests.lock().unwrap();
+        self.get(id).is_some_and(|s| s.title_pending) && requests.insert(id.to_string())
+    }
+
+    pub(crate) fn finish_title_request(&self, id: &str) {
+        self.inner.title_requests.lock().unwrap().remove(id);
     }
 
     /// Each window reports which sessions it shows, and whether it has the focus. `None` when it closes.
@@ -277,11 +294,11 @@ impl Sessions {
             .call(move |c| {
                 c.execute(
                     "INSERT INTO session (id, harness, harness_session_id, project_id, cwd, title, status, status_since,
-                        open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+                        open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
                      ON CONFLICT (id) DO UPDATE SET harness_session_id = ?3, project_id = ?4, cwd = ?5, title = ?6, status = ?7,
                         status_since = ?8, open_question = ?9, model = ?10, effort = ?11, cost_usd = ?14, usage_json = ?15,
-                        ended_at = ?17, last_seq = ?18, launch_spec_json = ?12, quota_pause_json = ?19",
+                        ended_at = ?17, last_seq = ?18, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20",
                     params![
                         s.id,
                         s.harness.as_str(),
@@ -302,6 +319,7 @@ impl Sessions {
                         s.ended_at,
                         s.last_seq,
                         s.quota_pause.as_ref().map(serde_json::to_string).transpose()?,
+                        s.title_pending,
                     ],
                 )?;
                 Ok(())
@@ -508,6 +526,7 @@ impl Sessions {
             project_id,
             cwd: cwd.clone(),
             title: preview.title.clone(),
+            title_pending: true,
             status: SessionStatus::Starting,
             status_since: now,
             live: false,
@@ -641,7 +660,11 @@ impl Sessions {
     /// Runs under the action lock, preventing user Stop and an automatic continuation from racing.
     pub(crate) async fn check_quotas(&self, app: &App) -> Result<()> {
         let _action = self.inner.actions.lock().await;
+        let naming_allowed = !*self.inner.installing.lock().await;
         for s in self.list() {
+            if naming_allowed && s.live && s.quota_pause.is_none() && (s.status.is_running() || s.status.is_done()) {
+                crate::titles::generate(app, &s);
+            }
             if s.launch_spec.allow_paid_usage && s.quota_pause.is_none() { continue; }
             let blockers = crate::quota::blockers(app, s.harness);
             if s.quota_pause.is_none() && s.status.is_running() && !blockers.is_empty() {

@@ -146,6 +146,10 @@ CREATE TABLE IF NOT EXISTS workspace (id TEXT PRIMARY KEY, json TEXT NOT NULL);"
         .query_map([], |r| r.get::<_, String>(1))?
         .collect::<rusqlite::Result<Vec<_>>>()?.iter().any(|name| name == "quota_pause_json");
     if !has_quota_pause { conn.execute_batch("ALTER TABLE session ADD COLUMN quota_pause_json TEXT;")?; }
+    let has_title_pending = conn.prepare("PRAGMA table_info(session)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?.iter().any(|name| name == "title_pending");
+    if !has_title_pending { conn.execute_batch("ALTER TABLE session ADD COLUMN title_pending INTEGER;")?; }
     Ok(Db::spawn(conn, "state"))
 }
 

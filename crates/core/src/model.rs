@@ -113,6 +113,10 @@ pub struct Session {
     pub project_id: Option<String>,
     pub cwd: String,
     pub title: String,
+    /// Internal durable naming state; owner edits cancel pending generation.
+    #[serde(skip)]
+    #[ts(skip)]
+    pub title_pending: bool,
     pub status: SessionStatus,
     /// When the status last changed (Unix ms).
     #[ts(type = "number")]
