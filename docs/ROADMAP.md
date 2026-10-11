@@ -304,7 +304,7 @@ Scope: all 12 suggestions and the quick fixes of the [UX suggestions report](res
 
 Built:
 
-- Agents: compact hover/focus row icons for Stop (Running or Quota paused) or Archive (other unarchived sessions), without selecting the session; seen state (`session.seen_at` against `status_since`), a Needs you group first, Done for seen sessions, Cron and Scheduled collapsed by default with their next run, one-line rows with the last message, Archive seen older than 3 d, auto-open of the first Needs you session and a dashboard when nothing is selected. Sidebar counts as words and filtered temporary folders.
+- Agents: compact hover/focus row icons for Stop (Running or Quota paused) or Archive (other unarchived sessions), without selecting the session; seen state (`session.seen_at` against `status_since`), a Needs you group first, Done for seen sessions, Cron and Scheduled collapsed by default with their next run, one-line rows with the last message, Archive seen older than 3 d, a dashboard when nothing is selected or a session panel is closed, without automatically opening or marking another run seen. Sidebar counts as words and filtered temporary folders.
 - Session pane: Summary · Trace · Changes tabs, one state-dependent primary button, Terminal and More ▾; folded system notices and Launchpad instructions in the trace; suggestion and pre-draft Next steps; paperclip in the message box; Back to session in the code viewer.
 - Composer project picker (2026-10-11): focused fuzzy search across names, repositories, descriptions and paths, with workspace grouping, virtualized rows, an empty-result message and the temporary-folder action retained.
 - Composer: minimize into a top-bar draft pill, overlay below 1,250 CSS px, prompt first, one + Add context popover, one option summary line, Preview prompt popover.
@@ -312,6 +312,8 @@ Built:
 - PR page agent-draft banner and `?draft=`, conditional primary Merge, collapsing comment box, label/reviewer pickers (`GET /api/repo-meta/{owner}/{repo}`); breadcrumbs; one Open in new window ▾ menu; one-row status bar with Details ▾; project page stat chips, selection bar and worktree rows; removed-project pre-drafts; sticky Settings save bar.
 
 The agent row actions were checked with UI type checking/build and the dev daemon in Chrome: hover/focus visibility, archive, cancellation of quota continuation, unchanged panel selection and archived rows without actions.
+
+Closing agent panels was checked with UI type checking/build and the dev daemon in Chrome: Summary and Trace return to the dashboard, the next run stays unseen after the read delay, and reload keeps the empty selection.
 
 Left: the daily-use check.
 

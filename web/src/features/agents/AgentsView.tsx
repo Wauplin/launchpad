@@ -17,7 +17,7 @@ import { isRunning, isDone, isQuotaPaused, isStopped, needsYou } from "@/lib/ses
 import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useCrons, useProjects, useSessions } from "@/lib/queries";
-import { useScope, useWorkspaces } from "@/lib/workspace";
+import { useScope } from "@/lib/workspace";
 import { sendPresence } from "@/lib/ws";
 import { isCollapsed, useLayout, type AgentGroup } from "@/stores/layout";
 import { SessionPane } from "./SessionPane";
@@ -188,9 +188,7 @@ export function AgentsView() {
     }
   }, [scheduledId, scheduled, allSessions]);
   useEffect(() => { if (cronId && !crons.some((c) => c.id === cronId)) setCronIdState(null); }, [cronId, crons]);
-  const projectsQuery = useProjects();
-  const projects = projectsQuery.data;
-  const workspacesLoaded = useWorkspaces().isSuccess;
+  const projects = useProjects().data;
   const { selectedSession, show, clearSession, collapsedGroups, toggleGroup } = useLayout();
   const search = useSearch({ strict: false }) as { session?: string };
   const navigate = useNavigate();
@@ -244,16 +242,6 @@ export function AgentsView() {
     setArchiving(true);
     try { for (const s of oldDone) await api.post(`/api/sessions/${s.id}/close`); } catch (e) { toastError(e); } finally { setArchiving(false); }
   };
-
-  // With no session selected when the page opens, open the first session that needs you.
-  const autoOpened = useRef<string | null>(null);
-  const wsKey = scope.workspace?.id ?? "all";
-  const loaded = sessionsQuery.isSuccess && projectsQuery.isSuccess && workspacesLoaded;
-  useEffect(() => {
-    if (!loaded || autoOpened.current === wsKey) return;
-    autoOpened.current = wsKey;
-    if (!visibleSession && !cronId && !scheduledId && !search.session && needs[0]) open(needs[0].id);
-  });
 
   // After the shown session is archived, open the next item of the group it was opened from.
   const origin = useRef<{ id: string; group: AgentGroup } | null>(null);
