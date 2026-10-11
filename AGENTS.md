@@ -39,6 +39,7 @@ Status: Phase 0 done, Phases 1, 2, 2b, 3, 4, 5 and 6 built and awaiting daily-us
 
 ## Where things are
 
+- `docs/managed-worktrees-plan.md`: proposed default task worktrees, explicit writable context, conservative garbage collection and local merge completion. Planning only; it does not override current product rules or authorize implementation.
 - `README.md`: what the project is, its current status, and how to build and run it.
 - `initial.md`: the original description of the project, in the owner's words.
 - `docs/ARCHITECTURE.md`: architecture and the decisions log. Read it before changing the design, and update it when a decision changes.

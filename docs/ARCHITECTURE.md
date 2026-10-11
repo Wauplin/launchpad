@@ -952,6 +952,10 @@ Project metadata refresh, on 2026-10-04:
 
 81. **Initial final-message summary.** On 2026-10-11, added the owner-requested default launch instruction shared by all harnesses. Ask for a concise, self-contained summary of the initial task’s outcomes, results, checks and remaining work so the run view’s recorded last message is useful on its own. Explicitly yield to user steering or requested answers/formats and exempt subsequent turns. Keep the instruction visible in prompt preview and folded with launch instructions in the run view; do not generate a separate summary or enforce a response format.
 
+## Managed worktree proposal (2026-10-11)
+
+The [managed worktree plan](managed-worktrees-plan.md) proposes daemon-owned task worktrees, explicit writable context projects, recorded paths for resume, conservative garbage collection and optional local merge completion. It distinguishes Codex's documented behavior from proposed Launchpad choices and includes staged acceptance checks. This is planning only: no architecture decision, launch default, context access rule or approved implementation scope changes.
+
 ## Remote access feasibility research (2026-10-10)
 
 The [static remote access and mobile report](research/remote-access/index.html) documents the current HTTP/WebSocket and desktop-shell boundaries, VPS versus laptop execution tradeoffs, mobile presentation reuse, failure recovery and possible Android shells. It proposes a single execution host and shared React features, with separate scopes for mobile, push and process restart survival. This is research only: no architecture decision was adopted and Phase 7 remains deferred pending owner-approved scope and acceptance.

@@ -44,6 +44,7 @@ The app uses the sculpted launch icon, also shown in the top-left corner of the 
 
 ## Documentation
 
+- [docs/managed-worktrees-plan.md](docs/managed-worktrees-plan.md): proposal for default agent worktrees, writable context projects, safe cleanup and optional local merge completion. Research only; launch behavior is unchanged and implementation awaits scope approval.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): architecture and decisions log.
 - [docs/ROADMAP.md](docs/ROADMAP.md): phases and their progress.
 - [docs/design/sketches.html](docs/design/sketches.html): UI sketches (open the file in a browser, or the [published version](https://claude.ai/code/artifact/916895f3-aa0f-4378-96da-b971415d6a5a)).

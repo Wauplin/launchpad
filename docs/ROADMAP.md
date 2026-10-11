@@ -29,6 +29,10 @@ Status: implementation and acceptance tracker (updated 2026-10-11). See [ARCHITE
 
 Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
 
+## Managed worktree proposal
+
+Planning completed on 2026-10-11: [managed-worktrees-plan.md](managed-worktrees-plan.md) compares Codex's documented lifecycle with Launchpad and proposes default linked worktrees, explicit writable context projects, conservative cleanup/restoration and optional local merge completion. Implementation is deferred pending owner approval of the staged scope and acceptance checks. No phase status or existing launch behavior changes.
+
 ## Phase 0: foundations and spikes
 
 **Spikes** (timeboxed, before writing product code):
