@@ -345,6 +345,10 @@ pub enum Target {
     ExistingPredraft {
         predraft_id: String,
     },
+    /// Continue in a saved session's folder with a new native conversation.
+    SessionFolder {
+        session_id: String,
+    },
     /// A new temporary folder in the projects root.
     Temp,
 }

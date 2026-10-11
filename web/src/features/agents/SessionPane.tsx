@@ -1,6 +1,7 @@
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
+import { ResumeOtherAgent } from "./ResumeOtherAgent";
 import { useVariant } from "@/lib/variants";
 import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle } from "./SessionSummary";
 import { SubagentsPanel, subagents } from "./SubagentsPanel";
@@ -302,6 +303,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
           </span>
           <span className="ml-auto flex flex-wrap items-center gap-1">
             {primary}
+            <ResumeOtherAgent session={s} />
             <button className="btn btn-sm" title={`Open a shell in ${s.cwd}`} onClick={() => void openTerminal.shell(s.cwd)}>
               <Icon name="term" size={12} />
               Terminal

@@ -373,6 +373,14 @@ impl Sessions {
 
     /// Resolves a launch spec: cwd, prompt, title and context directories. No side effect.
     pub async fn preview(&self, app: &App, spec: &LaunchSpec) -> Result<Preview> {
+        let mut resolved_spec = spec.clone();
+        if let Target::SessionFolder { session_id } = &spec.target {
+            let source = self.get(session_id).context("source session no longer exists")?;
+            if let Some(p) = crate::predrafts::list(app).await?.into_iter().find(|p| p.root == source.cwd) {
+                resolved_spec.target = Target::ExistingPredraft { predraft_id: p.id };
+            }
+        }
+        let spec = &resolved_spec;
         crate::attachments::validate(&spec.attachments)?;
         let config = app.config.get();
         let mut context = Vec::new();
@@ -427,6 +435,15 @@ impl Sessions {
                     .context("project not found")?;
                 (Some(p.root), Some(project))
             }
+            Target::SessionFolder { session_id } => {
+                let source = self.get(session_id).context("source session no longer exists")?;
+                anyhow::ensure!(std::path::Path::new(&source.cwd).is_dir(), "source session folder no longer exists");
+                let project = match &source.project_id {
+                    Some(id) => Some(crate::projects::get(app, id).await?.context("the project no longer exists")?),
+                    None => None,
+                };
+                (Some(source.cwd), project)
+            }
             Target::Temp => (None, None),
             Target::None => (None, None),
         };
@@ -445,6 +462,14 @@ impl Sessions {
     pub(crate) async fn launch_with_id(&self, app: &App, spec: LaunchSpec, id: String) -> Result<Session> {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
+        let mut spec = spec;
+        if let Target::SessionFolder { session_id } = &spec.target {
+            let source = self.get(session_id).context("source session no longer exists")?;
+            anyhow::ensure!(!self.is_busy(&source) && source.status != SessionStatus::InTerminal, "stop the source agent or re-attach its terminal before continuing with another agent");
+            if let Some(p) = crate::predrafts::list(app).await?.into_iter().find(|p| p.root == source.cwd) {
+                spec.target = Target::ExistingPredraft { predraft_id: p.id };
+            }
+        }
         let harness = spec.harness.context("pick a harness")?;
         if spec.target == Target::None {
             bail!("pick a project or a temporary folder");
@@ -509,6 +534,10 @@ impl Sessions {
                 let project_id = p.project_id.clone();
                 predraft = Some(p);
                 (cwd, Some(project_id))
+            }
+            Target::SessionFolder { session_id } => {
+                let source = self.get(session_id).context("source session no longer exists")?;
+                (preview.cwd.clone().context("source session folder missing")?, source.project_id)
             }
             Target::None => unreachable!(),
         };

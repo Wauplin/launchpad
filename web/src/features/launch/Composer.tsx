@@ -35,7 +35,7 @@ import { itemIcon, PromptField } from "./PromptField";
 
 function Field({ label, hint, end, children }: { label: string; hint?: string; end?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="grid gap-1.5">
+    <div className="grid min-w-0 grid-cols-1 content-start gap-1.5">
       <div className="flex items-center gap-2 text-[11.5px] font-[650] text-ink-2">
         {label}
         {hint && <span className="font-normal text-ink-3">{hint}</span>}
@@ -281,6 +281,7 @@ export function Composer() {
 
   const localPrs = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts"), enabled: open });
   const existing = spec.target.kind === "existing_predraft" ? localPrs.data?.find((p) => p.id === (spec.target as { predraft_id: string }).predraft_id) : undefined;
+  const source = spec.target.kind === "session_folder" ? sessions?.find((s) => s.id === (spec.target as { session_id: string }).session_id) : undefined;
   const recentSessions = (sessions ?? []).filter(scope.hasSession);
   if (!open) return null;
 
@@ -289,7 +290,7 @@ export function Composer() {
     if (spec.harness && !refreshingModels) refreshModels.mutate(spec.harness);
   };
   const set = (f: (s: LaunchSpec) => LaunchSpec) => update(f);
-  const target = (spec.target.kind === "project" || spec.target.kind === "predraft") ? projects.find((p) => p.id === (spec.target as { project_id: string }).project_id) : existing ? projects.find((p) => p.id === existing.project_id) : null;
+  const target = (spec.target.kind === "project" || spec.target.kind === "predraft") ? projects.find((p) => p.id === (spec.target as { project_id: string }).project_id) : existing ? projects.find((p) => p.id === existing.project_id) : source ? projects.find((p) => p.id === source.project_id) : null;
   const repo = target?.gh_repo ?? target?.gh_upstream ?? null;
   const inScope = (p: Project) => Number(!!scope.workspace && scope.hasProject(p.id));
   const sorted = [...projects.filter((p) => !p.is_temp)].sort((a, b) => inScope(b) - inScope(a) || Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
@@ -393,7 +394,7 @@ export function Composer() {
   const harnessOptions = [...harnesses.map((h) => ({ key: h.id, harness: h.id, variant: null as HarnessVariant | null, label: h.name })), ...variants.map((v) => ({ key: `variant:${v.id}`, harness: v.harness, variant: v, label: v.name }))];
   const modelLabel = spec.model ?? variant?.model ?? defaults?.model ?? "default model";
   const effortLabel = spec.effort ?? variant?.effort ?? defaults?.effort ?? null;
-  const runIn = spec.target.kind === "temp" ? "new folder" : spec.target.kind === "predraft" ? "pre-draft PR" : spec.target.kind === "existing_predraft" ? "existing pre-draft" : spec.target.kind === "project" ? "checkout" : null;
+  const runIn = spec.target.kind === "session_folder" ? "previous agent’s folder" : spec.target.kind === "temp" ? "new folder" : spec.target.kind === "predraft" ? "pre-draft PR" : spec.target.kind === "existing_predraft" ? "existing pre-draft" : spec.target.kind === "project" ? "checkout" : null;
   const billingText = payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${variant!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
   const presetLabels = (config?.presets ?? []).filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
 
@@ -466,8 +467,9 @@ export function Composer() {
           </Field>
           <Field label="Run in">
             {target ? <select className="field-input h-8 w-full" aria-label="Run in" value={spec.target.kind} onChange={(e) => set((s) => ({ ...s, target: { kind: e.target.value === "predraft" ? "predraft" : "project", project_id: target.id }, presets: s.presets.filter((id) => id !== "draft-pr" && id !== "worktree") }))}>
-              {existing && <option value="existing_predraft">Pre-draft: {existing.title}</option>}<option value="project">Project checkout</option><option value="predraft">Pre-draft PR</option>
-            </select> : <div className="field-input h-8">{spec.target.kind === "temp" ? "A new folder" : "—"}</div>}
+              {spec.target.kind === "session_folder" && <option value="session_folder">Previous agent’s folder</option>}{existing && <option value="existing_predraft">Pre-draft: {existing.title}</option>}<option value="project">Project checkout</option><option value="predraft">Pre-draft PR</option>
+            </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "A new folder" : "—"}</div>}
+            {spec.target.kind === "session_folder" && <div className="mt-1 break-all text-xs text-ink-3">{source?.cwd ?? "Source session unavailable"}</div>}
             {target && spec.target.kind === "project" && <div className="mt-1 text-xs text-ink-3"><TargetCheckout projectId={target.id} /></div>}
           </Field>
         </div>
