@@ -419,6 +419,7 @@ impl Sessions {
         ) {
             prompt.push_str("\n\nWork in a dedicated local pre-draft worktree. Commit your changes, update the local PR title and description with launchpad pr update. Do not push, publish, or delete the worktree.");
         }
+        crate::compose::append_initial_summary_instruction(&mut prompt);
         let (cwd, project) = match &spec.target {
             Target::Project { project_id } | Target::Predraft { project_id } => {
                 let p = crate::projects::get(app, project_id).await?.context("the project no longer exists")?;

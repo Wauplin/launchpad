@@ -4,6 +4,15 @@
 use crate::config::Preset;
 use crate::model::{FileRef, GitHubRef, LaunchSpec};
 
+/// Initial launch only; follow-up and steering messages are sent verbatim.
+pub fn append_initial_summary_instruction(prompt: &mut String) {
+    // An instruction alone must not turn an empty draft into a launchable task.
+    if prompt.trim().is_empty() {
+        return;
+    }
+    prompt.push_str("\n\nLaunchpad final message: when you finish the initial task, make your last message a concise, self-contained summary for the user to read in the agent run view. Lead with the outcome and cover all substantive results, checks actually performed and their results, and any remaining work, blockers or limitations. Include relevant links or file paths when useful; omit missing details and routine narration. This applies only to the initial task, not subsequent turns. If the user steers you or requests a specific answer or format, follow that request instead; a work summary is not required.");
+}
+
 /// A context project, resolved from the registry.
 pub struct ContextInfo {
     pub path: String,
@@ -227,6 +236,20 @@ Please use a local git worktree and delete it once you're done. No need to add a
             render_prompt(&LaunchSpec::default(), &ctx, &[]),
             "Context:\n- Reference project: /p/js. Read it, but do not modify it."
         );
+    }
+
+    #[test]
+    fn initial_summary_preserves_task_and_empty_prompt() {
+        for empty in ["", " \n "] {
+            let mut prompt = empty.to_string();
+            append_initial_summary_instruction(&mut prompt);
+            assert_eq!(prompt, empty);
+        }
+        let mut prompt = render_prompt(&LaunchSpec { text: "Fix the bug".into(), ..Default::default() }, &[], &[]);
+        append_initial_summary_instruction(&mut prompt);
+        assert!(prompt.starts_with("Fix the bug\n\nLaunchpad final message:"));
+        assert!(prompt.contains("only to the initial task, not subsequent turns"));
+        assert!(prompt.contains("If the user steers you or requests a specific answer or format"));
     }
 
     #[test]
