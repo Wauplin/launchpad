@@ -2,7 +2,7 @@
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
 import { useVariant } from "@/lib/variants";
-import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle, ModelSwitch } from "./SessionSummary";
+import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle } from "./SessionSummary";
 import { GitPanel } from "./GitPanel";
 import { useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
@@ -23,6 +23,9 @@ import { projectName, useProjects, useSession } from "@/lib/queries";
 import { useSessionLogs } from "@/lib/sessionStore";
 import { buildRows } from "./rows";
 import { EventRow } from "./EventRow";
+import { foldTrace } from "./traceRows";
+import { MenuItem, Popover } from "@/components/Popover";
+import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import { StatusBadge, usageLine } from "./SessionBits";
 import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
 
@@ -32,7 +35,7 @@ function act(id: string, action: string) {
 
 type PendingAsk = { request_id: string; count: number } | null;
 
-function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, dropImages, onSent }: { acceptsImages: boolean; sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null>; onSent: () => void }) {
+function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, dropImages, inputRef: ref, onSent }: { acceptsImages: boolean; sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null>; inputRef: React.RefObject<HTMLTextAreaElement | null>; onSent: () => void }) {
   const text = useMessageDrafts((s) => s.drafts[sessionId] ?? "");
   const setDraft = useMessageDrafts((s) => s.set);
   const setText = (t: string) => setDraft(sessionId, t);
@@ -62,13 +65,12 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
     finally { setReading(false); }
   };
   useLayoutEffect(() => { dropImages.current = (files) => { void addImages(files); }; });
-  const ref = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  }, [text]);
+  }, [text, ref]);
   const send = async () => {
     const t = text.trim();
     if ((!t && !images.length) || busy || disabled || reading) return;
@@ -97,10 +99,7 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
         <img src={image.data_url} alt={image.name} title={image.name} className="h-16 max-w-28 rounded-md border border-line object-contain" />
         <button className="iconbtn absolute -top-1 -right-1 bg-paper!" title={`Remove ${image.name}`} disabled={busy || reading} onClick={() => setImages((current) => current.filter((_, j) => j !== i))}><Icon name="x" size={12} /></button>
       </div>)}</div>}
-      {acceptsImages && <div className="mb-1 flex items-center gap-2 text-[11.5px] text-ink-3">
-        <button className="btn btn-sm" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>Attach images</button>
-        <span>{reading ? "Reading images…" : "Drop images here or paste into the message box"}</span>
-      </div>}
+      {reading && <div className="mb-1 text-[11.5px] text-ink-3">Reading images…</div>}
       <div className="flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
         <textarea
           ref={ref}
@@ -122,6 +121,9 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
           }}
           className="max-h-40 min-h-5 min-w-0 flex-1 resize-none bg-transparent text-[12.5px] leading-5 outline-none disabled:opacity-60"
         />
+        {acceptsImages && <button className="iconbtn" title="Attach images (you can also drop or paste them)" aria-label="Attach images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
+          <Icon name="clip" size={14} />
+        </button>}
         <button className="iconbtn border-line! bg-paper" title="Send" disabled={disabled || busy || reading || (!text.trim() && !images.length)} onClick={() => void send()}>
           <Icon name="send" size={14} />
         </button>
@@ -131,21 +133,22 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
 }
 
 /** File paths in the conversation open the code viewer on the session's folder. */
-function useCodeLinks(s: { project_id: string | null; cwd: string } | null): CodeLinks | null {
+function useCodeLinks(s: { id: string; project_id: string | null; cwd: string } | null): CodeLinks | null {
   const navigate = useNavigate();
   const files = useCodeFiles(s?.project_id ? s.cwd : null, null).data;
   return useMemo(() => {
     if (!s?.project_id || !files) return null;
-    const { project_id, cwd } = s;
+    const { id, project_id, cwd } = s;
     return {
       resolve: pathResolver(files.files, cwd),
-      open: (path, line) => void navigate({ to: "/projects/$id/code", params: { id: project_id }, search: { root: cwd, path, line: line ?? undefined } }),
+      open: (path, line) => void navigate({ to: "/projects/$id/code", params: { id: project_id }, search: { root: cwd, path, line: line ?? undefined, session: id } }),
     };
-  }, [files, s?.project_id, s?.cwd, navigate]);
+  }, [files, s?.id, s?.project_id, s?.cwd, navigate]);
 }
 
+type View = "summary" | "trace" | "changes";
+
 export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear: () => void }) {
-  const [gitOpen, setGitOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
@@ -154,12 +157,17 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
   const tui = useTerminals().data?.find((t) => t.alive && t.kind === "tui" && t.session_id === sessionId);
   const [reattaching, setReattaching] = useState(false);
   const dropImages = useRef<((files: File[]) => void) | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [dragging, setDragging] = useState(false);
   const s = useSession(sessionId);
   const [gitMain, setGitMain] = useState(false);
-  const [view, setView] = useState<"summary" | "trace" | null>(null);
-  useEffect(() => { if (s && view === null) setView(isRunning(s) ? "trace" : "summary"); else if (s && isRunning(s) && view !== "trace") setView("trace"); }, [s, view]);
-  const summary = !s || !isRunning(s) && view !== "trace";
+  const [view, setView] = useState<View | null>(null);
+  useEffect(() => { if (s && view === null) setView(isRunning(s) ? "trace" : "summary"); else if (s && isRunning(s) && view === "summary") setView("trace"); }, [s, view]);
+  const git = useQuery({ queryKey: ["session-git", sessionId], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${sessionId}/git`), refetchInterval: 5000 });
+  const isGit = !!git.data;
+  const current: View = view === "changes" && !isGit ? "summary" : view ?? "summary";
+  const summary = !s || current === "summary" && !isRunning(s);
+  const changesOpen = current === "changes";
   const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => p.root === s?.cwd || p.id === localStorage.getItem(`launchpad.session-predraft.${sessionId}`));
   const projects = useProjects().data;
   const variantName = useVariant(s?.launch_spec.variant)?.name;
@@ -174,6 +182,8 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
     }
   }, [sessionId, log, load]);
   const rows = useMemo(() => (log ? buildRows(log) : []), [log]);
+  const typed = s?.launch_spec.text ?? "";
+  const trace = useMemo(() => foldTrace(rows, typed), [rows, typed]);
   const ask: PendingAsk = useMemo(() => {
     for (let i = rows.length - 1; i >= 0; i--) {
       const r = rows[i];
@@ -184,11 +194,22 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
-  const v = useVirtualizer({ enabled: !summary && !gitOpen, count: rows.length, getScrollElement: () => scrollRef.current, estimateSize: () => 48, overscan: 6, useFlushSync: false });
+  const traceOpen = !summary && !changesOpen;
+  const v = useVirtualizer({ enabled: traceOpen, count: trace.length, getScrollElement: () => scrollRef.current, estimateSize: () => 48, overscan: 6, useFlushSync: false });
   const total = v.getTotalSize();
   useLayoutEffect(() => {
-    if (atBottom.current && rows.length) v.scrollToIndex(rows.length - 1, { align: "end" });
-  }, [rows.length, total, v, summary, gitOpen]);
+    if (atBottom.current && trace.length) v.scrollToIndex(trace.length - 1, { align: "end" });
+  }, [trace.length, total, v, summary, changesOpen]);
+  // Answer: show the open question in the trace and focus the message box.
+  const [answering, setAnswering] = useState(0);
+  useEffect(() => {
+    if (!answering || !traceOpen) return;
+    const i = trace.findLastIndex((r) => r.t === "ask");
+    atBottom.current = false;
+    if (i >= 0) v.scrollToIndex(i, { align: "start" });
+    inputRef.current?.focus();
+    setAnswering(0);
+  }, [answering, traceOpen]);
   // Re-render every 20 s for elapsed times.
   const [, tick] = useState(0);
   useEffect(() => {
@@ -207,6 +228,12 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
   const running = isRunning(s);
   const resumable = s.status === "closed" || s.status === "stopped" || s.status === "interrupted" || s.status === "error";
   const name = harness?.name ?? s.harness;
+  const isPinned = pinned.includes(s.id);
+  const mainChanges = git.data?.main_changes?.files ?? 0;
+  const changed = (git.data?.files.length ?? 0) > 0 || mainChanges > 0;
+  const showChanges = (main: boolean) => { setGitMain(main); setView("changes"); };
+  const onlyMain = (git.data?.files.length ?? 0) === 0 && mainChanges > 0;
+  const archive = () => void act(s.id, "close");
   const placeholder =
     s.status === "in_terminal"
       ? "Open in the terminal: re-attach it to continue here"
@@ -218,13 +245,34 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
             ? `Message ${name} to resume the session`
             : `Message ${name}`;
 
+  // The one primary action, depending on the state.
+  const primary = running || s.status === "quota_paused" ? (
+    <button className="btn btn-sm border-gh-closed! bg-gh-closed! text-white!" title={s.status === "quota_paused" ? "Stop: cancel automatic continuation" : "Stop: interrupt the agent"} onClick={() => void act(s.id, "interrupt")}>
+      <Icon name="stop" size={12} />Stop
+    </button>
+  ) : s.status === "in_terminal" ? (
+    tui && reattaching ? <>
+      <button className="btn btn-sm btn-primary" onClick={() => { setReattaching(false); void api.post(`/api/sessions/${s.id}/resume`, { close_terminal: true }).catch(toastError); }}>Close the TUI and re-attach</button>
+      <button className="btn btn-sm" onClick={() => setReattaching(false)}>Cancel</button>
+    </> : <button className="btn btn-sm btn-primary" title="Continue this session in Launchpad" onClick={() => (tui ? setReattaching(true) : void act(s.id, "resume"))}>Re-attach</button>
+  ) : s.status === "waiting" && s.open_question ? (
+    <button className="btn btn-sm btn-primary" title="Show the question and focus the message box" onClick={() => { setView("trace"); setAnswering((n) => n + 1); }}>Answer</button>
+  ) : s.status === "waiting" ? (
+    changed
+      ? <button className="btn btn-sm btn-primary" title="Open the changed files in the Changes view" onClick={() => showChanges(onlyMain)}>Review changes</button>
+      : <button className="btn btn-sm btn-primary" title="Archive the session (it stays resumable)" onClick={archive}><Icon name="archive" size={12} />Archive</button>
+  ) : resumable ? (
+    <button className="btn btn-sm btn-primary" title={s.status === "closed" ? "Re-attach this archived session without sending a message" : "Send “Continue the unfinished turn.”"} onClick={() => { void (s.status === "closed" ? act(s.id, "resume") : api.post(`/api/sessions/${s.id}/input`, { text: "Continue the unfinished turn." }).catch(toastError)); setView("trace"); }}>Resume</button>
+  ) : null;
+  const archivePrimary = s.status === "waiting" && !s.open_question && !changed;
+
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col bg-paper"
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
       onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(false); dropImages.current?.(Array.from(e.dataTransfer.files)); } }}
     >
-      {dragging && <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center border-2 border-teal bg-teal-soft/80 font-semibold text-teal-ink">Drop images to attach to your message</div>}
+      {dragging && <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center border-2 border-teal bg-teal-soft/80 font-semibold text-teal-ink">{harness?.capabilities.images ? "Drop images to attach to your message" : `${name} does not accept images`}</div>}
       <div className="grid grid-cols-[18px_1fr] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
         <span className="order-1 row-span-2 self-start pt-px">
           <HarnessMark harness={s.harness} size={18} />
@@ -235,85 +283,59 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
             <button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, { title: title.trim() }); setRenaming(false); } catch (e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button>
             <button className="btn btn-sm" disabled={savingTitle} onClick={() => setRenaming(false)}>Cancel</button>
           </div> : <button className="min-w-0 flex-1 truncate text-left text-[12.5px] font-[650] hover:text-teal-ink" title={`${s.title} · Click to edit`} aria-label={`Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
-            {s.title}
+            {isPinned && <span className="mr-1 text-teal-ink" title="Pinned">★</span>}{s.title}
           </button>}
-          <button className={`iconbtn shrink-0 self-start ${pinned.includes(s.id) ? "text-teal-ink!" : ""}`} title={pinned.includes(s.id) ? "Unpin session" : "Pin session"} aria-label={pinned.includes(s.id) ? "Unpin session" : "Pin session"} aria-pressed={pinned.includes(s.id)} onClick={() => togglePin(s.id)}>{pinned.includes(s.id) ? "★" : "☆"}</button>
-        </div>
-        <span className="order-4 col-span-2 flex flex-wrap gap-0.5 self-start pt-1">
-          <span className="mr-1 inline-flex gap-0.5 rounded border border-line p-0.5" aria-label="Session view">
-            <button className={`btn btn-sm ${summary ? "bg-select!" : ""}`} aria-pressed={summary} disabled={running} onClick={() => { setView("summary"); setGitOpen(false); }}>Summary</button>
-            <button className={`btn btn-sm ${!summary ? "bg-select!" : ""}`} aria-pressed={!summary} onClick={() => { setView("trace"); setGitOpen(false); }}>Trace</button>
-          </span>
-          {(running || s.status === "quota_paused") && (
-            <button className="iconbtn" title={s.status === "quota_paused" ? "Stop: cancel automatic continuation" : "Stop: interrupt the agent"} onClick={() => void act(s.id, "interrupt")}>
-              <Icon name="stop" size={14} />
-            </button>
-          )}
-          {s.status === "in_terminal" ? (
-            tui && reattaching ? <>
-              <button className="btn btn-sm btn-primary" onClick={() => { setReattaching(false); void api.post(`/api/sessions/${s.id}/resume`, { close_terminal: true }).catch(toastError); }}>Close the TUI and re-attach</button>
-              <button className="btn btn-sm" onClick={() => setReattaching(false)}>Cancel</button>
-            </> : <>
-              {tui && <button className="btn btn-sm" title="Show the TUI in the terminal dock" onClick={() => setDock({ open: true, active: tui.id })}>Show TUI</button>}
-              <button className="btn btn-sm" title="Continue this session in Launchpad" onClick={() => (tui ? setReattaching(true) : void act(s.id, "resume"))}>
-                Re-attach
-              </button>
-            </>
-          ) : (
-            !running && harness?.capabilities.terminal && s.status !== "quota_paused" && (
-              <button className="btn btn-sm" title={`Continue in the ${name} TUI, in an integrated terminal (outside quota protection)`} onClick={() => void openTerminal.tui(s.id)}>
-                Open in terminal
-              </button>
-            )
-          )}
-          <button className="btn btn-sm" title={`Open a shell in ${s.cwd}`} onClick={() => void openTerminal.shell(s.cwd)}>
-            <Icon name="term" size={12} />
-            Terminal
-          </button>
-          {s.project_id && (
-            <button
-              className="btn btn-sm"
-              title={`Read the files of ${s.cwd} in the code viewer`}
-              onClick={() => void navigate({ to: "/projects/$id/code", params: { id: s.project_id! }, search: { root: s.cwd } })}
-            >
-              Files
-            </button>
-          )}
-          <button className="btn btn-sm" disabled={s.last_seq === 0} title="Reference the stored trace so far in a new agent's prompt; the agent loads it on demand" onClick={() => useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] })}>Add trace as context</button>
-          <button className={`btn btn-sm ${gitOpen ? "bg-select!" : ""}`} aria-pressed={gitOpen} onClick={() => { setGitMain(false); setGitOpen(!gitOpen); }}>Git</button>
-          <button className="btn btn-sm" onClick={() => void api.post("/api/open-editor", { path: s.cwd }).catch(toastError)}>Open in editor</button>
-          {s.status !== "closed" && (
-            <button className="btn btn-sm" title="Archive the session (it stays resumable)" onClick={() => void act(s.id, "close")}>
-              Archive
-            </button>
-          )}
-          <button className="iconbtn" title="Close panel" onClick={onClear}>
+          <button className="iconbtn shrink-0 self-start" title="Close panel" aria-label="Close panel" onClick={onClear}>
             <Icon name="x" size={14} />
           </button>
-        </span>
+        </div>
         <span className="order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3 tabular-nums">
           {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Pre-draft PR</button>}
-        <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
+          <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
           {s.launch_spec.variant && <span title="Harness variant">{variantName ?? `${s.launch_spec.variant} (deleted variant)`}</span>}
           <StatusBadge s={s} />
           <PaidUsageToggle session={s} badge />
           <CostLimit session={s} badge />
-          <ModelSwitch session={s} />
           <span>{usageLine(s)}</span>
-          <span className="ml-auto">{new Date(s.started_at).toLocaleDateString()}</span>
+          <span className="ml-auto" title="Started">{new Date(s.started_at).toLocaleDateString()}</span>
+        </span>
+        <span className="order-4 col-span-2 flex flex-wrap items-center gap-1 pt-1">
+          <span className="mr-1 inline-flex gap-0.5 rounded border border-line p-0.5" aria-label="Session view">
+            <button className={`btn btn-sm ${summary ? "bg-select!" : ""}`} aria-pressed={summary} disabled={running} onClick={() => setView("summary")}>Summary</button>
+            <button className={`btn btn-sm ${traceOpen ? "bg-select!" : ""}`} aria-pressed={traceOpen} onClick={() => setView("trace")}>Trace</button>
+            {isGit && <button className={`btn btn-sm ${changesOpen ? "bg-select!" : ""}`} aria-pressed={changesOpen} title="Git changes of the session folder" onClick={() => showChanges(onlyMain)}>Changes{changed ? ` · ${git.data!.files.length || mainChanges}` : ""}</button>}
+          </span>
+          <span className="ml-auto flex flex-wrap items-center gap-1">
+            {primary}
+            <button className="btn btn-sm" title={`Open a shell in ${s.cwd}`} onClick={() => void openTerminal.shell(s.cwd)}>
+              <Icon name="term" size={12} />
+              Terminal
+            </button>
+            <button className="btn btn-sm" title={`Open ${s.cwd} in the editor`} onClick={() => void api.post("/api/open-editor", { path: s.cwd }).catch(toastError)}>Editor</button>
+            <Popover align="right" width={260} trigger={({ open, toggle }) => <button className={`btn btn-sm ${open ? "bg-select!" : ""}`} aria-expanded={open} onClick={toggle}>More<Icon name="chev" size={12} /></button>}>
+              {(close) => <>
+                {s.status === "in_terminal" && tui && <MenuItem label="Show TUI" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}
+                {!running && s.status !== "in_terminal" && s.status !== "quota_paused" && harness?.capabilities.terminal && <MenuItem icon={<Icon name="term" size={14} />} label="Open in terminal" detail={`Continue in the ${name} TUI, outside quota protection`} onClick={() => { close(); void openTerminal.tui(s.id); }} />}
+                {s.project_id && <MenuItem icon={<Icon name="file" size={14} />} label="Files" detail="Read the folder in the code viewer" onClick={() => { close(); void navigate({ to: "/projects/$id/code", params: { id: s.project_id! }, search: { root: s.cwd, session: s.id } }); }} />}
+                <MenuItem icon={<Icon name="agents" size={14} />} label="Use trace as context" detail="Reference this trace in a new agent's prompt" disabled={s.last_seq === 0} onClick={() => { close(); useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] }); }} />
+                {s.status !== "closed" && !archivePrimary && <MenuItem icon={<Icon name="archive" size={14} />} label="Archive" detail="It stays resumable" onClick={() => { close(); archive(); }} />}
+                <MenuItem icon={<span className="text-teal-ink">{isPinned ? "★" : "☆"}</span>} label={isPinned ? "Unpin session" : "Pin session"} onClick={() => { close(); togglePin(s.id); }} />
+              </>}
+            </Popover>
+          </span>
         </span>
       </div>
 
-      {gitOpen && <GitPanel initialMain={gitMain} sessionId={s.id} />}
+      {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} />}
       <CodeLinksContext.Provider value={codeLinks}>
-      {!gitOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">Loading…</div> : <SessionSummary key={s.id} session={s} rows={rows} localPr={localPr} reviewDiff={(main) => { setGitMain(main); setGitOpen(true); }} showTrace={() => setView("trace")} />)}
-      {!summary && !gitOpen && !running && <><StateBand session={s}>
-        <button className="btn btn-sm" disabled={!rows.some((r) => r.t === "assistant")} onClick={() => { atBottom.current = false; const i = rows.findLastIndex((r) => r.t === "assistant"); if (i >= 0) v.scrollToIndex(i, { align: "start" }); }}>Final message</button>
+      {!changesOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">Loading…</div> : <SessionSummary key={s.id} session={s} rows={rows} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
+      {traceOpen && !running && <><StateBand session={s}>
+        <button className="btn btn-sm" disabled={!rows.some((r) => r.t === "assistant")} onClick={() => { atBottom.current = false; const i = trace.findLastIndex((r) => r.t === "assistant"); if (i >= 0) v.scrollToIndex(i, { align: "start" }); }}>Final message</button>
         <button className="btn btn-sm" onClick={() => setView("summary")}>Summary</button>
       </StateBand><FollowUpBands sessionId={s.id} /><QuotaBand session={s} /></>}
       <div
         ref={scrollRef}
-        className={`min-h-0 flex-1 overflow-y-auto px-3 ${gitOpen || summary ? "hidden" : ""}`}
+        className={`min-h-0 flex-1 overflow-y-auto px-3 ${traceOpen ? "" : "hidden"}`}
         onScroll={(e) => {
           const el = e.currentTarget;
           atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
@@ -325,13 +347,13 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
           <div style={{ height: total, position: "relative" }}>
             {v.getVirtualItems().map((it) => (
               <div
-                key={rows[it.index].key}
+                key={trace[it.index].key}
                 data-index={it.index}
                 ref={v.measureElement}
                 className="flex flex-col py-[5px]"
                 style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${it.start}px)` }}
               >
-                <EventRow row={rows[it.index]} sessionId={s.id} live={s.live} />
+                <EventRow row={trace[it.index]} sessionId={s.id} live={s.live} />
               </div>
             ))}
           </div>
@@ -344,7 +366,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
         )}
       </div>
       </CodeLinksContext.Provider>
-      <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal" || s.status === "quota_paused" || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={s.open_question && s.live ? ask : null} />
+      <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal" || s.status === "quota_paused" || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={s.open_question && s.live ? ask : null} />
     </div>
   );
 }

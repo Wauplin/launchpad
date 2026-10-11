@@ -1,5 +1,6 @@
 import type { Session } from "@/gen/Session";
 import { formatAge } from "@/lib/format";
+import { Icon, type IconName } from "@/components/Icon";
 
 /** "12:04" since `ms`. */
 export function elapsed(ms: number): string {
@@ -15,45 +16,46 @@ export function compact(n: number): string {
   return String(n);
 }
 
+// Every status badge has the same shape; only the color and the icon change.
 export const STYLES = {
   work: "bg-work-soft text-work",
   needs: "bg-attn-soft text-attn",
-  bg: "bg-paper text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]",
-  done: "bg-sunk text-ink-2",
-  int: "bg-paper text-ink-2 shadow-[inset_0_0_0_1px_var(--color-line)]",
+  bg: "bg-attn-soft text-attn",
+  done: "bg-sunk text-ink-3",
+  int: "bg-sunk text-ink-2",
   err: "bg-[#ffebe9] text-gh-closed",
 };
 
-export function statusInfo(s: Session): { label: string; style: keyof typeof STYLES } {
+export function statusInfo(s: Session): { label: string; style: keyof typeof STYLES; icon: IconName | null } {
   switch (s.status) {
     case "starting":
-      return { label: "Starting", style: "work" };
+      return { label: "Starting", style: "work", icon: null };
     case "working":
-      return { label: `Working ${elapsed(s.status_since)}`, style: "work" };
+      return { label: `Working ${elapsed(s.status_since)}`, style: "work", icon: null };
     case "waiting":
-      return { label: s.open_question ? "Question" : `Done ${formatAge(s.status_since)}`, style: "needs" };
+      return s.open_question ? { label: "Question", style: "needs", icon: "alert" } : { label: `Done ${formatAge(s.status_since)}`, style: "needs", icon: "okcircle" };
     case "background":
-      return { label: `Background ${formatAge(s.status_since)}`, style: "work" };
+      return { label: `Background ${formatAge(s.status_since)}`, style: "work", icon: null };
     case "closed":
-      return { label: `Archived ${formatAge(s.ended_at ?? s.status_since)} ago`, style: "done" };
+      return { label: `Archived ${formatAge(s.ended_at ?? s.status_since)} ago`, style: "done", icon: "archive" };
     case "in_terminal":
-      return { label: "In terminal", style: "int" };
+      return { label: "In terminal", style: "int", icon: "term" };
     case "quota_paused":
-      return { label: s.quota_pause?.error ? "Quota paused · needs attention" : "Quota paused", style: "bg" };
+      return { label: s.quota_pause?.error ? "Quota paused · needs attention" : "Quota paused", style: "bg", icon: "clock" };
     case "stopped":
-      return { label: "Stopped", style: "int" };
+      return { label: "Stopped", style: "int", icon: "stop" };
     case "interrupted":
-      return { label: "Interrupted", style: "int" };
+      return { label: "Interrupted", style: "int", icon: "alert" };
     case "error":
-      return { label: "Failed", style: "err" };
+      return { label: "Failed", style: "err", icon: "xcircle" };
   }
 }
 
 export function StatusBadge({ s }: { s: Session }) {
-  const { label, style } = statusInfo(s);
+  const { label, style, icon } = statusInfo(s);
   return (
-    <span className={`inline-flex h-5 items-center gap-[5px] rounded-full px-2 text-[11.5px] font-semibold whitespace-nowrap ${STYLES[style]} ${s.status === "stopped" ? "border border-dashed border-line" : ""}`}>
-      <span className={`size-1.5 rounded-full ${style === "bg" || style === "int" ? "border-[1.5px] border-current" : "bg-current"}`} />
+    <span className={`inline-flex h-5 items-center gap-[5px] rounded-full px-2 text-[11.5px] font-semibold whitespace-nowrap ${STYLES[style]}`}>
+      {icon ? <Icon name={icon} size={11} /> : <span className="size-1.5 rounded-full bg-current" />}
       {label}
     </span>
   );

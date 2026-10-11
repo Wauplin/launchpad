@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -19,6 +19,7 @@ import {
 import { SuggestionCard, useSuggestions } from "@/features/suggestions/Suggestions";
 import { useComposer } from "@/stores/composer";
 import { LabelChip } from "./LabelChip";
+import { Picker, useRepoMeta } from "./Picker";
 import { FilesChanged } from "./FilesChanged";
 import type { Item, Timeline, Comment } from "./types";
 const EventCard = memo(function EventCard({
@@ -103,7 +104,7 @@ const EventCard = memo(function EventCard({
     </article>
   );
 });
-function Conversation({ item }: { item: Item }) {
+function Conversation({ item, focus }: { item: Item; focus: { id: string | null; n: number } }) {
   const ref = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const suggestions = useSuggestions({ kind: "git_hub", repo: item.repo, number: item.number });
@@ -127,6 +128,13 @@ function Conversation({ item }: { item: Item }) {
     overscan: 3,
     useFlushSync: false,
   });
+  // "Review & post" and ?draft= scroll to the agent draft (the first one when no id is given).
+  const loaded = suggestions.isSuccess;
+  useEffect(() => {
+    if (!focus.n || !loaded || !suggestions.data.length) return;
+    const i = Math.max(0, suggestions.data.findIndex((s) => s.id === focus.id));
+    requestAnimationFrame(() => v.scrollToIndex(i, { align: "start" }));
+  }, [focus.n, loaded]);
   return (
     <div ref={ref} className="min-h-0 flex-1 overflow-auto p-4">
       {suggestions.error && <p role="alert" className="text-gh-closed">{String(suggestions.error)}</p>}
@@ -242,6 +250,22 @@ function Checks({ item }: { item: Item }) {
     </div>
   );
 }
+/** Why GitHub would refuse or warn about the merge, from the cached merge state. */
+function blocker(item: Item) {
+  const checks = item.commits?.nodes[0]?.commit.statusCheckRollup?.state;
+  if (item.isDraft) return "Blocked: draft pull request";
+  if (item.mergeable === "CONFLICTING" || item.mergeStateStatus === "DIRTY") return "Blocked: merge conflicts";
+  if (item.mergeable === "UNKNOWN" || item.mergeStateStatus === "UNKNOWN") return "GitHub is still checking mergeability. Refresh in a moment.";
+  if (item.mergeStateStatus === "BEHIND") return "Blocked: the branch is behind its base";
+  if (item.mergeStateStatus === "UNSTABLE") return "Checks are failing or pending";
+  if (item.mergeStateStatus === "BLOCKED") {
+    if (item.reviewDecision === "REVIEW_REQUIRED") return "Blocked: a review is required";
+    if (item.reviewDecision === "CHANGES_REQUESTED") return "Blocked: changes were requested";
+    if (checks && checks !== "SUCCESS") return `Blocked: checks ${checks.toLowerCase()}`;
+    return "Blocked by branch protection";
+  }
+  return `${item.mergeable?.toLowerCase() ?? "unknown"} · ${item.mergeStateStatus?.toLowerCase() ?? "unknown"}`;
+}
 function Controls({
   item,
   act,
@@ -253,10 +277,13 @@ function Controls({
 }) {
   const isPr = item.__typename === "PullRequest",
     open = item.state === "OPEN";
-  const [reviewers, setReviewers] = useState("");
-  const [labels, setLabels] = useState(
-    item.labels.nodes.map((l) => l.name).join(", "),
-  );
+  const meta = useRepoMeta(item.repo).data;
+  const current = item.labels.nodes.map((l) => l.name);
+  const [reviewers, setReviewers] = useState<string[]>([]);
+  const [labels, setLabels] = useState(current);
+  const colors = useMemo(() => new Map([...(meta?.labels ?? []), ...item.labels.nodes].map((l) => [l.name, l.color])), [meta, item.labels]);
+  const labelsChanged = labels.length !== current.length || labels.some((l) => !current.includes(l));
+  const requested = new Set((item.reviewRequests?.nodes ?? []).map((r) => r.requestedReviewer.login ?? `team:${r.requestedReviewer.slug}`));
   const [method, setMethod] = useState(
     () => localStorage.getItem(`merge-method:${item.repo}`) ?? "squash",
   );
@@ -267,6 +294,7 @@ function Controls({
     ["rebase", "rebaseMergeAllowed"],
   ] as const;
   const allowed = methods.filter(([, key]) => item.repository?.[key]);
+  const ready = item.mergeable === "MERGEABLE" && ["CLEAN", "HAS_HOOKS"].includes(item.mergeStateStatus ?? "") && !item.isDraft;
   const actual = allowed.some(([m]) => m === method)
     ? method
     : (allowed[0]?.[0] ?? method);
@@ -280,27 +308,13 @@ function Controls({
               <LabelChip key={l.name} label={l} />
             ))}
           </div>
-          <input
-            className="field-input mt-2"
-            aria-label="Labels"
-            value={labels}
-            onChange={(e) => setLabels(e.target.value)}
-            placeholder="Labels, separated by commas"
-          />
-          <button
-            className="btn btn-sm mt-2"
-            disabled={busy}
-            onClick={() =>
-              void act("labels", {
-                labels: labels
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              })
-            }
-          >
-            Save labels
-          </button>
+          <Picker label={labelsChanged ? `Labels · ${labels.length} selected` : "Edit labels"} options={meta?.labels.map((l) => l.name) ?? []} selected={labels} onChange={setLabels} disabled={busy} render={(name) => <LabelChip label={{ name, color: colors.get(name) ?? "d0d7de" }} />} />
+          {labelsChanged && (
+            <div className="mt-2 flex gap-2">
+              <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void act("labels", { labels })}>Save labels</button>
+              <button className="btn btn-sm" disabled={busy} onClick={() => setLabels(current)}>Revert</button>
+            </div>
+          )}
         </div>
         <div>
           <b>Assignees</b>
@@ -331,21 +345,12 @@ function Controls({
               </p>
               {open && (
                 <>
-                  <input
-                    className="field-input"
-                    aria-label="Request reviewers"
-                    placeholder="Usernames or team:slug, comma separated"
-                    value={reviewers}
-                    onChange={(e) => setReviewers(e.target.value)}
-                  />
-                  <button
-                    className="btn btn-sm mt-2"
-                    disabled={busy || !reviewers.trim()}
+                  <Picker label={reviewers.length ? `Reviewers · ${reviewers.length} selected` : "Request reviewers"} options={(meta?.reviewers ?? []).filter((r) => !requested.has(r))} selected={reviewers} onChange={setReviewers} allowNew="Add" disabled={busy} />
+                  {reviewers.length > 0 && <button
+                    className="btn btn-sm btn-primary mt-2"
+                    disabled={busy}
                     onClick={() => {
-                      const names = reviewers
-                        .split(",")
-                        .map((s) => s.trim())
-                        .filter(Boolean);
+                      const names = reviewers;
                       void act("reviewers", {
                         reviewers: names.filter((s) => !s.startsWith("team:")),
                         team_reviewers: names
@@ -354,8 +359,8 @@ function Controls({
                       });
                     }}
                   >
-                    Request review
-                  </button>
+                    Request review from {reviewers.length}
+                  </button>}
                 </>
               )}
             </div>
@@ -376,10 +381,7 @@ function Controls({
             {open && (
               <div className="rounded-lg border border-line bg-paper p-3">
                 <b>Merge</b>
-                <p>
-                  {item.mergeable?.toLowerCase()} ·{" "}
-                  {item.mergeStateStatus?.toLowerCase()}
-                </p>
+                <p className={ready ? "text-gh-open" : "text-attn"}>{ready ? "Ready to merge" : blocker(item)}</p>
                 <select
                   className="field-input"
                   aria-label="Merge method"
@@ -396,7 +398,7 @@ function Controls({
                   ))}
                 </select>
                 <button
-                  className="btn btn-primary mt-2 w-full"
+                  className={`btn mt-2 w-full justify-center ${ready ? "btn-primary" : ""}`}
                   disabled={
                     busy ||
                     item.isDraft ||
@@ -518,6 +520,20 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
     [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null),
     [tab, setTab] = useState("conversation");
+  const rawDraft = (useSearch({ strict: false }) as { draft?: unknown }).draft;
+  const draftParam = rawDraft == null ? undefined : String(rawDraft);
+  const [focus, setFocus] = useState<{ id: string | null; n: number }>({ id: null, n: 0 });
+  const reviewDraft = (id: string | null) => { setTab("conversation"); setFocus((f) => ({ id, n: f.n + 1 })); };
+  useEffect(() => { if (draftParam) reviewDraft(draftParam === "1" ? null : draftParam); }, [draftParam]);
+  const [composing, setComposing] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  // WebKit does not focus clicked buttons, so the box collapses on a click outside it rather than on blur.
+  useEffect(() => {
+    if (!composing) return;
+    const down = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setComposing(false); };
+    document.addEventListener("mousedown", down);
+    return () => document.removeEventListener("mousedown", down);
+  }, [composing]);
   const draftKey = `github-reply:${repo}:${number}`;
   const [draft, setDraft] = useState(
     () => localStorage.getItem(draftKey) ?? "",
@@ -646,6 +662,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
           {error ?? String(q.error)}
         </p>
       )}
+      {item && <DraftBanner item={item} onReview={reviewDraft} />}
       {isPr && (
         <nav className="flex gap-2 border-b border-line px-4 py-2">
           {["conversation", "files", "threads"].map((t) => (
@@ -675,11 +692,16 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
             ) : tab === "threads" && isPr ? (
               <ReviewThreads item={item} />
             ) : (
-              <Conversation item={item} />
+              <Conversation item={item} focus={focus} />
             )}
-            <div className="flex-none border-t border-line bg-chrome p-3">
+            <div
+              className="flex-none border-t border-line bg-chrome p-3"
+              ref={box}
+              onFocus={() => setComposing(true)}
+            >
               <textarea
-                className="field-input h-20 resize-y"
+                className={`field-input ${composing || draft.trim() ? "h-24 resize-y" : "h-[34px] resize-none overflow-hidden"}`}
+                rows={1}
                 aria-label="Comment or review"
                 placeholder="Write a comment or review…"
                 value={draft}
@@ -689,7 +711,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
                   localStorage.setItem(draftKey, e.target.value);
                 }}
               />
-              <div className="mt-2 flex flex-wrap items-center gap-2">
+              {(composing || draft.trim()) && <div className="mt-2 flex flex-wrap items-center gap-2">
                 <button
                   className="btn btn-primary btn-sm"
                   disabled={busy || !draft.trim()}
@@ -739,7 +761,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
                 <span className="ml-auto text-xs text-ink-3">
                   Posts when you click.
                 </span>
-              </div>
+              </div>}
             </div>
           </div>
           <Controls key={item.updatedAt} item={item} act={act} busy={busy} />
@@ -747,6 +769,23 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
       ) : (
         <p className="p-4 text-ink-3">Fetching this item for the first time…</p>
       )}
+    </div>
+  );
+}
+
+/** Shown on every tab while an agent draft for this item waits for the owner. */
+function DraftBanner({ item, onReview }: { item: Item; onReview: (id: string | null) => void }) {
+  const all = useSuggestions({ kind: "git_hub", repo: item.repo, number: item.number }).data;
+  const waiting = all.filter((s) => s.status !== "posted");
+  if (!waiting.length) return null;
+  const describe = (s: (typeof waiting)[number]) => s.kind === "review" ? `${s.event === "REQUEST_CHANGES" ? "Request changes" : s.event === "APPROVE" ? "Approve" : "Comment"} review` : "Comment";
+  const first = waiting[0];
+  return (
+    <div className="flex flex-none flex-wrap items-center gap-2 border-b border-teal-ink/30 bg-[#eaf8f5] px-4 py-1.5 text-[12.5px]">
+      <b className="text-teal-ink">{waiting.length === 1 ? "Agent draft" : `${waiting.length} agent drafts`}:</b>
+      <span>{waiting.length === 1 ? describe(first) : waiting.map(describe).join(" · ")}</span>
+      <span className="text-ink-3">· by {first.author}{["posting", "uncertain"].includes(first.status) ? " · publication attempted, check GitHub" : ""}</span>
+      <button className="btn btn-primary btn-sm ml-auto" onClick={() => onReview(first.id)}>Review &amp; post</button>
     </div>
   );
 }

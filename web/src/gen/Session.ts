@@ -21,4 +21,12 @@ live: boolean,
 /**
  * The agent asked a question that is not answered yet.
  */
-open_question: boolean, model: string | null, effort: string | null, prompt: string, usage: Usage, started_at: number, ended_at: number | null, last_seq: number, launch_spec: LaunchSpec, quota_pause: QuotaPause | null, };
+open_question: boolean, model: string | null, effort: string | null, prompt: string, usage: Usage, started_at: number, ended_at: number | null, last_seq: number, launch_spec: LaunchSpec, quota_pause: QuotaPause | null,
+/**
+ * When a focused window last showed the session (Unix ms, 0: never). Unseen while older than `status_since`.
+ */
+seen_at: number,
+/**
+ * Start of the last assistant message, as one line of plain text.
+ */
+last_message: string | null, };

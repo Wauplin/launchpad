@@ -13,7 +13,7 @@ import { LocalSuggestions } from "@/features/suggestions/Suggestions";
 import { useComposer } from "@/stores/composer";
 import { useOpenTerminal } from "@/features/terminals/lib";
 import { useLayout } from "@/stores/layout";
-type Detail = Diff & { predraft: Predraft; status: string | null; commits: string[]; base_ahead: number; dirty: boolean; default_remote_branch: string };
+type Detail = Diff & { predraft: Predraft; status: string | null; commits: string[]; base_ahead: number; dirty: boolean; default_remote_branch: string; project_missing?: boolean };
 export function PredraftView() {
   const { id } = useParams({ strict: false }) as { id: string };
   return <Review key={id} id={id} />;
@@ -73,6 +73,7 @@ function Review({ id }: { id: string }) {
   if (q.error) return <p className="p-6 text-gh-closed">{String(q.error)}</p>;
   if (!p || !q.data) return <p className="p-6">Loading local PR…</p>;
   const d = q.data;
+  if (d.project_missing) return <Orphan p={p} running={["starting", "working", "background", "in_terminal"].includes(d.status ?? "")} onDiscarded={() => void qc.invalidateQueries({ queryKey: ["predrafts"] })} />;
   const active = !p.archived && !p.published_url;
   const running = ["starting", "working", "background", "in_terminal"].includes(d.status ?? "");
   const state = p.archived ? "Discarded" : p.published_url ? "Published" : running ? "In progress" : d.status === "waiting" ? "Ready for review" : d.status === "error" || d.status === "interrupted" ? "Agent needs attention" : "Local review";
@@ -110,6 +111,34 @@ function Review({ id }: { id: string }) {
       <button className="btn text-gh-closed" disabled={busy || running || d.dirty} onClick={() => { if (confirm !== "discard") { setConfirm("discard"); return; } void run(() => api.post(`/api/predrafts/${id}/discard`)); }}>{confirm === "discard" ? "Confirm delete branch and worktree" : "Discard"}</button>
       {confirm && <button className="btn btn-sm" onClick={() => setConfirm(null)}>Cancel</button>}
     </div>}
+  </div>;
+}
+
+/** The project of this pre-draft was removed from Launchpad: show the record and offer Discard only. */
+function Orphan({ p, running, onDiscarded }: { p: Predraft; running: boolean; onDiscarded: () => void }) {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const active = !p.archived && !p.published_url;
+  return <div className="h-full overflow-auto p-6">
+    <div className="max-w-[760px] rounded-lg border border-line bg-paper p-4">
+      <span className="rounded bg-attn-soft px-2 py-1 text-xs font-semibold text-attn">Pre-draft PR · project removed</span>
+      <h2 className="my-2 text-lg font-semibold">{p.title}</h2>
+      <p className="font-mono text-xs text-ink-3">{p.branch} → {p.base_branch} · {p.root}</p>
+      <p className="mt-3 text-[13px] text-ink-2">The project of this pre-draft PR is no longer registered in Launchpad, so its commits and changes cannot be reviewed or published from here. {active ? "Discard archives this record and closes the agents and terminals in its worktree. Without the project, the worktree folder and the branch are kept on disk; remove them with git if you no longer need them." : p.archived ? "This pre-draft was discarded." : "This pre-draft was published."}</p>
+      {p.published_url && <button className="text-teal-ink hover:underline" onClick={() => openGitHub(p.published_url!)}>Published on GitHub #{p.published_number}</button>}
+      {p.body && <div className="mt-3 border-t border-line pt-3"><Markdown text={p.body} /></div>}
+      {error && <p role="alert" className="mt-2 text-gh-closed">{error}</p>}
+      {active && <div className="mt-4 flex items-center gap-2">
+        <button className="btn text-gh-closed" disabled={busy || running} onClick={() => {
+          if (!confirm) return setConfirm(true);
+          setBusy(true); setError("");
+          api.post(`/api/predrafts/${p.id}/discard`).then(onDiscarded, (e) => setError(String(e))).finally(() => { setBusy(false); setConfirm(false); });
+        }}>{confirm ? "Confirm discard" : "Discard"}</button>
+        {confirm && <button className="btn btn-sm" onClick={() => setConfirm(false)}>Cancel</button>}
+        {running && <span className="text-xs text-ink-3">An agent is still working in this worktree.</span>}
+      </div>}
+    </div>
   </div>;
 }
 

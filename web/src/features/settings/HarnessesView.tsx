@@ -10,7 +10,7 @@ import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useConfig, useHarnessDefaults } from "@/lib/queries";
 import { parseUsd } from "@/lib/variants";
-import { Card, SettingsPage } from "./SettingsView";
+import { Card, SaveBar, SettingsPage } from "./SettingsView";
 
 /** Editable form of a variant: environment rows keep their order and allow empty names while typing. */
 type Draft = Omit<HarnessVariant, "env" | "budget_usd"> & { env: [string, string][]; budget: string; saved: boolean };
@@ -78,8 +78,6 @@ export function HarnessesView() {
         end={
           <>
             <button className="btn btn-sm" onClick={add}><Icon name="plus" size={12} />New variant</button>
-            <button className="btn btn-sm btn-ghost" disabled={!dirty} onClick={() => setDrafts(saved.variants.map(toDraft))}>Revert</button>
-            <button className="btn btn-sm btn-primary" disabled={!dirty || invalid} onClick={() => void save()}>Save</button>
           </>
         }
       >
@@ -87,6 +85,7 @@ export function HarnessesView() {
         {drafts.length === 0 && <div className="text-xs text-ink-3">No variant yet.</div>}
         {drafts.map((d, i) => <VariantEditor key={i} draft={d} onChange={(f) => setAt(i, f)} onDelete={() => setDrafts((all) => all && all.filter((_, j) => j !== i))} />)}
       </Card>
+      <SaveBar dirty={dirty} invalid={invalid ? "Each variant needs a name, a valid cost limit and unique variable names." : null} onSave={() => void save()} onRevert={() => setDrafts(saved.variants.map(toDraft))} />
     </SettingsPage>
   );
 }

@@ -41,7 +41,9 @@ export type LaunchContext = {
 };
 
 type Composer = {
+  /** A draft is active: shown as the drawer, or as the draft pill when `minimized`. */
   open: boolean;
+  minimized: boolean;
   spec: LaunchSpec;
   /** Start conditions; empty means launch now. */
   conditions: LaunchDelay[];
@@ -52,6 +54,7 @@ type Composer = {
   rememberLaunch: (spec: LaunchSpec) => void;
   update: (f: (s: LaunchSpec) => LaunchSpec) => void;
   close: () => void;
+  setMinimized: (minimized: boolean) => void;
   discard: () => void;
   setOpenAfterLaunch: (v: boolean) => void;
   restore: () => Promise<void>;
@@ -62,13 +65,14 @@ function save(spec: LaunchSpec, open: boolean, conditions: LaunchDelay[]) {
   clearTimeout(saveTimer);
   // Each workspace has its own draft; the address is taken now, before a workspace switch.
   const path = `/api/launch/draft${draftQuery()}`;
-  saveTimer = setTimeout(() => void api.put(path, { spec, open, conditions }).catch(() => {}), 400);
+  const minimized = useComposer.getState().minimized;
+  saveTimer = setTimeout(() => void api.put(path, { spec, open, minimized, conditions }).catch(() => {}), 400);
 }
 
 /** A switch saves the pending draft of the previous workspace at once, then loads the next one. */
-function flush(spec: LaunchSpec, open: boolean, conditions: LaunchDelay[], workspace: string | null) {
+function flush(spec: LaunchSpec, open: boolean, minimized: boolean, conditions: LaunchDelay[], workspace: string | null) {
   clearTimeout(saveTimer);
-  return api.put(`/api/launch/draft${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`, { spec, open, conditions }).catch(() => {});
+  return api.put(`/api/launch/draft${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`, { spec, open, minimized, conditions }).catch(() => {});
 }
 
 let lastLaunchAt = 0;
@@ -84,6 +88,7 @@ let lastLaunch: Pick<LaunchSpec, "harness" | "variant" | "budget_usd" | "model" 
 
 export const useComposer = create<Composer>((set, get) => ({
   open: false,
+  minimized: false,
   spec: emptySpec(),
   conditions: [],
   setConditions: (conditions) => { set({ conditions }); save(get().spec, get().open, conditions); },
@@ -100,7 +105,9 @@ export const useComposer = create<Composer>((set, get) => ({
     for (const c of ctx?.contextProjects ?? [])
       if (!spec.context_projects.some((p) => p.project_id === c.project_id)) spec.context_projects = [...spec.context_projects, c];
     for (const trace of ctx?.agentTraces ?? []) if (!(spec.agent_traces ?? []).some((t) => t.session_id === trace.session_id)) spec.agent_traces = [...(spec.agent_traces ?? []), trace];
-    set({ open: true, spec });
+    // Adding context items to a minimized draft keeps it minimized (the pill flashes); Launch buttons open it.
+    const collect = !!ctx && ctx.projectId === undefined && !!(ctx.githubRefs?.length || ctx.files?.length || ctx.contextProjects?.length || ctx.agentTraces?.length);
+    set({ open: true, minimized: get().open && get().minimized && collect, spec });
     save(spec, true, get().conditions);
   },
   update: (f) => {
@@ -109,13 +116,17 @@ export const useComposer = create<Composer>((set, get) => ({
     save(spec, get().open, get().conditions);
   },
   close: () => {
-    set({ open: false });
+    set({ open: false, minimized: false });
     save(get().spec, false, get().conditions);
+  },
+  setMinimized: (minimized) => {
+    set({ minimized });
+    save(get().spec, get().open, get().conditions);
   },
   discard: () => {
     const { harness, variant, budget_usd } = get().spec;
     const spec = { ...emptySpec(), harness, variant, budget_usd };
-    set({ spec, open: false, conditions: [] });
+    set({ spec, open: false, minimized: false, conditions: [] });
     save(spec, false, []);
   },
   setOpenAfterLaunch: (v) => set({ openAfterLaunch: v }),
@@ -124,9 +135,9 @@ export const useComposer = create<Composer>((set, get) => ({
       const sessions = await api.get<Session[]>("/api/sessions");
       const latest = sessions.filter((s) => s.launch_spec.harness && s.last_seq > 0 && s.status !== "error").sort((a, b) => b.started_at - a.started_at)[0];
       if (latest) rememberSuccessfulSession(latest);
-      const d = await api.get<{ spec?: LaunchSpec; open?: boolean; conditions?: LaunchDelay[]; delay?: LaunchDelay | null } | null>(`/api/launch/draft${draftQuery()}`);
-      if (d?.spec) set({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, conditions: d.conditions ?? (d.delay ? [d.delay] : []) });
-      else set({ spec: { ...emptySpec(), harness: get().spec.harness, variant: get().spec.variant ?? null, budget_usd: get().spec.budget_usd ?? null }, open: false, conditions: [] });
+      const d = await api.get<{ spec?: LaunchSpec; open?: boolean; minimized?: boolean; conditions?: LaunchDelay[]; delay?: LaunchDelay | null } | null>(`/api/launch/draft${draftQuery()}`);
+      if (d?.spec) set({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, minimized: !!d.open && !!d.minimized, conditions: d.conditions ?? (d.delay ? [d.delay] : []) });
+      else set({ spec: { ...emptySpec(), harness: get().spec.harness, variant: get().spec.variant ?? null, budget_usd: get().spec.budget_usd ?? null }, open: false, minimized: false, conditions: [] });
     } finally {
       set({ loaded: true });
     }
@@ -135,6 +146,6 @@ export const useComposer = create<Composer>((set, get) => ({
 
 useWorkspace.subscribe((s, prev) => {
   if (s.current === prev.current) return;
-  const { spec, open, conditions, loaded } = useComposer.getState();
-  void (loaded ? flush(spec, open, conditions, prev.current) : Promise.resolve()).then(() => useComposer.getState().restore());
+  const { spec, open, minimized, conditions, loaded } = useComposer.getState();
+  void (loaded ? flush(spec, open, minimized, conditions, prev.current) : Promise.resolve()).then(() => useComposer.getState().restore());
 });

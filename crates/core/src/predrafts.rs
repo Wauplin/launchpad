@@ -53,8 +53,15 @@ pub struct Publish {
 }
 
 pub fn link_skill() -> Result<()> {
-    let installed = std::env::current_exe()?.parent().context("binary directory")?.join("skills/launchpad");
-    let source = if installed.exists() { installed } else { Path::new(crate::SOURCE).join("skills/launchpad") };
+    let installed = std::env::current_exe()?
+        .parent()
+        .context("binary directory")?
+        .join("skills/launchpad");
+    let source = if installed.exists() {
+        installed
+    } else {
+        Path::new(crate::SOURCE).join("skills/launchpad")
+    };
     if !source.exists() {
         return Ok(());
     }
@@ -290,15 +297,15 @@ fn editable(p: &Predraft) -> Result<()> {
 }
 fn idle(app: &App, p: &Predraft) -> Result<()> {
     ensure!(
-        !app.sessions
-            .list()
-            .iter()
-            .any(|s| s.cwd == p.root
-                && (app.sessions.is_busy(s) || s.status == SessionStatus::InTerminal)),
+        !app.sessions.list().iter().any(|s| s.cwd == p.root
+            && (app.sessions.is_busy(s) || s.status == SessionStatus::InTerminal)),
         "the worktree has an active agent; wait for it to finish"
     );
     let open = app.terminals.alive_in(&p.root).len();
-    ensure!(open == 0, "{open} terminal(s) are open in the worktree; close them first");
+    ensure!(
+        open == 0,
+        "{open} terminal(s) are open in the worktree; close them first"
+    );
     Ok(())
 }
 pub async fn update(app: &App, id: &str, q: Patch) -> Result<Predraft> {
@@ -320,17 +327,20 @@ pub async fn update(app: &App, id: &str, q: Patch) -> Result<Predraft> {
 }
 pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
     let p = get(app, id).await?;
-    let project = crate::projects::get(app, &p.project_id)
-        .await?
-        .context("project not found")?;
-    if fetch {
-        git(app, &project.path, &["fetch", "origin"]).await?;
-    }
     let status = p
         .session_id
         .as_ref()
         .and_then(|id| app.sessions.get(id))
         .map(|s| s.status.as_str().to_string());
+    // A removed project leaves the record readable so it can be discarded.
+    let Some(project) = crate::projects::get(app, &p.project_id).await? else {
+        return Ok(
+            json!({"predraft":p,"status":status,"files":[],"commits":[],"base_ahead":0,"dirty":false,"project_missing":true}),
+        );
+    };
+    if fetch {
+        git(app, &project.path, &["fetch", "origin"]).await?;
+    }
     if p.archived || p.published_url.is_some() && !Path::new(&p.root).exists() {
         return Ok(json!({"predraft":p,"status":status,"files":[],"commits":[],"base_ahead":0}));
     }
@@ -430,9 +440,11 @@ pub async fn feedback(app: &App, id: &str) -> Result<()> {
 }
 async fn cleanup(app: &App, p: &Predraft, delete_branch: bool) -> Result<()> {
     idle(app, p)?;
-    let project = crate::projects::get(app, &p.project_id)
-        .await?
-        .context("project not found")?;
+    let Some(project) = crate::projects::get(app, &p.project_id).await? else {
+        // Without its project there is no repository to run git in: close the sessions and keep the files on disk.
+        app.sessions.close_in(app, &p.root).await?;
+        return Ok(());
+    };
     if Path::new(&p.root).exists() {
         ensure!(
             git(

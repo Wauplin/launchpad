@@ -39,6 +39,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions", get(list_sessions).post(launch))
         .route("/api/sessions/{id}", get(get_session))
         .route("/api/sessions/{id}/rename", post(rename_session))
+        .route("/api/sessions/{id}/seen", post(mark_seen))
         .route("/api/sessions/{id}/git", get(session_git))
         .route("/api/sessions/{id}/git-diff", get(session_git_diff))
         .route("/api/sessions/search", get(search_sessions))
@@ -512,6 +513,9 @@ async fn run_cron(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<
 struct RenameSession { title: String }
 async fn rename_session(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<RenameSession>) -> ApiResult<Session> {
     Ok(Json(s.app.sessions.rename(&s.app, &id, &b.title).await.map_err(bad)?))
+}
+async fn mark_seen(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Session> {
+    Ok(Json(s.app.sessions.mark_seen(&s.app, &id).await.map_err(bad)?))
 }
 async fn session_git(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<launchpad_core::session_git::GitStatus> {
     Ok(Json(launchpad_core::session_git::status(&s.app,&id).await.map_err(bad)?))

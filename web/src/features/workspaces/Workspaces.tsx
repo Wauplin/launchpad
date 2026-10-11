@@ -5,6 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { Workspace } from "@/gen/Workspace";
 import { Icon } from "@/components/Icon";
+import { MenuItem, Popover } from "@/components/Popover";
 import { Card, SettingsPage } from "@/features/settings/SettingsView";
 import { toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
@@ -12,16 +13,11 @@ import { useProjects } from "@/lib/queries";
 import { openWindow, useWorkspaces } from "@/lib/workspace";
 import { useWorkspace } from "@/stores/workspace";
 
-function WorkspaceButton({ label, detail, active, onSwitch, onWindow }: { label: string; detail: string; active: boolean; onSwitch: () => void; onWindow: () => void }) {
+function WorkspaceButton({ label, detail, active, onSwitch }: { label: string; detail: string; active: boolean; onSwitch: () => void }) {
   return (
-    <div className={`flex min-w-0 items-center rounded-md border ${active ? "border-teal/40 bg-teal-soft text-teal-ink" : "border-line bg-paper text-ink-2"}`}>
-      <button className="min-w-0 rounded-l-md px-2.5 py-1 text-[12.5px] hover:bg-select" onClick={onSwitch} aria-pressed={active} title={`${label} · ${detail} · Show in this window`}>
-        <span className={`block truncate ${active ? "font-semibold" : ""}`}>{label}</span>
-      </button>
-      <button className="iconbtn mr-0.5 shrink-0" title={`Open ${label} in a new window`} aria-label={`Open ${label} in a new window`} onClick={onWindow}>
-        <Icon name="window" size={13} />
-      </button>
-    </div>
+    <button className={`min-w-0 rounded-md border px-2.5 py-1 text-[12.5px] ${active ? "border-teal/40 bg-teal-soft text-teal-ink" : "border-line bg-paper text-ink-2 hover:bg-select"}`} onClick={onSwitch} aria-pressed={active} title={`${label} · ${detail} · Show in this window`}>
+      <span className={`block truncate ${active ? "font-semibold" : ""}`}>{label}</span>
+    </button>
   );
 }
 
@@ -33,10 +29,25 @@ export function WorkspaceSwitcher() {
   const count = (n: number) => `${n} project${n === 1 ? "" : "s"}`;
   return (
     <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5" role="group" aria-label="Workspace of this window">
-      <WorkspaceButton label="All workspaces" detail={`No filter · ${count(projects)}`} active={!active} onSwitch={() => switchTo(null)} onWindow={() => void openWindow(null)} />
+      <WorkspaceButton label="All workspaces" detail={`No filter · ${count(projects)}`} active={!active} onSwitch={() => switchTo(null)} />
       {workspaces.map((w) => (
-        <WorkspaceButton key={w.id} label={w.name} detail={count(w.project_ids.length)} active={w.id === active?.id} onSwitch={() => switchTo(w.id)} onWindow={() => void openWindow(w.id)} />
+        <WorkspaceButton key={w.id} label={w.name} detail={count(w.project_ids.length)} active={w.id === active?.id} onSwitch={() => switchTo(w.id)} />
       ))}
+      <Popover
+        trigger={({ open, toggle }) => (
+          <button className="btn btn-sm btn-ghost" aria-expanded={open} title="Open a workspace in a new window" onClick={toggle}>
+            <Icon name="window" size={13} />
+            Open in new window ▾
+          </button>
+        )}
+      >
+        {(close) => (
+          <>
+            <MenuItem label="All workspaces" detail={count(projects)} icon={<Icon name="window" size={13} />} onClick={() => { close(); void openWindow(null); }} />
+            {workspaces.map((w) => <MenuItem key={w.id} label={w.name} detail={count(w.project_ids.length)} icon={<Icon name="window" size={13} />} onClick={() => { close(); void openWindow(w.id); }} />)}
+          </>
+        )}
+      </Popover>
     </div>
   );
 }

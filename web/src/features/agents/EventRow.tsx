@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { formatAge } from "@/lib/format";
 import { groupSummary, type Call, type Row } from "./rows";
+import { noticesSummary, type TraceRow } from "./traceRows";
 
 /** "3 min" since `ts`, refreshed every 30 s (rows are memoized, so the time renders itself). */
 function Ago({ ts }: { ts: number }) {
@@ -270,6 +271,23 @@ function BackgroundRow({ row, sessionId }: { row: Extract<Row, { t: "bg" }>; ses
   );
 }
 
+/** Appended context, presets and Launchpad instructions of the launch prompt, folded. */
+export function Instructions({ blocks, className = "" }: { blocks: string[]; className?: string }) {
+  const [open, setOpen] = useState(false);
+  return <div className={className}>
+    <button className="text-[11.5px] text-ink-3 hover:text-ink" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? "−" : "+"} Launchpad instructions ({blocks.length})</button>
+    {open && <div className="mt-1 grid gap-2 border-l-2 border-line pl-2 text-xs text-ink-2">{blocks.map((b, i) => <div key={i}>{b}</div>)}</div>}
+  </div>;
+}
+
+function NoticesRow({ texts }: { texts: string[] }) {
+  const [open, setOpen] = useState(false);
+  return <div className="grid gap-1">
+    <Separator><button className="hover:text-ink" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{noticesSummary(texts)} {open ? "▾" : "▸"}</button></Separator>
+    {open && texts.map((t, i) => <div key={i} className="text-center text-[11.5px] text-ink-3">{t}</div>)}
+  </div>;
+}
+
 function Separator({ children, tone = "" }: { children: React.ReactNode; tone?: string }) {
   return (
     <div className={`flex items-center gap-2 text-[11.5px] text-ink-3 before:h-px before:flex-1 before:bg-line-2 after:h-px after:flex-1 after:bg-line-2 ${tone}`}>{children}</div>
@@ -277,12 +295,13 @@ function Separator({ children, tone = "" }: { children: React.ReactNode; tone?: 
 }
 
 export const EventRow = memo(
-  function EventRow({ row, sessionId, live }: { row: Row; sessionId: string; live: boolean }) {
+  function EventRow({ row, sessionId, live }: { row: TraceRow; sessionId: string; live: boolean }) {
     switch (row.t) {
       case "user":
         return (
           <div className="ml-auto max-w-[88%] rounded-[10px_10px_3px_10px] bg-sunk px-2.5 py-[7px] text-[12.5px] whitespace-pre-wrap">
             {row.text}
+            {row.instructions && <Instructions blocks={row.instructions} className={row.text ? "mt-1.5" : ""} />}
             <div className="flex flex-wrap gap-2">{row.images.map((image, i) => <a key={i} href={image.data_url} download={image.name} title={`Save ${image.name}`}><img src={image.data_url} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-md border border-line" /></a>)}</div>
             {row.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
           </div>
@@ -304,11 +323,13 @@ export const EventRow = memo(
       case "turn":
         return (
           <Separator tone={row.error ? "text-gh-closed" : ""}>
-            {row.error ? `Turn failed: ${row.error}` : row.interrupted ? "Interrupted" : "Turn finished"} · <Ago ts={row.ts} /> ago
+            <span title={new Date(row.ts).toLocaleString()}>{row.error ? `Turn failed: ${row.error}` : row.interrupted ? "Turn interrupted" : "Turn ended"} · <Ago ts={row.ts} /> ago</span>
           </Separator>
         );
       case "notice":
         return <Separator>{row.text}</Separator>;
+      case "notices":
+        return <NoticesRow texts={row.texts} />;
       case "error":
         return <div className="rounded-md border border-[#f3c7c7] bg-[#fff6f6] px-2.5 py-1.5 font-mono text-xs whitespace-pre-wrap text-gh-closed">{row.text}</div>;
     }

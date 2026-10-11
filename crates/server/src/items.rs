@@ -19,6 +19,7 @@ pub fn router() -> Router<Server> {
             "/api/repo-items/{owner}/{repo}",
             get(list).post(list_refresh),
         )
+        .route("/api/repo-meta/{owner}/{repo}", get(meta))
         .route("/img", get(image))
 }
 type ItemPath = (String, String, u64);
@@ -69,6 +70,9 @@ async fn list(State(s): State<Server>, Path((o, r)): Path<(String, String)>) -> 
         return Ok(Json(v));
     }
     Ok(Json(items::project_items(&s.app, &repo, false).await?))
+}
+async fn meta(State(s): State<Server>, Path((o, r)): Path<(String, String)>) -> ApiResult<Value> {
+    Ok(Json(items::repo_meta(&s.app, &format!("{o}/{r}")).await?))
 }
 async fn list_refresh(
     State(s): State<Server>,

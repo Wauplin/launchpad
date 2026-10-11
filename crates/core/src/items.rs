@@ -42,6 +42,73 @@ async fn store(app: &App, key: String, value: &Value) -> Result<()> {
         })
         .await
 }
+/// Labels and reviewers seen in this repository's cached items, for the pickers. Never calls GitHub.
+pub async fn repo_meta(app: &App, repo: &str) -> Result<Value> {
+    validate(repo)?;
+    let (items, list) = (format!("item:{repo}:"), format!("project-items:{repo}"));
+    let rows: Vec<String> = app
+        .cache_db
+        .call(move |c| {
+            let mut st = c.prepare(
+                "SELECT json FROM gh_response WHERE substr(url,1,length(?1))=?1 OR url=?2",
+            )?;
+            let rows = st
+                .query_map([items, list], |r| r.get(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()?;
+            Ok(rows)
+        })
+        .await?;
+    let mut labels = std::collections::BTreeMap::new();
+    let mut reviewers = std::collections::BTreeSet::new();
+    let mut add_labels = |v: &Value| {
+        for l in v["labels"]["nodes"].as_array().into_iter().flatten() {
+            if let Some(name) = l["name"].as_str() {
+                labels
+                    .entry(name.to_string())
+                    .or_insert_with(|| l["color"].clone());
+            }
+        }
+    };
+    for v in rows
+        .iter()
+        .filter_map(|s| serde_json::from_str::<Value>(s).ok())
+    {
+        add_labels(&v);
+        for i in v["prs"]
+            .as_array()
+            .into_iter()
+            .chain(v["issues"].as_array())
+            .flatten()
+        {
+            add_labels(i);
+        }
+        let mut add = |u: &Value| {
+            if let Some(login) = u["login"].as_str() {
+                reviewers.insert(login.to_string());
+            } else if let Some(slug) = u["slug"].as_str() {
+                reviewers.insert(format!("team:{slug}"));
+            }
+        };
+        for r in v["reviews"]["nodes"].as_array().into_iter().flatten() {
+            add(&r["author"]);
+        }
+        for r in v["reviewRequests"]["nodes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            add(&r["requestedReviewer"]);
+        }
+        for e in v["timelineItems"]["nodes"].as_array().into_iter().flatten() {
+            add(&e["requestedReviewer"]);
+        }
+    }
+    let labels: Vec<_> = labels
+        .into_iter()
+        .map(|(name, color)| json!({"name":name,"color":color}))
+        .collect();
+    Ok(json!({"labels":labels,"reviewers":reviewers}))
+}
 pub async fn detail(app: &App, repo: &str, n: u64, force: bool) -> Result<Value> {
     validate(repo)?;
     let common = r#"id number title url body bodyHTML state createdAt updatedAt author { login avatarUrl } participants(first:8) { nodes { login avatarUrl } } assignees(first:20) { nodes { login } } labels(first:50) { nodes { name color } } milestone { title }"#;
@@ -153,7 +220,10 @@ pub async fn project_items(app: &App, repo: &str, force: bool) -> Result<Value> 
         json!(name)
     );
     let data = app.github.graphql(query).await?;
-    ensure!(data["repository"].is_object(), "GitHub repository {repo} is unavailable");
+    ensure!(
+        data["repository"].is_object(),
+        "GitHub repository {repo} is unavailable"
+    );
     ensure!(
         data["repository"]["pullRequests"]["nodes"].is_array()
             && data["repository"]["issues"]["nodes"].is_array(),

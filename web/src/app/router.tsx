@@ -8,6 +8,7 @@ import { SettingsView } from "@/features/settings/SettingsView";
 import { HarnessesView } from "@/features/settings/HarnessesView";
 import { ItemView } from "@/features/github/ItemView";
 import { PredraftView } from "@/features/predrafts/PredraftView";
+import { PublishView } from "@/features/publish/PublishView";
 import { WorkspacesView } from "@/features/workspaces/Workspaces";
 import { Shell } from "./Shell";
 
@@ -15,7 +16,14 @@ const root = createRootRoute({ component: Shell });
 
 const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/predrafts/$id", component: PredraftView }),
-  createRoute({ getParentRoute: () => root, path: "/github/$owner/$repo/$number", component: ItemView }),
+  createRoute({
+    getParentRoute: () => root,
+    path: "/github/$owner/$repo/$number",
+    component: ItemView,
+    // `draft`: the agent suggestion to expand and scroll to.
+    validateSearch: (s: Record<string, unknown>): { draft?: string } => (typeof s.draft === "string" || typeof s.draft === "number" ? { draft: String(s.draft) } : {}),
+  }),
+  createRoute({ getParentRoute: () => root, path: "/publish", component: PublishView }),
   createRoute({ getParentRoute: () => root, path: "/", component: InboxView }),
   createRoute({
     getParentRoute: () => root,

@@ -43,8 +43,8 @@ export function Description({ p }: { p: Project }) {
     );
   }
   return (
-    <button className="truncate text-left text-xs text-ink-3 hover:text-ink" title="Edit the description" onClick={() => setEdit(p.description)}>
-      {p.description || <span className="italic">Add a description</span>}
+    <button className={`truncate text-left text-xs text-ink-3 hover:text-ink ${p.description ? "" : "min-h-4 w-fit min-w-40 hover:[&>span]:opacity-100 focus-visible:[&>span]:opacity-100"}`} title="Edit the description" onClick={() => setEdit(p.description)}>
+      {p.description || <span className="italic opacity-0 group-hover:opacity-100">Add a description</span>}
     </button>
   );
 }
@@ -82,7 +82,7 @@ function ProjectRow({ p }: { p: Project }) {
   const w = useScope().workspace;
   const [confirm, setConfirm] = useState(false);
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-line-2 px-4 py-2.5">
+    <div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-line-2 px-4 py-2.5">
       <div className="grid min-w-0 gap-0.5">
         <span className="flex items-center gap-2">
           <Link to="/projects/$id" params={{ id: p.id }} className="font-semibold text-ink no-underline hover:underline">

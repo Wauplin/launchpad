@@ -1,6 +1,6 @@
 # Launchpad roadmap
 
-Status: implementation and acceptance tracker (updated 2026-10-10). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
+Status: implementation and acceptance tracker (updated 2026-10-11). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
 
 ## How to read this
 
@@ -24,6 +24,7 @@ Status: implementation and acceptance tracker (updated 2026-10-10). See [ARCHITE
 | 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | In progress |
 | 7 | Scoped optional extensions | Harness registry, OpenCode, local variants and cost limits built; other candidates await selection | In progress |
 | 7a | Integrated terminal (scoped) | Shells and harness TUIs run in a dock inside Launchpad instead of external terminals | In progress |
+| UX | UX suggestions pass (2026-10-11) | The next action is one click away: Needs you, To publish, inbox triage, state-driven session actions | In progress |
 
 Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
 
@@ -291,4 +292,20 @@ Keyboard shortcuts other than `Ctrl+F` in the code viewer and keys sent to a foc
 
 The [UI and UX review](research/ui-ux-review/index.html) is complete as a research artifact and published in a protected Hugging Face Space. It proposes an incremental improvement sequence with concrete acceptance checks for adaptive layout, session hierarchy, launch disclosure, attention/triage, local review access and shared controls. No implementation item is selected by this review; existing phase statuses and daily-use checks remain unchanged. Owner selection is required before adopting a proposal as implementation scope.
 
-The [UX suggestions](research/ux-suggestions/index.html) review adds 12 ranked proposals (Needs-you group with a seen state for Done, a minimizable composer, a prompt-first composer, state-driven session actions, a To publish list, Inbox triage). None is selected for implementation; several require the product rule changes listed at the end of the report.
+The [UX suggestions](research/ux-suggestions/index.html) review adds 12 ranked proposals (Needs-you group with a seen state for Done, a minimizable composer, a prompt-first composer, state-driven session actions, a To publish list, Inbox triage). The owner approved its product rule changes, and all 12 suggestions were built on 2026-10-11 (see the next section).
+
+## UX suggestions pass (2026-10-11)
+
+Scope: all 12 suggestions and the quick fixes of the [UX suggestions report](research/ux-suggestions/index.html), with the rule changes from its "Product rules these suggestions touch" table. Design: [ARCHITECTURE.md, decision 72](ARCHITECTURE.md#17-decisions-log).
+
+**Done when:** after a week of daily use, the next action (an agent waiting for you, a draft to publish, a review request) is reached in one click from the sidebar, and no rule change gets in the way.
+
+Built:
+
+- Agents: seen state (`session.seen_at` against `status_since`), a Needs you group first, Done for seen sessions, Cron and Scheduled collapsed by default with their next run, one-line rows with the last message, Archive seen older than 3 d, auto-open of the first Needs you session and a dashboard when nothing is selected. Sidebar counts as words and filtered temporary folders.
+- Session pane: Summary · Trace · Changes tabs, one state-dependent primary button, Terminal, Editor and More ▾; folded system notices and Launchpad instructions in the trace; suggestion and pre-draft Next steps; paperclip in the message box; Back to session in the code viewer.
+- Composer: minimize into a top-bar draft pill, overlay below 1,250 CSS px, prompt first, one + Add context popover, one option summary line, Preview prompt popover.
+- To publish page; Inbox reason chips, Repository ▾ popover, visible row actions, auto-selection and `body_html` previews.
+- PR page agent-draft banner and `?draft=`, conditional primary Merge, collapsing comment box, label/reviewer pickers (`GET /api/repo-meta/{owner}/{repo}`); breadcrumbs; one Open in new window ▾ menu; one-row status bar with Details ▾; project page stat chips, selection bar and worktree rows; removed-project pre-drafts; sticky Settings save bar.
+
+Left: the daily-use check.

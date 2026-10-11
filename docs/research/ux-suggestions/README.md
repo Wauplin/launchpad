@@ -13,6 +13,8 @@ A standalone UI/UX review of Launchpad at commit `05f96f5`, focused on suggestio
 
 This review was written from scratch: it does not reuse `docs/research/ui-ux-review/`.
 
+Implemented on 2026-10-11: the owner approved the product rule changes and all 12 suggestions and quick fixes were built (see `AGENTS.md` and decision 72 in `docs/ARCHITECTURE.md`).
+
 ## Preview locally
 
 ```sh

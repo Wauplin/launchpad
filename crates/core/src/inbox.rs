@@ -33,6 +33,9 @@ pub struct Thread {
 pub struct Comment {
     pub author: String,
     pub body: String,
+    /// GitHub-rendered HTML; empty in older cached previews.
+    #[serde(default)]
+    pub body_html: String,
     pub url: String,
     pub created_at: String,
 }
@@ -40,6 +43,9 @@ pub struct Comment {
 pub struct ThreadPreview {
     pub id: String,
     pub body: String,
+    /// GitHub-rendered HTML; empty for releases, commits and older cached previews.
+    #[serde(default)]
+    pub body_html: String,
     pub author: String,
     pub comments: Vec<Comment>,
     pub fetched_at: i64,
@@ -320,7 +326,7 @@ impl Inbox {
             let p = ThreadPreview {
                 id: t.id.clone(), author: string(&value["author"], "login"),
                 body: value["body"].as_str().or(value["commit"]["message"].as_str()).unwrap_or("").to_string(),
-                comments: vec![], fetched_at: now_ms(),
+                body_html: String::new(), comments: vec![], fetched_at: now_ms(),
             };
             app.cache_db.call(move |c| {
                 c.execute("UPDATE inbox_thread SET json=?2 WHERE id=?1", rusqlite::params![t.id,serde_json::to_string(&t)?])?;
@@ -335,7 +341,7 @@ impl Inbox {
         if subjects.is_empty() {
             return Ok(());
         }
-        let common = "title url body state updatedAt author { login } participants(first:8) { totalCount nodes { login } } comments(last:8) { nodes { body url createdAt author { login } } }";
+        let common = "title url body bodyHTML state updatedAt author { login } participants(first:8) { totalCount nodes { login } } comments(last:8) { nodes { body bodyHTML url createdAt author { login } } }";
         let mut query = String::from("query {");
         for (i, t) in subjects.iter().enumerate() {
             let (owner, repo) = t.repo.split_once('/').context("invalid repository")?;
@@ -381,6 +387,7 @@ impl Inbox {
             let preview = ThreadPreview {
                 id: t.id.clone(),
                 body: string(v, "body"),
+                body_html: string(v, "bodyHTML"),
                 author: string(&v["author"], "login"),
                 fetched_at: now_ms(),
                 comments: v["comments"]["nodes"]
@@ -390,6 +397,7 @@ impl Inbox {
                             .map(|c| Comment {
                                 author: string(&c["author"], "login"),
                                 body: string(c, "body"),
+                                body_html: string(c, "bodyHTML"),
                                 url: string(c, "url"),
                                 created_at: string(c, "createdAt"),
                             })

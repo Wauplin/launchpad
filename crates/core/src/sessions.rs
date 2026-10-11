@@ -131,7 +131,8 @@ impl Sessions {
             .call(|c| {
                 let mut st = c.prepare(
                     "SELECT id, harness, harness_session_id, project_id, cwd, title, status, status_since, open_question, model,
-                            effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json, quota_pause_json, title_pending
+                            effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json, quota_pause_json, title_pending,
+                            seen_at, last_message
                      FROM session",
                 )?;
                 let rows = st
@@ -166,6 +167,8 @@ impl Sessions {
                             last_seq: r.get(16)?,
                             launch_spec: spec,
                             quota_pause: r.get::<_, Option<String>>(18)?.and_then(|v| serde_json::from_str(&v).ok()),
+                            seen_at: r.get(20)?,
+                            last_message: r.get::<_, Option<String>>(21)?.and_then(|m| message_preview(&m)),
                         })
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -255,11 +258,12 @@ impl Sessions {
             .call(move |c| {
                 c.execute(
                     "INSERT INTO session (id, harness, harness_session_id, project_id, cwd, title, status, status_since,
-                        open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+                        open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
                      ON CONFLICT (id) DO UPDATE SET harness_session_id = ?3, project_id = ?4, cwd = ?5, title = ?6, status = ?7,
                         status_since = ?8, open_question = ?9, model = ?10, effort = ?11, cost_usd = ?14, usage_json = ?15,
-                        ended_at = ?17, last_seq = ?18, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20",
+                        ended_at = ?17, last_seq = ?18, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20,
+                        seen_at = ?21, last_message = ?22",
                     params![
                         s.id,
                         s.harness.as_str(),
@@ -281,6 +285,8 @@ impl Sessions {
                         s.last_seq,
                         s.quota_pause.as_ref().map(serde_json::to_string).transpose()?,
                         s.title_pending,
+                        s.seen_at,
+                        s.last_message,
                     ],
                 )?;
                 Ok(())
@@ -301,6 +307,15 @@ impl Sessions {
         Ok(s)
     }
 
+    /// A focused window showed the session: it no longer needs you until its status changes again.
+    pub async fn mark_seen(&self, app: &App, id: &str) -> Result<Session> {
+        let s = self.get(id).context("no such session")?;
+        if s.seen_at >= s.status_since { return Ok(s); }
+        let s = self.update(app, id, |s| s.seen_at = now_ms().max(s.status_since)).await?;
+        self.publish_counts(app);
+        Ok(s)
+    }
+
     fn publish_counts(&self, app: &App) {
         let (mut running, mut done, mut quota_paused) = (0, 0, 0);
         for s in self.inner.records.lock().unwrap().values() {
@@ -308,7 +323,7 @@ impl Sessions {
                 running += 1;
             } else if s.status == SessionStatus::QuotaPaused {
                 quota_paused += 1;
-            } else if s.status.is_done() {
+            } else if s.needs_you() {
                 done += 1;
             }
         }
@@ -522,6 +537,8 @@ impl Sessions {
             last_seq: 0,
             launch_spec: spec.clone(),
             quota_pause: None,
+            seen_at: 0,
+            last_message: None,
         };
         self.inner.records.lock().unwrap().insert(id.clone(), session.clone());
         self.persist(app, &session).await?;
@@ -1146,10 +1163,12 @@ impl Sink {
             self.publish(&ev);
             return;
         }
+        let preview = match &body { EventBody::AssistantMessage { text, .. } => message_preview(text), _ => None };
         let seq = {
             let mut recs = self.sessions.inner.records.lock().unwrap();
             let Some(s) = recs.get_mut(&self.id) else { return };
             s.last_seq += 1;
+            if preview.is_some() { s.last_message = preview.clone(); }
             s.last_seq
         };
         let ev = SessionEvent { session_id: self.id.clone(), seq, ts, body };
@@ -1159,7 +1178,7 @@ impl Sink {
             .state_db
             .call(move |c| {
                 c.execute("INSERT INTO session_event (session_id, seq, ts, kind, json) VALUES (?1, ?2, ?3, ?4, ?5)", params![id, seq, ts, kind, json])?;
-                c.execute("UPDATE session SET last_seq = ?1 WHERE id = ?2", params![seq, id])?;
+                c.execute("UPDATE session SET last_seq = ?1, last_message = coalesce(?3, last_message) WHERE id = ?2", params![seq, id, preview])?;
                 Ok(())
             })
             .await;
@@ -1326,6 +1345,21 @@ pub fn json_line(v: &Value) -> String {
     let mut s = v.to_string();
     s.push('\n');
     s
+}
+
+/// The start of an assistant message as one line of plain text, for list rows.
+pub fn message_preview(text: &str) -> Option<String> {
+    let mut out = String::new();
+    for line in text.lines() {
+        let line = line.trim().trim_start_matches(['#', '>', '-', '*', '|', ' ']).replace("**", "").replace(['`', '|'], "");
+        let line = line.trim();
+        if line.is_empty() || line.chars().all(|c| c == '-' || c == ':') { continue; }
+        if !out.is_empty() { out.push(' '); }
+        out.push_str(line);
+        if out.chars().count() > 160 { break; }
+    }
+    if out.is_empty() { return None; }
+    Some(if out.chars().count() > 160 { format!("{}…", out.chars().take(160).collect::<String>().trim_end()) } else { out })
 }
 
 pub fn shorten(s: &str, max: usize) -> String {

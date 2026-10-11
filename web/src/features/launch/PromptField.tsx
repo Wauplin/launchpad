@@ -110,9 +110,10 @@ export function PromptField({
       <textarea
         ref={ref}
         value={value}
-        rows={5}
-        placeholder="What should the agent do? Type @ for a project, # for an issue or PR."
-        className="block min-h-[96px] w-full resize-y rounded-lg border-[1.5px] border-line bg-paper px-2.5 py-2 text-[13px] leading-normal outline-none focus:border-teal focus:shadow-[0_0_0_3px_var(--color-teal-soft)]"
+        rows={7}
+        autoFocus
+        placeholder={"What should the agent do?\nType @ for a project or # for an issue or PR. Add more context with + Add context, or add lines from the code viewer."}
+        className="block min-h-[140px] w-full resize-y rounded-lg border-[1.5px] border-line bg-paper px-2.5 py-2 text-[13px] leading-normal outline-none focus:border-teal focus:shadow-[0_0_0_3px_var(--color-teal-soft)]"
         onChange={(e) => update(e.target.value, e.target.selectionStart)}
         onClick={(e) => setMention(mentionAt(value, e.currentTarget.selectionStart))}
         onBlur={() => setTimeout(() => setMention(null), 150)}

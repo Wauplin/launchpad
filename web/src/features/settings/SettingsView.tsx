@@ -41,6 +41,21 @@ export function SettingsPage({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Sticky at the bottom of a Settings page while it has unsaved changes. */
+export function SaveBar({ dirty, onSave, onRevert, invalid }: { dirty: boolean; onSave: () => void; onRevert: () => void; invalid?: string | null }) {
+  if (!dirty) return null;
+  return (
+    <div className="sticky bottom-3 z-10 flex items-center gap-2 rounded-[10px] border border-attn-line bg-attn-soft px-3.5 py-2 text-[12.5px] shadow-[0_8px_20px_-10px_rgba(23,32,43,.35)]">
+      <b className="text-attn">Unsaved changes</b>
+      {invalid && <span className="text-gh-closed">{invalid}</span>}
+      <span className="ml-auto flex gap-1.5">
+        <button className="btn btn-sm" onClick={onRevert}>Revert</button>
+        <button className="btn btn-sm btn-primary" disabled={!!invalid} onClick={onSave}>Save</button>
+      </span>
+    </div>
+  );
+}
+
 function Row({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[170px_1fr] items-start gap-3.5 border-line-2 not-first:border-t not-first:pt-3">
@@ -88,21 +103,11 @@ export function SettingsView() {
       [presets[i], presets[j]] = [presets[j], presets[i]];
       return { ...c, presets };
     });
-  const actions = (
-    <>
-      <button className="btn btn-sm btn-ghost" disabled={!dirty} onClick={() => setDraft(saved)}>
-        Revert
-      </button>
-      <button className="btn btn-sm btn-primary" disabled={!dirty} onClick={() => void save()}>
-        Save
-      </button>
-    </>
-  );
 
   return (
     <SettingsPage>
       {q.data.error && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">config.toml has an error, the previous settings are in use: {q.data.error}</div>}
-      <Card title="General" end={actions}>
+      <Card title="General">
         <Row title="Zoom" hint="Make the whole interface larger. The middle position is the default.">
           <label className="grid gap-2">
             <span className="font-semibold">{ZOOM_LEVELS[draft.zoom]}%{draft.zoom === 2 ? " (default)" : ""}</span>
@@ -136,7 +141,6 @@ export function SettingsView() {
               <Icon name="plus" size={12} />
               New preset
             </button>
-            {actions}
           </>
         }
       >
@@ -165,6 +169,7 @@ export function SettingsView() {
         ))}
         <div className="text-[11.5px] text-ink-3">The order here is the order used in prompts. Saved to config.toml, which you can also edit by hand.</div>
       </Card>
+      <SaveBar dirty={dirty} onSave={() => void save()} onRevert={() => setDraft(saved)} />
     </SettingsPage>
   );
 }

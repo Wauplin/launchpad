@@ -140,9 +140,20 @@ pub struct Session {
     pub launch_spec: LaunchSpec,
     #[serde(default)]
     pub quota_pause: Option<QuotaPause>,
+    /// When a focused window last showed the session (Unix ms, 0: never). Unseen while older than `status_since`.
+    #[ts(type = "number")]
+    pub seen_at: i64,
+    /// Start of the last assistant message, as one line of plain text.
+    pub last_message: Option<String>,
 }
 
 impl Session {
+    /// Shared "Needs you" predicate: an open question, or Done, Failed or Interrupted not seen since the status changed.
+    pub fn needs_you(&self) -> bool {
+        let unseen = self.seen_at < self.status_since;
+        (self.status.is_done() && (self.open_question || unseen)) || (matches!(self.status, SessionStatus::Error | SessionStatus::Interrupted) && unseen)
+    }
+
     /// The reported cost reached the session cost limit: no new turn may start.
     pub fn budget_reached(&self) -> bool {
         self.launch_spec.budget_usd.is_some_and(|b| self.usage.cost_usd.unwrap_or(0.0) >= b)

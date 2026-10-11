@@ -41,7 +41,7 @@ const sizeText = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n /
 export function validateCodeSearch(s: Record<string, unknown>): CodeSearch {
   const str = (v: unknown) => (typeof v === "string" && v ? v : typeof v === "number" ? String(v) : undefined);
   const line = Number(s.line);
-  return { root: str(s.root), rev: str(s.rev), path: str(s.path), line: Number.isInteger(line) && line > 0 ? line : undefined };
+  return { root: str(s.root), rev: str(s.rev), path: str(s.path), line: Number.isInteger(line) && line > 0 ? line : undefined, session: str(s.session) };
 }
 
 export function CodeView() {
@@ -64,10 +64,10 @@ export function CodeView() {
 
   if (!project) return <div className="p-6 text-ink-3">This project is not registered.</div>;
   if (!search.root) return null;
-  return <Viewer key={sourceKey(search.root, search.rev)} project={project} root={search.root} rev={search.rev ?? null} path={search.path ?? null} line={search.line ?? null} />;
+  return <Viewer key={sourceKey(search.root, search.rev)} project={project} root={search.root} rev={search.rev ?? null} path={search.path ?? null} line={search.line ?? null} session={search.session ?? null} />;
 }
 
-function Viewer({ project, root, rev, path, line }: { project: Project; root: string; rev: string | null; path: string | null; line: number | null }) {
+function Viewer({ project, root, rev, path, line, session }: { project: Project; root: string; rev: string | null; path: string | null; line: number | null; session: string | null }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const skey = sourceKey(root, rev);
@@ -80,8 +80,8 @@ function Viewer({ project, root, rev, path, line }: { project: Project; root: st
   const [searchState, setSearchState] = useState<{ q: string; opts: FindOpts }>({ q: "", opts: { case: false, word: false, regex: false } });
 
   const go = useCallback(
-    (s: CodeSearch) => void navigate({ to: "/projects/$id/code", params: { id: project.id }, search: { root, rev: rev ?? undefined, ...s }, replace: true }),
-    [navigate, project.id, root, rev],
+    (s: CodeSearch) => void navigate({ to: "/projects/$id/code", params: { id: project.id }, search: { root, rev: rev ?? undefined, session: session ?? undefined, ...s }, replace: true }),
+    [navigate, project.id, root, rev, session],
   );
   const open = useCallback((p: string, l?: number) => go({ path: p, line: l }), [go]);
 
@@ -121,6 +121,7 @@ function Viewer({ project, root, rev, path, line }: { project: Project; root: st
     <div className="grid h-full grid-cols-[284px_minmax(0,1fr)]">
       <aside className="flex min-h-0 min-w-0 flex-col border-r border-line bg-paper">
         <div className="grid grid-cols-[minmax(0,1fr)] gap-2 px-2.5 pt-2.5 pb-1">
+          {session && <BackToSession id={session} />}
           <div className="flex min-w-0 gap-1.5">
             <div className="min-w-0 flex-1"><SourcePicker project={project} root={root} rev={rev} path={path} /></div>
             <button className="btn h-[34px]!" title={`Open a shell in ${root}`} onClick={() => void openTerminal.shell(root)}>
@@ -192,6 +193,14 @@ function tabHint(t: string, tabs: string[]): string | null {
     if (!same.some((o) => dirname(o).split("/").slice(-k).join("/") === end)) return end;
   }
   return dirname(t) || "/";
+}
+
+/** Shown when the viewer was opened from an agent session. */
+function BackToSession({ id }: { id: string }) {
+  const navigate = useNavigate();
+  const title = useSessions().data?.find((s) => s.id === id)?.title;
+  if (!title) return null;
+  return <button className="truncate text-left text-xs text-teal-ink hover:underline" title={`Back to the session "${title}"`} onClick={() => void navigate({ to: "/agents", search: { session: id } })}>← Back to session · {title}</button>;
 }
 
 // ---------------------------------------------------------------- source picker

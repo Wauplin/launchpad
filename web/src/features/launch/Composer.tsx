@@ -1,9 +1,12 @@
-// Composer drawer (sketch S2): stays open on the right while you navigate, so context can be added
-// from anywhere. The preview shows the exact prompt sent to the agent.
+// Composer drawer (sketch S2): stays on the right while you navigate, so context can be added from
+// anywhere. It minimizes to a draft pill, and covers the content on narrow windows. Prompt first, then
+// project, context chips and one summary line of options; "Preview prompt" shows the exact prompt.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import type { AgentTraceRef } from "@/gen/AgentTraceRef";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { HarnessKind } from "@/gen/HarnessKind";
@@ -20,6 +23,7 @@ import { api } from "@/lib/api";
 import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/queries";
 import { parseUsd, usd, useVariants } from "@/lib/variants";
 import { useScope } from "@/lib/workspace";
+import { zoomScale } from "@/lib/zoom";
 import { rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { AgentTracePicker } from "./AgentTracePicker";
@@ -79,25 +83,15 @@ function Branch({ projectId, branch, onChange }: { projectId: string; branch: st
   );
 }
 
-function GitHubLinkField({ onAdd }: { onAdd: (r: GitHubRef) => void }) {
-  const [open, setOpen] = useState(false);
+function GitHubLinkForm({ onAdd, onDone }: { onAdd: (r: GitHubRef) => void; onDone: () => void }) {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
-  if (!open) {
-    return (
-      <button className="btn btn-sm" onClick={() => setOpen(true)}>
-        <Icon name="plus" size={12} />
-        GitHub link
-      </button>
-    );
-  }
   const add = async () => {
     if (!url.trim()) return;
     setBusy(true);
     try {
       onAdd(await api.post<GitHubRef>("/api/gh/resolve", { url: url.trim() }));
-      setUrl("");
-      setOpen(false);
+      onDone();
     } catch (e) {
       toastError(e);
     } finally {
@@ -105,24 +99,77 @@ function GitHubLinkField({ onAdd }: { onAdd: (r: GitHubRef) => void }) {
     }
   };
   return (
-    <div className="flex flex-1 gap-1.5">
+    <div className="grid gap-1.5 p-1">
       <input
         autoFocus
-        className="field-input h-6 flex-1 text-xs"
+        className="field-input h-7 text-xs"
         placeholder="https://github.com/owner/repo/issues/123"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") void add();
-          if (e.key === "Escape") setOpen(false);
         }}
       />
-      <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void add()}>
-        {busy ? "Adding…" : "Add"}
-      </button>
-      <button className="btn btn-sm btn-ghost" onClick={() => setOpen(false)}>
-        Cancel
-      </button>
+      <span className="flex justify-end gap-1.5">
+        <button className="btn btn-sm btn-ghost" onClick={onDone}>Cancel</button>
+        <button className="btn btn-sm btn-primary" disabled={busy || !url.trim()} onClick={() => void add()}>{busy ? "Adding…" : "Add"}</button>
+      </span>
+    </div>
+  );
+}
+
+/** The "+ Add context" popover: one menu for projects, GitHub links, agent traces and recent contexts. */
+function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject, onGitHub, onTrace }: {
+  projects: Project[];
+  recent: { key: string; label: string; add: () => void }[];
+  sessions: Session[];
+  selectedTraces: AgentTraceRef[];
+  onProject: (p: Project) => void;
+  onGitHub: (r: GitHubRef) => void;
+  onTrace: (t: AgentTraceRef) => void;
+}) {
+  const [mode, setMode] = useState<"menu" | "project" | "github" | "trace">("menu");
+  return (
+    <Popover
+      width={340}
+      trigger={({ toggle }) => (
+        <button className="btn btn-sm" onClick={() => { setMode("menu"); toggle(); }}>
+          <Icon name="plus" size={12} />
+          Add context
+        </button>
+      )}
+    >
+      {(close) => {
+        const back = <MenuItem icon={<Icon name="chev" size={13} className="rotate-90" />} label="Back" onClick={() => setMode("menu")} />;
+        if (mode === "project") return <>{back}{projects.map((p) => <MenuItem key={p.id} icon={<Icon name="folder" size={13} />} label={p.name} detail={p.description || undefined} onClick={() => (onProject(p), close())} />)}{!projects.length && <div className="px-2 py-1 text-xs text-ink-3">No other project.</div>}</>;
+        if (mode === "github") return <>{back}<GitHubLinkForm onAdd={onGitHub} onDone={close} /></>;
+        if (mode === "trace") return <>{back}<AgentTracePicker sessions={sessions} selected={selectedTraces} onPick={(t) => { onTrace(t); close(); }} /></>;
+        return (
+          <>
+            <MenuItem icon={<Icon name="folder" size={13} />} label="Project…" detail="Another project as read-only context" onClick={() => setMode("project")} />
+            <MenuItem icon={<Icon name="issue" size={13} />} label="GitHub link…" detail="An issue, PR or comment URL" onClick={() => setMode("github")} />
+            <MenuItem icon={<Icon name="agents" size={13} />} label="Agent trace…" detail="The stored trace of another agent" onClick={() => setMode("trace")} />
+            {!!recent.length && <div className="px-[9px] pt-2 pb-1 seclabel">Recent contexts</div>}
+            {recent.slice(0, 6).map((c) => <MenuItem key={c.key} icon={<Icon name="plus" size={13} />} label={<span className="block truncate" title={c.label}>{c.label}</span>} onClick={() => (c.add(), close())} />)}
+          </>
+        );
+      }}
+    </Popover>
+  );
+}
+
+function PromptPreview({ spec, title }: { spec: LaunchSpec; title: string }) {
+  const debounced = useDebounced(spec, 250);
+  const preview = useQuery({ queryKey: ["preview", debounced], queryFn: () => api.post<Preview>("/api/launch/preview", debounced), placeholderData: (prev) => prev });
+  return (
+    <div className="grid gap-1 p-1">
+      <div className="flex items-center text-[11.5px] font-[650] text-ink-2">
+        {title}
+        <span className="ml-auto font-normal text-ink-3">{preview.isFetching ? "Updating…" : `${preview.data?.prompt.length ?? 0} characters`}</span>
+      </div>
+      <pre className="m-0 max-h-[50vh] overflow-y-auto rounded-md bg-chrome px-2.5 py-2 font-mono text-[11.5px] leading-normal whitespace-pre-wrap text-ink-2">
+        {preview.isError ? <span className="text-red-700">{preview.error.message}</span> : preview.data?.prompt || <span className="text-ink-3">{preview.isLoading ? "Rendering…" : "The prompt is empty."}</span>}
+      </pre>
     </div>
   );
 }
@@ -136,10 +183,36 @@ function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
+/** Windows narrower than this layout width (1,500 px at the default 120% zoom) show the drawer over the content. */
+const OVERLAY_BELOW = 1250;
+function useOverlay(zoom: number) {
+  const [width, setWidth] = useState(window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  // The root `zoom` scales CSS pixels; `innerWidth` is not zoomed.
+  return width / zoomScale(zoom) < OVERLAY_BELOW;
+}
+
+function Token({ warn, title, children }: { warn?: boolean; title?: string; children: React.ReactNode }) {
+  return <span title={title} className={`inline-flex h-[22px] max-w-full items-center gap-1 truncate rounded-md px-1.5 text-[12px] ${warn ? "bg-attn-soft font-semibold text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]" : "bg-sunk text-ink-2"}`}>{children}</span>;
+}
+
+function OptionRow({ label, end, children }: { label: string; end?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[76px_1fr] items-start gap-2">
+      <span className="flex items-center gap-1 pt-1.5 text-[11.5px] font-[650] text-ink-2">{label}{end}</span>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
 export function Composer() {
   const harnessName = useHarnessName();
   const harnesses = useHarnesses();
-  const { open, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, conditions, setConditions } = useComposer();
+  const { open, minimized, setMinimized, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, conditions, setConditions } = useComposer();
   const projects = useProjects().data ?? [];
   const scope = useScope();
   const sessions = useSessions().data;
@@ -148,6 +221,9 @@ export function Composer() {
     for (const session of sessions ?? []) rememberSuccessfulSession(session);
   }, [sessions]);
   const config = useConfig().data?.config;
+  const overlay = useOverlay(config?.zoom ?? 2);
+  const [pillSlot, setPillSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => setPillSlot(document.getElementById("draft-pill-slot")), []);
   const defaults = useHarnessDefaults(spec.harness).data;
   const harness = useHarnessInfo(spec.harness);
   const variants = useVariants();
@@ -171,14 +247,19 @@ export function Composer() {
   const [cron, setCron] = useState<CronDraft | null>(null);
   const [cronValid, setCronValid] = useState(true);
   const [launching, setLaunching] = useState(false);
-  const [showAll, setShowAll] = useState(false);
-  const debouncedSpec = useDebounced(spec, 250);
-  const preview = useQuery({
-    queryKey: ["preview", debouncedSpec],
-    queryFn: () => api.post<Preview>("/api/launch/preview", debouncedSpec),
-    enabled: open,
-    placeholderData: (prev) => prev,
-  });
+  const [showOptions, setShowOptions] = useState(false);
+  const items = spec.github_refs.length + (spec.files ?? []).length + spec.context_projects.length + (spec.agent_traces ?? []).length;
+  // The draft pill flashes when "+ Add" buttons add context to a minimized draft.
+  const [flash, setFlash] = useState(false);
+  const lastItems = useRef(items);
+  useEffect(() => {
+    const grew = items > lastItems.current;
+    lastItems.current = items;
+    if (!grew || !minimized) return;
+    setFlash(true);
+    const t = setTimeout(() => setFlash(false), 900);
+    return () => clearTimeout(t);
+  }, [items, minimized]);
 
   const localPrs = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts"), enabled: open });
   const existing = spec.target.kind === "existing_predraft" ? localPrs.data?.find((p) => p.id === (spec.target as { predraft_id: string }).predraft_id) : undefined;
@@ -201,7 +282,10 @@ export function Composer() {
   const budgetInput = budgetText ?? (spec.budget_usd != null ? String(spec.budget_usd) : "");
   const budgetValid = parseUsd(budgetInput) !== undefined;
   const missingVariant = !!spec.variant && !variant;
-  const canLaunch = (cron ? cronValid : delayValid && !conditionsError(conditions)) && budgetValid && !missingVariant && !!spec.harness && spec.target.kind !== "none" && !preview.isError && !preview.isFetching && debouncedSpec === spec && !!preview.data?.prompt.trim();
+  // The daemon renders and checks the prompt at launch; Launch does not wait for a preview.
+  const hasPrompt = !!spec.text.trim() || items > 0 || spec.presets.length > 0;
+  const blocker = !spec.harness ? "Pick a harness in the options" : missingVariant ? "The harness variant no longer exists" : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const canLaunch = !blocker;
 
   const addProjectContext = (p: Project) =>
     set((s) => (s.context_projects.some((c) => c.project_id === p.id) || ((s.target.kind === "project" || s.target.kind === "predraft") && s.target.project_id === p.id) ? s : { ...s, context_projects: [...s.context_projects, { project_id: p.id, branch: null }] }));
@@ -264,36 +348,62 @@ export function Composer() {
       setLaunching(false);
     }
   };
+  const launchLabel = launching ? (cron ? "Creating…" : scheduled ? "Scheduling…" : "Launching…") : cron ? "Create cron" : scheduled ? "Schedule" : "Launch";
+  const launchButton = (small?: boolean) => (
+    <button className={`btn btn-primary ${small ? "btn-sm" : ""}`} disabled={!canLaunch || launching} title={blocker ?? undefined} onClick={() => void launch()}>
+      <Icon name="play" size={small ? 12 : 14} />
+      {small && launchLabel === "Launch" ? "Launch draft" : launchLabel}
+    </button>
+  );
+  const where = spec.target.kind === "temp" ? "temporary folder" : (target?.name ?? "no project");
+
+  if (minimized) {
+    if (!pillSlot) return null;
+    return createPortal(
+      <div className={`flex max-w-[520px] min-w-0 items-center gap-2 rounded-xl border border-line bg-paper py-1 pr-1 pl-3 transition-shadow ${flash ? "ring-[3px] ring-teal" : ""}`}>
+        <b className="text-[12.5px]">Draft</b>
+        <span className="min-w-0 truncate text-xs text-ink-2" title={spec.text || undefined}>{where}{spec.text.trim() ? ` · ${spec.text.trim().split("\n")[0]}` : ""}</span>
+        <span className={`flex-none rounded-full px-2 py-0.5 text-[11.5px] ${flash ? "bg-teal-soft font-semibold text-teal-ink" : "bg-sunk text-ink-2"}`}>{items} {items === 1 ? "item" : "items"}</span>
+        <button className="btn btn-sm" title="Open the composer" onClick={() => setMinimized(false)}>Open</button>
+        {launchButton(true)}
+      </div>,
+      pillSlot,
+    );
+  }
+
+  const harnessOptions = [...harnesses.map((h) => ({ key: h.id, harness: h.id, variant: null as HarnessVariant | null, label: h.name })), ...variants.map((v) => ({ key: `variant:${v.id}`, harness: v.harness, variant: v, label: v.name }))];
+  const modelLabel = spec.model ?? variant?.model ?? defaults?.model ?? "default model";
+  const effortLabel = spec.effort ?? variant?.effort ?? defaults?.effort ?? null;
+  const runIn = spec.target.kind === "temp" ? "new folder" : spec.target.kind === "predraft" ? "pre-draft PR" : spec.target.kind === "existing_predraft" ? "existing pre-draft" : spec.target.kind === "project" ? "checkout" : null;
+  const billingText = payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${variant!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
+  const presetLabels = (config?.presets ?? []).filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
 
   return (
-    <aside className="relative flex w-[440px] flex-none flex-col border-l border-line bg-paper shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]">
-      <div className="flex flex-wrap items-center gap-2.5 border-b border-line px-3.5 py-3">
+    <aside className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
+      <div className="flex items-center gap-1.5 border-b border-line px-3.5 py-2.5">
         <span className="flex-1 whitespace-nowrap text-sm font-bold">New agent</span>
-        <span className="order-3 inline-flex basis-full flex-wrap gap-0.5 rounded-lg bg-sunk p-0.5">
-          {[...harnesses.map((h) => ({ key: h.id, harness: h.id, variant: null as HarnessVariant | null, label: h.name })), ...variants.map((v) => ({ key: `variant:${v.id}`, harness: v.harness, variant: v, label: v.name }))].map((o) => (
-            <button
-              key={o.key}
-              title={o.variant ? `${harnessName(o.harness)} variant${o.variant.billing === "pay_as_you_go" ? " · pay as you go" : ""}` : undefined}
-              onClick={() => { setBudgetText(null); set((s) => {
-                const same = s.harness === o.harness && (s.variant ?? null) === (o.variant?.id ?? null);
-                const cost = harnesses.find((h) => h.id === o.harness)?.capabilities.cost;
-                return { ...s, harness: o.harness, variant: o.variant?.id ?? null, model: same ? s.model : null, effort: same ? s.effort : null, budget_usd: same ? s.budget_usd : cost ? (o.variant?.budget_usd ?? null) : null };
-              }); }}
-              className={`inline-flex h-[26px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[12.5px] ${
-                spec.harness === o.harness && (spec.variant ?? null) === (o.variant?.id ?? null) ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"
-              }`}
-            >
-              <HarnessMark harness={o.harness} size={15} />
-              {o.label}
-            </button>
-          ))}
-        </span>
-        <button className="iconbtn ml-auto" title="Close (the draft is kept)" onClick={close}>
+        <button className="btn btn-sm btn-ghost" title="Minimize to a draft pill; + Add buttons keep adding context" onClick={() => setMinimized(true)}>Minimize</button>
+        <button className="iconbtn" title="Close (the draft is kept)" onClick={close}>
           <Icon name="x" size={14} />
         </button>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-3">
+        <PromptField
+          value={spec.text}
+          onChange={(text) => set((s) => ({ ...s, text }))}
+          projects={sorted}
+          repo={repo}
+          onPickProject={addProjectContext}
+          onPickItem={(it) =>
+            set((s) =>
+              s.github_refs.some((g) => g.url === it.url)
+                ? s
+                : { ...s, github_refs: [...s.github_refs, { url: it.url, kind: it.kind, repo: it.repo, number: it.number, title: it.title }] },
+            )
+          }
+        />
+
         <div className="grid grid-cols-2 gap-2.5">
           <Field label="Project">
             <Popover
@@ -341,135 +451,97 @@ export function Composer() {
           </Field>
         </div>
 
-        <Field label="Prompt">
-          <PromptField
-            value={spec.text}
-            onChange={(text) => set((s) => ({ ...s, text }))}
-            projects={sorted}
-            repo={repo}
-            onPickProject={addProjectContext}
-            onPickItem={(it) =>
-              set((s) =>
-                s.github_refs.some((g) => g.url === it.url)
-                  ? s
-                  : { ...s, github_refs: [...s.github_refs, { url: it.url, kind: it.kind, repo: it.repo, number: it.number, title: it.title }] },
-              )
-            }
+        <div className="flex flex-wrap items-center gap-1.5">
+          {(spec.agent_traces ?? []).map((trace) => (
+            <span key={trace.session_id} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-[7px] border border-line bg-chrome px-2 text-xs">
+              <Icon name="agents" size={13} />
+              <span className="min-w-0 truncate" title={`Stored trace through event #${trace.through_seq} · ${trace.session_id}`}>Trace · {sessions?.find((s) => s.id === trace.session_id)?.title ?? "Missing agent"}</span>
+              <button title="Remove agent trace" className="text-ink-3 hover:text-ink" onClick={() => set((s) => ({ ...s, agent_traces: s.agent_traces.filter((t) => t.session_id !== trace.session_id) }))}><Icon name="x" size={12} /></button>
+            </span>
+          ))}
+          {spec.github_refs.map((g) => {
+            const ic = itemIcon(g.kind === "pr" ? "pr" : "issue", "open");
+            return (
+              <span key={g.url} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-[7px] border border-line bg-chrome px-2 text-xs" title={g.title ?? g.url}>
+                <Icon name={g.kind === "comment" || g.kind === "review_comment" ? "comment" : ic.name} size={13} className={ic.color} />
+                <span className="font-mono">{g.number === null ? g.kind : `#${g.number}`}</span>
+                <span className="min-w-0 truncate text-ink-2">{g.title ?? g.url}</span>
+                <button className="text-ink-3 hover:text-ink" title="Remove" onClick={() => set((s) => ({ ...s, github_refs: s.github_refs.filter((x) => x.url !== g.url) }))}><Icon name="x" size={12} /></button>
+              </span>
+            );
+          })}
+          {(spec.files ?? []).map((f, i) => (
+            <span key={`${f.root}\n${f.rev}\n${f.path}\n${f.start_line}-${f.end_line}`} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-[7px] border border-line bg-chrome px-2 text-xs" title={`${f.root}/${f.path}${f.rev ? ` at ${f.rev}` : ""}`}>
+              <Icon name="file" size={13} />
+              <span className="min-w-0 truncate font-mono">
+                {f.path}
+                {f.start_line !== null && `:${f.start_line}${f.end_line !== null && f.end_line > f.start_line ? `-${f.end_line}` : ""}`}
+              </span>
+              <button className="text-ink-3 hover:text-ink" title="Remove" onClick={() => set((s) => ({ ...s, files: s.files.filter((_, j) => j !== i) }))}><Icon name="x" size={12} /></button>
+            </span>
+          ))}
+          {spec.context_projects.map((c) => (
+            <span key={c.project_id} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-[7px] border border-line bg-chrome px-2 text-xs">
+              <Icon name="folder" size={13} />
+              <span className="font-mono">{projects.find((x) => x.id === c.project_id)?.name ?? "?"}</span>
+              <Branch projectId={c.project_id} branch={c.branch} onChange={(branch) => set((s) => ({ ...s, context_projects: s.context_projects.map((x) => (x.project_id === c.project_id ? { ...x, branch } : x)) }))} />
+              <button className="text-ink-3 hover:text-ink" title="Remove" onClick={() => set((s) => ({ ...s, context_projects: s.context_projects.filter((x) => x.project_id !== c.project_id) }))}><Icon name="x" size={12} /></button>
+            </span>
+          ))}
+          <AddContextMenu
+            projects={sorted.filter((p) => p.id !== target?.id && !spec.context_projects.some((c) => c.project_id === p.id))}
+            recent={recentContexts}
+            sessions={recentSessions}
+            selectedTraces={spec.agent_traces ?? []}
+            onProject={addProjectContext}
+            onGitHub={(r) => set((s) => (s.github_refs.some((g) => g.url === r.url) ? s : { ...s, github_refs: [...s.github_refs, r] }))}
+            onTrace={(trace) => set((s) => ({ ...s, agent_traces: [...(s.agent_traces ?? []), trace] }))}
           />
-        </Field>
+        </div>
 
-        <Field label="Context" hint="type @ or # in the prompt, use the buttons, or add lines from the code viewer">
-          <div className="grid gap-[5px]">
-            {!!recentContexts.length && <div className="grid gap-1"><span className="text-[11.5px] text-ink-3">Recent contexts</span><div className="flex flex-wrap gap-1">{recentContexts.slice(0,6).map((c) => <button key={c.key} className="btn btn-sm max-w-full truncate" title={c.label} onClick={c.add}>+ {c.label}</button>)}</div></div>}
-            {(spec.agent_traces ?? []).map((trace) => (
-              <div key={trace.session_id} className="flex items-center gap-2 rounded-[7px] border border-line bg-chrome px-2 py-1.5 text-xs">
-                <Icon name="agents" size={14} />
-                <span className="min-w-0 flex-1 truncate" title={`Stored trace through event #${trace.through_seq} · ${trace.session_id}`}>Trace snapshot · {sessions?.find((s) => s.id === trace.session_id)?.title ?? "Missing agent"}</span>
-                <button title="Remove agent trace" className="text-ink-3 hover:text-ink" onClick={() => set((s) => ({ ...s, agent_traces: s.agent_traces.filter((t) => t.session_id !== trace.session_id) }))}><Icon name="x" size={13} /></button>
-              </div>
-            ))}
-            {spec.github_refs.map((g) => {
-              const ic = itemIcon(g.kind === "pr" ? "pr" : "issue", "open");
-              return (
-                <div key={g.url} className="grid grid-cols-[16px_auto_1fr_16px] items-center gap-2 rounded-[7px] border border-line bg-chrome px-2 py-1.5 text-[12.5px]">
-                  <Icon name={g.kind === "comment" || g.kind === "review_comment" ? "comment" : ic.name} size={14} className={ic.color} />
-                  <span className="font-mono text-xs">{g.number === null ? g.kind : `#${g.number}`}</span>
-                  <span className="truncate text-ink-2">{g.title ?? g.url}</span>
-                  <button className="text-ink-3 hover:text-ink" title="Remove" onClick={() => set((s) => ({ ...s, github_refs: s.github_refs.filter((x) => x.url !== g.url) }))}>
-                    <Icon name="x" size={13} />
-                  </button>
-                </div>
-              );
-            })}
-            {(spec.files ?? []).map((f, i) => (
-              <div key={`${f.root}\n${f.rev}\n${f.path}\n${f.start_line}-${f.end_line}`} className="grid grid-cols-[16px_minmax(0,auto)_1fr_16px] items-center gap-2 rounded-[7px] border border-line bg-chrome px-2 py-1.5 text-[12.5px]">
-                <Icon name="file" size={14} />
-                <span className="truncate font-mono text-xs" title={`${f.root}/${f.path}`}>
-                  {f.path}
-                  {f.start_line !== null && `:${f.start_line}${f.end_line !== null && f.end_line > f.start_line ? `-${f.end_line}` : ""}`}
-                </span>
-                <span className="truncate text-xs text-ink-3">{f.rev ? `at ${f.rev}` : f.root.split("/").pop()}</span>
-                <button className="text-ink-3 hover:text-ink" title="Remove" onClick={() => set((s) => ({ ...s, files: s.files.filter((_, j) => j !== i) }))}>
-                  <Icon name="x" size={13} />
-                </button>
-              </div>
-            ))}
-            {spec.context_projects.map((c) => {
-              const p = projects.find((x) => x.id === c.project_id);
-              return (
-                <div key={c.project_id} className="grid grid-cols-[16px_auto_1fr_16px] items-center gap-2 rounded-[7px] border border-line bg-chrome px-2 py-1.5 text-[12.5px]">
-                  <Icon name="folder" size={14} />
-                  <span className="font-mono text-xs">{p?.name ?? "?"}</span>
-                  <span className="min-w-0">
-                    <Branch
-                      projectId={c.project_id}
-                      branch={c.branch}
-                      onChange={(branch) => set((s) => ({ ...s, context_projects: s.context_projects.map((x) => (x.project_id === c.project_id ? { ...x, branch } : x)) }))}
-                    />
-                  </span>
-                  <button className="text-ink-3 hover:text-ink" title="Remove" onClick={() => set((s) => ({ ...s, context_projects: s.context_projects.filter((x) => x.project_id !== c.project_id) }))}>
-                    <Icon name="x" size={13} />
-                  </button>
-                </div>
-              );
-            })}
-            <div className="flex flex-wrap gap-1.5">
-              <Popover
-                width={280}
-                trigger={({ toggle }) => (
-                  <button className="btn btn-sm" onClick={toggle}>
-                    <Icon name="plus" size={12} />
-                    Project
-                  </button>
-                )}
-              >
-                {(closeMenu) => (
-                  <>
-                    {sorted
-                      .filter((p) => p.id !== target?.id && !spec.context_projects.some((c) => c.project_id === p.id))
-                      .map((p) => (
-                        <MenuItem key={p.id} icon={<Icon name="folder" size={13} />} label={p.name} detail={p.description || undefined} onClick={() => (addProjectContext(p), closeMenu())} />
-                      ))}
-                  </>
-                )}
-              </Popover>
-              <Popover width={340} trigger={({ toggle }) => <button className="btn btn-sm" onClick={toggle}><Icon name="plus" size={12} />Agent trace</button>}>
-                {(closeMenu) => <AgentTracePicker sessions={recentSessions} selected={spec.agent_traces ?? []} onPick={(trace) => { set((s) => ({ ...s, agent_traces: [...(s.agent_traces ?? []), trace] })); closeMenu(); }} />}
-              </Popover>
-              <GitHubLinkField onAdd={(r) => set((s) => (s.github_refs.some((g) => g.url === r.url) ? s : { ...s, github_refs: [...s.github_refs, r] }))} />
-            </div>
-          </div>
-        </Field>
+        {missingVariant && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">The harness variant {spec.variant} no longer exists. Pick a harness or variant in the options.</div>}
 
-        <Field
-          label="Presets"
-          end={
-            <button className="font-semibold text-teal-ink hover:underline" onClick={() => void navigate({ to: "/settings", hash: "presets" })}>
-              Edit presets
-            </button>
-          }
+        <button
+          className={`flex w-full flex-wrap items-center gap-1 rounded-lg border px-2 py-1.5 text-left ${showOptions ? "border-[#c4ccd7] bg-chrome" : "border-line bg-paper hover:border-[#c4ccd7]"}`}
+          aria-expanded={showOptions}
+          title={showOptions ? "Hide the options" : "Show the options"}
+          onClick={() => setShowOptions((v) => !v)}
         >
-          <div className="flex flex-wrap gap-1.5">
-            {(config?.presets ?? []).filter((p) => p.id !== "draft-pr" && ((spec.target.kind !== "predraft" && spec.target.kind !== "existing_predraft") || p.id !== "worktree")).map((p) => {
-              const on = spec.presets.includes(p.id);
-              return (
-                <button
-                  key={p.id}
-                  title={p.text}
-                  onClick={() => set((s) => ({ ...s, presets: on ? s.presets.filter((x) => x !== p.id) : [...s.presets, p.id] }))}
-                  className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-[11px] text-[12.5px] ${on ? "border-ink bg-ink font-semibold text-white" : "border-line bg-paper text-ink-2 hover:border-[#c4ccd7]"}`}
-                >
-                  {on && <Icon name="check" size={12} />}
-                  {p.label}
-                </button>
-              );
-            })}
-            {config?.presets.length === 0 && <span className="text-xs text-ink-3">No preset.</span>}
-          </div>
-        </Field>
+          <Token warn={!spec.harness || missingVariant}>{spec.harness && <HarnessMark harness={spec.harness} size={13} />}{variant?.name ?? (spec.harness ? harnessName(spec.harness) : "No harness")}</Token>
+          <Token>{modelLabel}</Token>
+          {!!efforts.length && effortLabel && <Token>{effortLabel}</Token>}
+          {runIn && <Token>{runIn}</Token>}
+          {presetLabels.map((l) => <Token key={l}>{l}</Token>)}
+          <Token warn={scheduled} title={scheduled ? "Starts when all start conditions are met" : undefined}>{scheduled ? `start: ${conditions.length} condition${conditions.length === 1 ? "" : "s"}` : "now"}</Token>
+          <Token warn={!!cron} title={cron ? `Cron schedule ${cron.schedule}` : undefined}>{cron ? `cron ${cron.schedule}` : "once"}</Token>
+          <Token warn={payg || spec.allow_paid_usage} title={billingText}>{payg ? "pay as you go" : harness && !harness.capabilities.quota ? "provider billing" : spec.allow_paid_usage ? "paid usage on" : "subscription only"}</Token>
+          {harness?.capabilities.cost && <Token warn={spec.budget_usd != null || !budgetValid}>{spec.budget_usd != null ? `limit ${usd(spec.budget_usd)}` : "no cost limit"}</Token>}
+          <span className="ml-auto flex items-center gap-0.5 pl-1 text-[11.5px] text-ink-3">Options<Icon name="chev" size={12} className={showOptions ? "rotate-180" : ""} /></span>
+        </button>
 
-        <div className={`grid gap-2.5 ${efforts.length ? "grid-cols-2" : "grid-cols-1"}`}>
-          <Field label="Model" end={
+        {showOptions && <div className="grid gap-3 rounded-lg border border-line bg-chrome p-2.5">
+          <OptionRow label="Harness">
+            <span className="inline-flex flex-wrap gap-0.5 rounded-lg bg-sunk p-0.5">
+              {harnessOptions.map((o) => (
+                <button
+                  key={o.key}
+                  title={o.variant ? `${harnessName(o.harness)} variant${o.variant.billing === "pay_as_you_go" ? " · pay as you go" : ""}` : undefined}
+                  onClick={() => { setBudgetText(null); set((s) => {
+                    const same = s.harness === o.harness && (s.variant ?? null) === (o.variant?.id ?? null);
+                    const cost = harnesses.find((h) => h.id === o.harness)?.capabilities.cost;
+                    return { ...s, harness: o.harness, variant: o.variant?.id ?? null, model: same ? s.model : null, effort: same ? s.effort : null, budget_usd: same ? s.budget_usd : cost ? (o.variant?.budget_usd ?? null) : null };
+                  }); }}
+                  className={`inline-flex h-[26px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[12.5px] ${
+                    spec.harness === o.harness && (spec.variant ?? null) === (o.variant?.id ?? null) ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"
+                  }`}
+                >
+                  <HarnessMark harness={o.harness} size={15} />
+                  {o.label}
+                </button>
+              ))}
+            </span>
+          </OptionRow>
+          <OptionRow label="Model" end={
             <button className="inline-flex size-5 items-center justify-center rounded hover:bg-select hover:text-ink disabled:opacity-50" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} title={refreshingModels ? "Refreshing models…" : "Refresh models"} aria-label={refreshingModels ? "Refreshing models" : "Refresh models"} aria-busy={refreshingModels}>
               <Icon name="refresh" size={12} className={refreshingModels ? "animate-spin" : ""} />
             </button>
@@ -497,8 +569,8 @@ export function Composer() {
                 </>
               )}
             </Popover>
-          </Field>
-          {!!efforts.length && <Field label="Effort">
+          </OptionRow>
+          {!!efforts.length && <OptionRow label="Effort">
             <Popover
               width={220}
               trigger={({ toggle }) => (
@@ -520,52 +592,56 @@ export function Composer() {
                 </>
               )}
             </Popover>
-          </Field>}
-        </div>
+          </OptionRow>}
+          <OptionRow label="Presets" end={<button className="ml-1 font-normal text-teal-ink hover:underline" onClick={() => void navigate({ to: "/settings", hash: "presets" })}>Edit</button>}>
+            <div className="flex flex-wrap gap-1.5">
+              {(config?.presets ?? []).filter((p) => p.id !== "draft-pr" && ((spec.target.kind !== "predraft" && spec.target.kind !== "existing_predraft") || p.id !== "worktree")).map((p) => {
+                const on = spec.presets.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    title={p.text}
+                    onClick={() => set((s) => ({ ...s, presets: on ? s.presets.filter((x) => x !== p.id) : [...s.presets, p.id] }))}
+                    className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-[11px] text-[12.5px] ${on ? "border-ink bg-ink font-semibold text-white" : "border-line bg-paper text-ink-2 hover:border-[#c4ccd7]"}`}
+                  >
+                    {on && <Icon name="check" size={12} />}
+                    {p.label}
+                  </button>
+                );
+              })}
+              {config?.presets.length === 0 && <span className="pt-1.5 text-xs text-ink-3">No preset.</span>}
+            </div>
+          </OptionRow>
+          {harness?.capabilities.cost && <OptionRow label="Cost limit">
+            <span className="grid gap-1">
+              <input className="field-input w-28 font-mono text-xs" aria-label="Cost limit in USD" placeholder="No limit" value={budgetInput} onChange={(e) => { setBudgetText(e.target.value); const v = parseUsd(e.target.value); if (v !== undefined) set((s) => ({ ...s, budget_usd: v })); }} />
+              <span className={`text-[11px] ${budgetValid ? "text-ink-3" : "text-attn"}`}>{budgetValid ? "USD of reported cost. At the limit, the running turn stops and no new turn starts. Empty: no limit." : "Enter a positive amount in USD, or leave empty."}</span>
+            </span>
+          </OptionRow>}
+          {harness?.capabilities.quota && !payg && <OptionRow label="Paid usage">
+            <label className="inline-flex items-center gap-[7px] pt-1.5 text-xs text-ink-2" title={billingText}>
+              <input type="checkbox" className="accent-teal" checked={spec.allow_paid_usage} onChange={(e) => set((s) => ({ ...s, allow_paid_usage: e.target.checked }))} />
+              Allow paid usage after included quota runs out
+            </label>
+          </OptionRow>}
+          <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); }} onValidityChange={setCronValid} />
+          {!cron && <DelaySelector conditions={conditions} harness={spec.harness} onChange={setConditions} onValidityChange={setDelayValid} />}
+        </div>}
 
-        {missingVariant && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">The harness variant {spec.variant} no longer exists. Pick a harness or variant above.</div>}
-        {harness?.capabilities.cost && <Field label="Cost limit">
-          <span className="flex items-center gap-2">
-            <input className="field-input w-28 font-mono text-xs" aria-label="Cost limit in USD" placeholder="No limit" value={budgetInput} onChange={(e) => { setBudgetText(e.target.value); const v = parseUsd(e.target.value); if (v !== undefined) set((s) => ({ ...s, budget_usd: v })); }} />
-            <span className={`text-[11px] ${budgetValid ? "text-ink-3" : "text-attn"}`}>{budgetValid ? "USD of reported cost. At the limit, the running turn stops and no new turn starts. Empty: no limit." : "Enter a positive amount in USD, or leave empty."}</span>
-          </span>
-        </Field>}
-
-        <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); }} onValidityChange={setCronValid} />
-        {!cron && <DelaySelector conditions={conditions} harness={spec.harness} onChange={setConditions} onValidityChange={setDelayValid} />}
-
-        <div className="rounded-lg border border-line bg-chrome">
-          <div className="flex items-center gap-2 border-b border-line px-2.5 py-1.5 text-[11.5px] font-[650] text-ink-2">
-            Prompt sent to {spec.harness ? harnessName(spec.harness) : "the agent"}
-            <button className="ml-auto font-normal text-ink-3 hover:text-ink" onClick={() => setShowAll((v) => !v)}>
-              {preview.data?.prompt.length ?? 0} characters · {showAll ? "show less" : "show all"}
-            </button>
-          </div>
-          <pre
-            className={`m-0 px-2.5 py-2 font-mono text-[11.5px] leading-normal whitespace-pre-wrap text-ink-2 ${showAll ? "" : "max-h-[110px] overflow-hidden [mask-image:linear-gradient(#000_70%,transparent)]"}`}
-          >
-            {preview.isError ? <span className="text-red-700">{preview.error.message}</span> : preview.data?.prompt || <span className="text-ink-3">The prompt appears here as you type.</span>}
-          </pre>
-        </div>
+        <Popover width={400} trigger={({ toggle }) => <button className="btn btn-sm w-fit" onClick={toggle}><Icon name="eye" size={12} />Preview prompt</button>}>
+          {() => <PromptPreview spec={spec} title={`Prompt sent to ${spec.harness ? harnessName(spec.harness) : "the agent"}`} />}
+        </Popover>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-line bg-chrome px-3.5 py-3">
+      <div className="flex items-center gap-2 border-t border-line bg-chrome px-3.5 py-2.5">
         <label className="mr-auto inline-flex items-center gap-[7px] text-xs text-ink-2" style={scheduled || cron ? { visibility: "hidden" } : undefined}>
           <input type="checkbox" className="accent-teal" disabled={scheduled || !!cron} checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
           Open after launch
         </label>
-        {harness?.capabilities.quota && !payg && <label className="inline-flex items-center gap-[7px] text-xs text-ink-2" title="Continue using additional credits when included subscription quota runs out. Unchecked: pause and resume automatically, best effort.">
-          <input type="checkbox" className="accent-teal" checked={spec.allow_paid_usage} onChange={(e) => set((s) => ({ ...s, allow_paid_usage: e.target.checked }))} />
-          Allow paid usage
-        </label>}
-        <span className="basis-full text-[11px] text-ink-3">{payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${variant!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption."}</span>
         <button className="btn btn-ghost" onClick={() => { setCron(null); discard(); }} title="Clear the composer">
           Discard
         </button>
-        <button className="btn btn-primary" disabled={!canLaunch || launching} onClick={() => void launch()}>
-          <Icon name="play" size={14} />
-          {launching ? (cron ? "Creating…" : scheduled ? "Scheduling…" : "Launching…") : cron ? "Create cron" : scheduled ? "Schedule" : "Launch"}
-        </button>
+        {launchButton()}
       </div>
     </aside>
   );

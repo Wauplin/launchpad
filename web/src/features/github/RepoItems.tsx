@@ -8,26 +8,26 @@ import { LaunchButton } from "@/features/launch/LaunchButton";
 import type { Predraft } from "@/gen/Predraft";
 import { LabelChip } from "./LabelChip";
 import type { ListItem, RepoItems as Items } from "./types";
-import { AddContext, itemKey, itemPath, openGitHub, reference } from "./lib";
+import { itemKey, itemPath, openGitHub, reference } from "./lib";
+import { useComposer } from "@/stores/composer";
 const Row = memo(function Row({
   repo,
   i,
-  kind,
   selected,
   toggle,
 }: {
   repo: string;
   i: ListItem;
-  kind: string;
   selected: boolean;
   toggle: () => void;
 }) {
   const qc = useQueryClient();
   return (
-    <div className="flex h-[76px] items-center gap-2 border-b border-line-2 px-3">
+    <div className="flex h-[52px] items-center gap-2.5 border-b border-line-2 px-3">
       <input
         type="checkbox"
-        aria-label={`Select #${i.number}`}
+        aria-label={`Select #${i.number} for a launch`}
+        title="Select for a launch"
         checked={selected}
         onChange={toggle}
       />
@@ -47,28 +47,17 @@ const Row = memo(function Row({
           })
         }
       >
-        <span className="block truncate font-semibold">{i.title}</span>
-        <span className="text-xs text-ink-3">
-          #{i.number} · {i.isDraft ? "draft" : i.state.toLowerCase()} ·{" "}
-          {i.author.login}
-        </span>
+        <span className="block truncate font-semibold hover:underline">{i.title}</span>
         <span
-          className="mt-1 flex gap-1 overflow-hidden"
+          className="flex items-center gap-1.5 overflow-hidden text-xs whitespace-nowrap text-ink-3"
           title={i.labels?.nodes.map((l) => l.name).join(", ")}
         >
+          #{i.number} · {i.isDraft ? "draft" : i.state.toLowerCase()} · {i.author.login}
           {i.labels?.nodes.map((l) => (
             <LabelChip key={l.name} label={l} />
           ))}
         </span>
       </Link>
-      <AddContext refItem={reference(repo, i, kind)} />
-      <button
-        className="btn btn-sm"
-        title="Open on GitHub"
-        onClick={() => openGitHub(i.url)}
-      >
-        GitHub
-      </button>
     </div>
   );
 });
@@ -99,6 +88,7 @@ export function RepoItems({
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [labelFilter, setLabelFilter] = useState("all");
   const [busy, setBusy] = useState(false);
+  const composerOpen = useComposer((s) => s.open);
   async function refresh() {
     setBusy(true);
     try {
@@ -141,7 +131,7 @@ export function RepoItems({
   const v = useVirtualizer({
     count: list.length,
     getScrollElement: () => ref.current,
-    estimateSize: () => 76,
+    estimateSize: () => 52,
     overscan: 3,
     useFlushSync: false,
   });
@@ -157,7 +147,7 @@ export function RepoItems({
       .map((i) => reference(repo, i, "issue")),
   ];
   return (
-    <section className="rounded-lg border border-line overflow-hidden">
+    <section className="rounded-lg border border-line overflow-clip">
       <div className="flex flex-wrap items-center gap-2 bg-chrome p-3">
         <button
           className={`btn ${tab === "prs" ? "bg-select!" : ""}`}
@@ -233,21 +223,8 @@ export function RepoItems({
           </span>
         </div>
       )}
-      {refs.length > 0 && (
-        <div className="flex gap-2 p-3">
-          <span>{refs.length} selected</span>
-          <LaunchButton
-            small
-            ctx={{ projectId, githubRefs: refs }}
-            label="Launch with selection"
-          />
-          <button className="btn btn-sm" onClick={() => setSelected({})}>
-            Clear
-          </button>
-        </div>
-      )}
       {q.error && <p className="p-3 text-gh-closed">{String(q.error)}</p>}
-      <div ref={ref} className={list.length ? "h-[456px] overflow-auto" : "overflow-auto"}>
+      <div ref={ref} className="overflow-auto" style={list.length ? { height: Math.min(list.length * 52, 468) } : undefined}>
         <div className="relative" style={list.length ? { height: v.getTotalSize() } : undefined}>
           {v.getVirtualItems().map((row) => {
             const i = list[row.index];
@@ -272,7 +249,6 @@ export function RepoItems({
                 <Row
                   repo={repo}
                   i={i}
-                  kind={kind}
                   selected={!!selected[id]}
                   toggle={() => setSelected((s) => ({ ...s, [id]: !s[id] }))}
                 />
@@ -280,7 +256,7 @@ export function RepoItems({
             );
           })}
           {!list.length && (
-            <p className="p-4 text-ink-3">
+            <p className="m-0 px-3 py-2 text-[12.5px] text-ink-3">
               {q.isPending && repo
                 ? "Fetching recent items…"
                 : labelFilter === "all"
@@ -290,6 +266,17 @@ export function RepoItems({
           )}
         </div>
       </div>
+      {refs.length > 0 && (
+        <div className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-line bg-teal-soft px-3 py-2 text-[12.5px]">
+          <b>{refs.length} selected</b>
+          <span className="text-ink-3">as context for an agent</span>
+          <span className="ml-auto flex gap-2">
+            <LaunchButton small ctx={{ projectId, githubRefs: refs }} label="Launch with these" />
+            {composerOpen && <button className="btn btn-sm" title="Add the selected items to the open launch draft" onClick={() => { useComposer.getState().start({ githubRefs: refs }); setSelected({}); }}>Add to draft</button>}
+            <button className="btn btn-sm" onClick={() => setSelected({})}>Clear</button>
+          </span>
+        </div>
+      )}
     </section>
   );
 }
@@ -299,7 +286,7 @@ const LocalRow = memo(function LocalRow({ p }: { p: Predraft }) {
     <Link
       to="/predrafts/$id"
       params={{ id: p.id }}
-      className="flex h-[76px] items-center gap-3 border-b border-line-2 bg-[#eaf8f5] px-3 no-underline text-teal-ink"
+      className="flex h-[52px] items-center gap-3 border-b border-line-2 bg-[#eaf8f5] px-3 no-underline text-teal-ink"
     >
       <span className="rounded border border-teal-ink px-2 py-1 text-[11px]">
         Local

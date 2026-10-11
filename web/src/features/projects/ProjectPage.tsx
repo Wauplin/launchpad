@@ -3,7 +3,10 @@
 import { memo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Session } from "@/gen/Session";
-import { isRunning } from "@/lib/sessionStatus";
+import { isRunning, needsYou } from "@/lib/sessionStatus";
+import { useQuery } from "@tanstack/react-query";
+import type { Predraft } from "@/gen/Predraft";
+import { useComposer } from "@/stores/composer";
 import { RepoItems } from "@/features/github/RepoItems";
 import { Link, useParams } from "@tanstack/react-router";
 import { HarnessMark } from "@/components/HarnessMark";
@@ -24,6 +27,9 @@ export function ProjectPage() {
   const sessions = (useSessions().data ?? []).filter((s) => s.project_id === id);
   const worktrees = (useCodeSources(p?.id).data?.worktrees ?? []).filter((w) => !w.main);
   const terminal = useOpenTerminal();
+  const predrafts = (useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<Predraft[]>("/api/predrafts") }).data ?? []).filter((d) => d.project_id === id);
+  const show = useLayout((s) => s.show);
+  const navigate = useNavigate();
   if (!p) return <div className="p-6 text-ink-3">This project is not registered.</div>;
   return (
     <div className="h-full overflow-y-auto">
@@ -33,6 +39,15 @@ export function ProjectPage() {
             <h2 className="m-0 text-lg font-semibold">{p.name}</h2>
             <span className="font-mono text-xs text-ink-3">{p.path}</span>
             <Description p={p} />
+            <div className="mt-1 flex flex-wrap gap-1.5 text-xs">
+              {[
+                [sessions.filter(isRunning).length, "running"],
+                [sessions.filter(needsYou).length, "waiting"],
+                [predrafts.filter((d) => !d.archived && !d.published_url).length, "pre-draft"],
+              ].map(([n, label]) => (
+                <span key={label} className={`rounded-full border px-2 py-0.5 ${n ? "border-line bg-paper font-semibold text-ink" : "border-line-2 text-ink-3"}`}>{n} {label}</span>
+              ))}
+            </div>
           </div>
           <div className="ml-auto flex gap-1.5">
             {p.gh_repo && (
@@ -61,23 +76,36 @@ export function ProjectPage() {
         <RepoItems key={p.gh_repo ?? p.id} repo={p.gh_repo ?? ""} projectId={p.id} />
         {worktrees.length > 0 && (
           <>
-            <div className="seclabel">Worktrees</div>
+            <div className="seclabel">Worktrees · {worktrees.length}</div>
             <div className="overflow-hidden rounded-lg border border-line">
-              {worktrees.map((w) => (
-                <div key={w.path} className="flex items-center gap-2.5 border-b border-line-2 px-4 py-2 last:border-0">
-                  <Icon name="branch" size={14} className="text-ink-3" />
-                  <span className="font-mono text-xs font-semibold">{w.branch ?? "detached"}</span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-3">{w.path}</span>
-                  <Link to="/projects/$id/code" params={{ id: p.id }} search={{ root: w.path }} className="btn btn-sm no-underline" title="Read the code of this worktree">
-                    <Icon name="search" size={12} />
-                    Code
-                  </Link>
-                  <button className="btn btn-sm" title={`Open a shell in ${w.path}`} onClick={() => void terminal.shell(w.path)}>
-                    <Icon name="term" size={12} />
-                    Terminal
-                  </button>
-                </div>
-              ))}
+              {worktrees.map((w) => {
+                const session = sessions.filter((s) => s.cwd === w.path).sort((a, b) => b.started_at - a.started_at)[0];
+                const draft = predrafts.find((d) => d.root === w.path);
+                const canLaunch = draft && !draft.archived && !draft.published_url && !draft.pushed_head;
+                return (
+                  <div key={w.path} className="flex h-[52px] items-center gap-2.5 border-b border-line-2 px-4 last:border-0">
+                    <Icon name="branch" size={14} className="text-ink-3" />
+                    <span className="grid min-w-0 flex-1">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate font-mono text-xs font-semibold">{w.branch ?? "detached"}</span>
+                        {session && <StatusBadge s={session} />}
+                        {draft && <Link to="/predrafts/$id" params={{ id: draft.id }} className="truncate text-xs text-teal-ink">Pre-draft PR · {draft.archived ? "discarded" : draft.published_number ? `published #${draft.published_number}` : draft.title}</Link>}
+                      </span>
+                      <span className="truncate font-mono text-[11.5px] text-ink-3" title={w.path}>{w.path}</span>
+                    </span>
+                    {session && <button className="btn btn-sm" title={session.title} onClick={() => { show(session.id); void navigate({ to: "/agents" }); }}>Agent</button>}
+                    {canLaunch && !session && <button className="btn btn-sm btn-primary" title="Launch an agent in this worktree" onClick={() => { useComposer.getState().start({ projectId: p.id }); useComposer.getState().update((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: draft.id } })); }}><Icon name="play" size={12} />Launch here</button>}
+                    <Link to="/projects/$id/code" params={{ id: p.id }} search={{ root: w.path }} className="btn btn-sm no-underline" title="Read the code of this worktree">
+                      <Icon name="search" size={12} />
+                      Code
+                    </Link>
+                    <button className="btn btn-sm" title={`Open a shell in ${w.path}`} onClick={() => void terminal.shell(w.path)}>
+                      <Icon name="term" size={12} />
+                      Terminal
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
@@ -96,6 +124,7 @@ function ProjectAgents({ title, sessions, empty }: { title: string; sessions: Se
     overscan: 3,
     useFlushSync: false,
   });
+  if (!sessions.length) return <p className="m-0 text-[12.5px] text-ink-3"><span className="font-semibold">{title}</span> · {empty}</p>;
   return (
     <section className="grid gap-3">
       <div className="seclabel">{title} · {sessions.length}</div>

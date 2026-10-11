@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { AddContext, reference, itemKey, itemPath } from "@/features/github/lib";
+import { AddContext, GitHubHTML, reference, itemKey, itemPath } from "@/features/github/lib";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -9,6 +9,8 @@ import type { ThreadPreview } from "@/gen/ThreadPreview";
 import type { InboxSnapshot } from "@/gen/InboxSnapshot";
 import type { Project } from "@/gen/Project";
 import { Markdown } from "@/components/Markdown";
+import { Popover } from "@/components/Popover";
+import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
@@ -17,8 +19,16 @@ import { useProjects } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
 
 export const useInbox = () => useQuery({ queryKey: ["inbox"], queryFn: () => api.get<InboxSnapshot>("/api/inbox"), staleTime: Infinity });
+type Why = "review" | "mention" | "assign" | "other" | "all";
 /** `allRepos`: show every repository instead of the workspace's ones. */
-const useView = create<{ selected: string | null; repo: string | null; unread: boolean; allRepos: boolean; scroll: number; drafts: Record<string, string> }>(() => ({ selected: null, repo: null, unread: false, allRepos: false, scroll: 0, drafts: {} }));
+const useView = create<{ selected: string | null; repo: string | null; why: Why; unread: boolean; allRepos: boolean; scroll: number; drafts: Record<string, string> }>(() => ({ selected: null, repo: null, why: "all", unread: false, allRepos: false, scroll: 0, drafts: {} }));
+const whyOf = (reason: string): Exclude<Why, "all"> => reason === "review_requested" ? "review" : reason === "mention" || reason === "team_mention" ? "mention" : reason === "assign" ? "assign" : "other";
+const whys: [Why, string, string][] = [["review", "Review requested", "Someone requested your review"], ["mention", "Mentioned", "You or your team were mentioned"], ["assign", "Assigned", "You are assigned"], ["other", "Subscribed", "Subscribed, authored, commented, CI activity and state changes"], ["all", "All", "Every notification"]];
+/** Unread notifications that need you: review requests, mentions and assignments. The sidebar shows this count. */
+export function useInboxNeeds() {
+  const { threads } = useInboxThreads();
+  return useMemo(() => threads.filter((t) => t.unread && whyOf(t.reason) !== "other").length, [threads]);
+}
 /** Threads of the workspace's repositories, unless All repos is on. The sidebar count uses the same list. */
 export function useInboxThreads() {
   const { data } = useInbox();
@@ -53,49 +63,55 @@ export function useInboxAction() {
     onSettled: () => void qc.invalidateQueries({ queryKey: ["inbox"] }),
   });
 }
-const ThreadRow = memo(function ThreadRow({ t, selected, projects, select, act, busy }: { t: Thread; selected: boolean; projects: Project[]; select: (t: Thread) => void; act: (a: Action) => void; busy: boolean }) {
-  return <div className={`group relative flex h-[70px] items-center gap-2 border-b border-line-2 px-3 ${selected ? "bg-select" : "hover:bg-chrome"}`}>
+const ThreadRow = memo(function ThreadRow({ t, selected, projects, select, act, busy }: { t: Thread; selected: boolean; projects: Project[]; select: (t: Thread) => void; act: (t: Thread, action: string) => void; busy: boolean }) {
+  return <div className={`flex h-[70px] items-center gap-2 border-b border-line-2 px-3 ${selected ? "bg-select" : "hover:bg-chrome"}`}>
     <button className="flex min-w-0 flex-1 items-start gap-2 text-left" onClick={() => select(t)} title={t.title}>
       <span className={`mt-1.5 size-2 flex-none rounded-full ${t.unread ? "bg-work" : "bg-transparent"}`} />
       <span className="min-w-0 flex-1">
         <span className={`block truncate ${t.unread ? "font-semibold" : "text-ink-2"}`}>{t.title}</span>
-        <span className="mt-1 flex items-center gap-2 text-[11px] text-ink-3">
+        <span className="mt-1 flex items-center gap-2 overflow-hidden text-[11px] text-ink-3">
           <span className="truncate">{t.repo}{t.number !== null && ` #${t.number}`}</span>
           {t.state && <span className={`flex-none ${t.state === "merged" ? "text-gh-merged" : t.state === "open" ? "text-gh-open" : ""}`}>{t.state}</span>}
-          <span className="flex-none text-ink-2">{reason(t.reason)}</span>
+          <span className={`flex-none ${whyOf(t.reason) === "other" ? "text-ink-2" : "font-semibold text-attn"}`}>{reason(t.reason)}</span>
           {t.participant_count > 0 && <span className="truncate" title={t.participants.join(", ")}>{t.participants.slice(0, 2).join(", ")}{t.participant_count > 2 && ` +${t.participant_count - 2}`}</span>}
           <span className="ml-auto flex-none">{formatAge(Date.parse(t.updated_at))}</span>
           {t.local_unread && <span title="Unread only in Launchpad">local</span>}
         </span>
       </span>
     </button>
-    <div className="absolute right-11 z-10 flex items-center gap-1 rounded-lg bg-chrome p-1 opacity-0 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto group-hover:opacity-100 group-focus-within:opacity-100" onClick={(e) => e.stopPropagation()}>
-      <button className="btn btn-sm" title="Mark as done" disabled={busy} onClick={() => act({ id: t.id, action: "done" })}>Done</button>
-      <button className="btn btn-sm" title="Ignore future notifications and mark as done" disabled={busy} onClick={() => act({ id: t.id, action: "unsubscribe" })}>Unsubscribe</button>
-      <button className="btn btn-sm" title={t.unread ? "Mark as read" : "Mark as unread locally (github.com stays read)"} disabled={busy} onClick={() => act({ id: t.id, action: t.unread ? "read" : "unread" })}>{t.unread ? "Read" : "Unread"}</button>
-    </div>
-    <LaunchButton small primary={false} label={null} ctx={launchContext(t, projects)} />
+    <button className="btn btn-sm flex-none" title="Mark as done" disabled={busy} onClick={() => act(t, "done")}><Icon name="check" size={12} />Done</button>
+    <LaunchButton small primary={false} ctx={launchContext(t, projects)} />
     {t.number !== null && (t.kind === "Issue" || t.kind === "PullRequest") && <AddContext refItem={reference(t.repo,{number:t.number,title:t.title,url:t.url},t.kind === "PullRequest" ? "pr" : "issue")}/> }
   </div>;
 });
-function RepoChips({ threads, selected }: { threads: Thread[]; selected: string | null }) {
-  const ref = useRef<HTMLDivElement>(null);
+function RepoPicker({ threads, selected }: { threads: Thread[]; selected: string | null }) {
+  const [query, setQuery] = useState("");
   const repos = useMemo(() => {
     const counts = new Map<string, number>();
     threads.forEach((t) => counts.set(t.repo, (counts.get(t.repo) ?? 0) + 1));
-    return [...counts].sort(([a], [b]) => a.localeCompare(b));
-  }, [threads]);
-  const v = useVirtualizer({ count: repos.length, horizontal: true, getScrollElement: () => ref.current, estimateSize: () => 184, overscan: 2, useFlushSync: false });
-  return <div className="flex h-10 flex-none items-center gap-2 border-b border-line px-3">
-    <button className={`btn btn-sm ${selected === null ? "bg-select!" : ""}`} onClick={() => useView.setState({ repo: null, scroll: 0 })}>All {threads.length}</button>
-    <div ref={ref} className="min-w-0 flex-1 overflow-x-auto">
-      <div className="relative h-7" style={{ width: v.getTotalSize() }}>
-        {v.getVirtualItems().map((item) => { const [repo, count] = repos[item.index]; return <button key={repo} title={repo} className={`btn btn-sm absolute top-0 w-[178px] ${selected === repo ? "bg-select!" : ""}`} style={{ left: item.start }} onClick={() => useView.setState({ repo, scroll: 0 })}><span className="truncate">{repo}</span><span className="ml-auto">{count}</span></button>; })}
+    const q = query.trim().toLowerCase();
+    return [...counts].filter(([r]) => !q || r.toLowerCase().includes(q)).sort(([a], [b]) => a.localeCompare(b));
+  }, [threads, query]);
+  return <Popover align="right" width={300} trigger={({ toggle }) => <button className={`btn btn-sm max-w-[260px] ${selected ? "bg-select!" : ""}`} title={selected ?? "Filter by repository"} onClick={toggle}><span className="truncate">Repository: {selected ?? "all"}</span><Icon name="chev" size={12} /></button>}>
+    {(close) => <RepoList repos={repos} total={threads.length} selected={selected} query={query} setQuery={setQuery} pick={(repo) => { useView.setState({ repo, scroll: 0 }); setQuery(""); close(); }} />}
+  </Popover>;
+}
+function RepoList({ repos, total, selected, query, setQuery, pick }: { repos: [string, number][]; total: number; selected: string | null; query: string; setQuery: (q: string) => void; pick: (repo: string | null) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const v = useVirtualizer({ count: repos.length, getScrollElement: () => ref.current, estimateSize: () => 30, overscan: 6, useFlushSync: false });
+  const row = "flex h-[30px] w-full items-center gap-2 rounded-md px-2 text-left text-[12.5px] hover:bg-select";
+  return <div className="grid gap-1">
+    <input autoFocus aria-label="Search repositories" className="field-input h-8" placeholder="Search repositories…" value={query} onChange={(e) => setQuery(e.target.value)} />
+    <button className={`${row} ${selected === null ? "bg-select font-semibold" : ""}`} onClick={() => pick(null)}><span className="flex-1">All repositories</span><span className="text-ink-3">{total}</span></button>
+    <div ref={ref} className="max-h-60 overflow-y-auto">
+      {repos.length === 0 && <p className="p-2 text-xs text-ink-3">No repository matches.</p>}
+      <div className="relative" style={{ height: v.getTotalSize() }}>
+        {v.getVirtualItems().map((item) => { const [repo, count] = repos[item.index]; return <button key={repo} title={repo} className={`${row} absolute top-0 left-0 ${selected === repo ? "bg-select font-semibold" : ""}`} style={{ transform: `translateY(${item.start}px)` }} onClick={() => pick(repo)}><span className="min-w-0 flex-1 truncate">{repo}</span><span className="text-ink-3">{count}</span></button>; })}
       </div>
     </div>
   </div>;
 }
-function PreviewPane({ t, projects }: { t: Thread; projects: Project[] }) {
+function PreviewPane({ t, projects, act, busy }: { t: Thread; projects: Project[]; act: (t: Thread, action: string) => void; busy: boolean }) {
   const qc = useQueryClient();
   const preview = useQuery({ queryKey: ["inbox-preview", t.id], queryFn: () => api.get<ThreadPreview | null>(`/api/inbox/${t.id}/preview`), staleTime: Infinity });
   const draft = useView((s) => s.drafts[t.id] ?? "");
@@ -109,14 +125,23 @@ function PreviewPane({ t, projects }: { t: Thread; projects: Project[] }) {
   const p = preview.data;
   return <section className="flex min-h-0 w-[40%] min-w-[320px] flex-col border-l border-line bg-paper">
     <div className="flex-none border-b border-line p-4">
-      <div className="text-xs text-ink-3">{t.repo}{t.number !== null && ` #${t.number}`} · {t.kind} · {t.state ?? ""}</div>
-      <h2 className="mt-2 mb-3 text-[16px] font-semibold">{t.title}</h2>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs text-ink-3">{t.repo}{t.number !== null && ` #${t.number}`} · {t.kind}{t.state && ` · ${t.state}`} · {reason(t.reason)}</div>
+          <h2 className="mt-2 mb-3 text-[16px] font-semibold">{t.title}</h2>
+        </div>
+        <button className="btn btn-sm flex-none" onClick={() => useView.setState({ selected: null })}>Close</button>
+      </div>
       <div className="flex flex-wrap items-center gap-2">
+        <button className="btn btn-sm" title="Mark as done" disabled={busy} onClick={() => act(t, "done")}><Icon name="check" size={12} />Done</button>
+        <button className="btn btn-sm" title={t.unread ? "Mark as read" : "Mark as unread locally (github.com stays read)"} disabled={busy} onClick={() => act(t, t.unread ? "read" : "unread")}>{t.unread ? "Mark read" : "Mark unread"}</button>
+        <button className="btn btn-sm" title="Ignore future notifications and mark as done" disabled={busy} onClick={() => act(t, "unsubscribe")}>Unsubscribe</button>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <LaunchButton small ctx={launchContext(t, projects)} />
         {supported && t.number !== null && <><Link className="btn btn-sm no-underline" to="/github/$owner/$repo/$number" params={{owner:t.repo.split("/")[0],repo:t.repo.split("/")[1],number:String(t.number)}}>Full conversation</Link><AddContext refItem={reference(t.repo,{number:t.number,title:t.title,url:t.url},t.kind === "PullRequest" ? "pr" : "issue")}/></>}
         <button className="btn btn-sm" onClick={() => void api.post("/api/open", { url: t.url }).catch(toastError)}>Open on GitHub</button>
         {hasSummary && <button className="btn btn-sm" disabled={refresh.isPending} onClick={() => refresh.mutate(true)}>{refresh.isPending ? "Refreshing…" : "Refresh"}</button>}
-        <button className="btn btn-sm ml-auto" onClick={() => useView.setState({ selected: null })}>Close</button>
       </div>
       {(t.review_decision || t.checks) && <div className="mt-2 text-xs text-ink-2">{[t.review_decision && `Review: ${reason(t.review_decision.toLowerCase())}`, t.checks && `Checks: ${t.checks.toLowerCase()}`].filter(Boolean).join(" · ")}</div>}
     </div>
@@ -125,9 +150,9 @@ function PreviewPane({ t, projects }: { t: Thread; projects: Project[] }) {
       {preview.isError && <p className="text-gh-closed">{String(preview.error)}</p>}
       {p ? <>
         <div className="mb-2 text-xs text-ink-3">{p.author} · summary cached {formatAge(p.fetched_at)} ago</div>
-        <Markdown text={p.body || "No description."} />
+        {p.body_html ? <GitHubHTML html={p.body_html} /> : <Markdown text={p.body || "No description."} />}
         <h3 className="mt-6 mb-3 text-xs font-semibold text-ink-2">Latest comments (up to 8)</h3>
-        {p.comments.map((c) => <article key={c.url} className="mb-4 border-t border-line pt-3"><div className="mb-2 text-xs text-ink-3">{c.author} · {formatAge(Date.parse(c.created_at))} ago <button className="ml-2 text-teal-ink hover:underline" onClick={() => void api.post("/api/open", { url: c.url }).catch(toastError)}>Open comment</button></div><AddContext refItem={{repo:t.repo,number:t.number,title:t.title,url:c.url,kind:"comment"}}/><Markdown text={c.body} /></article>)}
+        {p.comments.map((c) => <article key={c.url} className="mb-4 border-t border-line pt-3"><div className="mb-2 text-xs text-ink-3">{c.author} · {formatAge(Date.parse(c.created_at))} ago <button className="ml-2 text-teal-ink hover:underline" onClick={() => void api.post("/api/open", { url: c.url }).catch(toastError)}>Open comment</button></div><AddContext refItem={{repo:t.repo,number:t.number,title:t.title,url:c.url,kind:"comment"}}/>{c.body_html ? <GitHubHTML html={c.body_html} /> : <Markdown text={c.body} />}</article>)}
       </> : <p className="text-ink-3">{hasSummary ? refresh.isPending ? "Fetching the thread summary…" : "No cached summary. Click Refresh to try again." : "This notification has no issue or PR preview. Open it on GitHub for details."}</p>}
     </div>
     {supported && <div className="flex-none border-t border-line bg-chrome p-3">
@@ -147,21 +172,49 @@ export function InboxView() {
   const { threads, total, scope, allRepos } = useInboxThreads();
   const hidden = total - threads.length;
   const counted = useMemo(() => threads.filter((t) => !view.unread || t.unread), [threads, view.unread]);
-  const visible = useMemo(() => counted.filter((t) => !view.repo || t.repo === view.repo), [counted, view.repo]);
+  const inRepo = useMemo(() => counted.filter((t) => !view.repo || t.repo === view.repo), [counted, view.repo]);
+  const counts = useMemo(() => {
+    const c: Record<Why, number> = { review: 0, mention: 0, assign: 0, other: 0, all: inRepo.length };
+    inRepo.forEach((t) => c[whyOf(t.reason)]++);
+    return c;
+  }, [inRepo]);
+  const visible = useMemo(() => view.why === "all" ? inRepo : inRepo.filter((t) => whyOf(t.reason) === view.why), [inRepo, view.why]);
   const selected = threads.find((t) => t.id === view.selected);
   // A repository picked among all repos may not belong to the workspace.
   useEffect(() => { if (view.repo && !threads.some((t) => t.repo === view.repo)) useView.setState({ repo: null }); }, [allRepos, scope.workspace?.id]);
   const v = useVirtualizer({ count: visible.length, getScrollElement: () => ref.current, estimateSize: () => 70, getItemKey: (i) => visible[i].id, overscan: 4, useFlushSync: false, initialOffset: view.scroll });
-  const previousFilter = useRef({ repo: view.repo, unread: view.unread });
+  const previousFilter = useRef({ repo: view.repo, unread: view.unread, why: view.why });
   useEffect(() => {
-    if (previousFilter.current.repo !== view.repo || previousFilter.current.unread !== view.unread) v.scrollToOffset(0);
-    previousFilter.current = { repo: view.repo, unread: view.unread };
-  }, [view.repo, view.unread]);
+    const prev = previousFilter.current;
+    if (prev.repo !== view.repo || prev.unread !== view.unread || prev.why !== view.why) v.scrollToOffset(0);
+    previousFilter.current = { repo: view.repo, unread: view.unread, why: view.why };
+  }, [view.repo, view.unread, view.why]);
+  // Opening the Inbox with nothing selected shows the first unread review request, else the first unread item. It stays unread until you act.
+  const autoSelected = useRef(false);
+  useEffect(() => {
+    if (autoSelected.current || !data || !visible.length) return;
+    autoSelected.current = true;
+    if (selected) return;
+    const first = visible.find((t) => t.unread && t.reason === "review_requested") ?? visible.find((t) => t.unread);
+    if (first) { useView.setState({ selected: first.id }); const at = visible.indexOf(first); if (at > 0) v.scrollToIndex(at, { align: "auto" }); }
+  }, [data, visible]);
   const mutate = action.mutate;
   const select = useCallback((t: Thread) => {
     useView.setState({ selected: t.id });
     if (t.unread) mutate({ id: t.id, action: "read" });
   }, [mutate]);
+  // Done and Unsubscribe on the selected row move the selection to the next row.
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  const act = useCallback((t: Thread, a: string) => {
+    if ((a === "done" || a === "unsubscribe") && useView.getState().selected === t.id) {
+      const list = visibleRef.current;
+      const at = list.findIndex((x) => x.id === t.id);
+      const next = at < 0 ? undefined : list[at + 1] ?? list[at - 1];
+      if (next) select(next); else useView.setState({ selected: null });
+    }
+    mutate({ id: t.id, action: a });
+  }, [mutate, select]);
   // Warm the next few cached previews without making GitHub requests.
   useEffect(() => {
     const at = visible.findIndex((t) => t.id === view.selected);
@@ -175,20 +228,23 @@ export function InboxView() {
         <button className={`btn btn-sm ${!allRepos ? "bg-select!" : ""}`} aria-pressed={!allRepos} onClick={() => useView.setState({ allRepos: false, scroll: 0 })}>{scope.workspace.name} repos</button>
         <button className={`btn btn-sm ${allRepos ? "bg-select!" : ""}`} aria-pressed={allRepos} onClick={() => useView.setState({ allRepos: true, scroll: 0 })}>All repos{!allRepos && hidden > 0 ? ` · ${hidden} more` : ""}</button>
       </span>}
-      <label className="ml-auto flex items-center gap-2 text-xs"><input type="checkbox" checked={view.unread} onChange={(e) => useView.setState({ unread: e.target.checked, scroll: 0 })} />Unread only</label>
-      <span className="text-xs text-ink-3">{data?.status.syncing ? "Syncing…" : data?.status.last_sync ? `Synced ${formatAge(data.status.last_sync)} ago` : "Waiting for GitHub"}</span>
+      <span className="ml-auto text-xs text-ink-3">{data?.status.syncing ? "Syncing…" : data?.status.last_sync ? `Synced ${formatAge(data.status.last_sync)} ago` : "Waiting for GitHub"}</span>
       <button className="btn btn-sm" disabled={sync.isPending || data?.status.syncing} onClick={() => sync.mutate()}>Refresh</button>
     </div>
     {(error || data?.status.error) && <div className="border-b border-line bg-attn-soft px-4 py-2 text-xs text-gh-closed">{String(error ?? data?.status.error)} · Cached notifications remain available. Sign in with gh auth login if needed.</div>}
-    <RepoChips threads={counted} selected={view.repo} />
+    <div className="flex flex-none flex-wrap items-center gap-1.5 border-b border-line px-3 py-2">
+      {whys.map(([k, label, title]) => <button key={k} title={title} aria-pressed={view.why === k} className={`inline-flex h-[26px] items-center gap-1.5 rounded-full border px-2.5 text-xs whitespace-nowrap ${view.why === k ? "border-ink bg-ink text-white" : "border-line bg-paper hover:bg-chrome"}`} onClick={() => useView.setState({ why: k, scroll: 0 })}>{label}<b className={`font-semibold tabular-nums ${view.why === k ? "text-[#cfd6df]" : "text-ink-3"}`}>{counts[k]}</b></button>)}
+      <label className="ml-auto flex items-center gap-2 text-xs"><input type="checkbox" checked={view.unread} onChange={(e) => useView.setState({ unread: e.target.checked, scroll: 0 })} />Unread only</label>
+      <RepoPicker threads={counted} selected={view.repo} />
+    </div>
     <div className="flex min-h-0 flex-1">
       <div data-inbox-list ref={ref} className="min-w-0 flex-1 overflow-y-auto" onScroll={() => useView.setState({ scroll: ref.current?.scrollTop ?? 0 })}>
-        {visible.length === 0 && <p className="p-8 text-center text-ink-3">{data?.status.syncing ? "Fetching notifications…" : view.unread || view.repo ? "No notifications match these filters." : hidden > 0 ? `No notifications for the repositories of ${scope.workspace?.name}. Click the repos filter to see all ${hidden}.` : "Your inbox is clear."}</p>}
+        {visible.length === 0 && <p className="p-8 text-center text-ink-3">{data?.status.syncing ? "Fetching notifications…" : view.unread || view.repo || view.why !== "all" ? "No notifications match these filters." : hidden > 0 ? `No notifications for the repositories of ${scope.workspace?.name}. Click the repos filter to see all ${hidden}.` : "Your inbox is clear."}</p>}
         <div className="relative" style={{ height: v.getTotalSize() }}>
-          {v.getVirtualItems().map((item) => <div key={item.key} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${item.start}px)` }}><ThreadRow t={visible[item.index]} selected={visible[item.index].id === view.selected} projects={projects} select={select} act={mutate} busy={action.isPending} /></div>)}
+          {v.getVirtualItems().map((item) => <div key={item.key} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${item.start}px)` }}><ThreadRow t={visible[item.index]} selected={visible[item.index].id === view.selected} projects={projects} select={select} act={act} busy={action.isPending} /></div>)}
         </div>
       </div>
-      {selected && <PreviewPane key={selected.id} t={selected} projects={projects} />}
+      {selected && <PreviewPane key={selected.id} t={selected} projects={projects} act={act} busy={action.isPending} />}
     </div>
   </div>;
 }

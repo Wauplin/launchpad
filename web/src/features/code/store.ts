@@ -5,7 +5,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type CodeSearch = { root?: string; rev?: string; path?: string; line?: number };
+/** `session`: the agent session that opened the viewer, for a link back to it. */
+export type CodeSearch = { root?: string; rev?: string; path?: string; line?: number; session?: string };
 
 type SourceState = { tabs: string[]; expanded: string[]; pos: Record<string, number> };
 

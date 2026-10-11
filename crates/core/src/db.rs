@@ -140,16 +140,23 @@ CREATE TABLE IF NOT EXISTS predraft (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cron_agent (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS workspace (id TEXT PRIMARY KEY, json TEXT NOT NULL);",
     )?;
-    // Some development databases retain schema numbers from reverted work. Check this
-    // additive column directly, like the unversioned tables above.
-    let has_quota_pause = conn.prepare("PRAGMA table_info(session)")?
+    // Some development databases retain schema numbers from reverted work. Check these
+    // additive columns directly, like the unversioned tables above.
+    let columns = conn.prepare("PRAGMA table_info(session)")?
         .query_map([], |r| r.get::<_, String>(1))?
-        .collect::<rusqlite::Result<Vec<_>>>()?.iter().any(|name| name == "quota_pause_json");
-    if !has_quota_pause { conn.execute_batch("ALTER TABLE session ADD COLUMN quota_pause_json TEXT;")?; }
-    let has_title_pending = conn.prepare("PRAGMA table_info(session)")?
-        .query_map([], |r| r.get::<_, String>(1))?
-        .collect::<rusqlite::Result<Vec<_>>>()?.iter().any(|name| name == "title_pending");
-    if !has_title_pending { conn.execute_batch("ALTER TABLE session ADD COLUMN title_pending INTEGER;")?; }
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let has = |name: &str| columns.iter().any(|c| c == name);
+    if !has("quota_pause_json") { conn.execute_batch("ALTER TABLE session ADD COLUMN quota_pause_json TEXT;")?; }
+    if !has("title_pending") { conn.execute_batch("ALTER TABLE session ADD COLUMN title_pending INTEGER;")?; }
+    // Existing sessions start as seen, so old Done sessions do not all need you at once.
+    if !has("seen_at") { conn.execute_batch("ALTER TABLE session ADD COLUMN seen_at INTEGER NOT NULL DEFAULT 0; UPDATE session SET seen_at = status_since;")?; }
+    if !has("last_message") {
+        conn.execute_batch(
+            "ALTER TABLE session ADD COLUMN last_message TEXT;
+             UPDATE session SET last_message = (SELECT substr(json_extract(e.json, '$.text'), 1, 400) FROM session_event e
+                 WHERE e.session_id = session.id AND e.kind = 'assistant_message' ORDER BY e.seq DESC LIMIT 1);",
+        )?;
+    }
     Ok(Db::spawn(conn, "state"))
 }
 

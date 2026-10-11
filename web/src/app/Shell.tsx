@@ -19,7 +19,8 @@ export function Shell() {
     <div className="flex h-full flex-col">
       <IconSprite />
       <TopBar />
-      <div className="flex min-h-0 flex-1">
+      {/* relative: the composer overlay (narrow windows) and the draft pill are positioned here. */}
+      <div className="relative flex min-h-0 flex-1">
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-paper">
