@@ -16,7 +16,7 @@ import { Icon } from "@/components/Icon";
 import { Markdown } from "@/components/Markdown";
 import DOMPurify from "dompurify";
 import { MenuItem, Popover } from "@/components/Popover";
-import { toast, toastError } from "@/components/Toast";
+import { toast } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { formatAge } from "@/lib/format";
@@ -338,8 +338,6 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
   const ghFile = githubUrl(commit, path);
   const dirtyReason = f?.dirty ? "This file has uncommitted changes, so GitHub shows other lines" : null;
   const ghTitle = !commit ? "Checking GitHub…" : !ghFile ? "This commit is not on GitHub" : (dirtyReason ?? "Open on GitHub at this commit");
-  const editorLine = () => lines.current?.topLine() ?? 1;
-  const openEditor = (l?: number) => void api.post("/api/open-editor", { path: `${root}/${path}`, line: l ?? null }).catch(toastError);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -368,9 +366,6 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
           <button className="iconbtn disabled:opacity-40" disabled={!ghFile} title={ghTitle} onClick={() => ghFile && void api.post("/api/open", { url: ghFile })}>
             <Icon name="ext" size={14} />
           </button>
-          <button className="btn btn-sm" disabled={!!rev} title={rev ? "Only for working trees: this revision is not on disk" : "Open in your editor at the first visible line"} onClick={() => openEditor(editorLine())}>
-            Editor
-          </button>
           <button className="iconbtn" title="Reload the file and the file list" onClick={reload}>
             <Icon name="refresh" size={14} />
           </button>
@@ -388,11 +383,6 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
         <div className="grid flex-1 place-items-center text-center text-ink-2">
           <div className="grid justify-items-center gap-2">
             {f.kind === "binary" ? `Binary file · ${sizeText(f.size)}` : `This file is ${sizeText(f.size)}: too large to show here.`}
-            {!rev && (
-              <button className="btn btn-sm" onClick={() => openEditor()}>
-                Open in editor
-              </button>
-            )}
           </div>
         </div>
       ) : preview && html ? (
@@ -413,7 +403,6 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
           findOpen={findOpen}
           setFindOpen={setFindOpen}
           findRef={findRef}
-          openEditor={openEditor}
         />
       )}
     </div>
@@ -525,7 +514,6 @@ function TextView({
   findOpen,
   setFindOpen,
   findRef,
-  openEditor,
 }: {
   f: CodeFile;
   fileKey: string;
@@ -539,7 +527,6 @@ function TextView({
   findOpen: boolean;
   setFindOpen: (v: boolean) => void;
   findRef: React.RefObject<HTMLInputElement | null>;
-  openEditor: (line?: number) => void;
 }) {
   const text = f.text ?? "";
   const lines = useMemo(() => splitLines(text), [text]);
@@ -675,7 +662,6 @@ function TextView({
           commit={commit}
           dirty={f.dirty}
           onClear={() => setSelection(null)}
-          openEditor={openEditor}
         />
       )}
     </div>
@@ -692,7 +678,6 @@ function SelectionBar({
   commit,
   dirty,
   onClear,
-  openEditor,
 }: {
   selection: Selection;
   lines: string[];
@@ -703,7 +688,6 @@ function SelectionBar({
   commit: CommitInfo | undefined;
   dirty: boolean;
   onClear: () => void;
-  openEditor: (line?: number) => void;
 }) {
   const { start, end } = selection;
   const gh = githubUrl(commit, path, selection);
@@ -723,9 +707,6 @@ function SelectionBar({
         GitHub link
       </button>
       <AddToAgent project={project} root={root} rev={rev} path={path} selection={selection} />
-      <button className="btn btn-sm" disabled={!!rev} title={rev ? "Only for working trees" : "Open in your editor at this line"} onClick={() => openEditor(start)}>
-        Editor
-      </button>
       <button className="iconbtn" title="Clear the selection" onClick={onClear}>
         <Icon name="x" size={13} />
       </button>

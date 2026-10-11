@@ -64,10 +64,6 @@ export function ProjectPage() {
               <Icon name="term" size={14} />
               Terminal
             </button>
-            <button className="btn" title="Open in editor" onClick={() => void api.post("/api/open-editor", { path: p.path })}>
-              <Icon name="file" size={14} />
-              Editor
-            </button>
             <LaunchButton ctx={{ projectId: p.id }} />
           </div>
         </div>

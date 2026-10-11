@@ -18,7 +18,7 @@ use crate::App;
 use crate::model::Project;
 use crate::shellenv::UserEnv;
 
-/// Larger files are not loaded ("Open in editor" instead).
+/// Larger files are not loaded.
 pub const MAX_LOAD: u64 = 5 * 1024 * 1024;
 const MAX_HITS: usize = 1000;
 

@@ -74,7 +74,7 @@ It is a single-user tool. Light theme only. Linux is the primary target, with ma
 
 - One Rust binary, `launchpad`, with subcommands: `launchpad daemon` (the server) and agent-facing commands such as `launchpad pr …` and `launchpad suggest …`.
 - On Linux, runs as a systemd user unit `launchpad.service`: starts at login, restarts on crash, logs to journald (`journalctl --user -u launchpad -f`).
-- Owns everything stateful: SQLite, GitHub sync loops, agent processes, quota polling, desktop notifications (D-Bus through `notify-rust`), and opening URLs, editors and terminals.
+- Owns everything stateful: SQLite, GitHub sync loops, agent processes, quota polling, desktop notifications (D-Bus through `notify-rust`), and opening URLs and integrated terminals.
 - Listens on `127.0.0.1:7317` only.
 - On Unix, resolves the environment of your login shell once at startup (`$SHELL -l -i -c 'env -0'`, about 0.5 s) and uses it for every process it starts. Under systemd the daemon only gets a minimal `PATH`, and agents must see the same tools as in a terminal (nvm, cargo, `~/.local/bin`). Variables left by a parent agent session (`CLAUDECODE`, `CLAUDE_CODE_*`, …) are removed.
 - On Linux, harness processes get `PR_SET_PDEATHSIG`, so they stop when the daemon stops, even outside systemd (dev profile).
@@ -148,7 +148,7 @@ GitHub Actions runs Linux Clippy and UI type checks plus native debug tests on m
 
 | Module | Responsibility |
 |---|---|
-| `config` | Load and watch `config.toml`: presets, external commands (editor, browser), poll intervals |
+| `config` | Load and watch `config.toml`: presets, external browser command, poll intervals |
 | `projects` | Registry, discovery in the projects root, repo ↔ project mapping, temporary projects |
 | `workspace` | Workspaces (named sets of projects), new desktop windows (see [9.1.2](#912-workspaces)) |
 | `git` | Status, branches, worktrees, PR ref fetch, diff parsing into files/hunks/lines |
@@ -189,7 +189,6 @@ GET    /api/code/file?root={path}&rev=&path=    content, language, size, changed
 GET    /api/code/raw?root={path}&rev=&path=     image bytes
 GET    /api/code/search?root={path}&rev=&q=&case=&word=&regex=   git grep
 GET    /api/code/commit?root={path}&rev=        commit id and the GitHub repo that has it (permalinks)
-POST   /api/open-editor                         {path, line?}: VS Code and Cursor open at the line
 POST   /api/launch/preview                      launch spec → rendered prompt, no side effect
 POST   /api/sessions                            launch spec → new session
 GET    /api/sessions    GET /api/sessions/{id}/events?after={seq}
@@ -256,7 +255,6 @@ zoom = 2                            # 100%, 110%, 120% (default), 135%, 150%
 projects_root = "~/projects"        # discovery, temporary folders, worktrees
 
 [commands]
-editor = "code"
 browser = "xdg-open"
 
 [github]
@@ -271,7 +269,7 @@ label = "worktree"
 text = "Please use a local git worktree and delete it once you're done."
 ```
 
-Settings → General edits the projects root and the editor. Terminals are integrated and have no setting; an old `[terminal]` section is ignored and dropped at the next save.
+Settings → General edits the projects root. Editor integration was removed; an old `commands.editor` key is ignored and dropped at the next save. Terminals are integrated and have no setting; an old `[terminal]` section is ignored and dropped at the next save.
 
 ## 7. GitHub integration
 
@@ -352,7 +350,7 @@ Settings → General edits the projects root and the editor. Terminals are integ
 
 ### 8.1 Code viewer
 
-A read-only viewer for the code of a project: file tree, tabs, syntax highlighting, find in file and search in the project (sketch S7). It is for reading: what an agent changed in its worktree, the full file behind a diff, a file an agent mentions, or code you want to give an agent as context. Editing stays in the editor chosen in Settings, and with the agents. Route: `/projects/{id}/code?root=&rev=&path=&line=`.
+A read-only viewer for the code of a project: file tree, tabs, syntax highlighting, find in file and search in the project (sketch S7). It is for reading: what an agent changed in its worktree, the full file behind a diff, a file an agent mentions, or code you want to give an agent as context. Editing happens outside the viewer or through the agents. Route: `/projects/{id}/code?root=&rev=&path=&line=`.
 
 - **Sources.** The viewer shows one source at a time:
   - A working tree: the project checkout or one of its worktrees (`git worktree list`: pre-draft PRs, worktrees created by agents). Files are read from disk, uncommitted changes included.
@@ -360,11 +358,11 @@ A read-only viewer for the code of a project: file tree, tabs, syntax highlighti
   - A temporary project that is not a git repository is read from disk with a directory walk (the `ignore` crate, which skips hidden and ignored files).
 - **File list.** `git ls-files --cached --others --exclude-standard -z` for a working tree, `git ls-tree -r --name-only -z <rev>` for a revision. The full list is sent once per source. The UI builds the tree (virtualized, fixed row height) and the "Go to file" filter from it, so neither waits on the daemon. A folder with a single child folder shares its row (`src/huggingface_hub`).
 - **What the branch changes.** The base is the merge base with the default branch (`git merge-base HEAD origin/<default>`; the default is `origin/HEAD`, then `origin/main`, `origin/master`, `main`, `master`). `git diff --name-status --no-renames <base>` (plus untracked files for a working tree) gives the M, A and U letters in the tree and the "Changed only" filter; files deleted in the working tree leave the list. For the open file, `git diff -U0 <base> -- <path>` gives the line ranges of the bars next to the line numbers: in each hunk, the first min(removed, added) new lines are modified (amber), the others added (green), and a hunk without new lines puts a red mark after its position. On the default branch, the merge base is usually `HEAD`, so the viewer shows the uncommitted changes. Without a default branch, a working tree compares with `HEAD`; in a repository without commits, every file is untracked.
-- **File content.** `GET /api/code/file` returns the text, its size, the language (a Shiki id and a display name, from a table of file names and extensions in `code.rs`), the changed line ranges and whether the working tree file differs from `HEAD`. Images are shown as images, through `GET /api/code/raw` (served with a sandbox Content-Security-Policy, so an SVG opened on its own runs no script). Other binary files (a NUL byte in the first 8 KB, as git detects them) only show their size. Files over 5 MB are not loaded ("Open in editor" instead), and files over 1 MB or 20,000 lines are shown without colors. The first visit of a source opens its README.
+- **File content.** `GET /api/code/file` returns the text, its size, the language (a Shiki id and a display name, from a table of file names and extensions in `code.rs`), the changed line ranges and whether the working tree file differs from `HEAD`. Images are shown as images, through `GET /api/code/raw` (served with a sandbox Content-Security-Policy, so an SVG opened on its own runs no script). Other binary files (a NUL byte in the first 8 KB, as git detects them) only show their size. Files over 5 MB are not loaded, and files over 1 MB or 20,000 lines are shown without colors. The first visit of a source opens its README.
 - **Rendering.** The code lines of the diff view ([7.4](#74-diffs)): TanStack Virtual with fixed row heights (20 px), no line wrapping, a line number gutter that stays visible when scrolling sideways, Shiki in a Web Worker (plain text first, colors when ready). The worker is an ES module that loads one grammar chunk per language and uses Shiki's JavaScript regex engine (no WASM); the last twelve results are kept for tab switches. Markdown files also have a Preview (markdown-it, as in sessions), where relative images and links point to files of the same source. HTML files have the same Preview/Source toggle, using DOMPurify and a sandboxed `srcdoc` frame with no permissions and a restrictive Content-Security-Policy. Inline CSS and data images/fonts render; scripts, links, forms and external resources are disabled. This preview supports self-contained static documents without a local web server. Opened files stay as tabs for each source; tabs with the same file name show the end of their folder.
 - **Find in file.** A find bar over the code, opened by its Find button or by `Ctrl+F` while the viewer is on screen. It searches the file text in memory, not the DOM: most rows of a virtualized file are not in the DOM, and the Tauri webview has no find bar of its own. Options: match case, whole word, regular expression. `Enter` goes to the next match, `Shift+Enter` to the previous one, `Escape` closes the bar, and the virtualizer scrolls the current match into view. This is the only keyboard shortcut in Launchpad (decision 22).
 - **Search in project.** `git grep -n --column -I -z` on the same source (`--untracked` for a working tree, the commit id for a revision, `--no-index` for a folder without git): fixed strings by default (`-F`), `-E` in regex mode, `-i` unless match case is on, `-w` for whole words. It runs as you type (two characters or more, 250 ms after the last key), so the field needs no `Enter`. Results are grouped by file (4 lines per file until "Show more") and capped at 1,000; very long lines are cut around the match. A new query cancels the running one: the UI aborts the request, and the daemon kills `git grep` when the request is dropped.
-- **Line selection.** Click a line number to select the line (a second click clears it); drag over the numbers or shift-click to extend the range. The selection bar, at the bottom right of the code, offers Copy (the code), Copy reference (`src/huggingface_hub/hf_file_system.py:405-411`), GitHub link (copies a permalink on the commit, offered only when a remote branch contains it, `git branch -r --contains <sha>`, and the working tree file has no uncommitted change), Add to agent, and Open in editor (`--goto <file>:<line>` for VS Code and Cursor, the file alone for other editors; working trees only, since a revision is not on disk). The file header has the same GitHub and editor actions for the whole file, the editor opening at the first visible line.
+- **Line selection.** Click a line number to select the line (a second click clears it); drag over the numbers or shift-click to extend the range. The selection bar, at the bottom right of the code, offers Copy (the code), Copy reference (`src/huggingface_hub/hf_file_system.py:405-411`), GitHub link (copies a permalink on the commit, offered only when a remote branch contains it, `git branch -r --contains <sha>`, and the working tree file has no uncommitted change), and Add to agent. The file header offers a GitHub link for the whole file.
 - **Add to agent.** Adds the file and the line range as context: to the composer as a context chip (see [9.7](#97-prompt-composition); an empty composer also gets the project as its target), or to the message box of a session of the same project (not archived) as a `path:405-411` reference. The reference is relative when the session works in the same folder, absolute otherwise, and names the revision for a revision source. Unsent message box text lives in a UI store, so it survives switching views. The prompt never includes the code itself; the agent reads the file, as it does for GitHub links.
 - **Ways in.** A Code button on project pages and on each worktree (listed on the project page), a Files button in each session header (opens the session's cwd), file paths in tool calls and file changes, `path:line` references in inline code and local file links in agent messages (linked when the path, or a unique file name, is in the file list of the session's cwd), and "View file" on each file of a diff (Phases 3 and 4). Session links with HTTP or HTTPS URLs open in the configured browser; unresolved local paths stay in Launchpad and show a message instead of becoming daemon URLs.
 - **Live updates.** No file watcher. When a session reports a `file_change` for a file of the open working tree (Claude's Edit, MultiEdit and Write, Codex file changes), the viewer reloads that file in place and keeps the scroll position, and reloads the file list a second later. The file list also reloads when the viewer opens and with the Reload button. Edits made by shell commands need the Reload button.
@@ -415,7 +413,7 @@ A Done session has no harness process after a daemon restart; sending it a messa
 
 The Agents view shows one detail panel per window. Clicking a session replaces the selected conversation; Cron and Scheduled details use the same panel. There are no layout, pane focus, move or session drag/drop controls. The selected session and pins live in the existing persisted browser layout store. Only the session actually visible in the current workspace is reported for notification suppression. Pins sort first inside each state group rather than introducing another session state. Search filters titles, project names, folders and initial prompts immediately, and debounces a daemon query over stored user/assistant message text. Filtered groups retain their counts and independent collapse controls. Session groups are, in order: Needs you, Running, Quota paused, Done (seen, newest first), Stopped, Interrupted, Failed, In terminal, Cron, Scheduled and Archived; Archived selects only `closed` sessions. Empty groups stay hidden. Rows show the project and `last_message` on the second line, a badge only for Question, Failed, Interrupted and Quota paused (one shared pill shape, only color and icon differ), and otherwise the age, or a spinner while running. Done ends with an Archive N seen, older than 3 d button that keeps pinned sessions. With nothing selected, the page opens the first Needs you session once per workspace; otherwise the empty pane is a dashboard (waiting count with Launch, Needs you, Running, next scheduled launch or cron, quota). Archiving the shown session opens the next item of the group it was opened from.
 
-Session titles are edited in the header: click the title to replace it with a text field and visible Save title and Cancel buttons. Saving persists the trimmed, nonempty title through the existing rename endpoint; failures keep the draft open. A ★ before the title marks pinned sessions; Pin/Unpin is in More ▾. The header has Summary · Trace · Changes tabs (Changes is the read-only Git view and replaces the Git toggle; it is hidden when the folder is not a Git repository, and the Git panel reports "This folder is not a Git repository." instead of raw output). One state-dependent primary button follows: Stop (danger) for Running and Quota paused, Answer for a question, Review changes for Done with changed files (else Archive), Resume for Stopped, Failed and Interrupted, Re-attach for In terminal. Terminal and Editor are fixed secondary buttons; More ▾ holds Open in terminal (TUI), Files, Use trace as context, Archive (when it is not primary) and Pin/Unpin. The model · effort chip is in Summary → Run only; warning badges stay in the header. X only closes the panel.
+Session titles are edited in the header: click the title to replace it with a text field and visible Save title and Cancel buttons. Saving persists the trimmed, nonempty title through the existing rename endpoint; failures keep the draft open. A ★ before the title marks pinned sessions; Pin/Unpin is in More ▾. The header has Summary · Trace · Changes tabs (Changes is the read-only Git view and replaces the Git toggle; it is hidden when the folder is not a Git repository, and the Git panel reports "This folder is not a Git repository." instead of raw output). One state-dependent primary button follows: Stop (danger) for Running and Quota paused, Answer for a question, Review changes for Done with changed files (else Archive), Resume for Stopped, Failed and Interrupted, Re-attach for In terminal. Terminal is a fixed secondary button; More ▾ holds Open in terminal (TUI), Files, Use trace as context, Archive (when it is not primary) and Pin/Unpin. The model · effort chip is in Summary → Run only; warning badges stay in the header. X only closes the panel.
 
 ### Session summary (S8)
 
@@ -447,7 +445,7 @@ Manual rename updates the session title in `state.db` and broadcasts the usual s
 
 External history import is removed. Previously imported sessions remain saved and resumable. There is no native transcript discovery or import endpoint.
 
-The per-session Git panel only runs read-only commands against that session's saved cwd. Status preserves both porcelain columns and rename paths; selecting a file loads separate index and working-tree patches with literal pathspecs and external diff/textconv disabled. Untracked text is read through `code::open` and `code::file`, preserving registered-root and symlink checks. Large patches show their beginning and end with a truncation label. The panel refreshes every five seconds while open, and both file lists and patch rows are virtualized. Open in editor uses the existing configured-editor endpoint on the session folder.
+The per-session Git panel only runs read-only commands against that session's saved cwd. Status preserves both porcelain columns and rename paths; selecting a file loads separate index and working-tree patches with literal pathspecs and external diff/textconv disabled. Untracked text is read through `code::open` and `code::file`, preserving registered-root and symlink checks. Large patches show their beginning and end with a truncation label. The panel refreshes every five seconds while open, and both file lists and patch rows are virtualized.
 
 Recent composer chips come from the launch specs of successfully launched sessions, newest first. They preserve project branches, GitHub references and file line references, skip selected contexts, and show at most six suggestions. Unsent edits and imported history do not feed these suggestions.
 
@@ -553,7 +551,7 @@ The quota band appears in Summary and Trace, shows blocking windows and reset ti
 - **Tool calls:** collapsed to one line (`Bash · pytest tests/test_hf_api.py · 12 s · exit 0`). Consecutive calls are grouped ("Ran 6 commands, read 4 files"). File changes show a small inline diff. Click to expand.
 - **Copy:** every message keeps its raw markdown. "Copy" puts the exact markdown on the clipboard, without the line breaks and padding that terminals add. Code blocks have their own copy button. Tool output copies as raw text.
 - **Input:** a message box under each session, with a Send button. `Enter` also sends and `Shift+Enter` adds a new line, like in the terminal. A paperclip button inside the box attaches images; the drop hint shows only while dragging. A Stop button in the session header interrupts the agent. TUI-only slash commands point to "Open in terminal".
-- **Header:** Summary · Trace · Changes tabs, one state-dependent primary button, Terminal, Editor and More ▾ (see [9.1.1](#911-agent-selection)). Warning badges (paid usage, cost limit) stay in the header; usage figures (tokens, cost, duration) are in Summary → Run.
+- **Header:** Summary · Trace · Changes tabs, one state-dependent primary button, Terminal and More ▾ (see [9.1.1](#911-agent-selection)). Warning badges (paid usage, cost limit) stay in the header; usage figures (tokens, cost, duration) are in Summary → Run.
 - **Files:** file paths in tool calls and file changes, and `path:line` references in messages, open the code viewer on the session's cwd ([8.1](#81-code-viewer)). Files in the header More ▾ menu opens the viewer on that folder, with a Back to session link.
 
 ### 9.7 Prompt composition
@@ -722,7 +720,7 @@ Local PR description cards use Add to local notes instead of a GitHub publicatio
 ## 13. Desktop integration
 
 - Desktop notifications are sent by the daemon, so they work when the window is closed. Examples: "Claude is waiting in huggingface_hub", "Review requested: huggingface_hub#3420". Clicking one focuses the window on the item (`launchpad-desktop --open <route>`).
-- External apps are chosen in Settings → General (stored in `config.toml`, see [6.5](#65-configuration-file)): the editor (`code` by default; Cursor is also installed) and the browser (`xdg-open`). Terminals are integrated (13.1).
+- The external browser command is stored in `config.toml` (`xdg-open` by default, see [6.5](#65-configuration-file)); Launchpad does not launch external editors. Terminals are integrated (13.1).
 
 ### 13.1 Integrated terminals
 
@@ -747,7 +745,7 @@ Local PR description cards use Add to local notes instead of a GitHub publicatio
 
 ## 15. Future: remote access
 
-The UI is already served by the daemon over HTTP and WebSocket. Remote access means running `launchpad daemon` on the server (agents and projects live there), connecting through a tunnel, and opening the UI in a browser or pointing the Tauri shell at the remote URL. Features tied to the local machine ("open in editor", "open in terminal") become "copy command".
+The UI is already served by the daemon over HTTP and WebSocket. Remote access means running `launchpad daemon` on the server (agents and projects live there), connecting through a tunnel, and opening the UI in a browser or pointing the Tauri shell at the remote URL. Local terminal handoff would need a separate remote-access scope.
 
 ## 16. Risks and unknowns
 
@@ -922,6 +920,8 @@ Project metadata refresh, on 2026-10-04:
 71. **Claude quota rate-limit recovery.** On 2026-10-11, slowed active Claude usage polling from one to three minutes and added increasing delays after HTTP 429, honoring longer numeric `Retry-After` values. A paused owner can explicitly retry with subscription-only protection while the usage endpoint fails; this keeps paid usage disabled and suppresses only that session's old exhausted snapshot until new quota evidence arrives. Automatic continuation still requires fresh confirmed capacity, and the manual retry remains best effort against provider charges.
 
 72. **UX suggestions pass.** On 2026-10-11, implemented the owner-approved rule changes from the [UX suggestions report](research/ux-suggestions/index.html). Needs you is a group, not a state: an open question, or Done/Failed/Interrupted and unseen, where unseen compares `session.seen_at` with `status_since` (no separate unread flag); Done still means waiting for input, and `SessionCounts.done` now counts needs-you sessions so the sidebar and project markers agree. The composer can be minimized into a top-bar draft pill and becomes an overlay on narrow windows. The session header uses Summary · Trace · Changes tabs (Changes replaces the Git toggle), one state-dependent primary button and a More ▾ menu, with the model · effort chip only in Summary → Run. Inbox rows have visible Done/Launch/+ Add actions instead of hover actions. The status bar is one row with a Details ▾ popover and no agent counts. To publish lists local drafts without posting anything. This adjusts decisions 52, 59, 61 and 65 where they describe workspace New window buttons and group order.
+
+73. **Remove external editor integration.** On 2026-10-11, removed Editor actions from project pages, session headers and the code viewer, including line selections and oversized-file messages. Removed the editor setting, default config key, shared type field and `/api/open-editor` endpoint. Code reading and integrated terminals remain available; Launchpad does not launch an external editor.
 
 ## Remote access feasibility research (2026-10-10)
 

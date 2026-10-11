@@ -124,9 +124,6 @@ export function SettingsView() {
         <Row title="Terminals" hint="Integrated terminals run in the daemon. Restarting it closes them.">
           <CloseAllTerminals />
         </Row>
-        <Row title="Editor" hint='Used by "Open in editor".'>
-          <input className="field-input font-mono text-xs" value={draft.commands.editor} onChange={(e) => set((c) => ({ ...c, commands: { ...c.commands, editor: e.target.value } }))} />
-        </Row>
       </Card>
 
       <Card

@@ -66,7 +66,6 @@ pub enum Billing {
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(default)]
 pub struct Commands {
-    pub editor: String,
     pub browser: String,
 }
 
@@ -111,7 +110,7 @@ impl Default for Config {
 
 impl Default for Commands {
     fn default() -> Self {
-        Commands { editor: "code".into(), browser: if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer.exe" } else { "xdg-open" }.into() }
+        Commands { browser: if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer.exe" } else { "xdg-open" }.into() }
     }
 }
 
@@ -134,7 +133,6 @@ projects_root = "~/projects"        # discovery, temporary folders, worktrees
 remove_published_worktree = false   # keep local PR worktrees after publication
 
 [commands]
-editor = "code"
 browser = "xdg-open"
 
 [github]

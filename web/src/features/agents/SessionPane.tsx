@@ -311,7 +311,6 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
               <Icon name="term" size={12} />
               Terminal
             </button>
-            <button className="btn btn-sm" title={`Open ${s.cwd} in the editor`} onClick={() => void api.post("/api/open-editor", { path: s.cwd }).catch(toastError)}>Editor</button>
             <Popover align="right" width={260} trigger={({ open, toggle }) => <button className={`btn btn-sm ${open ? "bg-select!" : ""}`} aria-expanded={open} onClick={toggle}>More<Icon name="chev" size={12} /></button>}>
               {(close) => <>
                 {s.status === "in_terminal" && tui && <MenuItem label="Show TUI" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}
