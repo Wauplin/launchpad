@@ -32,28 +32,50 @@ import { useStatus } from "@/app/StatusBar";
 const informative = (s: Session) => s.open_question || s.status === "error" || s.status === "interrupted" || s.status === "quota_paused";
 
 const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onClick }: { s: Session; project: string; selected: boolean; pinned: boolean; onClick: () => void }) {
+  const [acting, setActing] = useState(false);
   const dim = s.status === "closed";
+  const stop = isRunning(s) || isQuotaPaused(s);
+  const action = stop ? "Stop" : "Archive";
+  const act = async () => {
+    setActing(true);
+    try { await api.post(`/api/sessions/${s.id}/${stop ? "interrupt" : "close"}`); }
+    catch (e) { toastError(e); }
+    finally { setActing(false); }
+  };
   const needs = needsYou(s);
   const quotaDetail = s.quota_pause?.error ?? s.quota_pause?.blockers.map((b) => `${b.window} reset ${new Date(b.resets_at * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`).join(" · ");
   const line = s.quota_pause ? quotaDetail || "Waiting for a quota update" : s.last_message ?? (s.usage.cost_usd != null ? `$${s.usage.cost_usd.toFixed(2)}` : "");
   return (
-    <button
-      onClick={onClick}
-      className={`grid h-[68px] w-full grid-cols-[18px_1fr_auto] content-start gap-x-[9px] gap-y-[3px] border-b border-line-2 px-3 py-2 text-left hover:bg-[#f5f8fb] ${selected ? "bg-select!" : ""}`}
-    >
-      <span className="row-span-2 mt-px">
-        <HarnessMark harness={s.harness} size={18} />
-      </span>
-      <span className={`truncate text-[12.5px] leading-[1.35] ${dim ? "font-medium text-ink-2" : needs ? "font-semibold" : "font-medium"}`} title={s.title}>
-        {pinned ? "★ " : ""}{s.title}
-      </span>
-      <span className="flex items-center gap-1 text-[11.5px] whitespace-nowrap text-ink-3">
-        {informative(s) ? <StatusBadge s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{formatAge(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
-      </span>
-      <span className="col-span-2 line-clamp-2 text-[11.5px] leading-[1.3] text-ink-3" title={line ? `${project} · ${line}` : project}>
-        <span className="text-ink-2">{project}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
-      </span>
-    </button>
+    <div className="group relative">
+      <button
+        type="button"
+        onClick={onClick}
+        className={`grid h-[68px] w-full grid-cols-[18px_1fr_auto] content-start gap-x-[9px] gap-y-[3px] border-b border-line-2 px-3 py-2 text-left hover:bg-[#f5f8fb] ${selected ? "bg-select!" : ""}`}
+      >
+        <span className="row-span-2 mt-px">
+          <HarnessMark harness={s.harness} size={18} />
+        </span>
+        <span className={`truncate text-[12.5px] leading-[1.35] ${dim ? "font-medium text-ink-2" : needs ? "font-semibold" : "font-medium"}`} title={s.title}>
+          {pinned ? "★ " : ""}{s.title}
+        </span>
+        <span className="flex items-center gap-1 text-[11.5px] whitespace-nowrap text-ink-3">
+          {informative(s) ? <StatusBadge s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{formatAge(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
+        </span>
+        <span className={`col-span-2 line-clamp-2 text-[11.5px] leading-[1.3] text-ink-3 ${dim ? "" : "pr-7"}`} title={line ? `${project} · ${line}` : project}>
+          <span className="text-ink-2">{project}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
+        </span>
+      </button>
+      {!dim && <button
+        type="button"
+        title={`${action} session`}
+        aria-label={`${action} ${s.title}`}
+        disabled={acting}
+        onClick={() => void act()}
+        className={`absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded text-ink-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-sunk hover:text-ink disabled:cursor-wait [@media(hover:none)]:opacity-100 ${acting ? "opacity-100" : ""}`}
+      >
+        {acting ? <span className="lp-spin" /> : <Icon name={stop ? "stop" : "archive"} size={14} />}
+      </button>}
+    </div>
   );
 });
 
