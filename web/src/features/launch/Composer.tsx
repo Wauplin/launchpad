@@ -25,7 +25,7 @@ import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/q
 import { parseUsd, usd, useVariants } from "@/lib/variants";
 import { useScope } from "@/lib/workspace";
 import { zoomScale } from "@/lib/zoom";
-import { rememberSuccessfulSession, useComposer } from "@/stores/composer";
+import { rememberedRun, rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { ProjectPicker } from "./ProjectPicker";
 import { AgentTracePicker } from "./AgentTracePicker";
@@ -352,7 +352,7 @@ export function Composer() {
         return;
       }
       const s = await api.post<Session>("/api/sessions", spec);
-      if (s.status !== "error") useComposer.getState().rememberLaunch(spec);
+      if (s.status !== "error") useComposer.getState().rememberLaunch(spec, s.started_at);
       discard();
       const where = projects.find((p) => p.id === s.project_id)?.name ?? s.cwd.split("/").pop();
       const openIt = () => {
@@ -550,7 +550,8 @@ export function Composer() {
                   onClick={() => { setBudgetText(null); set((s) => {
                     const same = s.harness === o.harness && (s.variant ?? null) === (o.variant?.id ?? null);
                     const cost = harnesses.find((h) => h.id === o.harness)?.capabilities.cost;
-                    return { ...s, harness: o.harness, variant: o.variant?.id ?? null, model: same ? s.model : null, effort: same ? s.effort : null, budget_usd: same ? s.budget_usd : cost ? (o.variant?.budget_usd ?? null) : null };
+                    const run = same ? { model: s.model, effort: s.effort } : rememberedRun(o.harness, o.variant?.id ?? null);
+                    return { ...s, harness: o.harness, variant: o.variant?.id ?? null, ...run, budget_usd: same ? s.budget_usd : cost ? (o.variant?.budget_usd ?? null) : null };
                   }); }}
                   className={`inline-flex h-[26px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[12.5px] ${
                     spec.harness === o.harness && (spec.variant ?? null) === (o.variant?.id ?? null) ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"

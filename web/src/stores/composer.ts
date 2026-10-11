@@ -52,7 +52,7 @@ type Composer = {
   openAfterLaunch: boolean;
   loaded: boolean;
   start: (ctx?: LaunchContext) => void;
-  rememberLaunch: (spec: LaunchSpec) => void;
+  rememberLaunch: (spec: LaunchSpec, startedAt: number) => void;
   update: (f: (s: LaunchSpec) => LaunchSpec) => void;
   close: () => void;
   setMinimized: (minimized: boolean) => void;
@@ -76,16 +76,23 @@ function flush(spec: LaunchSpec, open: boolean, minimized: boolean, conditions: 
   return api.put(`/api/launch/draft${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`, { spec, open, minimized, conditions }).catch(() => {});
 }
 
-let lastLaunchAt = 0;
+type RunDefaults = Pick<LaunchSpec, "model" | "effort">;
+const runs = new Map<string, { startedAt: number; defaults: RunDefaults }>();
+const runKey = (harness: LaunchSpec["harness"], variant: LaunchSpec["variant"]) => JSON.stringify([harness, variant ?? null]);
 
-export function rememberSuccessfulSession(session: Session) {
-  if (session.launch_spec.harness && session.last_seq > 0 && session.status !== "error" && session.started_at > lastLaunchAt) {
-    lastLaunchAt = session.started_at;
-    useComposer.getState().rememberLaunch(session.launch_spec);
-  }
+/** Latest successful launch for this harness/variant, across all projects and workspaces. */
+export function rememberedRun(harness: LaunchSpec["harness"], variant: LaunchSpec["variant"]): RunDefaults {
+  return runs.get(runKey(harness, variant))?.defaults ?? { model: null, effort: null };
 }
 
+let lastLaunchAt = 0;
 let lastLaunch: Pick<LaunchSpec, "harness" | "variant" | "budget_usd" | "model" | "effort"> = { harness: null, variant: null, budget_usd: null, model: null, effort: null };
+
+export function rememberSuccessfulSession(session: Session) {
+  if (session.launch_spec.harness && session.last_seq > 0 && session.status !== "error") {
+    useComposer.getState().rememberLaunch(session.launch_spec, session.started_at);
+  }
+}
 
 export const useComposer = create<Composer>((set, get) => ({
   open: false,
@@ -95,10 +102,18 @@ export const useComposer = create<Composer>((set, get) => ({
   setConditions: (conditions) => { set({ conditions }); save(get().spec, get().open, conditions); },
   openAfterLaunch: false,
   loaded: false,
-  rememberLaunch: (spec) => { lastLaunch = { harness: spec.harness, variant: spec.variant ?? null, budget_usd: spec.budget_usd ?? null, model: spec.model, effort: spec.effort }; },
+  rememberLaunch: (spec, startedAt) => {
+    if (!spec.harness) return;
+    const key = runKey(spec.harness, spec.variant);
+    if (startedAt > (runs.get(key)?.startedAt ?? 0)) runs.set(key, { startedAt, defaults: { model: spec.model, effort: spec.effort } });
+    if (startedAt > lastLaunchAt) {
+      lastLaunchAt = startedAt;
+      lastLaunch = { harness: spec.harness, variant: spec.variant ?? null, budget_usd: spec.budget_usd ?? null, model: spec.model, effort: spec.effort };
+    }
+  },
   start: (ctx) => {
     const cur = get().spec;
-    const spec: LaunchSpec = { ...cur, ...lastLaunch };
+    const spec: LaunchSpec = get().open ? { ...cur } : { ...cur, ...lastLaunch };
     if (ctx?.projectId !== undefined) spec.target = ctx.projectId ? { kind: "project", project_id: ctx.projectId } : { kind: "none" };
     for (const r of ctx?.githubRefs ?? []) if (!spec.github_refs.some((g) => g.url === r.url)) spec.github_refs = [...spec.github_refs, r];
     const same = (a: FileRef, b: FileRef) => a.root === b.root && a.rev === b.rev && a.path === b.path && a.start_line === b.start_line && a.end_line === b.end_line;
@@ -134,8 +149,7 @@ export const useComposer = create<Composer>((set, get) => ({
   restore: async () => {
     try {
       const sessions = await api.get<Session[]>("/api/sessions");
-      const latest = sessions.filter((s) => s.launch_spec.harness && s.last_seq > 0 && s.status !== "error").sort((a, b) => b.started_at - a.started_at)[0];
-      if (latest) rememberSuccessfulSession(latest);
+      for (const session of sessions) rememberSuccessfulSession(session);
       const d = await api.get<{ spec?: LaunchSpec; open?: boolean; minimized?: boolean; conditions?: LaunchDelay[]; delay?: LaunchDelay | null } | null>(`/api/launch/draft${draftQuery()}`);
       if (d?.spec) set({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, minimized: !!d.open && !!d.minimized, conditions: d.conditions ?? (d.delay ? [d.delay] : []) });
       else set({ spec: { ...emptySpec(), harness: get().spec.harness, variant: get().spec.variant ?? null, budget_usd: get().spec.budget_usd ?? null }, open: false, minimized: false, conditions: [] });
