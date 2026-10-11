@@ -2,7 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Predraft } from "@/gen/Predraft";
 import type { TerminalInfo } from "@/gen/TerminalInfo";
 import { Icon } from "@/components/Icon";
@@ -42,6 +42,15 @@ export function TerminalDock() {
   const dock = useLayout((s) => s.dock);
   const setDock = useLayout((s) => s.setDock);
   const terminals = useScopedTerminals();
+  const all = useTerminals().data;
+  const previous = useRef<string[]>([]);
+  useEffect(() => {
+    // Hide when the last tab is removed, but not just because the workspace changed.
+    if (all && terminals.length === 0 && previous.current.some((id) => !all.some((t) => t.id === id))) {
+      setDock({ open: false, active: null });
+    }
+    previous.current = terminals.map((t) => t.id);
+  }, [all, terminals, setDock]);
   const open = useOpenTerminal();
   const scale = zoomScale(useConfig().data?.config.zoom ?? 2);
   const view = useRef<TerminalHandle>(null);

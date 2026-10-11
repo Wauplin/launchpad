@@ -264,6 +264,11 @@ impl Terminals {
             let _ = t.tx.send(Output::Exit(code));
             tracing::info!("terminal {} exited ({code:?})", info.id);
             app.bus.publish("terminals", "exited", serde_json::json!(info));
+            // A normal shell exit (Ctrl+D or `exit`) closes its tab in every viewer. Keep failed
+            // shells and harness TUIs so their final output can still be inspected.
+            if info.kind == TerminalKind::Shell && code == Some(0) {
+                let _ = app.terminals.remove(&app, &info.id);
+            }
         });
         info.alive = true;
         Ok(info)

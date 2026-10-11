@@ -2028,7 +2028,7 @@ info.xetRefreshToken = await issueXetToken(repo, user);
     </div>
   </div>
   <ol class="notes">
-    <li><i class="pin">1</i><span><b>Tabs.</b> Title (project · branch, or the session title for a TUI), status (running or "exited N") and Close. Close stops a running process; on an exited terminal it removes the tab.</span></li>
+    <li><i class="pin">1</i><span><b>Tabs.</b> Title (project · branch, or the session title for a TUI), status (running or "exited N") and Close. Close stops a running process; on an exited terminal it removes the tab. Successful shell exits (<code>Ctrl+D</code> at an empty prompt or <code>exit</code>) remove their tab and hide the dock when it was the last terminal in the workspace. Failed shells and harness TUIs keep their output.</span></li>
     <li><i class="pin">2</i><span><b>Visible buttons.</b> New terminal opens a shell in the folder on screen. Copy selection, Paste and Clear act on the active tab. S, M and L set the height instead of a drag handle. Hide keeps the processes running.</span></li>
     <li><i class="pin">3</i><span><b>Keys go to the process.</b> A focused terminal receives every key, <code>Ctrl+C</code> and <code>Ctrl+F</code> included; it is the documented exception to the click-only rule. The output keeps the last 1 MB and reappears after a reload or in another window.</span></li>
     <li><i class="pin">4</i><span><b>Status bar.</b> The Terminal button shows how many terminals run in the workspace and shows or hides the dock. Visibility, height and the active tab are remembered.</span></li>
