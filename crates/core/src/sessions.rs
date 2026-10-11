@@ -316,6 +316,17 @@ impl Sessions {
         Ok(s)
     }
 
+    /// Returns a completed session to Needs you without changing its run state.
+    pub async fn mark_unread(&self, app: &App, id: &str) -> Result<Session> {
+        let s = self.update(app, id, |s| {
+            if matches!(s.status, SessionStatus::Waiting | SessionStatus::Error | SessionStatus::Interrupted) {
+                s.seen_at = s.status_since.saturating_sub(1);
+            }
+        }).await?;
+        self.publish_counts(app);
+        Ok(s)
+    }
+
     fn publish_counts(&self, app: &App) {
         let (mut running, mut done, mut quota_paused) = (0, 0, 0);
         for s in self.inner.records.lock().unwrap().values() {

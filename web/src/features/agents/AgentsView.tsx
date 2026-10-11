@@ -13,7 +13,7 @@ import { CronPane, cronSummary } from "./CronPane";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { Session } from "@/gen/Session";
 import { HarnessMark } from "@/components/HarnessMark";
-import { isRunning, isDone, isQuotaPaused, isStopped, needsYou } from "@/lib/sessionStatus";
+import { isRunning, isDone, isQuotaPaused, isStopped, isUnseen, needsYou } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useCrons, useProjects, useSessions } from "@/lib/queries";
@@ -31,14 +31,18 @@ import { useStatus } from "@/app/StatusBar";
 /** Statuses whose badge tells more than the group heading. */
 const informative = (s: Session) => s.open_question || s.status === "error" || s.status === "interrupted" || s.status === "quota_paused";
 
-const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onClick }: { s: Session; project: string; selected: boolean; pinned: boolean; onClick: () => void }) {
+const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onClick, onMarkUnread }: { s: Session; project: string; selected: boolean; pinned: boolean; onClick: () => void; onMarkUnread: () => void }) {
   const [acting, setActing] = useState(false);
   const dim = s.status === "closed";
   const stop = isRunning(s) || isQuotaPaused(s);
+  const canMarkUnread = !isUnseen(s) && (isDone(s) || s.status === "error" || s.status === "interrupted");
   const action = stop ? "Stop" : "Archive";
-  const act = async () => {
+  const act = async (unread = false) => {
     setActing(true);
-    try { await api.post(`/api/sessions/${s.id}/${stop ? "interrupt" : "close"}`); }
+    try {
+      if (unread) onMarkUnread();
+      await api.post(`/api/sessions/${s.id}/${unread ? "unread" : stop ? "interrupt" : "close"}`);
+    }
     catch (e) { toastError(e); }
     finally { setActing(false); }
   };
@@ -61,10 +65,20 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
         <span className="flex items-center gap-1 text-[11.5px] whitespace-nowrap text-ink-3">
           {informative(s) ? <StatusBadge s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{formatAge(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
         </span>
-        <span className={`col-span-2 line-clamp-2 text-[11.5px] leading-[1.3] text-ink-3 ${dim ? "" : "pr-7"}`} title={line ? `${project} · ${line}` : project}>
+        <span className={`col-span-2 line-clamp-2 text-[11.5px] leading-[1.3] text-ink-3 ${dim ? "" : canMarkUnread ? "pr-14" : "pr-7"}`} title={line ? `${project} · ${line}` : project}>
           <span className="text-ink-2">{project}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
         </span>
       </button>
+      {canMarkUnread && <button
+        type="button"
+        title="Mark unread for later"
+        aria-label={`Mark ${s.title} unread`}
+        disabled={acting}
+        onClick={() => void act(true)}
+        className="absolute bottom-2 right-9 flex h-6 w-6 items-center justify-center rounded text-ink-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-sunk hover:text-ink disabled:cursor-wait [@media(hover:none)]:opacity-100"
+      >
+        <Icon name="mail" size={14} />
+      </button>}
       {!dim && <button
         type="button"
         title={`${action} session`}
@@ -287,7 +301,7 @@ export function AgentsView() {
   const key = (i: Item) => (i.kind === "session" ? i.session.id : i.kind === "schedule" ? i.launch.id : i.kind === "cron" ? `cron-${i.cron.id}` : i.kind === "group" ? `group-${i.title}` : i.kind);
   const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => size(items[i]), getItemKey: (i) => key(items[i]), overscan: 6, useFlushSync: false });
   const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
-  const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} selected={s.id === visibleSession} onClick={() => open(s.id)} />;
+  const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} selected={s.id === visibleSession} onClick={() => open(s.id)} onMarkUnread={() => { if (s.id === visibleSession) clearSession(s.id); }} />;
 
   return (
     <div className="flex h-full min-h-0">

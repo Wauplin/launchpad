@@ -40,6 +40,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}", get(get_session))
         .route("/api/sessions/{id}/rename", post(rename_session))
         .route("/api/sessions/{id}/seen", post(mark_seen))
+        .route("/api/sessions/{id}/unread", post(mark_unread))
         .route("/api/sessions/{id}/git", get(session_git))
         .route("/api/sessions/{id}/git-diff", get(session_git_diff))
         .route("/api/sessions/search", get(search_sessions))
@@ -483,6 +484,9 @@ async fn rename_session(State(s): State<Server>, Path(id): Path<String>, Json(b)
 }
 async fn mark_seen(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Session> {
     Ok(Json(s.app.sessions.mark_seen(&s.app, &id).await.map_err(bad)?))
+}
+async fn mark_unread(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Session> {
+    Ok(Json(s.app.sessions.mark_unread(&s.app, &id).await.map_err(bad)?))
 }
 async fn session_git(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<launchpad_core::session_git::GitStatus> {
     Ok(Json(launchpad_core::session_git::status(&s.app,&id).await.map_err(bad)?))
