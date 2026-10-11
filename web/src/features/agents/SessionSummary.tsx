@@ -267,7 +267,7 @@ export function QuotaBand({ session: s }: { session: Session }) {
     <span>{p.blockers.map((b) => `${b.window} reset: ${new Date(b.resets_at * 1000).toLocaleString()}`).join(" · ")}</span>
     <span>{p.error ?? (p.phase === "pausing" ? "Interrupt requested; waiting for the turn and commands to finish." : p.phase === "resuming" ? "Continuing…" : "Waiting for a fresh quota reading confirming both windows are available. Reset times are estimates; failed readings keep this paused.")}</span>
     {quota?.quota_error && <span>Quota reading unavailable: {quota.quota_error}</span>}
-    <span>Protection is best effort. Some paid usage may occur before interruption; running commands may still finish.</span>
-    <div className="flex flex-wrap gap-2"><button className="btn btn-sm" disabled={busy || p.phase === "resuming"} onClick={() => void act("interrupt")}>Stop</button><button className="btn btn-sm" title="Allow paid usage for the rest of this session and continue now" disabled={busy || p.phase === "pausing" || p.phase === "resuming"} onClick={() => void act("resume-paid")}>Resume with paid usage</button></div>
+    <span>Protection is best effort. A manual retry with subscription only keeps paid usage disabled, but may still use paid credits if the included quota is exhausted.</span>
+    <div className="flex flex-wrap gap-2"><button className="btn btn-sm" disabled={busy || p.phase === "resuming"} onClick={() => void act("interrupt")}>Stop</button><button className="btn btn-sm" title="Retry now without enabling paid usage; the quota reading is unconfirmed" disabled={busy || p.phase !== "paused"} onClick={() => void act("resume-subscription")}>Retry with subscription only</button><button className="btn btn-sm" title="Allow paid usage for the rest of this session and continue now" disabled={busy || p.phase === "pausing" || p.phase === "resuming"} onClick={() => void act("resume-paid")}>Resume with paid usage</button></div>
   </div>;
 }

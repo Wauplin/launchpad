@@ -50,6 +50,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/close", post(close))
         .route("/api/sessions/{id}/resume", post(resume))
         .route("/api/sessions/{id}/resume-paid", post(resume_paid))
+        .route("/api/sessions/{id}/resume-subscription", post(resume_subscription))
         .route("/api/sessions/{id}/paid-usage", post(set_paid_usage))
         .route("/api/sessions/{id}/model", post(set_model))
         .route("/api/sessions/{id}/budget", post(set_budget))
@@ -300,6 +301,11 @@ async fn resume(State(s): State<Server>, Path(id): Path<String>, body: Option<Js
 
 async fn resume_paid(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
     s.app.sessions.resume_paid(&s.app, &id).await.map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+async fn resume_subscription(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
+    s.app.sessions.resume_subscription(&s.app, &id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 

@@ -74,6 +74,8 @@ struct Inner {
     quota_stops: Mutex<HashSet<String>>,
     title_requests: Mutex<HashSet<String>>,
     quota_interrupts: Mutex<HashMap<String, i64>>,
+    /// A manual subscription-only retry ignores the old quota snapshot until a newer reading arrives.
+    manual_quota_retries: Mutex<HashMap<String, i64>>,
     /// Running turns interrupted at their cost limit, with the time of the last attempt.
     budget_interrupts: Mutex<HashMap<String, i64>>,
     /// Sessions whose process must restart to use a new model or effort, once their turn ends.
@@ -108,6 +110,7 @@ impl Sessions {
                 quota_stops: Mutex::new(HashSet::new()),
                 title_requests: Mutex::new(HashSet::new()),
                 quota_interrupts: Mutex::new(HashMap::new()),
+                manual_quota_retries: Mutex::new(HashMap::new()),
                 budget_interrupts: Mutex::new(HashMap::new()),
                 model_restarts: Mutex::new(HashSet::new()),
                 actions: tokio::sync::Mutex::new(()),
@@ -667,7 +670,7 @@ impl Sessions {
                 }
             }
             if !crate::quota::protected(app, s.harness, &s.launch_spec) && s.quota_pause.is_none() { continue; }
-            let blockers = crate::quota::blockers(app, s.harness);
+            let blockers = self.quota_blockers(app, &s);
             if s.quota_pause.is_none() && s.status.is_running() && !blockers.is_empty() {
                 // A question is already idle: leave it answerable after the quota resets.
                 if s.open_question { continue; }
@@ -688,7 +691,7 @@ impl Sessions {
             }
             let Some(current) = self.get(&s.id) else { continue };
             let Some(p) = current.quota_pause.clone() else { continue };
-            if matches!(p.phase, QuotaPausePhase::Pausing | QuotaPausePhase::Paused) && !crate::quota::blockers(app, s.harness).is_empty()
+            if matches!(p.phase, QuotaPausePhase::Pausing | QuotaPausePhase::Paused) && !self.quota_blockers(app, &s).is_empty()
                 && self.live(&s.id).is_some_and(|l| l.turn_active())
                 && self.inner.quota_interrupts.lock().unwrap().get(&s.id).is_none_or(|at| now_ms() - at >= 10_000) {
                 self.inner.quota_interrupts.lock().unwrap().insert(s.id.clone(), now_ms());
@@ -701,7 +704,7 @@ impl Sessions {
                 self.update(app, &s.id, |s| { if let Some(p) = &mut s.quota_pause { p.phase = QuotaPausePhase::Paused; } }).await?;
             }
             if !current.budget_reached() && crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()) {
-                match self.continue_quota(app, &s.id, false).await {
+                match self.continue_quota(app, &s.id, false, false).await {
                     Ok(()) => {}
                     Err(e) => tracing::warn!("quota continuation {}: {e:#}", s.id),
                 }
@@ -712,7 +715,22 @@ impl Sessions {
 
     pub async fn resume_paid(&self, app: &App, id: &str) -> Result<()> {
         let _action = self.inner.actions.lock().await;
-        self.continue_quota(app, id, true).await
+        self.continue_quota(app, id, true, false).await
+    }
+
+    pub async fn resume_subscription(&self, app: &App, id: &str) -> Result<()> {
+        let _action = self.inner.actions.lock().await;
+        self.continue_quota(app, id, false, true).await
+    }
+
+    fn quota_blockers(&self, app: &App, s: &Session) -> Vec<crate::model::QuotaBlock> {
+        let reading = crate::quota::reading(app, s.harness);
+        let mut retries = self.inner.manual_quota_retries.lock().unwrap();
+        if let Some(&baseline) = retries.get(&s.id) {
+            if reading.quota_at.unwrap_or(0) <= baseline { return vec![]; }
+            retries.remove(&s.id);
+        }
+        crate::quota::exhausted(&reading)
     }
 
     /// Toggles paid usage for one session. Turning it off puts the session back under quota protection at the next guard check.
@@ -724,6 +742,7 @@ impl Sessions {
         anyhow::ensure!(!crate::variants::pay_as_you_go(app, &s.launch_spec),
             "This pay-as-you-go variant has no subscription quota protection; use its cost limit instead.");
         if s.launch_spec.allow_paid_usage == allow { return Ok(s); }
+        self.inner.manual_quota_retries.lock().unwrap().remove(id);
         let s = self.update(app, id, |s| s.launch_spec.allow_paid_usage = allow).await?;
         self.sink(app, id).emit(EventBody::Notice { text: if allow { "Paid usage allowed for this session; additional credits may be used after included quota runs out." } else { "Paid usage disabled; this session pauses at included quota limits." }.into() }).await;
         Ok(s)
@@ -775,13 +794,16 @@ impl Sessions {
         self.get(id).context("no such session")
     }
 
-    async fn continue_quota(&self, app: &App, id: &str, paid: bool) -> Result<()> {
+    async fn continue_quota(&self, app: &App, id: &str, paid: bool, manual: bool) -> Result<()> {
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         let p = s.quota_pause.clone().context("The session is not quota paused")?;
         ensure_budget(&s)?;
         anyhow::ensure!(!s.open_question && self.live(id).is_none_or(|l| l.ready_for_turn()), "Wait for the interrupted turn and outstanding commands to finish.");
-        if !paid {
+        if manual {
+            anyhow::ensure!(p.phase == QuotaPausePhase::Paused, "Wait for the interrupted turn to finish; a claimed continuation needs inspection before retrying.");
+            anyhow::ensure!(!s.launch_spec.allow_paid_usage, "Paid usage is already allowed for this session.");
+        } else if !paid {
             anyhow::ensure!(p.phase == QuotaPausePhase::Paused && crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()), "Waiting for a fresh quota reading");
         }
         // A published/deleted pre-draft must not be resumed by the guard.
@@ -793,6 +815,10 @@ impl Sessions {
             if let Some(p) = &mut s.quota_pause { p.phase = QuotaPausePhase::Resuming; p.error = None; }
             if paid { s.launch_spec.allow_paid_usage = true; }
         }).await?;
+        if manual {
+            let baseline = crate::quota::reading(app, s.harness).quota_at.unwrap_or(0);
+            self.inner.manual_quota_retries.lock().unwrap().insert(id.to_string(), baseline);
+        }
         // Preserve the claim until the send has returned. Recovery never retries a claimed send.
         let result = async {
             let live = self.reattach(app, id).await?;
@@ -801,7 +827,7 @@ impl Sessions {
             if p.client_id.is_none() {
                 sink.emit(EventBody::UserMessage { text: p.message.clone(), client_id: client_id.clone(), queued: false, images: p.images.clone() }).await;
             }
-            sink.emit(EventBody::Notice { text: if paid { "Continuing with paid usage allowed" } else { "Quota available; continuing automatically" }.into() }).await;
+            sink.emit(EventBody::Notice { text: if paid { "Continuing with paid usage allowed" } else if manual { "Continuing with subscription-only protection despite an unconfirmed quota reading; paid credits may still be used if the included quota is exhausted." } else { "Quota available; continuing automatically" }.into() }).await;
             sink.set_status(SessionStatus::Working).await;
             live.send(&p.message, &client_id, &p.images).await?;
             if p.client_id.is_some() { sink.emit(EventBody::MessageDelivered { client_id }).await; }
@@ -812,7 +838,7 @@ impl Sessions {
                 self.update(app, id, |s| s.quota_pause = None).await?;
                 Ok(())
             }
-            Err(e) => { self.quota_attention(app, id, &format!("Continuation outcome needs inspection: {e:#}")).await?; Err(e) }
+            Err(e) => { self.inner.manual_quota_retries.lock().unwrap().remove(id); self.quota_attention(app, id, &format!("Continuation outcome needs inspection: {e:#}")).await?; Err(e) }
         }
     }
 
@@ -852,10 +878,10 @@ impl Sessions {
         if s.status == SessionStatus::InTerminal {
             bail!("the session is open in a terminal: re-attach it first");
         }
-        anyhow::ensure!(s.quota_pause.is_none(), "This session is quota paused. Stop it or use Resume with paid usage first.");
+        anyhow::ensure!(s.quota_pause.is_none(), "This session is quota paused. Use a Resume button or Stop first.");
         ensure_budget(&s)?;
         let protected = crate::quota::protected(app, s.harness, &s.launch_spec);
-        if protected && !crate::quota::blockers(app, s.harness).is_empty() {
+        if protected && !self.quota_blockers(app, &s).is_empty() {
             if s.status.is_running() || s.open_question { bail!("Included quota exhausted; wait for quota to reset before sending input or answering this question."); }
             self.hold_input(app, id, text, images).await?;
             return Ok(());
@@ -894,6 +920,7 @@ impl Sessions {
 
     pub async fn interrupt(&self, app: &App, id: &str) -> Result<()> {
         let _action = self.inner.actions.lock().await;
+        self.inner.manual_quota_retries.lock().unwrap().remove(id);
         if self.get(id).is_some_and(|s| s.quota_pause.is_some()) {
             if let Some(live) = self.live(id).filter(|l| l.turn_active()) { live.interrupt().await?; }
             self.inner.quota_stops.lock().unwrap().insert(id.to_string());
@@ -940,6 +967,7 @@ impl Sessions {
     /// Stops the process. The conversation stays resumable.
     pub async fn close(&self, app: &App, id: &str) -> Result<()> {
         let _action = self.inner.actions.lock().await;
+        self.inner.manual_quota_retries.lock().unwrap().remove(id);
         self.inner.quota_stops.lock().unwrap().remove(id);
         self.update(app, id, |s| s.quota_pause = None).await?;
         self.detach(id).await;

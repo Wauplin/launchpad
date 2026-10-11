@@ -733,24 +733,49 @@ fn spawn_quota(app: &App) {
     let a = app.clone();
     tokio::spawn(async move {
         let client = crate::status::http_client();
+        let mut rate_limit_delay = 0;
         loop {
             match claude_usage(&client).await {
-                Ok((five, week)) => a.status.update_harness(ID, |s| {
-                    s.five_hour = five;
-                    s.weekly = week;
-                    s.quota_at = Some(now_ms());
-                    s.quota_error = None;
-                }),
+                Ok((five, week)) => {
+                    rate_limit_delay = 0;
+                    a.status.update_harness(ID, |s| {
+                        s.five_hour = five;
+                        s.weekly = week;
+                        s.quota_at = Some(now_ms());
+                        s.quota_error = None;
+                    });
+                }
                 Err(e) => {
                     tracing::info!("claude usage: {e:#}");
                     a.status
                         .update_harness(ID, |s| s.quota_error = Some(format!("{e:#}")));
+                    if let Some(limit) = e.downcast_ref::<UsageRateLimited>() {
+                        rate_limit_delay = if rate_limit_delay == 0 { 300 } else { (rate_limit_delay * 2).min(1800) };
+                        tokio::time::sleep(std::time::Duration::from_secs(rate_limit_delay.max(limit.retry_after))).await;
+                        continue;
+                    }
+                    rate_limit_delay = 0;
                 }
             }
-            crate::status::wait_poll(&a, crate::harness::claude::ID, 300, 60).await;
+            crate::status::wait_poll(&a, ID, 300, 180).await;
         }
     });
 }
+
+#[derive(Debug)]
+struct UsageRateLimited { retry_after: u64 }
+
+impl std::fmt::Display for UsageRateLimited {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.retry_after > 0 {
+            write!(f, "usage endpoint returned 429 (Retry-After: {} seconds); backing off", self.retry_after)
+        } else {
+            write!(f, "usage endpoint returned 429; backing off")
+        }
+    }
+}
+
+impl std::error::Error for UsageRateLimited {}
 /// Reads `/api/oauth/usage`. Skips the call when the access token has expired: Claude Code refreshes it.
 async fn claude_usage(
     client: &reqwest::Client,
@@ -779,6 +804,13 @@ async fn claude_usage(
         .send()
         .await?;
     let code = res.status();
+    if code == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        let retry_after = res.headers().get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+        return Err(UsageRateLimited { retry_after }.into());
+    }
     if !code.is_success() {
         bail!("usage endpoint returned {code}");
     }
