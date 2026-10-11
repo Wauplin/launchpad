@@ -4,7 +4,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AgentTraceRef } from "@/gen/AgentTraceRef";
 import type { GitHubRef } from "@/gen/GitHubRef";
@@ -26,6 +26,7 @@ import { useScope } from "@/lib/workspace";
 import { zoomScale } from "@/lib/zoom";
 import { rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
+import { ProjectPicker } from "./ProjectPicker";
 import { AgentTracePicker } from "./AgentTracePicker";
 import { DelaySelector, conditionsError } from "./DelaySelector";
 import { CronSelector, type CronDraft } from "./CronSelector";
@@ -275,7 +276,6 @@ export function Composer() {
   const repo = target?.gh_repo ?? target?.gh_upstream ?? null;
   const inScope = (p: Project) => Number(!!scope.workspace && scope.hasProject(p.id));
   const sorted = [...projects.filter((p) => !p.is_temp)].sort((a, b) => inScope(b) - inScope(a) || Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
-  const firstOther = scope.workspace ? sorted.find((p) => !scope.hasProject(p.id)) : undefined;
   const model = defaults?.models.find((m) => m.id === (spec.model ?? variant?.model ?? defaults?.model));
   const efforts = model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
   const scheduled = conditions.length > 0;
@@ -416,30 +416,18 @@ export function Composer() {
               )}
             >
               {(closeMenu) => (
-                <>
-                  <MenuItem
-                    icon={<Icon name="plus" size={13} />}
-                    label="New temporary folder"
-                    detail={`in ${config?.projects_root ?? "~/projects"}`}
-                    active={spec.target.kind === "temp"}
-                    onClick={() => (set((s) => ({ ...s, target: { kind: "temp" } })), closeMenu())}
-                  />
-                  {sorted.map((p) => (
-                    <Fragment key={p.id}>
-                    {p === firstOther && <div className="px-[9px] pt-2 pb-1 seclabel" title="Launching here adds the project to this workspace">Not in {scope.workspace?.name}</div>}
-                    <MenuItem
-                      icon={<Icon name="folder" size={13} />}
-                      label={p.name}
-                      detail={p.description || p.gh_repo || undefined}
-                      active={target?.id === p.id}
-                      onClick={() => (
-                        set((s) => ({ ...s, target: { kind: s.target.kind === "predraft" ? "predraft" : "project", project_id: p.id }, context_projects: s.context_projects.filter((c) => c.project_id !== p.id) })), closeMenu()
-                      )}
-                    />
-                    </Fragment>
-                  ))}
-                  {sorted.length === 0 && <div className="px-2 py-1.5 text-xs text-ink-3">No project yet: add some in Projects.</div>}
-                </>
+                <ProjectPicker
+                  projects={sorted}
+                  workspaceName={scope.workspace?.name}
+                  hasProject={scope.hasProject}
+                  selected={target?.id}
+                  temporary={spec.target.kind === "temp"}
+                  projectsRoot={config?.projects_root ?? "~/projects"}
+                  onPick={(p) => {
+                    set((s) => p ? ({ ...s, target: { kind: s.target.kind === "predraft" ? "predraft" : "project", project_id: p.id }, context_projects: s.context_projects.filter((c) => c.project_id !== p.id) }) : ({ ...s, target: { kind: "temp" } }));
+                    closeMenu();
+                  }}
+                />
               )}
             </Popover>
           </Field>
