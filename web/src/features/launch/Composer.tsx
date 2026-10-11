@@ -55,7 +55,7 @@ function SelectButton({ onClick, children }: { onClick: () => void; children: Re
   );
 }
 
-function Branch({ projectId, branch, onChange }: { projectId: string; branch: string | null; onChange: (b: string | null) => void }) {
+function Branch({ projectId, branch, onChange, currentLabel = "checkout" }: { projectId: string; branch: string | null; onChange: (b: string | null) => void; currentLabel?: string }) {
   const q = useQuery({
     queryKey: ["branches", projectId],
     queryFn: () => api.get<{ current: string | null; branches: string[] }>(`/api/projects/${projectId}/branches`),
@@ -67,14 +67,14 @@ function Branch({ projectId, branch, onChange }: { projectId: string; branch: st
       trigger={({ toggle }) => (
         <button onClick={toggle} className="inline-flex h-5 items-center gap-1 rounded-[5px] border border-line bg-paper px-1.5 font-mono text-[11.5px] whitespace-nowrap">
           <Icon name="branch" size={12} />
-          {branch ?? `checkout${q.data?.current ? ` (${q.data.current})` : ""}`}
+          {branch ?? `${currentLabel}${q.data?.current ? ` (${q.data.current})` : ""}`}
           <Icon name="chev" size={12} className="text-ink-3" />
         </button>
       )}
     >
       {(close) => (
         <>
-          <MenuItem label="Current checkout" detail={q.data?.current ?? undefined} active={branch === null} onClick={() => (onChange(null), close())} />
+          <MenuItem label={currentLabel === "checkout" ? "Current checkout" : "Current branch"} detail={q.data?.current ?? undefined} active={branch === null} onClick={() => (onChange(null), close())} />
           {(q.data?.branches ?? []).map((b) => (
             <MenuItem key={b} icon={<Icon name="branch" size={13} />} label={<span className="font-mono text-xs">{b}</span>} active={b === branch} onClick={() => (onChange(b), close())} />
           ))}
@@ -279,6 +279,16 @@ export function Composer() {
     return () => clearTimeout(t);
   }, [items, minimized]);
 
+  const targetId = spec.target.kind === "project" || spec.target.kind === "predraft" ? spec.target.project_id : null;
+  const targetBranches = useQuery({
+    queryKey: ["branches", targetId],
+    queryFn: () => api.get<{ current: string | null; branches: string[] }>(`/api/projects/${targetId}/branches`),
+    enabled: open && !!targetId,
+    staleTime: 30_000,
+    retry: false,
+  });
+  // Worktrees need a Git repository with a commit; other folders run in place.
+  const gitTarget = !!targetId && !targetBranches.isError;
   const localPrs = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts"), enabled: open });
   const existing = spec.target.kind === "existing_predraft" ? localPrs.data?.find((p) => p.id === (spec.target as { predraft_id: string }).predraft_id) : undefined;
   const source = spec.target.kind === "session_folder" ? sessions?.find((s) => s.id === (spec.target as { session_id: string }).session_id) : undefined;
@@ -307,7 +317,7 @@ export function Composer() {
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
   const addProjectContext = (p: Project) =>
-    set((s) => (s.context_projects.some((c) => c.project_id === p.id) || ((s.target.kind === "project" || s.target.kind === "predraft") && s.target.project_id === p.id) ? s : { ...s, context_projects: [...s.context_projects, { project_id: p.id, branch: null }] }));
+    set((s) => (s.context_projects.some((c) => c.project_id === p.id) || ((s.target.kind === "project" || s.target.kind === "predraft") && s.target.project_id === p.id) ? s : { ...s, context_projects: [...s.context_projects, { project_id: p.id, branch: null, editable: false }] }));
 
   const recentContexts: { key: string; label: string; add: () => void }[] = [];
   const seenContexts = new Set<string>();
@@ -335,7 +345,8 @@ export function Composer() {
     if (!canLaunch || launching || attachmentRead.current) return;
     setLaunching(true);
     // The target project joins this window's workspace, so the new agent shows up here.
-    const spec = { ...useComposer.getState().spec, workspace_id: scope.workspace?.id ?? null };
+    const draft = useComposer.getState().spec;
+    const spec = { ...draft, workspace_id: scope.workspace?.id ?? null, worktree: draft.target.kind === "project" && !gitTarget ? null : draft.worktree };
     try {
       if (cron) {
         await api.post("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions });
@@ -394,7 +405,9 @@ export function Composer() {
   const harnessOptions = [...harnesses.map((h) => ({ key: h.id, harness: h.id, variant: null as HarnessVariant | null, label: h.name })), ...variants.map((v) => ({ key: `variant:${v.id}`, harness: v.harness, variant: v, label: v.name }))];
   const modelLabel = spec.model ?? variant?.model ?? defaults?.model ?? "default model";
   const effortLabel = spec.effort ?? variant?.effort ?? defaults?.effort ?? null;
-  const runIn = spec.target.kind === "session_folder" ? "previous agent’s folder" : spec.target.kind === "temp" ? "new folder" : spec.target.kind === "predraft" ? "pre-draft PR" : spec.target.kind === "existing_predraft" ? "existing pre-draft" : spec.target.kind === "project" ? "checkout" : null;
+  const worktreeMode = spec.target.kind === "project" && !!spec.worktree && gitTarget;
+  const runIn = spec.target.kind === "session_folder" ? "previous agent’s folder" : spec.target.kind === "temp" ? "new folder" : spec.target.kind === "predraft" ? "pre-draft PR" : spec.target.kind === "existing_predraft" ? "existing pre-draft" : worktreeMode ? "new worktree" : spec.target.kind === "project" ? "checkout" : null;
+  const baseLabel = spec.worktree?.base ?? targetBranches.data?.current ?? "current branch";
   const billingText = payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${variant!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
   const presetLabels = (config?.presets ?? []).filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
 
@@ -466,13 +479,29 @@ export function Composer() {
             </Popover>
           </Field>
           <Field label="Run in">
-            {target ? <select className="field-input h-8 w-full" aria-label="Run in" value={spec.target.kind} onChange={(e) => set((s) => ({ ...s, target: { kind: e.target.value === "predraft" ? "predraft" : "project", project_id: target.id }, presets: s.presets.filter((id) => id !== "draft-pr" && id !== "worktree") }))}>
-              {spec.target.kind === "session_folder" && <option value="session_folder">Previous agent’s folder</option>}{existing && <option value="existing_predraft">Pre-draft: {existing.title}</option>}<option value="project">Project checkout</option><option value="predraft">Pre-draft PR</option>
+            {target ? <select className="field-input h-8 w-full" aria-label="Run in" value={worktreeMode ? "worktree" : spec.target.kind} onChange={(e) => { const v = e.target.value; set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, include_changes: false, merge_when_done: false }) : v === "project" ? null : s.worktree, presets: s.presets.filter((id) => id !== "draft-pr" && id !== "worktree") })); }}>
+              {spec.target.kind === "session_folder" && <option value="session_folder">Previous agent’s folder</option>}{existing && <option value="existing_predraft">Pre-draft: {existing.title}</option>}{gitTarget && <option value="worktree">New worktree</option>}<option value="project">{gitTarget ? "Project checkout" : "Project folder (no Git)"}</option>{gitTarget && <option value="predraft">Pre-draft PR</option>}
             </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "A new folder" : "—"}</div>}
             {spec.target.kind === "session_folder" && <div className="mt-1 break-all text-xs text-ink-3">{source?.cwd ?? "Source session unavailable"}</div>}
-            {target && spec.target.kind === "project" && <div className="mt-1 text-xs text-ink-3"><TargetCheckout projectId={target.id} /></div>}
+            {target && spec.target.kind === "project" && !worktreeMode && <div className="mt-1 text-xs text-ink-3">{gitTarget ? <TargetCheckout projectId={target.id} /> : "Runs in the project folder"}</div>}
+            {worktreeMode && <div className="mt-1 text-xs text-ink-3" title="Launchpad creates a new branch and folder before the agent starts; your checkout is not modified.">Your checkout stays untouched</div>}
           </Field>
         </div>
+
+        {worktreeMode && target && <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-line-2 bg-chrome px-2.5 py-1.5 text-xs text-ink-2">
+          <span className="inline-flex items-center gap-1">From<Branch projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="current branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { include_changes: false, merge_when_done: false }), base } }))} /></span>
+          <label className="inline-flex items-center gap-1.5" title="Copy the uncommitted changes of your checkout into the new worktree (only when starting from the current branch)">
+            <input type="checkbox" className="accent-teal" disabled={!!spec.worktree?.base && spec.worktree.base !== targetBranches.data?.current} checked={!!spec.worktree?.include_changes} onChange={(e) => set((s) => ({ ...s, worktree: { ...s.worktree!, include_changes: e.target.checked } }))} />
+            Copy uncommitted changes
+          </label>
+          <label className="inline-flex items-center gap-1.5 whitespace-nowrap" title="Merge into the base branch: the agent asks Launchpad to merge when it is done; Launchpad waits for a clean checkout, rebases and fast-forwards. Conflicts go back to the agent.">
+            When done
+            <select className="field-input h-6 py-0 text-xs" aria-label="When done" value={spec.worktree?.merge_when_done ? "merge" : "keep"} onChange={(e) => set((s) => ({ ...s, worktree: { ...s.worktree!, merge_when_done: e.target.value === "merge" } }))}>
+              <option value="keep">Keep branch for review</option>
+              <option value="merge">Merge into {baseLabel}</option>
+            </select>
+          </label>
+        </div>}
 
         <div className="flex flex-wrap items-center gap-1.5">
           {(spec.agent_traces ?? []).map((trace) => (
@@ -508,6 +537,12 @@ export function Composer() {
               <Icon name="folder" size={13} />
               <span className="font-mono">{projects.find((x) => x.id === c.project_id)?.name ?? "?"}</span>
               <Branch projectId={c.project_id} branch={c.branch} onChange={(branch) => set((s) => ({ ...s, context_projects: s.context_projects.map((x) => (x.project_id === c.project_id ? { ...x, branch } : x)) }))} />
+              <button
+                className={`inline-flex h-5 items-center rounded-[5px] border px-1.5 text-[11px] ${c.editable ? "border-teal bg-teal-soft font-semibold text-teal-ink" : "border-line bg-paper text-ink-2"}`}
+                title={c.editable ? (spec.target.kind === "project" && !worktreeMode ? "Editable: the agent may modify this checkout. Click to make it read-only." : "Editable: the agent gets its own worktree of this project. Click to make it read-only.") : "Read-only reference. Click to let the agent modify it."}
+                aria-pressed={c.editable}
+                onClick={() => set((s) => ({ ...s, context_projects: s.context_projects.map((x) => (x.project_id === c.project_id ? { ...x, editable: !x.editable } : x)) }))}
+              >{c.editable ? "editable" : "read-only"}</button>
               <button className="text-ink-3 hover:text-ink" title="Remove" onClick={() => set((s) => ({ ...s, context_projects: s.context_projects.filter((x) => x.project_id !== c.project_id) }))}><Icon name="x" size={12} /></button>
             </span>
           ))}
@@ -534,6 +569,7 @@ export function Composer() {
           <Token>{modelLabel}</Token>
           {!!efforts.length && effortLabel && <Token>{effortLabel}</Token>}
           {runIn && <Token>{runIn}</Token>}
+          {worktreeMode && spec.worktree?.merge_when_done && <Token title={`The agent asks Launchpad to merge into ${baseLabel} when it is done`}>merge when done</Token>}
           {presetLabels.map((l) => <Token key={l}>{l}</Token>)}
           <Token warn={scheduled} title={scheduled ? "Starts when all start conditions are met" : undefined}>{scheduled ? `start: ${conditions.length} condition${conditions.length === 1 ? "" : "s"}` : "now"}</Token>
           <Token warn={!!cron} title={cron ? `Cron schedule ${cron.schedule}` : undefined}>{cron ? `cron ${cron.schedule}` : "once"}</Token>
@@ -619,7 +655,7 @@ export function Composer() {
           </OptionRow>}
           <OptionRow label="Presets" end={<button className="ml-1 font-normal text-teal-ink hover:underline" onClick={() => void navigate({ to: "/settings", hash: "presets" })}>Edit</button>}>
             <div className="flex flex-wrap gap-1.5">
-              {(config?.presets ?? []).filter((p) => p.id !== "draft-pr" && ((spec.target.kind !== "predraft" && spec.target.kind !== "existing_predraft") || p.id !== "worktree")).map((p) => {
+              {(config?.presets ?? []).filter((p) => p.id !== "draft-pr" && ((spec.target.kind !== "predraft" && spec.target.kind !== "existing_predraft" && !worktreeMode) || p.id !== "worktree")).map((p) => {
                 const on = spec.presets.includes(p.id);
                 return (
                   <button

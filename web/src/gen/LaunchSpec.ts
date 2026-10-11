@@ -6,6 +6,7 @@ import type { FileRef } from "./FileRef";
 import type { GitHubRef } from "./GitHubRef";
 import type { HarnessKind } from "./HarnessKind";
 import type { Target } from "./Target";
+import type { WorktreeOptions } from "./WorktreeOptions";
 
 /**
  * What to launch (ARCHITECTURE.md, section 9.7).
@@ -22,7 +23,11 @@ variant: string | null,
 /**
  * Stop new turns once the harness-reported cumulative cost reaches this many USD.
  */
-budget_usd: number | null, target: Target, text: string,
+budget_usd: number | null, target: Target,
+/**
+ * A new Launchpad-owned Git worktree for a project target. None: run in the project checkout.
+ */
+worktree: WorktreeOptions | null, text: string,
 /**
  * Uploaded images and files, retained with drafts and scheduled launches.
  */

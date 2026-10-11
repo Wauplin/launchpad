@@ -138,7 +138,8 @@ pub fn open_state(path: &Path) -> Result<Db> {
 CREATE TABLE IF NOT EXISTS draft_comment (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS predraft (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cron_agent (id TEXT PRIMARY KEY, json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS workspace (id TEXT PRIMARY KEY, json TEXT NOT NULL);",
+CREATE TABLE IF NOT EXISTS workspace (id TEXT PRIMARY KEY, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS task_worktree (id TEXT PRIMARY KEY, json TEXT NOT NULL);",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these
     // additive columns directly, like the unversioned tables above.
@@ -146,6 +147,10 @@ CREATE TABLE IF NOT EXISTS workspace (id TEXT PRIMARY KEY, json TEXT NOT NULL);"
         .query_map([], |r| r.get::<_, String>(1))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let has = |name: &str| columns.iter().any(|c| c == name);
+    let project_columns = conn.prepare("PRAGMA table_info(project)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !project_columns.iter().any(|c| c == "worktree_setup") { conn.execute_batch("ALTER TABLE project ADD COLUMN worktree_setup TEXT;")?; }
     if !has("quota_pause_json") { conn.execute_batch("ALTER TABLE session ADD COLUMN quota_pause_json TEXT;")?; }
     if !has("title_pending") { conn.execute_batch("ALTER TABLE session ADD COLUMN title_pending INTEGER;")?; }
     // Existing sessions start as seen, so old Done sessions do not all need you at once.

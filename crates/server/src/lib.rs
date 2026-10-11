@@ -9,6 +9,7 @@ mod predrafts;
 mod routes;
 mod suggestions;
 mod terminals;
+mod worktrees;
 mod ui;
 mod ws;
 
@@ -38,6 +39,7 @@ pub async fn serve(app: App) -> Result<()> {
         .merge(predrafts::router())
         .merge(suggestions::router())
         .merge(terminals::router())
+        .merge(worktrees::router())
         .route("/ws", axum::routing::get(ws::handler))
         .route("/auth", axum::routing::get(auth::handshake))
         .fallback(ui::serve)

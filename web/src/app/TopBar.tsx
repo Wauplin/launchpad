@@ -50,6 +50,10 @@ export function TopBar() {
           <>
             Settings {sep} <b className="font-semibold text-ink">Harnesses</b>
           </>
+        ) : path === "/settings/worktrees" ? (
+          <>
+            Settings {sep} <b className="font-semibold text-ink">Worktrees</b>
+          </>
         ) : (
           <b className="font-semibold text-ink">{title}</b>
         )}

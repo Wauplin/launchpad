@@ -25,6 +25,11 @@ enum Command {
         #[command(subcommand)]
         command: Suggest,
     },
+    /// Task worktrees managed by Launchpad (for agents).
+    Work {
+        #[command(subcommand)]
+        command: Work,
+    },
     /// Print the stored trace of an agent session, for use as reference context.
     Trace {
         session_id: String,
@@ -98,6 +103,41 @@ async fn suggest_command(paths: &Paths, command: Suggest) -> Result<()> {
 }
 
 #[derive(Subcommand)]
+enum Work {
+    /// Ask Launchpad to merge this session's branches into their base branches after the turn ends.
+    Finish {
+        #[arg(long)]
+        session_id: String,
+    },
+    /// Create a dedicated worktree of another registered project for this session, and print its folder.
+    AddProject {
+        #[arg(long)]
+        session_id: String,
+        /// Project name or ID.
+        #[arg(long)]
+        project: String,
+    },
+}
+async fn work_command(paths: &Paths, command: Work) -> Result<()> {
+    let (path, body) = match command {
+        Work::Finish { session_id } => ("finish", serde_json::json!({"session_id": session_id})),
+        Work::AddProject { session_id, project } => ("add-project", serde_json::json!({"session_id": session_id, "project": project})),
+    };
+    let res = reqwest::Client::new()
+        .post(format!("{}/api/worktrees/{path}", paths.base_url()))
+        .bearer_auth(paths.token()?)
+        .json(&body)
+        .send()
+        .await
+        .context("is the daemon running?")?;
+    let status = res.status();
+    let body: serde_json::Value = res.json().await?;
+    anyhow::ensure!(status.is_success(), "{}", body["error"].as_str().unwrap_or("request failed"));
+    println!("{}", body["message"].as_str().unwrap_or_default());
+    Ok(())
+}
+
+#[derive(Subcommand)]
 enum Pr {
     /// Create a dedicated local worktree from this checkout's committed HEAD.
     Create {
@@ -161,6 +201,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Suggest { command } => suggest_command(&paths, command).await,
         Command::Pr { command } => pr_command(&paths, command).await,
+        Command::Work { command } => work_command(&paths, command).await,
         Command::Trace { session_id, through } => {
             let mut url = reqwest::Url::parse(&format!("{}/api/sessions", paths.base_url()))?;
             url.path_segments_mut().map_err(|_| anyhow::anyhow!("invalid daemon address"))?.extend([session_id.as_str(), "trace"]);

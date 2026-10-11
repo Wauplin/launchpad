@@ -325,7 +325,7 @@ impl Terminals {
     }
 }
 
-fn inside(cwd: &str, path: &str) -> bool {
+pub fn inside(cwd: &str, path: &str) -> bool {
     let (cwd, path) = (Path::new(cwd), Path::new(path));
     cwd.starts_with(path) || std::fs::canonicalize(path).is_ok_and(|p| cwd.starts_with(p))
 }

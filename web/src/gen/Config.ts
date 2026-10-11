@@ -4,6 +4,7 @@ import type { Commands } from "./Commands";
 import type { GitHub } from "./GitHub";
 import type { HarnessVariant } from "./HarnessVariant";
 import type { Preset } from "./Preset";
+import type { Worktrees } from "./Worktrees";
 
 export type Config = {
 /**
@@ -17,7 +18,7 @@ zoom: number,
 /**
  * Remove a clean pre-draft worktree after successful publication.
  */
-remove_published_worktree: boolean, commands: Commands, github: GitHub, agents: Agents, presets: Array<Preset>,
+remove_published_worktree: boolean, commands: Commands, github: GitHub, agents: Agents, worktrees: Worktrees, presets: Array<Preset>,
 /**
  * Named harness settings, selectable in the composer beside the base harnesses.
  */

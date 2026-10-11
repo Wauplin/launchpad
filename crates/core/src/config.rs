@@ -26,6 +26,7 @@ pub struct Config {
     pub commands: Commands,
     pub github: GitHub,
     pub agents: Agents,
+    pub worktrees: Worktrees,
     pub presets: Vec<Preset>,
     /// Named harness settings, selectable in the composer beside the base harnesses.
     pub variants: Vec<HarnessVariant>,
@@ -83,6 +84,19 @@ pub struct Agents {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+#[serde(default)]
+pub struct Worktrees {
+    /// Clean task worktrees of idle sessions kept on disk; older ones are removed and restored on resume. 0: keep all.
+    pub keep: u32,
+}
+
+impl Default for Worktrees {
+    fn default() -> Self {
+        Worktrees { keep: 15 }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 pub struct Preset {
     pub id: String,
     pub label: String,
@@ -99,6 +113,7 @@ impl Default for Config {
             commands: Commands::default(),
             github: GitHub::default(),
             agents: Agents::default(),
+            worktrees: Worktrees::default(),
             variants: vec![],
             presets: vec![
                 preset("worktree", "worktree", "Please use a local git worktree and delete it once you're done."),
@@ -140,6 +155,9 @@ poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
 [agents]
 notify = true                       # desktop notification when a session becomes done
+
+[worktrees]
+keep = 15                           # clean task worktrees of idle agents kept on disk (0: keep all)
 
 [[presets]]
 id = "worktree"

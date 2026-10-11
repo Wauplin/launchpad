@@ -1,10 +1,12 @@
 // A project: running agents, GitHub items, worktrees and all agents.
 
-import { memo, useRef } from "react";
+import { memo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Session } from "@/gen/Session";
 import { isRunning, needsYou } from "@/lib/sessionStatus";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Project } from "@/gen/Project";
+import { toastError } from "@/components/Toast";
 import type { Predraft } from "@/gen/Predraft";
 import { useComposer } from "@/stores/composer";
 import { RepoItems } from "@/features/github/RepoItems";
@@ -105,9 +107,42 @@ export function ProjectPage() {
             </div>
           </>
         )}
+        {!p.is_temp && <WorktreeSetup p={p} />}
         <ProjectAgents title="All agents" sessions={sessions} empty="No agents in this project yet." />
       </div>
     </div>
+  );
+}
+
+/** The owner's setup command for new task worktrees of this project (dependencies, build caches). */
+function WorktreeSetup({ p }: { p: Project }) {
+  const [edit, setEdit] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const qc = useQueryClient();
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.patch(`/api/projects/${p.id}`, { worktree_setup: edit });
+      await qc.invalidateQueries({ queryKey: ["projects"] });
+      setEdit(null);
+    } catch (e) { toastError(e); } finally { setSaving(false); }
+  };
+  return (
+    <section className="grid gap-1.5">
+      <div className="seclabel">Worktree setup</div>
+      {edit === null ? (
+        <div className="flex items-center gap-2 text-xs">
+          {p.worktree_setup ? <code className="min-w-0 flex-1 truncate rounded bg-sunk px-2 py-1">{p.worktree_setup}</code> : <span className="flex-1 text-ink-3">No setup command. New agent worktrees start with the committed files and the ignored files listed in <span className="font-mono">.worktreeinclude</span>.</span>}
+          <button className="btn btn-sm" onClick={() => setEdit(p.worktree_setup)}>{p.worktree_setup ? "Edit" : "Add setup command"}</button>
+        </div>
+      ) : (
+        <div className="grid gap-1.5">
+          <input autoFocus className="field-input font-mono text-xs" aria-label="Worktree setup command" placeholder="pnpm install --frozen-lockfile" value={edit} onChange={(e) => setEdit(e.target.value)} />
+          <span className="text-[11.5px] text-ink-3">Runs in each new worktree before the agent starts ({navigator.platform.startsWith("Win") ? "PowerShell" : "sh -c"}, 30 min limit). $LAUNCHPAD_SOURCE_CHECKOUT points to this checkout. A failure is reported to the agent, which starts anyway.</span>
+          <span className="flex gap-1.5"><button className="btn btn-sm btn-primary" disabled={saving} onClick={() => void save()}>Save</button><button className="btn btn-sm" disabled={saving} onClick={() => setEdit(null)}>Cancel</button></span>
+        </div>
+      )}
+    </section>
   );
 }
 

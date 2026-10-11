@@ -18,6 +18,10 @@ pub struct ContextInfo {
     pub path: String,
     pub description: String,
     pub branch: Option<String>,
+    /// The agent may modify it.
+    pub editable: bool,
+    /// Edits go to a dedicated task worktree, listed in the launch instructions.
+    pub own_worktree: bool,
 }
 
 /// Order: free text, then context, then presets (in the order defined in settings).
@@ -34,6 +38,14 @@ pub fn render_prompt(spec: &LaunchSpec, context: &[ContextInfo], presets: &[Pres
     }
     for c in context {
         let desc = if c.description.trim().is_empty() { String::new() } else { format!(" ({})", c.description.trim()) };
+        if c.editable {
+            lines.push(if c.own_worktree {
+                format!("- Editable project: {}{desc}. Modify it only in its dedicated worktree listed in the Launchpad worktree instructions, not in this checkout.", c.path)
+            } else {
+                format!("- Editable project: {}{desc}. You may modify it.", c.path)
+            });
+            continue;
+        }
         lines.push(match &c.branch {
             Some(b) => format!(
                 "- Reference project: {path}{desc}, branch `{b}`. Read it without changing its checkout, for example with `git -C {path} show {b}:<path>` or a temporary worktree. Do not modify it.",
@@ -210,6 +222,8 @@ mod tests {
             path: "/home/u/projects/moon-landing".into(),
             description: "server-side codebase".into(),
             branch: Some("xet-refresh-token".into()),
+            editable: false,
+            own_worktree: false,
         }];
         let expected = "Check if #3412 is still relevant and whether #3420 fixes it.
 
@@ -231,7 +245,7 @@ Please use a local git worktree and delete it once you're done. No need to add a
         assert_eq!(render_prompt(&spec, &[], &presets()), "Fix the bug");
         let spec = LaunchSpec { presets: vec!["draft-pr".into()], ..Default::default() };
         assert_eq!(render_prompt(&spec, &[], &presets()), "");
-        let ctx = vec![ContextInfo { path: "/p/js".into(), description: " ".into(), branch: None }];
+        let ctx = vec![ContextInfo { path: "/p/js".into(), description: " ".into(), branch: None, editable: false, own_worktree: false }];
         assert_eq!(
             render_prompt(&LaunchSpec::default(), &ctx, &[]),
             "Context:\n- Reference project: /p/js. Read it, but do not modify it."

@@ -80,6 +80,8 @@ export function connectEvents(queryClient: QueryClient) {
         void queryClient.invalidateQueries({ queryKey: ["projects"] });
       } else if (topic === "predrafts") {
         void queryClient.invalidateQueries({ queryKey: ["predrafts"] });
+      } else if (topic === "worktrees") {
+        void queryClient.invalidateQueries({ queryKey: ["worktrees"] });
         void queryClient.invalidateQueries({ queryKey: ["code-sources"] });
       } else if (topic === "suggestions") {
         void queryClient.invalidateQueries({ queryKey: ["suggestions"] });

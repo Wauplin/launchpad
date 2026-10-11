@@ -6,6 +6,7 @@ import { ProjectPage } from "@/features/projects/ProjectPage";
 import { ProjectsView } from "@/features/projects/ProjectsView";
 import { SettingsView } from "@/features/settings/SettingsView";
 import { HarnessesView } from "@/features/settings/HarnessesView";
+import { WorktreesView } from "@/features/settings/WorktreesView";
 import { ItemView } from "@/features/github/ItemView";
 import { PredraftView } from "@/features/predrafts/PredraftView";
 import { PublishView } from "@/features/publish/PublishView";
@@ -37,6 +38,7 @@ const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/settings", component: SettingsView }),
   createRoute({ getParentRoute: () => root, path: "/settings/workspaces", component: WorkspacesView }),
   createRoute({ getParentRoute: () => root, path: "/settings/harnesses", component: HarnessesView }),
+  createRoute({ getParentRoute: () => root, path: "/settings/worktrees", component: WorktreesView }),
   // Spike 4 benchmark page, not linked from the UI.
   createRoute({
     getParentRoute: () => root,

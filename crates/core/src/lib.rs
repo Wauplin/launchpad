@@ -31,6 +31,7 @@ pub mod util;
 pub mod variants;
 pub mod session_git;
 pub mod workspace;
+pub mod worktrees;
 
 /// Source revision embedded in the running binary.
 pub const COMMIT: &str = env!("LAUNCHPAD_COMMIT");
@@ -57,6 +58,8 @@ pub struct App {
     pub inbox: inbox::Inbox,
     pub models: harness::ModelCache,
     pub predraft_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Serializes task worktree creation, merges and cleanup. Take the session action lock first.
+    pub worktree_lock: Arc<tokio::sync::Mutex<()>>,
     pub terminals: terminals::Terminals,
 }
 
@@ -87,6 +90,7 @@ impl App {
             inbox: inbox::Inbox::new(),
             models: harness::ModelCache::default(),
             predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
+            worktree_lock: Arc::new(tokio::sync::Mutex::new(())),
             terminals: terminals::Terminals::default(),
         };
         predrafts::link_skill()?;
@@ -100,6 +104,7 @@ impl App {
         harness::spawn_model_refresh(&app);
         inbox::spawn(&app);
         projects::spawn(&app);
+        worktrees::spawn(&app);
         Ok(app)
     }
 }
@@ -137,5 +142,6 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     session_git::GitStatus::export_all(&cfg)?;
     session_git::GitDiff::export_all(&cfg)?;
     workspace::Workspace::export_all(&cfg)?;
+    worktrees::WorktreeInfo::export_all(&cfg)?;
     Ok(())
 }

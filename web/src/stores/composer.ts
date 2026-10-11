@@ -18,6 +18,8 @@ export const emptySpec = (): LaunchSpec => ({
   budget_usd: null,
   allow_paid_usage: false,
   target: { kind: "none" },
+  // New drafts run in a new task worktree; "Project checkout" sets this to null.
+  worktree: { base: null, include_changes: false, merge_when_done: false },
   text: "",
   presets: [],
   context_projects: [],

@@ -220,6 +220,36 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
     .await?;
     let id = uuid::Uuid::new_v4().to_string();
     let title = q.title.unwrap_or_else(|| "Local pull request".into());
+    // A Launchpad task worktree becomes the pre-draft itself: same folder, branch and commits.
+    if let Some(root) = &existing
+        && let Ok(root) = std::fs::canonicalize(root).map(|r| r.to_string_lossy().into_owned())
+        && let Some(w) = crate::worktrees::find_by_path(app, &root).await?.filter(|w| w.root == root && w.primary)
+    {
+        let user = app.github.get("/user").await.ok().and_then(|u| u["login"].as_str().map(str::to_string));
+        let slug = w.branch.trim_start_matches("lp/").to_string();
+        let p = Predraft {
+            default_remote_branch: format!("{}/{}", user.unwrap_or_else(|| "local".into()), slug),
+            id,
+            project_id: project.id,
+            root: w.root.clone(),
+            branch: w.branch.clone(),
+            base_branch,
+            initial_base,
+            title,
+            body: q.body.unwrap_or_default(),
+            session_id: w.sessions.last().cloned(),
+            notes: vec![],
+            archived: false,
+            published_url: None,
+            published_number: None,
+            remote_branch: None,
+            pushed_head: None,
+            created_at: crate::util::now_ms(),
+        };
+        save(app, &p).await?;
+        crate::worktrees::mark_predraft(app, &w.root, &p.id).await?;
+        return Ok(p);
+    }
     let slug = format!("{}-{}", crate::compose::slug_from(&title), &id[..8]);
     let branch = format!("lp/{slug}");
     let parent = app

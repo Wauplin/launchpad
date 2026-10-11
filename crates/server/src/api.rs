@@ -279,6 +279,9 @@ async fn answer(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<A
 
 async fn close(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
     s.app.sessions.close(&s.app, &id).await.map_err(bad)?;
+    // Archive makes clean task worktrees eligible for removal; Resume restores them.
+    let app = s.app.clone();
+    tokio::spawn(async move { launchpad_core::worktrees::after_archive(&app, &id).await });
     Ok(Json(json!({"ok": true})))
 }
 

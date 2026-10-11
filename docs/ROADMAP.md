@@ -29,9 +29,17 @@ Status: implementation and acceptance tracker (updated 2026-10-11). See [ARCHITE
 
 Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
 
-## Managed worktree proposal
+## Managed worktrees
 
-Planning completed on 2026-10-11: [managed-worktrees-plan.md](managed-worktrees-plan.md) compares Codex's documented lifecycle with Launchpad and proposes default linked worktrees, explicit writable context projects, conservative cleanup/restoration and optional local merge completion. Implementation is deferred pending owner approval of the staged scope and acceptance checks. No phase status or existing launch behavior changes.
+Built on 2026-10-11, awaiting daily use ([managed-worktrees-plan.md](managed-worktrees-plan.md)):
+
+- Default New worktree launches for Git projects, with base branch, Copy uncommitted changes and When done (keep or merge) in the composer; per-project setup command; `.worktreeinclude` copying.
+- Editable context projects with their own worktrees; `launchpad work add-project` during a task.
+- Merge into the base branch (owner button or `launchpad work finish`), waiting for a clean target, rebase and fast-forward, conflicts sent back to the agent.
+- Check out locally and Move back to worktree; Create pre-draft PR from the worktree; Discard.
+- Cleanup on archive and retention (`[worktrees] keep`), restore on resume, Settings → Worktrees.
+
+Done means: a week of daily use with worktrees as the default, without lost work or manual worktree cleanup.
 
 ## Phase 0: foundations and spikes
 

@@ -34,6 +34,7 @@ export function SettingsPage({ children }: { children: React.ReactNode }) {
           <Link to="/settings" className="btn" activeProps={{ className: "bg-select!" }} activeOptions={{ exact: true }}>General</Link>
           <Link to="/settings/workspaces" className="btn" activeProps={{ className: "bg-select!" }}>Workspaces</Link>
           <Link to="/settings/harnesses" className="btn" activeProps={{ className: "bg-select!" }}>Harnesses</Link>
+          <Link to="/settings/worktrees" className="btn" activeProps={{ className: "bg-select!" }}>Worktrees</Link>
         </nav>
         {children}
       </div>

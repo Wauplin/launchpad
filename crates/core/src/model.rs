@@ -315,6 +315,8 @@ pub struct LaunchSpec {
     /// Stop new turns once the harness-reported cumulative cost reaches this many USD.
     pub budget_usd: Option<f64>,
     pub target: Target,
+    /// A new Launchpad-owned Git worktree for a project target. None: run in the project checkout.
+    pub worktree: Option<WorktreeOptions>,
     pub text: String,
     /// Uploaded images and files, retained with drafts and scheduled launches.
     pub attachments: Vec<FileAttachment>,
@@ -365,6 +367,21 @@ pub struct ContextProject {
     pub project_id: String,
     /// None: the current checkout.
     pub branch: Option<String>,
+    /// The agent may modify it: it gets its own task worktree unless the launch runs in the project checkout.
+    #[serde(default)]
+    pub editable: bool,
+}
+
+/// How a task worktree starts and ends (`crates/core/src/worktrees.rs`).
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
+#[serde(default)]
+pub struct WorktreeOptions {
+    /// Branch to start from. None: the branch currently checked out in the project checkout.
+    pub base: Option<String>,
+    /// Copy the uncommitted changes of the project checkout into the new worktree.
+    pub include_changes: bool,
+    /// The agent asks Launchpad to merge its branch into the base branch when the task is done.
+    pub merge_when_done: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
@@ -404,6 +421,8 @@ pub struct Project {
     pub pinned: bool,
     #[ts(type = "number")]
     pub created_at: i64,
+    /// Owner-configured command run in each new task worktree before the agent starts. Empty: none.
+    pub worktree_setup: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

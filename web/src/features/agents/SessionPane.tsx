@@ -31,6 +31,7 @@ import { MenuItem, Popover } from "@/components/Popover";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import { StatusBadge, usageLine } from "./SessionBits";
 import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
+import { WorktreeChip } from "./Worktrees";
 
 function act(id: string, action: string) {
   return api.post(`/api/sessions/${id}/${action}`).catch(toastError);
@@ -287,6 +288,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
         <span className="order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3 tabular-nums">
           {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Pre-draft PR</button>}
           <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
+          <WorktreeChip session={s} />
           {s.launch_spec.variant && <span title="Harness variant">{variantName ?? `${s.launch_spec.variant} (deleted variant)`}</span>}
           <StatusBadge s={s} />
           <PaidUsageToggle session={s} badge />

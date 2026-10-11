@@ -80,6 +80,8 @@ struct Inner {
     budget_interrupts: Mutex<HashMap<String, i64>>,
     /// Sessions whose process must restart to use a new model or effort, once their turn ends.
     model_restarts: Mutex<HashSet<String>>,
+    /// New sessions running their worktree setup command before the agent starts.
+    setups: Mutex<HashMap<String, tokio::task::AbortHandle>>,
     /// Serializes user actions and quota decisions; adapter events never take this lock.
     actions: tokio::sync::Mutex<()>,
     /// Serializes new work with pre-draft publication and cleanup.
@@ -113,6 +115,7 @@ impl Sessions {
                 manual_quota_retries: Mutex::new(HashMap::new()),
                 budget_interrupts: Mutex::new(HashMap::new()),
                 model_restarts: Mutex::new(HashSet::new()),
+                setups: Mutex::new(HashMap::new()),
                 actions: tokio::sync::Mutex::new(()),
                 work: tokio::sync::Mutex::new(()),
                 live: Mutex::new(HashMap::new()),
@@ -203,6 +206,24 @@ impl Sessions {
 
     pub(crate) async fn allow_work(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.inner.work.lock().await
+    }
+
+    /// The user action lock, for worktree operations that detach processes or move folders.
+    pub(crate) async fn action_lock(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.inner.actions.lock().await
+    }
+
+    /// The worktree setup command runs before the agent of this new session starts.
+    pub fn setup_running(&self, id: &str) -> bool {
+        self.inner.setups.lock().unwrap().contains_key(id)
+    }
+
+    /// Stops an idle process before its folder moves or disappears; sending a message resumes it.
+    /// The caller holds the action lock.
+    pub(crate) async fn release(&self, app: &App, id: &str) {
+        if self.live(id).is_none() { return; }
+        self.detach(id).await;
+        let _ = self.update(app, id, |s| s.live = false).await;
     }
 
     pub fn list(&self) -> Vec<Session> {
@@ -384,6 +405,11 @@ impl Sessions {
 
     /// Resolves a launch spec: cwd, prompt, title and context directories. No side effect.
     pub async fn preview(&self, app: &App, spec: &LaunchSpec) -> Result<Preview> {
+        self.resolve(app, spec, false).await
+    }
+
+    /// At launch, worktree folders are not known yet: the launch appends their exact instructions.
+    async fn resolve(&self, app: &App, spec: &LaunchSpec, for_launch: bool) -> Result<Preview> {
         let mut resolved_spec = spec.clone();
         if let Target::SessionFolder { session_id } = &spec.target {
             let source = self.get(session_id).context("source session no longer exists")?;
@@ -396,14 +422,16 @@ impl Sessions {
         let config = app.config.get();
         let mut context = Vec::new();
         let mut add_dirs = Vec::new();
+        let in_checkout = matches!(spec.target, Target::Project { .. }) && spec.worktree.is_none();
+        let worktree_launch = matches!(spec.target, Target::Project { .. }) && spec.worktree.is_some();
         for cp in &spec.context_projects {
             if let Some(p) = crate::projects::get(app, &cp.project_id).await? {
                 add_dirs.push(p.path.clone());
-                context.push(ContextInfo { path: p.path, description: p.description, branch: cp.branch.clone() });
+                context.push(ContextInfo { path: p.path, description: p.description, branch: cp.branch.clone(), editable: cp.editable, own_worktree: cp.editable && !in_checkout });
             }
         }
         let mut rendered_spec = spec.clone();
-        if matches!(
+        if worktree_launch || matches!(
             spec.target,
             Target::Predraft { .. } | Target::ExistingPredraft { .. }
         ) {
@@ -429,6 +457,10 @@ impl Sessions {
             Target::Predraft { .. } | Target::ExistingPredraft { .. }
         ) {
             prompt.push_str("\n\nWork in a dedicated local pre-draft worktree. Commit your changes, update the local PR title and description with launchpad pr update. Do not push, publish, or delete the worktree.");
+        }
+        if !for_launch && !prompt.trim().is_empty() && (worktree_launch || context.iter().any(|c| c.own_worktree)) {
+            let base = spec.worktree.as_ref().and_then(|w| w.base.clone()).map(|b| format!("`{b}`")).unwrap_or_else(|| "the branch checked out in the project checkout".into());
+            prompt.push_str(&format!("\n\nLaunchpad worktree: Launchpad creates dedicated Git worktrees for this task at launch{}, and lists their exact folders and branches here.", if worktree_launch { format!(", starting from {base}") } else { String::new() }));
         }
         crate::compose::append_initial_summary_instruction(&mut prompt);
         let (cwd, project) = match &spec.target {
@@ -478,6 +510,7 @@ impl Sessions {
         if let Target::SessionFolder { session_id } = &spec.target {
             let source = self.get(session_id).context("source session no longer exists")?;
             anyhow::ensure!(!self.is_busy(&source) && source.status != SessionStatus::InTerminal, "stop the source agent or re-attach its terminal before continuing with another agent");
+            crate::worktrees::restore_for_session(app, session_id).await?;
             if let Some(p) = crate::predrafts::list(app).await?.into_iter().find(|p| p.root == source.cwd) {
                 spec.target = Target::ExistingPredraft { predraft_id: p.id };
             }
@@ -495,12 +528,12 @@ impl Sessions {
             spec.model.clone().or_else(|| variant.as_ref().and_then(|v| v.model.clone())),
             spec.effort.clone().or_else(|| variant.as_ref().and_then(|v| v.effort.clone())),
         );
-        let mut preview = self.preview(app, &spec).await?;
+        let mut preview = self.resolve(app, &spec, true).await?;
         if preview.prompt.trim().is_empty() {
             bail!("the prompt is empty");
         }
         let mut predraft = None;
-        let (cwd, project_id) = match &spec.target {
+        let (mut cwd, project_id) = match &spec.target {
             Target::Temp => {
                 let p = crate::projects::create_temp(app, &spec.text).await?;
                 (p.path, Some(p.id))
@@ -549,10 +582,44 @@ impl Sessions {
             }
             Target::SessionFolder { session_id } => {
                 let source = self.get(session_id).context("source session no longer exists")?;
+                crate::worktrees::join(app, session_id, &id).await?;
                 (preview.cwd.clone().context("source session folder missing")?, source.project_id)
             }
             Target::None => unreachable!(),
         };
+        // Task worktrees for the project and the editable context projects, before any agent starts.
+        let mut worktrees: Vec<(crate::worktrees::TaskWorktree, String)> = vec![];
+        let mut setups: Vec<(Project, String)> = vec![];
+        let in_checkout = matches!(spec.target, Target::Project { .. }) && spec.worktree.is_none();
+        let prepared: Result<()> = async {
+            if let (Target::Project { project_id }, Some(opts)) = (&spec.target, &spec.worktree) {
+                let project = crate::projects::get(app, project_id).await?.context("the project no longer exists")?;
+                let (w, folder) = crate::worktrees::create(app, &id, &project, opts, true, &preview.title).await?;
+                cwd = folder.clone();
+                worktrees.push((w, folder.clone()));
+                setups.push((project, folder));
+            }
+            for cp in spec.context_projects.iter().filter(|c| c.editable && !in_checkout) {
+                let Some(project) = crate::projects::get(app, &cp.project_id).await? else { continue };
+                let opts = WorktreeOptions { base: cp.branch.clone(), ..Default::default() };
+                let (w, folder) = crate::worktrees::create(app, &id, &project, &opts, false, &preview.title).await?;
+                if let Some(d) = preview.add_dirs.iter_mut().find(|d| **d == project.path) { *d = folder.clone(); }
+                if !worktrees.iter().any(|(x, _)| x.id == w.id) { setups.push((project, folder.clone())); }
+                worktrees.push((w, folder));
+            }
+            Ok(())
+        }.await;
+        if let Err(e) = prepared {
+            let mut created: Vec<crate::worktrees::TaskWorktree> = vec![];
+            for (w, _) in worktrees { if !created.iter().any(|c| c.id == w.id) { created.push(w); } }
+            crate::worktrees::abandon(app, &created).await;
+            return Err(e);
+        }
+        if !worktrees.is_empty() {
+            let projects = crate::projects::list(app).await?;
+            let opts = spec.worktree.clone().unwrap_or_default();
+            preview.prompt.push_str(&format!("\n\n{}", crate::worktrees::instruction(app, &id, &worktrees, &projects, opts.merge_when_done && !in_checkout, opts.include_changes)));
+        }
         if let (Some(ws), Some(project_id)) = (&spec.workspace_id, &project_id)
             && let Err(e) = crate::workspace::add_project(app, ws, project_id).await
         {
@@ -605,19 +672,9 @@ impl Sessions {
         app.bus.publish("sessions", "updated", serde_json::to_value(&session)?);
         self.publish_counts(app);
 
-        let protected = crate::quota::protected(app, harness, &session.launch_spec);
-        if protected && !crate::quota::blockers(app, harness).is_empty() {
-            self.update(app, &id, |s| s.harness_session_id = None).await?;
-            self.hold_input(app, &id, &preview.prompt, images.clone()).await?;
-            return Ok(self.get(&id).unwrap());
-        }
-
-        if protected && !crate::quota::available(&crate::quota::reading(app, harness), now_ms()) {
-            self.sink(app, &id).emit(EventBody::Notice { text: "Quota reading unavailable or stale. Starting with best-effort protection; additional spending cannot be ruled out until quota is known.".into() }).await;
-        }
         let start = StartSpec {
             session_id: id.clone(),
-            harness_session_id: session.harness_session_id.clone(),
+            harness_session_id: None,
             resume: false,
             cwd: cwd.into(),
             title: preview.title,
@@ -626,13 +683,57 @@ impl Sessions {
             add_dirs: preview.add_dirs,
             env,
         };
-        let sink = self.sink(app, &id);
+        setups.retain(|(p, _)| !p.worktree_setup.trim().is_empty());
+        if setups.is_empty() {
+            self.start_new(app, &id, start, preview.prompt, images).await;
+            return Ok(self.get(&id).unwrap());
+        }
+        // Setup can take minutes: it runs in the background, and the agent starts afterwards.
+        let (this, app2, id2) = (self.clone(), app.clone(), id.clone());
+        let (ready, wait) = tokio::sync::oneshot::channel::<()>();
+        let task = tokio::spawn(async move {
+            let _ = wait.await;
+            let sink = this.sink(&app2, &id2);
+            let mut prompt = preview.prompt;
+            for (project, folder) in &setups {
+                if let Err(e) = crate::worktrees::run_setup(&app2, project, folder, &sink).await {
+                    sink.emit(EventBody::Notice { text: format!("Worktree setup failed: {e:#}") }).await;
+                    prompt.push_str(&format!("\n\nNote: the worktree setup command of {} (`{}`) failed in `{folder}`:\n{e:#}\nFix the environment yourself if the task needs it.", project.name, project.worktree_setup.trim()));
+                }
+            }
+            let _action = this.inner.actions.lock().await;
+            let _guard = this.allow_work().await;
+            this.inner.setups.lock().unwrap().remove(&id2);
+            if this.get(&id2).is_some_and(|s| s.status == SessionStatus::Starting) {
+                this.start_new(&app2, &id2, start, prompt, images).await;
+            }
+        });
+        self.inner.setups.lock().unwrap().insert(id.clone(), task.abort_handle());
+        let _ = ready.send(());
+        Ok(self.get(&id).unwrap())
+    }
+
+    /// Starts the harness of a new session and sends its first prompt, or holds it at exhausted quota.
+    async fn start_new(&self, app: &App, id: &str, start: StartSpec, prompt: String, images: Vec<ImageAttachment>) {
+        let Some(session) = self.get(id) else { return };
+        let harness = session.harness;
+        let sink = self.sink(app, id);
+        let protected = crate::quota::protected(app, harness, &session.launch_spec);
+        if protected && !crate::quota::blockers(app, harness).is_empty() {
+            if let Err(e) = self.hold_input(app, id, &prompt, images).await {
+                sink.fail(&format!("{e:#}")).await;
+            }
+            return;
+        }
+        if protected && !crate::quota::available(&crate::quota::reading(app, harness), now_ms()) {
+            sink.emit(EventBody::Notice { text: "Quota reading unavailable or stale. Starting with best-effort protection; additional spending cannot be ruled out until quota is known.".into() }).await;
+        }
         match self.attach(app, harness, start, sink.clone()).await {
             Ok(live) => {
                 let client_id = uuid::Uuid::new_v4().to_string();
-                sink.emit(EventBody::UserMessage { text: preview.prompt.clone(), client_id: client_id.clone(), queued: false, images: images.clone() }).await;
+                sink.emit(EventBody::UserMessage { text: prompt.clone(), client_id: client_id.clone(), queued: false, images: images.clone() }).await;
                 sink.set_status(SessionStatus::Working).await;
-                if let Err(e) = live.send(&preview.prompt, &client_id, &images).await {
+                if let Err(e) = live.send(&prompt, &client_id, &images).await {
                     sink.fail(&format!("{e:#}")).await;
                 }
             }
@@ -640,8 +741,7 @@ impl Sessions {
                 sink.fail(&format!("could not start {}: {e:#}", harness.display())).await
             }
         }
-        if let Some(session) = self.get(&id).filter(|s| s.status != SessionStatus::Error) { crate::titles::generate(app, &session); }
-        Ok(self.get(&id).unwrap())
+        if let Some(session) = self.get(id).filter(|s| s.status != SessionStatus::Error) { crate::titles::generate(app, &session); }
     }
 
     async fn attach(&self, app: &App, harness: HarnessKind, start: StartSpec, mut sink: Sink) -> Result<Arc<dyn LiveSession>> {
@@ -676,13 +776,23 @@ impl Sessions {
         if s.launch_spec.harness.is_none() && crate::terminals::tui_running(app, &s) {
             bail!("This imported conversation is still running in another client. Finish it there first.");
         }
+        // A clean worktree removed by cleanup comes back from its branch before the agent resumes.
+        crate::worktrees::restore_for_session(app, id).await?;
+        let s = self.get(id).context("no such session")?;
+        let worktrees = crate::worktrees::for_session(app, id).await?;
         let mut add_dirs = Vec::new();
         let attachment_dir = app.paths.data_dir.join("attachments").join(&s.id);
         if attachment_dir.is_dir() { add_dirs.push(attachment_dir.to_string_lossy().into_owned()); }
         for cp in &s.launch_spec.context_projects {
             if let Some(p) = crate::projects::get(app, &cp.project_id).await? {
-                add_dirs.push(p.path);
+                // Editable context projects resolve to their recorded worktree, never to today's checkout.
+                let own = worktrees.iter().find(|w| !w.primary && w.project_id == p.id && w.state == crate::worktrees::WorktreeState::Active);
+                add_dirs.push(own.map(crate::worktrees::folder).unwrap_or(p.path));
             }
+        }
+        for w in worktrees.iter().filter(|w| !w.primary && w.state == crate::worktrees::WorktreeState::Active) {
+            let dir = crate::worktrees::folder(w);
+            if !add_dirs.contains(&dir) { add_dirs.push(dir); }
         }
         let start = StartSpec {
             session_id: s.id.clone(),
@@ -926,6 +1036,7 @@ impl Sessions {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
+        anyhow::ensure!(!self.setup_running(id), "Wait for the worktree setup to finish; the agent starts afterwards.");
         if follow_up && (s.status.is_running() || s.open_question || s.status == SessionStatus::InTerminal || s.quota_pause.is_some()) {
             return Err(FollowUpBusy.into());
         }
@@ -986,6 +1097,14 @@ impl Sessions {
 
     pub async fn interrupt(&self, app: &App, id: &str) -> Result<()> {
         let _action = self.inner.actions.lock().await;
+        let setup = self.inner.setups.lock().unwrap().remove(id);
+        if let Some(task) = setup {
+            task.abort();
+            let sink = self.sink(app, id);
+            sink.emit(EventBody::Notice { text: "Worktree setup cancelled by you; the agent was not started.".into() }).await;
+            sink.set_status(SessionStatus::Stopped).await;
+            return Ok(());
+        }
         self.inner.manual_quota_retries.lock().unwrap().remove(id);
         if self.get(id).is_some_and(|s| s.quota_pause.is_some()) {
             if let Some(live) = self.live(id).filter(|l| l.turn_active()) { live.interrupt().await?; }
@@ -1022,7 +1141,7 @@ impl Sessions {
         Ok(())
     }
 
-    async fn detach(&self, id: &str) {
+    pub(crate) async fn detach(&self, id: &str) {
         let live = self.inner.live.lock().unwrap().remove(id);
         if let Some((_, l)) = live
             && let Err(e) = l.stop().await {
@@ -1033,6 +1152,8 @@ impl Sessions {
     /// Stops the process. The conversation stays resumable.
     pub async fn close(&self, app: &App, id: &str) -> Result<()> {
         let _action = self.inner.actions.lock().await;
+        let setup = self.inner.setups.lock().unwrap().remove(id);
+        if let Some(task) = setup { task.abort(); }
         self.inner.manual_quota_retries.lock().unwrap().remove(id);
         self.inner.quota_stops.lock().unwrap().remove(id);
         self.update(app, id, |s| s.quota_pause = None).await?;
@@ -1056,6 +1177,7 @@ impl Sessions {
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(s.quota_pause.is_none(), "Use Resume with paid usage to continue a quota-paused session.");
+        anyhow::ensure!(!self.setup_running(id), "Wait for the worktree setup to finish.");
         crate::predrafts::check_session_work(app, &s.cwd).await?;
         if let Some(t) = app.terminals.tui_of(id) {
             if !close_terminal {
@@ -1088,6 +1210,7 @@ impl Sessions {
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.terminal, "This harness does not support a terminal TUI.");
+        anyhow::ensure!(!self.setup_running(id), "Wait for the worktree setup to finish.");
         if let Some(t) = app.terminals.tui_of(id) {
             return app.terminals.list().into_iter().find(|i| i.id == t).context("no such terminal");
         }

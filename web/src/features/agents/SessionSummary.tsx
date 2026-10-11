@@ -1,3 +1,4 @@
+import { WorktreeSteps, useSessionWorktrees } from "./Worktrees";
 import { useHarnessInfo, useHarnessName } from "@/components/HarnessMark";
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -91,6 +92,7 @@ export function SessionSummary({ session: s, rows, localPr, reviewDiff, showTrac
   const navigate = useNavigate();
   const projects = useProjects().data ?? [];
   const schedules = useSchedules().data ?? [];
+  const worktrees = useSessionWorktrees(s.id).data ?? [];
   const git = useQuery({ queryKey: ["session-git", s.id], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${s.id}/git`), refetchInterval: 5000 });
   const [scheduling, setScheduling] = useState(false);
   const [message, setMessage] = useState("");
@@ -153,7 +155,8 @@ export function SessionSummary({ session: s, rows, localPr, reviewDiff, showTrac
     <Section title="Task · first prompt"><Fold lines={4} label="Show full task"><div className="whitespace-pre-wrap">{split ? split.typed : prompt}</div>{split && <Instructions blocks={split.instructions} className="mt-1" />}</Fold></Section>
     {final && <Section title={s.status === "stopped" || unfinished ? "Last agent message" : "Final message"} actions={<><button className="btn btn-sm" onClick={() => void copyText(final.text).then(() => toast("Copied"))}>Copy</button><button className="btn btn-sm" onClick={() => void copyText(renderedText(finalRef.current, final.text)).then(() => toast("Copied as text"))}>Copy as text</button></>}><Fold lines={30} label="Show full message"><div ref={finalRef}><Markdown text={final.text} /></div></Fold></Section>}
     <Section title="Next steps">
-      {(localPr && !localPr.published_url || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== "main" && !refs.some((r) => r.kind === "pr")) && s.project_id && <NextStep source="Git" text={localPr ? `This agent prepared a local pre-draft PR${localPr.title ? `: ${localPr.title}` : ""}.` : (git.data?.unpushed_commits ?? 0) > 0 ? `${git.data!.unpushed_commits} commits are absent from cached remote refs.` : "No PR is linked to this session."} button={localPr ? "Review & publish" : "Open pre-draft PR"} onClick={openPr} disabled={busy} />}
+      <WorktreeSteps session={s} />
+      {!(worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && !localPr) && (localPr && !localPr.published_url || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== "main" && !refs.some((r) => r.kind === "pr")) && s.project_id && <NextStep source="Git" text={localPr ? `This agent prepared a local pre-draft PR${localPr.title ? `: ${localPr.title}` : ""}.` : (git.data?.unpushed_commits ?? 0) > 0 ? `${git.data!.unpushed_commits} commits are absent from cached remote refs.` : "No PR is linked to this session."} button={localPr ? "Review & publish" : "Open pre-draft PR"} onClick={openPr} disabled={busy} />}
       {drafts.map((d) => <NextStep key={d.id} source={d.target.kind === "predraft" ? "Local" : "GitHub"} text={`This agent drafted a ${d.kind} ${d.target.kind === "predraft" ? "on its local pre-draft PR" : `on ${d.target.repo} #${d.target.number}`}${d.status === "draft" ? "" : ": publication was attempted, check GitHub"}.`} button="Review & post" onClick={() => { const t = d.target; if (t.kind === "predraft") void navigate({ to: "/predrafts/$id", params: { id: t.id } }); else { const [owner, repo] = t.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(t.number) } }); } }} />)}
       {((changes?.files ?? 0) > 0 || (git.data?.files.length ?? 0) > 0) && <NextStep source="Git" text={`${git.data?.files.length ?? 0} uncommitted files${changes ? `; ${changes.files} tracked files differ from main` : ""}.`} button="Review diff" onClick={() => reviewDiff((changes?.files ?? 0) > 0)} />}
       {(unfinished || s.status === "closed") && <NextStep source="Session" text={s.status === "closed" ? "This archived session is still resumable." : "The last turn did not finish successfully."} button="Resume" disabled={busy} onClick={() => void run(async () => { if (unfinished) await api.post(`/api/sessions/${s.id}/input`, { text: "Continue the unfinished turn." }); else await api.post(`/api/sessions/${s.id}/resume`); showTrace(); })} />}

@@ -72,7 +72,7 @@ It is a single-user tool. Light theme only. Linux is the primary target, with ma
 
 ### 4.1 Daemon
 
-- One Rust binary, `launchpad`, with subcommands: `launchpad daemon` (the server) and agent-facing commands such as `launchpad pr …` and `launchpad suggest …`.
+- One Rust binary, `launchpad`, with subcommands: `launchpad daemon` (the server) and agent-facing commands such as `launchpad pr …`, `launchpad suggest …` and `launchpad work …`.
 - On Linux, runs as a systemd user unit `launchpad.service`: starts at login, restarts on crash, logs to journald (`journalctl --user -u launchpad -f`).
 - Owns everything stateful: SQLite, GitHub sync loops, agent processes, quota polling, desktop notifications (D-Bus through `notify-rust`), and opening URLs and integrated terminals.
 - Listens on `127.0.0.1:7317` only.
@@ -195,6 +195,9 @@ GET    /api/sessions    GET /api/sessions/{id}/events?after={seq}
 POST   /api/sessions/{id}/input|interrupt|answer|stop|resume|terminal
 POST   /api/sessions/{id}/seen                  seen_at = now, broadcasts sessions/updated
 POST   /api/sessions/{id}/unread                completed sessions: seen_at = status_since - 1
+GET    /api/sessions/{id}/worktrees             task worktrees of a session with ahead/behind/dirty and the merge target checkout
+GET    /api/worktrees   POST /api/worktrees/sizes   POST /api/worktrees/finish {session_id}   POST /api/worktrees/add-project {session_id, project}
+POST   /api/worktrees/{id}/merge|cancel-merge|fix|handoff|handback|remove|restore|discard
 GET    /api/terminals   POST /api/terminals {cwd}   POST /api/terminals/close-all
 POST   /api/terminals/{id}/close   DELETE /api/terminals/{id}   (an exited terminal)
 GET    /api/terminals/{id}/ws                   one terminal: buffered then live output (binary), keystrokes (binary), resize (JSON)
@@ -263,6 +266,9 @@ poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
 [agents]
 notify = true                       # desktop notification when a session becomes Done
+
+[worktrees]
+keep = 15                           # clean task worktrees of idle agents kept on disk (0: keep all)
 
 [[presets]]                         # see 9.7
 id = "worktree"
@@ -953,9 +959,9 @@ Project metadata refresh, on 2026-10-04:
 
 81. **Initial final-message summary.** On 2026-10-11, added the owner-requested default launch instruction shared by all harnesses. Ask for a concise, self-contained summary of the initial task’s outcomes, results, checks and remaining work so the run view’s recorded last message is useful on its own. Explicitly yield to user steering or requested answers/formats and exempt subsequent turns. Keep the instruction visible in prompt preview and folded with launch instructions in the run view; do not generate a separate summary or enforce a response format.
 
-## Managed worktree proposal (2026-10-11)
+## Managed worktrees (2026-10-11)
 
-The [managed worktree plan](managed-worktrees-plan.md) proposes daemon-owned task worktrees, explicit writable context projects, recorded paths for resume, conservative garbage collection and optional local merge completion. It distinguishes Codex's documented behavior from proposed Launchpad choices and includes staged acceptance checks. This is planning only: no architecture decision, launch default, context access rule or approved implementation scope changes.
+New agents in a Git project run in a daemon-owned task worktree, described in [managed-worktrees-plan.md](managed-worktrees-plan.md). Records live in the `task_worktree` table of `state.db` (JSON, one per repository and session group). The launch creates worktrees for the project and editable context projects before the harness starts, and appends their folders and branches to the prompt; setup commands run in a background task before the agent starts. Merge requests are durable and retried by a 15-second loop; the daemon rebases in the task worktree and fast-forwards the checkout that has the base branch, and sends conflicts to the agent. Cleanup removes only clean folders and keeps branches; resume restores them. Lock order: session action lock, then `worktree_lock`.
 
 ## Remote access feasibility research (2026-10-10)
 
@@ -970,3 +976,5 @@ The [static UI and UX review](research/ui-ux-review/index.html) audits the share
 The [static UX suggestions report](research/ux-suggestions/index.html) is a second, independent review with 12 ranked suggestions and interactive sketches. Unlike the review above, the owner approved its "Product rules these suggestions touch" table, and all 12 suggestions plus its quick fixes were implemented on 2026-10-11 (decision 72). The sections above describe the built behavior; the report remains the reference for the sketches.
 
 77. **Mark agents unread for later.** On 2026-10-11, added a mail action to seen Done, Failed and Interrupted agent rows. It persists unread state through the existing `seen_at < status_since` predicate and updates the shared waiting counts without changing run status. Marking the selected session unread closes its panel; explicitly opening it again uses the normal 1.5-second read delay.
+
+82. **Managed agent worktrees.** On 2026-10-11, new agents in Git projects run in a Launchpad-owned worktree by default, for every harness, instead of the free-text worktree preset. Named `lp/` branches replace Codex-style snapshots: cleanup removes only clean folders, keeps unmerged branches and restores on resume. Context projects stay read-only unless marked editable. Merging into the base branch is an owner click or an agent `launchpad work finish` request; the daemon waits for a clean target, rebases and fast-forwards, and the agent resolves conflicts. Reason: worktree handling by agents cost turns and was inconsistent, while conflicts need the agent's judgment.
