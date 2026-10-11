@@ -723,6 +723,7 @@ footer.end code { font: 12.5px var(--font-mono); }
     <a href="#s6"><b>S6</b>Settings, temp folders, quotas</a>
     <a href="#s7"><b>S7</b>Code viewer</a>
     <a href="#s8"><b>S8</b>Session summary</a>
+    <a href="#subagents"><b>S9</b>Subagents</a>
     <a href="#s9"><b>S9</b>Terminal dock</a>
   </nav>
 </header>
@@ -2032,6 +2033,20 @@ info.xetRefreshToken = await issueXetToken(repo, user);
     <li><i class="pin">3</i><span><b>Keys go to the process.</b> A focused terminal receives every key, <code>Ctrl+C</code> and <code>Ctrl+F</code> included; it is the documented exception to the click-only rule. The output keeps the last 1 MB and reappears after a reload or in another window.</span></li>
     <li><i class="pin">4</i><span><b>Status bar.</b> The Terminal button shows how many terminals run in the workspace and shows or hides the dock. Visibility, height and the active tab are remembered.</span></li>
   </ol>
+</section>
+
+<section class="sketch" id="subagents">
+  <div class="sketch-head"><span class="sketch-id">S9 · Subagents</span><h2>Native children, one trace at a time</h2></div>
+  <div style="background:var(--paper);border:1px solid var(--line);border-radius:12px;overflow:hidden">
+    <div style="display:flex;gap:8px;padding:12px;border-bottom:1px solid var(--line)"><button>Summary</button><button>Trace</button><button style="background:var(--select)">Subagents · 1 running</button></div>
+    <div style="display:flex;gap:12px;padding:12px;border-bottom:1px solid var(--line)"><button>← Parent trace</button><span>1 running · 3 total</span><span style="margin-left:auto;color:var(--ink-3)">Read-only</span></div>
+    <div style="display:grid;grid-template-columns:240px 1fr;min-height:260px">
+      <div style="border-right:1px solid var(--line)"><div style="padding:12px">▾ Check implementation <small>completed</small></div><div style="padding:12px 12px 12px 32px;background:var(--select)">Inspect parser <small>running</small></div><div style="padding:12px">Review UI <small>completed</small></div></div>
+      <div style="padding:16px"><button>← Check implementation</button><h3>Inspect parser</h3><p style="color:var(--ink-3)">Running · reported model</p><p>Reading the event normalizer…</p><details><summary>2 file reads</summary><pre>Read model.rs
+Read codex.rs</pre></details></div>
+    </div>
+  </div>
+  <p>Keep child messages out of the parent conversation. Expand nested agents and reuse the existing trace renderer; stack the tree above the trace in narrow panels. Show missing traces explicitly. Parent controls own input and Stop.</p>
 </section>
 
 <footer class="end">

@@ -25,6 +25,9 @@ pub struct ClaudeSession {
 struct State {
     /// `tool_use_id` → (name, input), to build file changes and background tasks from results.
     tools: HashMap<String, (String, Value)>,
+    children: HashMap<String, Arc<Mutex<State>>>,
+    task_agents: HashMap<String, String>,
+    active_agents: HashSet<String>,
     /// Running background tasks.
     background: HashSet<String>,
     /// Every background task started in this process (`task_notification` can come after the running
@@ -162,11 +165,11 @@ impl LiveSession for ClaudeSession {
         .await
     }
 
-    fn turn_active(&self) -> bool { self.state.lock().unwrap().turn_running }
+    fn turn_active(&self) -> bool { let state = self.state.lock().unwrap(); state.turn_running || agents_busy(&state) }
 
     fn ready_for_turn(&self) -> bool {
         let s = self.state.lock().unwrap();
-        !s.turn_running && s.background.is_empty() && s.questions.is_empty()
+        !s.turn_running && s.background.is_empty() && s.questions.is_empty() && !agents_busy(&s)
     }
 
     async fn interrupt(&self) -> Result<()> {
@@ -218,12 +221,39 @@ impl LiveSession for ClaudeSession {
 
 /// Maps one stdout message to normalized events.
 async fn handle(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>, msg: &Value) {
+    if msg["type"] == "control_request" || msg["type"] == "system" && matches!(msg["subtype"].as_str(), Some("task_started" | "task_notification" | "task_updated" | "background_tasks_changed")) {
+        // Native permission/question responses are owned by the one Claude process.
+        handle_message(sink, st, writer, msg).await;
+    } else if let Some(id) = msg["parent_tool_use_id"].as_str() {
+        let child_state = {
+            let mut state = st.lock().unwrap();
+            let cwd = state.cwd.clone();
+            state.children.entry(id.into()).or_insert_with(|| Arc::new(Mutex::new(State { cwd, ..Default::default() }))).clone()
+        };
+        handle_message(&sink.child(id), &child_state, writer, msg).await;
+    } else {
+        handle_message(sink, st, writer, msg).await;
+    }
+    let (idle, busy) = { let state = st.lock().unwrap(); (!state.turn_running, !state.background.is_empty() || agents_busy(&state)) };
+    if idle && matches!(sink.status(), Some(SessionStatus::Waiting | SessionStatus::Background)) {
+        sink.set_status(if busy { SessionStatus::Background } else if sink.stop_requested() { SessionStatus::Stopped } else { SessionStatus::Waiting }).await;
+    }
+}
+fn agents_busy(state: &State) -> bool {
+    !state.active_agents.is_empty() || state.children.values().any(|child| !child.lock().unwrap().active_agents.is_empty())
+}
+fn agent_owner(state: &State, id: &str) -> Option<Option<String>> {
+    if state.active_agents.contains(id) { return Some(None); }
+    state.children.iter().find(|(_, child)| child.lock().unwrap().active_agents.contains(id)).map(|(parent, _)| Some(parent.clone()))
+}
+fn finish_agent(state: &mut State, id: &str) {
+    state.active_agents.remove(id);
+    for child in state.children.values() { child.lock().unwrap().active_agents.remove(id); }
+}
+async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>, msg: &Value) {
     match msg["type"].as_str().unwrap_or("") {
         "system" => handle_system(sink, st, msg).await,
         "stream_event" => {
-            if !msg["parent_tool_use_id"].is_null() {
-                return;
-            }
             let ev = &msg["event"];
             if ev["type"] == "message_start" {
                 st.lock().unwrap().streaming_msg = ev["message"]["id"].as_str().unwrap_or("").to_string();
@@ -234,10 +264,6 @@ async fn handle(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>
             }
         }
         "assistant" => {
-            // Messages from subagents (parent_tool_use_id set) are not shown in the main conversation.
-            if !msg["parent_tool_use_id"].is_null() {
-                return;
-            }
             let m = &msg["message"];
             let msg_id = m["id"].as_str().unwrap_or("");
             if let Some(model) = m["model"].as_str() {
@@ -289,9 +315,6 @@ async fn handle(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>
                 }
                 return;
             }
-            if !msg["parent_tool_use_id"].is_null() {
-                return;
-            }
             let content = msg["message"]["content"].as_array().cloned().unwrap_or_default();
             for block in &content {
                 if block["type"] == "tool_result" {
@@ -326,7 +349,7 @@ async fn handle(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>
                 }
             })
             .await;
-            let background = !st.lock().unwrap().background.is_empty();
+            let background = { let state = st.lock().unwrap(); !state.background.is_empty() || agents_busy(&state) };
             if !st.lock().unwrap().questions.is_empty() {
                 return;
             }
@@ -399,7 +422,17 @@ async fn handle_system(sink: &Sink, st: &Arc<Mutex<State>>, msg: &Value) {
                 sink.set_status(SessionStatus::Working).await;
             }
         }
-        "task_started" if msg["is_backgrounded"].as_bool() == Some(true) => {
+        "task_started" => {
+            // Agent tasks include their launching tool ID; shell background tasks stay separate.
+            if let Some(id) = msg["tool_use_id"].as_str() {
+                let owner = agent_owner(&st.lock().unwrap(), id);
+                if let Some(parent) = owner {
+                    if let Some(task) = msg["task_id"].as_str() { st.lock().unwrap().task_agents.insert(task.into(), id.into()); }
+                    let sink = parent.as_deref().map(|parent| sink.child(parent)).unwrap_or_else(|| sink.clone());
+                    sink.subagent(id, msg["description"].as_str().map(str::to_string), Some("running".into()), None).await;
+                }
+            }
+            if msg["is_backgrounded"].as_bool() != Some(true) { return; }
             let task_id = msg["task_id"].as_str().unwrap_or("").to_string();
             {
                 let mut s = st.lock().unwrap();
@@ -414,7 +447,30 @@ async fn handle_system(sink: &Sink, st: &Arc<Mutex<State>>, msg: &Value) {
             })
             .await;
         }
+        "task_updated" => {
+            let task = msg["task_id"].as_str().unwrap_or("");
+            let status = msg["patch"]["status"].as_str().or(msg["status"].as_str());
+            if let Some(status) = status {
+                let id = st.lock().unwrap().task_agents.get(task).cloned();
+                if let Some(id) = id {
+                    sink.subagent(&id, None, Some(if status == "killed" { "stopped" } else if status == "pending" { "running" } else { status }.into()), None).await;
+                    if matches!(status, "completed" | "failed" | "killed" | "stopped") { finish_agent(&mut st.lock().unwrap(), &id); }
+                }
+                if matches!(status, "completed" | "failed" | "killed" | "stopped") {
+                    let was_background = st.lock().unwrap().background.remove(task);
+                    if was_background { sink.emit(EventBody::BackgroundTask { task_id: task.into(), description: String::new(), status: if status == "killed" { "stopped" } else { status }.into(), output_file: None }).await; }
+                    let idle = { let state = st.lock().unwrap(); state.background.is_empty() && !state.turn_running };
+                    if idle && sink.status() == Some(SessionStatus::Background) { sink.set_status(SessionStatus::Waiting).await; }
+                }
+            }
+        }
         "task_notification" => {
+            let tracked = st.lock().unwrap().task_agents.get(msg["task_id"].as_str().unwrap_or("")).cloned();
+            let agent = tracked.or_else(|| msg["tool_use_id"].as_str().filter(|id| agent_owner(&st.lock().unwrap(), id).is_some()).map(str::to_string));
+            if let Some(id) = agent {
+                sink.subagent(&id, None, Some(msg["status"].as_str().unwrap_or("completed").into()), None).await;
+                finish_agent(&mut st.lock().unwrap(), &id);
+            }
             let task_id = msg["task_id"].as_str().unwrap_or("").to_string();
             let was_background = {
                 let mut s = st.lock().unwrap();
@@ -466,6 +522,13 @@ async fn tool_use(sink: &Sink, st: &Arc<Mutex<State>>, block: &Value) {
     let id = block["id"].as_str().unwrap_or("").to_string();
     let input = block["input"].clone();
     st.lock().unwrap().tools.insert(id.clone(), (name.clone(), input.clone()));
+    if name == "Agent" || name == "Task" {
+        st.lock().unwrap().active_agents.insert(id.clone());
+        sink.subagent(&id, Some(summary(&name, &input)), Some("running".into()), input["model"].as_str().map(str::to_string)).await;
+        if let Some(prompt) = input["prompt"].as_str() {
+            sink.child(&id).emit(EventBody::UserMessage { text: prompt.into(), client_id: id.clone(), queued: false, images: vec![] }).await;
+        }
+    }
     if name == "TodoWrite" {
         let items = input["todos"]
             .as_array()
@@ -493,6 +556,14 @@ async fn tool_result(sink: &Sink, st: &Arc<Mutex<State>>, block: &Value, extra: 
     }
     let output = text_of(&block["content"]);
     let is_error = block["is_error"].as_bool().unwrap_or(false);
+    if (name == "Agent" || name == "Task") && extra["isAsync"].as_bool() != Some(true) && input["run_in_background"].as_bool() != Some(true) {
+        st.lock().unwrap().active_agents.remove(&id);
+        sink.subagent(&id, None, Some(if is_error { "failed" } else { "completed" }.into()), None).await;
+        // Keep the result accessible even when the harness does not stream the child's messages.
+        let child = sink.child(&id);
+        child.emit(EventBody::ToolCall { item_id: id.clone(), name: "Agent".into(), summary: "Delegation result".into(), input: input.clone() }).await;
+        child.emit(EventBody::ToolResult { item_id: id.clone(), output: truncate_output(&output, 30_000), is_error, exit_code: None, duration_ms: extra["durationMs"].as_i64() }).await;
+    }
     let cwd = st.lock().unwrap().cwd.clone();
     if !is_error
         && let Some(fc) = file_change(&name, &input, &id, &cwd) {

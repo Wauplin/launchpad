@@ -186,6 +186,23 @@ struct State {
     finished_tools: HashSet<String>,
     tool_outputs: HashMap<String, String>,
     images: bool,
+    children: HashMap<String, Arc<Mutex<State>>>,
+    native_children: bool,
+    fallback_children: HashSet<String>,
+    tool_child: Option<fn(&Value) -> bool>,
+}
+pub struct ChildUpdate {
+    pub id: String,
+    pub parent: Option<String>,
+    pub name: Option<String>,
+    pub status: Option<String>,
+    pub update: Option<Value>,
+    pub error: Option<String>,
+}
+pub struct Extensions {
+    pub capabilities: Value,
+    pub child_update: fn(&Value) -> Option<ChildUpdate>,
+    pub tool_child: fn(&Value) -> bool,
 }
 pub struct AcpSession {
     connection: Arc<Connection>,
@@ -196,20 +213,42 @@ pub struct AcpSession {
 
 /// Starts one ACP process per session. Resume without replay when negotiated; otherwise suppress
 /// the historical session/load replay because Launchpad already has its own persisted trace.
-pub async fn start(command: Command, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
+pub async fn start(command: Command, spec: StartSpec, sink: Sink, extensions: Extensions) -> Result<Arc<dyn LiveSession>> {
     let (connection, mut receiver) = Connection::spawn(command, sink.clone())?;
     let state = Arc::new(Mutex::new(State {
         loading: true,
+        tool_child: Some(extensions.tool_child),
         ..Default::default()
     }));
     let events_state = state.clone();
     let events_connection = connection.clone();
     let events_sink = sink.clone();
+    let child_update = extensions.child_update;
     tokio::spawn(async move {
         while let Some(event) = receiver.recv().await {
             match event {
                 Incoming::Message(message) => {
-                    if message["method"] == "session/update" {
+                    if let Some(child) = child_update(&message) {
+                        if events_state.lock().unwrap().loading { continue; }
+                        let fallbacks = {
+                            let mut state = events_state.lock().unwrap();
+                            state.native_children = true;
+                            state.fallback_children.drain().collect::<Vec<_>>()
+                        };
+                        for id in fallbacks { events_sink.subagent(&id, None, Some("superseded".into()), None).await; }
+                        events_sink.emit(EventBody::Subagent { agent_id: child.id.clone(), parent_id: child.parent, name: child.name, status: child.status.clone(), model: None }).await;
+                        let state = events_state.lock().unwrap().children.entry(child.id.clone()).or_insert_with(|| Arc::new(Mutex::new(State { message_id: uuid::Uuid::new_v4().to_string(), ..Default::default() }))).clone();
+                        if let Some(status) = &child.status { state.lock().unwrap().running = status == "running"; }
+                        let sink = events_sink.child(&child.id);
+                        if let Some(body) = child.update { update(&sink, &state, &body).await; }
+                        if child.status.as_deref().is_some_and(|s| matches!(s, "completed" | "failed" | "interrupted" | "stopped")) {
+                            finish_message(&sink, &state).await;
+                            state.lock().unwrap().message_id = uuid::Uuid::new_v4().to_string();
+                        }
+                        if let Some(message) = child.error { sink.emit(EventBody::Error { message }).await; }
+                        let (idle, busy) = { let state = events_state.lock().unwrap(); (!state.running, !state.tools.is_empty() || children_busy(&state)) };
+                        if idle && matches!(events_sink.status(), Some(SessionStatus::Waiting | SessionStatus::Background)) { events_sink.set_status(if busy { SessionStatus::Background } else { SessionStatus::Waiting }).await; }
+                    } else if message["method"] == "session/update" {
                         if !events_state.lock().unwrap().loading {
                             update(&events_sink, &events_state, &message["params"]["update"]).await;
                         }
@@ -224,6 +263,8 @@ pub async fn start(command: Command, spec: StartSpec, sink: Sink) -> Result<Arc<
                     let _ = sender.send(());
                 }
                 Incoming::Exited(error) => {
+                    let children = events_state.lock().unwrap().children.clone();
+                    for (id, state) in &children { finish_message(&events_sink.child(id), state).await; }
                     finish_message(&events_sink, &events_state).await;
                     let requests = {
                         let mut state = events_state.lock().unwrap();
@@ -250,7 +291,7 @@ pub async fn start(command: Command, spec: StartSpec, sink: Sink) -> Result<Arc<
         }
     });
     let setup = async {
-        let init = connection.request("initialize", json!({"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"launchpad","version":env!("CARGO_PKG_VERSION")}}), true).await?;
+        let init = connection.request("initialize", json!({"protocolVersion":1,"clientCapabilities":extensions.capabilities,"clientInfo":{"name":"launchpad","version":env!("CARGO_PKG_VERSION")}}), true).await?;
         anyhow::ensure!(init["protocolVersion"] == 1, "ACP protocol version 1 is required");
         state.lock().unwrap().images = init["agentCapabilities"]["promptCapabilities"]["image"] == true;
         let mut params = json!({"cwd":spec.cwd.to_string_lossy(),"mcpServers":[]});
@@ -353,7 +394,7 @@ impl LiveSession for AcpSession {
                     .drain()
                     .map(|(request_id, (rpc_id, _))| (request_id, rpc_id))
                     .collect::<Vec<_>>();
-                (state.cancelled, !state.tools.is_empty(), requests)
+                (state.cancelled, !state.tools.is_empty() || children_busy(&state), requests)
             };
             // Cancellation must settle permission cards too, rather than leaving a dead question.
             for (request_id, rpc_id) in requests {
@@ -399,7 +440,7 @@ impl LiveSession for AcpSession {
     }
     fn ready_for_turn(&self) -> bool {
         let state = self.state.lock().unwrap();
-        !state.running && state.tools.is_empty() && state.questions.is_empty()
+        !state.running && state.tools.is_empty() && state.questions.is_empty() && !children_busy(&state)
     }
     async fn interrupt(&self) -> Result<()> {
         self.state.lock().unwrap().cancelled = true;
@@ -546,6 +587,23 @@ async fn update(sink: &Sink, state: &Mutex<State>, update: &Value) {
                 let changed = previous != (tool["kind"].clone(), tool["title"].clone(), tool["rawInput"].clone());
                 (tool.clone(), is_new || changed)
             };
+            // Some ACP versions expose only the delegation tool, without native child streams.
+            let fallback = {
+                let state = state.lock().unwrap();
+                !state.native_children && state.tool_child.is_some_and(|identify| identify(&tool))
+            };
+            if fallback {
+                let agent = format!("tool:{id}");
+                let first = state.lock().unwrap().fallback_children.insert(agent.clone());
+                sink.subagent(&agent, tool["rawInput"]["description"].as_str().or(tool["title"].as_str()).map(str::to_string), Some(if tool["status"] == "completed" { "completed" } else if tool["status"] == "failed" { "failed" } else { "running" }.into()), None).await;
+                if first {
+                    let child = sink.child(&agent);
+                    child.emit(EventBody::Notice { text: "This harness version exposes only the delegation prompt and result; inner trace events are unavailable.".into() }).await;
+                    if let Some(text) = tool["rawInput"]["prompt"].as_str() { child.emit(EventBody::UserMessage { text: text.into(), client_id: agent.clone(), queued: false, images: vec![] }).await; }
+                    child.emit(EventBody::ToolCall { item_id: id.into(), name: "Agent".into(), summary: "Delegation result".into(), input: tool["rawInput"].clone() }).await;
+                }
+                if tool["status"] == "completed" || tool["status"] == "failed" { sink.child(&agent).emit(EventBody::ToolResult { item_id: id.into(), output: tool_output(&tool), is_error: tool["status"] == "failed", exit_code: None, duration_ms: None }).await; }
+            }
             if metadata_changed {
                 sink.emit(EventBody::ToolCall {
                     item_id: id.into(),
@@ -604,7 +662,7 @@ async fn update(sink: &Sink, state: &Mutex<State>, update: &Value) {
                 }
                 let ready = {
                     let state = state.lock().unwrap();
-                    !state.running && state.tools.is_empty()
+                    !state.running && state.tools.is_empty() && !children_busy(&state)
                 };
                 if ready && sink.status() == Some(SessionStatus::Background) {
                     let cancelled = state.lock().unwrap().cancelled;
@@ -687,6 +745,10 @@ async fn update(sink: &Sink, state: &Mutex<State>, update: &Value) {
         }
         _ => {}
     }
+}
+
+fn children_busy(state: &State) -> bool {
+    state.children.values().any(|child| { let child = child.lock().unwrap(); child.running || !child.tools.is_empty() })
 }
 
 fn finished_status(

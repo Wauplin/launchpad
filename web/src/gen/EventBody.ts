@@ -4,7 +4,7 @@ import type { PlanItem } from "./PlanItem";
 import type { Question } from "./Question";
 import type { SessionStatus } from "./SessionStatus";
 
-export type EventBody = { "kind": "user_message", text: string, client_id: string, queued: boolean, images: Array<ImageAttachment>, } | { "kind": "message_delivered", client_id: string, } | { "kind": "assistant_delta", item_id: string, text: string, } | { "kind": "assistant_message", item_id: string, text: string, } | { "kind": "reasoning", item_id: string, text: string, } | { "kind": "tool_call", item_id: string, name: string,
+export type EventBody = { "kind": "subagent", agent_id: string, parent_id: string | null, name: string | null, status: string | null, model: string | null, } | { "kind": "subagent_event", agent_id: string, body: EventBody, } | { "kind": "user_message", text: string, client_id: string, queued: boolean, images: Array<ImageAttachment>, } | { "kind": "message_delivered", client_id: string, } | { "kind": "assistant_delta", item_id: string, text: string, } | { "kind": "assistant_message", item_id: string, text: string, } | { "kind": "reasoning", item_id: string, text: string, } | { "kind": "tool_call", item_id: string, name: string,
 /**
  * One line, for the collapsed view: the command, the file path, the query.
  */

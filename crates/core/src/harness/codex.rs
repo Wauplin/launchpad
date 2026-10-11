@@ -35,6 +35,8 @@ struct State {
     open: HashMap<String, (String, i64, i64)>,
     /// Pending `item/tool/requestUserInput`: our request id → (JSON-RPC id, question ids).
     requests: HashMap<String, (Value, Vec<String>)>,
+    completed: HashSet<String>,
+    running: bool,
     cwd: String,
 }
 
@@ -95,6 +97,21 @@ async fn start(
         .lock()
         .unwrap()
         .insert(thread_id.clone(), (sink.clone(), state.clone()));
+    if spec.resume {
+        let mut children = HashMap::new();
+        for event in sink.app().sessions.events(sink.app(), &sink.id, 0).await? {
+            if let EventBody::Subagent { agent_id, parent_id, status, .. } = event.body {
+                let child = children.entry(agent_id).or_insert((parent_id.clone(), "unknown".to_string()));
+                if parent_id.is_some() { child.0 = parent_id; }
+                if let Some(status) = status { child.1 = status; }
+            }
+        }
+        for (id, (parent, status)) in children {
+            let owner = parent.as_deref().map(|id| sink.child(id)).unwrap_or_else(|| sink.clone());
+            let status = if status == "running" { "interrupted" } else { &status };
+            register_child(server, threads, &owner, &id, None, None, status).await;
+        }
+    }
     Ok(Arc::new(CodexSession {
         server: server.clone(),
         threads: threads.clone(),
@@ -102,6 +119,30 @@ async fn start(
         model: Mutex::new((spec.model, spec.effort)),
         state,
     }))
+}
+
+impl CodexSession {
+    fn active_turns(&self) -> Vec<(String, String)> {
+        let threads = self.threads.lock().unwrap();
+        let root = threads.get(&self.thread_id).map(|(s, _)| s.id.as_str());
+        threads.iter().filter(|(_, (s, _))| Some(s.id.as_str()) == root).filter_map(|(id, (_, state))| state.lock().unwrap().turn_id.clone().map(|turn| (id.clone(), turn))).collect()
+    }
+}
+fn child_busy(state: &State) -> bool { state.running || state.turn_id.is_some() || !state.commands.is_empty() }
+async fn settle_parent(threads: &Threads, owner: &Sink) {
+    let state = {
+        let threads = threads.lock().unwrap();
+        let root = threads.values().find(|(s, _)| s.id == owner.id && s.agent_id.is_none());
+        root.map(|(sink, state)| {
+            let state = state.lock().unwrap();
+            let busy = !state.commands.is_empty() || threads.values().any(|(s, st)| s.id == owner.id && s.agent_id.is_some() && child_busy(&st.lock().unwrap()));
+            (sink.clone(), state.turn_id.is_none(), busy)
+        })
+    };
+    if let Some((sink, idle, busy)) = state
+        && idle && matches!(sink.status(), Some(SessionStatus::Waiting | SessionStatus::Background)) {
+        sink.set_status(if busy { SessionStatus::Background } else if sink.stop_requested() { SessionStatus::Stopped } else { SessionStatus::Waiting }).await;
+    }
 }
 
 #[async_trait]
@@ -139,7 +180,7 @@ impl LiveSession for CodexSession {
         Ok(())
     }
 
-    fn turn_active(&self) -> bool { self.state.lock().unwrap().turn_id.is_some() }
+    fn turn_active(&self) -> bool { !self.active_turns().is_empty() }
 
     fn set_model(&self, model: Option<&str>, effort: Option<&str>) -> bool {
         *self.model.lock().unwrap() = (model.map(str::to_string), effort.map(str::to_string));
@@ -148,23 +189,25 @@ impl LiveSession for CodexSession {
 
     fn ready_for_turn(&self) -> bool {
         let s = self.state.lock().unwrap();
-        s.turn_id.is_none() && s.commands.is_empty() && s.requests.is_empty()
+        if s.turn_id.is_some() || !s.commands.is_empty() || !s.requests.is_empty() { return false; }
+        drop(s);
+        let threads = self.threads.lock().unwrap();
+        let root = threads.get(&self.thread_id).map(|(s, _)| s.id.as_str());
+        !threads.values().any(|(sink, state)| sink.agent_id.is_some() && Some(sink.id.as_str()) == root && child_busy(&state.lock().unwrap()))
     }
 
     async fn interrupt(&self) -> Result<()> {
-        let turn = self
-            .state
-            .lock()
-            .unwrap()
-            .turn_id
-            .clone()
-            .context("no turn is running")?;
-        self.server
-            .request(
-                "turn/interrupt",
-                json!({"threadId": self.thread_id, "turnId": turn}),
-            )
-            .await?;
+        let turns = self.active_turns();
+        anyhow::ensure!(!turns.is_empty(), "no turn is running");
+        let mut interrupted = false;
+        let mut error = None;
+        for (thread, turn) in turns {
+            match self.server.request("turn/interrupt", json!({"threadId":thread,"turnId":turn})).await {
+                Ok(_) => interrupted = true,
+                Err(e) => error = Some(e),
+            }
+        }
+        if !interrupted { return Err(error.context("no active turn could be interrupted")?); }
         Ok(())
     }
 
@@ -179,17 +222,17 @@ impl LiveSession for CodexSession {
     }
 
     async fn stop(&self) -> Result<()> {
-        let turn = self.state.lock().unwrap().turn_id.clone();
-        if let Some(turn) = turn {
-            let _ = self
-                .server
-                .request(
-                    "turn/interrupt",
-                    json!({"threadId": self.thread_id, "turnId": turn}),
-                )
-                .await;
+        for (thread, turn) in self.active_turns() {
+            let _ = self.server.request("turn/interrupt", json!({"threadId":thread,"turnId":turn})).await;
         }
-        self.threads.lock().unwrap().remove(&self.thread_id);
+        let children: Vec<String> = {
+            let mut threads = self.threads.lock().unwrap();
+            let ids = threads.iter().filter(|(_, (sink, _))| sink.id == threads.get(&self.thread_id).map(|(s, _)| s.id.as_str()).unwrap_or("") && sink.agent_id.is_some()).map(|(id, _)| id.clone()).collect::<Vec<_>>();
+            for id in &ids { threads.remove(id); }
+            threads.remove(&self.thread_id);
+            ids
+        };
+        for id in children { let _ = self.server.request("thread/unsubscribe", json!({"threadId":id})).await; }
         let _ = self
             .server
             .request("thread/unsubscribe", json!({"threadId": self.thread_id}))
@@ -207,6 +250,15 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
         loop {
             match rx.recv().await {
                 Ok(Incoming::Notification { method, params }) => {
+                    // Native thread ancestry catches nested agents, including calls inside code mode.
+                    if method == "thread/started" {
+                        let thread = &params["thread"];
+                        let parent = thread["parentThreadId"].as_str().or_else(|| thread["source"]["subAgent"]["thread_spawn"]["parent_thread_id"].as_str());
+                        let owner = parent.and_then(|id| router_threads.lock().unwrap().get(id).cloned());
+                        if let (Some((sink, _)), Some(id)) = (owner, thread["id"].as_str()) {
+                            register_child(&server, &router_threads, &sink, id, thread["agentNickname"].as_str().or(thread["name"].as_str()).map(str::to_string), thread["model"].as_str().map(str::to_string), "running").await;
+                        }
+                    }
                     let Some(entry) = params["threadId"]
                         .as_str()
                         .and_then(|t| router_threads.lock().unwrap().get(t).cloned())
@@ -220,12 +272,20 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
                             &json!({"method": method, "params": params}).to_string(),
                         )
                         .await;
-                    notification(&entry.0, &entry.1, &method, &params).await;
+                    discover_children(&server, &router_threads, &entry.0, &params["item"]).await;
+                    notification(&entry.0, &entry.1, &method, &params, &router_threads).await;
+                    settle_parent(&router_threads, &entry.0).await;
                 }
                 Ok(Incoming::Request { id, method, params }) => {
                     let entry = params["threadId"]
                         .as_str()
                         .and_then(|t| router_threads.lock().unwrap().get(t).cloned());
+                    let entry = if method == "item/tool/requestUserInput" {
+                        if let Some((child, _)) = &entry && child.agent_id.is_some() {
+                            child.emit(EventBody::Notice { text: "Waiting for your answer in the parent session.".into() }).await;
+                            router_threads.lock().unwrap().values().find(|(root, _)| root.id == child.id && root.agent_id.is_none()).cloned()
+                        } else { entry }
+                    } else { entry };
                     request(&server, entry, id, &method, &params).await;
                 }
                 Ok(Incoming::Exited) => {
@@ -233,6 +293,7 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
                     let all: Vec<(String, ThreadSession)> =
                         router_threads.lock().unwrap().drain().collect();
                     for (_, (sink, _)) in all {
+                        if sink.agent_id.is_some() { sink.set_status(SessionStatus::Interrupted).await; continue; }
                         sink.exited(Some("codex app-server exited".into())).await;
                     }
                 }
@@ -242,6 +303,71 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
         }
     });
 
+}
+
+/// Join a child as an observer, preserving its native configuration. Never start a child turn.
+async fn register_child(server: &CodexServer, threads: &Threads, owner: &Sink, id: &str, name: Option<String>, model: Option<String>, initial_status: &str) {
+    let child = owner.child(id);
+    let added = {
+        let mut threads = threads.lock().unwrap();
+        if threads.contains_key(id) { false } else {
+            threads.insert(id.into(), (child.clone(), Arc::new(Mutex::new(State { running: initial_status == "running", cwd: owner.app().sessions.get(&owner.id).map(|s| s.cwd).unwrap_or_default(), ..Default::default() }))));
+            true
+        }
+    };
+    if !added { return; }
+    owner.subagent(id, name, Some(initial_status.into()), model).await;
+    let server = server.clone();
+    let threads = threads.clone();
+    let id = id.to_string();
+    tokio::spawn(async move {
+        match server.request("thread/resume", json!({"threadId":id,"excludeTurns":true})).await {
+            Ok(response) => {
+                let status = response["thread"]["status"]["type"].as_str();
+                let state = threads.lock().unwrap().get(&id).map(|(_, st)| st.clone());
+                if let Some(state) = state { state.lock().unwrap().running = status == Some("active"); }
+                if status == Some("active") { child.set_status(SessionStatus::Working).await; }
+                else if status == Some("systemError") { child.set_status(SessionStatus::Error).await; }
+                settle_parent(&threads, &child).await;
+            }
+            Err(error) => { child.emit(EventBody::Notice { text: format!("Could not attach the live trace: {error:#}") }).await; }
+        }
+    });
+}
+async fn discover_children(server: &CodexServer, threads: &Threads, owner: &Sink, item: &Value) {
+    if item["type"] == "subAgentActivity" {
+        if let Some(id) = item["agentThreadId"].as_str() {
+            register_child(server, threads, owner, id, item["agentPath"].as_str().map(str::to_string), item["model"].as_str().map(str::to_string), "running").await;
+            let status = match item["kind"].as_str() {
+                Some("completed") => Some("completed"), Some("interrupted") => Some("interrupted"),
+                Some("started") => Some("running"), _ => None,
+            };
+            if let Some(status) = status {
+                let state = threads.lock().unwrap().get(id).map(|(_, st)| st.clone());
+                if let Some(state) = state { state.lock().unwrap().running = status == "running"; }
+                owner.subagent(id, None, Some(status.into()), None).await;
+            }
+        }
+    } else if item["type"] == "collabAgentToolCall" {
+        for id in item["receiverThreadIds"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            register_child(server, threads, owner, id, None, item["model"].as_str().map(str::to_string), "running").await;
+        }
+        for (id, state) in item["agentsStates"].as_object().into_iter().flatten() {
+            register_child(server, threads, owner, id, None, None, "running").await;
+            let status = match state["status"].as_str() {
+                Some("pendingInit" | "running") => "running", Some("completed") => "completed",
+                Some("errored") => "failed", Some("interrupted") => "interrupted", Some("shutdown") => "stopped", _ => "unknown",
+            };
+            // These statuses describe receivers; wait/message calls are not ancestry evidence.
+            let child = threads.lock().unwrap().get(id).map(|(sink, _)| sink.clone());
+            let state = threads.lock().unwrap().get(id).map(|(_, st)| st.clone());
+            if let Some(state) = state { state.lock().unwrap().running = status == "running"; }
+            if let Some(child) = child {
+                if status == "unknown" { child.root().subagent(id, None, Some("unknown".into()), None).await; }
+                else { child.set_status(match status { "running" => SessionStatus::Working, "completed" => SessionStatus::Waiting, "failed" => SessionStatus::Error, "interrupted" => SessionStatus::Interrupted, _ => SessionStatus::Stopped }).await; }
+            }
+        }
+    }
 }
 
 async fn request(
@@ -308,9 +434,18 @@ fn item_summary(item: &Value) -> (String, String) {
 
 const TOOL_ITEMS: &[&str] = &["commandExecution", "mcpToolCall", "dynamicToolCall", "webSearch", "imageView", "collabAgentToolCall"];
 
-async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Value) {
+async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Value, threads: &Threads) {
     match method {
+        "thread/status/changed" if sink.agent_id.is_some() => {
+            st.lock().unwrap().running = p["status"]["type"] == "active";
+            match p["status"]["type"].as_str() {
+                Some("active") => sink.set_status(SessionStatus::Working).await,
+                Some("systemError") => sink.set_status(SessionStatus::Error).await,
+                _ => {},
+            }
+        }
         "turn/started" => {
+            st.lock().unwrap().running = true;
             st.lock().unwrap().turn_id = p["turn"]["id"].as_str().map(str::to_string);
             if sink.status() != Some(SessionStatus::Working) {
                 sink.set_status(SessionStatus::Working).await;
@@ -321,6 +456,10 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             let (t, id) = (item["type"].as_str().unwrap_or(""), item["id"].as_str().unwrap_or("").to_string());
             match t {
                 "userMessage" => {
+                    if sink.agent_id.is_some() {
+                        let text = item["content"].as_array().into_iter().flatten().filter_map(|c| c["text"].as_str()).collect::<Vec<_>>().join("\n");
+                        if !text.is_empty() { sink.emit(EventBody::UserMessage { text, client_id: id.clone(), queued: false, images: vec![] }).await; }
+                    }
                     if let Some(c) = item["clientId"].as_str() {
                         sink.emit(EventBody::MessageDelivered { client_id: c.into() }).await;
                     }
@@ -350,6 +489,7 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
         "item/completed" => {
             let item = &p["item"];
             let (t, id) = (item["type"].as_str().unwrap_or(""), item["id"].as_str().unwrap_or("").to_string());
+            if !st.lock().unwrap().completed.insert(id.clone()) { return; }
             st.lock().unwrap().open.remove(&id);
             st.lock().unwrap().commands.remove(&id);
             match t {
@@ -443,6 +583,7 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             .await;
         }
         "turn/completed" => {
+            st.lock().unwrap().running = false;
             let turn = &p["turn"];
             let interrupted = turn["status"] == "interrupted";
             let error = turn["error"]["message"].as_str().map(str::to_string);
@@ -462,9 +603,11 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             if turn["status"] == "failed" {
                 sink.emit(EventBody::Error { message: error.unwrap_or_else(|| "the turn failed".into()) }).await;
             }
+            let commands_running = !st.lock().unwrap().commands.is_empty();
+            let background = commands_running || sink.agent_id.is_none() && threads.lock().unwrap().values().any(|(child, state)| child.id == sink.id && child.agent_id.is_some() && child_busy(&state.lock().unwrap()));
             sink.set_status(if turn["status"] == "failed" { SessionStatus::Error }
                 else if sink.stop_requested() { SessionStatus::Stopped }
-                else if interrupted { SessionStatus::Interrupted } else { SessionStatus::Waiting }).await;
+                else if interrupted { SessionStatus::Interrupted } else if background { SessionStatus::Background } else { SessionStatus::Waiting }).await;
         }
         "error" => {
             if let Some(m) = p["error"]["message"].as_str() {

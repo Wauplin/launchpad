@@ -38,7 +38,11 @@ impl super::Harness for Adapter {
             .env("LAUNCHPAD_SESSION_ID", &spec.session_id)
             .envs(spec.env.iter().cloned());
         sink.raw("cmd", "opencode acp").await;
-        super::acp::start(command, spec, sink).await
+        super::acp::start(command, spec, sink, super::acp::Extensions {
+            capabilities: serde_json::json!({"_meta":{"opencode/child-session-updates":true}}),
+            child_update,
+            tool_child: |tool| tool["rawInput"]["subagent_type"].is_string(),
+        }).await
     }
     async fn models(&self, app: &App) -> Result<Vec<ModelInfo>> {
         let output = crate::procs::output(&app.env, "opencode", &["models"], None).await?;
@@ -70,4 +74,27 @@ impl super::Harness for Adapter {
                 .ok_or_else(|| anyhow::anyhow!("the session has no conversation yet"))?,
         ])
     }
+}
+
+/// Native ACP extension; older versions project attributed child updates into session/update.
+fn child_update(message: &serde_json::Value) -> Option<super::acp::ChildUpdate> {
+    let p = &message["params"];
+    if message["method"] == "opencode/session/child_update" {
+        Some(super::acp::ChildUpdate {
+            id: p["childSessionId"].as_str()?.into(),
+            parent: p["parentSessionId"].as_str().filter(|id| Some(*id) != p["rootSessionId"].as_str()).map(str::to_string),
+            name: p["title"].as_str().map(str::to_string),
+            status: p["status"].as_str().map(|s| if s == "created" { "running" } else { s }.into()),
+            update: p.get("update").cloned(),
+            error: p["error"]["message"].as_str().map(str::to_string),
+        })
+    } else if message["method"] == "session/update" {
+        let meta = &p["update"]["_meta"]["opencode/child-session"];
+        Some(super::acp::ChildUpdate {
+            id: meta["id"].as_str()?.into(),
+            parent: meta["parentID"].as_str().filter(|id| Some(*id) != p["sessionId"].as_str()).map(str::to_string),
+            name: meta["title"].as_str().map(str::to_string),
+            status: None, update: Some(p["update"].clone()), error: None,
+        })
+    } else { None }
 }

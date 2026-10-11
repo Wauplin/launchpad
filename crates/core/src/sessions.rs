@@ -366,7 +366,7 @@ impl Sessions {
     }
 
     pub fn sink(&self, app: &App, id: &str) -> Sink {
-        Sink { app: app.clone(), sessions: self.clone(), id: id.to_string(), instance: 0 }
+        Sink { app: app.clone(), sessions: self.clone(), id: id.to_string(), instance: 0, agent_id: None }
     }
 
     // ---------------------------------------------------------------- operations
@@ -1161,10 +1161,21 @@ pub struct Sink {
     pub id: String,
     /// The attached process this sink belongs to (0: no process).
     instance: u64,
+    pub agent_id: Option<String>,
 }
 
 impl Sink {
+    pub fn child(&self, id: &str) -> Self {
+        Self { agent_id: Some(id.into()), ..self.clone() }
+    }
+    pub async fn subagent(&self, id: &str, name: Option<String>, status: Option<String>, model: Option<String>) {
+        self.root().emit(EventBody::Subagent { agent_id: id.into(), parent_id: self.agent_id.clone(), name, status, model }).await;
+    }
+    pub fn root(&self) -> Self { Self { agent_id: None, ..self.clone() } }
     pub async fn emit(&self, body: EventBody) {
+        let body = if let Some(id) = &self.agent_id {
+            EventBody::SubagentEvent { agent_id: id.clone(), body: Box::new(body) }
+        } else { body };
         let ts = now_ms();
         if body.is_ephemeral() {
             let ev = SessionEvent { session_id: self.id.clone(), seq: 0, ts, body };
@@ -1241,10 +1252,19 @@ impl Sink {
     }
 
     pub fn status(&self) -> Option<SessionStatus> {
+        if self.agent_id.is_some() { return None; }
         self.sessions.get(&self.id).map(|s| s.status)
     }
 
     pub async fn set_status(&self, status: SessionStatus) {
+        if let Some(id) = &self.agent_id {
+            let status = if status.is_running() { "running" } else { match status {
+                SessionStatus::Error => "failed", SessionStatus::Interrupted => "interrupted",
+                SessionStatus::Stopped | SessionStatus::Closed => "stopped", _ => "completed",
+            }};
+            self.root().subagent(id, None, Some(status.into()), None).await;
+            return;
+        }
         // Detached adapters can still report a final result after Archive or reattachment.
         if self.instance != 0 && self.sessions.inner.live.lock().unwrap().get(&self.id).is_none_or(|(instance, _)| *instance != self.instance) { return; }
         if matches!(status, SessionStatus::Stopped | SessionStatus::Closed | SessionStatus::Interrupted | SessionStatus::Error) {
@@ -1278,15 +1298,21 @@ impl Sink {
     }
 
     pub async fn set_open_question(&self, open: bool) {
+        if self.agent_id.is_some() { return; }
         let _ = self.sessions.update(&self.app, &self.id, |s| s.open_question = open).await;
     }
 
     pub async fn set_harness_id(&self, harness_id: &str) {
+        if self.agent_id.is_some() { return; }
         let h = harness_id.to_string();
         let _ = self.sessions.update(&self.app, &self.id, |s| s.harness_session_id = Some(h)).await;
     }
 
     pub async fn set_model(&self, model: &str) {
+        if let Some(id) = &self.agent_id {
+            self.root().subagent(id, None, None, Some(model.into())).await;
+            return;
+        }
         let m = model.to_string();
         let _ = self.sessions.update(&self.app, &self.id, |s| {
             if s.model.is_none() {
@@ -1297,6 +1323,7 @@ impl Sink {
     }
 
     pub async fn update_usage(&self, f: impl FnOnce(&mut Usage)) {
+        if self.agent_id.is_some() { return; }
         let mut crossed = false;
         let _ = self.sessions.update(&self.app, &self.id, |s| {
             let before = s.budget_reached();

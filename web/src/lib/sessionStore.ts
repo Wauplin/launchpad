@@ -50,12 +50,14 @@ export const useSessionLogs = create<Store>((set, get) => ({
     const log = get().logs[id];
     if (!log) return; // not on screen
     if (ev.seq === 0) {
-      const b = ev.body;
+      const wrapped = ev.body;
+      const b = wrapped.kind === "subagent_event" ? wrapped.body : wrapped;
+      const prefix = wrapped.kind === "subagent_event" ? `${wrapped.agent_id}\0` : "";
       if (b.kind === "assistant_delta") {
-        set((s) => ({ logs: { ...s.logs, [id]: { ...log, deltas: { ...log.deltas, [b.item_id]: (log.deltas[b.item_id] ?? "") + b.text } } } }));
+        set((s) => ({ logs: { ...s.logs, [id]: { ...log, deltas: { ...log.deltas, [prefix + b.item_id]: (log.deltas[prefix + b.item_id] ?? "") + b.text } } } }));
       } else if (b.kind === "tool_output") {
-        const text = ((log.outputs[b.item_id] ?? "") + b.text).slice(-8000);
-        set((s) => ({ logs: { ...s.logs, [id]: { ...log, outputs: { ...log.outputs, [b.item_id]: text } } } }));
+        const text = ((log.outputs[prefix + b.item_id] ?? "") + b.text).slice(-8000);
+        set((s) => ({ logs: { ...s.logs, [id]: { ...log, outputs: { ...log.outputs, [prefix + b.item_id]: text } } } }));
       }
       return;
     }
@@ -72,15 +74,17 @@ export const useSessionLogs = create<Store>((set, get) => ({
 function settle(log: SessionLog, fresh: SessionEvent[]): SessionLog {
   let { deltas, outputs } = log;
   for (const e of fresh) {
-    const b = e.body;
-    if (b.kind === "assistant_message" && b.item_id in deltas) {
+    const wrapped = e.body;
+    const b = wrapped.kind === "subagent_event" ? wrapped.body : wrapped;
+    const prefix = wrapped.kind === "subagent_event" ? `${wrapped.agent_id}\0` : "";
+    if (b.kind === "assistant_message" && prefix + b.item_id in deltas) {
       deltas = { ...deltas };
-      delete deltas[b.item_id];
-    } else if (b.kind === "tool_result" && b.item_id in outputs) {
+      delete deltas[prefix + b.item_id];
+    } else if (b.kind === "tool_result" && prefix + b.item_id in outputs) {
       outputs = { ...outputs };
-      delete outputs[b.item_id];
+      delete outputs[prefix + b.item_id];
     } else if (b.kind === "turn_end") {
-      deltas = {};
+      deltas = Object.fromEntries(Object.entries(deltas).filter(([key]) => prefix ? !key.startsWith(prefix) : key.includes("\0")));
     }
   }
   return { ...log, deltas, outputs };

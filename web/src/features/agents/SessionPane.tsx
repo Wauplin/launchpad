@@ -3,6 +3,7 @@
 
 import { useVariant } from "@/lib/variants";
 import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle } from "./SessionSummary";
+import { SubagentsPanel, subagents } from "./SubagentsPanel";
 import { GitPanel } from "./GitPanel";
 import { useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
@@ -137,7 +138,7 @@ function useCodeLinks(s: { id: string; project_id: string | null; cwd: string } 
   }, [files, s?.id, s?.project_id, s?.cwd, navigate]);
 }
 
-type View = "summary" | "trace" | "changes";
+type View = "summary" | "trace" | "changes" | "subagents";
 
 export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear: () => void }) {
   const [renaming, setRenaming] = useState(false);
@@ -173,6 +174,8 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
     }
   }, [sessionId, log, load]);
   const rows = useMemo(() => (log ? buildRows(log) : []), [log]);
+  const children = useMemo(() => subagents(log, s?.live ?? false), [log, s?.live]);
+  const childrenOpen = current === "subagents";
   const typed = s?.launch_spec.text ?? "";
   const trace = useMemo(() => foldTrace(rows, typed), [rows, typed]);
   const ask: PendingAsk = useMemo(() => {
@@ -185,7 +188,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
-  const traceOpen = !summary && !changesOpen;
+  const traceOpen = !summary && !changesOpen && !childrenOpen;
   const v = useVirtualizer({ enabled: traceOpen, count: trace.length, getScrollElement: () => scrollRef.current, estimateSize: () => 48, overscan: 6, useFlushSync: false });
   const total = v.getTotalSize();
   useLayoutEffect(() => {
@@ -291,9 +294,10 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
           <span className="ml-auto" title="Started">{new Date(s.started_at).toLocaleDateString()}</span>
         </span>
         <span className="order-4 col-span-2 flex flex-wrap items-center gap-1 pt-1">
-          <span className="mr-1 inline-flex gap-0.5 rounded border border-line p-0.5" aria-label="Session view">
+          <span className="mr-1 inline-flex max-w-full flex-wrap gap-0.5 rounded border border-line p-0.5" aria-label="Session view">
             <button className={`btn btn-sm ${summary ? "bg-select!" : ""}`} aria-pressed={summary} disabled={running} onClick={() => setView("summary")}>Summary</button>
             <button className={`btn btn-sm ${traceOpen ? "bg-select!" : ""}`} aria-pressed={traceOpen} onClick={() => setView("trace")}>Trace</button>
+            {children.length > 0 && <button className={`btn btn-sm ${childrenOpen ? "bg-select!" : ""}`} aria-pressed={childrenOpen} onClick={() => setView("subagents")}><Icon name="agents" size={12} />Subagents · {children.filter((a) => a.status === "running").length || children.length}{children.some((a) => a.status === "running") ? " running" : ""}</button>}
             {isGit && <button className={`btn btn-sm ${changesOpen ? "bg-select!" : ""}`} aria-pressed={changesOpen} title="Git changes of the session folder" onClick={() => showChanges(onlyMain)}>Changes{changed ? ` · ${git.data!.files.length || mainChanges}` : ""}</button>}
           </span>
           <span className="ml-auto flex flex-wrap items-center gap-1">
@@ -318,7 +322,8 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
 
       {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} />}
       <CodeLinksContext.Provider value={codeLinks}>
-      {!changesOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">Loading…</div> : <SessionSummary key={s.id} session={s} rows={rows} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
+      {childrenOpen && log && <SubagentsPanel key={s.id} log={log} agents={children} sessionId={s.id} live={s.live} back={() => setView("trace")} />}
+      {!changesOpen && !childrenOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">Loading…</div> : <SessionSummary key={s.id} session={s} rows={rows} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
       {traceOpen && !running && <><StateBand session={s}>
         <button className="btn btn-sm" disabled={!rows.some((r) => r.t === "assistant")} onClick={() => { atBottom.current = false; const i = trace.findLastIndex((r) => r.t === "assistant"); if (i >= 0) v.scrollToIndex(i, { align: "start" }); }}>Final message</button>
         <button className="btn btn-sm" onClick={() => setView("summary")}>Summary</button>
@@ -356,7 +361,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
         )}
       </div>
       </CodeLinksContext.Provider>
-      <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal" || s.status === "quota_paused" || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={s.open_question && s.live ? ask : null} />
+      {!childrenOpen && <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal" || s.status === "quota_paused" || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={s.open_question && s.live ? ask : null} />}
     </div>
   );
 }

@@ -189,6 +189,10 @@ pub struct SessionEvent {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EventBody {
+    /// A native child agent. Optional fields update only the metadata supplied by the harness.
+    Subagent { agent_id: String, parent_id: Option<String>, name: Option<String>, status: Option<String>, model: Option<String> },
+    /// Child traces share the root session's durable sequence and transport, but stay separate in the UI.
+    SubagentEvent { agent_id: String, body: Box<EventBody> },
     /// Sent by you. `queued` while the agent has not read it yet.
     UserMessage { text: String, client_id: String, queued: bool, #[serde(default)] images: Vec<ImageAttachment> },
     /// The agent read a queued message.
@@ -249,10 +253,13 @@ pub enum EventBody {
 impl EventBody {
     /// Live-only events are streamed but not stored.
     pub fn is_ephemeral(&self) -> bool {
+        if let Self::SubagentEvent { body, .. } = self { return body.is_ephemeral(); }
         matches!(self, EventBody::AssistantDelta { .. } | EventBody::ToolOutput { .. })
     }
     pub fn kind(&self) -> &'static str {
         match self {
+            EventBody::Subagent { .. } => "subagent",
+            EventBody::SubagentEvent { .. } => "subagent_event",
             EventBody::UserMessage { .. } => "user_message",
             EventBody::MessageDelivered { .. } => "message_delivered",
             EventBody::AssistantDelta { .. } => "assistant_delta",

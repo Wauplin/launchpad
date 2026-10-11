@@ -554,6 +554,14 @@ The quota band appears in Summary and Trace, shows blocking windows and reset ti
 - **Header:** Summary · Trace · Changes tabs, one state-dependent primary button, Terminal and More ▾ (see [9.1.1](#911-agent-selection)). Warning badges (paid usage, cost limit) stay in the header; usage figures (tokens, cost, duration) are in Summary → Run.
 - **Files:** file paths in tool calls and file changes, and `path:line` references in messages, open the code viewer on the session's cwd ([8.1](#81-code-viewer)). Files in the header More ▾ menu opens the viewer on that folder, with a Back to session link.
 
+### 9.6.1 Subagents
+
+Subagents are native children of an existing harness conversation, not independently launchable Launchpad sessions. `Subagent` events upsert reported identity, ancestry, name, status and model, and `SubagentEvent` envelopes carry a child's normalized trace. Both use the root session's event log and sequence; streamed text/output stay ephemeral. Root traces, summaries and last-message previews exclude child envelopes. Fixed trace exports include them and strip image bytes recursively. No new table or API is needed.
+
+A scoped `Sink` wraps child events and prevents them from changing root usage, model, native identity, state or questions. Codex routes native child threads by their ancestry and collaboration/activity records, joins them as observers without starting turns, and restores observation on parent resume. Claude routes `parent_tool_use_id` messages into separate normalizer states and tracks foreground/background delegation outcomes. OpenCode owns its ACP extension metadata/callbacks in its adapter; the shared client handles native child updates and older delegation-only tool records. Native updates supersede provisional delegation-only entries. Providers that omit child events expose only what they report; Launchpad never invents inner activity.
+
+The session header shows Subagents only when children exist, with a running count or total. Its read-only view has a virtualized, collapsible tree and the existing virtualized trace renderer, plus parent navigation, reported state/model and an explicit unavailable-trace message. It stacks the tree above the trace in narrow panels. Parent input/Stop/resume controls own the conversation; child questions use the parent's native answer routing. Outstanding child turns/tools participate in readiness and publication/cleanup guards. Codex Stop and quota interruption attempt to interrupt observed descendant turns; daemon restart still interrupts the harnesses, while stored child traces remain readable. See [scope and acceptance](subagents-plan.md).
+
 ### 9.7 Prompt composition
 
 A launch is described by a spec:
@@ -931,6 +939,8 @@ Project metadata refresh, on 2026-10-04:
 75. **Launch attachments and screenshot paste.** On 2026-10-11, added owner-requested file/image selection and drops plus screenshot paste to New agent. Reuse native harness images and quota-held input; store non-image reference copies in private session directories outside checkouts. Keep upload bytes in local launch specs for draft and scheduling persistence, and share clipboard extraction with the steering message box.
 
 76. **Agents dashboard after closing a panel.** On 2026-10-11, removed automatic selection of the first Needs you session when no run is selected. Closing Summary, Trace or Changes returns to the dashboard and cannot mark another run seen. Explicit session selection and notification links still open run details; archiving the shown run still advances within its original group. This adjusts the automatic selection behavior introduced by decision 72.
+
+77. **Native subagent observation.** On 2026-10-11, added the owner-requested minimal Subagents view with nested ancestry and per-child traces. Persist normalized child envelopes in the parent event log and keep children out of global session groups/counts. Harnesses own discovery and native lifecycle; reported child activity participates in busy checks. Older ACP versions show delegation prompts/results with an explicit trace limitation. No independent child launches, paid overrides, publication controls or restart-survival workers.
 
 ## Remote access feasibility research (2026-10-10)
 

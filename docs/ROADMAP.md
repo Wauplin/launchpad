@@ -24,6 +24,7 @@ Status: implementation and acceptance tracker (updated 2026-10-11). See [ARCHITE
 | 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | In progress |
 | 7 | Scoped optional extensions | Harness registry, OpenCode, local variants and cost limits built; other candidates await selection | In progress |
 | 7a | Integrated terminal (scoped) | Shells and harness TUIs run in a dock inside Launchpad instead of external terminals | In progress |
+| 7b | Subagent monitoring (scoped) | Nested native agents and separate read-only traces inside their parent session | In progress |
 | UX | UX suggestions pass (2026-10-11) | The next action is one click away: Needs you, To publish, inbox triage, state-driven session actions | In progress |
 
 Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
@@ -318,3 +319,10 @@ Closing agent panels was checked with UI type checking/build and the dev daemon 
 Left: the daily-use check.
 
 On 2026-10-11, removed external editor launch actions from project pages, session headers and the code viewer, plus the editor setting and API endpoint. Verified with pinned workspace Clippy, UI type checking/build, and the dev daemon in Chrome: project/session buttons, code-viewer line selection, Settings, and the removed endpoint returning 404. Phase statuses and daily-use acceptance checks remain unchanged.
+
+## Phase 7b: subagent monitoring
+
+Owner-selected scope (2026-10-11): show running subagents, their traces and nested subagents with a minimal UI. Scope and acceptance: [subagents-plan.md](subagents-plan.md).
+
+- Built: adapter-owned child discovery/routing for Codex, Claude and native OpenCode ACP extensions; durable child metadata/traces in the root event log, scoped streaming, independent lifecycle, parent question routing, descendant busy checks and Codex interruption; compact Subagents control with a collapsible virtualized tree, read-only trace, parent navigation and a narrow-panel layout. Older OpenCode versions show delegation prompt/result with a trace limitation notice.
+- Checked: native Codex parent/child/grandchild traces, background-child busy state and parent Stop, plus completed state/trace preservation through archive/restart/resume without duplication; installed OpenCode delegation prompt/result fallback and follow-up; Chrome tree/trace navigation at 1440 px across all five zoom positions and at 800 px with 120% zoom. UI typecheck/build and strict workspace Clippy pass. Existing native OpenCode exposes delegation-only output; Claude live checks are deferred while included quota is exhausted. Daily-use and platform acceptance remain with the owner.

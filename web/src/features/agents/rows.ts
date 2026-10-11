@@ -119,9 +119,11 @@ export function buildRows(log: SessionLog): Row[] {
 
   for (const [id, text] of Object.entries(log.outputs)) {
     const c = calls.get(id);
+    if (id.includes("\0")) continue;
     if (c && !c.result) c.live = text;
   }
   for (const [id, text] of Object.entries(log.deltas)) {
+    if (id.includes("\0")) continue;
     if (text.trim()) rows.push({ key: `d${id}`, v: String(text.length), t: "assistant", text, streaming: true });
   }
   // Versions, so memoized rows only render again when they change.
