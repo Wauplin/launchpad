@@ -23,6 +23,7 @@ export const emptySpec = (): LaunchSpec => ({
   context_projects: [],
   github_refs: [],
   files: [],
+  attachments: [],
   agent_traces: [],
   model: null,
   effort: null,

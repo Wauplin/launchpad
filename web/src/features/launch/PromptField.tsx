@@ -43,7 +43,11 @@ export function PromptField({
   repo,
   onPickProject,
   onPickItem,
+  onPaste,
+  disabled,
 }: {
+  onPaste?: React.ClipboardEventHandler<HTMLTextAreaElement>;
+  disabled?: boolean;
   value: string;
   onChange: (v: string) => void;
   projects: Project[];
@@ -109,6 +113,8 @@ export function PromptField({
     <div className="relative">
       <textarea
         ref={ref}
+        onPaste={onPaste}
+        disabled={disabled}
         value={value}
         rows={7}
         autoFocus

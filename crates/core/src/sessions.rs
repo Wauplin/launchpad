@@ -373,6 +373,7 @@ impl Sessions {
 
     /// Resolves a launch spec: cwd, prompt, title and context directories. No side effect.
     pub async fn preview(&self, app: &App, spec: &LaunchSpec) -> Result<Preview> {
+        crate::attachments::validate(&spec.attachments)?;
         let config = app.config.get();
         let mut context = Vec::new();
         let mut add_dirs = Vec::new();
@@ -448,6 +449,8 @@ impl Sessions {
         if spec.target == Target::None {
             bail!("pick a project or a temporary folder");
         }
+        crate::attachments::validate(&spec.attachments)?;
+        anyhow::ensure!(spec.attachments.iter().all(|f| !crate::attachments::is_image(&f.data_url)) || crate::harness::registration(harness).descriptor.capabilities.images, "This harness does not support images.");
         let variant = crate::variants::resolve(app, harness, &spec)?;
         let env = crate::variants::env(app, harness, &spec)?;
         check_budget(harness, spec.budget_usd)?;
@@ -514,6 +517,9 @@ impl Sessions {
         {
             tracing::warn!("launch: could not add the project to its workspace: {e:#}");
         }
+        let (images, attachment_dir, instruction) = crate::attachments::prepare(app, &id, &spec.attachments).await?;
+        if let Some(dir) = attachment_dir { preview.add_dirs.push(dir.to_string_lossy().into_owned()); }
+        preview.prompt.push_str(&instruction);
         preview.prompt.push_str(&format!("\n\n{}", crate::suggestions::instruction(app, &id)));
         let now = now_ms();
         let session = Session {
@@ -561,7 +567,7 @@ impl Sessions {
         let protected = crate::quota::protected(app, harness, &session.launch_spec);
         if protected && !crate::quota::blockers(app, harness).is_empty() {
             self.update(app, &id, |s| s.harness_session_id = None).await?;
-            self.hold_input(app, &id, &preview.prompt, vec![]).await?;
+            self.hold_input(app, &id, &preview.prompt, images.clone()).await?;
             return Ok(self.get(&id).unwrap());
         }
 
@@ -583,9 +589,9 @@ impl Sessions {
         match self.attach(app, harness, start, sink.clone()).await {
             Ok(live) => {
                 let client_id = uuid::Uuid::new_v4().to_string();
-                sink.emit(EventBody::UserMessage { text: preview.prompt.clone(), client_id: client_id.clone(), queued: false, images: vec![] }).await;
+                sink.emit(EventBody::UserMessage { text: preview.prompt.clone(), client_id: client_id.clone(), queued: false, images: images.clone() }).await;
                 sink.set_status(SessionStatus::Working).await;
-                if let Err(e) = live.send(&preview.prompt, &client_id, &[]).await {
+                if let Err(e) = live.send(&preview.prompt, &client_id, &images).await {
                     sink.fail(&format!("{e:#}")).await;
                 }
             }
@@ -630,6 +636,8 @@ impl Sessions {
             bail!("This imported conversation is still running in another client. Finish it there first.");
         }
         let mut add_dirs = Vec::new();
+        let attachment_dir = app.paths.data_dir.join("attachments").join(&s.id);
+        if attachment_dir.is_dir() { add_dirs.push(attachment_dir.to_string_lossy().into_owned()); }
         for cp in &s.launch_spec.context_projects {
             if let Some(p) = crate::projects::get(app, &cp.project_id).await? {
                 add_dirs.push(p.path);

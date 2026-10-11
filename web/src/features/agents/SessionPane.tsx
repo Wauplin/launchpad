@@ -19,6 +19,7 @@ import { isRunning } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
+import { clipboardImages, readAttachments } from "@/lib/attachments";
 import { projectName, useProjects, useSession } from "@/lib/queries";
 import { useSessionLogs } from "@/lib/sessionStore";
 import { buildRows } from "./rows";
@@ -43,26 +44,16 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [reading, setReading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const readingRef = useRef(false);
   const addImages = async (files: File[]) => {
-    if (!acceptsImages || disabled || busy || reading) return;
+    if (!acceptsImages || disabled || busy || readingRef.current || !files.length) return;
+    readingRef.current = true;
     setReading(true);
     try {
-      if (images.length + files.length > 8) throw new Error("Attach at most 8 images.");
-      const added = await Promise.all(files.map(async (file) => {
-        if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type)) throw new Error("Use PNG, JPEG, WebP or GIF images.");
-        if (file.size > 5 * 1024 * 1024) throw new Error("Each image must be 5 MB or smaller.");
-        const data_url = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result));
-          reader.onerror = () => reject(new Error("Could not read the image."));
-          reader.readAsDataURL(file);
-        });
-        return { name: file.name || "Pasted image.png", data_url };
-      }));
-      if ([...images, ...added].reduce((n, i) => n + i.data_url.length, 0) > 28_000_000) throw new Error("Images must total 20 MB or less.");
+      const added = await readAttachments(files, images, true);
       setImages((current) => [...current, ...added]);
     } catch (e) { toastError(e); }
-    finally { setReading(false); }
+    finally { readingRef.current = false; setReading(false); }
   };
   useLayoutEffect(() => { dropImages.current = (files) => { void addImages(files); }; });
   useLayoutEffect(() => {
@@ -107,8 +98,8 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
           value={text}
           disabled={disabled || busy || reading}
           onPaste={(e) => {
-            const files = Array.from(e.clipboardData.items).filter((item) => item.kind === "file" && item.type.startsWith("image/")).map((item) => item.getAsFile()).filter((file): file is File => !!file);
-            if (files.length) { e.preventDefault(); void addImages(files); }
+            const files = clipboardImages(e.clipboardData);
+            if (files.length && acceptsImages) { e.preventDefault(); void addImages(files); }
           }}
           placeholder={placeholder}
           onChange={(e) => setText(e.target.value)}

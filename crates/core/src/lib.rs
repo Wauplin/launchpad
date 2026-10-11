@@ -1,5 +1,6 @@
 //! Domain types and services of the Launchpad daemon.
 
+pub mod attachments;
 pub mod code;
 pub mod compose;
 pub mod config;

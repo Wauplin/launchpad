@@ -11,6 +11,7 @@ import type { GitHubRef } from "@/gen/GitHubRef";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import type { HarnessVariant } from "@/gen/HarnessVariant";
+import { clipboardImages, readAttachments } from "@/lib/attachments";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
 import type { Project } from "@/gen/Project";
@@ -248,8 +249,24 @@ export function Composer() {
   const [cron, setCron] = useState<CronDraft | null>(null);
   const [cronValid, setCronValid] = useState(true);
   const [launching, setLaunching] = useState(false);
+  const [readingAttachments, setReadingAttachments] = useState(false);
+  const attachmentRead = useRef(false);
+  const attachmentInput = useRef<HTMLInputElement>(null);
+  const addAttachments = async (files: File[]) => {
+    if (!files.length || launching || attachmentRead.current) return;
+    attachmentRead.current = true;
+    setReadingAttachments(true);
+    const draft = useComposer.getState().spec;
+    try {
+      const added = await readAttachments(files, draft.attachments ?? []);
+      if (added.some((f) => f.data_url.startsWith("data:image/")) && harness && !harness.capabilities.images) throw new Error("This harness does not support images.");
+      // Do not add a completed read to a different workspace or a discarded draft.
+      if (useComposer.getState().spec.attachments === draft.attachments) update((s) => ({ ...s, attachments: [...(s.attachments ?? []), ...added] }));
+    } catch (e) { toastError(e); }
+    finally { attachmentRead.current = false; setReadingAttachments(false); }
+  };
   const [showOptions, setShowOptions] = useState(false);
-  const items = spec.github_refs.length + (spec.files ?? []).length + spec.context_projects.length + (spec.agent_traces ?? []).length;
+  const items = (spec.attachments ?? []).length + spec.github_refs.length + (spec.files ?? []).length + spec.context_projects.length + (spec.agent_traces ?? []).length;
   // The draft pill flashes when "+ Add" buttons add context to a minimized draft.
   const [flash, setFlash] = useState(false);
   const lastItems = useRef(items);
@@ -285,7 +302,8 @@ export function Composer() {
   // The daemon renders and checks the prompt at launch; Launch does not wait for a preview.
   const hasPrompt = !!spec.text.trim() || items > 0 || spec.presets.length > 0;
   const blocker = !spec.harness ? "Pick a harness in the options" : missingVariant ? "The harness variant no longer exists" : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
-  const canLaunch = !blocker;
+  const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => f.data_url.startsWith("data:image/"));
+  const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
   const addProjectContext = (p: Project) =>
     set((s) => (s.context_projects.some((c) => c.project_id === p.id) || ((s.target.kind === "project" || s.target.kind === "predraft") && s.target.project_id === p.id) ? s : { ...s, context_projects: [...s.context_projects, { project_id: p.id, branch: null }] }));
@@ -313,6 +331,7 @@ export function Composer() {
     }
   }
   const launch = async () => {
+    if (!canLaunch || launching || attachmentRead.current) return;
     setLaunching(true);
     // The target project joins this window's workspace, so the new agent shows up here.
     const spec = { ...useComposer.getState().spec, workspace_id: scope.workspace?.id ?? null };
@@ -350,7 +369,7 @@ export function Composer() {
   };
   const launchLabel = launching ? (cron ? "Creating…" : scheduled ? "Scheduling…" : "Launching…") : cron ? "Create cron" : scheduled ? "Schedule" : "Launch";
   const launchButton = (small?: boolean) => (
-    <button className={`btn btn-primary ${small ? "btn-sm" : ""}`} disabled={!canLaunch || launching} title={blocker ?? undefined} onClick={() => void launch()}>
+    <button className={`btn btn-primary ${small ? "btn-sm" : ""}`} disabled={!canLaunch || launching} title={unsupportedImages ? "This harness does not support attached images" : blocker ?? undefined} onClick={() => void launch()}>
       <Icon name="play" size={small ? 12 : 14} />
       {small && launchLabel === "Launch" ? "Launch draft" : launchLabel}
     </button>
@@ -379,7 +398,7 @@ export function Composer() {
   const presetLabels = (config?.presets ?? []).filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
 
   return (
-    <aside className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
+    <aside onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
       <div className="flex items-center gap-1.5 border-b border-line px-3.5 py-2.5">
         <span className="flex-1 whitespace-nowrap text-sm font-bold">New agent</span>
         <button className="btn btn-sm btn-ghost" title="Minimize to a draft pill; + Add buttons keep adding context" onClick={() => setMinimized(true)}>Minimize</button>
@@ -390,6 +409,8 @@ export function Composer() {
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-3">
         <PromptField
+          disabled={launching || readingAttachments}
+          onPaste={(e) => { const files = clipboardImages(e.clipboardData); if (files.length) { e.preventDefault(); void addAttachments(files); } }}
           value={spec.text}
           onChange={(text) => set((s) => ({ ...s, text }))}
           projects={sorted}
@@ -403,6 +424,18 @@ export function Composer() {
             )
           }
         />
+
+        <div>
+          <input ref={attachmentInput} type="file" multiple hidden onChange={(e) => { void addAttachments(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+          <button className="btn btn-sm" disabled={launching || readingAttachments} onClick={() => attachmentInput.current?.click()} title="Attach files or images; you can also drop files or paste a screenshot"><Icon name="clip" size={14} />Attach files / images</button>
+          <div className="mt-1 text-xs text-ink-3">{readingAttachments ? "Reading attachments…" : "Drop files or paste a screenshot into the prompt. Up to 8 files, 5 MB each, 20 MB total."}</div>
+          {(spec.attachments ?? []).length > 0 && <div className="mt-2 flex flex-wrap items-start gap-2">{spec.attachments.map((file, i) => <div key={i} className="relative max-w-full rounded-md border border-line bg-chrome p-1.5 pr-6">
+            {file.data_url.startsWith("data:image/") && <img src={file.data_url} alt={file.name} className="mb-1 h-16 max-w-28 object-contain" />}
+            <div className="max-w-48 truncate text-xs" title={file.name}>{file.name}</div>
+            <button className="iconbtn absolute top-0 right-0" title={`Remove ${file.name}`} aria-label={`Remove ${file.name}`} disabled={launching || readingAttachments} onClick={() => set((s) => ({ ...s, attachments: s.attachments.filter((_, j) => j !== i) }))}><Icon name="x" size={12} /></button>
+          </div>)}</div>}
+          {unsupportedImages && <div className="mt-1 text-xs text-danger">This harness does not support attached images. Remove them or choose another harness.</div>}
+        </div>
 
         <div className="grid grid-cols-2 gap-2.5">
           <Field label="Project">

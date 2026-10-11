@@ -24,19 +24,19 @@ pub fn router() -> Router<Server> {
         .route("/api/workspaces", get(list_workspaces).post(create_workspace))
         .route("/api/workspaces/{id}", axum::routing::patch(patch_workspace).delete(delete_workspace))
         .route("/api/window", post(open_window))
-        .route("/api/launch/preview", post(preview))
-        .route("/api/launch/schedules", get(schedules).post(schedule))
+        .route("/api/launch/preview", post(preview).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
+        .route("/api/launch/schedules", get(schedules).post(schedule).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/sessions/{id}/follow-up", post(follow_up))
         .route("/api/launch/schedules/{id}", axum::routing::delete(cancel_schedule))
         .route("/api/launch/schedules/{id}/start", post(start_schedule))
-        .route("/api/launch/crons", get(crons).post(create_cron))
+        .route("/api/launch/crons", get(crons).post(create_cron).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/launch/crons/next", get(cron_next))
         .route("/api/launch/crons/{id}", axum::routing::patch(update_cron).delete(delete_cron))
         .route("/api/launch/crons/{id}/run", post(run_cron))
-        .route("/api/launch/draft", get(get_draft).put(put_draft))
+        .route("/api/launch/draft", get(get_draft).put(put_draft).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/harnesses", get(harnesses))
         .route("/api/harness/{kind}/defaults", get(defaults).post(refresh_defaults))
-        .route("/api/sessions", get(list_sessions).post(launch))
+        .route("/api/sessions", get(list_sessions).post(launch).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/sessions/{id}", get(get_session))
         .route("/api/sessions/{id}/rename", post(rename_session))
         .route("/api/sessions/{id}/seen", post(mark_seen))
@@ -255,17 +255,7 @@ async fn input(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<In
     if b.text.trim().is_empty() && b.images.is_empty() {
         return Err(ApiError::bad_request("the message is empty"));
     }
-    use base64::Engine;
-    if b.images.len() > 8 || b.images.iter().map(|i| i.data_url.len()).sum::<usize>() > 28_000_000 {
-        return Err(ApiError::bad_request("attach at most 8 images, totaling 20 MB"));
-    }
-    for image in &b.images {
-        let valid = image.data_url.split_once(',').is_some_and(|(header, data)| {
-            matches!(header, "data:image/png;base64" | "data:image/jpeg;base64" | "data:image/webp;base64" | "data:image/gif;base64")
-                && base64::engine::general_purpose::STANDARD.decode(data).is_ok_and(|bytes| !bytes.is_empty() && bytes.len() <= 5 * 1024 * 1024)
-        });
-        if !valid { return Err(ApiError::bad_request("images must be PNG, JPEG, WebP or GIF, up to 5 MB each")); }
-    }
+    launchpad_core::attachments::validate_images(&b.images).map_err(bad)?;
     s.app.sessions.send(&s.app, &id, &b.text, b.images).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }

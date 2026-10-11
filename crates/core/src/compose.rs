@@ -33,6 +33,9 @@ pub fn render_prompt(spec: &LaunchSpec, context: &[ContextInfo], presets: &[Pres
             None => format!("- Reference project: {}{desc}. Read it, but do not modify it.", c.path),
         });
     }
+    for attachment in &spec.attachments {
+        lines.push(format!("- Attached {}: {}", if crate::attachments::is_image(&attachment.data_url) { "image" } else { "file (local copy provided at launch)" }, attachment.name));
+    }
     for f in &spec.files {
         lines.push(format!("- {}", file_line(f)));
     }

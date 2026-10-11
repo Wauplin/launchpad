@@ -21,7 +21,7 @@ It is a single-user tool. Light theme only. Linux is the primary target, with ma
 2. **Launching an agent is the main action.** A minimal launch is three clicks plus the prompt. A rich launch uses the same flow with more chips. Both must feel natural.
 3. **The core does not depend on a harness.** Claude Code and Codex are adapters behind one session model. Adding a third harness means writing one adapter.
 4. **Local first, publish later.** Anything that would create noise on GitHub (pre-draft PRs, agent-written comments) stays local until you publish it. These objects share one color in the UI (teal).
-5. **Click only.** No keyboard shortcuts, at least at first, with two exceptions: `Ctrl+F` opens the find bar in the code viewer (see [8.1](#81-code-viewer)), and a focused integrated terminal receives every key (see [13.1](#131-integrated-terminals)). Every action is a visible button where it is needed, and the UI should be good enough that shortcuts are not missed. Text fields only type text, with three exceptions: in the composer prompt, `@` and `#` at the start of a word open a suggestion list (projects, issues and PRs, see [9.7](#97-prompt-composition)); in the session message box `Enter` sends, `Shift+Enter` adds a new line and standard clipboard paste accepts images; in the find field of the code viewer, `Enter` and `Shift+Enter` go to the next and previous match and `Escape` closes the bar.
+5. **Click only.** No keyboard shortcuts, at least at first, with two exceptions: `Ctrl+F` opens the find bar in the code viewer (see [8.1](#81-code-viewer)), and a focused integrated terminal receives every key (see [13.1](#131-integrated-terminals)). Every action is a visible button where it is needed, and the UI should be good enough that shortcuts are not missed. Text fields only type text, with three exceptions: in the composer prompt, `@` and `#` at the start of a word open a suggestion list (projects, issues and PRs, see [9.7](#97-prompt-composition)); in the session message box `Enter` sends, `Shift+Enter` adds a new line and standard clipboard paste accepts images (also in the composer prompt); in the find field of the code viewer, `Enter` and `Shift+Enter` go to the next and previous match and `Escape` closes the bar.
 6. **Owned and easy to extend.** A mainstream stack that coding agents handle well (Rust, React, TypeScript, Tailwind), configuration in a plain TOML file, GitHub payloads stored as JSON so new fields need no schema change.
 7. **Move fast, test little.** This is a personal project: speed of change matters more than protection against breakage. Most code has no tests. See [5.2](#52-testing).
 
@@ -563,6 +563,7 @@ struct LaunchSpec {
     harness: HarnessKind,                    // Claude | Codex
     target: Target,                          // Project(id) | NewTempProject | NewPredraft { project, base }
     text: String,                            // free text typed by you
+    attachments: Vec<FileAttachment>,        // uploaded file/image names and data URLs
     presets: Vec<PresetId>,
     context_projects: Vec<ContextProject>,   // { project_id, branch: Option<String> }
     github_refs: Vec<GitHubRef>,             // issue | pr | comment | review comment: URL + cached title
@@ -571,6 +572,8 @@ struct LaunchSpec {
     effort: Option<String>,                  // None = harness default
 }
 ```
+
+The composer has a visible Attach files / images button, removable thumbnails or filename cards, file drops and screenshot paste in the prompt. The launch spec retains attachments in local drafts, scheduled launches and crons; launch defaults do not retain them. Both composers share clipboard extraction from files or items and bounded FileReader handling. Uploads are limited to eight files, 5 MB each and 20 MB total; images must be PNG, JPEG, GIF or WebP. Launch, preview, draft, schedule and cron requests allow 32 MB JSON bodies. Shared backend validation runs before launch side effects. Images are logged and sent as native image content on the first turn, including quota-held launches. Other files are written with sanitized, numbered names under `<data_dir>/attachments/<session-id>/` (0700 directory, 0600 files on Unix), referenced by absolute path in the actual prompt and included in allowed directories on start and resume. They stay outside the project checkout and remain available for saved sessions. Preview lists names; paths are assigned at launch.
 
 The prompt is rendered by a deterministic template and shown in the composer before launch:
 
@@ -804,7 +807,7 @@ Usability updates after daily use, on 2026-10-02:
 
 23. **Direct launch and readable status.** Every Launch button opens the composer with the harness, model and effort selections from the latest launched session, kept in `state.db` with its launch spec. Picking a harness or editing an unsent draft does not change these remembered defaults. Done means waiting for input; background commands stay Running. The Agents navigation and pinned project markers share the same state predicates.
 24. **Readable scale.** The whole light interface scales through CSS zoom, including fixed-height virtualized rows, icons and panels. General settings persist five zoom positions in `config.toml`: 100%, 110%, 120% (default), 135% and 150%. Secondary text and borders have stronger contrast.
-25. **Image messages.** Session message boxes accept image file selection, drops anywhere in the console and clipboard paste. Previews can be removed before Send; image-only messages are supported. PNG, JPEG, GIF and WebP images are limited to 5 MB each, eight images and 20 MB per message. The authenticated input endpoint validates data URLs and raises its request limit to 32 MB. Attachments remain in the local event log, appear in the conversation and are sent as native image content to Claude or Codex, including steer and resumed turns. Clipboard paste remains normal text-field behavior.
+25. **Image messages.** Session message boxes accept image file selection, drops anywhere in the console and clipboard paste. Previews can be removed before Send; image-only messages are supported. PNG, JPEG, GIF and WebP images are limited to 5 MB each, eight images and 20 MB per message. The authenticated input endpoint validates data URLs and raises its request limit to 32 MB. Attachments remain in the local event log, appear in the conversation and are sent as native image content to harnesses with image support, including steer and resumed turns. Clipboard paste remains normal text-field behavior.
 26. **AI session titles.** Every newly launched agent gets an AI title based on its initial prompt. A separate short request runs in the background and broadcasts the persisted title without blocking launch. A prompt-derived title covers naming failures.
 27. **Self-update.** Retired on 2026-10-10: Launchpad updates are installed manually; see decision 68.
 
@@ -924,6 +927,8 @@ Project metadata refresh, on 2026-10-04:
 73. **Remove external editor integration.** On 2026-10-11, removed Editor actions from project pages, session headers and the code viewer, including line selections and oversized-file messages. Removed the editor setting, default config key, shared type field and `/api/open-editor` endpoint. Code reading and integrated terminals remain available; Launchpad does not launch an external editor.
 
 74. **Agent row actions.** On 2026-10-11, added a small hover/focus icon to the Agents list: Stop for Running and Quota paused, Archive for other unarchived sessions. These use the same daemon operations as the session header without selecting the row, preserve fixed row heights and show progress or errors. Archived rows have no action, and touch devices keep the icon visible.
+
+75. **Launch attachments and screenshot paste.** On 2026-10-11, added owner-requested file/image selection and drops plus screenshot paste to New agent. Reuse native harness images and quota-held input; store non-image reference copies in private session directories outside checkouts. Keep upload bytes in local launch specs for draft and scheduling persistence, and share clipboard extraction with the steering message box.
 
 ## Remote access feasibility research (2026-10-10)
 

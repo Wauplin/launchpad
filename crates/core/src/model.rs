@@ -160,6 +160,13 @@ impl Session {
     }
 }
 
+/// A file selected or pasted into the launch composer.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct FileAttachment {
+    pub name: String,
+    pub data_url: String,
+}
+
 /// An image attached to a user message, kept locally in the event log.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct ImageAttachment {
@@ -302,6 +309,8 @@ pub struct LaunchSpec {
     pub budget_usd: Option<f64>,
     pub target: Target,
     pub text: String,
+    /// Uploaded images and files, retained with drafts and scheduled launches.
+    pub attachments: Vec<FileAttachment>,
     pub presets: Vec<String>,
     pub context_projects: Vec<ContextProject>,
     pub github_refs: Vec<GitHubRef>,
