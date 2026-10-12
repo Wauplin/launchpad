@@ -35,10 +35,12 @@ async fn list(State(s): State<Server>) -> Json<Vec<TerminalInfo>> {
 #[derive(Deserialize)]
 struct Open {
     cwd: String,
+    command: Option<String>,
+    language: Option<String>,
 }
 
 async fn open(State(s): State<Server>, Json(b): Json<Open>) -> ApiResult<TerminalInfo> {
-    Ok(Json(s.app.terminals.open_shell(&s.app, &b.cwd).await.map_err(bad)?))
+    Ok(Json(s.app.terminals.open_shell(&s.app, &b.cwd, b.command.as_deref(), b.language.as_deref()).await.map_err(bad)?))
 }
 
 async fn close(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {

@@ -29,7 +29,7 @@ export function useOpenTerminal() {
   );
   return useMemo(
     () => ({
-      shell: (cwd: string) => api.post<TerminalInfo>("/api/terminals", { cwd }).then(reveal).catch(toastError),
+      shell: (cwd: string, command?: string, language?: string) => api.post<TerminalInfo>("/api/terminals", { cwd, command, language }).then(reveal).catch(toastError),
       tui: (sessionId: string) => api.post<TerminalInfo>(`/api/sessions/${sessionId}/terminal`).then(reveal).catch(toastError),
     }),
     [reveal],

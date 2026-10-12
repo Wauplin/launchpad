@@ -26,6 +26,7 @@ const MAX_OPEN: usize = 12;
 #[serde(rename_all = "snake_case")]
 pub enum TerminalKind {
     Shell,
+    Command,
     Tui,
 }
 
@@ -265,7 +266,7 @@ impl Terminals {
             tracing::info!("terminal {} exited ({code:?})", info.id);
             app.bus.publish("terminals", "exited", serde_json::json!(info));
             // A normal shell exit (Ctrl+D or `exit`) closes its tab in every viewer. Keep failed
-            // shells and harness TUIs so their final output can still be inspected.
+            // shells, explicit snippet commands and harness TUIs so their final output can still be inspected.
             if info.kind == TerminalKind::Shell && code == Some(0) {
                 let _ = app.terminals.remove(&app, &info.id);
             }
@@ -274,8 +275,11 @@ impl Terminals {
         Ok(info)
     }
 
-    /// Opens a login shell in an allowed folder.
-    pub async fn open_shell(&self, app: &App, cwd: &str) -> Result<TerminalInfo> {
+    /// Opens a login shell or runs an explicit snippet in an allowed folder.
+    pub async fn open_shell(&self, app: &App, cwd: &str, command: Option<&str>, language: Option<&str>) -> Result<TerminalInfo> {
+        if command.is_some_and(|c| c.trim().is_empty()) {
+            bail!("the command is empty");
+        }
         let _guard = app.sessions.allow_work().await;
         let (cwd, project) = check_cwd(app, cwd).await?;
         let cwd_s = cwd.to_string_lossy().to_string();
@@ -288,7 +292,7 @@ impl Terminals {
         };
         let info = TerminalInfo {
             id: uuid::Uuid::new_v4().to_string(),
-            kind: TerminalKind::Shell,
+            kind: if command.is_some() { TerminalKind::Command } else { TerminalKind::Shell },
             title,
             cwd: cwd_s,
             project_id: project.map(|p| p.id),
@@ -297,7 +301,11 @@ impl Terminals {
             exit_code: None,
             created_at: now_ms(),
         };
-        self.spawn(app, info, shell(app), vec![])
+        let argv = match command {
+            Some(command) => command_shell(app, command, language.unwrap_or("shell"))?,
+            None => shell(app),
+        };
+        self.spawn(app, info, argv, vec![])
     }
 
     /// Opens the harness TUI of a session. The caller detaches the headless harness first.
@@ -338,6 +346,23 @@ fn shell(app: &App) -> Vec<String> {
     }
     let fallback = if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/bash" };
     vec![app.env.get("SHELL").filter(|s| !s.is_empty()).unwrap_or(fallback).to_string(), "-l".into()]
+}
+
+fn command_shell(app: &App, command: &str, language: &str) -> Result<Vec<String>> {
+    let mut argv = match language {
+        "shell" => shell(app),
+        "sh" | "bash" | "zsh" | "fish" => vec![app.env.which(language).with_context(|| format!("{language} is not installed"))?.to_string_lossy().into_owned()],
+        "powershell" | "pwsh" => {
+            let path = app.env.which("pwsh").or_else(|| app.env.which("powershell"));
+            vec![path.context("PowerShell is not installed")?.to_string_lossy().into_owned(), "-NoLogo".into()]
+        }
+        _ => bail!("unsupported shell language: {language}"),
+    };
+    let powershell = matches!(language, "powershell" | "pwsh") || (language == "shell" && cfg!(windows));
+    // Pass the whole snippet as one argument, never interpolate it into a wrapper command.
+    argv.push(if powershell { "-Command" } else { "-c" }.into());
+    argv.push(command.into());
+    Ok(argv)
 }
 
 /// Like `code::open`: a registered project, one of its git worktrees, or the folder of a session.

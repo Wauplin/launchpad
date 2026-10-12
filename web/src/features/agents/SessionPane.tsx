@@ -14,7 +14,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ImageAttachment } from "@/gen/ImageAttachment";
 import { HarnessMark, useHarnessInfo } from "@/components/HarnessMark";
-import { CodeLinksContext, type CodeLinks } from "@/components/Markdown";
+import { CodeLinksContext, ShellCodeContext, type CodeLinks } from "@/components/Markdown";
 import { pathResolver, useCodeFiles } from "@/features/code/lib";
 import { useMessageDrafts } from "@/stores/messages";
 import { isRunning } from "@/lib/sessionStatus";
@@ -326,6 +326,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
 
       {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} />}
       <CodeLinksContext.Provider value={codeLinks}>
+      <ShellCodeContext.Provider value={s.cwd}>
       {childrenOpen && log && <SubagentsPanel key={s.id} log={log} agents={children} sessionId={s.id} live={s.live} back={() => setView("trace")} />}
       {!changesOpen && !childrenOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">Loading…</div> : <SessionSummary key={s.id} session={s} rows={rows} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
       {traceOpen && !running && <><StateBand session={s}>
@@ -364,6 +365,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
           </div>
         )}
       </div>
+      </ShellCodeContext.Provider>
       </CodeLinksContext.Provider>
       {!childrenOpen && <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal" || s.status === "quota_paused" || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={s.open_question && s.live ? ask : null} />}
     </div>

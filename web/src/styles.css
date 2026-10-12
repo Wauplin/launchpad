@@ -201,10 +201,17 @@ button {
   position: relative;
   margin: 6px 0;
 }
-.lp-copy {
+.lp-code-actions {
   position: absolute;
   top: 4px;
   right: 4px;
+  display: flex;
+  gap: 4px;
+}
+.lp-code:has([data-run]) pre {
+  padding-top: 32px;
+}
+.lp-copy {
   height: 22px;
   padding: 0 7px;
   border-radius: 5px;
@@ -214,7 +221,8 @@ button {
   color: var(--color-ink-2);
   opacity: 0;
 }
-.lp-code:hover .lp-copy {
+.lp-code:hover .lp-copy,
+.lp-code:focus-within .lp-copy {
   opacity: 1;
 }
 
@@ -290,3 +298,7 @@ button {
 .lp-gh-html { background: transparent; color: var(--color-ink); font-size: 13px; overflow-wrap: anywhere; }
 .lp-gh-html img { max-height: 600px; }
 .lp-gh-html pre { overflow: auto; }
+
+@media (hover: none) {
+  .lp-copy { opacity: 1; }
+}

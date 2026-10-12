@@ -48,7 +48,7 @@ function AssistantRow({ text, streaming }: { text: string; streaming: boolean })
         </div>
       )}
       <div ref={ref}>
-        <Markdown text={text} />
+        <Markdown text={text} runShell={!streaming} />
       </div>
     </div>
   );
