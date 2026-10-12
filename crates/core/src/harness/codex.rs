@@ -803,7 +803,7 @@ fn rate_limits(status: &crate::status::StatusHandle, rl: &Value) {
         };
         let q = crate::status::QuotaWindow {
             used_percent: used,
-            resets_at: resets,
+            resets_at: Some(resets),
         };
         match (key, mins) {
             (_, Some(300)) => five = Some(q),

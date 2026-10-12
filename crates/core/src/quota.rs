@@ -41,7 +41,8 @@ pub fn available(s: &HarnessStatus, now: i64) -> bool {
             w.as_ref().is_some_and(|w| {
                 w.used_percent.is_finite()
                     && (0.0..100.0).contains(&w.used_percent)
-                    && w.resets_at > now / 1000
+                    // A window that has not started has no reset; a passed reset means the reading is outdated.
+                    && w.resets_at.is_none_or(|r| r > now / 1000)
             })
         })
 }
@@ -84,11 +85,11 @@ mod tests {
             quota_at: Some(now),
             five_hour: Some(QuotaWindow {
                 used_percent: 99.9,
-                resets_at: 1100,
+                resets_at: Some(1100),
             }),
             weekly: Some(QuotaWindow {
                 used_percent: 100.0,
-                resets_at: 1200,
+                resets_at: Some(1200),
             }),
             ..Default::default()
         };
@@ -103,7 +104,9 @@ mod tests {
         s.weekly = None;
         assert!(!available(&s, now));
         s.weekly = s.five_hour.clone();
-        s.five_hour.as_mut().unwrap().resets_at = 999;
+        s.five_hour.as_mut().unwrap().resets_at = Some(999);
         assert!(!available(&s, now));
+        s.five_hour.as_mut().unwrap().resets_at = None;
+        assert!(available(&s, now));
     }
 }

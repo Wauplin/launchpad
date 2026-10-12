@@ -274,7 +274,7 @@ export function QuotaBand({ session: s }: { session: Session }) {
   };
   return <div className="grid gap-2 border-b border-attn-line bg-attn-soft px-4 py-3 text-xs text-attn">
     <b>{p.phase === "needs_attention" ? "Quota pause needs attention" : "Included quota exhausted · automatic continuation pending"}</b>
-    <span>{p.blockers.map((b) => `${b.window} reset: ${new Date(b.resets_at * 1000).toLocaleString()}`).join(" · ")}</span>
+    <span>{p.blockers.map((b) => `${b.window} reset: ${b.resets_at === null ? "unknown" : new Date(b.resets_at * 1000).toLocaleString()}`).join(" · ")}</span>
     <span>{p.error ?? (p.phase === "pausing" ? "Interrupt requested; waiting for the turn and commands to finish." : p.phase === "resuming" ? "Continuing…" : "Waiting for a fresh quota reading confirming both windows are available. Reset times are estimates; failed readings keep this paused.")}</span>
     {quota?.quota_error && <span>Quota reading unavailable: {quota.quota_error}</span>}
     <span>Protection is best effort. A manual retry with subscription only keeps paid usage disabled, but may still use paid credits if the included quota is exhausted.</span>

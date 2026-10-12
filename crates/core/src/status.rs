@@ -38,9 +38,9 @@ pub struct HarnessStatus {
 pub struct QuotaWindow {
     /// 0 to 100.
     pub used_percent: f64,
-    /// Unix seconds.
-    #[ts(type = "number")]
-    pub resets_at: i64,
+    /// Unix seconds; `None` while the window has not started (no usage since the last reset).
+    #[ts(type = "number | null")]
+    pub resets_at: Option<i64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, TS)]

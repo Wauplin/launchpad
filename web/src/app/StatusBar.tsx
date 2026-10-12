@@ -6,7 +6,7 @@ import type { QuotaWindow } from "@/gen/QuotaWindow";
 import type { Status } from "@/gen/Status";
 import { HarnessMark, useHarnessInfo, useHarnesses, type Harness } from "@/components/HarnessMark";
 import { api } from "@/lib/api";
-import { formatAge, formatReset } from "@/lib/format";
+import { formatAge, formatReset, resetLabel } from "@/lib/format";
 import { onConnectionChange } from "@/lib/ws";
 import { Popover } from "@/components/Popover";
 import { TerminalButton } from "@/features/terminals/TerminalDock";
@@ -28,7 +28,7 @@ function Meter({ value, harness }: { value: number; harness: Harness }) {
 function Pair({ harness, s }: { harness: Harness; s: HarnessStatus }) {
   const info = useHarnessInfo(harness);
   const name = info?.name ?? harness;
-  const w = (label: string, q: QuotaWindow | null) => (q ? `${label}: ${Math.round(q.used_percent)}% used, resets ${new Date(q.resets_at * 1000).toLocaleString()}` : `${label}: unknown`);
+  const w = (label: string, q: QuotaWindow | null) => (q ? `${label}: ${Math.round(q.used_percent)}% used, ${q.resets_at === null ? "not started" : `resets ${new Date(q.resets_at * 1000).toLocaleString()}`}` : `${label}: unknown`);
   const pct = (q: QuotaWindow | null) => (q ? `${Math.round(q.used_percent)}%` : "?");
   return (
     <span className="inline-flex items-center gap-1.5" title={[name, w("5 hours", s.five_hour), w("Week", s.weekly), s.quota_error].filter(Boolean).join("\n")}>
@@ -72,7 +72,7 @@ function Details({ harness, data, limits }: { harness: Harness; data: Status; li
             return (
               <div key={h.id} className="grid gap-0.5">
                 <span className="inline-flex items-center gap-1.5 font-semibold"><HarnessMark harness={h.id} size={14} />{h.name} <span className="font-normal text-ink-2">{s.version ?? "not found"}</span>{s.updating_to && <span className="font-normal text-teal-ink">↑ {s.updating_to}</span>}</span>
-                {h.capabilities.quota && <span className="text-ink-3">5h {s.five_hour ? `${Math.round(s.five_hour.used_percent)}% · resets ${formatReset(s.five_hour.resets_at)}` : "unknown"} · week {s.weekly ? `${Math.round(s.weekly.used_percent)}% · resets ${formatReset(s.weekly.resets_at)}` : "unknown"}{s.quota_at && ` · read ${formatAge(s.quota_at)} ago`}</span>}
+                {h.capabilities.quota && <span className="text-ink-3">5h {s.five_hour ? `${Math.round(s.five_hour.used_percent)}% · ${resetLabel(s.five_hour.resets_at)}` : "unknown"} · week {s.weekly ? `${Math.round(s.weekly.used_percent)}% · ${resetLabel(s.weekly.resets_at)}` : "unknown"}{s.quota_at && ` · read ${formatAge(s.quota_at)} ago`}</span>}
                 {(s.version_error || s.quota_error) && <span className="text-gh-closed">{s.version_error ?? s.quota_error}</span>}
               </div>
             );

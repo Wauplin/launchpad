@@ -6,6 +6,6 @@ export type QuotaWindow = {
  */
 used_percent: number, 
 /**
- * Unix seconds.
+ * Unix seconds; `None` while the window has not started (no usage since the last reset).
  */
-resets_at: number, };
+resets_at: number | null, };

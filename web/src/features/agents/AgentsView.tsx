@@ -23,7 +23,7 @@ import { isCollapsed, useLayout, type AgentGroup } from "@/stores/layout";
 import { SessionPane } from "./SessionPane";
 import { StatusBadge } from "./SessionBits";
 import { useMarkSeen, useWindowFocused } from "./useSeen";
-import { formatAge, formatReset } from "@/lib/format";
+import { formatAge, formatReset, resetLabel } from "@/lib/format";
 import { toastError } from "@/components/Toast";
 import { useHarnesses } from "@/components/HarnessMark";
 import { useStatus } from "@/app/StatusBar";
@@ -47,7 +47,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
     finally { setActing(false); }
   };
   const needs = needsYou(s);
-  const quotaDetail = s.quota_pause?.error ?? s.quota_pause?.blockers.map((b) => `${b.window} reset ${new Date(b.resets_at * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`).join(" · ");
+  const quotaDetail = s.quota_pause?.error ?? s.quota_pause?.blockers.map((b) => `${b.window} reset ${b.resets_at === null ? "unknown" : new Date(b.resets_at * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`).join(" · ");
   const line = s.quota_pause ? quotaDetail || "Waiting for a quota update" : s.last_message ?? (s.usage.cost_usd != null ? `$${s.usage.cost_usd.toFixed(2)}` : "");
   return (
     <div className="group relative">
@@ -161,7 +161,7 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedu
         {harnesses.length > 0 && <HomeSection title="Quota">
           {harnesses.map((h) => {
             const q = status?.harnesses[h.id];
-            return <div key={h.id} className="flex items-center gap-2 px-2"><HarnessMark harness={h.id} size={14} /><span className="font-medium">{h.name}</span><span className="ml-auto text-ink-3">5 h {pct(q?.five_hour ?? null)}{q?.five_hour && ` · resets ${formatReset(q.five_hour.resets_at)}`} · week {pct(q?.weekly ?? null)}{q?.weekly && ` · resets ${formatReset(q.weekly.resets_at)}`}</span></div>;
+            return <div key={h.id} className="flex items-center gap-2 px-2"><HarnessMark harness={h.id} size={14} /><span className="font-medium">{h.name}</span><span className="ml-auto text-ink-3">5 h {pct(q?.five_hour ?? null)}{q?.five_hour && ` · ${resetLabel(q.five_hour.resets_at)}`} · week {pct(q?.weekly ?? null)}{q?.weekly && ` · ${resetLabel(q.weekly.resets_at)}`}</span></div>;
           })}
         </HomeSection>}
       </div>

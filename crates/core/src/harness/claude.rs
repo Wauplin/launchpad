@@ -785,7 +785,7 @@ pub fn rate_limit_event(status: &crate::status::StatusHandle, info: &Value) {
         let w = &windows[k];
         Some(crate::status::QuotaWindow {
             used_percent: w["utilization"].as_f64()? * 100.0,
-            resets_at: w["resetsAt"].as_i64()?,
+            resets_at: Some(w["resetsAt"].as_i64()?),
         })
     };
     let (five, week) = (win("five_hour"), win("seven_day"));
@@ -806,7 +806,15 @@ fn spawn_quota(app: &App) {
         let client = crate::status::http_client();
         let mut rate_limit_delay = 0;
         loop {
-            match claude_usage(&client).await {
+            let mut result = claude_usage(&client).await;
+            // Expired, missing (macOS Keychain) or rejected tokens: Claude Code reads usage itself and refreshes its own token.
+            if let Err(e) = &result
+                && e.downcast_ref::<UsageRateLimited>().is_none()
+            {
+                tracing::info!("claude usage endpoint: {e:#}; asking Claude Code");
+                result = claude_code_usage(&a).await.map_err(|cc| anyhow::anyhow!("{e:#}; Claude Code: {cc:#}"));
+            }
+            match result {
                 Ok((five, week)) => {
                     rate_limit_delay = 0;
                     a.status.update_harness(ID, |s| {
@@ -847,13 +855,11 @@ impl std::fmt::Display for UsageRateLimited {
 }
 
 impl std::error::Error for UsageRateLimited {}
+
+type QuotaPair = (Option<crate::status::QuotaWindow>, Option<crate::status::QuotaWindow>);
+
 /// Reads `/api/oauth/usage`. Skips the call when the access token has expired: Claude Code refreshes it.
-async fn claude_usage(
-    client: &reqwest::Client,
-) -> Result<(
-    Option<crate::status::QuotaWindow>,
-    Option<crate::status::QuotaWindow>,
-)> {
+async fn claude_usage(client: &reqwest::Client) -> Result<QuotaPair> {
     let path = dirs::home_dir()
         .unwrap_or_default()
         .join(".claude/.credentials.json");
@@ -866,7 +872,7 @@ async fn claude_usage(
     if let Some(exp) = oauth["expiresAt"].as_i64()
         && exp <= now_ms()
     {
-        bail!("Claude OAuth token expired, waiting for Claude Code to refresh it");
+        bail!("Claude OAuth token expired");
     }
     let res = client
         .get("https://api.anthropic.com/api/oauth/usage")
@@ -885,18 +891,55 @@ async fn claude_usage(
     if !code.is_success() {
         bail!("usage endpoint returned {code}");
     }
-    let body: Value = res.json().await?;
+    Ok(usage_windows(&res.json().await?))
+}
+
+/// Asks Claude Code for its structured `/usage` data (`get_usage` control request). No model request is made;
+/// Claude Code authenticates and refreshes its own OAuth token, which Launchpad never does.
+async fn claude_code_usage(app: &App) -> Result<QuotaPair> {
+    let home = dirs::home_dir();
+    let mut child = crate::procs::child_command(&app.env, "claude", home.as_deref())
+        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--strict-mcp-config"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("start claude")?;
+    let mut stdin = child.stdin.take().context("claude stdin")?;
+    let request = json!({"type": "control_request", "request_id": "launchpad-usage", "request": {"subtype": "get_usage", "skip_behaviors": true}});
+    stdin.write_all(format!("{request}\n").as_bytes()).await?;
+    let mut lines = BufReader::new(child.stdout.take().context("claude stdout")?).lines();
+    let read = async {
+        while let Some(line) = lines.next_line().await? {
+            let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
+            let r = &msg["response"];
+            if msg["type"] != "control_response" || r["request_id"] != "launchpad-usage" { continue; }
+            if r["subtype"] != "success" {
+                bail!("{}", r["error"].as_str().unwrap_or("get_usage failed"));
+            }
+            let data = &r["response"];
+            if data["rate_limits_available"] == false { bail!("plan rate limits are not available for this login"); }
+            return Ok(usage_windows(&data["rate_limits"]));
+        }
+        bail!("no usage response")
+    };
+    let result = tokio::time::timeout(std::time::Duration::from_secs(30), read).await.unwrap_or_else(|_| Err(anyhow::anyhow!("timed out")));
+    drop(stdin);
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await;
+    result
+}
+
+/// `five_hour` and `seven_day` of a usage response. `resets_at` is null while a window has not started.
+fn usage_windows(body: &Value) -> QuotaPair {
     let win = |k: &str| -> Option<crate::status::QuotaWindow> {
         let w = &body[k];
-        let resets = w["resets_at"].as_str()?;
-        let t = time::OffsetDateTime::parse(resets, &time::format_description::well_known::Rfc3339)
-            .ok()?;
-        Some(crate::status::QuotaWindow {
-            used_percent: w["utilization"].as_f64()?,
-            resets_at: t.unix_timestamp(),
-        })
+        let resets_at = match &w["resets_at"] {
+            Value::Null => None,
+            v => Some(time::OffsetDateTime::parse(v.as_str()?, &time::format_description::well_known::Rfc3339).ok()?.unix_timestamp()),
+        };
+        Some(crate::status::QuotaWindow { used_percent: w["utilization"].as_f64()?, resets_at })
     };
-    Ok((win("five_hour"), win("seven_day")))
+    (win("five_hour"), win("seven_day"))
 }
 
 /// Claude stores transcripts in `~/.claude/projects/<path with every non-alphanumeric character as ->`.

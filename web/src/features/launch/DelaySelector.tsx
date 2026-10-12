@@ -115,7 +115,7 @@ function quotaReset(delay: LaunchDelay, status: ReturnType<typeof useStatus>["da
   if (delay.kind !== "quota") return { reset: null, error: null };
   const h = status?.harnesses[delay.harness];
   const q = h?.[delay.window];
-  const reset = q ? q.resets_at * 1000 : null;
+  const reset = q?.resets_at ? q.resets_at * 1000 : null;
   if (!h || h.quota_error || !h.quota_at || Date.now() - h.quota_at > 15 * 60000 || !reset || reset <= Date.now()) return { reset, error: "Quota reset is unavailable. Wait for a fresh quota reading, or choose a time." };
   return { reset, error: null };
 }

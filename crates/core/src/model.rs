@@ -461,6 +461,6 @@ pub enum QuotaPausePhase { Pausing, Paused, Resuming, NeedsAttention }
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct QuotaBlock {
     pub window: String,
-    #[ts(type = "number")]
-    pub resets_at: i64,
+    #[ts(type = "number | null")]
+    pub resets_at: Option<i64>,
 }

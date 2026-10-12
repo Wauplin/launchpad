@@ -192,6 +192,7 @@ async fn create_target(
                 .context("quota reset is unknown")?;
                 let at = q
                     .resets_at
+                    .context("this quota window has not started, so it has no reset")?
                     .checked_mul(1000)
                     .context("invalid quota reset")?;
                 if at <= now {

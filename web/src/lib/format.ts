@@ -14,6 +14,11 @@ export function formatReset(unixSeconds: number): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
+/** "resets Mon 09:00", or "not started" for a quota window without usage since its last reset. */
+export function resetLabel(resetsAt: number | null): string {
+  return resetsAt === null ? "not started" : `resets ${formatReset(resetsAt)}`;
+}
+
 /** "12 s", "4 min", "3 h", "yesterday", "5 d". */
 export function formatAge(ms: number): string {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
