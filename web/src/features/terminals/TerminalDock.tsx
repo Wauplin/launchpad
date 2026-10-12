@@ -6,13 +6,14 @@ import { useEffect, useRef, useState } from "react";
 import type { Predraft } from "@/gen/Predraft";
 import type { TerminalInfo } from "@/gen/TerminalInfo";
 import { Icon } from "@/components/Icon";
-import { toastError } from "@/components/Toast";
+import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useConfig, useProjects, useSessions } from "@/lib/queries";
 import { zoomScale } from "@/lib/zoom";
+import { useScope } from "@/lib/workspace";
 import { useLayout, type DockSize } from "@/stores/layout";
 import { terminalStatus, useOpenTerminal, useScopedTerminals, useTerminals } from "./lib";
-import { TerminalView, type TerminalHandle } from "./TerminalView";
+import { TerminalView } from "./TerminalView";
 
 const HEIGHTS: Record<DockSize, number> = { small: 200, medium: 320, large: 500 };
 
@@ -20,6 +21,7 @@ const HEIGHTS: Record<DockSize, number> = { small: 200, medium: 320, large: 500 
 function useCurrentFolder(fallback: TerminalInfo | undefined): string | null {
   const location = useRouterState({ select: (s) => s.location });
   const projects = useProjects().data;
+  const scope = useScope();
   const sessions = useSessions().data;
   const selected = useLayout((s) => s.selectedSession);
   const qc = useQueryClient();
@@ -35,7 +37,7 @@ function useCurrentFolder(fallback: TerminalInfo | undefined): string | null {
     const s = sessions?.find((s) => s.id === selected);
     if (s) return s.cwd;
   }
-  return fallback?.cwd ?? null;
+  return fallback?.cwd ?? scope.projects[0]?.path ?? null;
 }
 
 export function TerminalDock() {
@@ -53,10 +55,26 @@ export function TerminalDock() {
   }, [all, terminals, setDock]);
   const open = useOpenTerminal();
   const scale = zoomScale(useConfig().data?.config.zoom ?? 2);
-  const view = useRef<TerminalHandle>(null);
   const qc = useQueryClient();
   const active = terminals.find((t) => t.id === dock.active) ?? terminals[terminals.length - 1];
   const folder = useCurrentFolder(active);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const modifier = event.ctrlKey !== event.metaKey;
+      if (!modifier || event.altKey || event.shiftKey || event.key.toLowerCase() !== "t") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat) return;
+      if (folder) void open.shell(folder);
+      else {
+        setDock({ open: true });
+        toast("Add a project or open a session before creating a terminal");
+      }
+    };
+    // Capture before the terminal or a text field translates Ctrl+T; this also works with a hidden dock.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [folder, open, setDock]);
   if (!dock.open) return null;
   const close = (t: TerminalInfo) =>
     void (t.alive ? api.post(`/api/terminals/${t.id}/close`) : api.delete(`/api/terminals/${t.id}`).then(() => qc.setQueryData<TerminalInfo[]>(["terminals"], (old) => old?.filter((o) => o.id !== t.id)))).catch(toastError);
@@ -79,10 +97,7 @@ export function TerminalDock() {
           ))}
           {terminals.length === 0 && <span className="py-0.5 text-ink-3">No terminal open in this workspace.</span>}
         </div>
-        <button className="btn btn-sm" disabled={!folder} title={folder ? `Open a shell in ${folder}` : "Open a project, a session or the code viewer first"} onClick={() => folder && void open.shell(folder)}>New terminal</button>
-        <button className="btn btn-sm" disabled={!active} onClick={() => view.current?.copy()}>Copy selection</button>
-        <button className="btn btn-sm" disabled={!active?.alive} onClick={() => view.current?.paste()}>Paste</button>
-        <button className="btn btn-sm" disabled={!active} onClick={() => view.current?.clear()}>Clear</button>
+        <button className="btn btn-sm" disabled={!folder} title={folder ? `Open a shell in ${folder} (Ctrl+T / Cmd+T)` : "Open a project, a session or the code viewer first"} onClick={() => folder && void open.shell(folder)}>New terminal</button>
         <span className="inline-flex gap-0.5 rounded border border-line p-0.5" aria-label="Dock height">
           {(["small", "medium", "large"] as const).map((size) => (
             <button key={size} className={`btn btn-sm ${dock.size === size ? "bg-select!" : ""}`} aria-pressed={dock.size === size} onClick={() => setDock({ size })}>
@@ -92,7 +107,7 @@ export function TerminalDock() {
         </span>
         <button className="btn btn-sm" title="Hide the dock; terminals keep running" onClick={() => setDock({ open: false })}>Hide</button>
       </div>
-      {active ? <TerminalView key={active.id} ref={view} id={active.id} scale={scale} /> : <div className="grid flex-1 place-items-center text-ink-3">Open a terminal from a project, a worktree, a session, a pre-draft or the code viewer.</div>}
+      {active ? <TerminalView key={active.id} id={active.id} scale={scale} /> : <div className="grid flex-1 place-items-center text-ink-3">Open a terminal from a project, a worktree, a session, a pre-draft or the code viewer.</div>}
     </section>
   );
 }

@@ -193,6 +193,7 @@ fn show_error(w: &WebviewWindow, msg: &str) {
 fn build_window(app: &tauri::AppHandle, profile: &Profile, label: &str, url: WebviewUrl, visible: bool, keep_warm: bool) -> tauri::Result<WebviewWindow> {
     let origin = profile.origin();
     let window = WebviewWindowBuilder::new(app, label, url)
+        .enable_clipboard_access()
         .title(if profile.dev { "Launchpad (dev)" } else { "Launchpad" })
         .inner_size(1440.0, 920.0)
         .min_inner_size(960.0, 600.0)

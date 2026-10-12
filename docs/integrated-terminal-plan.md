@@ -84,7 +84,7 @@ The project rules require a defined scope before any Phase 7 work, so here it is
 
 - A bottom panel in `Shell.tsx`, under the main area.
 - A tab for each terminal shows its title (project · branch, or the session title), its status (running, or "exited 0") and a Close button.
-- Buttons: New terminal (opens in the current context), Copy selection, Paste, Clear and Hide.
+- Buttons: New terminal (opens in the current context, active workspace terminal folder or first workspace project) and Hide. Copy/Paste/Clear buttons were replaced by normal terminal shortcuts on 2026-10-12.
 - Hide keeps the processes running.
 - Small, medium and large height buttons instead of a drag handle.
 - A Terminal button in the status bar shows the count. Visibility, height and the active tab are saved in the layout store.
@@ -102,7 +102,7 @@ The project rules require a defined scope before any Phase 7 work, so here it is
 
 **Keyboard:**
 
-- A new documented exception to the click-only rule: the focused terminal sends every key (including `Ctrl+C` and `Ctrl+F`) to the process, and Launchpad defines no shortcut there.
+- Exceptions to the click-only rule: global `Ctrl+T`/`Cmd+T` opens a new shell. The focused terminal handles selection copy (`Ctrl+Shift+C`/`Cmd+C`) and paste (`Ctrl+Shift+V`/`Ctrl+V`/`Cmd+V`, with bracketed paste); `Ctrl+L` and macOS `Cmd+L` send clear/redraw input to the shell. Other keys, including `Ctrl+C`, `Ctrl+D` and `Ctrl+F`, reach the process.
 - The code viewer's `Ctrl+F` handler must ignore keys that come from inside a terminal.
 
 ### What gets removed
