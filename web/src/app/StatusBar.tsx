@@ -56,10 +56,15 @@ function Warnings({ harness, s }: { harness: Harness; s: HarnessStatus }) {
 
 const emptyStatus: HarnessStatus = { version: null, version_error: null, updating_to: null, five_hour: null, weekly: null, quota_at: null, quota_error: null };
 
-function Details({ data, limits }: { data: Status; limits: Record<string, { remaining: number; reset_at: number }> }) {
+function Details({ harness, data, limits }: { harness: Harness; data: Status; limits: Record<string, { remaining: number; reset_at: number }> }) {
   const harnesses = useHarnesses();
+  const info = useHarnessInfo(harness);
   return (
-    <Popover up align="right" width={320} trigger={({ open, toggle }) => <button className="btn btn-sm btn-ghost h-[22px]! px-2!" aria-expanded={open} onClick={toggle}>Details ▾</button>}>
+    <Popover up width={320} trigger={({ open, toggle }) => (
+      <button type="button" className="inline-flex h-[22px] items-center rounded px-1 hover:bg-select focus-visible:outline-2 focus-visible:outline-teal" aria-label={`${info?.name ?? harness} status details`} aria-expanded={open} onClick={toggle}>
+        <Pair harness={harness} s={data.harnesses[harness] ?? emptyStatus} />
+      </button>
+    )}>
       {() => (
         <div className="grid gap-1.5 p-1.5 text-[12px] whitespace-normal">
           {harnesses.map((h) => {
@@ -102,14 +107,13 @@ export function StatusBar() {
     <footer className="flex min-h-[30px] flex-none items-center gap-x-2.5 border-t border-line bg-chrome px-3 py-1 text-[11.5px] whitespace-nowrap text-ink-2 tabular-nums">
       {data ? (
         <>
-          {quota.map((h, i) => <Fragment key={h.id}>{i > 0 && <span className="h-3.5 w-px bg-line" />}<Pair harness={h.id} s={data.harnesses[h.id] ?? emptyStatus} /></Fragment>)}
+          {quota.map((h, i) => <Fragment key={h.id}>{i > 0 && <span className="h-3.5 w-px bg-line" />}<Details harness={h.id} data={data} limits={limits} /></Fragment>)}
           {harnesses.map((h) => <Warnings key={h.id} harness={h.id} s={data.harnesses[h.id] ?? emptyStatus} />)}
           {low.map(([k, v]) => <span key={k} className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={`Resets ${formatReset(v.reset_at)}`}>GitHub {k} {v.remaining} calls left</span>)}
           <span className="ml-auto inline-flex items-center gap-2.5">
             {!online && <span className="font-semibold text-gh-closed">Daemon disconnected, reconnecting…</span>}
             {data.profile === "dev" && <span className="font-mono text-ink-3" title={`Running commit: ${data.commit}`}>{data.commit.slice(0, 7)}</span>}
             <TerminalButton />
-            <Details data={data} limits={limits} />
             {data.profile === "dev" && <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn">dev</span>}
           </span>
         </>
