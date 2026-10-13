@@ -248,7 +248,6 @@ export function AgentsView() {
   const archived = filtered.filter((s) => s.status === "closed").sort(order);
   const now = Date.now();
   const oldDone = done.filter((s) => !pinned.includes(s.id) && now - s.status_since > 3 * DAY);
-  const lists: Partial<Record<AgentGroup, string[]>> = Object.fromEntries(([["Needs you", needs], ["Running", running], ["Quota paused", quotaPaused], ["Done", done], ["Stopped", stopped], ["Interrupted", interrupted], ["Failed", failed], ["In terminal", inTerminal], ["Archived", archived]] as const).map(([g, l]) => [g, l.map((s) => s.id)]));
   const cronNext = earliest(filteredCrons.filter((c) => !c.paused).map((c) => c.next_run_at));
   const scheduleNext = earliest(filteredSchedules.filter((l) => l.status === "queued").map((l) => l.ready_at));
 
@@ -257,28 +256,15 @@ export function AgentsView() {
     try { for (const s of oldDone) await api.post(`/api/sessions/${s.id}/close`); } catch (e) { toastError(e); } finally { setArchiving(false); }
   };
 
-  // After the shown session is archived, open the next item of the group it was opened from.
-  const origin = useRef<{ id: string; group: AgentGroup } | null>(null);
-  const prevLists = useRef(lists);
+  // Archiving the shown session returns to the dashboard without reading another run.
   const lastShown = useRef<{ id: string; status: Session["status"] } | null>(null);
   useEffect(() => {
-    if (visibleSession && origin.current?.id !== visibleSession) {
-      const group = (Object.keys(lists) as AgentGroup[]).find((g) => lists[g]!.includes(visibleSession));
-      if (group) origin.current = { id: visibleSession, group };
-    }
     const was = lastShown.current;
     lastShown.current = visible ? { id: visible.id, status: visible.status } : null;
-    if (visible && was?.id === visible.id && was.status !== "closed" && visible.status === "closed" && origin.current?.id === visible.id && origin.current.group !== "Archived") {
-      const g = origin.current.group;
-      const before = prevLists.current[g] ?? [];
-      const current = lists[g] ?? [];
-      const i = before.indexOf(visible.id);
-      const next = (i >= 0 ? before.slice(i + 1).find((id) => current.includes(id)) : undefined) ?? current[0];
-      if (next) open(next);
-      else clearSession(visible.id);
+    if (visible && was?.id === visible.id && was.status !== "closed" && visible.status === "closed") {
+      clearSession(visible.id);
     }
-    prevLists.current = lists;
-  });
+  }, [visible, clearSession]);
 
   type Item = { kind: "group"; title: AgentGroup; count: number; highlight?: boolean; detail?: string } | { kind: "session"; session: Session } | { kind: "schedule"; launch: ScheduledLaunch } | { kind: "cron"; cron: CronAgent } | { kind: "more" } | { kind: "archive-old" };
   // Groups with no items are not shown at all.
