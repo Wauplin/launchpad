@@ -2512,7 +2512,9 @@ dependencies = [
 name = "launchpad-desktop"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
  "dirs",
+ "gtk",
  "libc",
  "tauri",
  "tauri-build",

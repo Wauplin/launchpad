@@ -117,6 +117,8 @@ Done means: a week of daily use with worktrees as the default, without lost work
 
 - Launch attachments, built on 2026-10-11: New agent accepts selected or dropped files/images and pasted screenshots, with removable previews and saved draft/schedule/cron persistence. Images use native harness input on initial and quota-held turns; other files remain private local references outside the project checkout. Steering messages share screenshot extraction. Checked real clipboard paste in both boxes, file drops/removal, draft reloads, large preview/draft/schedule/cron bodies, rejected uploads, an actual Codex first turn reading a file and image, a quota-held Claude launch, private file permissions and the 800 px overlay. Test schedules/crons were canceled/deleted and smoke agents stopped/archived. Strict workspace Clippy, all 16 existing Rust tests, UI type checking and build pass. Phase 1 remains built and awaiting daily use.
 
+- Screenshot clipboard fix (2026-10-13): Linux desktop prompt paste falls back to the native GTK clipboard when WebKitGTK omits screenshot files. Both prompt boxes share the fallback and preserve text paste, including events with missing text types. Checked real Ctrl+V in an isolated Tauri/WebKitGTK 2.50.4 window: an in-memory screenshot became one 40 × 20 preview, then text pasted unchanged. Clipboard regression tests, UI type check/build, pinned strict workspace Clippy, desktop build and all 17 Rust tests pass. Native macOS/Windows daily-use checks remain outstanding.
+
 ## Phase 2: GitHub inbox
 
 - GitHub client: token from `gh`, ETag store, GraphQL batching, rate-limit tracking.

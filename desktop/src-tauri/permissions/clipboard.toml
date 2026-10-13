@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "read-clipboard-image"
+description = "Read a screenshot from the system clipboard after a prompt paste."
+commands.allow = ["read_clipboard_image"]

@@ -11,7 +11,7 @@ import type { GitHubRef } from "@/gen/GitHubRef";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import type { HarnessVariant } from "@/gen/HarnessVariant";
-import { clipboardImages, readAttachments } from "@/lib/attachments";
+import { pastedImages, readAttachments } from "@/lib/attachments";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
 import type { Project } from "@/gen/Project";
@@ -252,12 +252,14 @@ export function Composer() {
   const [readingAttachments, setReadingAttachments] = useState(false);
   const attachmentRead = useRef(false);
   const attachmentInput = useRef<HTMLInputElement>(null);
-  const addAttachments = async (files: File[]) => {
-    if (!files.length || launching || attachmentRead.current) return;
+  const addAttachments = async (input: File[] | Promise<File[]>) => {
+    if (launching || attachmentRead.current) return;
     attachmentRead.current = true;
     setReadingAttachments(true);
     const draft = useComposer.getState().spec;
     try {
+      const files = await input;
+      if (!files.length) return;
       const added = await readAttachments(files, draft.attachments ?? []);
       if (added.some((f) => f.data_url.startsWith("data:image/")) && harness && !harness.capabilities.images) throw new Error("This harness does not support images.");
       // Do not add a completed read to a different workspace or a discarded draft.
@@ -424,7 +426,7 @@ export function Composer() {
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-3">
         <PromptField
           disabled={launching || readingAttachments}
-          onPaste={(e) => { const files = clipboardImages(e.clipboardData); if (files.length) { e.preventDefault(); void addAttachments(files); } }}
+          onPaste={(e) => { if (launching || attachmentRead.current) return; const files = pastedImages(e); if (files) void addAttachments(files); }}
           value={spec.text}
           onChange={(text) => set((s) => ({ ...s, text }))}
           projects={sorted}

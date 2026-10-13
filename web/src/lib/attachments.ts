@@ -1,4 +1,32 @@
 import type { FileAttachment } from "@/gen/FileAttachment";
+import type { ClipboardEvent } from "react";
+
+declare global {
+  interface Window {
+    /** Linux desktop fallback for WebKitGTK's empty screenshot paste events. */
+    __launchpadReadClipboardImage?: () => Promise<string | null>;
+  }
+}
+
+/** Leave text paste native, and read screenshots only in response to a paste gesture. */
+export function pastedImages(event: ClipboardEvent<HTMLTextAreaElement>): File[] | Promise<File[]> | null {
+  const files = clipboardImages(event.clipboardData);
+  if (files.length) {
+    event.preventDefault();
+    return files;
+  }
+  // Text/HTML/URI clipboard contents must retain the textarea's normal paste behavior.
+  if (event.clipboardData.types.some((type) => type.startsWith("text/"))
+    || ["text/plain", "text/html", "text/uri-list"].some((type) => event.clipboardData.getData(type))
+    || !window.__launchpadReadClipboardImage) return null;
+  // There is no DOM image to suppress here. Keep the native default available even
+  // when WebKit omits types for text that it can still insert into the textarea.
+  return window.__launchpadReadClipboardImage().then((data) => {
+    if (!data) return [];
+    const bytes = Uint8Array.from(atob(data.split(",")[1]), (c) => c.charCodeAt(0));
+    return [new File([bytes], "Pasted image.png", { type: "image/png" })];
+  });
+}
 
 /** Screenshots can appear in either clipboard collection depending on the webview. */
 export function clipboardImages(data: DataTransfer): File[] {

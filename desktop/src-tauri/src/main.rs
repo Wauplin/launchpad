@@ -25,6 +25,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
+#[cfg(target_os = "linux")]
+mod clipboard;
+
 #[derive(Clone)]
 struct Profile {
     dev: bool,
@@ -192,7 +195,13 @@ fn show_error(w: &WebviewWindow, msg: &str) {
 /// Builds a window on `url`. The main window hides on close when it stays warm; others close.
 fn build_window(app: &tauri::AppHandle, profile: &Profile, label: &str, url: WebviewUrl, visible: bool, keep_warm: bool) -> tauri::Result<WebviewWindow> {
     let origin = profile.origin();
-    let window = WebviewWindowBuilder::new(app, label, url)
+    let builder = WebviewWindowBuilder::new(app, label, url);
+    #[cfg(target_os = "linux")]
+    let builder = builder.initialization_script(format!(
+        "if (location.origin === {}) {{ window.__launchpadReadClipboardImage = () => window.__TAURI_INTERNALS__.invoke('read_clipboard_image'); }}",
+        serde_json_string(&origin)
+    ));
+    let window = builder
         .enable_clipboard_access()
         .title(if profile.dev { "Launchpad (dev)" } else { "Launchpad" })
         .inner_size(1440.0, 920.0)
@@ -257,6 +266,8 @@ fn main() {
     let keep_warm = !profile.dev;
 
     let mut builder = tauri::Builder::default();
+    #[cfg(target_os = "linux")]
+    { builder = builder.invoke_handler(tauri::generate_handler![clipboard::read_clipboard_image]); }
     if keep_warm {
         // Dev windows are not single-instance, so a dev window can run next to the prod one.
         let p = profile.clone();

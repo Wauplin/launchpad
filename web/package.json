@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "test:attachments": "node --experimental-strip-types --test tests/attachments.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.0",
