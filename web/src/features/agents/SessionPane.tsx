@@ -226,7 +226,9 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
   const name = harness?.name ?? s.harness;
   const isPinned = pinned.includes(s.id);
   const mainChanges = git.data?.main_changes?.files ?? 0;
-  const changed = (git.data?.files.length ?? 0) > 0 || mainChanges > 0;
+  // Committed differences from main remain reviewable, but do not block Archive.
+  const uncommitted = (git.data?.files.length ?? 0) > 0;
+  const changed = uncommitted || mainChanges > 0;
   const showChanges = (main: boolean) => { setGitMain(main); setView("changes"); };
   const onlyMain = (git.data?.files.length ?? 0) === 0 && mainChanges > 0;
   const archive = () => void act(s.id, "close");
@@ -254,13 +256,13 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
   ) : s.status === "waiting" && s.open_question ? (
     <button className="btn btn-sm btn-primary" title="Show the question and focus the message box" onClick={() => { setView("trace"); setAnswering((n) => n + 1); }}>Answer</button>
   ) : s.status === "waiting" ? (
-    changed
-      ? <button className="btn btn-sm btn-primary" title="Open the changed files in the Changes view" onClick={() => showChanges(onlyMain)}>Review changes</button>
+    uncommitted
+      ? <button className="btn btn-sm btn-primary" title="Open the uncommitted files in the Changes view" onClick={() => showChanges(false)}>Review changes</button>
       : <button className="btn btn-sm btn-primary" title="Archive the session (it stays resumable)" onClick={archive}><Icon name="archive" size={12} />Archive</button>
   ) : resumable ? (
     <button className="btn btn-sm btn-primary" title={s.status === "closed" ? "Re-attach this archived session without sending a message" : "Send “Continue the unfinished turn.”"} onClick={() => { void (s.status === "closed" ? act(s.id, "resume") : api.post(`/api/sessions/${s.id}/input`, { text: "Continue the unfinished turn." }).catch(toastError)); setView("trace"); }}>Resume</button>
   ) : null;
-  const archivePrimary = s.status === "waiting" && !s.open_question && !changed;
+  const archivePrimary = s.status === "waiting" && !s.open_question && !uncommitted;
 
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col bg-paper"
