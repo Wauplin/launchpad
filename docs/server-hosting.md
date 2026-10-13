@@ -2,7 +2,7 @@
 
 This guide covers running the Launchpad daemon on a headless Linux host (a VPS, a home server or a laptop that stays on) and using it from a browser or a phone. One daemon runs everything: agents, terminals, the GitHub cache and the UI. Every device is a client of that daemon.
 
-The daemon keeps listening on `127.0.0.1` and, by default, discovers and also listens on its own running Tailscale node’s IP. Pairing links then work directly on the tailnet. Set `[server] auto_tailnet = false` to keep loopback only. An explicit `public_origin` takes precedence over discovery. A gateway handles TLS for HTTPS features. Browser access uses pairing: see [Trusted remote access and pairing](../README.md#trusted-remote-access-and-pairing) in the README.
+The daemon keeps listening on `127.0.0.1` and, by default, discovers an existing private Tailscale Serve HTTPS root route to its own port. Otherwise it also listens on its own running Tailscale node’s IP. Pairing prefers the matching HTTPS URL, then direct tailnet access. Set `[server] auto_tailnet = false` to keep loopback only. An explicit `public_origin` takes precedence over discovery. A gateway handles TLS for HTTPS features. Browser access uses pairing: see [Trusted remote access and pairing](../README.md#trusted-remote-access-and-pairing) in the README.
 
 ## 1. Install the daemon without the desktop shell
 
@@ -28,7 +28,7 @@ Recommended: [Tailscale Serve](https://tailscale.com/kb/1312/serve). It gives HT
 tailscale serve --bg 7317
 ```
 
-The app is then at `https://<host>.<tailnet>.ts.net`. Set `public_origin` in the `[server]` section of `~/.config/launchpad/config.toml` to that exact origin, restart the daemon, then run `launchpad pair` on the server and scan the QR code with each device. Alternatively, use a reverse proxy with an identity-aware login in front (Cloudflare Access, oauth2-proxy, …). Do not expose port 7317 directly to the internet.
+The app is then at `https://<host>.<tailnet>.ts.net`. With no explicit `public_origin`, restart the daemon to discover this matching HTTPS route automatically. Alternatively, set `public_origin` in the `[server]` section of `~/.config/launchpad/config.toml` to that exact origin and restart. Then run `launchpad pair` on the server and scan the QR code with each device. Alternatively, use a reverse proxy with an identity-aware login in front (Cloudflare Access, oauth2-proxy, …). Do not expose port 7317 directly to the internet.
 
 The app must live at the root of a host name: the UI uses absolute paths (`/api`, `/ws`, `/assets`, `/auth`). Use a dedicated host name such as `launchpad.example.com`, not a sub-path such as `example.com/launchpad`.
 
