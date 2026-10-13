@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { isDesktopShell } from "@/lib/platform";
 import { api } from "@/lib/api";
 import { toast, toastError } from "@/components/Toast";
 import { formatAge } from "@/lib/format";
@@ -26,6 +27,7 @@ export function DevicesView() {
     finally { setBusy(null); }
   };
   const revoke = useCallback(async (device: Device) => {
+    if (isDesktopShell && device.current) return;
     setBusy(device.id);
     try {
       await api.delete(`/api/devices/${device.id}`);
@@ -64,11 +66,11 @@ export function DevicesView() {
 
 const DeviceRow = memo(function DeviceRow({ device, height, top, busy, onRevoke }: { device: Device; height: number; top: number; busy: boolean; onRevoke: (device: Device) => Promise<void> }) {
   return <div className="absolute left-0 top-0 flex w-full items-center gap-3 border-b border-line-2" style={{ height, transform: `translateY(${top}px)` }}>
-    <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{device.name}{device.current && <span className="ml-2 text-xs font-normal text-ink-3">This browser</span>}</div>
+    <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{device.name}{device.current && <span className="ml-2 text-xs font-normal text-ink-3">{isDesktopShell ? "This desktop app" : "This browser"}</span>}</div>
       <div className="truncate text-xs text-ink-3">
         {device.last_seen_at ? `Last active ${lastActive(device.last_seen_at)}` : "Not active since pairing"} · notifications {device.push ? "on" : "off"} · paired {new Date(device.created_at * 1000).toLocaleDateString()} · expires {new Date(device.expires_at * 1000).toLocaleDateString()}
       </div></div>
-    <button className="btn btn-sm" disabled={busy} onClick={() => void onRevoke(device)}>{device.current ? "Sign out" : "Revoke"}</button>
+    {isDesktopShell && device.current ? <span className="text-xs text-ink-3">Local desktop app</span> : <button className="btn btn-sm" disabled={busy} onClick={() => void onRevoke(device)}>{device.current ? "Sign out" : "Revoke"}</button>}
   </div>;
 });
 

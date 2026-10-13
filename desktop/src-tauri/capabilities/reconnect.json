@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "reconnect",
+  "description": "Local desktop pairing recovery, including the unauthenticated sign-in page.",
+  "local": false,
+  "remote": { "urls": ["http://127.0.0.1:7317/*", "http://127.0.0.1:7318/*"] },
+  "windows": ["main", "window-*"],
+  "permissions": ["reconnect-local"]
+}

@@ -144,6 +144,22 @@ fn app_url(p: &Profile, route: &str, t0: u128) -> Result<url::Url, String> {
     Ok(url)
 }
 
+/// Only a local daemon document may bootstrap a new desktop device cookie.
+#[tauri::command]
+async fn reconnect_local(window: WebviewWindow, profile: tauri::State<'_, Profile>) -> Result<(), String> {
+    let current = window.url().map_err(|e| e.to_string())?;
+    if current.origin().ascii_serialization() != profile.origin() {
+        return Err("Reconnect is only available for the local Launchpad window".into());
+    }
+    let profile = profile.inner().clone();
+    let mut url = tauri::async_runtime::spawn_blocking(move || app_url(&profile, "/", now_ms()))
+        .await.map_err(|e| e.to_string())??;
+    // A new fragment on /auth would only change the hash, leaving the sign-in script asleep.
+    // The sign-in page clears this query along with the fragment before exchanging the code.
+    url.set_query(Some("desktop_reconnect=1"));
+    window.navigate(url).map_err(|e| e.to_string())
+}
+
 fn has_flag(argv: &[String], flag: &str) -> bool {
     argv.iter().any(|a| a == flag)
 }
@@ -210,7 +226,7 @@ fn build_window(app: &tauri::AppHandle, profile: &Profile, label: &str, url: Web
     let origin = profile.origin();
     // Marks the desktop shell, so the UI opens links and windows through the daemon (not as browser tabs).
     let builder = WebviewWindowBuilder::new(app, label, url)
-        .initialization_script(format!("if (location.origin === {}) {{ window.__launchpadDesktop = true; }}", serde_json_string(&origin)));
+        .initialization_script(format!("if (location.origin === {}) {{ window.__launchpadDesktop = true; window.__launchpadReconnect = () => window.__TAURI_INTERNALS__.invoke('reconnect_local'); }}", serde_json_string(&origin)));
     #[cfg(target_os = "linux")]
     let builder = builder.initialization_script(format!(
         "if (location.origin === {}) {{ window.__launchpadReadClipboardImage = () => window.__TAURI_INTERNALS__.invoke('read_clipboard_image'); }}",
@@ -280,9 +296,11 @@ fn main() {
     let hidden = has_flag(&args, "--hidden");
     let keep_warm = !profile.dev;
 
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default().manage(profile.clone());
     #[cfg(target_os = "linux")]
-    { builder = builder.invoke_handler(tauri::generate_handler![clipboard::read_clipboard_image]); }
+    { builder = builder.invoke_handler(tauri::generate_handler![clipboard::read_clipboard_image, reconnect_local]); }
+    #[cfg(not(target_os = "linux"))]
+    { builder = builder.invoke_handler(tauri::generate_handler![reconnect_local]); }
     if keep_warm {
         // Dev windows are not single-instance, so a dev window can run next to the prod one.
         let p = profile.clone();

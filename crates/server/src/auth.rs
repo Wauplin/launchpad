@@ -471,7 +471,7 @@ async fn sign_in() -> impl IntoResponse {
             (header::REFERRER_POLICY, "no-referrer"),
             (
                 header::CONTENT_SECURITY_POLICY,
-                "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'",
+                "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost; form-action 'self'; frame-ancestors 'none'",
             ),
         ],
         Html(SIGN_IN),
@@ -479,7 +479,8 @@ async fn sign_in() -> impl IntoResponse {
 }
 const SIGN_IN: &str = r#"<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pair Launchpad</title></head>
 <body style="font:16px system-ui;padding:24px;color:#17202B;background:#F4F6F9;max-width:480px;margin:auto">
-<h1>Pair this browser</h1><p>On the host, run <code>launchpad pair</code>, or open Settings → Devices in a signed-in browser. Scan the QR code or open its link on this device.</p>
+<h1 id="heading">Pair this browser</h1><p id="instructions">On the host, run <code>launchpad pair</code>, or open Settings → Devices in a signed-in browser. Scan the QR code or open its link on this device.</p>
+<button id="reconnect" hidden style="font:inherit;padding:8px">Reconnect to this machine</button>
 <form id="form"><p><label>Device name<br><input id="name" autocomplete="off" maxlength="80" required style="font:inherit;padding:8px;max-width:90%" placeholder="My phone"></label></p>
 <button style="font:inherit;padding:8px" id="button">Pair browser</button></form><p id="message" role="status"></p>
 <script>
@@ -487,6 +488,13 @@ const params=new URLSearchParams(location.hash.slice(1)); const code=params.get(
 history.replaceState(null,'', '/auth');
 const form=document.getElementById('form'), message=document.getElementById('message');
 function destination(){try{const url=new URL(next || '/',location.origin);return next && next.startsWith('/') && url.origin===location.origin ? url.href : '/';}catch{return '/';}}
+const reconnect=document.getElementById('reconnect');
+if(window.__launchpadDesktop && window.__launchpadReconnect){
+ document.getElementById('heading').textContent='Connect Launchpad';
+ document.getElementById('instructions').textContent='Reconnect the desktop app to Launchpad on this machine. Your agents and terminals keep running.';
+ reconnect.hidden=false;
+ reconnect.onclick=async()=>{reconnect.disabled=true;message.textContent='Connecting…';try{await window.__launchpadReconnect();}catch(e){message.textContent=String(e);reconnect.disabled=false;}};
+}
 if(!code){form.hidden=true;}else{document.getElementById('name').focus();}
 form.onsubmit=async(e)=>{e.preventDefault(); const button=document.getElementById('button'); button.disabled=true;
 try{const r=await fetch('/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,name:document.getElementById('name').value})});

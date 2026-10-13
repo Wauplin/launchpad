@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "reconnect-local"
+description = "Reconnect the desktop window to its local daemon using a single-use pairing link."
+commands.allow = ["reconnect_local"]
