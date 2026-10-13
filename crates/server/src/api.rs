@@ -24,6 +24,8 @@ pub fn router() -> Router<Server> {
         .route("/api/workspaces", get(list_workspaces).post(create_workspace))
         .route("/api/workspaces/{id}", axum::routing::patch(patch_workspace).delete(delete_workspace))
         .route("/api/window", post(open_window))
+        .route("/api/uploads", post(upload).layer(axum::extract::DefaultBodyLimit::max(6 * 1024 * 1024)))
+        .route("/api/uploads/{hash}", get(uploaded_image))
         .route("/api/launch/preview", post(preview).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/launch/schedules", get(schedules).post(schedule).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/sessions/{id}/follow-up", post(follow_up))
@@ -129,6 +131,26 @@ struct OpenWindow {
 }
 
 /// Opens another desktop window. The UI falls back to a browser tab when this fails.
+/// Stores one attachment (raw body, its MIME type in `Content-Type`) and returns its reference.
+async fn upload(headers: axum::http::HeaderMap, body: axum::body::Bytes) -> ApiResult<Value> {
+    let mime = headers.get(axum::http::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("application/octet-stream");
+    let reference = launchpad_core::attachments::store(&body, mime).await.map_err(bad)?;
+    Ok(Json(json!({"data_url": reference})))
+}
+
+#[derive(Deserialize)]
+struct UploadType {
+    #[serde(rename = "type")]
+    mime: String,
+}
+
+/// An uploaded image for previews. Other file types are never served back to the browser.
+async fn uploaded_image(Path(hash): Path<String>, Query(q): Query<UploadType>) -> Result<axum::response::Response, ApiError> {
+    use axum::response::IntoResponse;
+    let bytes = launchpad_core::attachments::read_image(&hash, &q.mime).map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+    Ok(([(axum::http::header::CONTENT_TYPE, q.mime), (axum::http::header::CACHE_CONTROL, "private, max-age=31536000, immutable".into()), (axum::http::header::HeaderName::from_static("x-content-type-options"), "nosniff".into())], bytes).into_response())
+}
+
 async fn open_window(State(s): State<Server>, Json(b): Json<OpenWindow>) -> ApiResult<Value> {
     workspace::open_window(&s.app, b.workspace_id.as_deref()).map_err(bad)?;
     Ok(Json(json!({"ok": true})))
@@ -225,7 +247,7 @@ async fn refresh_defaults(State(s): State<Server>, Path(kind): Path<String>) -> 
 // ---------------------------------------------------------------- sessions
 
 async fn list_sessions(State(s): State<Server>) -> Json<Vec<Session>> {
-    Json(s.app.sessions.list())
+    Json(s.app.sessions.list().iter().map(Session::light).collect())
 }
 
 async fn get_session(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Session> {
@@ -307,7 +329,9 @@ async fn input(State(s): State<Server>, Path(id): Path<String>, headers: axum::h
     if b.text.trim().is_empty() && b.images.is_empty() {
         return Err(ApiError::bad_request("the message is empty"));
     }
+    let mut b = b;
     launchpad_core::attachments::validate_images(&b.images).map_err(bad)?;
+    launchpad_core::attachments::resolve_images(&mut b.images).map_err(bad)?;
     if let Some(client_id) = headers.get("Idempotency-Key").and_then(|v| v.to_str().ok()) {
         s.app.sessions.send_with_id(&s.app, &id, &b.text, b.images, client_id.to_owned()).await.map_err(bad)?;
     } else {

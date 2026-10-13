@@ -3,17 +3,16 @@ import { IconSprite } from "@/components/Icon";
 import { Toasts } from "@/components/Toast";
 import { Composer } from "@/features/launch/Composer";
 import { TerminalDock } from "@/features/terminals/TerminalDock";
-import { useConfig } from "@/lib/queries";
 import { useLayoutEffect } from "react";
-import { zoomScale } from "@/lib/zoom";
+import { useZoomScale } from "@/lib/zoom";
 import { useWorkspaceSync } from "@/lib/workspace";
 import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
 
 export function Shell() {
-  const config = useConfig().data?.config;
-  useLayoutEffect(() => { document.documentElement.style.zoom = String(zoomScale(config?.zoom ?? 2)); }, [config?.zoom]);
+  const scale = useZoomScale();
+  useLayoutEffect(() => { document.documentElement.style.zoom = String(scale); }, [scale]);
   useWorkspaceSync();
   return (
     <div className="flex h-full flex-col">

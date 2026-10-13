@@ -2,6 +2,7 @@
 // revision), a file tree, tabs, colored code with changed-line bars, find in file (Ctrl+F) and
 // search in the project. Selected lines become agent context. Read only.
 
+import { openExternal } from "@/lib/platform";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,7 +18,6 @@ import { Markdown } from "@/components/Markdown";
 import DOMPurify from "dompurify";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toast } from "@/components/Toast";
-import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { formatAge } from "@/lib/format";
 import { useProject, useSessions } from "@/lib/queries";
@@ -358,7 +358,7 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
           <button className="iconbtn" title="Copy path" onClick={() => void copyText(path).then(() => toast("Path copied"))}>
             <Icon name="copy" size={14} />
           </button>
-          <button className="iconbtn disabled:opacity-40" disabled={!ghFile} title={ghTitle} onClick={() => ghFile && void api.post("/api/open", { url: ghFile })}>
+          <button className="iconbtn disabled:opacity-40" disabled={!ghFile} title={ghTitle} onClick={() => ghFile && openExternal(ghFile)}>
             <Icon name="ext" size={14} />
           </button>
           <button className="iconbtn" title="Reload the file and the file list" onClick={reload}>

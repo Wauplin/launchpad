@@ -279,6 +279,10 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
     let path = req.uri().path();
     let private = path == "/auth" || path.starts_with("/api/devices");
     if path == "/api/health" || path == "/auth" {
+        // Health answers everyone, but only signed-in clients learn the profile and process id.
+        if let Some(access) = s.auth.authenticate(req.headers()) {
+            req.extensions_mut().insert(access);
+        }
         return private_response(next.run(req).await, private);
     }
     if let Some(access) = s.auth.authenticate(req.headers()) {

@@ -1,13 +1,137 @@
 //! Local uploads: bounded data URLs, native image input, and private reference files.
+//!
+//! Browsers upload each file once (`POST /api/uploads`) and keep a short reference instead of the
+//! bytes: `upload:<mime>;<sha256>`. Drafts, schedules, crons and launch specs store the reference;
+//! the bytes live once in `<data_dir>/uploads/<sha256>`. Data URLs remain accepted everywhere.
 use crate::model::{FileAttachment, ImageAttachment};
 use anyhow::{Context, Result, ensure};
 use base64::Engine;
+use sha2::{Digest, Sha256};
+use std::path::PathBuf;
+use std::sync::OnceLock;
+
+const MAX_BYTES: usize = 5 * 1024 * 1024;
+const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+static UPLOADS: OnceLock<PathBuf> = OnceLock::new();
+
+/// Sets the upload folder (`<data_dir>/uploads`) once at startup.
+pub fn init(data_dir: &std::path::Path) {
+    let _ = UPLOADS.set(data_dir.join("uploads"));
+}
+
+fn uploads_dir() -> Result<&'static PathBuf> {
+    UPLOADS.get().context("the upload store is not initialized")
+}
+
+/// `(mime, sha256)` of an `upload:` reference.
+fn parse_ref(url: &str) -> Option<(&str, &str)> {
+    let (mime, hash) = url.strip_prefix("upload:")?.split_once(';')?;
+    let valid_mime = !mime.is_empty() && mime.len() <= 100 && mime.contains('/') && mime.chars().all(|c| c.is_ascii_alphanumeric() || "/.+-".contains(c));
+    let valid_hash = hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
+    (valid_mime && valid_hash).then_some((mime, hash))
+}
 
 pub fn is_image(data_url: &str) -> bool {
-    data_url.starts_with("data:image/")
+    data_url.starts_with("data:image/") || data_url.starts_with("upload:image/")
+}
+
+/// Stores uploaded bytes once (content-addressed) and returns their reference.
+pub async fn store(bytes: &[u8], mime: &str) -> Result<String> {
+    let mime = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let mime = if mime.is_empty() { "application/octet-stream".to_string() } else { mime };
+    ensure!(bytes.len() <= MAX_BYTES, "each attachment must be 5 MB or smaller");
+    ensure!(!mime.starts_with("image/") || IMAGE_TYPES.contains(&mime.as_str()), "use PNG, JPEG, WebP or GIF images");
+    ensure!(!mime.starts_with("image/") || !bytes.is_empty(), "the image is empty");
+    let hash = hex::encode(Sha256::digest(bytes));
+    let reference = format!("upload:{mime};{hash}");
+    ensure!(parse_ref(&reference).is_some(), "unsupported file type {mime}");
+    let dir = uploads_dir()?;
+    tokio::fs::create_dir_all(dir).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).await?;
+    }
+    let path = dir.join(&hash);
+    if tokio::fs::metadata(&path).await.is_err() {
+        let tmp = dir.join(format!("{hash}.tmp-{}", uuid::Uuid::new_v4()));
+        tokio::fs::write(&tmp, bytes).await?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            tokio::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600)).await?;
+        }
+        tokio::fs::rename(&tmp, &path).await?;
+    } else {
+        // Touch: garbage collection keeps recently used uploads.
+        let _ = std::fs::File::options().append(true).open(&path).and_then(|f| f.set_modified(std::time::SystemTime::now()));
+    }
+    Ok(reference)
+}
+
+/// Bytes of a stored image for display (`GET /api/uploads/{hash}`). Only images are served, never other types.
+pub fn read_image(hash: &str, mime: &str) -> Result<Vec<u8>> {
+    ensure!(IMAGE_TYPES.contains(&mime), "only images can be shown");
+    decode(&format!("upload:{mime};{hash}"), true)
+}
+
+/// Deletes uploads older than two weeks that no draft, scheduled launch or cron still references.
+/// Launched sessions do not need them: images went to the harness and files were copied at launch.
+pub async fn collect_garbage(app: &crate::App) -> Result<()> {
+    let Ok(dir) = uploads_dir() else { return Ok(()) };
+    let specs: Vec<String> = app.state_db.call(|c| {
+        let mut out = Vec::new();
+        for table in ["launch_draft", "scheduled_launch", "cron_agent"] {
+            let column = if table == "launch_draft" { "spec_json" } else { "json" };
+            let Ok(mut stmt) = c.prepare(&format!("SELECT {column} FROM {table}")) else { continue };
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            out.extend(rows.filter_map(|r| r.ok()));
+        }
+        Ok(out)
+    }).await?;
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else { return Ok(()) };
+    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(14 * 24 * 3600);
+    while let Some(entry) = entries.next_entry().await? {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let old = entry.metadata().await.ok().and_then(|m| m.modified().ok()).is_some_and(|t| t < cutoff);
+        if old && !specs.iter().any(|s| s.contains(&name)) {
+            let _ = tokio::fs::remove_file(entry.path()).await;
+        }
+    }
+    Ok(())
+}
+
+/// Encoded length (for the total limit), counting a reference as its stored bytes in base64.
+fn encoded_len(url: &str) -> usize {
+    match parse_ref(url) {
+        Some((_, hash)) => uploads_dir().ok().and_then(|d| std::fs::metadata(d.join(hash)).ok()).map(|m| m.len() as usize * 4 / 3).unwrap_or(0),
+        None => url.len(),
+    }
+}
+
+/// A `data:` URL for an attachment that may be a stored reference (harnesses take data URLs).
+pub fn to_data_url(url: &str) -> Result<String> {
+    let Some((mime, _)) = parse_ref(url) else { return Ok(url.to_string()) };
+    let bytes = decode(url, false)?;
+    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
+/// Replaces stored references in message images by data URLs (event logs keep the bytes).
+pub fn resolve_images(images: &mut [ImageAttachment]) -> Result<()> {
+    for image in images {
+        image.data_url = to_data_url(&image.data_url)?;
+    }
+    Ok(())
 }
 
 fn decode(data_url: &str, image_only: bool) -> Result<Vec<u8>> {
+    if data_url.starts_with("upload:") {
+        let (mime, hash) = parse_ref(data_url).context("invalid attachment reference")?;
+        ensure!(!(image_only || mime.starts_with("image/")) || IMAGE_TYPES.contains(&mime), "use PNG, JPEG, WebP or GIF images");
+        let bytes = std::fs::read(uploads_dir()?.join(hash)).context("the uploaded file is no longer available; attach it again")?;
+        ensure!(bytes.len() <= MAX_BYTES, "each attachment must be 5 MB or smaller");
+        return Ok(bytes);
+    }
     let (header, data) = data_url
         .split_once(',')
         .context("invalid attachment data URL")?;
@@ -31,7 +155,7 @@ fn decode(data_url: &str, image_only: bool) -> Result<Vec<u8>> {
         .decode(data)
         .context("invalid attachment base64")?;
     ensure!(
-        bytes.len() <= 5 * 1024 * 1024,
+        bytes.len() <= MAX_BYTES,
         "each attachment must be 5 MB or smaller"
     );
     ensure!(!(image_only || is_image(data_url)) || !bytes.is_empty(), "the image is empty");
@@ -47,7 +171,7 @@ pub fn decode_image(data_url: &str) -> Result<(Vec<u8>, String)> {
 
 pub fn validate(files: &[FileAttachment]) -> Result<()> {
     ensure!(
-        files.len() <= 8 && files.iter().map(|f| f.data_url.len()).sum::<usize>() <= 28_000_000,
+        files.len() <= 8 && files.iter().map(|f| encoded_len(&f.data_url)).sum::<usize>() <= 28_000_000,
         "attach at most 8 files, totaling 20 MB"
     );
     for file in files {
@@ -58,7 +182,7 @@ pub fn validate(files: &[FileAttachment]) -> Result<()> {
 
 pub fn validate_images(images: &[ImageAttachment]) -> Result<()> {
     ensure!(
-        images.len() <= 8 && images.iter().map(|f| f.data_url.len()).sum::<usize>() <= 28_000_000,
+        images.len() <= 8 && images.iter().map(|f| encoded_len(&f.data_url)).sum::<usize>() <= 28_000_000,
         "attach at most 8 images, totaling 20 MB"
     );
     for image in images {
@@ -80,7 +204,7 @@ pub async fn prepare(
         if is_image(&file.data_url) {
             images.push(ImageAttachment {
                 name: file.name.clone(),
-                data_url: file.data_url.clone(),
+                data_url: to_data_url(&file.data_url)?,
             });
         } else {
             tokio::fs::create_dir_all(&dir).await?;

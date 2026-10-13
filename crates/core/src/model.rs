@@ -161,6 +161,23 @@ impl Session {
         self.status = status;
     }
 
+    /// The session without bulky launch data, for lists and live updates: attachment bytes are dropped
+    /// (names stay) and the rendered prompt is cut. `GET /api/sessions/{id}` returns the full record.
+    pub fn light(&self) -> Session {
+        const PROMPT: usize = 4000;
+        let mut s = self.clone();
+        if s.prompt.len() > PROMPT {
+            let mut end = PROMPT;
+            while !s.prompt.is_char_boundary(end) { end -= 1; }
+            s.prompt.truncate(end);
+            s.prompt.push('…');
+        }
+        for a in &mut s.launch_spec.attachments {
+            if !a.data_url.starts_with("upload:") { a.data_url.clear(); }
+        }
+        s
+    }
+
     /// Shared "Needs you" predicate: an open question, or Done, Failed or Interrupted not seen since the status changed.
     pub fn needs_you(&self) -> bool {
         let unseen = self.seen_at < self.status_since;

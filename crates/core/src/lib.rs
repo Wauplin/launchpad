@@ -72,6 +72,7 @@ impl App {
     /// Opens the databases and the config, and starts the background services.
     pub async fn start(paths: paths::Paths) -> Result<App> {
         paths.ensure_dirs()?;
+        attachments::init(&paths.data_dir);
         let paths = Arc::new(paths);
         let bus = events::Bus::new();
         let config = config::ConfigHandle::load(&paths, bus.clone())?;
@@ -102,6 +103,10 @@ impl App {
         app.sessions.load(&app).await?;
         schedules::recover(&app).await?;
         schedules::spawn(&app);
+        {
+            let app = app.clone();
+            tokio::spawn(async move { if let Err(e) = attachments::collect_garbage(&app).await { tracing::warn!("upload cleanup: {e:#}"); } });
+        }
         crons::spawn(&app);
         status::spawn_monitors(&app);
         quota::spawn(&app);

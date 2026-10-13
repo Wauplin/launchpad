@@ -12,7 +12,7 @@ import type { GitHubRef } from "@/gen/GitHubRef";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import type { HarnessVariant } from "@/gen/HarnessVariant";
-import { pastedImages, readAttachments } from "@/lib/attachments";
+import { attachmentSrc, isImageAttachment, pastedImages, readAttachments } from "@/lib/attachments";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
 import type { Project } from "@/gen/Project";
@@ -25,7 +25,7 @@ import { api, ApiError } from "@/lib/api";
 import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/queries";
 import { parseUsd, usd, useVariants } from "@/lib/variants";
 import { useScope } from "@/lib/workspace";
-import { zoomScale } from "@/lib/zoom";
+import { useZoomScale } from "@/lib/zoom";
 import { rememberProjectCompletion, rememberedRun, rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { ProjectPicker } from "./ProjectPicker";
@@ -188,7 +188,7 @@ function useDebounced<T>(value: T, ms: number): T {
 
 /** Windows narrower than this layout width (1,500 px at the default 120% zoom) show the drawer over the content. */
 const OVERLAY_BELOW = 1250;
-function useOverlay(zoom: number) {
+function useOverlay(scale: number) {
   const [width, setWidth] = useState(window.innerWidth);
   useEffect(() => {
     const onResize = () => setWidth(window.innerWidth);
@@ -196,7 +196,7 @@ function useOverlay(zoom: number) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
   // The root `zoom` scales CSS pixels; `innerWidth` is not zoomed.
-  return width / zoomScale(zoom) < OVERLAY_BELOW;
+  return width / scale < OVERLAY_BELOW;
 }
 
 function Token({ warn, title, children }: { warn?: boolean; title?: string; children: React.ReactNode }) {
@@ -232,7 +232,7 @@ export function Composer() {
     for (const session of sessions ?? []) rememberSuccessfulSession(session);
   }, [sessions]);
   const config = useConfig().data?.config;
-  const overlay = useOverlay(config?.zoom ?? 2);
+  const overlay = useOverlay(useZoomScale());
   const [pillSlot, setPillSlot] = useState<HTMLElement | null>(null);
   useEffect(() => setPillSlot(document.getElementById("draft-pill-slot")), []);
   const defaults = useHarnessDefaults(spec.harness).data;
@@ -271,7 +271,7 @@ export function Composer() {
       const files = await input;
       if (!files.length) return;
       const added = await readAttachments(files, draft.attachments ?? []);
-      if (added.some((f) => f.data_url.startsWith("data:image/")) && harness && !harness.capabilities.images) throw new Error("This harness does not support images.");
+      if (added.some((f) => isImageAttachment(f.data_url)) && harness && !harness.capabilities.images) throw new Error("This harness does not support images.");
       // Do not add a completed read to a different workspace or a discarded draft.
       if (useComposer.getState().spec.attachments === draft.attachments) update((s) => ({ ...s, attachments: [...(s.attachments ?? []), ...added] }));
     } catch (e) { toastError(e); }
@@ -325,7 +325,7 @@ export function Composer() {
   // The daemon renders and checks the prompt at launch; Launch does not wait for a preview.
   const hasPrompt = !!spec.text.trim() || items > 0 || spec.presets.length > 0;
   const blocker = !spec.harness ? "Pick a harness in the options" : missingVariant ? "The harness variant no longer exists" : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
-  const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => f.data_url.startsWith("data:image/"));
+  const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
   const addProjectContext = (p: Project) =>
@@ -469,7 +469,7 @@ export function Composer() {
           <button className="btn btn-sm" disabled={launching || readingAttachments} onClick={() => attachmentInput.current?.click()} title="Attach files or images; you can also drop files or paste a screenshot"><Icon name="clip" size={14} />Attach files / images</button>
           <div className="mt-1 text-xs text-ink-3">{readingAttachments ? "Reading attachments…" : "Drop files or paste a screenshot into the prompt. Up to 8 files, 5 MB each, 20 MB total."}</div>
           {(spec.attachments ?? []).length > 0 && <div className="mt-2 flex flex-wrap items-start gap-2">{spec.attachments.map((file, i) => <div key={i} className="relative max-w-full rounded-md border border-line bg-chrome p-1.5 pr-6">
-            {file.data_url.startsWith("data:image/") && <img src={file.data_url} alt={file.name} className="mb-1 h-16 max-w-28 object-contain" />}
+            {isImageAttachment(file.data_url) && <img src={attachmentSrc(file.data_url)} alt={file.name} className="mb-1 h-16 max-w-28 object-contain" />}
             <div className="max-w-48 truncate text-xs" title={file.name}>{file.name}</div>
             <button className="iconbtn absolute top-0 right-0" title={`Remove ${file.name}`} aria-label={`Remove ${file.name}`} disabled={launching || readingAttachments} onClick={() => set((s) => ({ ...s, attachments: s.attachments.filter((_, j) => j !== i) }))}><Icon name="x" size={12} /></button>
           </div>)}</div>}

@@ -18,7 +18,10 @@ pub fn router() -> Router<Server> {
         .route("/api/log", post(log))
 }
 
-async fn health(State(s): State<Server>) -> Json<Value> {
+async fn health(State(s): State<Server>, access: Option<axum::Extension<crate::auth::Access>>) -> Json<Value> {
+    if access.is_none() {
+        return Json(json!({"ok": true}));
+    }
     Json(json!({"ok": true, "profile": s.app.paths.profile.name(), "pid": std::process::id()}))
 }
 

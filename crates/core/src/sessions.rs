@@ -335,7 +335,7 @@ impl Sessions {
             s.clone()
         };
         self.persist(app, &s).await?;
-        app.bus.publish("sessions", "updated", serde_json::to_value(&s)?);
+        app.bus.publish("sessions", "updated", serde_json::to_value(s.light())?);
         Ok(s)
     }
 
@@ -682,7 +682,7 @@ impl Sessions {
                 })
                 .await?;
         }
-        app.bus.publish("sessions", "updated", serde_json::to_value(&session)?);
+        app.bus.publish("sessions", "updated", serde_json::to_value(session.light())?);
         self.publish_counts(app);
 
         let start = StartSpec {

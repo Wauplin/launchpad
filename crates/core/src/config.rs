@@ -19,8 +19,6 @@ use std::collections::BTreeMap;
 pub struct Config {
     /// Discovery, temporary folders and worktrees. `~` is expanded.
     pub projects_root: String,
-    /// UI zoom position: 0..4 (100%, 110%, 120%, 135%, 150%).
-    pub zoom: u8,
     /// Remove a clean pre-draft worktree after successful publication.
     pub remove_published_worktree: bool,
     pub server: ServerConfig,
@@ -134,7 +132,6 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             projects_root: "~/projects".into(),
-            zoom: 2,
             remove_published_worktree: false,
             server: ServerConfig::default(),
             commands: Commands::default(),
@@ -167,8 +164,7 @@ impl Default for Agents {
 
 /// Written on first start. Missing keys in a user file fall back to these values.
 /// Presets are user-defined only; missing presets and `presets = []` both mean none.
-pub const DEFAULT_CONFIG: &str = r#"zoom = 2                           # 100%, 110%, 120% (default), 135%, 150%
-projects_root = "~/projects"        # discovery, temporary folders, worktrees
+pub const DEFAULT_CONFIG: &str = r#"projects_root = "~/projects"        # discovery, temporary folders, worktrees
 remove_published_worktree = false   # keep local PR worktrees after publication
 presets = []                       # add your own prompt instructions in Settings
 
@@ -198,7 +194,6 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         self.server.bind.parse::<std::net::IpAddr>().context("server.bind must be an IP address")?;
         self.server.origin()?;
-        anyhow::ensure!(self.zoom <= 4, "zoom must be between 0 and 4");
         let mut ids = std::collections::HashSet::new();
         for v in &self.variants {
             anyhow::ensure!(

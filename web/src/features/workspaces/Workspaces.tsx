@@ -9,7 +9,7 @@ import { Card, SettingsPage } from "@/features/settings/SettingsView";
 import { toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useProjects } from "@/lib/queries";
-import { openWindow, useWorkspaces } from "@/lib/workspace";
+import { newWindowWord, openWindow, useWorkspaces } from "@/lib/workspace";
 import { useWorkspace } from "@/stores/workspace";
 
 function WorkspaceCard({ w }: { w: Workspace }) {
@@ -35,7 +35,7 @@ function WorkspaceCard({ w }: { w: Workspace }) {
         <span className="text-xs text-ink-3">{w.project_ids.length} project{w.project_ids.length === 1 ? "" : "s"}</span>
         <span className="ml-auto flex items-center gap-1.5">
           <button className="btn btn-sm" disabled={current === w.id} onClick={() => switchTo(w.id)}>{current === w.id ? "Shown here" : "Show here"}</button>
-          <button className="btn btn-sm" onClick={() => void openWindow(w.id)}><Icon name="window" size={13} />New window</button>
+          <button className="btn btn-sm" onClick={() => void openWindow(w.id)}><Icon name="window" size={13} />New {newWindowWord}</button>
           <button
             className={`btn btn-sm ${confirm ? "border-[#A40E26]! bg-danger! text-white!" : "btn-ghost"}`}
             title="Delete the workspace (projects and agents are kept)"

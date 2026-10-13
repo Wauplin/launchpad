@@ -1,3 +1,4 @@
+import { openExternal } from "@/lib/platform";
 import { Link } from "@tanstack/react-router";
 import { AddContext, GitHubHTML, reference, itemKey, itemPath } from "@/features/github/lib";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -140,7 +141,7 @@ function PreviewPane({ t, projects, act, busy }: { t: Thread; projects: Project[
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <LaunchButton small ctx={launchContext(t, projects)} />
         {supported && t.number !== null && <><Link className="btn btn-sm no-underline" to="/github/$owner/$repo/$number" params={{owner:t.repo.split("/")[0],repo:t.repo.split("/")[1],number:String(t.number)}}>Full conversation</Link><AddContext refItem={reference(t.repo,{number:t.number,title:t.title,url:t.url},t.kind === "PullRequest" ? "pr" : "issue")}/></>}
-        <button className="btn btn-sm" onClick={() => void api.post("/api/open", { url: t.url }).catch(toastError)}>Open on GitHub</button>
+        <button className="btn btn-sm" onClick={() => openExternal(t.url)}>Open on GitHub</button>
         {hasSummary && <button className="btn btn-sm" disabled={refresh.isPending} onClick={() => refresh.mutate(true)}>{refresh.isPending ? "Refreshing…" : "Refresh"}</button>}
       </div>
       {(t.review_decision || t.checks) && <div className="mt-2 text-xs text-ink-2">{[t.review_decision && `Review: ${reason(t.review_decision.toLowerCase())}`, t.checks && `Checks: ${t.checks.toLowerCase()}`].filter(Boolean).join(" · ")}</div>}
@@ -152,7 +153,7 @@ function PreviewPane({ t, projects, act, busy }: { t: Thread; projects: Project[
         <div className="mb-2 text-xs text-ink-3">{p.author} · summary cached {formatAge(p.fetched_at)} ago</div>
         {p.body_html ? <GitHubHTML html={p.body_html} /> : <Markdown text={p.body || "No description."} />}
         <h3 className="mt-6 mb-3 text-xs font-semibold text-ink-2">Latest comments (up to 8)</h3>
-        {p.comments.map((c) => <article key={c.url} className="mb-4 border-t border-line pt-3"><div className="mb-2 text-xs text-ink-3">{c.author} · {formatAge(Date.parse(c.created_at))} ago <button className="ml-2 text-teal-ink hover:underline" onClick={() => void api.post("/api/open", { url: c.url }).catch(toastError)}>Open comment</button></div><AddContext refItem={{repo:t.repo,number:t.number,title:t.title,url:c.url,kind:"comment"}}/>{c.body_html ? <GitHubHTML html={c.body_html} /> : <Markdown text={c.body} />}</article>)}
+        {p.comments.map((c) => <article key={c.url} className="mb-4 border-t border-line pt-3"><div className="mb-2 text-xs text-ink-3">{c.author} · {formatAge(Date.parse(c.created_at))} ago <button className="ml-2 text-teal-ink hover:underline" onClick={() => openExternal(c.url)}>Open comment</button></div><AddContext refItem={{repo:t.repo,number:t.number,title:t.title,url:c.url,kind:"comment"}}/>{c.body_html ? <GitHubHTML html={c.body_html} /> : <Markdown text={c.body} />}</article>)}
       </> : <p className="text-ink-3">{hasSummary ? refresh.isPending ? "Fetching the thread summary…" : "No cached summary. Click Refresh to try again." : "This notification has no issue or PR preview. Open it on GitHub for details."}</p>}
     </div>
     {supported && <div className="flex-none border-t border-line bg-chrome p-3">

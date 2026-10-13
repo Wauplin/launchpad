@@ -7,6 +7,7 @@
 // relative images and links to files of the same source (`links` prop). Verified commit IDs in
 // prose and inline code link to their revision in the session project, even after worktree cleanup.
 
+import { openExternal } from "@/lib/platform";
 import MarkdownIt from "markdown-it";
 import { useQueries } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -126,7 +127,7 @@ export const Markdown = memo(function Markdown({ text, className = "", links, ru
       const href = a.getAttribute("href") ?? "";
       if (links?.link(href)) return;
       if (/^https?:\/\//i.test(href)) {
-        void fetch("/api/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: href }) });
+        openExternal(href);
         return;
       }
       if (href.startsWith("#")) return;

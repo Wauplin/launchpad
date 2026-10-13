@@ -1,5 +1,6 @@
 // Bottom dock with one tab per integrated terminal of the current workspace. Hide keeps the processes running.
 
+import { isDesktopShell } from "@/lib/platform";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -8,8 +9,8 @@ import type { TerminalInfo } from "@/gen/TerminalInfo";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
-import { useConfig, useProjects, useSessions } from "@/lib/queries";
-import { zoomScale } from "@/lib/zoom";
+import { useProjects, useSessions } from "@/lib/queries";
+import { useZoomScale } from "@/lib/zoom";
 import { useScope } from "@/lib/workspace";
 import { useLayout, type DockSize } from "@/stores/layout";
 import { terminalStatus, useOpenTerminal, useScopedTerminals, useTerminals } from "./lib";
@@ -57,7 +58,7 @@ export function TerminalDock() {
     previous.current = terminals.map((t) => t.id);
   }, [all, terminals, setDock]);
   const open = useOpenTerminal();
-  const scale = zoomScale(useConfig().data?.config.zoom ?? 2);
+  const scale = useZoomScale();
   const qc = useQueryClient();
   const active = terminals.find((t) => t.id === dock.active) ?? terminals[terminals.length - 1];
   const folder = useCurrentFolder(active);
@@ -104,7 +105,7 @@ export function TerminalDock() {
           ))}
           {terminals.length === 0 && <span className="py-0.5 text-ink-3">No terminal open in this workspace.</span>}
         </div>
-        <button className="btn btn-sm" disabled={!folder} title={folder ? `Open a shell in ${folder} (Ctrl+T / Cmd+T)` : "Open a project, a session or the code viewer first"} onClick={() => folder && void open.shell(folder)}>New terminal</button>
+        <button className="btn btn-sm" disabled={!folder} title={folder ? `Open a shell in ${folder}${isDesktopShell ? " (Ctrl+T / Cmd+T)" : ""}` : "Open a project, a session or the code viewer first"} onClick={() => folder && void open.shell(folder)}>New terminal</button>
         <span className="inline-flex gap-0.5 rounded border border-line p-0.5" aria-label="Dock height">
           {(["small", "medium", "large"] as const).map((size) => (
             <button key={size} className={`btn btn-sm ${dock.size === size ? "bg-select!" : ""}`} aria-pressed={dock.size === size} onClick={() => setDock({ size })}>

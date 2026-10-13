@@ -8,7 +8,7 @@ import type { Preset } from "@/gen/Preset";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
-import { ZOOM_LEVELS } from "@/lib/zoom";
+import { DEFAULT_ZOOM, ZOOM_LEVELS, useZoom } from "@/lib/zoom";
 import { useConfig } from "@/lib/queries";
 import { CloseAllTerminals } from "@/features/terminals/TerminalDock";
 
@@ -74,6 +74,7 @@ export function SettingsView() {
   const q = useConfig();
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Config | null>(null);
+  const { zoom, setZoom } = useZoom();
   useEffect(() => {
     if (q.data && !draft) setDraft(q.data.config);
   }, [q.data, draft]);
@@ -110,10 +111,10 @@ export function SettingsView() {
     <SettingsPage>
       {q.data.error && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">config.toml has an error, the previous settings are in use: {q.data.error}</div>}
       <Card title="General">
-        <Row title="Zoom" hint="Make the whole interface larger. The middle position is the default.">
+        <Row title="Zoom" hint="Make the whole interface larger on this device. Applies at once; other devices keep their own zoom. The middle position is the default.">
           <label className="grid gap-2">
-            <span className="font-semibold">{ZOOM_LEVELS[draft.zoom]}%{draft.zoom === 2 ? " (default)" : ""}</span>
-            <input aria-label="Interface zoom" type="range" min={0} max={4} step={1} value={draft.zoom} onChange={(e) => set((c) => ({ ...c, zoom: Number(e.target.value) }))} className="w-full accent-teal" />
+            <span className="font-semibold">{ZOOM_LEVELS[zoom]}%{zoom === DEFAULT_ZOOM ? " (default)" : ""}</span>
+            <input aria-label="Interface zoom" type="range" min={0} max={4} step={1} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-full accent-teal" />
             <span className="flex justify-between text-xs text-ink-2">{ZOOM_LEVELS.map((z) => <span key={z}>{z}%</span>)}</span>
           </label>
         </Row>

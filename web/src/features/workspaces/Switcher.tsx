@@ -4,7 +4,7 @@
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
 import { useProjects } from "@/lib/queries";
-import { openWindow, useWorkspaces } from "@/lib/workspace";
+import { newWindowWord, openWindow, useWorkspaces } from "@/lib/workspace";
 import { useWorkspace } from "@/stores/workspace";
 
 function WorkspaceButton({ label, detail, active, onSwitch }: { label: string; detail: string; active: boolean; onSwitch: () => void }) {
@@ -29,9 +29,9 @@ export function WorkspaceSwitcher() {
       ))}
       <Popover
         trigger={({ open, toggle }) => (
-          <button className="btn btn-sm btn-ghost" aria-expanded={open} title="Open a workspace in a new window" onClick={toggle}>
+          <button className="btn btn-sm btn-ghost" aria-expanded={open} title={`Open a workspace in a new ${newWindowWord}`} onClick={toggle}>
             <Icon name="window" size={13} />
-            Open in new window ▾
+            Open in new {newWindowWord} ▾
           </button>
         )}
       >

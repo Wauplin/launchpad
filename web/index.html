@@ -8,6 +8,11 @@
       try {
         document.documentElement.dataset.theme = localStorage.getItem("launchpad-theme") === "dark" ? "dark" : "light";
       } catch { document.documentElement.dataset.theme = "light"; }
+      // Per-device zoom (src/lib/zoom.ts), before paint. The phone shell (narrow screens) stays at 100%.
+      try {
+        var zoom = [100, 110, 120, 135, 150][Number(localStorage.getItem("launchpad-zoom") ?? 2)] ?? 120;
+        if (!matchMedia("(max-width: 719px)").matches) document.documentElement.style.zoom = String(zoom / 100);
+      } catch { /* The app applies it after loading. */ }
     </script>
     <link rel="icon" type="image/png" href="/src/assets/launchpad.png" />
     <title>Launchpad</title>

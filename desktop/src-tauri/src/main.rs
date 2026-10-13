@@ -208,7 +208,9 @@ fn show_error(w: &WebviewWindow, msg: &str) {
 /// Builds a window on `url`. The main window hides on close when it stays warm; others close.
 fn build_window(app: &tauri::AppHandle, profile: &Profile, label: &str, url: WebviewUrl, visible: bool, keep_warm: bool) -> tauri::Result<WebviewWindow> {
     let origin = profile.origin();
-    let builder = WebviewWindowBuilder::new(app, label, url);
+    // Marks the desktop shell, so the UI opens links and windows through the daemon (not as browser tabs).
+    let builder = WebviewWindowBuilder::new(app, label, url)
+        .initialization_script(format!("if (location.origin === {}) {{ window.__launchpadDesktop = true; }}", serde_json_string(&origin)));
     #[cfg(target_os = "linux")]
     let builder = builder.initialization_script(format!(
         "if (location.origin === {}) {{ window.__launchpadReadClipboardImage = () => window.__TAURI_INTERNALS__.invoke('read_clipboard_image'); }}",

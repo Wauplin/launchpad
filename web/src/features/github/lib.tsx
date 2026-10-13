@@ -1,8 +1,7 @@
+import { openExternal } from "@/lib/platform";
 import DOMPurify from "dompurify";
 import { memo, useMemo } from "react";
 import { useComposer } from "@/stores/composer";
-import { api } from "@/lib/api";
-import { toastError } from "@/components/Toast";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { Item, ListItem } from "./types";
 export const itemPath = (repo: string, n: number) => `/api/items/${repo}/${n}`;
@@ -35,7 +34,7 @@ export function AddContext({ refItem }: { refItem: GitHubRef }) {
   );
 }
 export function openGitHub(url: string) {
-  void api.post("/api/open", { url }).catch(toastError);
+  openExternal(url);
 }
 export const GitHubHTML = memo(function GitHubHTML({ html }: { html: string }) {
   const safe = useMemo(

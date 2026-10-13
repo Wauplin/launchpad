@@ -1,5 +1,6 @@
 // A project: running agents, GitHub items, worktrees and all agents.
 
+import { openExternal } from "@/lib/platform";
 import { memo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Session } from "@/gen/Session";
@@ -53,7 +54,7 @@ export function ProjectPage() {
           </div>
           <div className="ml-auto flex gap-1.5">
             {p.gh_repo && (
-              <button className="btn" title="Open on GitHub" onClick={() => void api.post("/api/open", { url: `https://github.com/${p.gh_repo}` })}>
+              <button className="btn" title="Open on GitHub" onClick={() => openExternal(`https://github.com/${p.gh_repo}`)}>
                 <Icon name="ext" size={14} />
                 GitHub
               </button>

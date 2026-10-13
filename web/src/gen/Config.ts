@@ -7,19 +7,15 @@ import type { Preset } from "./Preset";
 import type { ServerConfig } from "./ServerConfig";
 import type { Worktrees } from "./Worktrees";
 
-export type Config = {
+export type Config = { 
 /**
  * Discovery, temporary folders and worktrees. `~` is expanded.
  */
-projects_root: string,
-/**
- * UI zoom position: 0..4 (100%, 110%, 120%, 135%, 150%).
- */
-zoom: number,
+projects_root: string, 
 /**
  * Remove a clean pre-draft worktree after successful publication.
  */
-remove_published_worktree: boolean, server: ServerConfig, commands: Commands, github: GitHub, agents: Agents, worktrees: Worktrees, presets: Array<Preset>,
+remove_published_worktree: boolean, server: ServerConfig, commands: Commands, github: GitHub, agents: Agents, worktrees: Worktrees, presets: Array<Preset>, 
 /**
  * Named harness settings, selectable in the composer beside the base harnesses.
  */

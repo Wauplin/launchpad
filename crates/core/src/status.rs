@@ -16,6 +16,8 @@ use crate::events::Bus;
 pub struct Status {
     pub profile: String,
     pub commit: String,
+    /// Host name of the machine the daemon runs on (shown to browsers on other devices).
+    pub host: String,
     pub harnesses: std::collections::HashMap<String, HarnessStatus>,
     pub sessions: SessionCounts,
     /// IANA name of the daemon host time zone (crons use it), when the host exposes one.
@@ -93,6 +95,7 @@ pub fn spawn_monitors(app: &App) {
         s.profile = app.paths.profile.name().to_string();
         s.commit = crate::COMMIT.to_string();
         s.time_zone = host_time_zone();
+        s.host = host_name();
         s.utc_offset_minutes = utc_offset_minutes();
         for registration in crate::harness::REGISTRATIONS {
             s.harnesses
@@ -112,6 +115,21 @@ pub fn spawn_monitors(app: &App) {
             tokio::time::sleep(Duration::from_secs(30 * 60)).await;
         }
     });
+}
+
+fn host_name() -> String {
+    #[cfg(unix)]
+    {
+        let mut buf = [0u8; 256];
+        // SAFETY: the buffer is valid for its length; gethostname writes a NUL-terminated name into it.
+        if unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0 {
+            let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+            return String::from_utf8_lossy(&buf[..end]).into_owned();
+        }
+        String::new()
+    }
+    #[cfg(not(unix))]
+    std::env::var("COMPUTERNAME").unwrap_or_default()
 }
 
 fn utc_offset_minutes() -> i32 {

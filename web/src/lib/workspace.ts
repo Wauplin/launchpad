@@ -1,6 +1,7 @@
 // What the current workspace contains. Every list that a workspace narrows (sidebar, agents, projects,
 // inbox, composer) uses these predicates, so counts and markers agree.
 
+import { isDesktopShell } from "./platform";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
@@ -75,11 +76,19 @@ export function useWorkspaceSync() {
   useEffect(() => { document.title = name ? `${name} · Launchpad` : "Launchpad"; }, [name]);
 }
 
-/** Opens another window on a workspace (null: all workspaces). Outside the desktop shell, a browser tab. */
+/** Opens another window on a workspace (null: all workspaces): a desktop window in the desktop shell, a browser tab otherwise. */
 export async function openWindow(workspaceId: string | null) {
+  const url = `/?ws=${encodeURIComponent(workspaceId ?? "all")}`;
+  if (!isDesktopShell) {
+    window.open(url, "_blank");
+    return;
+  }
   try {
     await api.post("/api/window", { workspace_id: workspaceId });
   } catch {
-    window.open(`/?ws=${encodeURIComponent(workspaceId ?? "all")}`, "_blank");
+    window.open(url, "_blank");
   }
 }
+
+/** "window" in the desktop shell, "tab" in a browser. */
+export const newWindowWord = isDesktopShell ? "window" : "tab";

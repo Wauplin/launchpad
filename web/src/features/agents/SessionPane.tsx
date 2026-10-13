@@ -22,7 +22,7 @@ import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { abandonOperation } from "@/lib/operations";
 import { api, ApiError } from "@/lib/api";
-import { pastedImages, readAttachments } from "@/lib/attachments";
+import { attachmentSrc, pastedImages, readAttachments } from "@/lib/attachments";
 import { projectName, useProjects, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
 import { buildRows } from "./rows";
@@ -95,9 +95,9 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
   };
   return (
     <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5">
-      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={(e) => { void addImages(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+      <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { void addImages(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       {images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{images.map((image, i) => <div key={i} className="relative">
-        <img src={image.data_url} alt={image.name} title={image.name} className="h-16 max-w-28 rounded-md border border-line object-contain" />
+        <img src={attachmentSrc(image.data_url)} alt={image.name} title={image.name} className="h-16 max-w-28 rounded-md border border-line object-contain" />
         <button className="iconbtn absolute -top-1 -right-1 bg-paper!" title={`Remove ${image.name}`} disabled={busy || reading} onClick={() => setImages((current) => current.filter((_, j) => j !== i))}><Icon name="x" size={12} /></button>
       </div>)}</div>}
       {delivery && <div role="status" className="mb-1 text-[11.5px] text-ink-3">{delivery === "sending" ? "◷ Sending…" : delivery === "delivered" ? "✓ Delivered" : delivery === "failed" ? "Attempt failed. Check the trace before starting a new attempt." : "Delivery not confirmed. Retry the same message to check its result."}</div>}
