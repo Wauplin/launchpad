@@ -4,12 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 import { memo, useContext, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { CodeLinksContext, Markdown } from "@/components/Markdown";
-import { toast, toastError } from "@/components/Toast";
+import { toast } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { formatAge } from "@/lib/format";
 import { groupSummary, type Call, type Row } from "./rows";
 import { noticesSummary, type TraceRow } from "./traceRows";
+import { AskCard } from "./AskCard";
+export { AskCard };
 
 /** "3 min" since `ts`, refreshed every 30 s (rows are memoized, so the time renders itself). */
 function Ago({ ts }: { ts: number }) {
@@ -33,7 +35,7 @@ function AssistantRow({ text, streaming }: { text: string; streaming: boolean })
   return (
     <div className="group relative">
       {!streaming && (
-        <div className="absolute -top-2 right-0 z-[2] hidden gap-1 group-hover:flex">
+        <div className="absolute -top-2 right-0 z-[2] hidden gap-1 group-hover:flex [@media(hover:none)]:static [@media(hover:none)]:mb-1 [@media(hover:none)]:flex [@media(hover:none)]:justify-end">
           <button className="btn btn-sm shadow-[0_1px_3px_rgba(23,32,43,.12)]" title="Copy the raw markdown" onClick={() => void copyText(text).then(() => toast("Copied"))}>
             <Icon name="copy" size={12} />
             Copy
@@ -181,70 +183,6 @@ function PlanRow({ items }: { items: Extract<Row, { t: "plan" }>["items"] }) {
           {it.text}
         </div>
       ))}
-    </div>
-  );
-}
-
-export function AskCard({ row, sessionId, live }: { row: Extract<Row, { t: "ask" }>; sessionId: string; live: boolean }) {
-  const [picked, setPicked] = useState<Record<number, string[]>>({});
-  const [busy, setBusy] = useState(false);
-  const answered = row.answers !== null;
-  const send = async (answers: string[]) => {
-    setBusy(true);
-    try {
-      await api.post(`/api/sessions/${sessionId}/answer`, { request_id: row.request_id, answers });
-    } catch (e) {
-      toastError(e);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const choose = (qi: number, label: string) => {
-    const q = row.questions[qi];
-    const cur = picked[qi] ?? [];
-    const next = q.multi_select ? (cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label]) : [label];
-    const all = { ...picked, [qi]: next };
-    setPicked(all);
-    if (!q.multi_select && row.questions.every((_, i) => (all[i] ?? []).length > 0)) {
-      void send(row.questions.map((_, i) => all[i].join(", ")));
-    }
-  };
-  return (
-    <div className={`grid gap-2 rounded-lg border px-2.5 py-[9px] ${answered ? "border-line-2 bg-chrome" : "border-attn-line bg-attn-soft"}`}>
-      {row.questions.map((q, qi) => (
-        <div key={qi} className="grid gap-1.5">
-          <div className="text-[12.5px] font-[650]">{q.question}</div>
-          {answered ? (
-            <div className="text-[12.5px] text-ink-2">
-              → <b className="text-ink">{row.answers![qi]}</b>
-            </div>
-          ) : (
-            q.options.map((o, oi) => {
-              const on = (picked[qi] ?? []).includes(o.label);
-              return (
-                <button
-                  key={oi}
-                  disabled={busy || !live}
-                  onClick={() => choose(qi, o.label)}
-                  className={`flex items-start gap-2 rounded-md border px-2 py-1.5 text-left text-[12.5px] hover:border-teal disabled:opacity-60 ${on ? "border-teal bg-teal-soft" : "border-line bg-paper"}`}
-                >
-                  <span className="font-mono text-[11px] text-ink-3">{oi + 1}</span>
-                  <span>
-                    <b className="font-semibold">{o.label}</b>
-                    {o.description && <span className="block text-[11.5px] text-ink-3">{o.description}</span>}
-                  </span>
-                </button>
-              );
-            })
-          )}
-        </div>
-      ))}
-      {!answered && row.questions.some((q) => q.multi_select) && (
-        <button className="btn btn-sm btn-primary justify-self-start" disabled={busy} onClick={() => void send(row.questions.map((_, i) => (picked[i] ?? []).join(", ")))}>
-          Send answer
-        </button>
-      )}
-      {!answered && <div className="text-[11.5px] text-ink-3">{live ? "Or type another answer below." : "The session process stopped: resume it to answer."}</div>}
     </div>
   );
 }

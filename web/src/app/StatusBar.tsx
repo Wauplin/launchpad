@@ -1,19 +1,18 @@
-import { useInbox } from "@/features/inbox/InboxView";
-import { useQuery } from "@tanstack/react-query";
+import { useInbox } from "@/features/inbox/data";
 import { Fragment, useEffect, useState } from "react";
 import type { HarnessStatus } from "@/gen/HarnessStatus";
 import type { QuotaWindow } from "@/gen/QuotaWindow";
 import type { Status } from "@/gen/Status";
 import { HarnessMark, useHarnessInfo, useHarnesses, type Harness } from "@/components/HarnessMark";
-import { api } from "@/lib/api";
 import { formatAge, formatReset, resetLabel } from "@/lib/format";
 import { onConnectionChange } from "@/lib/ws";
 import { Popover } from "@/components/Popover";
 import { TerminalButton } from "@/features/terminals/TerminalDock";
+import { isDesktopShell } from "@/lib/platform";
+import { HostChip } from "./Connection";
 
-export function useStatus() {
-  return useQuery({ queryKey: ["status"], queryFn: () => api.get<Status>("/api/status"), staleTime: Infinity });
-}
+import { useStatus } from "@/lib/queries";
+export { useStatus };
 
 function Meter({ value, harness }: { value: number; harness: Harness }) {
   const info = useHarnessInfo(harness);
@@ -111,7 +110,7 @@ export function StatusBar() {
           {harnesses.map((h) => <Warnings key={h.id} harness={h.id} s={data.harnesses[h.id] ?? emptyStatus} />)}
           {low.map(([k, v]) => <span key={k} className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={`Resets ${formatReset(v.reset_at)}`}>GitHub {k} {v.remaining} calls left</span>)}
           <span className="ml-auto inline-flex items-center gap-2.5">
-            {!online && <span className="font-semibold text-gh-closed">Daemon disconnected, reconnecting…</span>}
+            {isDesktopShell ? !online && <span className="font-semibold text-gh-closed">Daemon disconnected, reconnecting…</span> : <HostChip />}
             {data.profile === "dev" && <span className="font-mono text-ink-3" title={`Running commit: ${data.commit}`}>{data.commit.slice(0, 7)}</span>}
             <TerminalButton />
             {data.profile === "dev" && <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn">dev</span>}

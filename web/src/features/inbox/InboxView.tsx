@@ -4,7 +4,6 @@ import { AddContext, GitHubHTML, reference, itemKey, itemPath } from "@/features
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { create } from "zustand";
 import type { Thread } from "@/gen/Thread";
 import type { ThreadPreview } from "@/gen/ThreadPreview";
 import type { InboxSnapshot } from "@/gen/InboxSnapshot";
@@ -17,28 +16,10 @@ import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { useProjects } from "@/lib/queries";
-import { useScope } from "@/lib/workspace";
+import { usePhone } from "@/lib/phone";
+import { useInbox, useInboxThreads, useView, whyOf, whys, type Why } from "./data";
+export { useInbox, useInboxNeeds, useInboxThreads } from "./data";
 
-export const useInbox = () => useQuery({ queryKey: ["inbox"], queryFn: () => api.get<InboxSnapshot>("/api/inbox"), staleTime: Infinity });
-type Why = "review" | "mention" | "assign" | "other" | "all";
-/** `allRepos`: show every repository instead of the workspace's ones. */
-const useView = create<{ selected: string | null; repo: string | null; why: Why; unread: boolean; allRepos: boolean; scroll: number; drafts: Record<string, string> }>(() => ({ selected: null, repo: null, why: "all", unread: false, allRepos: false, scroll: 0, drafts: {} }));
-const whyOf = (reason: string): Exclude<Why, "all"> => reason === "review_requested" ? "review" : reason === "mention" || reason === "team_mention" ? "mention" : reason === "assign" ? "assign" : "other";
-const whys: [Why, string, string][] = [["review", "Review requested", "Someone requested your review"], ["mention", "Mentioned", "You or your team were mentioned"], ["assign", "Assigned", "You are assigned"], ["other", "Subscribed", "Subscribed, authored, commented, CI activity and state changes"], ["all", "All", "Every notification"]];
-/** Unread notifications that need you: review requests, mentions and assignments. The sidebar shows this count. */
-export function useInboxNeeds() {
-  const { threads } = useInboxThreads();
-  return useMemo(() => threads.filter((t) => t.unread && whyOf(t.reason) !== "other").length, [threads]);
-}
-/** Threads of the workspace's repositories, unless All repos is on. The sidebar count uses the same list. */
-export function useInboxThreads() {
-  const { data } = useInbox();
-  const scope = useScope();
-  const allRepos = useView((s) => s.allRepos);
-  const threads = useMemo(() => data?.threads ?? [], [data]);
-  const scoped = useMemo(() => (allRepos || !scope.workspace ? threads : threads.filter((t) => scope.hasRepo(t.repo))), [threads, allRepos, scope]);
-  return { threads: scoped, total: threads.length, scope, allRepos };
-}
 function launchContext(t: Thread, projects: Project[]) {
   const project = projects.find((p) => p.gh_repo?.toLowerCase() === t.repo.toLowerCase()) ?? projects.find((p) => p.gh_upstream?.toLowerCase() === t.repo.toLowerCase());
   return { projectId: project?.id ?? null, githubRefs: [{ repo: t.repo, number: t.number, title: t.title, url: t.url, kind: t.kind === "PullRequest" ? "pr" : t.kind === "Issue" ? "issue" : t.kind.toLowerCase() }] };
@@ -65,7 +46,8 @@ export function useInboxAction() {
   });
 }
 const ThreadRow = memo(function ThreadRow({ t, selected, projects, select, act, busy }: { t: Thread; selected: boolean; projects: Project[]; select: (t: Thread) => void; act: (t: Thread, action: string) => void; busy: boolean }) {
-  return <div className={`flex h-[70px] items-center gap-2 border-b border-line-2 px-3 ${selected ? "bg-select" : "hover:bg-chrome"}`}>
+  const phone = usePhone();
+  return <div className={`flex ${phone ? "h-[76px]" : "h-[70px]"} items-center gap-2 border-b border-line-2 px-3 ${selected ? "bg-select" : "hover:bg-chrome"}`}>
     <button className="flex min-w-0 flex-1 items-start gap-2 text-left" onClick={() => select(t)} title={t.title}>
       <span className={`mt-1.5 size-2 flex-none rounded-full ${t.unread ? "bg-work" : "bg-transparent"}`} />
       <span className="min-w-0 flex-1">
@@ -80,9 +62,10 @@ const ThreadRow = memo(function ThreadRow({ t, selected, projects, select, act, 
         </span>
       </span>
     </button>
-    <button className="btn btn-sm flex-none" title="Mark as done" disabled={busy} onClick={() => act(t, "done")}><Icon name="check" size={12} />Done</button>
-    <LaunchButton small primary={false} ctx={launchContext(t, projects)} />
-    {t.number !== null && (t.kind === "Issue" || t.kind === "PullRequest") && <AddContext refItem={reference(t.repo,{number:t.number,title:t.title,url:t.url},t.kind === "PullRequest" ? "pr" : "issue")}/> }
+    <button className="btn btn-sm flex-none" title="Mark as done" aria-label={`Mark ${t.title} as done`} disabled={busy} onClick={() => act(t, "done")}><Icon name="check" size={12} />{!phone && "Done"}</button>
+    {/* The phone offers Launch and + Add in the preview. */}
+    {!phone && <LaunchButton small primary={false} ctx={launchContext(t, projects)} />}
+    {!phone && t.number !== null && (t.kind === "Issue" || t.kind === "PullRequest") && <AddContext refItem={reference(t.repo,{number:t.number,title:t.title,url:t.url},t.kind === "PullRequest" ? "pr" : "issue")}/> }
   </div>;
 });
 function RepoPicker({ threads, selected }: { threads: Thread[]; selected: string | null }) {
@@ -124,14 +107,15 @@ function PreviewPane({ t, projects, act, busy }: { t: Thread; projects: Project[
   useEffect(() => { if (hasSummary) refresh.mutate(false); }, [t.id, t.updated_at]); // Refresh in the background while the cached summary renders.
   useEffect(() => { if(supported && t.number !== null) void qc.prefetchQuery({queryKey:itemKey(t.repo,t.number),queryFn:()=>api.get(itemPath(t.repo,t.number!)),staleTime:60_000}); }, [t.id, t.updated_at]);
   const p = preview.data;
-  return <section className="flex min-h-0 w-[40%] min-w-[320px] flex-col border-l border-line bg-paper">
+  const phone = usePhone();
+  return <section className={`flex min-h-0 flex-col bg-paper ${phone ? "w-full" : "w-[40%] min-w-[320px] border-l border-line"}`}>
     <div className="flex-none border-b border-line p-4">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="text-xs text-ink-3">{t.repo}{t.number !== null && ` #${t.number}`} · {t.kind}{t.state && ` · ${t.state}`} · {reason(t.reason)}</div>
           <h2 className="mt-2 mb-3 text-[16px] font-semibold">{t.title}</h2>
         </div>
-        <button className="btn btn-sm flex-none" onClick={() => useView.setState({ selected: null })}>Close</button>
+        <button className="btn btn-sm flex-none" onClick={() => useView.setState({ selected: null })}>{phone ? "Back" : "Close"}</button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button className="btn btn-sm" title="Mark as done" disabled={busy} onClick={() => act(t, "done")}><Icon name="check" size={12} />Done</button>
@@ -163,6 +147,7 @@ function PreviewPane({ t, projects, act, busy }: { t: Thread; projects: Project[
   </section>;
 }
 export function InboxView() {
+  const phone = usePhone();
   const { data, error } = useInbox();
   const projects = useProjects().data ?? [];
   const view = useView();
@@ -183,7 +168,7 @@ export function InboxView() {
   const selected = threads.find((t) => t.id === view.selected);
   // A repository picked among all repos may not belong to the workspace.
   useEffect(() => { if (view.repo && !threads.some((t) => t.repo === view.repo)) useView.setState({ repo: null }); }, [allRepos, scope.workspace?.id]);
-  const v = useVirtualizer({ count: visible.length, getScrollElement: () => ref.current, estimateSize: () => 70, getItemKey: (i) => visible[i].id, overscan: 4, useFlushSync: false, initialOffset: view.scroll });
+  const v = useVirtualizer({ count: visible.length, getScrollElement: () => ref.current, estimateSize: () => (phone ? 76 : 70), getItemKey: (i) => visible[i].id, overscan: 4, useFlushSync: false, initialOffset: view.scroll });
   const previousFilter = useRef({ repo: view.repo, unread: view.unread, why: view.why });
   useEffect(() => {
     const prev = previousFilter.current;
@@ -195,6 +180,8 @@ export function InboxView() {
   useEffect(() => {
     if (autoSelected.current || !data || !visible.length) return;
     autoSelected.current = true;
+    // The phone shows the list first; a row opens its preview.
+    if (phone) return;
     if (selected) return;
     const first = visible.find((t) => t.unread && t.reason === "review_requested") ?? visible.find((t) => t.unread);
     if (first) { useView.setState({ selected: first.id }); const at = visible.indexOf(first); if (at > 0) v.scrollToIndex(at, { align: "auto" }); }
@@ -222,9 +209,10 @@ export function InboxView() {
     for (const t of visible.slice(Math.max(0, at + 1), Math.max(0, at + 1) + 3)) { if(t.number && (t.kind === "Issue" || t.kind === "PullRequest")) void qc.prefetchQuery({queryKey:itemKey(t.repo,t.number),queryFn:()=>api.get(itemPath(t.repo,t.number!)),staleTime:60_000}); }
     for (const t of visible.slice(Math.max(0, at + 1), Math.max(0, at + 1) + 3)) void qc.prefetchQuery({ queryKey: ["inbox-preview", t.id], queryFn: () => api.get<ThreadPreview | null>(`/api/inbox/${t.id}/preview`), staleTime: 60_000 });
   }, [view.selected, visible, qc]);
+  if (phone && selected) return <div className="flex h-full"><PreviewPane key={selected.id} t={selected} projects={projects} act={act} busy={action.isPending} /></div>;
   return <div className="flex h-full flex-col">
-    <div className="flex h-14 flex-none items-center gap-3 border-b border-line px-4">
-      <h1 className="text-lg font-semibold">Inbox</h1><span className="text-xs text-ink-3">{threads.filter((t) => t.unread).length} unread</span>
+    <div className={`flex flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-4 ${phone ? "py-2" : "h-14"}`}>
+      {!phone && <h1 className="text-lg font-semibold">Inbox</h1>}<span className="text-xs text-ink-3">{threads.filter((t) => t.unread).length} unread</span>
       {scope.workspace && <span className="flex items-center gap-1" title="Notifications of this workspace's repositories, or of every repository">
         <button className={`btn btn-sm ${!allRepos ? "bg-select!" : ""}`} aria-pressed={!allRepos} onClick={() => useView.setState({ allRepos: false, scroll: 0 })}>{scope.workspace.name} repos</button>
         <button className={`btn btn-sm ${allRepos ? "bg-select!" : ""}`} aria-pressed={allRepos} onClick={() => useView.setState({ allRepos: true, scroll: 0 })}>All repos{!allRepos && hidden > 0 ? ` · ${hidden} more` : ""}</button>

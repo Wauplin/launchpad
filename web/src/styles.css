@@ -340,3 +340,30 @@ button {
 @media (hover: none) {
   .lp-copy { opacity: 1; }
 }
+
+/* Phone shell (src/mobile, :root.lp-phone): 100% zoom, touch-sized controls, 16 px fields (no zoom on focus in iOS). */
+:root.lp-phone {
+  zoom: 1;
+}
+:root.lp-phone body {
+  font-size: 14px;
+}
+@layer components {
+  .lp-phone .btn {
+    @apply min-h-10 px-3.5 text-[14px];
+  }
+  .lp-phone .btn-sm {
+    @apply min-h-9 px-2.5 text-[13px];
+  }
+  .lp-phone .iconbtn {
+    @apply size-10;
+  }
+  .lp-phone .field-input,
+  .lp-phone textarea,
+  .lp-phone select {
+    @apply min-h-10 text-[16px];
+  }
+  .lp-phone .seclabel {
+    @apply text-[11.5px];
+  }
+}

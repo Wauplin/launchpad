@@ -14,7 +14,7 @@ import { Markdown } from "@/components/Markdown";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
-import { useStatus } from "@/app/StatusBar";
+import { useStatus } from "@/lib/queries";
 import { copyText } from "@/lib/clipboard";
 import { formatAge } from "@/lib/format";
 import { useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";

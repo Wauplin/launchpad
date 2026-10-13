@@ -4,7 +4,7 @@ import type { LaunchDelay } from "@/gen/LaunchDelay";
 import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
 import type { HarnessKind } from "@/gen/HarnessKind";
-import { useStatus } from "@/app/StatusBar";
+import { useStatus } from "@/lib/queries";
 import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import { useSchedules, useSessions } from "@/lib/queries";
 import { dependencyDone } from "@/lib/sessionStatus";

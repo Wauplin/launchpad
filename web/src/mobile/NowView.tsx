@@ -1,0 +1,168 @@
+// Now (phone): what needs you first, each card with its main action, then what waits to be published and what
+// runs. Uses the same predicates and workspace scope as the desktop Agents list and To publish.
+
+import { useQuery } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { Session } from "@/gen/Session";
+import type { SessionGitStatus } from "@/gen/SessionGitStatus";
+import { HarnessMark } from "@/components/HarnessMark";
+import { Icon } from "@/components/Icon";
+import { toastError } from "@/components/Toast";
+import { AskCard } from "@/features/agents/AskCard";
+import { buildRows } from "@/features/agents/rows";
+import { StatusBadge } from "@/features/agents/SessionBits";
+import { usePublishItems } from "@/features/publish/items";
+import { useConnection } from "@/app/Connection";
+import { api } from "@/lib/api";
+import { formatAge } from "@/lib/format";
+import { projectName, useProjects, useSessions } from "@/lib/queries";
+import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
+import { isDone, isQuotaPaused, isRunning, needsYou } from "@/lib/sessionStatus";
+import { useScope } from "@/lib/workspace";
+
+const open = (navigate: ReturnType<typeof useNavigate>, id: string) => void navigate({ to: "/agents", search: { session: id } });
+
+function Section({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+  return <section className="grid gap-2"><h2 className="seclabel px-1">{title} · {count}</h2>{children}</section>;
+}
+
+function CardHead({ s, project }: { s: Session; project: string }) {
+  return <div className="flex min-w-0 items-start gap-2.5">
+    <span className="mt-0.5"><HarnessMark harness={s.harness} size={18} /></span>
+    <div className="min-w-0 flex-1">
+      <div className="truncate text-[15px] font-semibold" title={s.title}>{s.title}</div>
+      <div className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-3"><span className="truncate">{project}</span><span className="flex-none">· {formatAge(s.status_since)} ago</span></div>
+    </div>
+    <StatusBadge s={s} />
+  </div>;
+}
+
+/** Loads the newest events of a session (the same tail page the session view uses). */
+function useTail(id: string) {
+  const log = useSessionLogs((st) => st.logs[id]);
+  const load = useSessionLogs((st) => st.load);
+  useEffect(() => {
+    if (log) return;
+    useSessionLogs.setState((st) => ({ logs: { ...st.logs, [id]: emptyLog() } }));
+    void load(id);
+  }, [id, log, load]);
+  return log;
+}
+
+const QuestionCard = memo(function QuestionCard({ s, project }: { s: Session; project: string }) {
+  const navigate = useNavigate();
+  const log = useTail(s.id);
+  const ask = useMemo(() => {
+    const rows = log ? buildRows(log) : [];
+    for (let i = rows.length - 1; i >= 0; i--) { const r = rows[i]; if (r.t === "ask") return r.answers ? null : r; }
+    return null;
+  }, [log]);
+  return <article className="grid gap-2.5 rounded-xl border border-attn-line bg-paper p-3">
+    <CardHead s={s} project={project} />
+    {ask && s.live ? <AskCard row={ask} sessionId={s.id} live={s.live} hint="Or tap Other answer to write one." /> : <p className="text-[13.5px] text-ink-2">{s.last_message ?? "The agent asked a question."}</p>}
+    <div className="flex flex-wrap gap-2"><button className="btn" onClick={() => open(navigate, s.id)}>Other answer…</button></div>
+  </article>;
+});
+
+function GitFacts({ id }: { id: string }) {
+  const git = useQuery({ queryKey: ["session-git", id], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${id}/git`), staleTime: 30_000, retry: false });
+  const d = git.data;
+  if (!d) return null;
+  const parts: string[] = [];
+  if (d.files.length) parts.push(`${d.files.length} uncommitted file${d.files.length === 1 ? "" : "s"}`);
+  if (d.main_changes?.files) parts.push(`${d.main_changes.files} file${d.main_changes.files === 1 ? "" : "s"} differ from main${d.main_changes.additions != null ? ` (+${d.main_changes.additions} −${d.main_changes.deletions ?? 0})` : ""}`);
+  if (d.unpushed_commits) parts.push(`${d.unpushed_commits} unpushed commit${d.unpushed_commits === 1 ? "" : "s"}`);
+  if (!parts.length) parts.push("No changes in Git");
+  return <div className="flex items-center gap-1.5 text-[12.5px] text-ink-2"><Icon name="branch" size={13} className="text-ink-3" /><span className="font-mono">{d.branch}</span> · {parts.join(" · ")}</div>;
+}
+
+const OutcomeCard = memo(function OutcomeCard({ s, project }: { s: Session; project: string }) {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const act = async (path: string, body?: unknown) => {
+    setBusy(true);
+    try { await api.post(`/api/sessions/${s.id}/${path}`, body); } catch (e) { toastError(e); } finally { setBusy(false); }
+  };
+  const done = isDone(s);
+  return <article className={`grid gap-2.5 rounded-xl border bg-paper p-3 ${done ? "border-line" : "border-gh-closed/40"}`}>
+    <CardHead s={s} project={project} />
+    {s.last_message && <p className="line-clamp-4 text-[13.5px] text-ink-2">{s.last_message}</p>}
+    {done && <GitFacts id={s.id} />}
+    <div className="flex flex-wrap gap-2">
+      <button className="btn btn-primary" onClick={() => open(navigate, s.id)}>Open</button>
+      {done && <button className="btn" disabled={busy} title="Archive the session (it stays resumable)" onClick={() => void act("close")}><Icon name="archive" size={14} />Archive</button>}
+      {!done && <button className="btn" disabled={busy} title="Send “Continue the unfinished turn.”" onClick={() => void act("input", { text: "Continue the unfinished turn." })}>Resume</button>}
+    </div>
+  </article>;
+});
+
+const PausedCard = memo(function PausedCard({ s, project }: { s: Session; project: string }) {
+  const navigate = useNavigate();
+  const blockers = s.quota_pause?.blockers.map((b) => `${b.window} resets ${b.resets_at === null ? "at an unknown time" : new Date(b.resets_at * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`).join(" · ");
+  return <article className="grid gap-2.5 rounded-xl border border-attn-line bg-paper p-3">
+    <CardHead s={s} project={project} />
+    <p className="text-[13.5px] text-attn">{s.quota_pause?.error ?? blockers ?? "Waiting for a quota update"}</p>
+    <div className="flex flex-wrap gap-2">
+      <button className="btn btn-primary" onClick={() => open(navigate, s.id)}>Open</button>
+      <button className="btn" onClick={() => void api.post(`/api/sessions/${s.id}/interrupt`).catch(toastError)}><Icon name="stop" size={14} />Stop</button>
+    </div>
+  </article>;
+});
+
+function Row({ s, project }: { s: Session; project: string }) {
+  return <Link to="/agents" search={{ session: s.id }} className="flex min-h-12 items-center gap-2.5 rounded-lg px-2 text-ink no-underline active:bg-sunk">
+    <HarnessMark harness={s.harness} size={16} />
+    <span className="min-w-0 flex-1"><span className="block truncate font-medium">{s.title}</span><span className="block truncate text-[12.5px] text-ink-3">{project}{s.last_message ? ` · ${s.last_message}` : ""}</span></span>
+    <span className="lp-spin flex-none" title="Running" />
+  </Link>;
+}
+
+/** "Updated just now" while connected, else the time of the last update. */
+function Freshness() {
+  const { online, since } = useConnection();
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 20_000); return () => clearInterval(t); }, []);
+  return <p className="py-4 text-center text-[12.5px] text-ink-3" role="status">{online ? "Live · updated just now" : `Offline · last update ${since ? new Date(since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "unknown"}`}</p>;
+}
+
+export function NowView() {
+  const scope = useScope();
+  const query = useSessions();
+  const projects = useProjects().data;
+  const sessions = (query.data ?? []).filter(scope.hasSession);
+  const publish = usePublishItems();
+  const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
+  const rank = (s: Session) => (s.open_question ? 0 : isDone(s) ? 1 : 2);
+  const needs = sessions.filter(needsYou).sort((a, b) => rank(a) - rank(b) || b.status_since - a.status_since);
+  const paused = sessions.filter(isQuotaPaused).sort((a, b) => b.status_since - a.status_since);
+  const running = sessions.filter(isRunning).sort((a, b) => b.status_since - a.status_since);
+  // Warm the session view of the first cards, so opening one shows its events at once.
+  const load = useSessionLogs((st) => st.load);
+  useEffect(() => {
+    for (const s of needs.slice(0, 3)) {
+      if (useSessionLogs.getState().logs[s.id]) continue;
+      useSessionLogs.setState((st) => ({ logs: { ...st.logs, [s.id]: emptyLog() } }));
+      void load(s.id);
+    }
+  }, [needs.map((s) => s.id).join(), load]);
+  if (query.isPending) return <div className="grid h-full place-items-center text-ink-3" role="status">Loading…</div>;
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto grid max-w-[640px] gap-5 px-3 pt-4">
+        <h1 className="px-1 text-[19px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "agent needs" : "agents need"} you` : "Nothing waits for you"}</h1>
+        {needs.length > 0 && <Section title="Needs you" count={needs.length}>
+          {needs.map((s) => s.open_question ? <QuestionCard key={s.id} s={s} project={name(s)} /> : <OutcomeCard key={s.id} s={s} project={name(s)} />)}
+        </Section>}
+        {paused.length > 0 && <Section title="Quota paused" count={paused.length}>{paused.map((s) => <PausedCard key={s.id} s={s} project={name(s)} />)}</Section>}
+        {publish.length > 0 && <Section title="Ready to publish" count={publish.length}>
+          <Link to="/review" className="flex min-h-12 items-center gap-2 rounded-xl border border-line bg-paper px-3 text-ink no-underline"><Icon name="pr" size={16} />{publish.length} {publish.length === 1 ? "item waits" : "items wait"} for your review<Icon name="chev" size={14} className="ml-auto -rotate-90" /></Link>
+        </Section>}
+        <Section title="Running" count={running.length}>
+          {running.length ? <div className="rounded-xl border border-line bg-paper p-1">{running.map((s) => <Row key={s.id} s={s} project={name(s)} />)}</div> : <p className="px-1 text-ink-3">No agent is running.</p>}
+        </Section>
+        <Freshness />
+      </div>
+    </div>
+  );
+}

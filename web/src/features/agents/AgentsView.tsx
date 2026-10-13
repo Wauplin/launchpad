@@ -26,7 +26,8 @@ import { useMarkSeen, useWindowFocused } from "./useSeen";
 import { formatAge, formatReset, resetLabel } from "@/lib/format";
 import { toastError } from "@/components/Toast";
 import { useHarnesses } from "@/components/HarnessMark";
-import { useStatus } from "@/app/StatusBar";
+import { useStatus } from "@/lib/queries";
+import { usePhone } from "@/lib/phone";
 
 /** Statuses whose badge tells more than the group heading. */
 const informative = (s: Session) => s.open_question || s.status === "error" || s.status === "interrupted" || s.status === "quota_paused";
@@ -224,17 +225,30 @@ export function AgentsView() {
   useEffect(() => { if (cronId && !crons.some((c) => c.id === cronId)) setCronIdState(null); }, [cronId, crons]);
   const projects = useProjects().data;
   const { selectedSession, show, clearSession, collapsedGroups, toggleGroup } = useLayout();
-  const search = useSearch({ strict: false }) as { session?: string };
+  const search = useSearch({ strict: false }) as { session?: string; view?: "changes" };
   const navigate = useNavigate();
+  // The phone shows the list or one session at a time; the address holds the session, so Back returns to the list.
+  const phone = usePhone();
   const [archivedLimit, setArchivedLimit] = useState(30);
   const listRef = useRef<HTMLDivElement>(null);
-  const open = (id: string) => { clearSide(); show(id); setPanelLoad((n) => n + 1); };
+  const open = (id: string) => {
+    clearSide();
+    show(id);
+    setPanelLoad((n) => n + 1);
+    if (phone) void navigate({ to: "/agents", search: { session: id } });
+  };
+  const back = () => {
+    if (window.history.length > 1) window.history.back();
+    else void navigate({ to: "/agents", search: {} });
+  };
+  const [initialView, setInitialView] = useState<"changes" | undefined>(undefined);
 
-  // From a desktop notification: /agents?session=<id>.
+  // From a notification or another page: /agents?session=<id>[&view=changes]. The desktop then clears the address.
   useEffect(() => {
-    if (search.session) {
+    if (search.session && !phone) {
       clearSide();
       show(search.session);
+      setInitialView(search.view);
       setPanelLoad((n) => n + 1);
       void navigate({ to: "/agents", search: {}, replace: true });
     }
@@ -242,7 +256,8 @@ export function AgentsView() {
 
   // Tell the daemon which sessions are on screen, so it does not notify about them, and mark the shown session seen.
   const focused = useWindowFocused();
-  const visibleSession = !cron && !scheduled && sessions.some((s) => s.id === selectedSession) ? selectedSession : null;
+  const wanted = phone ? search.session ?? null : selectedSession;
+  const visibleSession = !cron && !scheduled && sessions.some((s) => s.id === wanted) ? wanted : null;
   const visible = sessions.find((s) => s.id === visibleSession);
   useEffect(() => { sendPresence(focused, visibleSession ? [visibleSession] : []); }, [focused, visibleSession]);
   useEffect(() => () => sendPresence(false, []), []);
@@ -282,7 +297,7 @@ export function AgentsView() {
     const was = lastShown.current;
     lastShown.current = visible ? { id: visible.id, status: visible.status } : null;
     if (visible && was?.id === visible.id && was.status !== "closed" && visible.status === "closed") {
-      clearSession(visible.id);
+      if (phone) back(); else clearSession(visible.id);
     }
   }, [visible, clearSession]);
 
@@ -309,9 +324,10 @@ export function AgentsView() {
   const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
   const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} selected={s.id === visibleSession} onClick={() => open(s.id)} onMarkUnread={() => { if (s.id === visibleSession) clearSession(s.id); }} />;
 
+  const paneOpen = !!(cron || scheduled || visibleSession);
   return (
     <div className="flex h-full min-h-0">
-      <div className="flex w-[280px] flex-none flex-col border-r border-line bg-paper">
+      <div className={`flex flex-col bg-paper ${phone ? (paneOpen ? "hidden" : "w-full") : "w-[280px] flex-none border-r border-line"}`}>
         <div className="grid gap-2 border-b border-line p-2">
           <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setArchivedLimit(30); }} />
           <div className="flex gap-2"><button className={`btn btn-sm ${pinsOnly ? "bg-teal-soft!" : ""}`} aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button></div>
@@ -339,14 +355,14 @@ export function AgentsView() {
         </div>
         </div>
       </div>
-      <div className="min-h-0 min-w-0 flex-1 bg-paper">
+      <div className={`min-h-0 min-w-0 flex-1 bg-paper ${phone && !paneOpen ? "hidden" : ""}`}>
         {cron ? (
           <CronPane key={cron.id} cron={cron} onClose={() => setCronId(null)} onOpen={(s) => open(s.id)} />
         ) : scheduled ? (
           <ScheduledPane key={scheduled.id} launch={scheduled} onClose={clearSide} onStart={(s) => open(s.id)} />
         ) : visibleSession ? (
-          <SessionPane key={`${scope.workspace?.id ?? "all"}:${visibleSession}:${panelLoad}`} sessionId={visibleSession} onClear={() => clearSession(visibleSession)} />
-        ) : (
+          <SessionPane key={`${scope.workspace?.id ?? "all"}:${visibleSession}:${panelLoad}`} sessionId={visibleSession} initialView={phone ? search.view : initialView} onClear={() => (phone ? back() : clearSession(visibleSession))} />
+        ) : phone ? null : (
           <AgentsHome sessions={sessions} crons={crons} schedules={schedules} name={name} onOpen={open} onCron={setCronId} onSchedule={setScheduledId} />
         )}
       </div>

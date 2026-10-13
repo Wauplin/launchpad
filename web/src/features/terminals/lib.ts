@@ -1,3 +1,5 @@
+import { useNavigate } from "@tanstack/react-router";
+import { isPhone } from "@/lib/phone";
 // Integrated terminals: the list (refreshed by the `terminals` bus topic) and the actions that open one.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,12 +22,15 @@ export function useScopedTerminals(): TerminalInfo[] {
 /** Opens a shell or a session TUI, then shows it in the dock. */
 export function useOpenTerminal() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const reveal = useCallback(
     (t: TerminalInfo) => {
       qc.setQueryData<TerminalInfo[]>(["terminals"], (old) => (old?.some((o) => o.id === t.id) ? old : [...(old ?? []), t]));
       useLayout.getState().setDock({ open: true, active: t.id });
+      // The phone shows terminals on their own page.
+      if (isPhone) void navigate({ to: "/terminals" });
     },
-    [qc],
+    [qc, navigate],
   );
   return useMemo(
     () => ({

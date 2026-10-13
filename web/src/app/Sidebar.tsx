@@ -1,4 +1,4 @@
-import { useInboxNeeds } from "@/features/inbox/InboxView";
+import { useInboxNeeds } from "@/features/inbox/data";
 import { usePublishItems } from "@/features/publish/items";
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { Link } from "@tanstack/react-router";

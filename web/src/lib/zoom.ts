@@ -1,6 +1,7 @@
 // Interface zoom, chosen per device (browser local storage): a phone and a laptop on the same daemon need different sizes.
 
 import { create } from "zustand";
+import { isPhone } from "./phone";
 
 export const ZOOM_LEVELS = [100, 110, 120, 135, 150];
 export const DEFAULT_ZOOM = 2;
@@ -27,4 +28,7 @@ window.addEventListener("storage", (event) => {
 });
 
 /** Scale of the root `zoom` in this window: the phone shell always uses 100%. */
-export const useZoomScale = () => zoomScale(useZoom((z) => z.zoom));
+export const useZoomScale = () => {
+  const zoom = useZoom((z) => z.zoom);
+  return isPhone ? 1 : zoomScale(zoom);
+};

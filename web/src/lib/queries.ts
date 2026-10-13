@@ -43,3 +43,7 @@ export function projectName(projects: Project[] | undefined, id: string | null, 
 export const useCrons = () => useQuery({ queryKey: ["crons"], queryFn: () => api.get<CronAgent[]>("/api/launch/crons"), staleTime: Infinity });
 
 export const useSchedules = () => useQuery({ queryKey: ["schedules"], queryFn: () => api.get<ScheduledLaunch[]>("/api/launch/schedules"), staleTime: Infinity });
+
+export function useStatus() {
+  return useQuery({ queryKey: ["status"], queryFn: () => api.get<import("@/gen/Status").Status>("/api/status"), staleTime: Infinity });
+}

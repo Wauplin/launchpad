@@ -1,14 +1,23 @@
-import { createRootRoute, createRoute, createRouter, lazyRouteComponent } from "@tanstack/react-router";
-import { AgentsView } from "@/features/agents/AgentsView";
+import { createRootRoute, createRoute, createRouter, lazyRouteComponent, redirect, type RouteComponent } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { validateCodeSearch } from "@/features/code/store";
-import { InboxView } from "@/features/inbox/InboxView";
-import { Shell } from "./Shell";
+import { isPhone } from "@/lib/phone";
 
-// Inbox and Agents are in the main bundle; every other page is a separate chunk loaded on first
-// visit (or on hover/focus of a link, `defaultPreload: "intent"`), so the first paint downloads less.
-const root = createRootRoute({ component: Shell });
+/** The shell and the two first pages, loaded with it (app/desktop.ts or mobile/entry.ts). */
+export type Entry = { Root: () => ReactNode; AgentsView: RouteComponent; InboxView: RouteComponent };
+
+// Both shells (desktop `Shell`, phone `MobileShell`) share these routes. The desktop entry bundles Inbox
+// and Agents with its shell; every other page is a separate chunk loaded on first visit (or on hover/focus
+// of a link, `defaultPreload: "intent"`), so the first paint downloads less.
+export function makeRouter({ Root, AgentsView, InboxView }: Entry) {
+const root = createRootRoute({ component: Root });
 
 const routeTree = root.addChildren([
+  // Phone pages. The desktop shows the same information in Agents (dashboard) and To publish.
+  createRoute({ getParentRoute: () => root, path: "/now", component: lazyRouteComponent(() => import("@/mobile/NowView"), "NowView"), beforeLoad: () => { if (!isPhone) throw redirect({ to: "/agents" }); } }),
+  createRoute({ getParentRoute: () => root, path: "/review", component: lazyRouteComponent(() => import("@/features/review/ReviewView"), "ReviewView") }),
+  createRoute({ getParentRoute: () => root, path: "/terminals", component: lazyRouteComponent(() => import("@/mobile/TerminalsView"), "TerminalsView") }),
+  createRoute({ getParentRoute: () => root, path: "/inbox", component: InboxView }),
   createRoute({ getParentRoute: () => root, path: "/predrafts/$id", component: lazyRouteComponent(() => import("@/features/predrafts/PredraftView"), "PredraftView") }),
   createRoute({
     getParentRoute: () => root,
@@ -18,12 +27,14 @@ const routeTree = root.addChildren([
     validateSearch: (s: Record<string, unknown>): { draft?: string } => (typeof s.draft === "string" || typeof s.draft === "number" ? { draft: String(s.draft) } : {}),
   }),
   createRoute({ getParentRoute: () => root, path: "/publish", component: lazyRouteComponent(() => import("@/features/publish/PublishView"), "PublishView") }),
-  createRoute({ getParentRoute: () => root, path: "/", component: InboxView }),
+  // The phone opens on Now; its Inbox tab is /inbox.
+  createRoute({ getParentRoute: () => root, path: "/", component: InboxView, beforeLoad: () => { if (isPhone) throw redirect({ to: "/now" }); } }),
   createRoute({
     getParentRoute: () => root,
     path: "/agents",
     component: AgentsView,
-    validateSearch: (s: Record<string, unknown>): { session?: string } => (typeof s.session === "string" ? { session: s.session } : {}),
+    // `view=changes` opens the session's Changes view (Review tab links).
+    validateSearch: (s: Record<string, unknown>): { session?: string; view?: "changes" } => ({ ...(typeof s.session === "string" ? { session: s.session } : {}), ...(s.view === "changes" ? { view: "changes" as const } : {}) }),
   }),
   createRoute({ getParentRoute: () => root, path: "/projects", component: lazyRouteComponent(() => import("@/features/projects/ProjectsView"), "ProjectsView") }),
   createRoute({ getParentRoute: () => root, path: "/projects/$id", component: lazyRouteComponent(() => import("@/features/projects/ProjectPage"), "ProjectPage") }),
@@ -46,10 +57,11 @@ function PagePending() {
   return <div className="grid h-full place-items-center text-ink-3" role="status">Loading…</div>;
 }
 
-export const router = createRouter({ routeTree, defaultPreload: "intent", defaultPendingComponent: PagePending });
+return createRouter({ routeTree, defaultPreload: "intent", defaultPendingComponent: PagePending });
+}
 
 declare module "@tanstack/react-router" {
   interface Register {
-    router: typeof router;
+    router: ReturnType<typeof makeRouter>;
   }
 }

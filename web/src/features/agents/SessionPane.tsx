@@ -33,6 +33,7 @@ import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import { StatusBadge, usageLine } from "./SessionBits";
 import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
 import { WorktreeChip } from "./Worktrees";
+import { usePhone } from "@/lib/phone";
 
 function act(id: string, action: string) {
   return api.post(`/api/sessions/${id}/${action}`).catch(toastError);
@@ -159,7 +160,8 @@ function useCodeLinks(s: { id: string; project_id: string | null; cwd: string } 
 
 type View = "summary" | "trace" | "changes" | "subagents";
 
-export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear: () => void }) {
+export function SessionPane({ sessionId, onClear, initialView }: { sessionId: string; onClear: () => void; initialView?: "changes" }) {
+  const phone = usePhone();
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
@@ -172,7 +174,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
   const [dragging, setDragging] = useState(false);
   const s = useSession(sessionId);
   const [gitMain, setGitMain] = useState(false);
-  const [view, setView] = useState<View | null>(null);
+  const [view, setView] = useState<View | null>(initialView ?? null);
   useEffect(() => { if (s && view === null) setView(isRunning(s) ? "trace" : "summary"); else if (s && isRunning(s) && view === "summary") setView("trace"); }, [s, view]);
   const git = useQuery({ queryKey: ["session-git", sessionId], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${sessionId}/git`), refetchInterval: 5000 });
   const isGit = !!git.data;
@@ -303,9 +305,11 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
           </div> : <button className="min-w-0 flex-1 truncate text-left text-[12.5px] font-[650] hover:text-teal-ink" title={`${s.title} · Click to edit`} aria-label={`Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
             {isPinned && <span className="mr-1 text-teal-ink" title="Pinned">★</span>}{s.title}
           </button>}
-          <button className="iconbtn shrink-0 self-start" title="Close panel" aria-label="Close panel" onClick={onClear}>
-            <Icon name="x" size={14} />
-          </button>
+          {phone
+            ? <button className="btn btn-sm order-first shrink-0 self-start" aria-label="Back to the list" onClick={onClear}><Icon name="chev" size={14} className="rotate-90" />Back</button>
+            : <button className="iconbtn shrink-0 self-start" title="Close panel" aria-label="Close panel" onClick={onClear}>
+              <Icon name="x" size={14} />
+            </button>}
         </div>
         <span className="order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3 tabular-nums">
           {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Pre-draft PR</button>}

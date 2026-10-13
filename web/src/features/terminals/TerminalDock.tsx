@@ -38,14 +38,18 @@ function useCurrentFolder(fallback: TerminalInfo | undefined): string | null {
   m = path.match(/^\/predrafts\/([^/]+)$/);
   if (m) return qc.getQueryData<{ predraft: Predraft }>(["predrafts", m[1]])?.predraft.root ?? null;
   if (path === "/agents") {
-    const s = sessions?.find((s) => s.id === selected);
+    const id = typeof search.session === "string" ? search.session : selected;
+    const s = sessions?.find((s) => s.id === id);
     if (s) return s.cwd;
   }
   return fallback?.cwd ?? scope.projects[0]?.path ?? null;
 }
 
-export function TerminalDock() {
-  const dock = useLayout((s) => s.dock);
+/** `fill` (phone shell): the dock is a full page, shown while `fill` is true, without height or Hide controls. */
+export function TerminalDock({ fill }: { fill?: boolean } = {}) {
+  const phone = fill !== undefined;
+  const stored = useLayout((s) => s.dock);
+  const dock = phone ? { ...stored, open: fill } : stored;
   const setDock = useLayout((s) => s.setDock);
   const terminals = useScopedTerminals();
   const all = useTerminals().data;
@@ -87,7 +91,7 @@ export function TerminalDock() {
   const close = (t: TerminalInfo) =>
     void (t.alive ? api.post(`/api/terminals/${t.id}/close`) : api.delete(`/api/terminals/${t.id}`).then(() => qc.setQueryData<TerminalInfo[]>(["terminals"], (old) => old?.filter((o) => o.id !== t.id)))).catch(toastError);
   return (
-    <section className="flex flex-none flex-col border-t border-line bg-paper" style={{ height: HEIGHTS[dock.size], display: dock.open ? undefined : "none" }} aria-label="Terminals">
+    <section className={`flex flex-col border-t border-line bg-paper ${phone ? "min-h-0 flex-1" : "flex-none"}`} style={{ height: phone ? undefined : HEIGHTS[dock.size], display: dock.open ? undefined : "none" }} aria-label="Terminals">
       <div className="flex min-h-[34px] flex-none flex-wrap items-center gap-1 border-b border-line-2 bg-chrome px-2 py-1 text-[12px]">
         <div className="flex min-w-0 flex-1 flex-wrap gap-1" role="tablist">
           {terminals.map((t) => (
@@ -106,14 +110,14 @@ export function TerminalDock() {
           {terminals.length === 0 && <span className="py-0.5 text-ink-3">No terminal open in this workspace.</span>}
         </div>
         <button className="btn btn-sm" disabled={!folder} title={folder ? `Open a shell in ${folder}${isDesktopShell ? " (Ctrl+T / Cmd+T)" : ""}` : "Open a project, a session or the code viewer first"} onClick={() => folder && void open.shell(folder)}>New terminal</button>
-        <span className="inline-flex gap-0.5 rounded border border-line p-0.5" aria-label="Dock height">
+        {!phone && <><span className="inline-flex gap-0.5 rounded border border-line p-0.5" aria-label="Dock height">
           {(["small", "medium", "large"] as const).map((size) => (
             <button key={size} className={`btn btn-sm ${dock.size === size ? "bg-select!" : ""}`} aria-pressed={dock.size === size} onClick={() => setDock({ size })}>
               {size === "small" ? "S" : size === "medium" ? "M" : "L"}
             </button>
           ))}
         </span>
-        <button className="btn btn-sm" title="Hide the dock; terminals keep running" onClick={() => setDock({ open: false })}>Hide</button>
+        <button className="btn btn-sm" title="Hide the dock; terminals keep running" onClick={() => setDock({ open: false })}>Hide</button></>}
       </div>
       {[...visited.current].map((id) => (
         <Suspense key={id} fallback={dock.open && id === active?.id ? <div className="grid flex-1 place-items-center text-ink-3" role="status">Loading terminal…</div> : null}>

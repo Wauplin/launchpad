@@ -1,6 +1,6 @@
 // Time zone of the daemon host (cron schedules use it) compared with the time zone of this browser.
 
-import { useStatus } from "@/app/StatusBar";
+import { useStatus } from "@/lib/queries";
 
 /** Minutes east of UTC in `timeZone` at `at`, or null when the browser does not know the zone. */
 function offsetAt(timeZone: string, at: number): number | null {

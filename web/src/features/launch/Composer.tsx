@@ -1,3 +1,6 @@
+import { isDesktopShell } from "@/lib/platform";
+import { isPhone } from "@/lib/phone";
+import { useStatus } from "@/lib/queries";
 // Composer drawer (sketch S2): stays on the right while you navigate, so context can be added from
 // anywhere. It minimizes to a draft pill, and covers the content on narrow windows. Prompt first, then
 // project, context chips and one summary line of options; "Preview prompt" shows the exact prompt.
@@ -233,6 +236,7 @@ export function Composer() {
   }, [sessions]);
   const config = useConfig().data?.config;
   const overlay = useOverlay(useZoomScale());
+  const host = useStatus().data?.host;
   const [pillSlot, setPillSlot] = useState<HTMLElement | null>(null);
   useEffect(() => setPillSlot(document.getElementById("draft-pill-slot")), []);
   const defaults = useHarnessDefaults(spec.harness).data;
@@ -382,7 +386,7 @@ export function Composer() {
       const where = projects.find((p) => p.id === s.project_id)?.name ?? s.cwd.split("/").pop();
       const openIt = () => {
         showSession(s.id);
-        void navigate({ to: "/agents" });
+        void navigate({ to: "/agents", search: { session: s.id } });
       };
       if (openAfterLaunch) { openIt(); toast("✓ Delivered: agent launched."); }
       else toast(`✓ Delivered: ${harnessName(s.harness)} started in ${where}`, { label: "Open", run: openIt });
@@ -427,7 +431,7 @@ export function Composer() {
   const presetLabels = (config?.presets ?? []).filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
 
   return (
-    <aside onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
+    <aside onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${isPhone ? "fixed! inset-0 z-50 w-full! pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" : ""} ${overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
       <div className="flex items-center gap-1.5 border-b border-line px-3.5 py-2.5">
         <span className="flex-1 whitespace-nowrap text-sm font-bold">New agent</span>
         <button className="btn btn-sm btn-ghost" title="Minimize to a draft pill; + Add buttons keep adding context" onClick={() => setMinimized(true)}>Minimize</button>
@@ -731,6 +735,7 @@ export function Composer() {
           Discard
         </button>
         {unconfirmedLaunch && <div role="status" className="text-[11.5px] text-ink-3">Delivery not confirmed. Retry unchanged to check the result. Inspect Agents before starting another attempt.<button className="btn btn-sm mt-1" disabled={launching} onClick={() => void abandonOperation("/api/sessions", unconfirmedLaunch).then(() => setUnconfirmedLaunch(null)).catch(toastError)}>I checked Agents — start a new attempt</button></div>}
+        {!isDesktopShell && host && <span className="text-[11.5px] text-ink-3" title="Agents run on the daemon's machine">Runs on {host}</span>}
         {launchButton()}
       </div>
     </aside>
