@@ -74,6 +74,8 @@ On a headless Linux server, `packaging/install.sh --headless` installs only the 
 
 The app uses the sculpted launch icon, also shown in the top-left corner of the UI. Its master and PNG/WebP exports are in [packaging/icons](packaging/icons/README.md); the SVG wraps the raster artwork. Use `packaging/install-icons.sh` to update only the installed icon without restarting the app or daemon. Regenerate exports with `python3 packaging/generate-icons.py` (requires Pillow).
 
+All saved presets in Settings are available in the agent composer, in the same order. Presets add instructions to the prompt; use Run in → Pre-draft PR or New worktree for Launchpad-managed folders. Changing Run in keeps your selected presets.
+
 ## Documentation
 
 - [docs/managed-worktrees-plan.md](docs/managed-worktrees-plan.md): managed agent worktrees as built: launch, merge into the base branch, hand-off, cleanup and restore, compared with Codex.

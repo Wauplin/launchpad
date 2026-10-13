@@ -614,7 +614,7 @@ Please use a local git worktree and delete it once you're done. No need to add a
   - Only the composer prompt has mentions. Other text fields (comments, session messages) do not.
 - GitHub references are links by default: the agent reads them with `gh`, so they are always fresh. A later option can inline the cached thread to save the agent a round trip.
 - Files added from the code viewer are references too: `- File: <absolute path>, lines 405-411` (or `, line 405`). For a revision that is not checked out: ``- File: src/x.py at origin/main (read it with `git -C <project path> show origin/main:src/x.py`), lines 405-411``.
-- Presets live in `config.toml`. The three initial ones:
+- Presets live in `config.toml`. Every configured preset is shown in the composer in settings order for every target, including legacy `draft-pr` and `worktree` IDs. Changing Run in preserves selections. Presets only append text; the Run in selector controls Launchpad-managed pre-drafts and worktrees. Historical preset examples:
 
 ```toml
 [[presets]]
@@ -1031,3 +1031,5 @@ The [static UX suggestions report](research/ux-suggestions/index.html) is a seco
 100. **Preserve Done dependencies through archive.** On 2026-10-13, fixed delayed launches blocked by dependencies archived after completion. Persist `session.archived_done` when a Done session becomes Closed and clear it on other transitions. The scheduler uses `Session::dependency_done()` and the condition UI distinguishes Archived · Done from Archived · unfinished. Existing archives are backfilled once from their latest non-Closed status event; missing history stays unsatisfied. Archived sessions remain outside Done/Needs you list groups. A new unfinished turn invalidates prior completion; claim-before-launch and AND conditions are unchanged.
 
 101. **Agent commit links.** On 2026-10-13, added repository-verified commit hyperlinks in agent Markdown prose and inline code, including Summary and Trace. Batch lookup accepts only 7–40 character hexadecimal object IDs, excludes ambiguous and non-commit objects, and opens the resolved full commit ID in the existing code viewer with Back to session. Reuse the project checkout to survive session worktree cleanup; keep existing links and code blocks intact.
+
+102. **Show all saved composer presets.** On 2026-10-13, removed legacy ID filtering that hid `draft-pr` everywhere and `worktree` in managed folders despite both remaining editable in Settings. Show every configured preset and preserve selections across Run in changes. Presets remain plain prompt instructions; managed folder creation and publication controls are unchanged.

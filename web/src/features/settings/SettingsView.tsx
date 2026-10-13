@@ -166,7 +166,7 @@ export function SettingsView() {
             </button>
           </div>
         ))}
-        <div className="text-[11.5px] text-ink-3">The order here is the order used in prompts. Saved to config.toml, which you can also edit by hand.</div>
+        <div className="text-[11.5px] text-ink-3">Every saved preset is available in the composer and adds its text to the prompt. The order here is the order used in prompts. Saved to config.toml, which you can also edit by hand.</div>
       </Card>
       <SaveBar dirty={dirty} onSave={() => void save()} onRevert={() => setDraft(saved)} />
     </SettingsPage>

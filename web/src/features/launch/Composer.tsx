@@ -504,7 +504,7 @@ export function Composer() {
             </Popover>
           </Field>
           <Field label="Run in">
-            {target ? <select className="field-input h-8 w-full" aria-label="Run in" value={worktreeMode ? "worktree" : spec.target.kind} onChange={(e) => { const v = e.target.value; set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, include_changes: false, merge_when_done: false }) : v === "project" ? null : s.worktree, presets: s.presets.filter((id) => id !== "draft-pr" && id !== "worktree") })); }}>
+            {target ? <select className="field-input h-8 w-full" aria-label="Run in" value={worktreeMode ? "worktree" : spec.target.kind} onChange={(e) => { const v = e.target.value; set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, include_changes: false, merge_when_done: false }) : v === "project" ? null : s.worktree })); }}>
               {spec.target.kind === "session_folder" && <option value="session_folder">Previous agent’s folder</option>}{existing && <option value="existing_predraft">Pre-draft: {existing.title}</option>}{gitTarget && <option value="worktree">New worktree</option>}<option value="project">{gitTarget ? "Project checkout" : "Project folder (no Git)"}</option>{gitTarget && <option value="predraft">Pre-draft PR</option>}
             </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "A new folder" : "—"}</div>}
             {spec.target.kind === "session_folder" && <div className="mt-1 break-all text-xs text-ink-3">{source?.cwd ?? "Source session unavailable"}</div>}
@@ -684,7 +684,7 @@ export function Composer() {
           </OptionRow>}
           <OptionRow label="Presets" end={<button className="ml-1 font-normal text-teal-ink hover:underline" onClick={() => void navigate({ to: "/settings", hash: "presets" })}>Edit</button>}>
             <div className="flex flex-wrap gap-1.5">
-              {(config?.presets ?? []).filter((p) => p.id !== "draft-pr" && ((spec.target.kind !== "predraft" && spec.target.kind !== "existing_predraft" && !worktreeMode) || p.id !== "worktree")).map((p) => {
+              {(config?.presets ?? []).map((p) => {
                 const on = spec.presets.includes(p.id);
                 return (
                   <button
