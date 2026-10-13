@@ -426,7 +426,7 @@ pub fn spawn(app: &App) {
                     continue;
                 }
                 if ready(&record, now_ms(), |id| {
-                    app.sessions.get(id).is_some_and(|s| s.status.is_done())
+                    app.sessions.get(id).is_some_and(|s| s.dependency_done())
                 }) {
                     match claim(&app, &record.id, false).await {
                         Ok(record) => {
@@ -448,6 +448,39 @@ pub fn spawn(app: &App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn archived_done_dependencies_survive_archive_but_not_an_unfinished_new_turn() {
+        use crate::model::SessionStatus;
+        let mut session: Session = serde_json::from_value(serde_json::json!({
+            "id": "a", "harness": "codex", "cwd": "/tmp", "title": "Done task",
+            "status": "waiting", "status_since": 0, "live": false, "open_question": false,
+            "prompt": "task", "usage": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}, "started_at": 0, "last_seq": 0,
+            "launch_spec": {}, "seen_at": 0
+        })).unwrap();
+        let record = ScheduledLaunch {
+            id: "q".into(), spec: LaunchSpec::default(), resume_session_id: None,
+            conditions: vec![LaunchDelay::Agents { session_ids: vec!["a".into()] }],
+            title: String::new(), created_at: 0, ready_at: None,
+            status: ScheduleStatus::Queued, error: None,
+        };
+        assert!(ready(&record, 0, |_| session.dependency_done()));
+        session.change_status(SessionStatus::Closed);
+        assert!(!session.needs_you());
+        // The same saved state is used after restarting the daemon.
+        session = serde_json::from_str(&serde_json::to_string(&session).unwrap()).unwrap();
+        assert!(ready(&record, 0, |_| session.dependency_done()));
+        session.change_status(SessionStatus::Closed);
+        assert!(session.dependency_done());
+        for status in [SessionStatus::Working, SessionStatus::Stopped, SessionStatus::Error,
+            SessionStatus::Interrupted, SessionStatus::QuotaPaused, SessionStatus::InTerminal] {
+            session.change_status(status);
+            assert!(!session.dependency_done());
+            session.change_status(SessionStatus::Closed);
+            assert!(!ready(&record, 0, |_| session.dependency_done()));
+        }
+        assert!(!ready(&record, 0, |_| false)); // Missing or cancelled dependency.
+    }
+
     #[test]
     fn readiness_requires_every_condition_and_a_queued_record() {
         let mut r = ScheduledLaunch {

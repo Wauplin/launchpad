@@ -7,13 +7,13 @@ import type { HarnessKind } from "@/gen/HarnessKind";
 import { useStatus } from "@/app/StatusBar";
 import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import { useSchedules, useSessions } from "@/lib/queries";
-import { isDone } from "@/lib/sessionStatus";
+import { dependencyDone } from "@/lib/sessionStatus";
 import { serverTimeOf, useServerTimeZone } from "@/lib/serverTime";
 
 type DependencyAgent = { id: string; title: string; harness: HarnessKind | null; status: string };
 
 function sessionDependency(session: Session): DependencyAgent {
-  return { id: session.id, title: session.title, harness: session.harness, status: isDone(session) ? "Done" : session.status === "closed" ? "Archived" : session.status };
+  return { id: session.id, title: session.title, harness: session.harness, status: session.status === "closed" ? (dependencyDone(session) ? "Archived · Done" : "Archived · unfinished") : dependencyDone(session) ? "Done" : session.status };
 }
 
 function scheduledDependency(launch: ScheduledLaunch): DependencyAgent {

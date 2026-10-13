@@ -138,7 +138,7 @@ impl Sessions {
                 let mut st = c.prepare(
                     "SELECT id, harness, harness_session_id, project_id, cwd, title, status, status_since, open_question, model,
                             effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json, quota_pause_json, title_pending,
-                            seen_at, last_message
+                            seen_at, last_message, archived_done
                      FROM session",
                 )?;
                 let rows = st
@@ -161,6 +161,7 @@ impl Sessions {
                             title,
                             title_pending,
                             status: SessionStatus::parse(&r.get::<_, String>(6)?),
+                            archived_done: r.get(22)?,
                             status_since: r.get(7)?,
                             live: false,
                             open_question: r.get::<_, i64>(8)? != 0,
@@ -190,10 +191,10 @@ impl Sessions {
                         pause.error = Some("Daemon stopped during continuation; inspect the trace before resuming.".into());
                         QuotaPausePhase::NeedsAttention
                     } else if pause.phase == QuotaPausePhase::Pausing { QuotaPausePhase::Paused } else { pause.phase };
-                    s.status = SessionStatus::QuotaPaused;
+                    s.change_status(SessionStatus::QuotaPaused);
                     interrupted.push(s.clone());
                 } else if s.status.is_running() {
-                    s.status = SessionStatus::Interrupted;
+                    s.change_status(SessionStatus::Interrupted);
                     s.status_since = now_ms();
                     interrupted.push(s.clone());
                 }
@@ -288,12 +289,12 @@ impl Sessions {
             .call(move |c| {
                 c.execute(
                     "INSERT INTO session (id, harness, harness_session_id, project_id, cwd, title, status, status_since,
-                        open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+                        open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
                      ON CONFLICT (id) DO UPDATE SET harness_session_id = ?3, project_id = ?4, cwd = ?5, title = ?6, status = ?7,
                         status_since = ?8, open_question = ?9, model = ?10, effort = ?11, cost_usd = ?14, usage_json = ?15,
                         ended_at = ?17, last_seq = ?18, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20,
-                        seen_at = ?21, last_message = ?22",
+                        seen_at = ?21, last_message = ?22, archived_done = ?23",
                     params![
                         s.id,
                         s.harness.as_str(),
@@ -317,6 +318,7 @@ impl Sessions {
                         s.title_pending,
                         s.seen_at,
                         s.last_message,
+                        s.archived_done,
                     ],
                 )?;
                 Ok(())
@@ -649,6 +651,7 @@ impl Sessions {
             title: preview.title.clone(),
             title_pending: true,
             status: SessionStatus::Starting,
+            archived_done: false,
             status_since: now,
             live: false,
             open_question: false,
@@ -1029,7 +1032,7 @@ impl Sessions {
     }
 
     async fn quota_attention(&self, app: &App, id: &str, message: &str) -> Result<()> {
-        self.update(app, id, |s| { s.status = SessionStatus::QuotaPaused; if let Some(p) = &mut s.quota_pause { p.phase = QuotaPausePhase::NeedsAttention; p.error = Some(message.into()); } }).await?;
+        self.update(app, id, |s| { s.change_status(SessionStatus::QuotaPaused); if let Some(p) = &mut s.quota_pause { p.phase = QuotaPausePhase::NeedsAttention; p.error = Some(message.into()); } }).await?;
         self.publish_counts(app);
         Ok(())
     }
@@ -1468,7 +1471,7 @@ impl Sink {
             .sessions
             .update(&self.app, &self.id, |s| {
                 if s.quota_pause.as_ref().is_some_and(|p| p.phase != QuotaPausePhase::Resuming) && status != SessionStatus::QuotaPaused { return; }
-                s.status = status;
+                s.change_status(status);
                 s.status_since = now_ms();
                 if status.is_running() { s.ended_at = None; }
             })

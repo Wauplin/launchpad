@@ -11,6 +11,10 @@ export type Session = { id: string, harness: HarnessKind,
  */
 harness_session_id: string | null, project_id: string | null, cwd: string, title: string, status: SessionStatus,
 /**
+ * The session was Done when archived; retained only while Closed.
+ */
+archived_done: boolean,
+/**
  * When the status last changed (Unix ms).
  */
 status_since: number,

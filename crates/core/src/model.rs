@@ -120,6 +120,9 @@ pub struct Session {
     #[ts(skip)]
     pub title_pending: bool,
     pub status: SessionStatus,
+    /// The session was Done when archived; retained only while Closed.
+    #[serde(default)]
+    pub archived_done: bool,
     /// When the status last changed (Unix ms).
     #[ts(type = "number")]
     pub status_since: i64,
@@ -148,6 +151,16 @@ pub struct Session {
 }
 
 impl Session {
+    /// Archiving a completed turn must not block delayed launches waiting for it.
+    pub fn dependency_done(&self) -> bool {
+        self.status.is_done() || (self.status == SessionStatus::Closed && self.archived_done)
+    }
+
+    pub(crate) fn change_status(&mut self, status: SessionStatus) {
+        self.archived_done = status == SessionStatus::Closed && self.dependency_done();
+        self.status = status;
+    }
+
     /// Shared "Needs you" predicate: an open question, or Done, Failed or Interrupted not seen since the status changed.
     pub fn needs_you(&self) -> bool {
         let unseen = self.seen_at < self.status_since;

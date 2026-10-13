@@ -171,6 +171,19 @@ CREATE TABLE IF NOT EXISTS browser_device (id TEXT PRIMARY KEY, secret_hash TEXT
                  WHERE e.session_id = session.id AND e.kind = 'assistant_message' ORDER BY e.seq DESC LIMIT 1);",
         )?;
     }
+    if !has("archived_done") {
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "ALTER TABLE session ADD COLUMN archived_done INTEGER NOT NULL DEFAULT 0;
+             UPDATE session SET archived_done = coalesce((
+                 SELECT json_extract(e.json, '$.status') = 'waiting' FROM session_event e
+                 WHERE e.session_id = session.id AND e.kind = 'status'
+                   AND json_extract(e.json, '$.status') != 'closed'
+                 ORDER BY e.seq DESC LIMIT 1), 0)
+             WHERE status = 'closed';",
+        )?;
+        tx.commit()?;
+    }
     Ok(Db::spawn(conn, "state"))
 }
 
@@ -211,4 +224,43 @@ pub fn open_cache(path: &Path) -> Result<Db> {
         return Ok(Db::spawn(conn, "cache"));
     }
     Ok(Db::spawn(open(path)?, "cache"))
+}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn archived_completion_backfill_uses_the_latest_turn_and_survives_reopen() {
+        let path = std::env::temp_dir().join(format!("launchpad-archive-{}.db", uuid::Uuid::new_v4()));
+        let db = super::open_state(&path).unwrap();
+        db.call(|c| {
+            c.execute_batch("ALTER TABLE session DROP COLUMN archived_done;")?;
+            for (id, status) in [("done", "closed"), ("stopped", "closed"),
+                ("resumed", "closed"), ("unknown", "closed"), ("active", "working")] {
+                c.execute("INSERT INTO session (id, harness, cwd, title, status, launch_spec_json, prompt, started_at)
+                    VALUES (?1, 'codex', '/tmp', 'task', ?2, '{}', 'task', 0)", [id, status])?;
+            }
+            for (id, states) in [("done", vec!["waiting", "closed"]),
+                ("stopped", vec!["stopped", "closed"]),
+                ("resumed", vec!["waiting", "closed", "working", "closed"]),
+                ("active", vec!["waiting", "working"])] {
+                for (seq, status) in states.iter().enumerate() {
+                    c.execute("INSERT INTO session_event VALUES (?1, ?2, 0, 'status', ?3)",
+                        rusqlite::params![id, seq as i64, serde_json::json!({"kind": "status", "status": status}).to_string()])?;
+                }
+            }
+            Ok(())
+        }).await.unwrap();
+        drop(db);
+        for _ in 0..2 {
+            let db = super::open_state(&path).unwrap();
+            db.call(|c| {
+                for id in ["done", "stopped", "resumed", "unknown", "active"] {
+                    let done: bool = c.query_row("SELECT archived_done FROM session WHERE id = ?1", [id], |r| r.get(0))?;
+                    assert_eq!(done, id == "done", "{id}");
+                }
+                Ok(())
+            }).await.unwrap();
+        }
+        std::fs::remove_file(path).unwrap();
+    }
 }

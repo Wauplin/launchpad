@@ -45,3 +45,18 @@ test("restored drafts keep their choice, and newly enabled worktrees use the pro
   draft().update((s) => ({ ...s, target: { kind: "predraft", project_id: "merge" }, worktree: { ...s.worktree, merge_when_done: false } }));
   assert.equal(merge(), false);
 });
+
+test("scheduled dependencies accept completed archives without making archived agents Done or Needs you", async () => {
+  const { dependencyDone, isDone, needsYou } = await import("../src/lib/sessionStatus.ts");
+  const session = { status: "waiting", archived_done: false, seen_at: 0, status_since: 1, open_question: false };
+  assert.equal(dependencyDone(session), true);
+  session.status = "closed";
+  assert.equal(dependencyDone(session), false);
+  session.archived_done = true;
+  assert.equal(dependencyDone(session), true);
+  assert.equal(isDone(session), false);
+  assert.equal(needsYou(session), false);
+  for (const status of ["working", "stopped", "error", "interrupted", "quota_paused", "in_terminal"]) {
+    assert.equal(dependencyDone({ ...session, status }), false);
+  }
+});
