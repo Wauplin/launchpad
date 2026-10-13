@@ -260,7 +260,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       : s.open_question
         ? `Answer or message ${name}`
         : running
-          ? harness?.working_message ?? `Message ${name}`
+          ? s.status === "background" ? `Message ${name}. Background work is still running.` : harness?.working_message ?? `Message ${name}`
           : resumable
             ? `Message ${name} to resume the session`
             : `Message ${name}`;
@@ -411,7 +411,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         {running && (
           <div className="flex items-center gap-2 pb-2 text-xs text-work">
             <span className="lp-spin" />
-            {s.status === "starting" ? "Starting…" : "Working…"}
+            {s.status === "starting" ? "Starting…" : s.status === "background" ? "Background work is still running…" : "Working…"}
           </div>
         )}
       </div>

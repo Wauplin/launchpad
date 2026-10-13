@@ -30,6 +30,8 @@ Status: implementation and acceptance tracker (updated 2026-10-13). See [ARCHITE
 
 Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
 
+Codex status correction (2026-10-14, built; awaiting updated-app daily use): background output stays Background, the trace/composer identify background work, command cards remain pending across turn ends, and Stop explains the native limitation when only background commands remain.
+
 ## Managed worktrees
 
 Built on 2026-10-11, awaiting daily use ([managed-worktrees-plan.md](managed-worktrees-plan.md)):

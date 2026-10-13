@@ -40,6 +40,22 @@ struct State {
     cwd: String,
 }
 
+impl State {
+    /// A turn ending does not end its commands. Keep their trace cards pending until
+    /// Codex reports the actual result, including commands from earlier turns.
+    fn end_turn(&mut self) -> Vec<String> {
+        self.running = false;
+        self.turn_id = None;
+        let mut ended = Vec::new();
+        self.open.retain(|id, (kind, _, _)| {
+            if self.commands.contains(id) { return true; }
+            if TOOL_ITEMS.contains(&kind.as_str()) { ended.push(id.clone()); }
+            false
+        });
+        ended
+    }
+}
+
 /// Live Codex sessions by thread id, for the router.
 type ThreadSession = (Sink, Arc<Mutex<State>>);
 type Threads = Arc<Mutex<HashMap<String, ThreadSession>>>;
@@ -198,7 +214,7 @@ impl LiveSession for CodexSession {
 
     async fn interrupt(&self) -> Result<()> {
         let turns = self.active_turns();
-        anyhow::ensure!(!turns.is_empty(), "no turn is running");
+        anyhow::ensure!(!turns.is_empty(), "The turn has ended. A background command is still running; ask the agent to close it, or close the process directly. Codex turn interruption cannot stop background commands.");
         let mut interrupted = false;
         let mut error = None;
         for (thread, turn) in turns {
@@ -241,7 +257,7 @@ impl LiveSession for CodexSession {
     }
 }
 
-/// Routes app-server messages to sessions, and runs the background-command heuristic.
+/// Routes app-server messages and settles sessions from explicit turn/command state.
 fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
     let server = server.clone();
     let router_threads = threads.clone();
@@ -481,9 +497,7 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             if let Some(e) = st.lock().unwrap().open.get_mut(&id) {
                 e.2 = now_ms();
             }
-            if sink.status() == Some(SessionStatus::Background) {
-                sink.set_status(SessionStatus::Working).await;
-            }
+            // Output is not a new turn: a background command stays Background.
             sink.emit(EventBody::ToolOutput { item_id: id, text: p["delta"].as_str().unwrap_or("").into() }).await;
         }
         "item/completed" => {
@@ -583,19 +597,13 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             .await;
         }
         "turn/completed" => {
-            st.lock().unwrap().running = false;
             let turn = &p["turn"];
             let interrupted = turn["status"] == "interrupted";
             let error = turn["error"]["message"].as_str().map(str::to_string);
-            // Items still open are marked as interrupted. An interrupt does not stop a running command,
-            // so its real `item/completed` may still arrive later and replace this.
-            let open: Vec<(String, (String, i64, i64))> = st.lock().unwrap().open.drain().collect();
-            for (id, (t, _, _)) in open {
-                if TOOL_ITEMS.contains(&t.as_str()) {
-                    sink.emit(EventBody::ToolResult { item_id: id, output: "Interrupted".into(), is_error: true, exit_code: None, duration_ms: None }).await;
-                }
+            let ended = st.lock().unwrap().end_turn();
+            for id in ended {
+                sink.emit(EventBody::ToolResult { item_id: id, output: "Interrupted".into(), is_error: true, exit_code: None, duration_ms: None }).await;
             }
-            st.lock().unwrap().turn_id = None;
             sink.emit(EventBody::TurnEnd { duration_ms: turn["durationMs"].as_i64(), interrupted, error: error.clone() }).await;
             if !st.lock().unwrap().requests.is_empty() {
                 return;
@@ -908,6 +916,35 @@ fn project_trust_override(cwd: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn background_commands_survive_turn_end_until_real_completion() {
+        let mut state = super::State {
+            running: true,
+            turn_id: Some("browser-check".into()),
+            ..Default::default()
+        };
+        state.commands.insert("chrome".into());
+        state.open.insert("chrome".into(), ("commandExecution".into(), 1, 2));
+        state.open.insert("other-tool".into(), ("mcpToolCall".into(), 1, 2));
+        assert_eq!(state.end_turn(), vec!["other-tool"]);
+        assert!(state.turn_id.is_none());
+        assert!(!state.running);
+        assert!(super::child_busy(&state));
+        assert!(state.open.contains_key("chrome"));
+
+        // A follow-up answer must not hide the command or invent an Interrupted result.
+        state.turn_id = Some("follow-up".into());
+        state.running = true;
+        assert!(state.end_turn().is_empty());
+        assert!(state.open.contains_key("chrome"));
+        assert!(super::child_busy(&state));
+
+        // The real completion is what releases the idle/publication guard.
+        state.open.remove("chrome");
+        state.commands.remove("chrome");
+        assert!(!super::child_busy(&state));
+    }
+
     #[test]
     fn project_trust_keys_preserve_paths() {
         for cwd in [
