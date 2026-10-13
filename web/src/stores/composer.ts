@@ -54,7 +54,7 @@ type Composer = {
   openAfterLaunch: boolean;
   loaded: boolean;
   start: (ctx?: LaunchContext) => void;
-  resumeFrom: (session: Session) => void;
+  followUpFrom: (session: Session, review?: boolean) => void;
   rememberLaunch: (spec: LaunchSpec, startedAt: number) => void;
   update: (f: (s: LaunchSpec) => LaunchSpec) => void;
   close: () => void;
@@ -129,12 +129,13 @@ export const useComposer = create<Composer>((set, get) => ({
     set({ open: true, minimized: get().open && get().minimized && collect, spec });
     save(spec, true, get().conditions);
   },
-  resumeFrom: (session) => {
+  followUpFrom: (session, review = false) => {
     const spec: LaunchSpec = {
       ...emptySpec(), ...lastLaunch,
       target: { kind: "session_folder", session_id: session.id },
-      text: "Continue the work from the attached agent trace. Read the trace to understand the original task, progress, and remaining work, inspect the current files, and carry on from where the previous agent left off.",
-      agent_traces: [{ session_id: session.id, through_seq: session.last_seq }],
+      worktree: null,
+      text: review ? "Review the previous agent’s work in this folder. Use the attached agent trace, when available, to understand the task and reported results, then inspect the actual changes and run relevant checks. Report concrete bugs, regressions, and missing requirements with file references. Do not modify files unless I ask." : "",
+      agent_traces: session.last_seq > 0 ? [{ session_id: session.id, through_seq: session.last_seq }] : [],
     };
     set({ spec, open: true, minimized: false, conditions: [] });
     save(spec, true, []);
