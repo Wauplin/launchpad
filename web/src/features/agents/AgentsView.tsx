@@ -140,8 +140,18 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedu
   const needs = sessions.filter(needsYou).sort((a, b) => b.status_since - a.status_since);
   const running = sessions.filter(isRunning).sort((a, b) => b.status_since - a.status_since);
   const nextCron = crons.filter((c) => !c.paused && c.next_run_at != null).sort((a, b) => a.next_run_at! - b.next_run_at!)[0];
-  const nextLaunch = schedules.filter((l) => l.status === "queued" && l.ready_at != null).sort((a, b) => a.ready_at! - b.ready_at!)[0];
-  const next = nextCron && (!nextLaunch || nextCron.next_run_at! <= nextLaunch.ready_at!) ? { title: nextCron.title, at: nextCron.next_run_at!, kind: "Cron", open: () => onCron(nextCron.id) } : nextLaunch ? { title: nextLaunch.title, at: nextLaunch.ready_at!, kind: "Scheduled", open: () => onSchedule(nextLaunch.id) } : null;
+  const upcoming = [
+    ...schedules.filter((l) => l.status === "queued").map((l) => ({
+      id: `scheduled-${l.id}`, title: l.title, at: l.ready_at,
+      detail: conditionsSummary(l, sessions, schedules) || "Waiting for conditions",
+      open: () => onSchedule(l.id),
+    })),
+    ...(nextCron ? [{
+      id: `cron-${nextCron.id}`, title: nextCron.title, at: nextCron.next_run_at,
+      detail: `Cron · ${formatReset(nextCron.next_run_at! / 1000)}`,
+      open: () => onCron(nextCron.id),
+    }] : []),
+  ].sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity));
   const pct = (q: { used_percent: number } | null) => (q ? `${Math.round(q.used_percent)}%` : "unknown");
   return (
     <div className="h-full overflow-y-auto">
@@ -155,8 +165,13 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedu
           {running.length ? running.slice(0, 8).map((s) => <HomeRow key={s.id} s={s} project={name(s)} onOpen={() => onOpen(s.id)} />) : <span className="px-2 text-ink-3">No agent is running.</span>}
           {running.length > 8 && <span className="px-2 text-ink-3">{running.length - 8} more in the list on the left</span>}
         </HomeSection>
-        <HomeSection title="Next scheduled launch">
-          {next ? <button onClick={next.open} className="flex h-[30px] items-center gap-2 rounded-md px-2 text-left hover:bg-sunk"><Icon name="clock" size={14} /><span className="truncate font-medium">{next.title}</span><span className="ml-auto flex-none text-ink-3">{next.kind} · {formatReset(next.at / 1000)}</span></button> : <span className="px-2 text-ink-3">Nothing scheduled at a known time.</span>}
+        <HomeSection title={`Scheduled launches · ${upcoming.length}`}>
+          {upcoming.length ? upcoming.slice(0, 5).map((launch) => <button key={launch.id} onClick={launch.open} className="grid h-[46px] w-full grid-cols-[14px_minmax(0,1fr)] items-center gap-x-2 rounded-md px-2 py-1 text-left hover:bg-sunk">
+            <Icon name="clock" size={14} className="row-span-2" />
+            <span className="truncate font-medium" title={launch.title}>{launch.title}</span>
+            <span className="truncate text-ink-3" title={launch.detail}>{launch.detail}</span>
+          </button>) : <span className="px-2 text-ink-3">Nothing scheduled.</span>}
+          {upcoming.length > 5 && <span className="px-2 text-ink-3">{upcoming.length - 5} more in the list on the left</span>}
         </HomeSection>
         {harnesses.length > 0 && <HomeSection title="Quota">
           {harnesses.map((h) => {
