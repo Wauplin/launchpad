@@ -195,6 +195,42 @@ async fn front_door_protocol() {
             .contains("Secure")
     );
 
+    // The combined stack must authenticate before replaying even a completed operation.
+    // Seed a response so this check cannot launch a harness or send real input.
+    let operation = uuid::Uuid::new_v4().to_string();
+    assert!(matches!(
+        core::operations::claim(&auth.db, &operation, "/api/sessions", b"{}")
+            .await
+            .unwrap(),
+        core::operations::Claim::New
+    ));
+    core::operations::complete(&auth.db, &operation, 200, "{\"replayed\":true}".into())
+        .await
+        .unwrap();
+    let replay = || {
+        post("/api/sessions")
+            .header("Idempotency-Key", &operation)
+            .json(&json!({}))
+    };
+    assert_eq!(
+        replay().send().await.unwrap().status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let response = replay().header("Cookie", cookie).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["Idempotency-Status"], "completed");
+    assert_eq!(response.text().await.unwrap(), "{\"replayed\":true}");
+    assert_eq!(
+        replay()
+            .header("Cookie", cookie)
+            .header("Origin", "https://foreign.example")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+
     let socket_request = |path: &str| {
         let mut req = format!("ws://{address}{path}")
             .into_client_request()
@@ -237,6 +273,15 @@ async fn front_door_protocol() {
             .unwrap()
             .status(),
         StatusCode::OK
+    );
+    assert_eq!(
+        replay()
+            .header("Cookie", cookie)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
     );
     let closed = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
         .await

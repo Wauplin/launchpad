@@ -100,7 +100,7 @@ LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- status   # status as JSON
 - Desktop window for the dev daemon: `cargo build -p launchpad-desktop && LAUNCHPAD_PROFILE=dev ./target/debug/launchpad-desktop` (a dev window is not single-instance and quits when closed). `--open <route>` opens a given screen, `--workspace <id or name>` starts on a workspace. Each dev process is its own window.
 - WebKitGTK benchmark: open `/dev/perf?auto=1` in the window; results go to the daemon log ([spike 4](docs/spikes/4-webkitgtk.md)).
 - Code viewer: Code on a project page, on a worktree or `/projects/<id>/code?root=<folder>&rev=<revision>&path=<file>&line=<n>`. Files come from disk and git (`/api/code/*`); only registered projects and their git worktrees are readable. Colors come from Shiki in a Web Worker, so a file shows as plain text first.
-- Tests: `cargo test` (a few pure functions: the prompt renderer, the remote and link parsers, the code viewer's diff hunk, path and `git grep` parsers). It runs in well under a second once built.
+- Tests: `cargo test` covers core parsers, native terminal behavior, durable retry operations, and front-door pairing/HTTP/WebSocket checks with isolated state.
 
 ## Continuous integration
 
