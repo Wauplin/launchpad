@@ -29,7 +29,8 @@ const queryClient = new QueryClient({
 connectEvents(queryClient);
 void useComposer.getState().restore();
 // Notification clicks open their route in this window through the router.
-registerServiceWorker((url) => router.history.push(url));
+let navigateTo: ((url: string) => void) | null = null;
+registerServiceWorker((url) => (navigateTo ? navigateTo(url) : location.assign(url)));
 
 window.addEventListener("error", (e) => logToDaemon(`uncaught: ${e.message} at ${e.filename}:${e.lineno}`, "error"));
 window.addEventListener("unhandledrejection", (e) => logToDaemon(`unhandled rejection: ${String(e.reason)}`, "error"));
@@ -39,6 +40,7 @@ watchLayout();
 const entry: Promise<Entry> = isPhone ? import("@/mobile/entry").then((m) => m.entry) : import("@/app/desktop").then((m) => m.entry);
 void entry.then((pages) => {
   const router = makeRouter(pages);
+  navigateTo = (url) => router.history.push(url);
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>

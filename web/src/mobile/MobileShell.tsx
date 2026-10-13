@@ -2,8 +2,8 @@
 // time, and five bottom tabs (Now · Agents · Launch · Review · Inbox). Same daemon, rules and feature components
 // as the desktop shell; only the frame differs. Every action stays a visible button.
 
-import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import { IconSprite, Icon, type IconName } from "@/components/Icon";
 import { Toasts } from "@/components/Toast";
 import { HostChip } from "@/app/Connection";
@@ -100,14 +100,7 @@ export function MobileShell() {
   const publish = usePublishItems().length;
   const inbox = useInboxNeeds();
   const start = useComposer((s) => s.start);
-  const navigate = useNavigate();
   const terminals = path.startsWith("/terminals");
-  // A notification click in the service worker asks this tab to show a route.
-  useEffect(() => {
-    const onMessage = (e: MessageEvent) => { if (e.data?.type === "navigate" && typeof e.data.url === "string") void navigate({ to: e.data.url }); };
-    navigator.serviceWorker?.addEventListener("message", onMessage);
-    return () => navigator.serviceWorker?.removeEventListener("message", onMessage);
-  }, [navigate]);
   const workspaceName = scope.workspace?.name ?? (workspaces.length ? "All workspaces" : "Launchpad");
   return (
     <div className="flex h-dvh flex-col bg-paper pt-[env(safe-area-inset-top)]">

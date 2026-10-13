@@ -14,6 +14,7 @@ import { buildRows } from "@/features/agents/rows";
 import { StatusBadge } from "@/features/agents/SessionBits";
 import { usePublishItems } from "@/features/publish/items";
 import { useConnection } from "@/app/Connection";
+import { NotificationsPrompt } from "@/app/NotificationsPrompt";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { projectName, useProjects, useSessions } from "@/lib/queries";
@@ -150,7 +151,7 @@ export function NowView() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto grid max-w-[640px] gap-5 px-3 pt-4">
-        <h1 className="px-1 text-[19px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "agent needs" : "agents need"} you` : "Nothing waits for you"}</h1>
+<div className="flex items-center gap-2">        <h1 className="flex-1 px-1 text-[19px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "agent needs" : "agents need"} you` : "Nothing waits for you"}</h1><NotificationsPrompt /></div>
         {needs.length > 0 && <Section title="Needs you" count={needs.length}>
           {needs.map((s) => s.open_question ? <QuestionCard key={s.id} s={s} project={name(s)} /> : <OutcomeCard key={s.id} s={s} project={name(s)} />)}
         </Section>}
