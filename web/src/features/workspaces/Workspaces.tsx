@@ -77,7 +77,7 @@ function WorkspaceCard({ w }: { w: Workspace }) {
           <button className="btn btn-sm" disabled={current === w.id} onClick={() => switchTo(w.id)}>{current === w.id ? "Shown here" : "Show here"}</button>
           <button className="btn btn-sm" onClick={() => void openWindow(w.id)}><Icon name="window" size={13} />New window</button>
           <button
-            className={`btn btn-sm ${confirm ? "border-[#A40E26]! bg-gh-closed! text-white!" : "btn-ghost"}`}
+            className={`btn btn-sm ${confirm ? "border-[#A40E26]! bg-danger! text-white!" : "btn-ghost"}`}
             title="Delete the workspace (projects and agents are kept)"
             onMouseLeave={() => setConfirm(false)}
             onClick={() => {

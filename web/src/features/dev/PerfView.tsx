@@ -79,8 +79,8 @@ function makeSession(n: number): SessionEvent[] {
   return out;
 }
 
-const TOKEN_CLASS: Record<string, string> = { kw: "text-[#cf222e]", str: "text-[#0a3069]", num: "text-[#0550ae]", hunk: "text-ink-3", "": "" };
-const LINE_CLASS: Record<DiffLine["kind"], string> = { add: "bg-[#e6ffec]", del: "bg-[#ffebe9]", ctx: "", hunk: "bg-[#ddf4ff]" };
+const TOKEN_CLASS: Record<string, string> = { kw: "text-gh-closed", str: "text-work", num: "text-work", hunk: "text-ink-3", "": "" };
+const LINE_CLASS: Record<DiffLine["kind"], string> = { add: "bg-diff-add", del: "bg-diff-del", ctx: "", hunk: "bg-work-soft" };
 
 const DiffRow = memo(function DiffRow({ l }: { l: DiffLine }) {
   return (
@@ -111,7 +111,7 @@ const EventRow = memo(function EventRow({ e }: { e: SessionEvent }) {
               {p}
             </p>
           ))}
-          {e.code && <pre className="m-0 rounded-md border border-line-2 bg-[#f6f8fa] px-2 py-1.5 font-mono text-[11.5px] whitespace-pre-wrap">{e.code}</pre>}
+          {e.code && <pre className="m-0 rounded-md border border-line-2 bg-code px-2 py-1.5 font-mono text-[11.5px] whitespace-pre-wrap">{e.code}</pre>}
         </div>
       );
     case "tool":

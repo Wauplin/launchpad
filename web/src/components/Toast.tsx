@@ -27,7 +27,7 @@ export function Toasts() {
         <div
           key={t.id}
           className={`pointer-events-auto flex max-w-[560px] items-center gap-3 rounded-lg px-3.5 py-2 text-[12.5px] shadow-[0_10px_30px_-10px_rgba(23,32,43,.5)] ${
-            t.tone === "error" ? "bg-gh-closed text-white" : "bg-ink text-white"
+            t.tone === "error" ? "bg-danger text-white" : "bg-graphite text-white"
           }`}
         >
           <span className="min-w-0 break-words">{t.text}</span>

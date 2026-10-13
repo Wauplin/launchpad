@@ -9,13 +9,18 @@ import { copyText } from "@/lib/clipboard";
 import { toastError } from "@/components/Toast";
 import { terminalOutput } from "./output";
 
-const theme = { background: "#FFFFFF", foreground: "#17202B", cursor: "#16766C", cursorAccent: "#FFFFFF", selectionBackground: "#CDE9E4", black: "#17202B", brightBlack: "#637184", red: "#B42318", brightRed: "#B42318", green: "#1A7F37", brightGreen: "#1A7F37", yellow: "#8A5D00", brightYellow: "#8A5D00", blue: "#1F63B0", brightBlue: "#1F63B0", magenta: "#8250DF", brightMagenta: "#8250DF", cyan: "#0D7266", brightCyan: "#0D7266", white: "#4B5767", brightWhite: "#17202B" };
+import { useTheme } from "@/stores/theme";
+
+const lightTheme = { background: "#FFFFFF", foreground: "#17202B", cursor: "#16766C", cursorAccent: "#FFFFFF", selectionBackground: "#CDE9E4", black: "#17202B", brightBlack: "#637184", red: "#B42318", brightRed: "#B42318", green: "#1A7F37", brightGreen: "#1A7F37", yellow: "#8A5D00", brightYellow: "#8A5D00", blue: "#1F63B0", brightBlue: "#1F63B0", magenta: "#8250DF", brightMagenta: "#8250DF", cyan: "#0D7266", brightCyan: "#0D7266", white: "#4B5767", brightWhite: "#17202B" };
+
+const darkTheme = { background: "#0D1117", foreground: "#E6EDF3", cursor: "#79D7C6", cursorAccent: "#0D1117", selectionBackground: "#23364D", black: "#484F58", brightBlack: "#98A6B7", red: "#FF939A", brightRed: "#FFA8AD", green: "#70D68B", brightGreen: "#8DE5A2", yellow: "#EAC76A", brightYellow: "#F4DB91", blue: "#83BAFF", brightBlue: "#A5CEFF", magenta: "#C3A0FF", brightMagenta: "#D5BAFF", cyan: "#79D7C6", brightCyan: "#9BE6D9", white: "#B6C2CF", brightWhite: "#E6EDF3" };
 
 /**
  * The interface zoom is CSS `zoom` on `<html>`, which breaks xterm.js mouse coordinates. The container
  * cancels it (`zoom: 1/scale`) and the font is scaled instead, so xterm.js measures real pixels.
  */
 export function TerminalView({ id, scale, visible = true }: { id: string; scale: number; visible?: boolean }) {
+  const theme = useTheme((s) => s.theme);
   const host = useRef<HTMLDivElement>(null);
   const instance = useRef<{ terminal: Terminal; refit: () => void } | null>(null);
   const currentScale = useRef(scale);
@@ -29,7 +34,7 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
     let socket: WebSocket | null = null;
     let retry = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    const t = new Terminal({ theme, fontFamily: '"DejaVu Sans Mono", "Menlo", "Consolas", monospace', fontSize: Math.round(12 * currentScale.current), scrollback: 5000, allowProposedApi: false });
+    const t = new Terminal({ theme: useTheme.getState().theme === "dark" ? darkTheme : lightTheme, fontFamily: '"DejaVu Sans Mono", "Menlo", "Consolas", monospace', fontSize: Math.round(12 * currentScale.current), scrollback: 5000, allowProposedApi: false });
     const fit = new FitAddon();
     t.loadAddon(fit);
     t.open(host.current);
@@ -104,6 +109,10 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
   }, [id]);
 
   useEffect(() => {
+    if (instance.current) instance.current.terminal.options.theme = theme === "dark" ? darkTheme : lightTheme;
+  }, [id, theme]);
+
+  useEffect(() => {
     const view = instance.current;
     if (!view) return;
     view.terminal.options.fontSize = Math.round(12 * scale);
@@ -111,7 +120,7 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
   }, [id, scale, visible]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-hidden bg-white px-2 py-1" style={{ zoom: 1 / scale, display: visible ? undefined : "none" }}>
+    <div className="min-h-0 flex-1 overflow-hidden bg-paper px-2 py-1" style={{ zoom: 1 / scale, display: visible ? undefined : "none" }}>
       <div ref={host} className="h-full w-full" />
     </div>
   );

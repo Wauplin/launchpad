@@ -781,7 +781,7 @@ function DraftBanner({ item, onReview }: { item: Item; onReview: (id: string | n
   const describe = (s: (typeof waiting)[number]) => s.kind === "review" ? `${s.event === "REQUEST_CHANGES" ? "Request changes" : s.event === "APPROVE" ? "Approve" : "Comment"} review` : "Comment";
   const first = waiting[0];
   return (
-    <div className="flex flex-none flex-wrap items-center gap-2 border-b border-teal-ink/30 bg-[#eaf8f5] px-4 py-1.5 text-[12.5px]">
+    <div className="flex flex-none flex-wrap items-center gap-2 border-b border-teal-ink/30 bg-teal-soft px-4 py-1.5 text-[12.5px]">
       <b className="text-teal-ink">{waiting.length === 1 ? "Agent draft" : `${waiting.length} agent drafts`}:</b>
       <span>{waiting.length === 1 ? describe(first) : waiting.map(describe).join(" · ")}</span>
       <span className="text-ink-3">· by {first.author}{["posting", "uncertain"].includes(first.status) ? " · publication attempted, check GitHub" : ""}</span>

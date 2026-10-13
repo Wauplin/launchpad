@@ -255,7 +255,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
 
   // The one primary action, depending on the state.
   const primary = running || s.status === "quota_paused" ? (
-    <button className="btn btn-sm border-gh-closed! bg-gh-closed! text-white!" title={s.status === "quota_paused" ? "Stop: cancel automatic continuation" : "Stop: interrupt the agent"} onClick={() => void act(s.id, "interrupt")}>
+    <button className="btn btn-sm border-gh-closed! bg-danger! text-white!" title={s.status === "quota_paused" ? "Stop: cancel automatic continuation" : "Stop: interrupt the agent"} onClick={() => void act(s.id, "interrupt")}>
       <Icon name="stop" size={12} />Stop
     </button>
   ) : s.status === "in_terminal" ? (

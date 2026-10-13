@@ -4,15 +4,17 @@
 import { createHighlighterCore } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { bundledLanguages } from "shiki/langs";
+import githubDark from "shiki/themes/github-dark.mjs";
+import type { Theme } from "@/stores/theme";
 import githubLight from "shiki/themes/github-light.mjs";
 
 /** Per line: [text, color, fontStyle] for each token. */
 export type Tokens = [string, string | undefined, number | undefined][][];
 
-const highlighter = createHighlighterCore({ themes: [githubLight], langs: [], engine: createJavaScriptRegexEngine({ forgiving: true }) });
+const highlighter = createHighlighterCore({ themes: [githubLight, githubDark], langs: [], engine: createJavaScriptRegexEngine({ forgiving: true }) });
 
-self.onmessage = async (e: MessageEvent<{ id: number; code: string; lang: string }>) => {
-  const { id, code, lang } = e.data;
+self.onmessage = async (e: MessageEvent<{ id: number; code: string; lang: string; theme: Theme }>) => {
+  const { id, code, lang, theme } = e.data;
   try {
     const h = await highlighter;
     if (!h.getLoadedLanguages().includes(lang)) {
@@ -20,7 +22,7 @@ self.onmessage = async (e: MessageEvent<{ id: number; code: string; lang: string
       if (!load) throw new Error(`no grammar for ${lang}`);
       await h.loadLanguage(load);
     }
-    const lines = h.codeToTokensBase(code, { lang, theme: "github-light" });
+    const lines = h.codeToTokensBase(code, { lang, theme: `github-${theme}` });
     const tokens: Tokens = lines.map((l) => l.map((t) => [t.content, t.color, t.fontStyle]));
     self.postMessage({ id, tokens });
   } catch (err) {

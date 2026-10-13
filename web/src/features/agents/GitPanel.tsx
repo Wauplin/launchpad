@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import type { SessionGitStatus as Status } from "@/gen/SessionGitStatus";
 import type { SessionGitDiff as Diff } from "@/gen/SessionGitDiff";
 const PatchRow = memo(function PatchRow({ text }: { text: string }) {
-  return <div className={`h-5 whitespace-pre px-2 font-mono text-xs ${text.startsWith("+") ? "bg-[#e6ffed]" : text.startsWith("-") ? "bg-[#ffeef0]" : text.startsWith("@@") ? "bg-select" : ""}`}>{text || " "}</div>;
+  return <div className={`h-5 whitespace-pre px-2 font-mono text-xs ${text.startsWith("+") ? "bg-diff-add" : text.startsWith("-") ? "bg-diff-del" : text.startsWith("@@") ? "bg-select" : ""}`}>{text || " "}</div>;
 });
 export function GitPanel({ sessionId, initialMain = false }: { sessionId: string; initialMain?: boolean }) {
   const [path, setPath] = useState<string | null>(null);

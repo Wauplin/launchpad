@@ -27,6 +27,7 @@ import { useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { useMessageDrafts } from "@/stores/messages";
 import { CodeLines, type CodeLinesHandle, type Selection } from "./CodeLines";
+import { useTheme, type Theme } from "@/stores/theme";
 import { cachedTokens, highlight, type Tokens } from "./highlight";
 import { basename, dirname, findAll, githubUrl, lineRef, matcher, rawUrl, useCodeFile, useCodeFiles, useCodeSources, useCommit, type FindOpts } from "./lib";
 import { FilesPanel, FindToggles, SearchPanel } from "./SidePanel";
@@ -227,7 +228,7 @@ function SourcePicker({ project, root, rev, path }: { project: Project; root: st
     <Popover
       width={340}
       trigger={({ toggle }) => (
-        <button onClick={toggle} className="flex h-[34px] w-full min-w-0 items-center gap-2 rounded-[7px] border border-line bg-paper px-2.5 text-left text-[12.5px] hover:border-[#c4ccd7]" title={rev ? `${rev} in ${root}` : root}>
+        <button onClick={toggle} className="flex h-[34px] w-full min-w-0 items-center gap-2 rounded-[7px] border border-line bg-paper px-2.5 text-left text-[12.5px] hover:border-line" title={rev ? `${rev} in ${root}` : root}>
           <Icon name={rev ? "branch" : "folder"} size={14} className="text-ink-3" />
           <span className="min-w-0 flex-1 truncate">
             <b className={rev || !worktree?.main ? "font-mono text-xs" : "font-semibold"}>{label}</b>
@@ -536,19 +537,20 @@ function TextView({
   const [selection, setSelection] = useState<Selection | null>(line ? { start: line, end: line } : null);
 
   // Colors: plain text first, Shiki when the worker answers. None for very large files.
+  const theme = useTheme((s) => s.theme);
   const colors = !!f.language && f.size <= MAX_COLORS_BYTES && lines.length <= MAX_COLORS_LINES;
-  const [tokens, setTokens] = useState<{ text: string; tokens: Tokens } | null>(() => {
-    const t = colors ? cachedTokens(fileKey, text) : null;
-    return t ? { text, tokens: t } : null;
+  const [tokens, setTokens] = useState<{ text: string; theme: Theme; tokens: Tokens } | null>(() => {
+    const t = colors ? cachedTokens(fileKey, text, theme) : null;
+    return t ? { text, theme, tokens: t } : null;
   });
   useEffect(() => {
-    if (!colors || !f.language || tokens?.text === text) return;
+    if (!colors || !f.language || (tokens?.text === text && tokens.theme === theme)) return;
     let alive = true;
-    void highlight(fileKey, text, f.language).then((t) => alive && t && setTokens({ text, tokens: t }));
+    void highlight(fileKey, text, f.language, theme).then((t) => alive && t && setTokens({ text, theme, tokens: t }));
     return () => {
       alive = false;
     };
-  }, [colors, f.language, fileKey, text, tokens?.text]);
+  }, [colors, f.language, fileKey, text, tokens?.text, tokens?.theme, theme]);
 
   // Find in file: the whole text, in memory.
   const [query, setQuery] = useState("");
@@ -641,7 +643,7 @@ function TextView({
       )}
       <CodeLines
         lines={lines}
-        tokens={tokens?.text === text ? tokens.tokens : null}
+        tokens={(tokens?.text === text && tokens.theme === theme) ? tokens.tokens : null}
         marks={f.marks}
         matchesByLine={byLine}
         current={cur ? { line: cur.line, start: cur.start } : null}

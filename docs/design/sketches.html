@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu+Sans+Mono:wght@400..700&display=swap">
 <style>
 /* Layout: a design board. Each sketch = heading, one full app window at a fixed 1180px design width (scrolls sideways on small screens), then numbered notes that match pins in the window.
-   Single light look by choice: the app itself is light-only, so the board is too. */
+   Light/dark palettes match the app; the sketch toggle is local to this browser. */
 :root {
   --board: #E6EAF0;      /* page ground behind the windows */
   --paper: #FFFFFF;      /* app main surface */
@@ -38,6 +38,38 @@
   --font-ui: "Ubuntu Sans", "Ubuntu", system-ui, "Segoe UI", sans-serif;
   --font-mono: "Ubuntu Sans Mono", "Ubuntu Mono", ui-monospace, Menlo, Consolas, monospace;
   color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --board: #090d12;
+  --paper: #0d1117;
+  --chrome: #161b22;
+  --sunk: #212830;
+  --ink: #e6edf3;
+  --ink-2: #b6c2cf;
+  --ink-3: #98a6b7;
+  --line: #465363;
+  --line-2: #2b3542;
+  --teal: #0d7266;
+  --teal-ink: #79d7c6;
+  --teal-soft: #14332e;
+  --clay: #ef9875;
+  --clay-soft: #3c2822;
+  --gh-open: #70d68b;
+  --gh-merged: #c3a0ff;
+  --gh-closed: #ff939a;
+  --gh-draft: #a5b0bf;
+  --attn: #eac76a;
+  --attn-soft: #352b14;
+  --attn-line: #88702e;
+  --work: #83baff;
+  --work-soft: #172c46;
+  --select: #23364d;
+  --meter: #364252;
+  --code: #161b22;
+  --diff-add: #173321;
+  --diff-del: #3b2026;
 }
 
 * { box-sizing: border-box; }
@@ -711,7 +743,8 @@ footer.end code { font: 12.5px var(--font-mono); }
 <header class="intro">
   <div class="kicker">Launchpad · design sketches · 2 October 2026</div>
   <h1>Launchpad sketches</h1>
-  <p class="lede">Eight static mockups of the main screens, filled with example data. The app is light theme only, so the sketches are too. The UI is click only, with one keyboard shortcut: <code>Ctrl+F</code> opens find in the code viewer. Typing helpers include <code>@</code> and <code>#</code> suggestions in the composer prompt and screenshot paste in both the composer prompt and session message box. Pink numbered pins in each window match the notes below it. The design rationale is in <code>docs/ARCHITECTURE.md</code>.</p>
+  <button type="button" class="btn" data-theme-toggle aria-label="Dark theme" aria-pressed="false">Light</button>
+  <p class="lede">Eight static mockups of the main screens, filled with example data. Use the theme toggle below to compare light and dark palettes. In the app, the Light / Dark button beside Launch saves the choice on this device only. The UI is click only, with one keyboard shortcut: <code>Ctrl+F</code> opens find in the code viewer. Typing helpers include <code>@</code> and <code>#</code> suggestions in the composer prompt and screenshot paste in both the composer prompt and session message box. Pink numbered pins in each window match the notes below it. The design rationale is in <code>docs/ARCHITECTURE.md</code>.</p>
   <div class="legend">
     <span><i class="sw" style="background:var(--teal)"></i>Launchpad: primary actions and anything that exists only on your laptop</span>
     <span><i class="sw" style="background:var(--clay)"></i>Claude Code</span>
@@ -769,7 +802,8 @@ footer.end code { font: 12.5px var(--font-mono); }
           <span class="btn">Launchpad <svg class="ic sm"><use href="#i-window"/></svg></span>
         </div>
         <div class="crumbs"><b>Inbox</b></div>
-        <span class="btn primary" style="margin-left:auto"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
+        <button type="button" class="btn" style="margin-left:auto" data-theme-toggle aria-label="Dark theme" aria-pressed="false">Light</button>
+        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
         <div class="wctl"><span></span><span></span><span></span></div>
       </div>
       <div class="app s1">
@@ -2085,4 +2119,22 @@ function toggleAgentGroup(button) {
     row.hidden = expanded;
   }
 }
+</script>
+
+<script>
+(() => {
+  function apply(theme) {
+    document.documentElement.dataset.theme = theme;
+    document.querySelectorAll('[data-theme-toggle]').forEach(button => {
+      button.textContent = theme === 'dark' ? 'Dark' : 'Light';
+      button.setAttribute('aria-pressed', String(theme === 'dark'));
+    });
+  }
+  try { apply(localStorage.getItem('launchpad-sketch-theme') === 'dark' ? 'dark' : 'light'); } catch { apply('light'); }
+  document.querySelectorAll('[data-theme-toggle]').forEach(button => button.addEventListener('click', () => {
+    const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    apply(theme);
+    try { localStorage.setItem('launchpad-sketch-theme', theme); } catch {}
+  }));
+})();
 </script>

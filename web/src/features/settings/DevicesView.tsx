@@ -38,7 +38,7 @@ export function DevicesView() {
       <p className="text-sm text-ink-2">Scan the QR code with your phone, or open the link in another browser. Give that browser a name to finish pairing. Each link works once and expires after five minutes.</p>
       {pair && (remaining > 0 ? <div className="grid justify-items-start gap-2">
         <img alt="Scan to pair Launchpad" className="h-64 w-64 max-w-full" src={`data:image/svg+xml;base64,${btoa(pair.svg)}`} />
-        <a className="text-sm text-teal underline break-all" href={pair.url} target="_blank" rel="noopener noreferrer">Open pairing link</a>
+        <a className="text-sm text-teal-ink underline break-all" href={pair.url} target="_blank" rel="noopener noreferrer">Open pairing link</a>
         <button className="btn btn-sm" onClick={() => void navigator.clipboard.writeText(pair.url).catch(toastError)}>Copy pairing link</button>
         <span className="text-xs text-ink-3" role="status">Expires in {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} · single use</span>
       </div> : <p className="text-sm text-ink-3" role="status">Pairing link expired. Create a new link.</p>)}

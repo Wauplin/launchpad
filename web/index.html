@@ -3,7 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      try {
+        document.documentElement.dataset.theme = localStorage.getItem("launchpad-theme") === "dark" ? "dark" : "light";
+      } catch { document.documentElement.dataset.theme = "light"; }
+    </script>
     <link rel="icon" type="image/png" href="/src/assets/launchpad.png" />
     <title>Launchpad</title>
   </head>

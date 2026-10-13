@@ -36,7 +36,7 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
     } catch (e) { setError(String(e)); }
     finally { setBusy(false); void qc.invalidateQueries({ queryKey: ["suggestions"] }); }
   }
-  return <article className="rounded-lg border border-teal-ink/30 bg-[#eaf8f5] p-4">
+  return <article className="rounded-lg border border-teal-ink/30 bg-teal-soft p-4">
     <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
       <b className="text-teal-ink">Suggested by {s.author}</b><span>{s.kind}{s.kind === "review" && ` · ${event.toLowerCase().replaceAll("_", " ")}`}</span>
       {s.head && <span className="font-mono" title={s.head}>{s.head.slice(0, 7)}</span>}

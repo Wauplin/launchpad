@@ -49,7 +49,7 @@ function Field({ label, hint, end, children }: { label: string; hint?: string; e
 
 function SelectButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
   return (
-    <button onClick={onClick} className="flex h-8 w-full min-w-0 items-center gap-2 rounded-[7px] border border-line bg-paper px-2.5 text-left text-[12.5px] hover:border-[#c4ccd7]">
+    <button onClick={onClick} className="flex h-8 w-full min-w-0 items-center gap-2 rounded-[7px] border border-line bg-paper px-2.5 text-left text-[12.5px] hover:border-line">
       <span className="flex min-w-0 flex-1 items-center gap-2 truncate">{children}</span>
       <Icon name="chev" size={14} className="flex-none text-ink-3" />
     </button>
@@ -578,7 +578,7 @@ export function Composer() {
         {missingVariant && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">The harness variant {spec.variant} no longer exists. Pick a harness or variant in the options.</div>}
 
         <button
-          className={`flex w-full flex-wrap items-center gap-1 rounded-lg border px-2 py-1.5 text-left ${showOptions ? "border-[#c4ccd7] bg-chrome" : "border-line bg-paper hover:border-[#c4ccd7]"}`}
+          className={`flex w-full flex-wrap items-center gap-1 rounded-lg border px-2 py-1.5 text-left ${showOptions ? "border-line bg-chrome" : "border-line bg-paper hover:border-line"}`}
           aria-expanded={showOptions}
           title={showOptions ? "Hide the options" : "Show the options"}
           onClick={() => setShowOptions((v) => !v)}
@@ -680,7 +680,7 @@ export function Composer() {
                     key={p.id}
                     title={p.text}
                     onClick={() => set((s) => ({ ...s, presets: on ? s.presets.filter((x) => x !== p.id) : [...s.presets, p.id] }))}
-                    className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-[11px] text-[12.5px] ${on ? "border-ink bg-ink font-semibold text-white" : "border-line bg-paper text-ink-2 hover:border-[#c4ccd7]"}`}
+                    className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-[11px] text-[12.5px] ${on ? "border-ink bg-ink font-semibold text-paper" : "border-line bg-paper text-ink-2 hover:border-line"}`}
                   >
                     {on && <Icon name="check" size={12} />}
                     {p.label}

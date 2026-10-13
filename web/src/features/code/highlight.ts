@@ -1,6 +1,7 @@
 // Client of the Shiki worker. Results are cached for the last files, checked against their text.
 
 import { logToDaemon } from "@/lib/api";
+import type { Theme } from "@/stores/theme";
 import type { Tokens } from "./highlight.worker";
 
 export type { Tokens };
@@ -29,25 +30,25 @@ function getWorker() {
 }
 
 /** Tokens already computed for this exact text, if any. */
-export function cachedTokens(key: string, text: string): Tokens | null {
-  const hit = cache.get(key);
+export function cachedTokens(key: string, text: string, theme: Theme): Tokens | null {
+  const hit = cache.get(`${theme}:${key}`);
   return hit && hit.text === text ? hit.tokens : null;
 }
 
 /** Colors for `text`, or null when the language has no grammar. */
-export function highlight(key: string, text: string, lang: string): Promise<Tokens | null> {
-  const hit = cachedTokens(key, text);
+export function highlight(key: string, text: string, lang: string, theme: Theme): Promise<Tokens | null> {
+  const hit = cachedTokens(key, text, theme);
   if (hit) return Promise.resolve(hit);
   const id = next++;
   return new Promise((resolve) => {
     pending.set(id, (tokens) => {
       if (tokens) {
-        cache.delete(key);
-        cache.set(key, { text, tokens });
+        cache.delete(`${theme}:${key}`);
+        cache.set(`${theme}:${key}`, { text, tokens });
         if (cache.size > 12) cache.delete(cache.keys().next().value!);
       }
       resolve(tokens);
     });
-    getWorker().postMessage({ id, code: text, lang });
+    getWorker().postMessage({ id, code: text, lang, theme });
   });
 }

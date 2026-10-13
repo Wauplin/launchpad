@@ -54,7 +54,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
       <button
         type="button"
         onClick={onClick}
-        className={`grid h-[68px] w-full grid-cols-[18px_1fr_auto] content-start gap-x-[9px] gap-y-[3px] border-b border-line-2 px-3 py-2 text-left hover:bg-[#f5f8fb] ${selected ? "bg-select!" : ""}`}
+        className={`grid h-[68px] w-full grid-cols-[18px_1fr_auto] content-start gap-x-[9px] gap-y-[3px] border-b border-line-2 px-3 py-2 text-left hover:bg-chrome ${selected ? "bg-select!" : ""}`}
       >
         <span className="row-span-2 mt-px">
           <HarnessMark harness={s.harness} size={18} />

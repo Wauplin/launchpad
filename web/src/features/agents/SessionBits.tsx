@@ -23,7 +23,7 @@ export const STYLES = {
   bg: "bg-attn-soft text-attn",
   done: "bg-sunk text-ink-3",
   int: "bg-sunk text-ink-2",
-  err: "bg-[#ffebe9] text-gh-closed",
+  err: "bg-diff-del text-gh-closed",
 };
 
 export function statusInfo(s: Session): { label: string; style: keyof typeof STYLES; icon: IconName | null } {

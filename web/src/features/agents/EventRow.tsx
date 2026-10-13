@@ -85,7 +85,7 @@ function CallLine({ c }: { c: Call }) {
       <button
         onClick={() => setOpen((o) => !o)}
         className={`flex w-full items-center gap-[7px] rounded-md border px-2 py-1 text-left text-xs ${
-          running ? "border-[#CFE0F4] bg-work-soft text-work" : c.result?.is_error ? "border-[#f3c7c7] bg-[#fff6f6] text-ink-2" : "border-line-2 bg-chrome text-ink-2"
+          running ? "border-work/30 bg-work-soft text-work" : c.result?.is_error ? "border-gh-closed/30 bg-diff-del text-ink-2" : "border-line-2 bg-chrome text-ink-2"
         }`}
       >
         {running ? <span className="lp-spin" /> : <Icon name="chev" size={12} className={`flex-none text-ink-3 transition-transform ${open ? "" : "-rotate-90"}`} />}
@@ -151,7 +151,7 @@ function EditRow({ path, change, diff }: { path: string; change: string; diff: s
       </div>
       <pre className="m-0 overflow-x-auto py-1 font-mono text-[11px] leading-[1.55] whitespace-pre">
         {shown.map((l, i) => (
-          <span key={i} className={`block px-2 ${l.startsWith("+") ? "bg-[#E8F6EC] text-[#0F4D23]" : l.startsWith("-") ? "bg-[#FCEBEC] text-[#7D1A20]" : ""}`}>
+          <span key={i} className={`block px-2 ${l.startsWith("+") ? "bg-diff-add text-gh-open" : l.startsWith("-") ? "bg-diff-del text-gh-closed" : ""}`}>
             {l || " "}
           </span>
         ))}
@@ -210,7 +210,7 @@ export function AskCard({ row, sessionId, live }: { row: Extract<Row, { t: "ask"
     }
   };
   return (
-    <div className={`grid gap-2 rounded-lg border px-2.5 py-[9px] ${answered ? "border-line-2 bg-chrome" : "border-attn-line bg-[#FFFBEF]"}`}>
+    <div className={`grid gap-2 rounded-lg border px-2.5 py-[9px] ${answered ? "border-line-2 bg-chrome" : "border-attn-line bg-attn-soft"}`}>
       {row.questions.map((q, qi) => (
         <div key={qi} className="grid gap-1.5">
           <div className="text-[12.5px] font-[650]">{q.question}</div>
@@ -331,7 +331,7 @@ export const EventRow = memo(
       case "notices":
         return <NoticesRow texts={row.texts} />;
       case "error":
-        return <div className="rounded-md border border-[#f3c7c7] bg-[#fff6f6] px-2.5 py-1.5 font-mono text-xs whitespace-pre-wrap text-gh-closed">{row.text}</div>;
+        return <div className="rounded-md border border-gh-closed/30 bg-diff-del px-2.5 py-1.5 font-mono text-xs whitespace-pre-wrap text-gh-closed">{row.text}</div>;
     }
   },
   (a, b) => a.row.key === b.row.key && a.row.v === b.row.v && a.live === b.live && a.sessionId === b.sessionId,

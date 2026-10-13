@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { useTheme } from "@/stores/theme";
 import { highlight, type Tokens } from "@/features/code/highlight";
 import type { Diff, DiffFile } from "./types";
 import { itemPath, openGitHub } from "./lib";
@@ -78,7 +79,7 @@ const Cell = memo(function Cell({
 }) {
   return (
     <div
-      className={`flex h-5 min-w-0 font-mono text-[12px] ${line.kind === "add" ? "bg-[#e6ffed]" : line.kind === "del" ? "bg-[#ffeef0]" : line.kind === "hunk" ? "bg-[#edf4ff]" : ""}`}
+      className={`flex h-5 min-w-0 font-mono text-[12px] ${line.kind === "add" ? "bg-diff-add" : line.kind === "del" ? "bg-diff-del" : line.kind === "hunk" ? "bg-work-soft" : ""}`}
     >
       <span className="sticky left-0 flex w-[82px] shrink-0 justify-end gap-2 border-r border-line-2 bg-inherit px-2 text-ink-3">
         <span>{line.old}</span>
@@ -110,6 +111,7 @@ const FilePatch = memo(function FilePatch({
   file: DiffFile;
   split: boolean;
 }) {
+  const theme = useTheme((s) => s.theme);
   const parsed = useMemo(() => lines(file.patch ?? ""), [file.patch]);
   const [tokens, setTokens] = useState<Tokens | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -123,13 +125,14 @@ const FilePatch = memo(function FilePatch({
         `diff:${file.filename}`,
         text,
         file.language ?? lang(file.filename),
+        theme,
       ).then((t) => {
         if (active) setTokens(t);
       });
     return () => {
       active = false;
     };
-  }, [file.filename, file.patch]);
+  }, [file.filename, file.language, parsed, theme]);
   const rows = useMemo(() => {
     if (!split) return parsed.map((l) => ({ left: l, right: null }));
     const out: { left: Line | null; right: Line | null }[] = [];

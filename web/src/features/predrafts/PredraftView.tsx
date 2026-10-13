@@ -78,7 +78,7 @@ function Review({ id }: { id: string }) {
   const running = ["starting", "working", "background", "in_terminal"].includes(d.status ?? "");
   const state = p.archived ? "Discarded" : p.published_url ? "Published" : running ? "In progress" : d.status === "waiting" ? "Ready for review" : d.status === "error" || d.status === "interrupted" ? "Agent needs attention" : "Local review";
   return <div className="flex h-full min-h-0 flex-col">
-    <div className="border-b border-line bg-[#eaf8f5] p-4">
+    <div className="border-b border-line bg-teal-soft p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Link to="/projects/$id" params={{ id: p.project_id }} className="btn btn-sm no-underline">Project</Link>
         <span className="rounded bg-teal-soft px-2 py-1 text-xs font-semibold text-teal-ink">Pre-draft PR · {state}</span>

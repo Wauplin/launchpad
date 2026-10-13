@@ -149,7 +149,7 @@ export function SessionSummary({ session: s, rows, localPr, reviewDiff, showTrac
   };
   const followUp = schedules.some((q) => q.resume_session_id === s.id);
   const unfinished = ["stopped", "interrupted", "error"].includes(s.status);
-  return <div className="min-h-0 flex-1 overflow-y-auto bg-white">
+  return <div className="min-h-0 flex-1 overflow-y-auto bg-paper">
     <StateBand session={s} /><FollowUpBands sessionId={s.id} /><QuotaBand session={s} />
     <Section title="Run"><dl className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">{metadata.map(([key, value]) => <Fragment key={key}><dt className="text-ink-3">{key}</dt><dd className="break-words whitespace-pre-wrap">{value}</dd></Fragment>)}</dl></Section>
     <Section title="Task · first prompt"><Fold lines={4} label="Show full task"><div className="whitespace-pre-wrap">{split ? split.typed : prompt}</div>{split && <Instructions blocks={split.instructions} className="mt-1" />}</Fold></Section>

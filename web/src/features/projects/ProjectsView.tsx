@@ -96,7 +96,7 @@ function ProjectRow({ p }: { p: Project }) {
         {w ? <WorkspaceButton p={p} w={w} /> : <PinButton p={p} />}
         <LaunchButton small ctx={{ projectId: p.id }} label={null} />
         <button
-          className={`btn btn-sm ${confirm ? "border-[#A40E26]! bg-gh-closed! text-white!" : "btn-ghost"}`}
+          className={`btn btn-sm ${confirm ? "border-[#A40E26]! bg-danger! text-white!" : "btn-ghost"}`}
           title="Remove from Launchpad (the folder is kept)"
           onMouseLeave={() => setConfirm(false)}
           onClick={() => {
@@ -152,7 +152,7 @@ export function TempProjectCard({ p }: { p: Project }) {
       <div className="flex items-center gap-2">
         <LaunchButton small ctx={{ projectId: p.id }} label="Launch here" primary={false} />
         <button
-          className={`btn btn-sm ${confirm ? "border-[#A40E26]! bg-gh-closed! text-white!" : ""}`}
+          className={`btn btn-sm ${confirm ? "border-[#A40E26]! bg-danger! text-white!" : ""}`}
           onMouseLeave={() => setConfirm(false)}
           onClick={() => {
             if (!confirm) return setConfirm(true);

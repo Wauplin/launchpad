@@ -286,7 +286,7 @@ const LocalRow = memo(function LocalRow({ p }: { p: Predraft }) {
     <Link
       to="/predrafts/$id"
       params={{ id: p.id }}
-      className="flex h-[52px] items-center gap-3 border-b border-line-2 bg-[#eaf8f5] px-3 no-underline text-teal-ink"
+      className="flex h-[52px] items-center gap-3 border-b border-line-2 bg-teal-soft px-3 no-underline text-teal-ink"
     >
       <span className="rounded border border-teal-ink px-2 py-1 text-[11px]">
         Local

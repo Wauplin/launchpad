@@ -233,7 +233,7 @@ export function InboxView() {
     </div>
     {(error || data?.status.error) && <div className="border-b border-line bg-attn-soft px-4 py-2 text-xs text-gh-closed">{String(error ?? data?.status.error)} · Cached notifications remain available. Sign in with gh auth login if needed.</div>}
     <div className="flex flex-none flex-wrap items-center gap-1.5 border-b border-line px-3 py-2">
-      {whys.map(([k, label, title]) => <button key={k} title={title} aria-pressed={view.why === k} className={`inline-flex h-[26px] items-center gap-1.5 rounded-full border px-2.5 text-xs whitespace-nowrap ${view.why === k ? "border-ink bg-ink text-white" : "border-line bg-paper hover:bg-chrome"}`} onClick={() => useView.setState({ why: k, scroll: 0 })}>{label}<b className={`font-semibold tabular-nums ${view.why === k ? "text-[#cfd6df]" : "text-ink-3"}`}>{counts[k]}</b></button>)}
+      {whys.map(([k, label, title]) => <button key={k} title={title} aria-pressed={view.why === k} className={`inline-flex h-[26px] items-center gap-1.5 rounded-full border px-2.5 text-xs whitespace-nowrap ${view.why === k ? "border-ink bg-ink text-paper" : "border-line bg-paper hover:bg-chrome"}`} onClick={() => useView.setState({ why: k, scroll: 0 })}>{label}<b className={`font-semibold tabular-nums ${view.why === k ? "text-paper/80" : "text-ink-3"}`}>{counts[k]}</b></button>)}
       <label className="ml-auto flex items-center gap-2 text-xs"><input type="checkbox" checked={view.unread} onChange={(e) => useView.setState({ unread: e.target.checked, scroll: 0 })} />Unread only</label>
       <RepoPicker threads={counted} selected={view.repo} />
     </div>

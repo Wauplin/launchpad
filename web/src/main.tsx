@@ -10,6 +10,13 @@ import { useComposer } from "@/stores/composer";
 // Reads `?ws=` before anything else rewrites the address.
 import "@/stores/workspace";
 import "./styles.css";
+import darkMarkdown from "github-markdown-css/github-markdown-dark.css?inline";
+
+// Scope GitHub's full dark stylesheet to our explicit choice, independent of OS theme.
+// Put it before app styles so our Markdown size and transparent surface still win.
+const markdownTheme = document.createElement("style");
+markdownTheme.textContent = darkMarkdown.replaceAll(".markdown-body", ':root[data-theme="dark"] .markdown-body');
+document.head.prepend(markdownTheme);
 
 const queryClient = new QueryClient({
   defaultOptions: {

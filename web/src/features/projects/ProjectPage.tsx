@@ -181,7 +181,7 @@ const ProjectAgentRow = memo(function ProjectAgentRow({ s }: { s: Session }) {
   const navigate = useNavigate();
   return (
     <button
-      className="flex h-10 w-full items-center gap-2.5 border-b border-line-2 px-4 text-left hover:bg-[#f5f8fb]"
+      className="flex h-10 w-full items-center gap-2.5 border-b border-line-2 px-4 text-left hover:bg-chrome"
       onClick={() => {
         show(s.id);
         void navigate({ to: "/agents" });
