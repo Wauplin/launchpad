@@ -24,7 +24,7 @@ import { abandonOperation } from "@/lib/operations";
 import { api, ApiError } from "@/lib/api";
 import { pastedImages, readAttachments } from "@/lib/attachments";
 import { projectName, useProjects, useSession } from "@/lib/queries";
-import { useSessionLogs } from "@/lib/sessionStore";
+import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
 import { buildRows } from "./rows";
 import { EventRow } from "./EventRow";
 import { foldTrace } from "./traceRows";
@@ -179,9 +179,11 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
   const codeLinks = useCodeLinks(s);
   const log = useSessionLogs((st) => st.logs[sessionId]);
   const load = useSessionLogs((st) => st.load);
+  const loadEarlier = useSessionLogs((st) => st.loadEarlier);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   useEffect(() => {
     if (!log) {
-      useSessionLogs.setState((st) => ({ logs: { ...st.logs, [sessionId]: { events: [], lastSeq: 0, loaded: false, deltas: {}, outputs: {} } } }));
+      useSessionLogs.setState((st) => ({ logs: { ...st.logs, [sessionId]: emptyLog() } }));
       void load(sessionId);
     }
   }, [sessionId, log, load]);
@@ -195,8 +197,9 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
       const r = rows[i];
       if (r.t === "ask") return r.answers ? null : { request_id: r.request_id, count: r.questions.length };
     }
-    return null;
-  }, [rows]);
+    const earlier = log?.earlier?.last_ask?.body;
+    return earlier?.kind === "ask_user" && !log?.earlier?.last_ask_answers ? { request_id: earlier.request_id, count: earlier.questions.length } : null;
+  }, [rows, log?.earlier]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -340,7 +343,7 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
       <CodeLinksContext.Provider value={codeLinks}>
       <ShellCodeContext.Provider value={s.cwd}>
       {childrenOpen && log && <SubagentsPanel key={s.id} log={log} agents={children} sessionId={s.id} live={s.live} back={() => setView("trace")} />}
-      {!changesOpen && !childrenOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">Loading…</div> : <SessionSummary key={s.id} session={s} rows={rows} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
+      {!changesOpen && !childrenOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">Loading…</div> : <SessionSummary key={s.id} session={s} rows={rows} earlier={log?.earlier ?? null} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
       {traceOpen && !running && <><StateBand session={s}>
         <button className="btn btn-sm" disabled={!rows.some((r) => r.t === "assistant")} onClick={() => { atBottom.current = false; const i = trace.findLastIndex((r) => r.t === "assistant"); if (i >= 0) v.scrollToIndex(i, { align: "start" }); }}>Final message</button>
         <button className="btn btn-sm" onClick={() => setView("summary")}>Summary</button>
@@ -353,6 +356,30 @@ export function SessionPane({ sessionId, onClear }: { sessionId: string; onClear
           atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
         }}
       >
+        {log?.loaded && log.earlier && (
+          <div className="flex justify-center pt-2">
+            <button
+              className="btn btn-sm"
+              disabled={loadingEarlier}
+              title="Earlier events of this session are not loaded yet"
+              onClick={() => {
+                const before = trace.length;
+                setLoadingEarlier(true);
+                atBottom.current = false;
+                void loadEarlier(s.id)
+                  .then(() => requestAnimationFrame(() => {
+                    // Keep the first previously shown row in view.
+                    const added = foldTrace(buildRows(useSessionLogs.getState().logs[s.id]), typed).length - before;
+                    if (added > 0) v.scrollToIndex(added, { align: "start" });
+                  }))
+                  .catch(toastError)
+                  .finally(() => setLoadingEarlier(false));
+              }}
+            >
+              {loadingEarlier ? "Loading…" : "Load earlier events"}
+            </button>
+          </div>
+        )}
         {log && !log.loaded ? (
           <div className="p-6 text-center text-ink-3">Loading…</div>
         ) : (

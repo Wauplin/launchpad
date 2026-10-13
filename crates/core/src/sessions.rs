@@ -94,8 +94,11 @@ struct Inner {
     watched: Mutex<HashMap<u64, Presence>>,
 }
 
-/// A window's focus, the sessions it shows, and when it said so.
-type Presence = (bool, Vec<String>, i64);
+/// A window's focus, the sessions it shows, when it said so, and the time of its last user input.
+type Presence = (bool, Vec<String>, i64, Option<i64>);
+
+/// A window only watches a session while someone uses it: an unattended focused window does not.
+const WATCH_INPUT_MS: i64 = 60_000;
 
 impl Default for Sessions {
     fn default() -> Self {
@@ -259,18 +262,24 @@ impl Sessions {
         self.inner.title_requests.lock().unwrap().remove(id);
     }
 
-    /// Each window reports which sessions it shows, and whether it has the focus. `None` when it closes.
-    pub fn set_watched(&self, window: u64, presence: Option<(bool, Vec<String>)>) {
+    /// Each window reports which sessions it shows, whether it has the focus, and how long ago it last
+    /// received user input (`idle_ms`, relative so device clocks do not matter). `None` when it closes.
+    pub fn set_watched(&self, window: u64, presence: Option<(bool, Vec<String>, Option<i64>)>) {
         let mut w = self.inner.watched.lock().unwrap();
+        let now = now_ms();
         match presence {
-            Some((focused, sessions)) => w.insert(window, (focused, sessions, now_ms())),
+            Some((focused, sessions, idle_ms)) => w.insert(window, (focused, sessions, now, idle_ms.map(|idle| now - idle.max(0)))),
             None => w.remove(&window),
         };
     }
 
+    /// Shown in a focused window that received user input in the last minute (the same rule as "seen" in the UI).
     fn is_watched(&self, id: &str) -> bool {
         let w = self.inner.watched.lock().unwrap();
-        w.values().any(|(focused, sessions, at)| *focused && now_ms() - at < 10 * 60_000 && sessions.iter().any(|s| s == id))
+        let now = now_ms();
+        w.values().any(|(focused, sessions, at, input)| {
+            *focused && now - at < 10 * 60_000 && input.is_some_and(|i| now - i < WATCH_INPUT_MS) && sessions.iter().any(|s| s == id)
+        })
     }
 
     async fn persist(&self, app: &App, s: &Session) -> Result<()> {
@@ -1377,6 +1386,13 @@ impl Sink {
     }
 
     fn publish(&self, ev: &SessionEvent) {
+        // Windows load pasted images by URL instead of receiving them inline.
+        let mut linked;
+        let ev = if matches!(&ev.body, EventBody::UserMessage { images, .. } if !images.is_empty()) {
+            linked = ev.clone();
+            crate::session_pages::link_images(&mut linked);
+            &linked
+        } else { ev };
         self.app.bus.send(Event {
             seq: ev.seq as u64,
             topic: format!("session/{}", self.id),

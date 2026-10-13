@@ -322,6 +322,16 @@ Done:
 
 Left: `vim`/`htop` and two-window checks in the desktop window, and macOS/Windows checks through CI builds.
 
+## Server and multi-device use (2026-10-13)
+
+Status: built, awaiting daily use from a second device. Implements sections E–G of the hosting report ([server-hosting.md](server-hosting.md), ARCHITECTURE 15.1):
+
+- E: lazy pages and xterm, Brotli, tail-first session events with Load earlier events, image URLs, per-file PR diffs.
+- F: input-based watching for seen and notifications, draft revisions with a conflict notice, shared review state, terminal size ownership with letterboxing.
+- G: `install.sh --headless` with lingering, server hosting guide, sign-in checks in Settings → Harnesses, server time zone in schedule/cron editors, Clone from GitHub.
+
+Acceptance: use one daemon from a laptop and a phone for a week; an unattended laptop never hides a finished run from the phone, drafts and review notes never silently overwrite each other, and a cold phone start shows the Agents view quickly. Remaining: mobile entry and layout, service worker and offline cache, attachments stored once.
+
 ## Not planned
 
 Keyboard shortcuts other than `Ctrl+F` in the code viewer and keys sent to a focused integrated terminal (for now), a large test suite or mocks, multiple users, GitHub search, Actions logs, release versioning, data migrations for the cache.

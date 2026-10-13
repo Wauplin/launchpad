@@ -62,12 +62,13 @@ async fn serve_socket(s: &Server, socket: WebSocket, window: u64, mut access: Ac
     }
 }
 
-/// Messages from the UI. `presence`: whether the window has the focus and which sessions it shows,
-/// so the daemon does not notify about a session you are looking at.
+/// Messages from the UI. `presence`: whether the window has the focus, which sessions it shows and
+/// how long ago it last received user input (`idle_ms`, null before any input), so the daemon does
+/// not notify about a session you are looking at. Windows re-send it on input, throttled.
 fn client_message(s: &Server, window: u64, text: &str) {
     let Ok(msg) = serde_json::from_str::<serde_json::Value>(text) else { return };
     if msg["type"] == "presence" {
         let sessions = msg["sessions"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
-        s.app.sessions.set_watched(window, Some((msg["focused"].as_bool().unwrap_or(false), sessions)));
+        s.app.sessions.set_watched(window, Some((msg["focused"].as_bool().unwrap_or(false), sessions, msg["idle_ms"].as_i64())));
     }
 }

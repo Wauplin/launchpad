@@ -10,7 +10,9 @@ export type Subagent = { id: string; parent: string | null; name: string; status
 
 export function subagents(log: SessionLog | undefined, live: boolean): Subagent[] {
   const agents = new Map<string, Subagent>();
-  for (const event of log?.events ?? []) {
+  // Metadata before a tail-first page comes from `earlier`.
+  const first = log?.events[0]?.seq ?? Infinity;
+  for (const event of [...(log?.earlier?.subagents ?? []).filter((e) => e.seq < first), ...(log?.events ?? [])]) {
     const b = event.body;
     if (b.kind !== "subagent") continue;
     const old = agents.get(b.agent_id);

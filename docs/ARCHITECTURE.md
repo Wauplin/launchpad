@@ -744,6 +744,7 @@ Local PR description cards use Add to local notes instead of a GitHub publicatio
 ### 13.1 Integrated terminals
 
 - **Need:** use a shell or a harness TUI without leaving Launchpad. Scope and acceptance check: [integrated-terminal-plan.md](integrated-terminal-plan.md).
+- **Size with several viewers:** one PTY has one size, owned by one viewer: the first one, then whichever typed, pasted or clicked Use this size; a single remaining viewer takes over when the owner disconnects. Every viewer reports the size it would fit; only the owner's applies. `reset` and `size` control messages carry `rows`, `cols` and `owner` (`self`/`other`/`none`), ordered with the output; non-owners render letterboxed at the PTY size.
 - **Ownership:** the daemon starts and owns each terminal (`crates/core/src/terminals.rs`), a `portable-pty` child (ConPTY on Windows). Shells are `$SHELL -l` (`pwsh.exe` or `powershell.exe` on Windows) with the login-shell environment plus `TERM=xterm-256color`, `COLORTERM=truecolor` and `LAUNCHPAD_PROFILE`. At most 12 terminals run at once.
 - **Folders:** `POST /api/terminals` accepts a registered project, one of its git worktrees, or the folder of a session, like `code::open`. Opening one in a pre-draft worktree whose publication started is refused.
 - **Agent snippets:** `POST /api/terminals` also accepts optional `command` and `language`. Finished assistant messages in Trace and Summary expose Run in terminal beside Copy for sh/bash/zsh/shell/fish/powershell/pwsh fences. A click starts a new command terminal in the session cwd, with the same folder and publication checks as normal shells. The full snippet is passed as one interpreter argument; the labeled interpreter must be installed (`shell` selects the login shell). Command terminals retain output and exit status after any exit. Streaming messages and other Markdown surfaces have no execution action.
@@ -769,6 +770,15 @@ Local PR description cards use Add to local notes instead of a GitHub publicatio
 ## 15. Future: remote access
 
 The UI is already served by the daemon over HTTP and WebSocket. Remote access means running `launchpad daemon` on the server (agents and projects live there), connecting through a tunnel, and opening the UI in a browser or pointing the Tauri shell at the remote URL. Local terminal handoff would need a separate remote-access scope.
+
+### 15.1 Server and multi-device use (2026-10-13)
+
+Built from sections E–G of the hosting report, on top of the loopback daemon. Hosting setup is in [server-hosting.md](server-hosting.md).
+
+- **Load less.** Inbox and Agents stay in the main bundle; other routes are lazy chunks and xterm loads with the first terminal (main entry 1.18 MB/343 KB gzip → 718 KB/231 KB). `CompressionLayer` serves Brotli or gzip.
+- **Ask less.** `GET /api/sessions/{id}/events/page?tail=N` returns the newest events plus `EarlierFacts` (first user message, last assistant message, last question and answers, turn count and durations, subagent metadata) computed by the daemon from the unloaded events; `before=` pages backward. `?after=` remains the reconnect/gap catch-up. Event responses and bus events replace pasted image data URLs with `/api/sessions/{id}/images/{seq}/{index}`; stored events are unchanged. The PR diff action returns files with stats and no patches; the UI fetches one file's patch from the cached diff (`diff/file`).
+- **Several devices.** Seen and notification suppression require input in that window within 60 s. Composer drafts have a `revision`: a save names its base revision, stale saves get 409, and every save is broadcast; an idle window reloads, an editing window shows Load the newer draft / Keep mine. Review progress is a generic `review_state(key, json, updated_at)` table with namespaced keys, broadcast on change and imported once from older local storage. Terminal size has one owner viewer (see 13.1).
+- **Running the server.** `install.sh --headless` with lingering; read-only sign-in checks per adapter (`Harness::sign_in`); Clone from GitHub through a hidden staging folder in the projects root; `Status.time_zone` and `utc_offset_minutes` for the editors.
 
 ## 16. Risks and unknowns
 
@@ -1013,3 +1023,5 @@ The [static UX suggestions report](research/ux-suggestions/index.html) is a seco
 97. **Center the Agents dashboard.** On 2026-10-13, constrained the dashboard and section grid tracks to the centered 560 px column, so long session titles and scheduled conditions cannot stretch content beyond it. Quota details and the heading wrap when needed. Keep centering relative to the right panel at every window size.
 
 98. **Device-local light/dark themes.** On 2026-10-13, replaced the light-only rule with a one-click header toggle. Keep the preference in browser storage rather than shared daemon configuration so paired devices can use different themes. Apply the saved choice before first paint, synchronize windows only within the same browser profile/origin, and adapt semantic surfaces, Markdown, diffs, syntax highlighting and terminals. Switching an xterm palette preserves its emulator and WebSocket.
+
+99. **Multi-device server use.** On 2026-10-13, implemented the hosting report's sections E (speed over mobile networks), F (several devices at once) and G (running the server), as described in 15.1. A focused window only counts as watching with user input in the last 60 s; drafts use revisions with an explicit conflict choice instead of last write wins; review state moved from browser storage to `state.db`; the terminal size follows the viewer that typed last. Not built: a separate mobile entry, service worker, IndexedDB cache and `/api/m/now`, attachments stored once by id, and backward paging of subagent child traces.

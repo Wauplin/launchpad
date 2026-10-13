@@ -48,6 +48,18 @@ pub struct TerminalInfo {
 pub enum Output {
     Data(Arc<[u8]>),
     Exit(Option<u32>),
+    /// The effective PTY size or its owner changed. Viewers that don't own it render at this size.
+    Size { rows: u16, cols: u16, owner: Option<u64> },
+}
+
+/// The viewers of one terminal. One PTY has one size: it follows the owner, the viewer that typed
+/// last (or clicked Use this size). A viewer joining a terminal without owner becomes the owner.
+#[derive(Default)]
+struct Viewers {
+    next: u64,
+    /// The size each viewer would fit in its container, once it has reported one.
+    wanted: HashMap<u64, Option<(u16, u16)>>,
+    owner: Option<u64>,
 }
 
 struct Term {
@@ -59,6 +71,7 @@ struct Term {
     writer: Mutex<Option<Box<dyn Write + Send>>>,
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     size: Mutex<PtySize>,
+    viewers: Mutex<Viewers>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     #[cfg_attr(not(unix), allow(dead_code))]
     pid: Option<u32>,
@@ -75,6 +88,8 @@ pub struct Attach {
     pub rows: u16,
     pub cols: u16,
     pub exit: Option<Option<u32>>,
+    /// The viewer whose size the PTY follows.
+    pub owner: Option<u64>,
     pub rx: broadcast::Receiver<Output>,
 }
 
@@ -111,7 +126,66 @@ impl Terminals {
         let exit = (!info.alive).then_some(info.exit_code);
         let (a, b) = buffer.as_slices();
         let size = *t.size.lock().unwrap();
-        Ok(Attach { snapshot: [a, b].concat(), rows: size.rows.max(2), cols: size.cols.max(2), exit, rx })
+        let owner = t.viewers.lock().unwrap().owner;
+        Ok(Attach { snapshot: [a, b].concat(), rows: size.rows.max(2), cols: size.cols.max(2), exit, owner, rx })
+    }
+
+    /// Registers a viewer. It owns the size when nobody else does (the first viewer, or after the
+    /// owner left). Call `leave` when it disconnects.
+    pub fn join(&self, id: &str) -> Result<u64> {
+        let t = self.get(id)?;
+        let _buffer = t.buffer.lock().unwrap();
+        let mut v = t.viewers.lock().unwrap();
+        v.next += 1;
+        let me = v.next;
+        v.wanted.insert(me, None);
+        if v.owner.is_none() {
+            v.owner = Some(me);
+            announce(&t, &v);
+        }
+        Ok(me)
+    }
+
+    /// Releases a viewer and its ownership. A single remaining viewer takes over; with several,
+    /// the size stays until one of them types or claims it.
+    pub fn leave(&self, id: &str, viewer: u64) {
+        let Ok(t) = self.get(id) else { return };
+        let _buffer = t.buffer.lock().unwrap();
+        let mut v = t.viewers.lock().unwrap();
+        v.wanted.remove(&viewer);
+        if v.owner != Some(viewer) {
+            return;
+        }
+        v.owner = if v.wanted.len() == 1 { v.wanted.keys().next().copied() } else { None };
+        take_size(&t, &v);
+        announce(&t, &v);
+    }
+
+    /// Records the size a viewer would fit. The PTY only follows its owner.
+    pub fn resize(&self, id: &str, viewer: u64, rows: u16, cols: u16) -> Result<()> {
+        let t = self.get(id)?;
+        let _buffer = t.buffer.lock().unwrap();
+        let mut v = t.viewers.lock().unwrap();
+        v.wanted.insert(viewer, Some((rows, cols)));
+        if v.owner == Some(viewer) && take_size(&t, &v) {
+            announce(&t, &v);
+        }
+        Ok(())
+    }
+
+    /// Makes a viewer the owner (it typed, pasted or clicked Use this size) and applies its size.
+    pub fn claim(&self, id: &str, viewer: u64) -> Result<()> {
+        let t = self.get(id)?;
+        let _buffer = t.buffer.lock().unwrap();
+        let mut v = t.viewers.lock().unwrap();
+        if !v.wanted.contains_key(&viewer) {
+            return Ok(());
+        }
+        // Announce even when it already owns the size: the viewer waits for an answer.
+        v.owner = Some(viewer);
+        take_size(&t, &v);
+        announce(&t, &v);
+        Ok(())
     }
 
     pub fn write(&self, id: &str, data: &[u8]) -> Result<()> {
@@ -120,16 +194,6 @@ impl Terminals {
         let w = writer.as_mut().context("the terminal has exited")?;
         w.write_all(data)?;
         w.flush()?;
-        Ok(())
-    }
-
-    pub fn resize(&self, id: &str, rows: u16, cols: u16) -> Result<()> {
-        let t = self.get(id)?;
-        if let Some(m) = t.master.lock().unwrap().as_ref() {
-            let size = PtySize { rows: rows.max(2), cols: cols.max(2), pixel_width: 0, pixel_height: 0 };
-            m.resize(size)?;
-            *t.size.lock().unwrap() = size;
-        }
         Ok(())
     }
 
@@ -230,6 +294,7 @@ impl Terminals {
             writer: Mutex::new(Some(writer)),
             master: Mutex::new(Some(pair.master)),
             size: Mutex::new(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }),
+            viewers: Mutex::new(Viewers::default()),
             killer: Mutex::new(child.clone_killer()),
             pid: child.process_id(),
         });
@@ -338,6 +403,31 @@ impl Terminals {
         };
         self.spawn(app, info, argv, env)
     }
+}
+
+/// Resizes the PTY to the owner's reported size. Returns whether the size changed.
+/// Callers hold the buffer lock, so viewers attaching meanwhile see either the old or the new size.
+fn take_size(t: &Term, v: &Viewers) -> bool {
+    let Some((rows, cols)) = v.owner.and_then(|o| v.wanted.get(&o).copied().flatten()) else { return false };
+    let size = PtySize { rows: rows.max(2), cols: cols.max(2), pixel_width: 0, pixel_height: 0 };
+    let mut current = t.size.lock().unwrap();
+    if (current.rows, current.cols) == (size.rows, size.cols) {
+        return false;
+    }
+    // An exited terminal keeps its last size.
+    let Some(m) = t.master.lock().unwrap().as_ref().map(|m| m.resize(size)) else { return false };
+    if let Err(e) = m {
+        tracing::debug!("terminal resize: {e:#}");
+        return false;
+    }
+    *current = size;
+    true
+}
+
+/// Tells every viewer the effective size and owner, in order with the output (buffer lock held).
+fn announce(t: &Term, v: &Viewers) {
+    let size = *t.size.lock().unwrap();
+    let _ = t.tx.send(Output::Size { rows: size.rows.max(2), cols: size.cols.max(2), owner: v.owner });
 }
 
 pub fn inside(cwd: &str, path: &str) -> bool {

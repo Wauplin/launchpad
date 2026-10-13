@@ -6,7 +6,7 @@ import { itemKey } from "@/features/github/lib";
 import logo from "@/assets/launchpad.png";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { useProjects } from "@/lib/queries";
-import { WorkspaceSwitcher } from "@/features/workspaces/Workspaces";
+import { WorkspaceSwitcher } from "@/features/workspaces/Switcher";
 
 import { useTheme } from "@/stores/theme";
 

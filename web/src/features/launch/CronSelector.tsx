@@ -4,6 +4,7 @@ import type { CronCondition } from "@/gen/CronCondition";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import { useHarnessName, useHarnessInfo } from "@/components/HarnessMark";
 import { api } from "@/lib/api";
+import { useServerTimeZone } from "@/lib/serverTime";
 
 export type CronDraft = { schedule: string; conditions: CronCondition[] };
 
@@ -28,6 +29,8 @@ export function CronFields({ draft, harness, onChange, onValidityChange }: { dra
   const name = useHarnessName();
   const supportsQuota = useHarnessInfo(harness)?.capabilities.quota ?? false;
   const next = useCronNext(draft.schedule);
+  const tz = useServerTimeZone();
+  const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const previous = draft.conditions.some((c) => c.kind === "previous_run_finished");
   const quotas = draft.conditions.filter((c) => c.kind === "quota_left");
   const badPercent = quotas.some((c) => !Number.isInteger(c.min_left_percent) || c.min_left_percent < 1 || c.min_left_percent > 100);
@@ -42,8 +45,8 @@ export function CronFields({ draft, harness, onChange, onValidityChange }: { dra
     <div className="flex flex-wrap gap-1.5">{PRESETS.map(([label, schedule]) => <button key={schedule} className={`btn btn-sm ${draft.schedule.trim() === schedule ? "btn-primary" : ""}`} onClick={() => onChange({ ...draft, schedule })}>{label}</button>)}</div>
     <input aria-label="Cron schedule" className="field-input font-mono" placeholder="minute hour day month weekday" value={draft.schedule} onChange={(e) => onChange({ ...draft, schedule: e.target.value })} />
     {next.error ? <p role="alert" className="text-xs text-gh-closed">{next.error.message}</p>
-      : next.data && <p className="text-xs text-ink-2">Next runs: {next.data.map((at) => new Date(at).toLocaleString()).join(" · ")}</p>}
-    <p className="text-xs text-ink-3">5 fields: minute, hour, day of month, month, day of week. Your local time · {Intl.DateTimeFormat().resolvedOptions().timeZone}</p>
+      : next.data && <p className="text-xs text-ink-2">Next runs{tz?.differs ? ` (your time, ${browserZone})` : ""}: {next.data.map((at) => new Date(at).toLocaleString()).join(" · ")}</p>}
+    <p className="text-xs text-ink-3">5 fields: minute, hour, day of month, month, day of week. {tz?.differs ? <b className="font-semibold text-attn">Server time ({tz.label}), not your time zone.</b> : <>Your local time · {browserZone}</>}</p>
     <b className="text-[11.5px] font-[650] text-ink-2">Run only if</b>
     <label className="flex items-center gap-2 text-xs"><input type="checkbox" className="accent-teal" checked={previous} onChange={(e) => onChange({ ...draft, conditions: [...(e.target.checked ? [{ kind: "previous_run_finished" as const }] : []), ...quotas] })} />The previous run is no longer Running</label>
     {quotas.map((q, i) => <div key={i} className="flex flex-wrap items-center gap-2 text-xs">

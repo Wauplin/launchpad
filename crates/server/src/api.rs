@@ -45,6 +45,8 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/git-diff", get(session_git_diff))
         .route("/api/sessions/search", get(search_sessions))
         .route("/api/sessions/{id}/events", get(events))
+        .route("/api/sessions/{id}/events/page", get(events_page))
+        .route("/api/sessions/{id}/images/{seq}/{index}", get(session_image))
         .route("/api/sessions/{id}/trace", get(trace))
         .route("/api/sessions/{id}/input", post(input).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/sessions/{id}/interrupt", post(interrupt))
@@ -186,9 +188,22 @@ async fn get_draft(State(s): State<Server>, Query(q): Query<DraftQuery>) -> ApiR
     Ok(Json(launchpad_core::drafts::get(&s.app, q.workspace.as_deref()).await?))
 }
 
-async fn put_draft(State(s): State<Server>, Query(q): Query<DraftQuery>, Json(draft): Json<Value>) -> ApiResult<Value> {
-    launchpad_core::drafts::put(&s.app, q.workspace.as_deref(), &draft).await?;
-    Ok(Json(json!({"ok": true})))
+/// Body: the draft plus `base_revision` (the revision it was edited from), `force` (overwrite a newer
+/// draft) and `client` (the window id echoed in the broadcast). A stale save gets 409 with the stored `revision`.
+async fn put_draft(State(s): State<Server>, Query(q): Query<DraftQuery>, Json(draft): Json<Value>) -> Result<axum::response::Response, ApiError> {
+    use axum::response::IntoResponse;
+    use launchpad_core::drafts::{self, Put};
+    let base = draft["base_revision"].as_u64().unwrap_or(0);
+    let force = draft["force"].as_bool().unwrap_or(false);
+    let client = draft["client"].as_str().map(str::to_string);
+    Ok(match drafts::put(&s.app, q.workspace.as_deref(), draft, base, force, client).await? {
+        Put::Saved(revision) => Json(json!({"ok": true, "revision": revision})).into_response(),
+        Put::Conflict(revision) => (
+            axum::http::StatusCode::CONFLICT,
+            Json(json!({"error": "Another window or device saved a newer draft.", "revision": revision})),
+        )
+            .into_response(),
+    })
 }
 
 async fn defaults(State(s): State<Server>, Path(kind): Path<String>) -> ApiResult<HarnessDefaults> {
@@ -227,8 +242,43 @@ struct After {
     after: Option<i64>,
 }
 
+/// Catch-up after a reconnect or a sequence gap: every stored event after `after`.
 async fn events(State(s): State<Server>, Path(id): Path<String>, Query(q): Query<After>) -> ApiResult<Vec<SessionEvent>> {
-    Ok(Json(s.app.sessions.events(&s.app, &id, q.after.unwrap_or(0)).await?))
+    let mut events = s.app.sessions.events(&s.app, &id, q.after.unwrap_or(0)).await?;
+    events.iter_mut().for_each(launchpad_core::session_pages::link_images);
+    Ok(Json(events))
+}
+
+#[derive(Deserialize)]
+struct PageQuery {
+    /// The last `tail` events (default 200).
+    tail: Option<i64>,
+    /// Or the `limit` events before `before` (exclusive).
+    before: Option<i64>,
+    limit: Option<i64>,
+}
+
+/// Tail-first trace loading: `?tail=200`, then `?before=<first loaded seq>&limit=200`.
+async fn events_page(State(s): State<Server>, Path(id): Path<String>, Query(q): Query<PageQuery>) -> ApiResult<launchpad_core::session_pages::SessionEventPage> {
+    let limit = q.limit.or(q.tail).unwrap_or(200);
+    Ok(Json(launchpad_core::session_pages::page(&s.app, &id, q.before, limit).await?))
+}
+
+/// An image pasted into a user message, so event responses carry URLs instead of data URLs.
+async fn session_image(State(s): State<Server>, Path((id, seq, index)): Path<(String, i64, usize)>) -> Result<axum::response::Response, ApiError> {
+    use axum::response::IntoResponse;
+    let (bytes, mime) = launchpad_core::session_pages::image(&s.app, &id, seq, index).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+    Ok((
+        [
+            ("content-type", mime),
+            // Stored events never change.
+            ("cache-control", "private, max-age=31536000, immutable".into()),
+            ("content-security-policy", "default-src 'none'; sandbox".into()),
+            ("x-content-type-options", "nosniff".into()),
+        ],
+        bytes,
+    )
+        .into_response())
 }
 
 #[derive(Deserialize)]

@@ -596,6 +596,61 @@ pub async fn diff(app: &App, repo: &str, n: u64) -> Result<Value> {
     }
     Ok(v)
 }
+/// The file list of a PR diff with line stats, without patches (`diff_file` returns one patch).
+pub async fn diff_summary(app: &App, repo: &str, n: u64) -> Result<Value> {
+    let mut v = diff(app, repo, n).await?;
+    if let Some(files) = v["files"].as_array_mut() {
+        for f in files {
+            let patch = f.as_object_mut().and_then(|o| o.remove("patch"));
+            let text = patch.as_ref().and_then(Value::as_str).unwrap_or("");
+            if f.get("additions").is_none() {
+                let (add, del) = line_stats(text);
+                f["additions"] = json!(add);
+                f["deletions"] = json!(del);
+            }
+            f["has_patch"] = json!(!text.is_empty());
+            if let Some(o) = f.as_object_mut() {
+                // GitHub API fields the UI does not use.
+                for k in ["blob_url", "raw_url", "contents_url", "sha"] {
+                    o.remove(k);
+                }
+            }
+        }
+    }
+    Ok(v)
+}
+
+/// One file of a PR diff, read from the cached diff of the given base and head.
+pub async fn diff_file(app: &App, repo: &str, n: u64, base: &str, head: &str, project: Option<&str>, path: &str) -> Result<Value> {
+    validate(repo)?;
+    let key = format!("diff:{repo}:{}:{}:{}", json!(base), json!(head), project.unwrap_or("api"));
+    let v = match cached(app, key).await? {
+        Some(v) => v,
+        None => {
+            let v = diff(app, repo, n).await?;
+            ensure!(v["base"] == base && v["head"] == head, "the PR changed; reload its files");
+            v
+        }
+    };
+    v["files"]
+        .as_array()
+        .and_then(|files| files.iter().find(|f| f["filename"] == path))
+        .cloned()
+        .context("no such file in the diff")
+}
+
+fn line_stats(patch: &str) -> (usize, usize) {
+    let mut out = (0, 0);
+    for line in patch.lines() {
+        if line.starts_with('+') {
+            out.0 += 1;
+        } else if line.starts_with('-') {
+            out.1 += 1;
+        }
+    }
+    out
+}
+
 pub(crate) fn parse_diff(patch: &str) -> Vec<Value> {
     let mut out = vec![];
     let mut file: Option<Value> = None;

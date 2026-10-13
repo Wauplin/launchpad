@@ -34,6 +34,8 @@ Managed worktrees (2026-10-11, built and awaiting daily use): new agents in a Gi
 
 Integrated terminals (scoped Phase 7a, built and awaiting daily use) run shells and a registered harness TUI in a bottom dock: open one from a project, a worktree, a session, a pre-draft or the code viewer, or with the Terminal button in the status bar. Labeled shell snippets in finished agent messages (Trace and Summary) have Run in terminal next to Copy: it opens a new terminal in the session folder, including its task worktree, runs the full snippet with the labeled shell (`shell` uses your login shell), and keeps the output and exit status after completion. "Open in terminal" now uses this dock instead of an external terminal window. The daemon owns the terminal processes, so restarting it ends them. A successful shell exit (`Ctrl+D` at an empty prompt or `exit`) removes its tab and hides the dock when it was the last terminal in the workspace; failed shells and harness TUIs keep their output. Use `Ctrl+Shift+C` to copy a selection, `Ctrl+Shift+V` or `Ctrl+V` to paste, and `Ctrl+L` to clear/redraw through the shell. On macOS, use `Cmd+C`, `Cmd+V` and `Cmd+L` (or `Ctrl+L`). `Ctrl+C` still interrupts. `Ctrl+T`/`Cmd+T` opens a new shell anywhere in the desktop app, even with the dock hidden: the folder on screen, then the active terminal folder, then the first project of the current workspace. If no folder is available, add a project or open a session first. Copy/Paste/Clear toolbar buttons are no longer needed. Terminal emulation uses xterm.js, also used by VS Code. Visited terminals retain their screens across tab/workspace switches and Hide; per-viewer parser acknowledgements bound queued output. Reload/lag recovery still uses a rolling raw-byte history and can lose older terminal state. See [terminal reliability](docs/terminal-reliability.md) for the investigation, checks and remaining limits.
 
+Server and multi-device use (2026-10-13, built and awaiting daily use): the UI loads less on first paint (lazy pages, xterm on demand, Brotli), sessions open with their newest events and a Load earlier events button, pasted images load by URL and PR diffs load per file. An unattended window no longer marks sessions seen or suppresses notifications; composer drafts carry revisions with a conflict notice; PR viewed markers and unsent review notes are shared through the daemon; a terminal follows the size of the device that typed last. Settings → Harnesses shows sign-in status, Projects offers Clone from GitHub, and schedule editors show the server time zone when it differs. See [docs/server-hosting.md](docs/server-hosting.md).
+
 Project pages show stat chips, Running agents, GitHub pull requests/issues, Worktrees, then All agents (including running sessions). Empty GitHub tabs shrink to their message, and selected items get a sticky Launch with these / Add to draft / Clear bar.
 
 ## Trusted remote access and pairing
@@ -64,11 +66,14 @@ It installs `~/.local/bin/launchpad` and `~/.local/bin/launchpad-desktop`, the s
 
 Logs: `journalctl --user -u launchpad -f`.
 
+On a headless Linux server, `packaging/install.sh --headless` installs only the daemon and CLI with the systemd unit, enables lingering so it starts at boot, and skips the desktop shell. Put Tailscale Serve or an identity-aware proxy in front; see [docs/server-hosting.md](docs/server-hosting.md) for the setup, the first-run sign-in checklist and operations.
+
 The app uses the sculpted launch icon, also shown in the top-left corner of the UI. Its master and PNG/WebP exports are in [packaging/icons](packaging/icons/README.md); the SVG wraps the raster artwork. Use `packaging/install-icons.sh` to update only the installed icon without restarting the app or daemon. Regenerate exports with `python3 packaging/generate-icons.py` (requires Pillow).
 
 ## Documentation
 
 - [docs/managed-worktrees-plan.md](docs/managed-worktrees-plan.md): managed agent worktrees as built: launch, merge into the base branch, hand-off, cleanup and restore, compared with Codex.
+- [docs/server-hosting.md](docs/server-hosting.md): headless install, private access, first-run sign-in and operations on a server.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): architecture and decisions log.
 - [docs/ROADMAP.md](docs/ROADMAP.md): phases and their progress.
 - [docs/design/sketches.html](docs/design/sketches.html): UI sketches (open the file in a browser, or the [published version](https://claude.ai/code/artifact/916895f3-aa0f-4378-96da-b971415d6a5a)).

@@ -1,9 +1,12 @@
 // Events of the sessions shown on screen. Stored events come from the API and the WebSocket in
 // sequence order; a gap triggers a fetch of what is missing. Live-only events (text deltas, command
-// output) are kept apart and dropped when the final event arrives.
+// output) are kept apart and dropped when the final event arrives. A session opens with its newest
+// events (tail-first); earlier pages load on request, and `facts` summarizes what is not loaded yet.
 
 import { create } from "zustand";
+import type { EarlierFacts } from "@/gen/EarlierFacts";
 import type { SessionEvent } from "@/gen/SessionEvent";
+import type { SessionEventPage } from "@/gen/SessionEventPage";
 import { api } from "./api";
 
 export type SessionLog = {
@@ -14,13 +17,21 @@ export type SessionLog = {
   deltas: Record<string, string>;
   /** item_id → live command output. */
   outputs: Record<string, string>;
+  /** Facts about the stored events before `events[0]`; null once the log is loaded from its start. */
+  earlier: EarlierFacts | null;
 };
 
-const empty = (): SessionLog => ({ events: [], lastSeq: 0, loaded: false, deltas: {}, outputs: {} });
+export const emptyLog = (): SessionLog => ({ events: [], lastSeq: 0, loaded: false, deltas: {}, outputs: {}, earlier: null });
+const empty = emptyLog;
+
+/** Events per page: the first page is the newest ones, then pages backward. */
+const PAGE = 300;
 
 type Store = {
   logs: Record<string, SessionLog>;
   load: (id: string) => Promise<void>;
+  /** Prepends the page of events before the first loaded one. */
+  loadEarlier: (id: string) => Promise<void>;
   receive: (ev: SessionEvent) => void;
 };
 
@@ -32,7 +43,19 @@ export const useSessionLogs = create<Store>((set, get) => ({
     if (loading.has(id)) return;
     loading.add(id);
     try {
-      const after = get().logs[id]?.lastSeq ?? 0;
+      const current = get().logs[id];
+      if (!current?.loaded && !current?.lastSeq) {
+        const page = await api.get<SessionEventPage>(`/api/sessions/${id}/events/page?tail=${PAGE}`);
+        set((s) => {
+          const log = s.logs[id] ?? empty();
+          // Live events received meanwhile are newer than the page or already in it.
+          const events = [...page.events, ...log.events.filter((e) => e.seq > (page.events.at(-1)?.seq ?? 0))];
+          const lastSeq = events.length ? events[events.length - 1].seq : 0;
+          return { logs: { ...s.logs, [id]: settle({ ...log, events, lastSeq, loaded: true, earlier: page.facts }, events) } };
+        });
+        return;
+      }
+      const after = current.lastSeq;
       const evs = await api.get<SessionEvent[]>(`/api/sessions/${id}/events?after=${after}`);
       set((s) => {
         const log = s.logs[id] ?? empty();
@@ -43,6 +66,21 @@ export const useSessionLogs = create<Store>((set, get) => ({
       });
     } finally {
       loading.delete(id);
+    }
+  },
+  loadEarlier: async (id) => {
+    const first = get().logs[id]?.events[0]?.seq;
+    if (first === undefined || !get().logs[id]?.earlier || loading.has(`${id}<`)) return;
+    loading.add(`${id}<`);
+    try {
+      const page = await api.get<SessionEventPage>(`/api/sessions/${id}/events/page?before=${first}&limit=${PAGE}`);
+      set((s) => {
+        const log = s.logs[id];
+        if (!log || log.events[0]?.seq !== first) return s;
+        return { logs: { ...s.logs, [id]: { ...log, events: [...page.events, ...log.events], earlier: page.facts } } };
+      });
+    } finally {
+      loading.delete(`${id}<`);
     }
   },
   receive: (ev) => {

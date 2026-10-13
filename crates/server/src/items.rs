@@ -15,6 +15,7 @@ pub fn router() -> Router<Server> {
             get(detail).post(refresh),
         )
         .route("/api/items/{owner}/{repo}/{number}/{action}", post(action))
+        .route("/api/items/{owner}/{repo}/{number}/diff/file", get(diff_file))
         .route(
             "/api/repo-items/{owner}/{repo}",
             get(list).post(list_refresh),
@@ -54,7 +55,7 @@ async fn action(
 ) -> ApiResult<Value> {
     let repo = format!("{o}/{r}");
     if a == "diff" {
-        return Ok(Json(items::diff(&s.app, &repo, n).await?));
+        return Ok(Json(items::diff_summary(&s.app, &repo, n).await?));
     }
     // Publication succeeds independently of subsequent cache refresh.
     let v = items::mutate(&s.app, &repo, n, &a, body).await?;
@@ -80,6 +81,23 @@ async fn list_refresh(
 ) -> ApiResult<Value> {
     Ok(Json(
         items::project_items(&s.app, &format!("{o}/{r}"), true).await?,
+    ))
+}
+#[derive(Deserialize)]
+struct DiffFileQuery {
+    base: String,
+    head: String,
+    project: Option<String>,
+    path: String,
+}
+/// One file's patch of the cached PR diff (the `diff` action returns the file list only).
+async fn diff_file(
+    State(s): State<Server>,
+    Path((o, r, n)): Path<ItemPath>,
+    Query(q): Query<DiffFileQuery>,
+) -> ApiResult<Value> {
+    Ok(Json(
+        items::diff_file(&s.app, &format!("{o}/{r}"), n, &q.base, &q.head, q.project.as_deref(), &q.path).await?,
     ))
 }
 #[derive(Deserialize)]

@@ -4,6 +4,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { openGitHub } from "@/features/github/lib";
 import { api } from "@/lib/api";
+import { useReviewState } from "@/lib/reviewState";
 import type { Predraft } from "@/gen/Predraft";
 import type { Note } from "@/gen/Note";
 import type { Diff } from "@/features/github/types";
@@ -47,17 +48,22 @@ function Review({ id }: { id: string }) {
     const added = p.notes.filter((n) => !previous.some((old) => old.path === n.path && old.text === n.text));
     if (added.length) setNotes((current) => [...current, ...added.filter((n) => !current.some((old) => old.path === n.path && old.text === n.text))]);
   }, [p?.notes, loaded]);
-  const draftKey = `predraft-draft:${id}`;
+  // Unsaved edits and notes live in the daemon so they follow the owner across devices.
+  const saved = useReviewState<{ title?: string; body?: string; notes?: Note[]; note?: string; notePath?: string }>(`predraft:${id}`, {});
+  function apply(v: typeof saved.value) {
+    if (!p) return;
+    setTitle(v.title ?? p.title); setBody(v.body ?? p.body); setNotes(v.notes ?? p.notes);
+    setNote(v.note ?? ""); setNotePath(v.notePath ?? "");
+    setEditing(v.title !== undefined || v.body !== undefined);
+  }
   useEffect(() => {
-    if (!p || loaded) return;
-    let saved: { title?: string; body?: string; notes?: Note[]; note?: string; notePath?: string } = {};
-    try { saved = JSON.parse(localStorage.getItem(draftKey) ?? "{}"); } catch { /* Start from daemon data. */ }
-    setTitle(saved.title ?? p.title); setBody(saved.body ?? p.body); setNotes(saved.notes ?? p.notes);
-    setNote(saved.note ?? ""); setNotePath(saved.notePath ?? "");
+    if (!p || loaded || !saved.loaded) return;
+    apply(saved.value);
     setRemote(q.data?.default_remote_branch ?? ""); setLoaded(true);
-    setEditing(saved.title !== undefined || saved.body !== undefined);
-  }, [p, loaded]);
-  useEffect(() => { if (loaded) localStorage.setItem(draftKey, JSON.stringify({ title: editing ? title : undefined, body: editing ? body : undefined, notes, note, notePath })); }, [loaded, title, body, notes, note, notePath, editing]);
+  }, [p, loaded, saved.loaded]);
+  // Another window or device changed the draft.
+  useEffect(() => { if (loaded && saved.remote) apply(saved.value); }, [saved.remote]);
+  useEffect(() => { if (loaded) saved.set({ title: editing ? title : undefined, body: editing ? body : undefined, notes, note, notePath }); }, [loaded, title, body, notes, note, notePath, editing]);
   async function run(action: () => Promise<unknown>) {
     setBusy(true); setError("");
     try { await action(); setConfirm(null); await qc.invalidateQueries({ queryKey: ["predrafts"] }); }
@@ -107,7 +113,7 @@ function Review({ id }: { id: string }) {
     {active && <div className="flex flex-wrap items-center gap-2 border-t border-line p-3">
       <input aria-label="Remote branch name" className="field-input min-w-48 flex-1" value={remote} onChange={(e) => { setRemote(e.target.value); setConfirm(null); }} placeholder="Remote branch name" />
       <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={draft} onChange={(e) => { setDraft(e.target.checked); setConfirm(null); }} />Publish as draft</label>
-      <button className="btn btn-primary" disabled={busy || running || d.dirty || !d.head || !remote.trim()} onClick={() => { if (confirm !== "publish") { setConfirm("publish"); return; } void run(async () => { await save(); await api.post(`/api/predrafts/${id}/publish`, { remote_branch: remote, draft, head: d.head }); localStorage.removeItem(draftKey); }); }}>{busy ? "Working…" : confirm === "publish" ? "Confirm push and create GitHub PR" : "Publish"}</button>
+      <button className="btn btn-primary" disabled={busy || running || d.dirty || !d.head || !remote.trim()} onClick={() => { if (confirm !== "publish") { setConfirm("publish"); return; } void run(async () => { await save(); await api.post(`/api/predrafts/${id}/publish`, { remote_branch: remote, draft, head: d.head }); await saved.clear(); }); }}>{busy ? "Working…" : confirm === "publish" ? "Confirm push and create GitHub PR" : "Publish"}</button>
       <button className="btn text-gh-closed" disabled={busy || running || d.dirty} onClick={() => { if (confirm !== "discard") { setConfirm("discard"); return; } void run(() => api.post(`/api/predrafts/${id}/discard`)); }}>{confirm === "discard" ? "Confirm delete branch and worktree" : "Discard"}</button>
       {confirm && <button className="btn btn-sm" onClick={() => setConfirm(null)}>Cancel</button>}
     </div>}

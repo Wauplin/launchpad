@@ -2,4 +2,12 @@
 import type { HarnessStatus } from "./HarnessStatus";
 import type { SessionCounts } from "./SessionCounts";
 
-export type Status = { profile: string, commit: string, harnesses: { [key in string]: HarnessStatus }, sessions: SessionCounts, };
+export type Status = { profile: string, commit: string, harnesses: { [key in string]: HarnessStatus }, sessions: SessionCounts,
+/**
+ * IANA name of the daemon host time zone (crons use it), when the host exposes one.
+ */
+time_zone: string | null,
+/**
+ * Current UTC offset of the daemon host, in minutes east of UTC.
+ */
+utc_offset_minutes: number, };

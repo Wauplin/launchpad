@@ -5,17 +5,28 @@
 # Then restarts the daemon and the background window. Restarting stops running agents, so the script asks
 # first when some are running.
 #
-# Usage: packaging/install.sh [--force] [--prebuilt]
+# --headless (Linux only) installs a server: the daemon and CLI only, without the desktop shell, the .desktop
+# and autostart entries or the icons. It enables lingering so the systemd user unit starts at boot and keeps
+# running after logout. See docs/server-hosting.md.
+#
+# Usage: packaging/install.sh [--force] [--prebuilt] [--headless]
 set -euo pipefail
-if [ "$(uname -s)" = Darwin ]; then exec bash "$(dirname "$0")/install-macos.sh" "$@"; fi
+if [ "$(uname -s)" = Darwin ]; then
+  for arg in "$@"; do
+    if [ "$arg" = --headless ]; then echo "--headless is supported on Linux only." >&2; exit 2; fi
+  done
+  exec bash "$(dirname "$0")/install-macos.sh" "$@"
+fi
 
 cd "$(dirname "$0")/.."
 FORCE=0
 PREBUILT=0
+HEADLESS=0
 for arg in "$@"; do
   case "$arg" in
     --force) FORCE=1 ;;
     --prebuilt) PREBUILT=1 ;;
+    --headless) HEADLESS=1 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -59,7 +70,11 @@ fi
 # From web/: Corepack picks the pnpm version of the nearest package.json, not the one of `-C web`.
 if [ "$PREBUILT" -eq 0 ]; then
   (cd web && pnpm install --frozen-lockfile --config.confirmModulesPurge=false && pnpm build)
-  cargo build --release -p launchpad -p launchpad-desktop
+  if [ "$HEADLESS" -eq 1 ]; then
+    cargo build --release -p launchpad
+  else
+    cargo build --release -p launchpad -p launchpad-desktop
+  fi
 fi
 
 # Sessions may have started while the build ran. Never stop them without an explicit --force.
@@ -70,28 +85,45 @@ if [ "$running" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
 fi
 
 # 3. Install. Copy then rename, so running binaries are replaced safely.
-mkdir -p "$BIN" "$APPS" "$UNITS" "$AUTOSTART"
+BINARIES="launchpad launchpad-desktop"
+[ "$HEADLESS" -eq 0 ] || BINARIES="launchpad"
+mkdir -p "$BIN" "$UNITS"
 cp -r skills "$BIN/"
 # The running shell (if any) keeps the old binary: stop it, it is started again below.
-if pgrep -x launchpad-deskt >/dev/null 2>&1; then
+if [ "$HEADLESS" -eq 0 ] && pgrep -x launchpad-deskt >/dev/null 2>&1; then
   "$BIN/launchpad-desktop" --quit >/dev/null 2>&1 || true
   sleep 0.5
 fi
-for b in launchpad launchpad-desktop; do
+for b in $BINARIES; do
   cp "target/release/$b" "$BIN/.$b.new"
   chmod 755 "$BIN/.$b.new"
   mv -f "$BIN/.$b.new" "$BIN/$b"
 done
 install -Dm644 packaging/launchpad.service "$UNITS/launchpad.service"
-sed "s|@BIN@|$BIN|g" packaging/launchpad.desktop > "$APPS/launchpad.desktop"
-sed "s|@BIN@|$BIN|g" packaging/launchpad-autostart.desktop > "$AUTOSTART/launchpad.desktop"
-install -Dm644 packaging/launchpad.svg "$ICONS/scalable/apps/launchpad.svg"
-install -Dm644 desktop/src-tauri/icons/32x32.png "$ICONS/32x32/apps/launchpad.png"
-install -Dm644 desktop/src-tauri/icons/128x128.png "$ICONS/128x128/apps/launchpad.png"
-install -Dm644 desktop/src-tauri/icons/128x128@2x.png "$ICONS/256x256/apps/launchpad.png"
-install -Dm644 desktop/src-tauri/icons/icon.png "$ICONS/512x512/apps/launchpad.png"
-command -v update-desktop-database >/dev/null && update-desktop-database "$APPS" || true
-command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t -f "$ICONS" || true
+if [ "$HEADLESS" -eq 0 ]; then
+  mkdir -p "$APPS" "$AUTOSTART"
+  sed "s|@BIN@|$BIN|g" packaging/launchpad.desktop > "$APPS/launchpad.desktop"
+  sed "s|@BIN@|$BIN|g" packaging/launchpad-autostart.desktop > "$AUTOSTART/launchpad.desktop"
+  install -Dm644 packaging/launchpad.svg "$ICONS/scalable/apps/launchpad.svg"
+  install -Dm644 desktop/src-tauri/icons/32x32.png "$ICONS/32x32/apps/launchpad.png"
+  install -Dm644 desktop/src-tauri/icons/128x128.png "$ICONS/128x128/apps/launchpad.png"
+  install -Dm644 desktop/src-tauri/icons/128x128@2x.png "$ICONS/256x256/apps/launchpad.png"
+  install -Dm644 desktop/src-tauri/icons/icon.png "$ICONS/512x512/apps/launchpad.png"
+  command -v update-desktop-database >/dev/null && update-desktop-database "$APPS" || true
+  command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t -f "$ICONS" || true
+fi
+
+# A server has no graphical login: lingering starts the user manager (and the unit) at boot and keeps it
+# running after the last SSH session ends.
+if [ "$HEADLESS" -eq 1 ]; then
+  USER="${USER:-$(id -un)}"
+  if [ "$(loginctl show-user "$USER" --property=Linger --value 2>/dev/null || true)" != yes ]; then
+    if ! loginctl enable-linger "$USER" 2>/dev/null; then
+      echo "warning: could not enable lingering for $USER, so Launchpad stops at logout and does not start at boot." >&2
+      echo "Ask an administrator to run: sudo loginctl enable-linger $USER" >&2
+    fi
+  fi
+fi
 
 # 4. Restart the daemon.
 systemctl --user daemon-reload
@@ -102,11 +134,16 @@ for _ in $(seq 1 100); do
   sleep 0.1
 done
 if curl -sf http://127.0.0.1:7317/api/health >/dev/null 2>&1; then
-  if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
-    setsid "$BIN/launchpad-desktop" --hidden >/dev/null 2>&1 < /dev/null &
+  if [ "$HEADLESS" -eq 1 ]; then
+    echo "Launchpad installed (headless). The daemon runs on http://127.0.0.1:7317 and starts at boot (logs: journalctl --user -u launchpad -f)."
+    echo "Expose it through Tailscale Serve or an identity-aware proxy; see docs/server-hosting.md."
+  else
+    if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+      setsid "$BIN/launchpad-desktop" --hidden >/dev/null 2>&1 < /dev/null &
+    fi
+    echo "Launchpad installed. The daemon runs on http://127.0.0.1:7317 (logs: journalctl --user -u launchpad -f)."
+    echo "Open it from the applications grid and pin it to the dock (right click > Add to Favorites)."
   fi
-  echo "Launchpad installed. The daemon runs on http://127.0.0.1:7317 (logs: journalctl --user -u launchpad -f)."
-  echo "Open it from the applications grid and pin it to the dock (right click > Add to Favorites)."
 else
   echo "The daemon did not start. See: journalctl --user -u launchpad -n 50"
   exit 1

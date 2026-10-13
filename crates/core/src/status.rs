@@ -18,6 +18,10 @@ pub struct Status {
     pub commit: String,
     pub harnesses: std::collections::HashMap<String, HarnessStatus>,
     pub sessions: SessionCounts,
+    /// IANA name of the daemon host time zone (crons use it), when the host exposes one.
+    pub time_zone: Option<String>,
+    /// Current UTC offset of the daemon host, in minutes east of UTC.
+    pub utc_offset_minutes: i32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, TS)]
@@ -88,6 +92,8 @@ pub fn spawn_monitors(app: &App) {
     app.status.update(|s| {
         s.profile = app.paths.profile.name().to_string();
         s.commit = crate::COMMIT.to_string();
+        s.time_zone = host_time_zone();
+        s.utc_offset_minutes = utc_offset_minutes();
         for registration in crate::harness::REGISTRATIONS {
             s.harnesses
                 .entry(registration.descriptor.id.as_str().into())
@@ -97,10 +103,43 @@ pub fn spawn_monitors(app: &App) {
     let app = app.clone();
     tokio::spawn(async move {
         loop {
+            // The offset changes with daylight saving time.
+            let offset = utc_offset_minutes();
+            if app.status.get().utc_offset_minutes != offset {
+                app.status.update(|s| s.utc_offset_minutes = offset);
+            }
             refresh_versions(&app).await;
             tokio::time::sleep(Duration::from_secs(30 * 60)).await;
         }
     });
+}
+
+fn utc_offset_minutes() -> i32 {
+    chrono::Local::now().offset().local_minus_utc() / 60
+}
+
+/// The zone chrono's `Local` (and so the cron scheduler) uses: `TZ`, else `/etc/localtime` (or `/etc/timezone`).
+fn host_time_zone() -> Option<String> {
+    let valid = |name: &str| {
+        let name = name.trim().trim_start_matches(':');
+        (!name.is_empty() && !name.starts_with('/') && name.chars().all(|c| c.is_ascii_alphanumeric() || "/_-+".contains(c))).then(|| name.to_string())
+    };
+    if let Ok(tz) = std::env::var("TZ") {
+        return valid(&tz).or_else(|| tz.rsplit_once("zoneinfo/").and_then(|(_, n)| valid(n)));
+    }
+    #[cfg(unix)]
+    {
+        if let Ok(target) = std::fs::read_link("/etc/localtime")
+            && let Some((_, name)) = target.to_string_lossy().rsplit_once("zoneinfo/")
+            && let Some(name) = valid(name)
+        {
+            return Some(name);
+        }
+        if let Ok(name) = std::fs::read_to_string("/etc/timezone") {
+            return valid(&name);
+        }
+    }
+    None
 }
 
 pub async fn refresh_versions(app: &App) {

@@ -8,6 +8,7 @@ import type { Project } from "@/gen/Project";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { LaunchButton } from "@/features/launch/LaunchButton";
+import { CloneFromGitHub } from "./CloneFromGitHub";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { useConfig, useProjects, useSessions } from "@/lib/queries";
@@ -225,6 +226,7 @@ export function ProjectsView() {
   const config = useConfig().data?.config;
   const qc = useQueryClient();
   const [scan, setScan] = useState(false);
+  const [cloning, setCloning] = useState(false);
   const [path, setPath] = useState("");
   const regular = projects.filter((p) => !p.is_temp).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
   // In a workspace: its projects first, then the others, which one click adds.
@@ -243,15 +245,20 @@ export function ProjectsView() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <h2 className="m-0 text-lg font-semibold">{w ? `Projects in ${w.name}` : "Projects"}</h2>
           <span className="min-w-0 truncate text-xs text-ink-3">in {config?.projects_root}</span>
           <button className="btn ml-auto" onClick={() => setScan((v) => !v)}>
             <Icon name="search" size={14} />
             Scan projects root
           </button>
+          <button className="btn" onClick={() => setCloning((v) => !v)}>
+            <Icon name="branch" size={14} />
+            Clone from GitHub
+          </button>
         </div>
         {scan && <Discover onClose={() => setScan(false)} />}
+        {cloning && <CloneFromGitHub root={config?.projects_root} onClose={() => setCloning(false)} />}
         <div className="overflow-hidden rounded-lg border border-line">
           {mine.length === 0 && <div className="p-4 text-[12.5px] text-ink-2">{w ? `No project in ${w.name} yet. Add one from the list below, scan the projects root or add a folder.` : 'No project yet. Use "Scan projects root" or add a folder below.'}</div>}
           {mine.map((p) => (

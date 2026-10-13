@@ -30,6 +30,36 @@ pub const REGISTRATION: super::Registration = super::Registration {
 pub struct Adapter;
 #[async_trait]
 impl super::Harness for Adapter {
+    fn sign_in_program(&self) -> &'static str {
+        "opencode"
+    }
+    fn sign_in_command(&self) -> &'static str {
+        "opencode auth login"
+    }
+    /// `opencode auth list` ends its sections with "N credentials" and "N environment variables";
+    /// only those counts are kept (provider names are not secrets, values are never shown by OpenCode).
+    async fn sign_in(&self, env: &crate::shellenv::UserEnv) -> crate::signin::SignIn {
+        match crate::signin::status_output(env, "opencode", &["auth", "list"]).await {
+            Ok((_, stdout, stderr)) => {
+                let text = crate::signin::strip_ansi(&format!("{stdout}\n{stderr}"));
+                let count = |suffix: &str| text.lines().filter_map(|l| {
+                    let l = l.trim_start_matches(|c: char| !c.is_ascii_alphanumeric()).trim();
+                    let (n, rest) = l.split_once(' ')?;
+                    rest.starts_with(suffix).then(|| n.parse::<u32>().ok()).flatten()
+                }).next();
+                let (credentials, variables) = (count("credential"), count("environment variable"));
+                if credentials.is_none() && variables.is_none() {
+                    return crate::signin::SignIn { signed_in: None, detail: Some("Could not read `opencode auth list`.".into()) };
+                }
+                let (c, v) = (credentials.unwrap_or(0), variables.unwrap_or(0));
+                crate::signin::SignIn {
+                    signed_in: Some(c + v > 0),
+                    detail: Some(format!("{c} stored credential{}, {v} provider environment variable{}", if c == 1 { "" } else { "s" }, if v == 1 { "" } else { "s" })),
+                }
+            }
+            Err(e) => crate::signin::SignIn { signed_in: None, detail: Some(format!("{e:#}")) },
+        }
+    }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
         let mut command = crate::procs::child_command(&app.env, "opencode", Some(&spec.cwd));
         command

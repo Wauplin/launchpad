@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/components/Toast";
 import { useInbox, useInboxAction } from "@/features/inbox/InboxView";
 import { LaunchButton } from "@/features/launch/LaunchButton";
+import { replyKey, useReviewState } from "@/lib/reviewState";
 import { useProjects } from "@/lib/queries";
 import { formatAge } from "@/lib/format";
 import {
@@ -534,10 +535,9 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
     document.addEventListener("mousedown", down);
     return () => document.removeEventListener("mousedown", down);
   }, [composing]);
-  const draftKey = `github-reply:${repo}:${number}`;
-  const [draft, setDraft] = useState(
-    () => localStorage.getItem(draftKey) ?? "",
-  );
+  // The unsent reply lives in the daemon so it follows the owner across devices.
+  const reply = useReviewState(replyKey(repo, number), "");
+  const draft = reply.value;
   const [event, setEvent] = useState("COMMENT");
   const projects = useProjects().data ?? [];
   const project = projects.find(
@@ -707,8 +707,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
                 value={draft}
                 disabled={busy}
                 onChange={(e) => {
-                  setDraft(e.target.value);
-                  localStorage.setItem(draftKey, e.target.value);
+                  reply.set(e.target.value);
                 }}
               />
               {(composing || draft.trim()) && <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -717,10 +716,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
                   disabled={busy || !draft.trim()}
                   onClick={() =>
                     void act("comment", { body: draft }).then((ok) => {
-                      if (ok) {
-                        setDraft("");
-                        localStorage.removeItem(draftKey);
-                      }
+                      if (ok) void reply.clear();
                     })
                   }
                 >
@@ -747,10 +743,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
                           event,
                           commit_id: item.headRefOid,
                         }).then((ok) => {
-                          if (ok) {
-                            setDraft("");
-                            localStorage.removeItem(draftKey);
-                          }
+                          if (ok) void reply.clear();
                         })
                       }
                     >

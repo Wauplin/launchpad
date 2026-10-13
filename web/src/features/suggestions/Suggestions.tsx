@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { useReviewState } from "@/lib/reviewState";
 import { Markdown } from "@/components/Markdown";
 import { openGitHub } from "@/features/github/lib";
 import type { Suggestion } from "@/gen/Suggestion";
@@ -12,18 +13,17 @@ export function useSuggestions(target: SuggestionTarget) {
 }
 export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head, onPosted }: { suggestion: Suggestion; head?: string; onPosted?: () => void }) {
   const qc = useQueryClient();
-  const key = `suggestion-edit:${s.id}`;
-  const [body, setBody] = useState(() => localStorage.getItem(key) ?? s.body);
-  const [event, setEvent] = useState(() => localStorage.getItem(`${key}:event`) ?? s.event);
-  const [editing, setEditing] = useState(() => localStorage.getItem(key) !== null || localStorage.getItem(`${key}:event`) !== null);
+  // Unsaved edits live in the daemon so they follow the owner across devices.
+  const edit = useReviewState<{ body?: string; event?: string }>(`suggestion:${s.id}`, {});
+  const [editingLocal, setEditing] = useState(false);
+  const editing = editingLocal || edit.value.body !== undefined || edit.value.event !== undefined;
+  const body = editing ? edit.value.body ?? s.body : s.body;
+  const event = editing ? edit.value.event ?? s.event : s.event;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const local = s.target.kind === "predraft";
   const stale = !local && s.kind === "review" && head !== undefined && s.head !== head;
-  useEffect(() => {
-    if (!editing) { setBody(s.body); setEvent(s.event); }
-  }, [s.body, s.event, editing]);
-  function clear() { localStorage.removeItem(key); localStorage.removeItem(`${key}:event`); }
+  function clear() { void edit.clear(); }
   async function run(action: "save" | "post" | "discard") {
     setBusy(true); setError("");
     try {
@@ -43,8 +43,8 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
       {s.status === "posted" && <b>{local ? "Saved to local notes" : "Posted"}</b>}
     </div>
     {editing && s.status === "draft" ? <div className="grid gap-2">
-      <textarea aria-label="Suggested text" className="field-input min-h-40" value={body} disabled={busy} onChange={(e) => { setBody(e.target.value); localStorage.setItem(key, e.target.value); }} />
-      {s.kind === "review" && <select aria-label="Suggested review type" className="field-input" value={event} disabled={busy} onChange={(e) => { setEvent(e.target.value); localStorage.setItem(`${key}:event`, e.target.value); }}><option value="COMMENT">Comment review</option><option value="APPROVE">Approve</option><option value="REQUEST_CHANGES">Request changes</option></select>}
+      <textarea aria-label="Suggested text" className="field-input min-h-40" value={body} disabled={busy} onChange={(e) => { const v = e.target.value; edit.set((o) => ({ ...o, body: v })); }} />
+      {s.kind === "review" && <select aria-label="Suggested review type" className="field-input" value={event} disabled={busy} onChange={(e) => { const v = e.target.value; edit.set((o) => ({ ...o, event: v })); }}><option value="COMMENT">Comment review</option><option value="APPROVE">Approve</option><option value="REQUEST_CHANGES">Request changes</option></select>}
     </div> : <Markdown text={s.body} />}
     {stale && s.status === "draft" && <p className="mt-3 text-xs text-amber-800">PR head changed. Ask the agent for a fresh review before posting.</p>}
     {["posting", "uncertain"].includes(s.status) && <p className="mt-3 text-xs text-amber-800">Publication was attempted. Check GitHub before discarding or creating another suggestion. Automatic retries are disabled.</p>}

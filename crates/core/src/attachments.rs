@@ -38,6 +38,13 @@ fn decode(data_url: &str, image_only: bool) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// The bytes and MIME type of a validated image data URL.
+pub fn decode_image(data_url: &str) -> Result<(Vec<u8>, String)> {
+    let bytes = decode(data_url, true)?;
+    let mime = data_url[5..].split(';').next().unwrap_or("image/png").to_string();
+    Ok((bytes, mime))
+}
+
 pub fn validate(files: &[FileAttachment]) -> Result<()> {
     ensure!(
         files.len() <= 8 && files.iter().map(|f| f.data_url.len()).sum::<usize>() <= 28_000_000,

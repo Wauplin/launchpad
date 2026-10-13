@@ -1,8 +1,10 @@
 // Seen state for the "Needs you" group: a Done, Failed or Interrupted session shown in a focused window
-// becomes seen (POST /api/sessions/{id}/seen, broadcast to every window).
+// that received user input in the last minute becomes seen (POST /api/sessions/{id}/seen, broadcast to
+// every window). An unattended window never marks anything seen.
 
 import { useEffect, useState } from "react";
 import type { Session } from "@/gen/Session";
+import { useUserActive } from "@/lib/activity";
 import { api } from "@/lib/api";
 import { isDone, isUnseen } from "@/lib/sessionStatus";
 
@@ -24,9 +26,10 @@ export function useWindowFocused(): boolean {
   return focused;
 }
 
-/** Marks `s` seen once its Summary or Trace has been on screen in a focused window for a moment. */
+/** Marks `s` seen once its Summary or Trace has been on screen for a moment in a focused window someone is using. */
 export function useMarkSeen(s: Session | null | undefined, focused: boolean) {
-  const due = !!s && focused && isUnseen(s) && (isDone(s) || s.status === "error" || s.status === "interrupted");
+  const active = useUserActive();
+  const due = !!s && focused && active && isUnseen(s) && (isDone(s) || s.status === "error" || s.status === "interrupted");
   const id = s?.id;
   const since = s?.status_since;
   useEffect(() => {

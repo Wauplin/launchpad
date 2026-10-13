@@ -7,6 +7,7 @@ import { useTheme } from "@/stores/theme";
 import { highlight, type Tokens } from "@/features/code/highlight";
 import type { Diff, DiffFile } from "./types";
 import { itemPath, openGitHub } from "./lib";
+import { useReviewState, viewedKey } from "@/lib/reviewState";
 type Line = {
   text: string;
   kind: string;
@@ -287,11 +288,19 @@ export function FilesChanged({
     () => localStorage.getItem("diff-view") === "split",
   );
   const [selected, setSelected] = useState(0);
-  const [viewed, setViewed] = useState<Record<string, boolean>>(() =>
-    JSON.parse(localStorage.getItem("diff-viewed") ?? "{}"),
-  );
+  // Viewed markers live in the daemon so every device shares review progress.
+  const viewed = useReviewState<string[]>(viewedKey(local?.id ?? repo, number, head), []);
   const files = q.data?.files ?? [];
-  const file = files[selected];
+  const listed = files[selected];
+  // PR file lists come without patches: load the selected file's patch on demand.
+  const lazy = !!listed && listed.patch === undefined && !!listed.has_patch && !local;
+  const patch = useQuery({
+    queryKey: ["pr-diff-file", repo, number, head, listed?.filename],
+    queryFn: () => api.get<DiffFile>(`${itemPath(repo, number)}/diff/file?${new URLSearchParams({ base: q.data!.base, head: q.data!.head, project: q.data!.project_id ?? "api", path: listed!.filename })}`),
+    enabled: lazy,
+    staleTime: Infinity,
+  });
+  const file = lazy ? patch.data : listed;
   const ref = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({
     count: files.length,
@@ -328,8 +337,7 @@ export function FilesChanged({
         >
           <div className="relative" style={{ height: v.getTotalSize() }}>
             {v.getVirtualItems().map((r) => {
-              const f = files[r.index],
-                key = `${local?.id ?? repo}:${number}:${head}:${f.filename}`;
+              const f = files[r.index];
               return (
                 <div
                   key={f.filename}
@@ -339,16 +347,13 @@ export function FilesChanged({
                   <input
                     type="checkbox"
                     aria-label={`Viewed ${f.filename}`}
-                    checked={!!viewed[key]}
+                    checked={viewed.value.includes(f.filename)}
                     onChange={() =>
-                      setViewed((s) => {
-                        const next = { ...s, [key]: !s[key] };
-                        localStorage.setItem(
-                          "diff-viewed",
-                          JSON.stringify(next),
-                        );
-                        return next;
-                      })
+                      viewed.set((s) =>
+                        s.includes(f.filename)
+                          ? s.filter((n) => n !== f.filename)
+                          : [...s, f.filename],
+                      )
                     }
                   />
                   <button
@@ -358,6 +363,7 @@ export function FilesChanged({
                   >
                     {f.filename}
                   </button>
+                  {f.additions != null && <span className="shrink-0 tabular-nums"><span className="text-gh-open">+{f.additions}</span> <span className="text-gh-closed">−{f.deletions}</span></span>}
                   <span>{f.status.slice(0, 1).toUpperCase()}</span>
                 </div>
               );
@@ -365,6 +371,8 @@ export function FilesChanged({
           </div>
         </div>
         <div className="min-w-0 flex-1 overflow-auto">
+          {lazy && patch.isPending && <p className="p-4 text-ink-3">Loading {listed.filename}…</p>}
+          {lazy && patch.error && <p className="p-4 text-gh-closed">{String(patch.error)}</p>}
           {file && (
             <>
               <div className="flex items-center gap-2 p-3">

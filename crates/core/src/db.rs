@@ -145,7 +145,9 @@ CREATE TABLE IF NOT EXISTS predraft (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cron_agent (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS workspace (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS task_worktree (id TEXT PRIMARY KEY, json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS browser_operation (id TEXT PRIMARY KEY, path TEXT NOT NULL, request_hash TEXT NOT NULL, status INTEGER, response TEXT);",
+CREATE TABLE IF NOT EXISTS browser_operation (id TEXT PRIMARY KEY, path TEXT NOT NULL, request_hash TEXT NOT NULL, status INTEGER, response TEXT);
+CREATE TABLE IF NOT EXISTS review_state (key TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS browser_device (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these
     // additive columns directly, like the unversioned tables above.

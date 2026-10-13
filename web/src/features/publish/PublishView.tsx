@@ -12,25 +12,7 @@ import { toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { useProjects, useSessions } from "@/lib/queries";
-import { useScope } from "@/lib/workspace";
-
-type Row = { kind: "suggestion"; s: Suggestion; at: number } | { kind: "predraft"; p: Predraft; at: number };
-
-/** Unposted suggestions and unpublished pre-drafts of the workspace, newest first. The sidebar count uses the same list. */
-export function usePublishItems(): Row[] {
-  const scope = useScope();
-  const suggestions = useQuery({ queryKey: ["suggestions"], queryFn: () => api.get<Suggestion[]>("/api/suggestions") }).data;
-  const predrafts = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<Predraft[]>("/api/predrafts") }).data;
-  return useMemo(() => {
-    const open = (predrafts ?? []).filter((p) => !p.archived && !p.published_url);
-    const owner = new Map((predrafts ?? []).map((p) => [p.id, p.project_id]));
-    const rows: Row[] = [
-      ...(suggestions ?? []).filter((s) => s.status !== "posted" && (s.target.kind === "git_hub" ? scope.hasRepo(s.target.repo) : scope.hasProject(owner.get(s.target.id) ?? null))).map((s) => ({ kind: "suggestion" as const, s, at: s.created_at })),
-      ...open.filter((p) => scope.hasProject(p.project_id)).map((p) => ({ kind: "predraft" as const, p, at: p.created_at })),
-    ];
-    return rows.sort((a, b) => b.at - a.at);
-  }, [suggestions, predrafts, scope]);
-}
+import { usePublishItems } from "./items";
 
 function Source({ session }: { session: Session | undefined }) {
   const name = useHarnessName();

@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import { useConfig, useHarnessDefaults } from "@/lib/queries";
 import { parseUsd } from "@/lib/variants";
 import { Card, SaveBar, SettingsPage } from "./SettingsView";
+import { SignInCard } from "./SignInCard";
 
 /** Editable form of a variant: environment rows keep their order and allow empty names while typing. */
 type Draft = Omit<HarnessVariant, "env" | "budget_usd"> & { env: [string, string][]; budget: string; saved: boolean };
@@ -72,6 +73,7 @@ export function HarnessesView() {
 
   return (
     <SettingsPage>
+      <SignInCard />
       {q.data.error && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">config.toml has an error, the previous settings are in use: {q.data.error}</div>}
       <Card
         title="Harness variants"

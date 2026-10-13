@@ -8,6 +8,13 @@ import { persist } from "zustand/middleware";
 /** `session`: the agent session that opened the viewer, for a link back to it. */
 export type CodeSearch = { root?: string; rev?: string; path?: string; line?: number; session?: string };
 
+/** Route search validation, kept outside CodeView so the router does not load the viewer eagerly. */
+export function validateCodeSearch(s: Record<string, unknown>): CodeSearch {
+  const str = (v: unknown) => (typeof v === "string" && v ? v : typeof v === "number" ? String(v) : undefined);
+  const line = Number(s.line);
+  return { root: str(s.root), rev: str(s.rev), path: str(s.path), line: Number.isInteger(line) && line > 0 ? line : undefined, session: str(s.session) };
+}
+
 type SourceState = { tabs: string[]; expanded: string[]; pos: Record<string, number> };
 
 type CodeStore = {

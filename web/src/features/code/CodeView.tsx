@@ -39,12 +39,6 @@ const MAX_COLORS_LINES = 20_000;
 
 const sizeText = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
-export function validateCodeSearch(s: Record<string, unknown>): CodeSearch {
-  const str = (v: unknown) => (typeof v === "string" && v ? v : typeof v === "number" ? String(v) : undefined);
-  const line = Number(s.line);
-  return { root: str(s.root), rev: str(s.rev), path: str(s.path), line: Number.isInteger(line) && line > 0 ? line : undefined, session: str(s.session) };
-}
-
 export function CodeView() {
   const { id } = useParams({ strict: false }) as { id: string };
   const search = useSearch({ strict: false }) as CodeSearch;

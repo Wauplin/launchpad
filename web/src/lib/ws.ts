@@ -1,9 +1,10 @@
 // One WebSocket to the daemon. Events update the TanStack Query cache and the session logs directly.
 
-import { rememberSuccessfulSession } from "@/stores/composer";
+import { rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Session } from "@/gen/Session";
 import type { SessionEvent } from "@/gen/SessionEvent";
+import { idleMs, isUserActive, onUserInput } from "./activity";
 import { reloadSessionLogs, useSessionLogs } from "./sessionStore";
 
 export type BusEvent = { seq: number; topic: string; type: string; payload: unknown };
@@ -32,12 +33,27 @@ function setConnected(c: boolean) {
 }
 
 let presence: { focused: boolean; sessions: string[] } = { focused: false, sessions: [] };
+let presenceSentAt = 0;
+let sentActive = false;
 
-/** Tells the daemon which sessions are on screen, so it does not notify about them. */
+function writePresence() {
+  if (socket?.readyState !== WebSocket.OPEN) return;
+  presenceSentAt = Date.now();
+  sentActive = isUserActive();
+  socket.send(JSON.stringify({ type: "presence", ...presence, idle_ms: idleMs() }));
+}
+
+/** Tells the daemon which sessions are on screen, so it does not notify about them while someone uses this window. */
 export function sendPresence(focused: boolean, sessions: string[]) {
   presence = { focused, sessions };
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "presence", ...presence }));
+  writePresence();
 }
+
+// The daemon requires input in the last minute: refresh the last input time while a focused window shows a
+// session, at once after an idle report, otherwise at most every 15 s.
+onUserInput(() => {
+  if (presence.focused && presence.sessions.length && (!sentActive || Date.now() - presenceSentAt > 15_000)) writePresence();
+});
 
 export function connectEvents(queryClient: QueryClient) {
   let retry = 0;
@@ -48,7 +64,7 @@ export function connectEvents(queryClient: QueryClient) {
     ws.onopen = () => {
       retry = 0;
       setConnected(true);
-      ws.send(JSON.stringify({ type: "presence", ...presence }));
+      writePresence();
       // Anything may have changed while disconnected.
       void queryClient.invalidateQueries();
       reloadSessionLogs();
@@ -89,6 +105,8 @@ export function connectEvents(queryClient: QueryClient) {
         void queryClient.invalidateQueries({ queryKey: ["terminals"] });
       } else if (topic === "crons") {
         void queryClient.invalidateQueries({ queryKey: ["crons"] });
+      } else if (topic === "drafts") {
+        useComposer.getState().remoteChanged(ev.payload as { workspace: string | null; revision: number; client: string | null });
       } else if (topic === "schedules") {
         void queryClient.invalidateQueries({ queryKey: ["schedules"] });
       } else if (topic === "sessions") {

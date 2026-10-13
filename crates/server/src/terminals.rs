@@ -1,5 +1,10 @@
 //! Integrated terminals. Output goes over one WebSocket per viewer (`/api/terminals/{id}/ws`), never
 //! over the global one: binary frames carry output and keystrokes, text frames carry JSON control messages.
+//!
+//! Several viewers share one PTY size. `reset` and `size` messages carry the effective rows/columns and
+//! `owner` (`self`, `other` or `none`). Every viewer reports the size it would fit (`resize`); only the
+//! owner's applies. A viewer becomes the owner when it is the first one, when it sends `claim` (the user
+//! typed, pasted or clicked Use this size) or when it is the only one left after the owner disconnected.
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
@@ -68,6 +73,7 @@ async fn ws(State(s): State<Server>, Path(id): Path<String>, Extension(access): 
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Control {
     Resize { rows: u16, cols: u16 },
+    Claim,
     Ack { epoch: u64, bytes: usize },
 }
 
@@ -100,8 +106,31 @@ impl OutputWindow {
     }
 }
 
+fn owner_label(owner: Option<u64>, me: u64) -> &'static str {
+    match owner {
+        Some(o) if o == me => "self",
+        Some(_) => "other",
+        None => "none",
+    }
+}
+
+/// Releases the viewer's size ownership however the connection ends.
+struct Viewer {
+    terminals: launchpad_core::terminals::Terminals,
+    id: String,
+    me: u64,
+}
+
+impl Drop for Viewer {
+    fn drop(&mut self) {
+        self.terminals.leave(&self.id, self.me);
+    }
+}
+
 async fn serve(s: Server, id: String, socket: WebSocket, mut access: Access) {
     let (mut tx, mut rx) = socket.split();
+    let Ok(me) = s.app.terminals.join(&id) else { return };
+    let _viewer = Viewer { terminals: s.app.terminals.clone(), id: id.clone(), me };
     let mut window = OutputWindow::default();
     let mut expiry = tokio::time::interval(std::time::Duration::from_secs(30));
     // A viewer that falls behind gets a fresh snapshot ("reset") instead of a gap.
@@ -109,7 +138,7 @@ async fn serve(s: Server, id: String, socket: WebSocket, mut access: Access) {
         if !access.valid() { return }
         let Ok(mut a) = s.app.terminals.attach(&id) else { return };
         window.reset();
-        let reset = json!({"type": "reset", "epoch": window.epoch, "rows": a.rows, "cols": a.cols}).to_string();
+        let reset = json!({"type": "reset", "epoch": window.epoch, "rows": a.rows, "cols": a.cols, "owner": owner_label(a.owner, me)}).to_string();
         if tx.send(Message::Text(reset.into())).await.is_err() {
             return;
         }
@@ -147,6 +176,7 @@ async fn serve(s: Server, id: String, socket: WebSocket, mut access: Access) {
                             Message::Binary(d.to_vec().into())
                         }
                         Ok(Output::Exit(code)) => exit(code),
+                        Ok(Output::Size { rows, cols, owner }) => Message::Text(json!({"type": "size", "rows": rows, "cols": cols, "owner": owner_label(owner, me)}).to_string().into()),
                         Err(RecvError::Lagged(_)) => continue 'attach,
                         // The terminal was removed.
                         Err(RecvError::Closed) => return,
@@ -165,7 +195,8 @@ async fn serve(s: Server, id: String, socket: WebSocket, mut access: Access) {
                     Some(Ok(Message::Text(t))) => {
                         if !access.valid() { return }
                         match serde_json::from_str::<Control>(&t) {
-                        Ok(Control::Resize { rows, cols }) => { let _ = s.app.terminals.resize(&id, rows, cols); }
+                        Ok(Control::Resize { rows, cols }) => { let _ = s.app.terminals.resize(&id, me, rows, cols); }
+                        Ok(Control::Claim) => { let _ = s.app.terminals.claim(&id, me); }
                         Ok(Control::Ack { epoch, bytes }) => window.acknowledge(epoch, bytes),
                         Err(e) => tracing::debug!("terminal control message: {e}"),
                         }

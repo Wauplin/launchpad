@@ -20,7 +20,13 @@ export default defineConfig({
       "/ws": { target: daemon.replace("http", "ws"), ws: true, changeOrigin: true },
     },
   },
-  build: { target: "es2022", chunkSizeWarningLimit: 2000 },
+  build: {
+    target: "es2022",
+    chunkSizeWarningLimit: 2000,
+    // Lazy pages and xterm stay in their own chunks; everything the first paint needs goes into one
+    // chunk instead of many tiny shared ones, to save round trips on slow (mobile) networks.
+    rolldownOptions: { output: { codeSplitting: { groups: [{ name: "app", tags: ["$initial"] }] } } },
+  },
   // The Shiki worker loads one grammar chunk per language, which needs an ES module worker.
   worker: { format: "es" },
 });

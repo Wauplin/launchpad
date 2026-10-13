@@ -690,6 +690,23 @@ pub struct Adapter {
 }
 #[async_trait]
 impl super::Harness for Adapter {
+    fn sign_in_program(&self) -> &'static str {
+        "codex"
+    }
+    fn sign_in_command(&self) -> &'static str {
+        "codex login --device-auth"
+    }
+    /// `codex login status` exits 0 when signed in. A masked API key suffix after " - " is dropped.
+    async fn sign_in(&self, env: &crate::shellenv::UserEnv) -> crate::signin::SignIn {
+        match crate::signin::status_output(env, "codex", &["login", "status"]).await {
+            Ok((ok, stdout, stderr)) => {
+                let text = if stdout.trim().is_empty() { stderr } else { stdout };
+                let line = text.lines().map(str::trim).find(|l| !l.is_empty()).map(|l| l.split(" - ").next().unwrap_or(l).to_string());
+                crate::signin::SignIn { signed_in: Some(ok), detail: line }
+            }
+            Err(e) => crate::signin::SignIn { signed_in: None, detail: Some(format!("{e:#}")) },
+        }
+    }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
         if spec.env.is_empty() {
             return start(&self.server, &self.threads, spec, sink).await;

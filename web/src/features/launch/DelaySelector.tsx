@@ -8,6 +8,7 @@ import { useStatus } from "@/app/StatusBar";
 import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import { useSchedules, useSessions } from "@/lib/queries";
 import { isDone } from "@/lib/sessionStatus";
+import { serverTimeOf, useServerTimeZone } from "@/lib/serverTime";
 
 type DependencyAgent = { id: string; title: string; harness: HarnessKind | null; status: string };
 
@@ -125,6 +126,7 @@ function ConditionEditor({ delay, onChange, onRemove }: { delay: LaunchDelay; on
   const quota = quotaReset(delay, useStatus().data);
   const error = conditionError(delay) ?? quota.error;
   const reset = quota.reset;
+  const tz = useServerTimeZone();
   return <div className="grid gap-2 rounded-lg border border-line bg-chrome p-2.5">
     <div className="flex items-center gap-2">
       <b className="flex-1 text-xs text-ink-2">{KINDS.find((k) => k.kind === delay.kind)?.label}</b>
@@ -134,7 +136,7 @@ function ConditionEditor({ delay, onChange, onRemove }: { delay: LaunchDelay; on
       <div className="flex gap-1.5">{[15, 30, 60].map((minutes) => <button key={minutes} className={`btn btn-sm ${delay.minutes === minutes ? "btn-primary" : ""}`} onClick={() => onChange({ kind: "in", minutes })}>{minutes === 60 ? "1 hour" : `${minutes} min`}</button>)}</div>
       <label className="flex items-center gap-2 text-xs"><input aria-label="Delay in minutes" className="field-input w-24" type="number" min={1} max={525600} step={1} value={delay.minutes || ""} onChange={(e) => onChange({ kind: "in", minutes: Number(e.target.value) })} />minutes after you click Schedule</label>
     </>}
-    {delay.kind === "at" && <><input aria-label="Start date and time" type="datetime-local" className="field-input" value={localDate(delay.at)} onChange={(e) => onChange({ kind: "at", at: e.target.value ? new Date(e.target.value).getTime() : 0 })} /><p className="text-xs text-ink-3">Your local time · {Intl.DateTimeFormat().resolvedOptions().timeZone}</p></>}
+    {delay.kind === "at" && <><input aria-label="Start date and time" type="datetime-local" className="field-input" value={localDate(delay.at)} onChange={(e) => onChange({ kind: "at", at: e.target.value ? new Date(e.target.value).getTime() : 0 })} /><p className="text-xs text-ink-3">Your local time · {Intl.DateTimeFormat().resolvedOptions().timeZone}{tz?.differs && delay.at > 0 && <> · server: {serverTimeOf(tz, delay.at) ?? "a different time zone"} ({tz.label})</>}</p></>}
     {delay.kind === "agents" && <AgentPicker ids={delay.session_ids} onChange={(session_ids) => onChange({ kind: "agents", session_ids })} />}
     {delay.kind === "quota" && <>
       <div className="grid grid-cols-2 gap-2">

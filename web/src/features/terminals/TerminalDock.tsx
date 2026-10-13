@@ -2,7 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { Predraft } from "@/gen/Predraft";
 import type { TerminalInfo } from "@/gen/TerminalInfo";
 import { Icon } from "@/components/Icon";
@@ -13,7 +13,10 @@ import { zoomScale } from "@/lib/zoom";
 import { useScope } from "@/lib/workspace";
 import { useLayout, type DockSize } from "@/stores/layout";
 import { terminalStatus, useOpenTerminal, useScopedTerminals, useTerminals } from "./lib";
-import { TerminalView } from "./TerminalView";
+
+// xterm (and its CSS) loads with the first terminal shown, not with the app. A lazy component keeps
+// one identity once resolved, so mounted views are never remounted by it.
+const TerminalView = lazy(() => import("./TerminalView").then((m) => ({ default: m.TerminalView })));
 
 const HEIGHTS: Record<DockSize, number> = { small: 200, medium: 320, large: 500 };
 
@@ -111,7 +114,11 @@ export function TerminalDock() {
         </span>
         <button className="btn btn-sm" title="Hide the dock; terminals keep running" onClick={() => setDock({ open: false })}>Hide</button>
       </div>
-      {[...visited.current].map((id) => <TerminalView key={id} id={id} scale={scale} visible={dock.open && id === active?.id} />)}
+      {[...visited.current].map((id) => (
+        <Suspense key={id} fallback={dock.open && id === active?.id ? <div className="grid flex-1 place-items-center text-ink-3" role="status">Loading terminal…</div> : null}>
+          <TerminalView id={id} scale={scale} visible={dock.open && id === active?.id} />
+        </Suspense>
+      ))}
       {!active && <div className="grid flex-1 place-items-center text-ink-3">Open a terminal from a project, a worktree, a session, a pre-draft or the code viewer.</div>}
     </section>
   );

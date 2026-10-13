@@ -77,6 +77,14 @@ pub trait Harness: Send + Sync {
         vec![]
     }
     async fn version(&self, app: &App) -> Result<String>;
+    /// Program whose presence on `PATH` means the CLI is installed.
+    fn sign_in_program(&self) -> &'static str;
+    /// Command the owner runs once on the daemon host to sign in.
+    fn sign_in_command(&self) -> &'static str;
+    /// Read-only sign-in check with this environment: never signs in, refreshes a token or returns secrets.
+    async fn sign_in(&self, _env: &UserEnv) -> crate::signin::SignIn {
+        crate::signin::SignIn { signed_in: None, detail: None }
+    }
     fn spawn_services(&self, _app: &App) {}
     fn terminal_command(&self, _session: &Session, _is_temp: bool) -> Result<Vec<String>> {
         bail!("terminal handoff is not supported")

@@ -113,7 +113,11 @@ export type DiffFile = {
   filename: string;
   previous_filename?: string;
   status: string;
+  /** Absent in PR file lists: loaded per file (`has_patch` says whether one exists). */
   patch?: string;
+  has_patch?: boolean;
+  additions?: number;
+  deletions?: number;
   language?: string;
 };
 export type Diff = {

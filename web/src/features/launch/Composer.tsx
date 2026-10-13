@@ -215,7 +215,7 @@ function OptionRow({ label, end, children }: { label: string; end?: React.ReactN
 export function Composer() {
   const harnessName = useHarnessName();
   const harnesses = useHarnesses();
-  const { open, minimized, setMinimized, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, conditions, setConditions } = useComposer();
+  const { open, minimized, setMinimized, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, conditions, setConditions, conflict, loadNewer, keepMine } = useComposer();
   const projects = useProjects().data ?? [];
   const completionDefault = useMutation({
     mutationFn: ({ projectId, merge }: { projectId: string; merge: boolean }) => api.patch<Project>(`/api/projects/${projectId}`, { merge_when_done: merge }),
@@ -409,6 +409,7 @@ export function Composer() {
         <b className="text-[12.5px]">Draft</b>
         <span className="min-w-0 truncate text-xs text-ink-2" title={spec.text || undefined}>{where}{spec.text.trim() ? ` · ${spec.text.trim().split("\n")[0]}` : ""}</span>
         <span className={`flex-none rounded-full px-2 py-0.5 text-[11.5px] ${flash ? "bg-teal-soft font-semibold text-teal-ink" : "bg-sunk text-ink-2"}`}>{items} {items === 1 ? "item" : "items"}</span>
+        {conflict && <span className="flex-none rounded-full bg-attn-soft px-2 py-0.5 text-[11.5px] font-semibold text-attn" title="Another window or device saved a newer draft">Newer draft elsewhere</span>}
         <button className="btn btn-sm" title="Open the composer" onClick={() => setMinimized(false)}>Open</button>
         {launchButton(true)}
       </div>,
@@ -434,6 +435,16 @@ export function Composer() {
           <Icon name="x" size={14} />
         </button>
       </div>
+
+      {conflict && (
+        <div role="alert" className="flex flex-col gap-2 border-b border-attn-line bg-attn-soft px-3.5 py-2.5 text-[12.5px] text-ink">
+          <span><b className="text-attn">Another window or device saved a newer draft.</b> Changes made here are not saved until you choose.</span>
+          <span className="flex gap-2">
+            <button className="btn btn-sm btn-primary" onClick={() => void loadNewer()}>Load the newer draft</button>
+            <button className="btn btn-sm" title="Overwrite the newer draft with this one" onClick={keepMine}>Keep mine</button>
+          </span>
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-3">
         <PromptField

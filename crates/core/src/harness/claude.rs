@@ -696,6 +696,28 @@ pub const REGISTRATION: super::Registration = super::Registration {
 pub struct Adapter;
 #[async_trait]
 impl super::Harness for Adapter {
+    fn sign_in_program(&self) -> &'static str {
+        "claude"
+    }
+    fn sign_in_command(&self) -> &'static str {
+        "claude auth login"
+    }
+    /// `claude auth status` prints JSON; only the method, plan and account e-mail are kept.
+    async fn sign_in(&self, env: &crate::shellenv::UserEnv) -> crate::signin::SignIn {
+        let mut r = crate::signin::SignIn { signed_in: None, detail: None };
+        match crate::signin::status_output(env, "claude", &["auth", "status"]).await {
+            Ok((_, stdout, _)) => match serde_json::from_str::<Value>(&stdout) {
+                Ok(v) => {
+                    r.signed_in = v["loggedIn"].as_bool();
+                    let parts: Vec<&str> = ["authMethod", "subscriptionType", "email"].iter().filter_map(|k| v[*k].as_str()).filter(|s| !s.is_empty()).collect();
+                    if !parts.is_empty() { r.detail = Some(parts.join(" · ")); }
+                }
+                Err(_) => r.detail = Some("Could not read `claude auth status`; update Claude Code to check sign-in.".into()),
+            },
+            Err(e) => r.detail = Some(format!("{e:#}")),
+        }
+        r
+    }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
         start(app, spec, sink).await
     }

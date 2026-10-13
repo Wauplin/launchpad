@@ -3,6 +3,7 @@ import { useHarnessInfo, useHarnessName } from "@/components/HarnessMark";
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import type { EarlierFacts } from "@/gen/EarlierFacts";
 import type { Session } from "@/gen/Session";
 import type { Predraft } from "@/gen/Predraft";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
@@ -88,7 +89,7 @@ export function FollowUpBands({ sessionId }: { sessionId: string }) {
   </div>)}</>;
 }
 
-export function SessionSummary({ session: s, rows, localPr, reviewDiff, showTrace }: { session: Session; rows: Row[]; localPr?: Predraft; reviewDiff: (main: boolean) => void; showTrace: () => void }) {
+export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff, showTrace }: { session: Session; rows: Row[]; earlier: EarlierFacts | null; localPr?: Predraft; reviewDiff: (main: boolean) => void; showTrace: () => void }) {
   const navigate = useNavigate();
   const projects = useProjects().data ?? [];
   const schedules = useSchedules().data ?? [];
@@ -101,16 +102,22 @@ export function SessionSummary({ session: s, rows, localPr, reviewDiff, showTrac
   const [busy, setBusy] = useState(false);
   const [choices, setChoices] = useState<Record<number, string>>({});
   const finalRef = useRef<HTMLDivElement>(null);
-  const final = rows.filter((r) => r.t === "assistant").at(-1);
-  const task = rows.find((r) => r.t === "user");
+  // With a tail-first log, the first prompt and older facts come from `earlier`.
+  const earlierFinal = earlier?.last_assistant?.body.kind === "assistant_message" ? earlier.last_assistant.body.text : null;
+  const final = rows.filter((r) => r.t === "assistant").at(-1) ?? (earlierFinal == null ? undefined : { t: "assistant" as const, text: earlierFinal });
+  const firstUser = earlier?.first_user?.body.kind === "user_message" ? earlier.first_user.body.text : null;
+  const task = firstUser == null ? rows.find((r) => r.t === "user") : { text: firstUser };
   const prompt = task?.text ?? s.prompt;
   const split = splitPrompt(prompt, s.launch_spec.text);
   const drafts = (useQuery({ queryKey: ["suggestions"], queryFn: () => api.get<Suggestion[]>("/api/suggestions") }).data ?? []).filter((d) => d.session_id === s.id && d.status !== "posted");
-  const turns = rows.filter((r) => r.t === "turn");
-  const duration = turns.length && turns.every((r) => r.duration_ms != null) ? turns.reduce((n, r) => n + r.duration_ms!, 0) : null;
+  const loadedTurns = rows.filter((r) => r.t === "turn");
+  const turns = { length: loadedTurns.length + (earlier?.turns ?? 0) };
+  const earlierDuration = earlier && earlier.turns ? earlier.turns_duration_ms : 0;
+  const duration = turns.length && earlierDuration != null && loadedTurns.every((r) => r.duration_ms != null) ? loadedTurns.reduce((n, r) => n + r.duration_ms!, earlierDuration) : null;
   const commands = rows.flatMap((r) => r.t === "tools" ? r.calls : []).filter((c) => /^(Bash|Shell)$/.test(c.name));
   const lastCommand = commands.at(-1);
-  const lastAsk = rows.filter((r) => r.t === "ask").at(-1);
+  const earlierAsk = earlier?.last_ask?.body.kind === "ask_user" ? { ...earlier.last_ask.body, answers: earlier.last_ask_answers } : undefined;
+  const lastAsk = rows.filter((r) => r.t === "ask").at(-1) ?? earlierAsk;
   const question = s.open_question && lastAsk && !lastAsk.answers ? lastAsk : null;
   const refs = [...s.launch_spec.github_refs];
   if (localPr?.published_url && !refs.some((r) => r.url === localPr.published_url)) refs.push({ url: localPr.published_url, kind: "pr", repo: "", number: localPr.published_number, title: localPr.title });
