@@ -217,8 +217,9 @@ async fn get_session(State(s): State<Server>, Path(id): Path<String>) -> ApiResu
     Ok(Json(s.app.sessions.get(&id).ok_or_else(|| ApiError::not_found("no such session"))?))
 }
 
-async fn launch(State(s): State<Server>, Json(spec): Json<LaunchSpec>) -> ApiResult<Session> {
-    Ok(Json(s.app.sessions.launch(&s.app, spec).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
+async fn launch(State(s): State<Server>, headers: axum::http::HeaderMap, Json(spec): Json<LaunchSpec>) -> ApiResult<Session> {
+    let id = headers.get("Idempotency-Key").and_then(|v| v.to_str().ok()).map(str::to_owned).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    Ok(Json(s.app.sessions.launch_with_id(&s.app, spec, id).await.map_err(bad)?))
 }
 
 #[derive(Deserialize)]
@@ -252,12 +253,16 @@ fn bad(e: anyhow::Error) -> ApiError {
     ApiError::bad_request(format!("{e:#}"))
 }
 
-async fn input(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<Input>) -> ApiResult<Value> {
+async fn input(State(s): State<Server>, Path(id): Path<String>, headers: axum::http::HeaderMap, Json(b): Json<Input>) -> ApiResult<Value> {
     if b.text.trim().is_empty() && b.images.is_empty() {
         return Err(ApiError::bad_request("the message is empty"));
     }
     launchpad_core::attachments::validate_images(&b.images).map_err(bad)?;
-    s.app.sessions.send(&s.app, &id, &b.text, b.images).await.map_err(bad)?;
+    if let Some(client_id) = headers.get("Idempotency-Key").and_then(|v| v.to_str().ok()) {
+        s.app.sessions.send_with_id(&s.app, &id, &b.text, b.images, client_id.to_owned()).await.map_err(bad)?;
+    } else {
+        s.app.sessions.send(&s.app, &id, &b.text, b.images).await.map_err(bad)?;
+    }
     Ok(Json(json!({"ok": true})))
 }
 

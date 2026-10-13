@@ -20,7 +20,8 @@ import { useMessageDrafts } from "@/stores/messages";
 import { isRunning } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
-import { api } from "@/lib/api";
+import { abandonOperation } from "@/lib/operations";
+import { api, ApiError } from "@/lib/api";
 import { pastedImages, readAttachments } from "@/lib/attachments";
 import { projectName, useProjects, useSession } from "@/lib/queries";
 import { useSessionLogs } from "@/lib/sessionStore";
@@ -44,6 +45,7 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
   const setDraft = useMessageDrafts((s) => s.set);
   const setText = (t: string) => setDraft(sessionId, t);
   const [busy, setBusy] = useState(false);
+  const [delivery, setDelivery] = useState<"sending" | "delivered" | "uncertain" | "failed" | null>(null);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [reading, setReading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -71,6 +73,7 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
     const t = text.trim();
     if ((!t && !images.length) || busy || disabled || reading) return;
     setBusy(true);
+    setDelivery("sending");
     try {
       if (ask) {
         // A typed answer to the open question.
@@ -79,10 +82,12 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
       } else {
         await api.post(`/api/sessions/${sessionId}/input`, { text: t, images });
       }
+      setDelivery("delivered");
       onSent();
       setText("");
       setImages([]);
     } catch (e) {
+      setDelivery(e instanceof ApiError && e.operationCompleted ? "failed" : "uncertain");
       toastError(e);
     } finally {
       setBusy(false);
@@ -95,6 +100,8 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
         <img src={image.data_url} alt={image.name} title={image.name} className="h-16 max-w-28 rounded-md border border-line object-contain" />
         <button className="iconbtn absolute -top-1 -right-1 bg-paper!" title={`Remove ${image.name}`} disabled={busy || reading} onClick={() => setImages((current) => current.filter((_, j) => j !== i))}><Icon name="x" size={12} /></button>
       </div>)}</div>}
+      {delivery && <div role="status" className="mb-1 text-[11.5px] text-ink-3">{delivery === "sending" ? "◷ Sending…" : delivery === "delivered" ? "✓ Delivered" : delivery === "failed" ? "Attempt failed. Check the trace before starting a new attempt." : "Delivery not confirmed. Retry the same message to check its result."}</div>}
+      {delivery === "uncertain" && <button className="btn btn-sm mb-1" disabled={busy} onClick={() => void abandonOperation(`/api/sessions/${sessionId}/input`, { text: text.trim(), images }).then(() => setDelivery(null)).catch(toastError)}>I checked the trace — start a new attempt</button>}
       {reading && <div className="mb-1 text-[11.5px] text-ink-3">Reading images…</div>}
       <div className="flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
         <textarea
@@ -121,7 +128,7 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
         {acceptsImages && <button className="iconbtn" title="Attach images (you can also drop or paste them)" aria-label="Attach images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
           <Icon name="clip" size={14} />
         </button>}
-        <button className="iconbtn border-line! bg-paper" title="Send" disabled={disabled || busy || reading || (!text.trim() && !images.length)} onClick={() => void send()}>
+        <button className="iconbtn border-line! bg-paper" title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : "Send"} disabled={disabled || busy || reading || (!text.trim() && !images.length)} onClick={() => void send()}>
           <Icon name="send" size={14} />
         </button>
       </div>

@@ -503,8 +503,9 @@ impl Sessions {
         self.launch_with_id(app, spec, uuid::Uuid::new_v4().to_string()).await
     }
 
-    pub(crate) async fn launch_with_id(&self, app: &App, spec: LaunchSpec, id: String) -> Result<Session> {
+    pub async fn launch_with_id(&self, app: &App, spec: LaunchSpec, id: String) -> Result<Session> {
         let _action = self.inner.actions.lock().await;
+        anyhow::ensure!(self.get(&id).is_none(), "a session with this id already exists");
         let _guard = self.allow_work().await;
         let mut spec = spec;
         if let Target::SessionFolder { session_id } = &spec.target {
@@ -1025,14 +1026,18 @@ impl Sessions {
     }
 
     pub async fn send(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>) -> Result<()> {
-        self.send_inner(app, id, text, images, false).await
+        self.send_inner(app, id, text, images, false, None).await
     }
 
     pub async fn send_follow_up(&self, app: &App, id: &str, text: &str) -> Result<()> {
-        self.send_inner(app, id, text, vec![], true).await
+        self.send_inner(app, id, text, vec![], true, None).await
     }
 
-    async fn send_inner(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, follow_up: bool) -> Result<()> {
+    pub async fn send_with_id(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, client_id: String) -> Result<()> {
+        self.send_inner(app, id, text, images, false, Some(client_id)).await
+    }
+
+    async fn send_inner(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, follow_up: bool, client_id: Option<String>) -> Result<()> {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
@@ -1082,7 +1087,7 @@ impl Sessions {
         self.inner.stop_requests.lock().unwrap().remove(id);
         self.inner.quota_stops.lock().unwrap().remove(id);
         self.inner.budget_interrupts.lock().unwrap().remove(id);
-        let client_id = uuid::Uuid::new_v4().to_string();
+        let client_id = client_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let queued = s.status.is_running() && !resumed;
         sink.emit(EventBody::UserMessage { text: text.to_string(), client_id: client_id.clone(), queued, images: images.clone() }).await;
         if !queued {

@@ -1,26 +1,36 @@
+import { operationKey, retryProtected } from "./operations.ts";
+
 // Fetch wrapper for the daemon API. The session cookie is sent automatically (same origin).
 
 export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
+  status: number;
+  operationCompleted: boolean;
+  constructor(status: number, message: string, operationCompleted = false) {
     super(message);
+    this.status = status;
+    this.operationCompleted = operationCompleted;
   }
 }
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const operation = method === "POST" && retryProtected(path) ? await operationKey(path, body) : null;
   const res = await fetch(path, {
     method,
     signal,
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...(operation ? { "Idempotency-Key": operation.id } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data;
+  try { data = text ? JSON.parse(text) : null; }
+  catch (e) { if (res.ok) throw e; data = { error: text }; }
+  const completed = res.headers.get("Idempotency-Status") === "completed";
+  if (completed) operation?.delivered();
   if (!res.ok) {
-    throw new ApiError(res.status, data?.error ?? res.statusText);
+    throw new ApiError(res.status, data?.error ?? res.statusText, completed);
   }
+  // Older daemons do not advertise durable acceptance; never silently disable retry protection.
+  if (operation && !completed) throw new Error("The daemon needs an update before Launch and Send can be safely retried. Inspect the session list or trace before trying again.");
   return data as T;
 }
 

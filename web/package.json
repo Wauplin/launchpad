@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
+    "test:operations": "node --experimental-strip-types --test tests/operations.test.mjs",
     "test:attachments": "node --experimental-strip-types --test tests/attachments.test.mjs",
     "test:terminals": "node --experimental-strip-types --test tests/terminals.test.mjs"
   },

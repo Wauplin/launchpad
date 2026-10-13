@@ -15,6 +15,7 @@ pub mod inbox;
 pub mod items;
 pub mod model;
 pub mod notify;
+pub mod operations;
 pub mod paths;
 pub mod predrafts;
 pub mod procs;

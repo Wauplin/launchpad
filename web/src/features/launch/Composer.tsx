@@ -2,6 +2,7 @@
 // anywhere. It minimizes to a draft pill, and covers the content on narrow windows. Prompt first, then
 // project, context chips and one summary line of options; "Preview prompt" shows the exact prompt.
 
+import { abandonOperation } from "@/lib/operations";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
@@ -20,7 +21,7 @@ import { HarnessMark, useHarnessName, useHarnesses, useHarnessInfo } from "@/com
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/queries";
 import { parseUsd, usd, useVariants } from "@/lib/variants";
 import { useScope } from "@/lib/workspace";
@@ -249,6 +250,7 @@ export function Composer() {
   const [cron, setCron] = useState<CronDraft | null>(null);
   const [cronValid, setCronValid] = useState(true);
   const [launching, setLaunching] = useState(false);
+  const [unconfirmedLaunch, setUnconfirmedLaunch] = useState<LaunchSpec | null>(null);
   const [readingAttachments, setReadingAttachments] = useState(false);
   const attachmentRead = useRef(false);
   const attachmentInput = useRef<HTMLInputElement>(null);
@@ -366,6 +368,7 @@ export function Composer() {
         return;
       }
       const s = await api.post<Session>("/api/sessions", spec);
+      setUnconfirmedLaunch(null);
       if (s.status !== "error") useComposer.getState().rememberLaunch(spec, s.started_at);
       discard();
       const where = projects.find((p) => p.id === s.project_id)?.name ?? s.cwd.split("/").pop();
@@ -373,15 +376,16 @@ export function Composer() {
         showSession(s.id);
         void navigate({ to: "/agents" });
       };
-      if (openAfterLaunch) openIt();
-      else toast(`${harnessName(s.harness)} started in ${where}`, { label: "Open", run: openIt });
+      if (openAfterLaunch) { openIt(); toast("✓ Delivered: agent launched."); }
+      else toast(`✓ Delivered: ${harnessName(s.harness)} started in ${where}`, { label: "Open", run: openIt });
     } catch (e) {
+      if (!cron && !scheduled && !(e instanceof ApiError && e.operationCompleted)) setUnconfirmedLaunch(spec);
       toastError(e);
     } finally {
       setLaunching(false);
     }
   };
-  const launchLabel = launching ? (cron ? "Creating…" : scheduled ? "Scheduling…" : "Launching…") : cron ? "Create cron" : scheduled ? "Schedule" : "Launch";
+  const launchLabel = launching ? (cron ? "Creating…" : scheduled ? "Scheduling…" : "◷ Sending…") : cron ? "Create cron" : scheduled ? "Schedule" : "Launch";
   const launchButton = (small?: boolean) => (
     <button className={`btn btn-primary ${small ? "btn-sm" : ""}`} disabled={!canLaunch || launching} title={unsupportedImages ? "This harness does not support attached images" : blocker ?? undefined} onClick={() => void launch()}>
       <Icon name="play" size={small ? 12 : 14} />
@@ -703,6 +707,7 @@ export function Composer() {
         <button className="btn btn-ghost" onClick={() => { setCron(null); discard(); }} title="Clear the composer">
           Discard
         </button>
+        {unconfirmedLaunch && <div role="status" className="text-[11.5px] text-ink-3">Delivery not confirmed. Retry unchanged to check the result. Inspect Agents before starting another attempt.<button className="btn btn-sm mt-1" disabled={launching} onClick={() => void abandonOperation("/api/sessions", unconfirmedLaunch).then(() => setUnconfirmedLaunch(null)).catch(toastError)}>I checked Agents — start a new attempt</button></div>}
         {launchButton()}
       </div>
     </aside>

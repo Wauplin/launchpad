@@ -5,6 +5,7 @@ mod auth;
 mod code;
 mod error;
 mod items;
+mod operations;
 mod predrafts;
 mod routes;
 mod suggestions;
@@ -30,6 +31,7 @@ pub struct Server {
 pub async fn serve(app: App) -> Result<()> {
     let port = app.paths.port;
     let auth = Arc::new(auth::Auth::new(&app.paths)?);
+    let operations = operations::Operations::new(app.state_db.clone());
     let server = Server { app, auth };
     let router: Router = Router::new()
         .merge(routes::router())
@@ -43,6 +45,7 @@ pub async fn serve(app: App) -> Result<()> {
         .route("/ws", axum::routing::get(ws::handler))
         .route("/auth", axum::routing::get(auth::handshake))
         .fallback(ui::serve)
+        .layer(axum::middleware::from_fn_with_state(operations, operations::guard))
         .layer(axum::middleware::from_fn_with_state(server.clone(), auth::guard))
         .layer(tower_http::compression::CompressionLayer::new())
         .with_state(server);
