@@ -3,6 +3,7 @@
 // search in the project. Selected lines become agent context. Read only.
 
 import { openExternal } from "@/lib/platform";
+import { CommitDiff, type CommitChanges } from "./CommitDiff";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -43,6 +44,7 @@ export function CodeView() {
   const { id } = useParams({ strict: false }) as { id: string };
   const search = useSearch({ strict: false }) as CodeSearch;
   const project = useProject(id);
+  const qc = useQueryClient();
   const navigate = useNavigate();
   const last = useCode((s) => s.last[id]);
   const setLast = useCode((s) => s.setLast);
@@ -54,12 +56,30 @@ export function CodeView() {
     void navigate({ to: "/projects/$id/code", params: { id }, search: to, replace: true });
   }, [project, search.root, last, id, navigate]);
   useEffect(() => {
-    if (search.root) setLast(id, { root: search.root, rev: search.rev, path: search.path });
-  }, [id, search.root, search.rev, search.path, setLast]);
+    if (search.root && !search.session) setLast(id, { root: search.root, rev: search.rev, path: search.path, view: search.view });
+  }, [id, search.root, search.rev, search.path, search.view, search.session, setLast]);
 
   if (!project) return <div className="p-6 text-ink-3">This project is not registered.</div>;
   if (!search.root) return null;
-  return <Viewer key={sourceKey(search.root, search.rev)} project={project} root={search.root} rev={search.rev ?? null} path={search.path ?? null} line={search.line ?? null} session={search.session ?? null} />;
+  const diff = !!search.rev && search.view === "diff";
+  const go = (next: CodeSearch) => void navigate({ to: "/projects/$id/code", params: { id }, search: { root: search.root, rev: search.rev, session: search.session, ...next } });
+  const showCode = () => {
+    const files = qc.getQueryData<CommitChanges>(["code-commit-diff", search.root, search.rev])?.files;
+    const selected = files?.find((f) => f.filename === search.path) ?? files?.[0];
+    go({ path: selected && selected.status !== "removed" ? selected.filename : diff ? undefined : search.path });
+  };
+  return <div className="flex h-full min-h-0 flex-col">
+    {search.rev && <div className="flex flex-wrap items-center gap-2 border-b border-line bg-paper px-3 py-2">
+      {search.session && <BackToSession id={search.session} />}
+      <span className="min-w-0 truncate font-mono text-xs text-ink-3" title={search.rev}>{diff ? "Commit" : "Revision"} {search.rev.slice(0, 12)}</span>
+      <div className="ml-auto flex gap-1">
+        <button className={`btn btn-sm ${diff ? "bg-select! font-semibold" : ""}`} aria-pressed={diff} onClick={() => go({ view: "diff", path: search.path })}>Diff</button>
+        <button className={`btn btn-sm ${!diff ? "bg-select! font-semibold" : ""}`} aria-pressed={!diff} onClick={showCode}>Code</button>
+      </div>
+    </div>}
+    {diff ? <CommitDiff key={sourceKey(search.root, search.rev)} root={search.root} rev={search.rev!} path={search.path} select={(path) => go({ view: "diff", path })} openFile={(rev, path) => go({ rev, path })} /> :
+      <div className="min-h-0 flex-1"><Viewer key={sourceKey(search.root, search.rev)} project={project} root={search.root} rev={search.rev ?? null} path={search.path ?? null} line={search.line ?? null} session={search.session ?? null} /></div>}
+  </div>;
 }
 
 function Viewer({ project, root, rev, path, line, session }: { project: Project; root: string; rev: string | null; path: string | null; line: number | null; session: string | null }) {
@@ -116,7 +136,7 @@ function Viewer({ project, root, rev, path, line, session }: { project: Project;
     <div className="grid h-full grid-cols-[284px_minmax(0,1fr)]">
       <aside className="flex min-h-0 min-w-0 flex-col border-r border-line bg-paper">
         <div className="grid grid-cols-[minmax(0,1fr)] gap-2 px-2.5 pt-2.5 pb-1">
-          {session && <BackToSession id={session} />}
+          {session && !rev && <BackToSession id={session} />}
           <div className="flex min-w-0 gap-1.5">
             <div className="min-w-0 flex-1"><SourcePicker project={project} root={root} rev={rev} path={path} /></div>
             <button className="btn h-[34px]!" title={`Open a shell in ${root}`} onClick={() => void openTerminal.shell(root)}>

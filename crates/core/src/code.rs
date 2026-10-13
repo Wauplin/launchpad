@@ -195,6 +195,137 @@ async fn resolve_commit_ids(env: &UserEnv, root: &Path, oids: &[String]) -> Resu
     Ok(found)
 }
 
+/// Commit changes are read against the first parent (or the empty tree for a root commit).
+/// The summary carries no patches; viewers load one selected file at a time.
+pub async fn commit_diff(app: &App, src: &Source) -> Result<serde_json::Value> {
+    let sha = &src.rev.as_ref().context("a commit revision is required")?.1;
+    commit_diff_at(&app.env, &src.root, sha).await
+}
+
+async fn commit_diff_at(env: &UserEnv, root: &Path, sha: &str) -> Result<serde_json::Value> {
+    let bytes = run_raw(env, root, &["show", "-s", "--format=%s%n%P", sha, "--"]).await?;
+    let info = String::from_utf8_lossy(&bytes);
+    let mut info = info.lines();
+    let subject = info.next().unwrap_or_default();
+    let parent = info.next().and_then(|parents| parents.split_whitespace().next());
+    let mut files = commit_changed_files(env, root, sha).await?;
+    let stats = run_raw(
+        env,
+        root,
+        &[
+            "show",
+            "--format=",
+            "--root",
+            "--first-parent",
+            "--diff-merges=first-parent",
+            "--find-renames",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--numstat",
+            "-z",
+            sha,
+            "--",
+        ],
+    )
+    .await?;
+    let mut parts = stats.split(|b| *b == 0).filter(|p| !p.is_empty());
+    while let Some(part) = parts.next() {
+        let text = String::from_utf8_lossy(part);
+        let mut fields = text.splitn(3, '\t');
+        let additions = fields.next().and_then(|s| s.parse::<u64>().ok());
+        let deletions = fields.next().and_then(|s| s.parse::<u64>().ok());
+        let path = fields.next().unwrap_or_default();
+        let path = if path.is_empty() {
+            parts.next(); // Old path of a rename; the file list is keyed by the new path.
+            parts.next().map(|p| String::from_utf8_lossy(p).into_owned()).unwrap_or_default()
+        } else {
+            path.to_string()
+        };
+        if let Some(file) = files.iter_mut().find(|f| f["filename"] == path)
+            && let (Some(additions), Some(deletions)) = (additions, deletions)
+        {
+            file["additions"] = serde_json::json!(additions);
+            file["deletions"] = serde_json::json!(deletions);
+        }
+    }
+    Ok(serde_json::json!({"sha": sha, "subject": subject, "parent": parent, "files": files}))
+}
+
+async fn commit_changed_files(env: &UserEnv, root: &Path, sha: &str) -> Result<Vec<serde_json::Value>> {
+    let bytes = run_raw(
+        env,
+        root,
+        &[
+            "show",
+            "--format=",
+            "--root",
+            "--first-parent",
+            "--diff-merges=first-parent",
+            "--find-renames",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--name-status",
+            "-z",
+            sha,
+            "--",
+        ],
+    )
+    .await?;
+    let paths = split_z(&bytes);
+    let mut paths = paths.iter();
+    let mut files = Vec::new();
+    while let Some(status) = paths.next() {
+        let old = paths.next().context("missing changed file path")?;
+        let (path, previous, status) = match status.as_bytes().first() {
+            Some(b'R' | b'C') => (paths.next().context("missing rename path")?, Some(old), "renamed"),
+            Some(b'A') => (old, None, "added"),
+            Some(b'D') => (old, None, "removed"),
+            _ => (old, None, "modified"),
+        };
+        let mut file = serde_json::json!({"filename": path, "status": status});
+        if let Some(previous) = previous {
+            file["previous_filename"] = serde_json::json!(previous);
+        }
+        files.push(file);
+    }
+    Ok(files)
+}
+
+pub async fn commit_diff_file(app: &App, src: &Source, path: &str) -> Result<serde_json::Value> {
+    check_path(path)?;
+    let sha = &src.rev.as_ref().context("a commit revision is required")?.1;
+    commit_diff_file_at(&app.env, &src.root, sha, path).await
+}
+
+async fn commit_diff_file_at(env: &UserEnv, root: &Path, sha: &str, path: &str) -> Result<serde_json::Value> {
+    let files = commit_changed_files(env, root, sha).await?;
+    let mut file = files.into_iter().find(|f| f["filename"] == path).context("no such file in this commit's diff")?;
+    let mut args = vec![
+        "show",
+        "--format=",
+        "--root",
+        "--first-parent",
+        "--diff-merges=first-parent",
+        "--find-renames",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        sha,
+        "--",
+        path,
+    ];
+    if let Some(previous) = file["previous_filename"].as_str() {
+        args.push(previous);
+    }
+    let patch = run_raw(env, root, &args).await?;
+    let parsed = crate::items::parse_diff(&String::from_utf8_lossy(&patch));
+    file["patch"] = parsed.iter().find(|f| f["filename"] == path).map(|f| f["patch"].clone()).unwrap_or(serde_json::json!(""));
+    file["language"] = serde_json::json!(language(path).map(|(id, _)| id));
+    Ok(file)
+}
+
 /// The main checkout of a linked worktree, checked against git's own records: the worktree's `.git`
 /// file points to `<main>/.git/worktrees/<name>`, whose `gitdir` file points back to the worktree.
 pub(crate) fn main_worktree(root: &Path) -> Option<PathBuf> {
@@ -776,6 +907,74 @@ mod tests {
         let collision = root.join(".git/objects").join(&other[..2]).join(&other[2..]);
         std::fs::copy(object, collision).unwrap();
         assert!(resolve_commit_ids(&env, &root, &[sha[..7].into()]).await.unwrap().is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn commit_diffs_cover_root_renames_deletions_binary_empty_and_first_parent_merges() {
+        let root = std::env::temp_dir().join(format!("launchpad-commit-diff-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let env = UserEnv::resolve().await;
+        run(&env, &root, &["init"]).await.unwrap();
+        for (key, value) in [("user.name", "Test"), ("user.email", "test@example.invalid"), ("commit.gpgsign", "false"), ("core.filemode", "false")] {
+            run(&env, &root, &["config", key, value]).await.unwrap();
+        }
+        for (name, text) in [("old name.txt", "one\ntwo\nthree\n"), ("gone.txt", "gone\n"), ("mode.txt", "mode\n")] {
+            std::fs::write(root.join(name), text).unwrap();
+        }
+        std::fs::write(root.join("binary.dat"), [0, 1, 2]).unwrap();
+        run(&env, &root, &["add", "--all"]).await.unwrap();
+        run(&env, &root, &["commit", "-m", "root changes"]).await.unwrap();
+        let first = run(&env, &root, &["rev-parse", "HEAD"]).await.unwrap();
+        let summary = commit_diff_at(&env, &root, &first).await.unwrap();
+        assert!(summary["parent"].is_null());
+        assert_eq!(summary["files"].as_array().unwrap().len(), 4);
+        assert!(summary["files"].as_array().unwrap().iter().all(|f| f["status"] == "added" && f.get("patch").is_none()));
+        let root_patch = commit_diff_file_at(&env, &root, &first, "old name.txt").await.unwrap();
+        assert!(root_patch["patch"].as_str().unwrap().contains("+one"));
+        std::fs::rename(root.join("old name.txt"), root.join("new name.txt")).unwrap();
+        std::fs::write(root.join("new name.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+        std::fs::remove_file(root.join("gone.txt")).unwrap();
+        std::fs::write(root.join("binary.dat"), [0, 3, 4]).unwrap();
+        std::fs::write(root.join("[literal].txt"), "literal\n").unwrap();
+        run(&env, &root, &["add", "--all"]).await.unwrap();
+        run(&env, &root, &["update-index", "--chmod=+x", "mode.txt"]).await.unwrap();
+        run(&env, &root, &["commit", "-m", "second changes"]).await.unwrap();
+        let second = run(&env, &root, &["rev-parse", "HEAD"]).await.unwrap();
+        let summary = commit_diff_at(&env, &root, &second).await.unwrap();
+        assert_eq!(summary["parent"], first);
+        let files = summary["files"].as_array().unwrap();
+        let renamed = files.iter().find(|f| f["filename"] == "new name.txt").unwrap();
+        assert_eq!(renamed["status"], "renamed");
+        assert_eq!(renamed["previous_filename"], "old name.txt");
+        assert_eq!(renamed["additions"], 1);
+        assert_eq!(renamed["deletions"], 0);
+        let patch = commit_diff_file_at(&env, &root, &second, "new name.txt").await.unwrap();
+        assert!(patch["patch"].as_str().unwrap().contains("+four"));
+        assert!(commit_diff_file_at(&env, &root, &second, "gone.txt").await.unwrap()["patch"].as_str().unwrap().contains("-gone"));
+        assert_eq!(commit_diff_file_at(&env, &root, &second, "binary.dat").await.unwrap()["patch"], "");
+        assert_eq!(commit_diff_file_at(&env, &root, &second, "mode.txt").await.unwrap()["patch"], "");
+        assert!(commit_diff_file_at(&env, &root, &second, "[literal].txt").await.unwrap()["patch"].as_str().unwrap().contains("+literal"));
+        assert!(commit_diff_file_at(&env, &root, &second, "unlisted.txt").await.is_err());
+        run(&env, &root, &["commit", "--allow-empty", "--allow-empty-message", "-m", ""]).await.unwrap();
+        let empty = run(&env, &root, &["rev-parse", "HEAD"]).await.unwrap();
+        let empty_diff = commit_diff_at(&env, &root, &empty).await.unwrap();
+        assert!(empty_diff["files"].as_array().unwrap().is_empty());
+        assert_eq!(empty_diff["subject"], "");
+        assert_eq!(empty_diff["parent"], second);
+        let branch = run(&env, &root, &["symbolic-ref", "--short", "HEAD"]).await.unwrap();
+        run(&env, &root, &["checkout", "-b", "side", &first]).await.unwrap();
+        std::fs::write(root.join("side.txt"), "side\n").unwrap();
+        run(&env, &root, &["add", "side.txt"]).await.unwrap();
+        run(&env, &root, &["commit", "-m", "side"]).await.unwrap();
+        run(&env, &root, &["checkout", &branch]).await.unwrap();
+        run(&env, &root, &["merge", "--no-ff", "side", "-m", "merge"]).await.unwrap();
+        let merge = run(&env, &root, &["rev-parse", "HEAD"]).await.unwrap();
+        let summary = commit_diff_at(&env, &root, &merge).await.unwrap();
+        assert_eq!(summary["parent"], empty);
+        assert_eq!(summary["files"].as_array().unwrap().len(), 1);
+        assert_eq!(summary["files"][0]["filename"], "side.txt");
+        assert!(commit_diff_file_at(&env, &root, &merge, "side.txt").await.unwrap()["patch"].as_str().unwrap().contains("+side"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

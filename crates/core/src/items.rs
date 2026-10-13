@@ -667,14 +667,15 @@ pub(crate) fn parse_diff(patch: &str) -> Vec<Value> {
             file = Some(json!({"filename":path,"status":"modified","patch":""}));
         } else if let Some(f) = &mut file {
             if let Some(path) = line.strip_prefix("+++ ") {
-                let path = unquote(path);
+                // Git terminates unquoted headers containing spaces with a tab separator.
+                let path = unquote(path.strip_suffix('\t').unwrap_or(path));
                 if let Some(path) = path.strip_prefix("b/") {
                     f["filename"] = json!(path);
                 } else if path == "/dev/null" {
                     f["status"] = json!("removed");
                 }
             } else if let Some(path) = line.strip_prefix("--- ") {
-                let path = unquote(path);
+                let path = unquote(path.strip_suffix('\t').unwrap_or(path));
                 if f["filename"] == ""
                     && let Some(path) = path.strip_prefix("a/")
                 {

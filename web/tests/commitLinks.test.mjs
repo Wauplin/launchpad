@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import MarkdownIt from "markdown-it";
+import { validateCodeSearch } from "../src/features/code/store.ts";
 import { commitCandidates, installCommitLinks } from "../src/lib/commitLinks.ts";
 
 const md = new MarkdownIt({ html: false, linkify: true });
@@ -45,4 +46,11 @@ test("preserves the existing inline file renderer when no verified commit matche
   const html = files.render("See `src/main.rs:12`; committed as `b3c3d2f`.", { commits });
   assert.ok(html.includes('data-path="src/main.rs" data-line="12"'));
   assert.ok(html.includes('data-commit='));
+});
+
+test("commit diff route validation preserves repository, revision and back-to-session context", () => {
+  assert.deepEqual(validateCodeSearch({ root: "/repo", rev: sha, session: "run", view: "diff", path: "changed.txt" }), {
+    root: "/repo", rev: sha, path: "changed.txt", line: undefined, session: "run", view: "diff",
+  });
+  assert.equal(validateCodeSearch({ view: "unexpected" }).view, undefined);
 });

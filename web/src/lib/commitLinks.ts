@@ -49,7 +49,7 @@ export function installCommitLinks(md: MarkdownIt) {
         if (!hit) continue;
         linked = true;
         html += md.utils.escapeHtml(content.slice(cursor, match.index));
-        html += `<a class="lp-path" data-commit="${md.utils.escapeHtml(hit.sha)}" href="${md.utils.escapeHtml(hit.href)}" title="Open commit in the code viewer">${match[0]}</a>`;
+        html += `<a class="lp-path" data-commit="${md.utils.escapeHtml(hit.sha)}" href="${md.utils.escapeHtml(hit.href)}" title="Open commit diff in Launchpad">${match[0]}</a>`;
         cursor = match.index + match[0].length;
       }
       if (!linked) return original(tokens, idx, options, env, self);

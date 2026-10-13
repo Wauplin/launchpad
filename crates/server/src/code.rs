@@ -21,6 +21,8 @@ pub fn router() -> Router<Server> {
         .route("/api/code/raw", get(raw))
         .route("/api/code/search", get(search))
         .route("/api/code/commit", get(commit))
+        .route("/api/code/commit-diff", get(commit_diff))
+        .route("/api/code/commit-diff/file", get(commit_diff_file))
         .route("/api/code/resolve-commits", get(resolve_commits))
 }
 
@@ -80,6 +82,16 @@ struct FileQuery {
 async fn file(State(s): State<Server>, Query(q): Query<FileQuery>) -> ApiResult<CodeFile> {
     let src = source(&s, &q.root, q.rev.as_deref()).await?;
     Ok(Json(code::file(&s.app, &src, &q.path).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?))
+}
+
+async fn commit_diff(State(s): State<Server>, Query(q): Query<SourceQuery>) -> ApiResult<serde_json::Value> {
+    let src = source(&s, &q.root, q.rev.as_deref()).await?;
+    Ok(Json(code::commit_diff(&s.app, &src).await.map_err(bad)?))
+}
+
+async fn commit_diff_file(State(s): State<Server>, Query(q): Query<FileQuery>) -> ApiResult<serde_json::Value> {
+    let src = source(&s, &q.root, q.rev.as_deref()).await?;
+    Ok(Json(code::commit_diff_file(&s.app, &src, &q.path).await.map_err(bad)?))
 }
 
 /// Image bytes. The sandbox policy keeps an SVG opened on its own from running scripts on this origin.

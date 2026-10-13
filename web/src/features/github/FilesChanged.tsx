@@ -105,12 +105,14 @@ const Cell = memo(function Cell({
     </div>
   );
 });
-const FilePatch = memo(function FilePatch({
+export const FilePatch = memo(function FilePatch({
   file,
   split,
+  emptyMessage = "Binary file or patch unavailable. Open the full file or GitHub to inspect it.",
 }: {
   file: DiffFile;
   split: boolean;
+  emptyMessage?: string;
 }) {
   const theme = useTheme((s) => s.theme);
   const parsed = useMemo(() => lines(file.patch ?? ""), [file.patch]);
@@ -261,8 +263,7 @@ const FilePatch = memo(function FilePatch({
       </div>
       {!file.patch && (
         <p className="p-3 text-ink-3">
-          Binary file or patch unavailable. Open the full file or GitHub to
-          inspect it.
+          {emptyMessage}
         </p>
       )}
     </>

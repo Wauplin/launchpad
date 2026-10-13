@@ -150,8 +150,8 @@ function useCodeLinks(s: { id: string; project_id: string | null; cwd: string } 
       resolve: pathResolver(files?.files ?? [], cwd),
       commits: {
         root: commitRoot,
-        href: (sha) => `/projects/${encodeURIComponent(project_id)}/code?root=${encodeURIComponent(commitRoot)}&rev=${sha}&session=${encodeURIComponent(id)}`,
-        open: (sha) => void navigate({ to: "/projects/$id/code", params: { id: project_id }, search: { root: commitRoot, rev: sha, session: id } }),
+        href: (sha) => `/projects/${encodeURIComponent(project_id)}/code?root=${encodeURIComponent(commitRoot)}&rev=${sha}&view=diff&session=${encodeURIComponent(id)}`,
+        open: (sha) => void navigate({ to: "/projects/$id/code", params: { id: project_id }, search: { root: commitRoot, rev: sha, view: "diff", session: id } }),
       },
       open: (path, line) => void navigate({ to: "/projects/$id/code", params: { id: project_id }, search: { root: cwd, path, line: line ?? undefined, session: id } }),
     };
