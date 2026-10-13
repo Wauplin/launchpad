@@ -66,7 +66,7 @@ struct Term {
     info: Mutex<TerminalInfo>,
     /// The last output (oldest bytes dropped first). Viewers subscribe while holding this lock,
     /// so the snapshot and the live stream neither overlap nor leave a gap.
-    buffer: Mutex<VecDeque<u8>>,
+    buffer: Mutex<Buffer>,
     tx: broadcast::Sender<Output>,
     writer: Mutex<Option<Box<dyn Write + Send>>>,
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
@@ -77,14 +77,33 @@ struct Term {
     pid: Option<u32>,
 }
 
+/// The retained output and the absolute number of bytes the terminal ever produced, so a viewer
+/// can resume from the byte offset it already has.
+#[derive(Default)]
+struct Buffer {
+    bytes: VecDeque<u8>,
+    /// Offset just after the last byte (bytes produced since the start).
+    end: u64,
+}
+
+impl Buffer {
+    fn start(&self) -> u64 {
+        self.end - self.bytes.len() as u64
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Terminals {
     inner: Arc<Mutex<HashMap<String, Arc<Term>>>>,
 }
 
-/// A viewer: everything printed so far, then the live stream.
+/// A viewer: everything printed so far (or since its offset), then the live stream.
 pub struct Attach {
     pub snapshot: Vec<u8>,
+    /// The absolute offset of `snapshot[0]`; live output continues at `offset + snapshot.len()`.
+    pub offset: u64,
+    /// Whether `snapshot` continues from the requested offset (no reset needed).
+    pub resumed: bool,
     pub rows: u16,
     pub cols: u16,
     pub exit: Option<Option<u32>>,
@@ -118,16 +137,24 @@ impl Terminals {
         self.list().into_iter().find(|t| t.alive && t.kind == TerminalKind::Tui && t.session_id.as_deref() == Some(session_id)).map(|t| t.id)
     }
 
-    pub fn attach(&self, id: &str) -> Result<Attach> {
+    pub fn exists(&self, id: &str) -> bool {
+        self.get(id).is_ok()
+    }
+
+    /// Subscribes a viewer. With `from`, an offset the viewer already has, the snapshot holds only
+    /// the bytes after it when the buffer still contains them; otherwise the whole buffer.
+    pub fn attach(&self, id: &str, from: Option<u64>) -> Result<Attach> {
         let t = self.get(id)?;
         let buffer = t.buffer.lock().unwrap();
         let rx = t.tx.subscribe();
         let info = t.info.lock().unwrap();
         let exit = (!info.alive).then_some(info.exit_code);
-        let (a, b) = buffer.as_slices();
+        let resume = from.filter(|&o| o >= buffer.start() && o <= buffer.end);
+        let offset = resume.unwrap_or(buffer.start());
+        let snapshot = buffer.bytes.range((offset - buffer.start()) as usize..).copied().collect();
         let size = *t.size.lock().unwrap();
         let owner = t.viewers.lock().unwrap().owner;
-        Ok(Attach { snapshot: [a, b].concat(), rows: size.rows.max(2), cols: size.cols.max(2), exit, owner, rx })
+        Ok(Attach { snapshot, offset, resumed: resume.is_some(), rows: size.rows.max(2), cols: size.cols.max(2), exit, owner, rx })
     }
 
     /// Registers a viewer. It owns the size when nobody else does (the first viewer, or after the
@@ -289,7 +316,7 @@ impl Terminals {
         let (tx, _) = broadcast::channel(1024);
         let term = Arc::new(Term {
             info: Mutex::new(info.clone()),
-            buffer: Mutex::new(VecDeque::new()),
+            buffer: Mutex::new(Buffer::default()),
             tx,
             writer: Mutex::new(Some(writer)),
             master: Mutex::new(Some(pair.master)),
@@ -312,9 +339,10 @@ impl Terminals {
                     Ok(n) => n,
                 };
                 let mut buffer = t.buffer.lock().unwrap();
-                buffer.extend(&chunk[..n]);
-                let extra = buffer.len().saturating_sub(BUFFER);
-                buffer.drain(..extra);
+                buffer.bytes.extend(&chunk[..n]);
+                buffer.end += n as u64;
+                let extra = buffer.bytes.len().saturating_sub(BUFFER);
+                buffer.bytes.drain(..extra);
                 let _ = t.tx.send(Output::Data(chunk[..n].into()));
             }
             let _ = done_tx.send(());

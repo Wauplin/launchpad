@@ -81,6 +81,24 @@ test("rapid progress bursts end on the final frame without accumulating lines", 
   } finally { terminal.dispose(); }
 });
 
+test("resume continues the screen without a reset", async () => {
+  const terminal = new Terminal({ allowProposedApi: true });
+  const acks = [];
+  try {
+    await replay(terminal, ["\x1b[32mabc"]);
+    let ready;
+    const done = new Promise((resolve) => { ready = resolve; });
+    const output = terminalOutput(terminal, (epoch, bytes) => acks.push({ epoch, bytes }), ready);
+    output.resume(2, 6, 30);
+    output.data(encoder.encode("def"));
+    output.ready();
+    await done;
+    assert.equal(line(terminal), "abcdef");
+    assert.equal(terminal.buffer.active.getLine(0).getCell(4).getFgColor(), 2);
+    assert.deepEqual(acks, [{ epoch: 2, bytes: 3 }]);
+  } finally { terminal.dispose(); }
+});
+
 test("ACK and ready callbacks keep their epoch across an overlapping resync", async () => {
   const terminal = new Terminal({ allowProposedApi: true });
   const acks = [];

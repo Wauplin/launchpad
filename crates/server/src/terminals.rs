@@ -5,9 +5,15 @@
 //! `owner` (`self`, `other` or `none`). Every viewer reports the size it would fit (`resize`); only the
 //! owner's applies. A viewer becomes the owner when it is the first one, when it sends `claim` (the user
 //! typed, pasted or clicked Use this size) or when it is the only one left after the owner disconnected.
+//!
+//! Output offsets count every byte the terminal ever produced. `reset` (clear the screen, then the
+//! retained buffer) and `resume` (continue without clearing) carry the `offset` of the next binary
+//! byte. A viewer that reconnects passes `?offset=<bytes it already wrote to its emulator>`; it gets
+//! `resume` and only the missing bytes when the buffer still holds that offset, `reset` otherwise.
+//! `{"type": "ping"}` arrives every 25 s so proxies keep idle sockets open.
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
@@ -64,9 +70,16 @@ async fn remove(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Va
     Ok(Json(json!({"ok": true})))
 }
 
-async fn ws(State(s): State<Server>, Path(id): Path<String>, Extension(access): Extension<Access>, ws: WebSocketUpgrade) -> Result<Response, ApiError> {
-    s.app.terminals.attach(&id).map_err(|e| ApiError::not_found(format!("{e:#}")))?;
-    Ok(ws.on_upgrade(move |socket| serve(s, id, socket, access)))
+#[derive(Deserialize)]
+struct Resume {
+    offset: Option<u64>,
+}
+
+async fn ws(State(s): State<Server>, Path(id): Path<String>, Query(resume): Query<Resume>, Extension(access): Extension<Access>, ws: WebSocketUpgrade) -> Result<Response, ApiError> {
+    if !s.app.terminals.exists(&id) {
+        return Err(ApiError::not_found("no such terminal"));
+    }
+    Ok(ws.on_upgrade(move |socket| serve(s, id, socket, access, resume.offset)))
 }
 
 #[derive(Deserialize)]
@@ -127,18 +140,24 @@ impl Drop for Viewer {
     }
 }
 
-async fn serve(s: Server, id: String, socket: WebSocket, mut access: Access) {
+async fn serve(s: Server, id: String, socket: WebSocket, mut access: Access, mut from: Option<u64>) {
     let (mut tx, mut rx) = socket.split();
     let Ok(me) = s.app.terminals.join(&id) else { return };
     let _viewer = Viewer { terminals: s.app.terminals.clone(), id: id.clone(), me };
     let mut window = OutputWindow::default();
     let mut expiry = tokio::time::interval(std::time::Duration::from_secs(30));
-    // A viewer that falls behind gets a fresh snapshot ("reset") instead of a gap.
+    let ping_every = std::time::Duration::from_secs(25);
+    let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + ping_every, ping_every);
+    // A viewer that falls behind resumes from the last byte sent, or gets a fresh snapshot ("reset")
+    // when the buffer no longer holds it, instead of a gap.
     'attach: loop {
         if !access.valid() { return }
-        let Ok(mut a) = s.app.terminals.attach(&id) else { return };
+        let Ok(mut a) = s.app.terminals.attach(&id, from) else { return };
         window.reset();
-        let reset = json!({"type": "reset", "epoch": window.epoch, "rows": a.rows, "cols": a.cols, "owner": owner_label(a.owner, me)}).to_string();
+        // The offset after the last byte sent to this viewer.
+        let mut sent = a.offset;
+        let kind = if a.resumed { "resume" } else { "reset" };
+        let reset = json!({"type": kind, "epoch": window.epoch, "offset": a.offset, "rows": a.rows, "cols": a.cols, "owner": owner_label(a.owner, me)}).to_string();
         if tx.send(Message::Text(reset.into())).await.is_err() {
             return;
         }
@@ -152,6 +171,7 @@ async fn serve(s: Server, id: String, socket: WebSocket, mut access: Access) {
             if replaying && window.available() {
                 if let Some(chunk) = snapshot.next() {
                     window.pending += chunk.len();
+                    sent += chunk.len() as u64;
                     if tx.send(Message::Binary(chunk.to_vec().into())).await.is_err() {
                         return;
                     }
@@ -169,15 +189,24 @@ async fn serve(s: Server, id: String, socket: WebSocket, mut access: Access) {
             tokio::select! {
                 _ = access.changes.changed() => { if !access.valid() { return } }
                 _ = expiry.tick() => { if !access.valid() { return } }
+                _ = ping.tick() => {
+                    if tx.send(Message::Text(r#"{"type":"ping"}"#.into())).await.is_err() {
+                        return;
+                    }
+                }
                 out = a.rx.recv(), if !replaying && window.available() => {
                     let msg = match out {
                         Ok(Output::Data(d)) => {
                             window.pending += d.len();
+                            sent += d.len() as u64;
                             Message::Binary(d.to_vec().into())
                         }
                         Ok(Output::Exit(code)) => exit(code),
                         Ok(Output::Size { rows, cols, owner }) => Message::Text(json!({"type": "size", "rows": rows, "cols": cols, "owner": owner_label(owner, me)}).to_string().into()),
-                        Err(RecvError::Lagged(_)) => continue 'attach,
+                        Err(RecvError::Lagged(_)) => {
+                            from = Some(sent);
+                            continue 'attach;
+                        }
                         // The terminal was removed.
                         Err(RecvError::Closed) => return,
                     };

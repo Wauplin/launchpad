@@ -1,5 +1,9 @@
 // One integrated terminal (xterm.js, DOM renderer: WebGL is unreliable in WebKitGTK). It has its own
 // WebSocket: the daemon sends the buffered output, then live output; keystrokes go back as binary frames.
+// The view counts the output bytes it handed to the emulator (absolute offsets from the daemon); after
+// a disconnect it reconnects with `?offset=` and receives only what it missed when the daemon still has
+// it. Reconnection never gives up (capped backoff) and happens at once when the page becomes visible
+// again or the network comes back.
 //
 // Several viewers (windows, devices) share one PTY size. The daemon says which viewer owns it: the one
 // that typed last, else the first one. The owner fits its container; the others render at the PTY size,
@@ -20,7 +24,11 @@ const lightTheme = { background: "#FFFFFF", foreground: "#17202B", cursor: "#167
 const darkTheme = { background: "#0D1117", foreground: "#E6EDF3", cursor: "#79D7C6", cursorAccent: "#0D1117", selectionBackground: "#23364D", black: "#484F58", brightBlack: "#98A6B7", red: "#FF939A", brightRed: "#FFA8AD", green: "#70D68B", brightGreen: "#8DE5A2", yellow: "#EAC76A", brightYellow: "#F4DB91", blue: "#83BAFF", brightBlue: "#A5CEFF", magenta: "#C3A0FF", brightMagenta: "#D5BAFF", cyan: "#79D7C6", brightCyan: "#9BE6D9", white: "#B6C2CF", brightWhite: "#E6EDF3" };
 
 type Owner = "self" | "other" | "none";
-type Control = { type: string; epoch: number; rows: number; cols: number; owner: Owner };
+type Control = { type: string; epoch: number; offset: number; rows: number; cols: number; owner: Owner };
+
+/** No message for this long (the daemon pings every 25 s): the connection is dead, replace it. */
+const STALE_MS = 60_000;
+const MAX_RETRY_MS = 10_000;
 
 /**
  * The interface zoom is CSS `zoom` on `<html>`, which breaks xterm.js mouse coordinates. The container
@@ -43,6 +51,9 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
     let socket: WebSocket | null = null;
     let retry = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    // The absolute offset after the last output byte written to the emulator (null before the first snapshot).
+    let offset: number | null = null;
+    let heardAt = 0;
     const t = new Terminal({ theme: useTheme.getState().theme === "dark" ? darkTheme : lightTheme, fontFamily: '"DejaVu Sans Mono", "Menlo", "Consolas", monospace', fontSize: Math.round(12 * currentScale.current), scrollback: 5000, allowProposedApi: false });
     const fit = new FitAddon();
     t.loadAddon(fit);
@@ -127,9 +138,13 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
     instance.current = { terminal: t, refit, claim };
     const connect = () => {
       if (disposed) return;
-      const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/terminals/${id}/ws`);
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
+      const query = offset === null ? "" : `?offset=${offset}`;
+      const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/terminals/${id}/ws${query}`);
       ws.binaryType = "arraybuffer";
       socket = ws;
+      heardAt = Date.now();
       sent = "";
       claiming = false;
       const stream = terminalOutput(t, (epoch, bytes) => {
@@ -139,25 +154,58 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
       ws.onopen = () => { retry = 0; };
       ws.onmessage = (msg) => {
         if (disposed || socket !== ws) return;
-        if (typeof msg.data !== "string") { stream.data(new Uint8Array(msg.data as ArrayBuffer)); return; }
+        heardAt = Date.now();
+        if (typeof msg.data !== "string") {
+          const data = new Uint8Array(msg.data as ArrayBuffer);
+          // Counted when handed to xterm: queued writes are parsed even if the socket drops.
+          if (offset !== null) offset += data.byteLength;
+          stream.data(data);
+          return;
+        }
         // `exit` also arrives on the bus, which updates the tab.
         const control = JSON.parse(msg.data) as Control;
-        if (control.type === "reset") {
+        if (control.type === "reset" || control.type === "resume") {
           takeSize(control);
           sent = "";
-          stream.reset(control.epoch, control.rows, control.cols);
+          offset = control.offset;
+          if (control.type === "reset") stream.reset(control.epoch, control.rows, control.cols);
+          else stream.resume(control.epoch, control.rows, control.cols);
         }
         if (control.type === "ready") stream.ready();
         // After the output that was written at the previous size.
         if (control.type === "size") t.write("", () => { if (!disposed && socket === ws) { takeSize(control); refit(); } });
       };
-      // The daemon may have restarted; the list refresh then removes this tab.
-      ws.onclose = () => { if (!disposed && retry < 5) retryTimer = setTimeout(connect, 500 * 2 ** retry++); };
+      // Retry until the tab is removed (the terminal list refresh does that when it no longer exists).
+      ws.onclose = () => {
+        if (disposed || socket !== ws) return;
+        socket = null;
+        retryTimer = setTimeout(connect, Math.min(500 * 2 ** retry, MAX_RETRY_MS));
+        retry = Math.min(retry + 1, 10);
+      };
     };
+    /** Drops the current socket without waiting for its close handshake, then connects again. */
+    const restart = () => {
+      const old = socket;
+      socket = null;
+      if (old) { old.onclose = null; old.close(); }
+      retry = 0;
+      connect();
+    };
+    const check = () => {
+      if (disposed) return;
+      if (!socket) { retry = 0; connect(); }
+      else if (socket.readyState === WebSocket.CONNECTING) { if (Date.now() - heardAt > 5_000) restart(); }
+      else if (socket.readyState !== WebSocket.OPEN || Date.now() - heardAt > STALE_MS) restart();
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") check(); };
+    const watchdog = setInterval(() => { if (socket?.readyState === WebSocket.OPEN && Date.now() - heardAt > STALE_MS) restart(); }, 5_000);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", check);
+    window.addEventListener("pageshow", check);
     connect();
     const observer = new ResizeObserver(refit);
     observer.observe(host.current);
-    return () => { disposed = true; clearTimeout(retryTimer); instance.current = null; observer.disconnect(); input.dispose(); binary.dispose(); socket?.close(); t.dispose(); };
+    return () => { disposed = true; clearTimeout(retryTimer); clearInterval(watchdog); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("online", check); window.removeEventListener("pageshow", check); instance.current = null; observer.disconnect(); input.dispose(); binary.dispose(); socket?.close(); t.dispose(); };
   }, [id]);
 
   useEffect(() => {

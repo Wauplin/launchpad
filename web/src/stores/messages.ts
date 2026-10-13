@@ -1,7 +1,9 @@
 // Unsent text of each session's message box. Kept outside the box, so the code viewer can add a
-// `path:405-411` reference to a session and the text survives switching views.
+// `path:405-411` reference to a session and the text survives switching views. Persisted in this
+// browser's local storage, so a reload (or a phone discarding the tab) keeps unsent replies.
 
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 type Drafts = {
   drafts: Record<string, string>;
@@ -10,11 +12,24 @@ type Drafts = {
   append: (id: string, text: string) => void;
 };
 
-export const useMessageDrafts = create<Drafts>((set, get) => ({
-  drafts: {},
-  set: (id, text) => set({ drafts: { ...get().drafts, [id]: text } }),
-  append: (id, text) => {
-    const cur = get().drafts[id] ?? "";
-    set({ drafts: { ...get().drafts, [id]: cur && !/\s$/.test(cur) ? `${cur} ${text}` : `${cur}${text}` } });
-  },
-}));
+/** Empty boxes are not stored, so the saved map only holds sessions with unsent text. */
+function withText(drafts: Record<string, string>, id: string, text: string): Record<string, string> {
+  const next = { ...drafts };
+  if (text) next[id] = text;
+  else delete next[id];
+  return next;
+}
+
+export const useMessageDrafts = create<Drafts>()(
+  persist(
+    (set, get) => ({
+      drafts: {},
+      set: (id, text) => set({ drafts: withText(get().drafts, id, text) }),
+      append: (id, text) => {
+        const cur = get().drafts[id] ?? "";
+        set({ drafts: withText(get().drafts, id, cur && !/\s$/.test(cur) ? `${cur} ${text}` : `${cur}${text}`) });
+      },
+    }),
+    { name: "launchpad-message-drafts", partialize: (s) => ({ drafts: s.drafts }) },
+  ),
+);

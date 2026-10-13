@@ -254,6 +254,17 @@ async fn front_door_protocol() {
             .unwrap()
             .contains("hello")
     );
+    // A first connection has nothing to resume from.
+    assert!(
+        socket
+            .next()
+            .await
+            .unwrap()
+            .unwrap()
+            .into_text()
+            .unwrap()
+            .contains("resync")
+    );
     let mut foreign = socket_request("/ws");
     foreign
         .headers_mut()
