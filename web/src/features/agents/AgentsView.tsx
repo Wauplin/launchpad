@@ -121,7 +121,7 @@ const DAY = 86400_000;
 const earliest = (times: (number | null)[]) => times.filter((t): t is number => t != null).sort((a, b) => a - b)[0] ?? null;
 
 function HomeSection({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="grid gap-1.5"><div className="seclabel">{title}</div>{children}</section>;
+  return <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5"><div className="seclabel">{title}</div>{children}</section>;
 }
 
 function HomeRow({ s, project, onOpen }: { s: Session; project: string; onOpen: () => void }) {
@@ -156,8 +156,8 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedu
   const pct = (q: { used_percent: number } | null) => (q ? `${Math.round(q.used_percent)}%` : "unknown");
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto grid max-w-[560px] gap-5 px-6 py-8 text-[12.5px]">
-        <div className="flex items-center gap-3">
+      <div className="mx-auto grid w-full max-w-[560px] grid-cols-[minmax(0,1fr)] gap-5 px-6 py-8 text-[12.5px]">
+        <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-[15px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "session needs" : "sessions need"} you` : "Nothing waits for you"}</h2>
           <span className="ml-auto"><LaunchButton small /></span>
         </div>
@@ -181,7 +181,7 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedu
         {harnesses.length > 0 && <HomeSection title="Quota">
           {harnesses.map((h) => {
             const q = status?.harnesses[h.id];
-            return <div key={h.id} className="flex items-center gap-2 px-2"><HarnessMark harness={h.id} size={14} /><span className="font-medium">{h.name}</span><span className="ml-auto text-ink-3">5 h {pct(q?.five_hour ?? null)}{q?.five_hour && ` · ${resetLabel(q.five_hour.resets_at)}`} · week {pct(q?.weekly ?? null)}{q?.weekly && ` · ${resetLabel(q.weekly.resets_at)}`}</span></div>;
+            return <div key={h.id} className="flex flex-wrap items-center gap-2 px-2"><HarnessMark harness={h.id} size={14} /><span className="font-medium">{h.name}</span><span className="ml-auto min-w-0 flex-1 basis-[260px] text-right text-ink-3">5 h {pct(q?.five_hour ?? null)}{q?.five_hour && ` · ${resetLabel(q.five_hour.resets_at)}`} · week {pct(q?.weekly ?? null)}{q?.weekly && ` · ${resetLabel(q.weekly.resets_at)}`}</span></div>;
           })}
         </HomeSection>}
       </div>
