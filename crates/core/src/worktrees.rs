@@ -764,7 +764,7 @@ pub async fn cancel_merge(app: &App, id: &str) -> Result<TaskWorktree> {
 
 fn conflict_message(app: &App, w: &TaskWorktree, reason: &str, session_id: &str) -> String {
     format!(
-        "Launchpad could not merge branch `{}` into `{}`: {reason}\nIn your worktree `{}`, rebase onto `{}` (for example `git rebase {}`), resolve the conflicts, re-run the relevant checks, and commit. Then run `{} work finish --session-id {session_id}` again. Do not merge into `{}` yourself.",
+        "Launchpad could not merge branch `{}` into `{}`: {reason}\nIn your worktree `{}`, rebase onto `{}` (for example `git rebase {}`), resolve the conflicts, re-run the relevant checks, and commit. Then run `{} work finish --session-id {session_id}` again. Do not merge into `{}` yourself.\nWhen you finish this recovery turn, make your final message a concise, self-contained summary of the original task and this recovery: lead with the overall outcome, preserve the substantive results from your previous task summary, and update the checks actually performed and their results, remaining work or limitations, and merge status. Report the merge as requested, not completed. The user sees this as the run's final message, so include the task results even though this is a follow-up turn.",
         w.branch,
         w.base_branch.as_deref().unwrap_or_default(),
         w.root,

@@ -16,6 +16,8 @@ Settings → Harnesses defines named local variants with environment overrides, 
 
 Sessions with delegated work show a compact **Subagents** control: inspect running/completed agents, expand their nested agents and open each read-only trace without mixing child messages into the parent conversation. Child traces persist with the session. Codex uses native thread ancestry, Claude uses its streamed delegation IDs, and OpenCode uses its native ACP child-session extension when available. Older OpenCode versions expose the delegation prompt and result with a clear notice that inner trace events are unavailable. Parent controls remain responsible for input, Stop and resume; child activity participates in busy checks. See [scope and acceptance](docs/subagents-plan.md).
 
+Automated worktree merge-conflict follow-ups ask the agent to carry the original task results into its new final message, alongside recovery checks and the requested merge status.
+
 ## Status
 
 A [remote access and mobile field guide](docs/research/remote-access/index.html) compares VPS execution, laptop relays, shared web/mobile UI and future Android clients. It is research only; remote access and mobile remain unimplemented Phase 7 candidates. The report is [hosted in a protected HF Space](https://huggingface.co/spaces/Wauplin/launchpad-remote-field-guide).
