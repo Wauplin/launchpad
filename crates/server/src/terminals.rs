@@ -67,27 +67,79 @@ async fn ws(State(s): State<Server>, Path(id): Path<String>, ws: WebSocketUpgrad
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Control {
     Resize { rows: u16, cols: u16 },
+    Ack { epoch: u64, bytes: usize },
+}
+
+// Bounds data queued across the WebSocket and xterm parser, even when socket sends are fast.
+// This is per viewer: a hidden/slow window must never stop the shared PTY or another viewer.
+const OUTPUT_WINDOW: usize = 256 * 1024;
+const OUTPUT_CHUNK: usize = 16 * 1024;
+
+#[derive(Default)]
+struct OutputWindow {
+    epoch: u64,
+    pending: usize,
+}
+
+impl OutputWindow {
+    fn reset(&mut self) {
+        self.epoch += 1;
+        self.pending = 0;
+    }
+
+    fn available(&self) -> bool {
+        self.pending <= OUTPUT_WINDOW - OUTPUT_CHUNK
+    }
+
+    fn acknowledge(&mut self, epoch: u64, bytes: usize) {
+        // Old callbacks after a resync cannot grant credit for the new snapshot.
+        if epoch == self.epoch && bytes <= self.pending {
+            self.pending -= bytes;
+        }
+    }
 }
 
 async fn serve(s: Server, id: String, socket: WebSocket) {
     let (mut tx, mut rx) = socket.split();
+    let mut window = OutputWindow::default();
     // A viewer that falls behind gets a fresh snapshot ("reset") instead of a gap.
     'attach: loop {
         let Ok(mut a) = s.app.terminals.attach(&id) else { return };
-        let reset = json!({"type": "reset"}).to_string();
-        if tx.send(Message::Text(reset.into())).await.is_err() || tx.send(Message::Binary(a.snapshot.into())).await.is_err() {
+        window.reset();
+        let reset = json!({"type": "reset", "epoch": window.epoch, "rows": a.rows, "cols": a.cols}).to_string();
+        if tx.send(Message::Text(reset.into())).await.is_err() {
             return;
         }
         let exit = |code: Option<u32>| Message::Text(json!({"type": "exit", "code": code}).to_string().into());
-        if let Some(code) = a.exit
-            && tx.send(exit(code)).await.is_err() {
-            return;
-        }
+        let mut snapshot = a.snapshot.chunks(OUTPUT_CHUNK);
+        let mut replaying = true;
         loop {
+            // Snapshot chunks obey the same credit limit as live output. Keep receiving input,
+            // resize and ACK controls while either stream is waiting for renderer capacity.
+            if replaying && window.available() {
+                if let Some(chunk) = snapshot.next() {
+                    window.pending += chunk.len();
+                    if tx.send(Message::Binary(chunk.to_vec().into())).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                replaying = false;
+                if tx.send(Message::Text(json!({"type": "ready"}).to_string().into())).await.is_err() {
+                    return;
+                }
+                if let Some(code) = a.exit
+                    && tx.send(exit(code)).await.is_err() {
+                    return;
+                }
+            }
             tokio::select! {
-                out = a.rx.recv() => {
+                out = a.rx.recv(), if !replaying && window.available() => {
                     let msg = match out {
-                        Ok(Output::Data(d)) => Message::Binary(d.to_vec().into()),
+                        Ok(Output::Data(d)) => {
+                            window.pending += d.len();
+                            Message::Binary(d.to_vec().into())
+                        }
                         Ok(Output::Exit(code)) => exit(code),
                         Err(RecvError::Lagged(_)) => continue 'attach,
                         // The terminal was removed.
@@ -105,6 +157,7 @@ async fn serve(s: Server, id: String, socket: WebSocket) {
                     }
                     Some(Ok(Message::Text(t))) => match serde_json::from_str::<Control>(&t) {
                         Ok(Control::Resize { rows, cols }) => { let _ = s.app.terminals.resize(&id, rows, cols); }
+                        Ok(Control::Ack { epoch, bytes }) => window.acknowledge(epoch, bytes),
                         Err(e) => tracing::debug!("terminal control message: {e}"),
                     },
                     Some(Ok(Message::Ping(p))) => { let _ = tx.send(Message::Pong(p)).await; }
@@ -113,5 +166,27 @@ async fn serve(s: Server, id: String, socket: WebSocket) {
                 },
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_waits_for_parser_credit_and_ignores_stale_or_invalid_acks() {
+        let mut window = OutputWindow::default();
+        window.reset();
+        window.pending = OUTPUT_WINDOW;
+        assert!(!window.available());
+        window.acknowledge(window.epoch, OUTPUT_CHUNK);
+        assert!(window.available());
+        window.reset();
+        window.pending = OUTPUT_CHUNK;
+        window.acknowledge(window.epoch - 1, OUTPUT_CHUNK);
+        window.acknowledge(window.epoch, OUTPUT_CHUNK + 1);
+        assert_eq!(window.pending, OUTPUT_CHUNK);
+        window.acknowledge(window.epoch, OUTPUT_CHUNK);
+        assert_eq!(window.pending, 0);
     }
 }

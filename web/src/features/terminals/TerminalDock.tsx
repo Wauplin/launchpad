@@ -75,11 +75,15 @@ export function TerminalDock() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [folder, open, setDock]);
-  if (!dock.open) return null;
+  // Keep visited emulators alive through tab/workspace switches and Hide. Raw byte replay cannot
+  // reconstruct historical resizes or terminal modes once the daemon's rolling buffer is truncated.
+  const visited = useRef(new Set<string>());
+  if (dock.open && active) visited.current.add(active.id);
+  for (const id of visited.current) if (all && !all.some((t) => t.id === id)) visited.current.delete(id);
   const close = (t: TerminalInfo) =>
     void (t.alive ? api.post(`/api/terminals/${t.id}/close`) : api.delete(`/api/terminals/${t.id}`).then(() => qc.setQueryData<TerminalInfo[]>(["terminals"], (old) => old?.filter((o) => o.id !== t.id)))).catch(toastError);
   return (
-    <section className="flex flex-none flex-col border-t border-line bg-paper" style={{ height: HEIGHTS[dock.size] }} aria-label="Terminals">
+    <section className="flex flex-none flex-col border-t border-line bg-paper" style={{ height: HEIGHTS[dock.size], display: dock.open ? undefined : "none" }} aria-label="Terminals">
       <div className="flex min-h-[34px] flex-none flex-wrap items-center gap-1 border-b border-line-2 bg-chrome px-2 py-1 text-[12px]">
         <div className="flex min-w-0 flex-1 flex-wrap gap-1" role="tablist">
           {terminals.map((t) => (
@@ -107,7 +111,8 @@ export function TerminalDock() {
         </span>
         <button className="btn btn-sm" title="Hide the dock; terminals keep running" onClick={() => setDock({ open: false })}>Hide</button>
       </div>
-      {active ? <TerminalView key={active.id} id={active.id} scale={scale} /> : <div className="grid flex-1 place-items-center text-ink-3">Open a terminal from a project, a worktree, a session, a pre-draft or the code viewer.</div>}
+      {[...visited.current].map((id) => <TerminalView key={id} id={id} scale={scale} visible={dock.open && id === active?.id} />)}
+      {!active && <div className="grid flex-1 place-items-center text-ink-3">Open a terminal from a project, a worktree, a session, a pre-draft or the code viewer.</div>}
     </section>
   );
 }

@@ -50,6 +50,9 @@ jobs:
       - name: Check UI types
         working-directory: web
         run: pnpm typecheck
+      - name: Check terminal output
+        working-directory: web
+        run: pnpm test:terminals
       - name: Check clipboard attachments
         working-directory: web
         run: pnpm test:attachments

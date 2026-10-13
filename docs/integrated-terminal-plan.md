@@ -1,6 +1,6 @@
 # Plan: an integrated terminal in Launchpad, replacing external terminals
 
-Status: implemented on 2026-10-10 with the recommended owner decisions (bottom dock, terminals lost on daemon restart, manual Re-attach). Written on 2026-10-10, based on `origin/main` at `d66929d`. Progress is tracked in `docs/ROADMAP.md` (Phase 7a).
+Status: implemented on 2026-10-10; integration hardened on 2026-10-13 (see [terminal reliability](terminal-reliability.md)). Implemented with the recommended owner decisions (bottom dock, terminals lost on daemon restart, manual Re-attach). Written on 2026-10-10, based on `origin/main` at `d66929d`. Progress is tracked in `docs/ROADMAP.md` (Phase 7a).
 
 ## What I found
 
@@ -76,6 +76,7 @@ The project rules require a defined scope before any Phase 7 work, so here it is
 
 **`TerminalView`:**
 
+- Visited emulators stay mounted through tab/workspace switches and Hide; font zoom updates in place. Reset/replay is ordered in the parser queue and restores the latest PTY dimensions. Each viewer has 256 KiB of parser-acknowledged output credit, including chunked snapshots, with epochs for stale ACK rejection. Recovery still uses rolling raw bytes rather than a complete screen checkpoint.
 - Uses `@xterm/xterm` 6.0.0 and `@xterm/addon-fit` 0.11.0 with the default DOM renderer. WebGL is unreliable in WebKitGTK.
 - Uses the light theme from the reverted attempt and 5,000 lines of scrollback.
 - Zoom fix: set `zoom: 1/scale` on the terminal container and multiply the font size by the scale, so xterm.js measures real pixels.

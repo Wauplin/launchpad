@@ -58,6 +58,7 @@ struct Term {
     tx: broadcast::Sender<Output>,
     writer: Mutex<Option<Box<dyn Write + Send>>>,
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
+    size: Mutex<PtySize>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     #[cfg_attr(not(unix), allow(dead_code))]
     pid: Option<u32>,
@@ -71,6 +72,8 @@ pub struct Terminals {
 /// A viewer: everything printed so far, then the live stream.
 pub struct Attach {
     pub snapshot: Vec<u8>,
+    pub rows: u16,
+    pub cols: u16,
     pub exit: Option<Option<u32>>,
     pub rx: broadcast::Receiver<Output>,
 }
@@ -107,7 +110,8 @@ impl Terminals {
         let info = t.info.lock().unwrap();
         let exit = (!info.alive).then_some(info.exit_code);
         let (a, b) = buffer.as_slices();
-        Ok(Attach { snapshot: [a, b].concat(), exit, rx })
+        let size = *t.size.lock().unwrap();
+        Ok(Attach { snapshot: [a, b].concat(), rows: size.rows.max(2), cols: size.cols.max(2), exit, rx })
     }
 
     pub fn write(&self, id: &str, data: &[u8]) -> Result<()> {
@@ -122,7 +126,9 @@ impl Terminals {
     pub fn resize(&self, id: &str, rows: u16, cols: u16) -> Result<()> {
         let t = self.get(id)?;
         if let Some(m) = t.master.lock().unwrap().as_ref() {
-            m.resize(PtySize { rows: rows.max(2), cols: cols.max(2), pixel_width: 0, pixel_height: 0 })?;
+            let size = PtySize { rows: rows.max(2), cols: cols.max(2), pixel_width: 0, pixel_height: 0 };
+            m.resize(size)?;
+            *t.size.lock().unwrap() = size;
         }
         Ok(())
     }
@@ -223,6 +229,7 @@ impl Terminals {
             tx,
             writer: Mutex::new(Some(writer)),
             master: Mutex::new(Some(pair.master)),
+            size: Mutex::new(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }),
             killer: Mutex::new(child.clone_killer()),
             pid: child.process_id(),
         });
@@ -434,4 +441,26 @@ pub fn tui_running(app: &App, s: &Session) -> bool {
     }
     #[cfg(target_os = "linux")]
     { false }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_pty_preserves_progress_control_bytes_and_reports_resize() {
+        let pair = portable_pty::native_pty_system().openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        pair.master.resize(PtySize { rows: 40, cols: 120, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "printf 'progress 1\\r\\033[2Kprogress 2\\n'; stty size"]);
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        drop(pair.slave);
+        let mut reader = pair.master.try_clone_reader().unwrap();
+        let mut output = Vec::new();
+        reader.read_to_end(&mut output).unwrap();
+        assert!(child.wait().unwrap().success());
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains("progress 1\r\x1b[2Kprogress 2"), "{text:?}");
+        assert!(text.contains("40 120"), "{text:?}");
+    }
 }

@@ -296,6 +296,7 @@ Scope, design and acceptance check: [integrated-terminal-plan.md](integrated-ter
 
 Done:
 
+- Terminal reliability (2026-10-13): retain visited xterm screens across tab/workspace switches, Hide and zoom changes; order parser resets before replay; restore latest PTY dimensions; and cap each viewer at 256 KiB awaiting parser ACKs. Keep the existing xterm.js/portable-pty stack. All seven parser and 19 Rust tests, existing attachment tests, strict pinned-toolchain workspace Clippy and UI build pass; Chrome/WebKitGTK 2.50 view checks and isolated real-PTY Chrome tab/Hide/stalled-viewer checks pass. Focused regressions and limitations: [terminal-reliability.md](terminal-reliability.md). The Phase 7a status remains In progress pending daily-use acceptance.
 - Daemon-owned `portable-pty` terminals (`terminals.rs`), 1 MB in-memory buffer, cap of 12, close by process-group signals; `/api/terminals` endpoints and one WebSocket per viewer with snapshot-then-live output and resync on lag.
 - "Open in terminal" runs the Claude or Codex TUI in an integrated terminal; Re-attach can close it after an inline confirmation. External terminal templates, the `[terminal]` config section, `/api/settings/terminals` and the Settings row are removed.
 - Bottom dock with workspace-scoped tabs, New terminal, S/M/L heights and Hide; status bar Terminal button; entry points in the project header, worktree rows, session header, pre-draft view and code viewer sidebar. Zoom fix and `Ctrl+F` guard.
