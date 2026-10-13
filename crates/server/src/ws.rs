@@ -2,6 +2,8 @@
 //! If the client falls behind, it gets `{"type": "resync"}` and reloads what it shows.
 
 use axum::extract::State;
+use axum::Extension;
+use crate::auth::Access;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use futures_util::{SinkExt, StreamExt};
@@ -9,28 +11,32 @@ use tokio::sync::broadcast::error::RecvError;
 
 use crate::Server;
 
-pub async fn handler(State(s): State<Server>, ws: WebSocketUpgrade) -> Response {
-    ws.on_upgrade(move |socket| run(s, socket))
+pub async fn handler(State(s): State<Server>, Extension(access): Extension<Access>, ws: WebSocketUpgrade) -> Response {
+    ws.on_upgrade(move |socket| run(s, socket, access))
 }
 
 static NEXT_WINDOW: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
-async fn run(s: Server, socket: WebSocket) {
+async fn run(s: Server, socket: WebSocket, access: Access) {
     let window = NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    serve_socket(&s, socket, window).await;
+    serve_socket(&s, socket, window, access).await;
     // The window is gone: it watches nothing any more.
     s.app.sessions.set_watched(window, None);
 }
 
-async fn serve_socket(s: &Server, socket: WebSocket, window: u64) {
+async fn serve_socket(s: &Server, socket: WebSocket, window: u64, mut access: Access) {
     let (mut tx, mut rx) = socket.split();
     let mut events = s.app.bus.subscribe();
     let hello = serde_json::json!({"type": "hello", "profile": s.app.paths.profile.name(), "build": crate::ui::build_id()});
     if tx.send(Message::Text(hello.to_string().into())).await.is_err() {
         return;
     }
+    let mut expiry = tokio::time::interval(std::time::Duration::from_secs(30));
     loop {
+        if !access.valid() { break }
         tokio::select! {
+            _ = access.changes.changed() => { if !access.valid() { break } }
+            _ = expiry.tick() => { if !access.valid() { break } }
             ev = events.recv() => {
                 let text = match ev {
                     Ok(ev) => serde_json::to_string(&ev).unwrap_or_default(),
@@ -48,7 +54,7 @@ async fn serve_socket(s: &Server, socket: WebSocket, window: u64) {
                 match msg {
                     Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
                     Some(Ok(Message::Ping(p))) => { let _ = tx.send(Message::Pong(p)).await; }
-                    Some(Ok(Message::Text(t))) => client_message(s, window, &t),
+                    Some(Ok(Message::Text(t))) => { if !access.valid() { break } client_message(s, window, &t); }
                     Some(Ok(_)) => {}
                 }
             }

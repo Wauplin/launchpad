@@ -23,6 +23,7 @@ pub struct Config {
     pub zoom: u8,
     /// Remove a clean pre-draft worktree after successful publication.
     pub remove_published_worktree: bool,
+    pub server: ServerConfig,
     pub commands: Commands,
     pub github: GitHub,
     pub agents: Agents,
@@ -30,6 +31,32 @@ pub struct Config {
     pub presets: Vec<Preset>,
     /// Named harness settings, selectable in the composer beside the base harnesses.
     pub variants: Vec<HarnessVariant>,
+}
+
+/// Network front door. Changes require a daemon restart; configure these in the file.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+#[serde(default)]
+pub struct ServerConfig {
+    pub bind: String,
+    pub public_origin: Option<String>,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self { bind: "127.0.0.1".into(), public_origin: None }
+    }
+}
+
+impl ServerConfig {
+    pub fn origin(&self) -> Result<Option<String>> {
+        let Some(origin) = &self.public_origin else { return Ok(None) };
+        let url = reqwest::Url::parse(origin)?;
+        anyhow::ensure!(matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
+            && url.username().is_empty() && url.password().is_none() && url.path() == "/"
+            && url.query().is_none() && url.fragment().is_none(),
+            "server.public_origin must be an HTTP(S) origin without credentials, path, query or fragment");
+        Ok(Some(url.origin().ascii_serialization()))
+    }
 }
 
 /// A registered harness with its own environment, defaults and billing mode.
@@ -110,6 +137,7 @@ impl Default for Config {
             projects_root: "~/projects".into(),
             zoom: 2,
             remove_published_worktree: false,
+            server: ServerConfig::default(),
             commands: Commands::default(),
             github: GitHub::default(),
             agents: Agents::default(),
@@ -147,6 +175,10 @@ pub const DEFAULT_CONFIG: &str = r#"zoom = 2                           # 100%, 1
 projects_root = "~/projects"        # discovery, temporary folders, worktrees
 remove_published_worktree = false   # keep local PR worktrees after publication
 
+[server]
+bind = "127.0.0.1"                 # keep loopback behind Tailscale Serve or a proxy
+# public_origin = "https://launchpad.example.com"  # restart daemon after changes
+
 [commands]
 browser = "xdg-open"
 
@@ -176,6 +208,8 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<()> {
+        self.server.bind.parse::<std::net::IpAddr>().context("server.bind must be an IP address")?;
+        self.server.origin()?;
         anyhow::ensure!(self.zoom <= 4, "zoom must be between 0 and 4");
         let mut ids = std::collections::HashSet::new();
         for v in &self.variants {

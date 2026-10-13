@@ -27,6 +27,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   const completed = res.headers.get("Idempotency-Status") === "completed";
   if (completed) operation?.delivered();
   if (!res.ok) {
+    if (res.status === 401) location.replace("/auth");
     throw new ApiError(res.status, data?.error ?? res.statusText, completed);
   }
   // Older daemons do not advertise durable acceptance; never silently disable retry protection.

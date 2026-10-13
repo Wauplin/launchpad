@@ -34,6 +34,24 @@ Integrated terminals (scoped Phase 7a, built and awaiting daily use) run shells 
 
 Project pages show stat chips, Running agents, GitHub pull requests/issues, Worktrees, then All agents (including running sessions). Empty GitHub tabs shrink to their message, and selected items get a sticky Launch with these / Add to draft / Clear bar.
 
+## Trusted remote access and pairing
+
+The front door supports a browser behind Tailscale Serve or your private reverse proxy. Configure the externally visible origin in `~/.config/launchpad/config.toml` (`launchpad-dev` for dev), then restart that daemon when no agents or terminals are running:
+
+```toml
+[server]
+bind = "127.0.0.1"
+public_origin = "https://launchpad.example.com"
+```
+
+Keep the default loopback listener when the gateway runs on the same host. For direct access over Tailscale, set `bind = "0.0.0.0"` and `public_origin` to the exact HTTP(S) origin including a non-default port. CLI and desktop tools connect through loopback, so the listener must still accept loopback connections. The gateway is the access boundary: every paired browser has full Launchpad access, with no roles or separate permissions.
+
+Forward `/`, `/api/*`, `/ws`, and `/api/terminals/*/ws` to `http://127.0.0.1:7317` (7318 for dev); preserve the external `Host` and browser `Origin`, support WebSocket upgrades and long-lived connections. Serve Launchpad at the origin root, without a URL prefix. Forwarded headers never expand the allowlist or choose cookie security. A proxy may retain the upstream loopback Host while preserving Origin; the configured HTTPS Host or Origin enables `Secure` on the browser cookie.
+
+Run `launchpad pair` on the host to show a QR code and a single-use link, valid for five minutes. Scan it on your phone or open it in another browser, enter a device name and click **Pair browser**. `launchpad url` prints the same kind of link without the terminal QR. Settings → Devices also creates links, lists browsers and offers **Revoke** (or **Sign out** for the current browser). Revocation disconnects existing event and terminal viewers but keeps agents and PTYs running. Browser credentials last one year and survive daemon restarts; pending pairing links do not. Pairing codes use URL fragments, are removed from the address bar immediately, and are exchanged by POST. The permanent token remains only for CLI/agent bearer requests; old raw-token browser cookies must be paired again. The updated local desktop shell pairs automatically and reuses an existing valid browser session.
+
+`[server]` is file-only and requires restart. When a public origin is configured, `[commands]` and variant environment overrides are also file-only; the browser hides environment values and preserves them on unrelated settings saves. Other Launchpad settings remain editable in the browser. This front-door scope does not add browser-local external links/new windows, Web Push, a mobile layout, or a headless installer.
+
 ## Install
 
 ```sh

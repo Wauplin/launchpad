@@ -1,6 +1,6 @@
 # Launchpad roadmap
 
-Status: implementation and acceptance tracker (updated 2026-10-11). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
+Status: implementation and acceptance tracker (updated 2026-10-13). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
 
 ## How to read this
 
@@ -24,6 +24,7 @@ Status: implementation and acceptance tracker (updated 2026-10-11). See [ARCHITE
 | 6 | Agent-written suggestions | Agents draft comments and reviews; you post them in one click | In progress |
 | 7 | Scoped optional extensions | Harness registry, OpenCode, local variants, cost limits and retry-safe Launch/Send built; other candidates await selection | In progress |
 | 7a | Integrated terminal (scoped) | Shells and harness TUIs run in a dock inside Launchpad instead of external terminals | In progress |
+| 7c | Trusted-network front door | Pair and revoke browsers behind Tailscale/private proxy | Built; awaiting deployment daily use |
 | 7b | Subagent monitoring (scoped) | Nested native agents and separate read-only traces inside their parent session | In progress |
 | UX | UX suggestions pass (2026-10-11) | The next action is one click away: Needs you, To publish, inbox triage, state-driven session actions | In progress |
 
@@ -266,9 +267,16 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
 
 Other Phase 7 candidates are deferred. The implementation in commit `7b670af` was reverted on 2026-10-03 at the owner’s request because the phase was not well scoped. Restart survival and remote browser mode are no longer built features; integrated terminals were later rebuilt with their own scope (Phase 7a). The list below is a menu of candidates, not an approved implementation plan. Select and scope one item before doing further Phase 7 work; define its user need, ownership and recovery rules, non-goals, and acceptance check. Complete the outstanding Phases 1–6 acceptance checks and address correctness findings before expanding the scope.
 
-A [remote access and mobile feasibility report](research/remote-access/index.html), prepared on 2026-10-10, compares single-host VPS execution, a laptop relay, shared responsive UI and future Android packaging. Its remote deployment and mobile scopes remain proposals; the separately selected retry-safe Launch/Send fix below does not enable remote hosting.
+A [remote access and mobile feasibility report](research/remote-access/index.html), prepared on 2026-10-10, compares single-host VPS execution, a laptop relay, shared responsive UI and future Android packaging. Its broader deployment and mobile scopes remain proposals; the front-door and retry-safe Launch/Send subsets below were selected separately.
 
 Owner-selected blocker D fix (2026-10-13): immediate Launch and Send use client operation IDs with durable response replay, concurrent retry serialization, and conservative crash recovery. Sending/Delivered appear in the UI. Scope and acceptance checks are in [retry-operations.md](retry-operations.md); remote hosting and the other section D findings remain deferred. All 21 Rust tests, six Node 24 browser retry tests, UI typecheck/build and strict pinned-toolchain workspace Clippy pass. Daily-use network/harness acceptance remains outstanding.
+
+Owner-selected front door (2026-10-13), Blocker A of the hostable-server review:
+
+- Built: explicit public Host/Origin and optional bind, five-minute single-use QR/link pairing through CLI and Settings → Devices, durable hashed browser credentials, revocation including upgraded event/terminal viewers, local desktop bearer bootstrap, and file-only remote command/environment settings. See [README](../README.md#trusted-remote-access-and-pairing).
+- Access boundary: Tailscale or the owner's private proxy; paired clients have full Launchpad access. No users, roles or separate authorization model.
+- Acceptance: pair a laptop/phone browser through the configured origin, use normal APIs and both WebSocket paths, reject foreign Origin and revoked/expired devices, preserve CLI and local desktop access, and keep host environment values across browser settings saves. Automated protocol/regression checks accompany the change; actual Tailscale/proxy and phone daily-use checks remain with the owner.
+- Deferred: client-local external links/windows, Web Push, mobile layout, multi-device review/drafts, headless installation and restart survival.
 
 Owner-selected first step (2026-10-10): harness registration and OpenCode.
 

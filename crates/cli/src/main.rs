@@ -37,12 +37,14 @@ enum Command {
         #[arg(long)]
         through: Option<i64>,
     },
-    /// Run the daemon (HTTP + WebSocket on 127.0.0.1).
+    /// Run the daemon (HTTP + WebSocket; loopback by default).
     Daemon,
     /// Print the daemon status as JSON.
     Status,
     /// Print the address that signs a browser into the UI.
     Url,
+    /// Print a five-minute pairing link and QR code for a browser or phone.
+    Pair,
     /// Write the TypeScript types shared with the UI.
     #[command(hide = true)]
     GenTypes {
@@ -236,8 +238,14 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&body)?);
             Ok(())
         }
-        Command::Url => {
-            println!("{}/auth?t={}", paths.base_url(), paths.token()?);
+        Command::Url | Command::Pair => {
+            let res = reqwest::Client::new().post(format!("{}/api/devices/pair", paths.base_url()))
+                .bearer_auth(paths.token()?).send().await.context("is the daemon running?")?;
+            let body: serde_json::Value = res.error_for_status()?.json().await?;
+            println!("{}", body["url"].as_str().context("missing pairing URL")?);
+            if matches!(cli.command, Command::Pair) {
+                println!("\n{}\nSingle-use link; expires in five minutes.", body["terminal"].as_str().unwrap_or(""));
+            }
             Ok(())
         }
         Command::GenTypes { out } => launchpad_core::gen_types(&out),

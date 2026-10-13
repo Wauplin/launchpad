@@ -83,14 +83,14 @@ export function HarnessesView() {
       >
         <p className="text-[12.5px] text-ink-2">A variant runs a registered harness with its own environment variables, default model and effort, and billing mode. It appears beside the harnesses in the composer. Use it for another account (<code className="font-mono">CLAUDE_CONFIG_DIR</code>, <code className="font-mono">CODEX_HOME</code>), an API key or a provider endpoint. Values are saved in config.toml (readable only by you); sessions store the variant ID, so deleting or renaming the ID prevents resuming them.</p>
         {drafts.length === 0 && <div className="text-xs text-ink-3">No variant yet.</div>}
-        {drafts.map((d, i) => <VariantEditor key={i} draft={d} onChange={(f) => setAt(i, f)} onDelete={() => setDrafts((all) => all && all.filter((_, j) => j !== i))} />)}
+        {drafts.map((d, i) => <VariantEditor key={i} fileEnvironment={!!saved.server.public_origin} draft={d} onChange={(f) => setAt(i, f)} onDelete={() => setDrafts((all) => all && all.filter((_, j) => j !== i))} />)}
       </Card>
       <SaveBar dirty={dirty} invalid={invalid ? "Each variant needs a name, a valid cost limit and unique variable names." : null} onSave={() => void save()} onRevert={() => setDrafts(saved.variants.map(toDraft))} />
     </SettingsPage>
   );
 }
 
-function VariantEditor({ draft: d, onChange, onDelete }: { draft: Draft; onChange: (f: (d: Draft) => Draft) => void; onDelete: () => void }) {
+function VariantEditor({ draft: d, onChange, onDelete, fileEnvironment }: { fileEnvironment: boolean; draft: Draft; onChange: (f: (d: Draft) => Draft) => void; onDelete: () => void }) {
   const harnesses = useHarnesses();
   const harness = harnesses.find((h) => h.id === d.harness);
   const defaults = useHarnessDefaults(d.harness).data;
@@ -143,6 +143,7 @@ function VariantEditor({ draft: d, onChange, onDelete }: { draft: Draft; onChang
       <div className={row}>
         <b className="pt-1 font-[650]">Environment</b>
         <span className="grid gap-1.5">
+          {fileEnvironment ? <span className="text-xs text-ink-3">Edit environment variables in config.toml on the host. Existing values are kept when saving here.</span> : <>
           {d.env.map(([k, v], j) => (
             <span key={j} className="grid grid-cols-[minmax(0,1fr)_26px] @min-[480px]:grid-cols-[180px_minmax(0,1fr)_26px] gap-1.5">
               <input className={`field-input col-span-full @min-[480px]:col-span-1 h-[28px] min-w-0 font-mono text-xs ${k.trim() ? "" : "border-attn-line!"}`} aria-label="Variable name" placeholder="NAME" value={k} onChange={(e) => onChange((x) => ({ ...x, env: x.env.map((p, n) => (n === j ? [e.target.value.toUpperCase(), p[1]] : p)) }))} />
@@ -151,6 +152,7 @@ function VariantEditor({ draft: d, onChange, onDelete }: { draft: Draft; onChang
             </span>
           ))}
           <button className="btn btn-sm w-fit" onClick={() => onChange((x) => ({ ...x, env: [...x.env, ["", ""]] }))}><Icon name="plus" size={12} />Add variable</button>
+          </>}
           <span className="text-xs text-ink-3">Added to the harness process, its terminal TUI and title requests. Other variables come from your login shell.</span>
         </span>
       </div>

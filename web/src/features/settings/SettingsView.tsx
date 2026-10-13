@@ -30,10 +30,11 @@ export function SettingsPage({ children }: { children: React.ReactNode }) {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto grid max-w-[860px] grid-cols-[minmax(0,1fr)] gap-5 p-6">
-        <nav className="flex gap-1.5" aria-label="Settings pages">
+        <nav className="flex flex-wrap gap-1.5" aria-label="Settings pages">
           <Link to="/settings" className="btn" activeProps={{ className: "bg-select!" }} activeOptions={{ exact: true }}>General</Link>
           <Link to="/settings/workspaces" className="btn" activeProps={{ className: "bg-select!" }}>Workspaces</Link>
           <Link to="/settings/harnesses" className="btn" activeProps={{ className: "bg-select!" }}>Harnesses</Link>
+          <Link to="/settings/devices" className="btn" activeProps={{ className: "bg-select!" }}>Devices</Link>
           <Link to="/settings/worktrees" className="btn" activeProps={{ className: "bg-select!" }}>Worktrees</Link>
         </nav>
         {children}

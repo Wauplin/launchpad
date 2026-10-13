@@ -2,7 +2,7 @@
 //!
 //! On start it checks `GET /api/health`. If the daemon is down, it runs `systemctl --user start launchpad`
 //! (prod) or spawns `launchpad daemon` directly (dev, or when the unit is missing), then opens the window
-//! through `/auth?t=<token>`, which sets the session cookie. The UI itself has no Tauri dependency.
+//! through a short-lived pairing link, which sets a revocable device cookie. The UI itself has no Tauri dependency.
 //!
 //! Prod keeps one shell process warm, so the window opens instantly from the dock:
 //! - closing the window hides it; the page stays loaded and connected;
@@ -124,10 +124,23 @@ fn start_daemon(p: &Profile) -> Result<(), String> {
 /// The sign-in address, which redirects to `route` with the shell start time for the startup log.
 fn app_url(p: &Profile, route: &str, t0: u128) -> Result<url::Url, String> {
     let token = std::fs::read_to_string(p.data_dir.join("token")).map_err(|e| format!("cannot read the token: {e}"))?;
+    use std::io::{Read, Write};
+    let mut socket = std::net::TcpStream::connect(("127.0.0.1", p.port)).map_err(|e| format!("cannot connect to daemon: {e}"))?;
+    socket.set_read_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
+    socket.set_write_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;
+    let request = format!("POST /api/devices/pair HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nX-Launchpad-Local-Pair: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", p.port, token.trim());
+    socket.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
+    let mut response = String::new();
+    socket.read_to_string(&mut response).map_err(|e| e.to_string())?;
+    let (headers, body) = response.split_once("\r\n\r\n").ok_or("invalid pairing response")?;
+    if !headers.starts_with("HTTP/1.1 200 ") { return Err("daemon rejected desktop pairing".into()) }
+    let body: serde_json::Value = serde_json::from_str(body).map_err(|e| e.to_string())?;
+    let mut url = url::Url::parse(body["url"].as_str().ok_or("missing pairing URL")?).map_err(|e| e.to_string())?;
     let sep = if route.contains('?') { '&' } else { '?' };
     let next = format!("{route}{sep}lp_t0={t0}");
-    let mut url = url::Url::parse(&format!("{}/auth", p.origin())).unwrap();
-    url.query_pairs_mut().append_pair("t", token.trim()).append_pair("next", &next);
+    let mut fragment = url::form_urlencoded::Serializer::new(url.fragment().unwrap_or_default().to_string());
+    fragment.append_pair("next", &next).append_pair("desktop", "1");
+    url.set_fragment(Some(&fragment.finish()));
     Ok(url)
 }
 

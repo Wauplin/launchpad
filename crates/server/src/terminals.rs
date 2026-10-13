@@ -5,7 +5,8 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
+use crate::auth::Access;
 use futures_util::{SinkExt, StreamExt};
 use launchpad_core::terminals::{Output, TerminalInfo};
 use serde::Deserialize;
@@ -58,9 +59,9 @@ async fn remove(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Va
     Ok(Json(json!({"ok": true})))
 }
 
-async fn ws(State(s): State<Server>, Path(id): Path<String>, ws: WebSocketUpgrade) -> Result<Response, ApiError> {
+async fn ws(State(s): State<Server>, Path(id): Path<String>, Extension(access): Extension<Access>, ws: WebSocketUpgrade) -> Result<Response, ApiError> {
     s.app.terminals.attach(&id).map_err(|e| ApiError::not_found(format!("{e:#}")))?;
-    Ok(ws.on_upgrade(move |socket| serve(s, id, socket)))
+    Ok(ws.on_upgrade(move |socket| serve(s, id, socket, access)))
 }
 
 #[derive(Deserialize)]
@@ -99,11 +100,13 @@ impl OutputWindow {
     }
 }
 
-async fn serve(s: Server, id: String, socket: WebSocket) {
+async fn serve(s: Server, id: String, socket: WebSocket, mut access: Access) {
     let (mut tx, mut rx) = socket.split();
     let mut window = OutputWindow::default();
+    let mut expiry = tokio::time::interval(std::time::Duration::from_secs(30));
     // A viewer that falls behind gets a fresh snapshot ("reset") instead of a gap.
     'attach: loop {
+        if !access.valid() { return }
         let Ok(mut a) = s.app.terminals.attach(&id) else { return };
         window.reset();
         let reset = json!({"type": "reset", "epoch": window.epoch, "rows": a.rows, "cols": a.cols}).to_string();
@@ -114,6 +117,7 @@ async fn serve(s: Server, id: String, socket: WebSocket) {
         let mut snapshot = a.snapshot.chunks(OUTPUT_CHUNK);
         let mut replaying = true;
         loop {
+            if !access.valid() { return }
             // Snapshot chunks obey the same credit limit as live output. Keep receiving input,
             // resize and ACK controls while either stream is waiting for renderer capacity.
             if replaying && window.available() {
@@ -134,6 +138,8 @@ async fn serve(s: Server, id: String, socket: WebSocket) {
                 }
             }
             tokio::select! {
+                _ = access.changes.changed() => { if !access.valid() { return } }
+                _ = expiry.tick() => { if !access.valid() { return } }
                 out = a.rx.recv(), if !replaying && window.available() => {
                     let msg = match out {
                         Ok(Output::Data(d)) => {
@@ -151,14 +157,18 @@ async fn serve(s: Server, id: String, socket: WebSocket) {
                 }
                 msg = rx.next() => match msg {
                     Some(Ok(Message::Binary(b))) => {
+                        if !access.valid() { return }
                         // A process that stops reading its input fills the PTY: block a pool thread, not the runtime.
                         let (terminals, id) = (s.app.terminals.clone(), id.clone());
                         let _ = tokio::task::spawn_blocking(move || terminals.write(&id, &b)).await;
                     }
-                    Some(Ok(Message::Text(t))) => match serde_json::from_str::<Control>(&t) {
+                    Some(Ok(Message::Text(t))) => {
+                        if !access.valid() { return }
+                        match serde_json::from_str::<Control>(&t) {
                         Ok(Control::Resize { rows, cols }) => { let _ = s.app.terminals.resize(&id, rows, cols); }
                         Ok(Control::Ack { epoch, bytes }) => window.acknowledge(epoch, bytes),
                         Err(e) => tracing::debug!("terminal control message: {e}"),
+                        }
                     },
                     Some(Ok(Message::Ping(p))) => { let _ = tx.send(Message::Pong(p)).await; }
                     Some(Ok(_)) => {}

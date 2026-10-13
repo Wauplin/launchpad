@@ -121,6 +121,11 @@ const STATE_MIGRATIONS: &[&str] = &[
     "CREATE TABLE inbox_override (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, action TEXT NOT NULL);",
     // 4: inbox membership for threads observed unread or opened locally.
     "CREATE TABLE inbox_active (id TEXT PRIMARY KEY);",
+    // 5: independently revocable browser devices (only credential hashes are persisted).
+    "CREATE TABLE browser_device (
+        id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+        created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL
+    );",
 ];
 
 pub fn open_state(path: &Path) -> Result<Db> {

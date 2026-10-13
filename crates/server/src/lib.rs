@@ -1,4 +1,4 @@
-//! HTTP + WebSocket server of the daemon, on 127.0.0.1 only.
+//! HTTP + WebSocket server; loopback by default, configurable for a trusted gateway.
 
 mod api;
 mod auth;
@@ -30,10 +30,21 @@ pub struct Server {
 
 pub async fn serve(app: App) -> Result<()> {
     let port = app.paths.port;
-    let auth = Arc::new(auth::Auth::new(&app.paths)?);
-    let operations = operations::Operations::new(app.state_db.clone());
+    let config = app.config.get().server;
+    let bind = config.bind.parse::<std::net::IpAddr>()?;
+    let auth = Arc::new(auth::Auth::new(&app.paths, &config, app.state_db.clone()).await?);
     let server = Server { app, auth };
-    let router: Router = Router::new()
+    let listener = tokio::net::TcpListener::bind((bind, port))
+        .await
+        .with_context(|| format!("bind {bind}:{port} (is another daemon running?)"))?;
+    tracing::info!("listening on {bind}:{port}");
+    axum::serve(listener, router(server)).with_graceful_shutdown(shutdown_signal()).await?;
+    Ok(())
+}
+
+pub(crate) fn router(server: Server) -> Router {
+    let operations = operations::Operations::new(server.app.state_db.clone());
+    Router::new()
         .merge(routes::router())
         .merge(api::router())
         .merge(code::router())
@@ -43,18 +54,12 @@ pub async fn serve(app: App) -> Result<()> {
         .merge(terminals::router())
         .merge(worktrees::router())
         .route("/ws", axum::routing::get(ws::handler))
-        .route("/auth", axum::routing::get(auth::handshake))
+        .merge(auth::router())
         .fallback(ui::serve)
         .layer(axum::middleware::from_fn_with_state(operations, operations::guard))
         .layer(axum::middleware::from_fn_with_state(server.clone(), auth::guard))
         .layer(tower_http::compression::CompressionLayer::new())
-        .with_state(server);
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
-        .await
-        .with_context(|| format!("bind 127.0.0.1:{port} (is another daemon running?)"))?;
-    tracing::info!("listening on http://127.0.0.1:{port}");
-    axum::serve(listener, router).with_graceful_shutdown(shutdown_signal()).await?;
-    Ok(())
+        .with_state(server)
 }
 
 async fn shutdown_signal() {
