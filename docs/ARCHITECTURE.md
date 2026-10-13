@@ -257,6 +257,7 @@ Because GitHub payloads are stored as JSON, showing a new field in the UI means 
 ```toml
 zoom = 2                            # 100%, 110%, 120% (default), 135%, 150%
 projects_root = "~/projects"        # discovery, temporary folders, worktrees
+presets = []                       # user-defined only; see 9.7
 
 [commands]
 browser = "xdg-open"
@@ -270,10 +271,6 @@ notify = true                       # desktop notification when a session become
 [worktrees]
 keep = 15                           # clean task worktrees of idle agents kept on disk (0: keep all)
 
-[[presets]]                         # see 9.7
-id = "worktree"
-label = "worktree"
-text = "Please use a local git worktree and delete it once you're done."
 ```
 
 Settings → General edits the projects root. Editor integration was removed; an old `commands.editor` key is ignored and dropped at the next save. Terminals are integrated and have no setting; an old `[terminal]` section is ignored and dropped at the next save.
@@ -614,23 +611,13 @@ Please use a local git worktree and delete it once you're done. No need to add a
   - Only the composer prompt has mentions. Other text fields (comments, session messages) do not.
 - GitHub references are links by default: the agent reads them with `gh`, so they are always fresh. A later option can inline the cached thread to save the agent a round trip.
 - Files added from the code viewer are references too: `- File: <absolute path>, lines 405-411` (or `, line 405`). For a revision that is not checked out: ``- File: src/x.py at origin/main (read it with `git -C <project path> show origin/main:src/x.py`), lines 405-411``.
-- Presets live in `config.toml`. Every configured preset is shown in the composer in settings order for every target, including legacy `draft-pr` and `worktree` IDs. Changing Run in preserves selections. Presets only append text; the Run in selector controls Launchpad-managed pre-drafts and worktrees. Historical preset examples:
+- Presets live in `config.toml` and are entirely user-defined. Launchpad ships no presets; new configurations, missing `presets` and `presets = []` all have none. Existing saved presets are preserved. Every configured preset is shown in the composer in settings order for every target, including legacy `draft-pr` and `worktree` IDs. Changing Run in preserves selections. Presets only append text; the Run in selector controls Launchpad-managed pre-drafts and worktrees. Example of a user-defined preset:
 
 ```toml
 [[presets]]
-id = "worktree"
-label = "worktree"
-text = "Please use a local git worktree and delete it once you're done."
-
-[[presets]]
-id = "draft-pr"
-label = "draft PR"
-text = "Open a draft PR once you are done and check CI if anything related to the PR is failing."
-
-[[presets]]
-id = "no-unit-test"
-label = "no unit test"
-text = "No need to add any unit tests for that PR."
+id = "review"
+label = "review"
+text = "Review the changes and report concrete bugs."
 ```
 
 **Composer layout (2026-10-11).** The composer is open whenever a draft exists. Minimize (persisted with the draft as `minimized`) turns it into a draft pill next to Launch in the top bar (Draft · project · first line · N items · Open · Launch draft); the pill flashes when + Add buttons add context. + Add buttons are visible whenever a draft exists; adding context only keeps a minimized draft minimized, while Launch buttons open it. When the window width divided by the zoom is below 1,250 CSS px (1,500 px at 120%), the drawer is an overlay with a shadow instead of a column. Top to bottom: the prompt (autofocus, larger, its placeholder holds the `@`/`#` hint), Project · Run in on one line, context chips with one + Add context popover (Project, GitHub link, Agent trace, Recent), one summary line of option tokens (harness/variant, model, effort, run in, presets, start, repeat, billing, cost limit) that toggles the options panel, using the warning color for paid usage on, pay as you go, cost limit, delayed start, cron and missing variant (the billing token tooltip explains quota protection), Preview prompt as a popover that requests the preview only while open, then Open after launch, Discard and Launch. Launch never waits for the preview.
@@ -1033,3 +1020,5 @@ The [static UX suggestions report](research/ux-suggestions/index.html) is a seco
 101. **Agent commit links.** On 2026-10-13, added repository-verified commit hyperlinks in agent Markdown prose and inline code, including Summary and Trace. Batch lookup accepts only 7–40 character hexadecimal object IDs, excludes ambiguous and non-commit objects, and opens the resolved full commit ID in the existing code viewer with Back to session. Reuse the project checkout to survive session worktree cleanup; keep existing links and code blocks intact.
 
 102. **Show all saved composer presets.** On 2026-10-13, removed legacy ID filtering that hid `draft-pr` everywhere and `worktree` in managed folders despite both remaining editable in Settings. Show every configured preset and preserve selections across Run in changes. Presets remain plain prompt instructions; managed folder creation and publication controls are unchanged.
+
+103. **User-defined presets only.** On 2026-10-13, removed shipped presets from runtime defaults and the first-start configuration template. Missing presets now means an empty list. Preserve all explicitly saved presets, including older starter entries, because they may have been edited by the owner. Prompt-rendering tests supply their own fixtures.

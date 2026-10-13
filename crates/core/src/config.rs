@@ -132,7 +132,6 @@ pub struct Preset {
 
 impl Default for Config {
     fn default() -> Self {
-        let preset = |id: &str, label: &str, text: &str| Preset { id: id.into(), label: label.into(), text: text.into() };
         Config {
             projects_root: "~/projects".into(),
             zoom: 2,
@@ -143,10 +142,7 @@ impl Default for Config {
             agents: Agents::default(),
             worktrees: Worktrees::default(),
             variants: vec![],
-            presets: vec![
-                preset("worktree", "worktree", "Please use a local git worktree and delete it once you're done."),
-                preset("no-unit-test", "no unit test", "No need to add any unit tests for that PR."),
-            ],
+            presets: vec![],
         }
     }
 }
@@ -169,11 +165,12 @@ impl Default for Agents {
     }
 }
 
-/// Written on first start. Missing keys in a user file fall back to these values
-/// (`presets` included: write `presets = []` to have none).
+/// Written on first start. Missing keys in a user file fall back to these values.
+/// Presets are user-defined only; missing presets and `presets = []` both mean none.
 pub const DEFAULT_CONFIG: &str = r#"zoom = 2                           # 100%, 110%, 120% (default), 135%, 150%
 projects_root = "~/projects"        # discovery, temporary folders, worktrees
 remove_published_worktree = false   # keep local PR worktrees after publication
+presets = []                       # add your own prompt instructions in Settings
 
 [server]
 bind = "127.0.0.1"                 # keep loopback behind Tailscale Serve or a proxy
@@ -191,15 +188,6 @@ notify = true                       # desktop notification when a session become
 [worktrees]
 keep = 15                           # clean task worktrees of idle agents kept on disk (0: keep all)
 
-[[presets]]
-id = "worktree"
-label = "worktree"
-text = "Please use a local git worktree and delete it once you're done."
-
-[[presets]]
-id = "no-unit-test"
-label = "no unit test"
-text = "No need to add any unit tests for that PR."
 "#;
 
 impl Config {
@@ -369,4 +357,35 @@ fn read(path: &PathBuf) -> Result<Config> {
     let config: Config = toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
     config.validate().with_context(|| format!("check {}", path.display()))?;
     Ok(config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn presets_are_only_user_defined() {
+        assert!(Config::default().presets.is_empty());
+        for text in ["", "presets = []", DEFAULT_CONFIG] {
+            let config: Config = toml::from_str(text).unwrap();
+            assert!(config.presets.is_empty());
+        }
+        let config: Config = toml::from_str(
+            r#"
+[[presets]]
+id = "draft-pr"
+label = "My review"
+text = "Review the changes."
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.presets,
+            vec![Preset {
+                id: "draft-pr".into(),
+                label: "My review".into(),
+                text: "Review the changes.".into(),
+            }]
+        );
+    }
 }

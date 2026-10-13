@@ -186,7 +186,10 @@ mod tests {
     use crate::model::Target;
 
     fn presets() -> Vec<Preset> {
-        crate::config::Config::default().presets
+        vec![
+            Preset { id: "worktree".into(), label: "worktree".into(), text: "Please use a local git worktree and delete it once you're done.".into() },
+            Preset { id: "no-unit-test".into(), label: "no unit test".into(), text: "No need to add any unit tests for that PR.".into() },
+        ]
     }
 
     #[test]
