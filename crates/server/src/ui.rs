@@ -16,8 +16,14 @@ pub async fn serve(uri: Uri) -> Response {
         return (StatusCode::NOT_FOUND, axum::Json(serde_json::json!({"error": "no such route"}))).into_response();
     }
     if let Some(file) = Assets::get(path).filter(|_| !path.is_empty()) {
-        let mime = mime_guess::from_path(path).first_or_octet_stream();
-        // Vite puts content hashes in asset names, so they never change.
+        let mime = match path {
+            // Browsers require a JavaScript type for service workers; the manifest has its own type.
+            "sw.js" => mime_guess::mime::TEXT_JAVASCRIPT,
+            "manifest.webmanifest" => "application/manifest+json".parse().unwrap(),
+            _ => mime_guess::from_path(path).first_or_octet_stream(),
+        };
+        // Vite puts content hashes in asset names, so they never change. Everything else, including
+        // `sw.js` (the browser checks it for updates), is revalidated.
         let cache = if path.starts_with("assets/") { "public, max-age=31536000, immutable" } else { "no-cache" };
         return ([(header::CONTENT_TYPE, mime.as_ref()), (header::CACHE_CONTROL, cache)], file.data).into_response();
     }

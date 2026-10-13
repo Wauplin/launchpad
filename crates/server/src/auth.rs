@@ -24,12 +24,14 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{
     Arc, RwLock,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicI64, Ordering},
 };
 use tokio::sync::watch;
 
 const DEVICE_LIFETIME: i64 = 365 * 24 * 60 * 60;
 const PAIR_LIFETIME: i64 = 5 * 60;
+/// `browser_device.last_seen_at` is written at most this often per device (seconds).
+const SEEN_INTERVAL: i64 = 5 * 60;
 fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -47,12 +49,15 @@ struct Session {
     id: String,
     expires_at: i64,
     valid: Arc<AtomicBool>,
+    seen: AtomicI64,
 }
 
 /// Shared validity flag and wakeup for upgraded sockets. Revocation closes existing viewers too.
 #[derive(Clone)]
 pub struct Access {
     session: Option<(Arc<AtomicBool>, i64)>,
+    /// The browser device; None for bearer clients (CLI, desktop shell bootstrap).
+    pub device: Option<String>,
     pub changes: watch::Receiver<u64>,
 }
 impl Access {
@@ -94,8 +99,13 @@ impl Auth {
         let sessions = db
             .call(|conn| {
                 conn.execute("DELETE FROM browser_device WHERE expires_at <= ?1", [now()])?;
-                let mut stmt =
-                    conn.prepare("SELECT secret_hash, id, expires_at FROM browser_device")?;
+                conn.execute(
+                    "DELETE FROM push_subscription WHERE device_id NOT IN (SELECT id FROM browser_device)",
+                    [],
+                )?;
+                let mut stmt = conn.prepare(
+                    "SELECT secret_hash, id, expires_at, last_seen_at FROM browser_device",
+                )?;
                 let rows = stmt.query_map([], |r| {
                     Ok((
                         r.get::<_, String>(0)?,
@@ -103,6 +113,7 @@ impl Auth {
                             id: r.get(1)?,
                             expires_at: r.get(2)?,
                             valid: Arc::new(AtomicBool::new(true)),
+                            seen: AtomicI64::new(r.get::<_, Option<i64>>(3)?.unwrap_or(0)),
                         },
                     ))
                 })?;
@@ -143,6 +154,7 @@ impl Auth {
         {
             return Some(Access {
                 session: None,
+                device: None,
                 changes,
             });
         }
@@ -155,14 +167,44 @@ impl Auth {
                     && session.expires_at > now()
                     && session.valid.load(Ordering::Acquire)
                 {
+                    self.touch(session);
                     return Some(Access {
                         session: Some((session.valid.clone(), session.expires_at)),
+                        device: Some(session.id.clone()),
                         changes,
                     });
                 }
             }
         }
         None
+    }
+
+    /// Records the device's last activity, at most once per `SEEN_INTERVAL`, off the request path.
+    fn touch(&self, session: &Session) {
+        let (seen, now) = (session.seen.load(Ordering::Relaxed), now());
+        if now - seen < SEEN_INTERVAL
+            || session
+                .seen
+                .compare_exchange(seen, now, Ordering::Relaxed, Ordering::Relaxed)
+                .is_err()
+        {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let (db, id) = (self.db.clone(), session.id.clone());
+        runtime.spawn(async move {
+            let _ = db
+                .call(move |conn| {
+                    conn.execute(
+                        "UPDATE browser_device SET last_seen_at = ?1 WHERE id = ?2",
+                        (now, id),
+                    )?;
+                    Ok(())
+                })
+                .await;
+        });
     }
 
     fn check_front_door(&self, headers: &HeaderMap, method: &Method) -> Result<(), &'static str> {
@@ -228,7 +270,7 @@ impl Auth {
         let expires_at = now() + DEVICE_LIFETIME;
         let (h, i) = (secret_hash.clone(), id.clone());
         self.db.call(move |conn| {
-            conn.execute("INSERT INTO browser_device (id, secret_hash, name, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            conn.execute("INSERT INTO browser_device (id, secret_hash, name, created_at, expires_at, last_seen_at) VALUES (?1, ?2, ?3, ?4, ?5, ?4)",
                 (i, h, name, now(), expires_at))?;
             Ok(())
         }).await?;
@@ -238,6 +280,7 @@ impl Auth {
                 id,
                 expires_at,
                 valid: Arc::new(AtomicBool::new(true)),
+                seen: AtomicI64::new(now()),
             },
         );
         Ok(Some(token))
@@ -247,7 +290,8 @@ impl Auth {
         let db_id = id.clone();
         self.db
             .call(move |conn| {
-                conn.execute("DELETE FROM browser_device WHERE id = ?1", [db_id])?;
+                conn.execute("DELETE FROM browser_device WHERE id = ?1", [&db_id])?;
+                conn.execute("DELETE FROM push_subscription WHERE device_id = ?1", [&db_id])?;
                 Ok(())
             })
             .await?;
@@ -277,8 +321,12 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
         return (StatusCode::FORBIDDEN, message).into_response();
     }
     let path = req.uri().path();
-    let private = path == "/auth" || path.starts_with("/api/devices");
-    if path == "/api/health" || path == "/auth" {
+    let private =
+        path == "/auth" || path.starts_with("/api/devices") || path.starts_with("/api/push");
+    // Installable-app files hold no data, and browsers fetch the manifest, icons and service
+    // worker updates without the session cookie (or before pairing on a Home Screen).
+    let public = matches!(path, "/sw.js" | "/manifest.webmanifest") || path.starts_with("/icons/");
+    if path == "/api/health" || path == "/auth" || public {
         // Health answers everyone, but only signed-in clients learn the profile and process id.
         if let Some(access) = s.auth.authenticate(req.headers()) {
             req.extensions_mut().insert(access);
@@ -386,6 +434,9 @@ struct Device {
     name: String,
     created_at: i64,
     expires_at: i64,
+    last_seen_at: Option<i64>,
+    /// At least one Web Push subscription.
+    push: bool,
     current: bool,
 }
 async fn devices(
@@ -393,19 +444,16 @@ async fn devices(
     Extension(access): Extension<Access>,
 ) -> ApiResult<Value> {
     let rows = s.auth.db.call(move |conn| {
-        let mut stmt = conn.prepare("SELECT id, name, created_at, expires_at FROM browser_device WHERE expires_at > ?1 ORDER BY created_at DESC")?;
-        let rows = stmt.query_map([now()], |r| Ok(Device { id:r.get(0)?, name:r.get(1)?, created_at:r.get(2)?, expires_at:r.get(3)?, current:false }))?;
+        let mut stmt = conn.prepare("SELECT id, name, created_at, expires_at, last_seen_at,
+            EXISTS (SELECT 1 FROM push_subscription p WHERE p.device_id = browser_device.id)
+            FROM browser_device WHERE expires_at > ?1 ORDER BY created_at DESC")?;
+        let rows = stmt.query_map([now()], |r| Ok(Device { id:r.get(0)?, name:r.get(1)?, created_at:r.get(2)?, expires_at:r.get(3)?, last_seen_at:r.get(4)?, push:r.get(5)?, current:false }))?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }).await?;
-    let sessions = s.auth.sessions.read().unwrap();
     let rows: Vec<_> = rows
         .into_iter()
         .map(|mut d| {
-            d.current = access.session.as_ref().is_some_and(|(flag, _)| {
-                sessions
-                    .values()
-                    .any(|s| s.id == d.id && Arc::ptr_eq(flag, &s.valid))
-            });
+            d.current = access.device.as_deref() == Some(d.id.as_str());
             d
         })
         .collect();

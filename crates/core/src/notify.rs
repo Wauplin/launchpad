@@ -1,5 +1,6 @@
-//! Desktop notifications, sent by the daemon so they work when the window is closed.
-//! Clicking one opens the window on the item (`launchpad-desktop --open <route>`).
+//! Notifications, sent by the daemon so they work when every window is closed: Web Push to paired
+//! browsers (`push.rs`) and a desktop notification on the host. Clicking a desktop notification
+//! opens the window on the item (`launchpad-desktop --open <route>`).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -11,10 +12,12 @@ use crate::model::{Session, SessionStatus};
 static WAITING: AtomicUsize = AtomicUsize::new(0);
 const MAX_WAITING: usize = 32;
 
+/// The session needs you: it finished a turn or asked a question, and no window in use shows it.
 pub fn session_done(app: &App, s: &Session) {
     if !app.config.get().agents.notify {
         return;
     }
+    app.push.session(app, s);
     let project = std::path::Path::new(&s.cwd).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let summary = match (s.status, s.open_question) {
         (_, true) => format!("{} has a question in {project}", s.harness.display()),
@@ -51,7 +54,9 @@ pub fn session_done(app: &App, s: &Session) {
                 });
                 WAITING.fetch_sub(1, Ordering::Relaxed);
             }
-            Err(e) => tracing::warn!("notification: {e}"),
+            // A headless host has no notification server: expected, not worth a warning.
+            Err(e) if cfg!(target_os = "linux") && std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none() => tracing::debug!("desktop notification: {e}"),
+            Err(e) => tracing::warn!("desktop notification: {e}"),
         }
     });
 }

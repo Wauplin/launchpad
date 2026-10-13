@@ -45,6 +45,7 @@ async fn front_door_protocol() {
         predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
         worktree_lock: Arc::new(tokio::sync::Mutex::new(())),
         terminals: Default::default(),
+        push: core::push::Push::new(Arc::new(fixture.0.clone())),
     };
     let auth = Arc::new(
         Auth::new(&fixture.0, &app.config.get().server, state_db)

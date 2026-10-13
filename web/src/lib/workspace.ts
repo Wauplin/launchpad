@@ -11,7 +11,9 @@ import type { Workspace } from "@/gen/Workspace";
 import { toast } from "@/components/Toast";
 import { useWorkspace } from "@/stores/workspace";
 import { api } from "./api";
-import { useProjects } from "./queries";
+import { setAppBadge } from "./push";
+import { useProjects, useSessions } from "./queries";
+import { needsYou } from "./sessionStatus";
 
 export const useWorkspaces = () => useQuery({ queryKey: ["workspaces"], queryFn: () => api.get<Workspace[]>("/api/workspaces"), staleTime: Infinity });
 
@@ -73,7 +75,14 @@ export function useWorkspaceSync() {
     }
   }, [workspaces, requested, current, switchTo]);
   const name = workspaces?.find((w) => w.id === current)?.name;
-  useEffect(() => { document.title = name ? `${name} · Launchpad` : "Launchpad"; }, [name]);
+  // Same predicate and scope as the sidebar's "N waiting" count.
+  const scope = useScope();
+  const sessions = useSessions().data;
+  const waiting = (sessions ?? []).filter((s) => scope.hasSession(s) && needsYou(s)).length;
+  useEffect(() => { document.title = `${waiting > 0 ? `(${waiting}) ` : ""}${name ? `${name} · ` : ""}Launchpad`; }, [name, waiting]);
+  // The installed app's badge is per app, like push notifications: every workspace counts.
+  const allWaiting = (sessions ?? []).filter(needsYou).length;
+  useEffect(() => { if (sessions) setAppBadge(allWaiting); }, [sessions, allWaiting]);
 }
 
 /** Opens another window on a workspace (null: all workspaces): a desktop window in the desktop shell, a browser tab otherwise. */

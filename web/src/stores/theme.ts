@@ -6,6 +6,8 @@ const normalize = (value: string | null): Theme => value === "dark" ? "dark" : "
 
 function apply(theme: Theme) {
   document.documentElement.dataset.theme = theme;
+  // The installed app's title bar follows the top bar (--color-chrome).
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#161b22" : "#f4f6f9");
 }
 
 // index.html applies the saved choice before paint. Keep working if storage is blocked.

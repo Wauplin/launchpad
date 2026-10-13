@@ -13,6 +13,7 @@ export type IconName =
   | "sliders"
   | "check"
   | "x"
+  | "bell"
   | "bell-off"
   | "mail"
   | "play"
@@ -61,6 +62,7 @@ export function IconSprite() {
     <symbol id="i-sliders" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2.5 4h6.5M12 4h1.5M2.5 8h1.5M7 8h6.5M2.5 12h7.5M13 12h.5"/><circle cx="10.5" cy="4" r="1.5"/><circle cx="5.5" cy="8" r="1.5"/><circle cx="11.5" cy="12" r="1.5"/></g></symbol>
     <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.5 8.5 6.5 11.5 12.5 5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></symbol>
     <symbol id="i-x" viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 10.5V7a3.5 3.5 0 0 1 7 0v3.5l1 1.5h-9z"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/></g></symbol>
     <symbol id="i-bell-off" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 10.5V7a3.5 3.5 0 0 1 6.2-2.2"/><path d="M11.5 7.2v3.3l1 1.5h-9"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/><path d="M2.5 2.5l11 11"/></g></symbol>
     <symbol id="i-mail" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M2.5 4.5 8 8.5l5.5-4"/></g></symbol>
     <symbol id="i-play" viewBox="0 0 16 16"><path d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.4-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5z" fill="currentColor"/></symbol>

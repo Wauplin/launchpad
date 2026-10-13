@@ -7,6 +7,7 @@ mod error;
 mod items;
 mod operations;
 mod predrafts;
+mod push;
 mod review_state;
 mod routes;
 mod setup;
@@ -57,6 +58,7 @@ pub(crate) fn router(server: Server) -> Router {
         .merge(terminals::router())
         .merge(worktrees::router())
         .merge(setup::router())
+        .merge(push::router())
         .route("/ws", axum::routing::get(ws::handler))
         .merge(auth::router())
         .fallback(ui::serve)

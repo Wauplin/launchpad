@@ -56,8 +56,13 @@ impl Paths {
         }
     }
 
+    /// `LAUNCHPAD_PORT` overrides the profile's port (isolated test daemons).
     pub fn from_env() -> Paths {
-        Paths::for_profile(Profile::from_env())
+        let mut paths = Paths::for_profile(Profile::from_env());
+        if let Some(port) = std::env::var("LAUNCHPAD_PORT").ok().and_then(|p| p.parse().ok()) {
+            paths.port = port;
+        }
+        paths
     }
 
     pub fn ensure_dirs(&self) -> Result<()> {
@@ -120,7 +125,7 @@ impl Paths {
     }
 }
 
-fn write_private(path: &Path, content: &str) -> Result<()> {
+pub(crate) fn write_private(path: &Path, content: &str) -> Result<()> {
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, content)?;
     #[cfg(unix)]

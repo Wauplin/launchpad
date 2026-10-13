@@ -6,6 +6,7 @@ import { HarnessProvider } from "@/components/HarnessMark";
 import { makeRouter, type Entry } from "@/app/router";
 import { isPhone, watchLayout } from "@/lib/phone";
 import { logToDaemon } from "@/lib/api";
+import { registerServiceWorker } from "@/lib/push";
 import { connectEvents } from "@/lib/ws";
 import { useComposer } from "@/stores/composer";
 // Reads `?ws=` before anything else rewrites the address.
@@ -27,6 +28,8 @@ const queryClient = new QueryClient({
 });
 connectEvents(queryClient);
 void useComposer.getState().restore();
+// Notification clicks open their route in this window through the router.
+registerServiceWorker((url) => router.history.push(url));
 
 window.addEventListener("error", (e) => logToDaemon(`uncaught: ${e.message} at ${e.filename}:${e.lineno}`, "error"));
 window.addEventListener("unhandledrejection", (e) => logToDaemon(`unhandled rejection: ${String(e.reason)}`, "error"));

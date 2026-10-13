@@ -1479,7 +1479,8 @@ impl Sink {
         if self.sessions.get(&self.id).is_none_or(|s| s.status != status) { return; }
         self.emit(EventBody::Status { status }).await;
         self.sessions.publish_counts(&self.app);
-        if before.status.is_running() && status.is_done() && !self.sessions.is_watched(&self.id) {
+        // A question already notified when it opened (`set_open_question`).
+        if before.status.is_running() && status.is_done() && !before.open_question && !self.sessions.is_watched(&self.id) {
             let s = self.sessions.get(&self.id).unwrap();
             crate::notify::session_done(&self.app, &s);
         }
@@ -1487,7 +1488,12 @@ impl Sink {
 
     pub async fn set_open_question(&self, open: bool) {
         if self.agent_id.is_some() { return; }
+        let Some(before) = self.sessions.get(&self.id) else { return };
         let _ = self.sessions.update(&self.app, &self.id, |s| s.open_question = open).await;
+        if open && !before.open_question && !self.sessions.is_watched(&self.id)
+            && let Some(s) = self.sessions.get(&self.id) {
+            crate::notify::session_done(&self.app, &s);
+        }
     }
 
     pub async fn set_harness_id(&self, harness_id: &str) {

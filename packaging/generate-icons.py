@@ -36,3 +36,25 @@ encoded = base64.b64encode((icons / "1024x1024.png").read_bytes()).decode("ascii
     f'<image width="1024" height="1024" href="data:image/png;base64,{encoded}"/>'
     '</svg>\n'
 )
+
+# Installable web app (web/public, served by the daemon without a session cookie).
+web = root / "web/public/icons"
+web.mkdir(parents=True, exist_ok=True)
+for size, name in ((192, "icon-192.png"), (512, "icon-512.png"), (180, "apple-touch-icon.png")):
+    source.resize((size, size), Image.Resampling.LANCZOS).save(web / name)
+# Maskable: the artwork enlarged so its frame falls outside the mask and the plane stays inside the
+# 80% safe zone, over the frame color for the corners.
+background = source.getpixel((source.width // 2, source.height // 8))[:3]
+maskable = Image.new("RGBA", (540, 540), background + (255,))
+maskable.alpha_composite(source.resize((540, 540), Image.Resampling.LANCZOS))
+maskable = maskable.crop((14, 14, 526, 526))
+maskable.save(web / "maskable-512.png")
+# Notification badge (Android): a white silhouette of the light parts of the artwork.
+small = source.resize((96, 96), Image.Resampling.LANCZOS)
+badge = Image.new("RGBA", small.size, (255, 255, 255, 0))
+for y in range(small.height):
+    for x in range(small.width):
+        r, g, b, a = small.getpixel((x, y))
+        if a > 128 and min(r, g, b) > 170:
+            badge.putpixel((x, y), (255, 255, 255, 255))
+badge.save(web / "badge-96.png")

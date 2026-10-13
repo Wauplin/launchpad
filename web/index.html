@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f4f6f9" />
     <script>
       try {
         document.documentElement.dataset.theme = localStorage.getItem("launchpad-theme") === "dark" ? "dark" : "light";
@@ -16,8 +17,13 @@
         document.documentElement.style.zoom = phone ? "1" : String(zoom / 100);
         if (phone) document.documentElement.classList.add("lp-phone");
       } catch { /* The app applies it after loading. */ }
+      if (document.documentElement.dataset.theme === "dark") document.querySelector('meta[name="theme-color"]').content = "#161b22";
     </script>
     <link rel="icon" type="image/png" href="/src/assets/launchpad.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Launchpad" />
     <title>Launchpad</title>
   </head>
   <body>

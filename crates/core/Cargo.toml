@@ -29,3 +29,6 @@ ts-rs = { version = "12.0.1", features = ["serde-json-impl", "uuid-impl"] }
 uuid = { version = "1.26.1", features = ["v4", "serde"] }
 ignore = "0.4.33"
 portable-pty = "0.9"
+p256 = { version = "0.14", default-features = false, features = ["ecdh", "ecdsa", "std"] }
+hkdf = "0.13"
+aes-gcm = "0.11"

@@ -19,6 +19,7 @@ pub mod operations;
 pub mod paths;
 pub mod predrafts;
 pub mod procs;
+pub mod push;
 pub mod project_clone;
 pub mod projects;
 pub mod schedules;
@@ -66,6 +67,7 @@ pub struct App {
     /// Serializes task worktree creation, merges and cleanup. Take the session action lock first.
     pub worktree_lock: Arc<tokio::sync::Mutex<()>>,
     pub terminals: terminals::Terminals,
+    pub push: push::Push,
 }
 
 impl App {
@@ -82,6 +84,7 @@ impl App {
         let status = status::StatusHandle::new(bus.clone());
         let harnesses = harness::Registry::new(&env);
         let github = github::GitHub::new(env.clone(), cache_db.clone());
+        let web_push = push::Push::new(paths.clone());
         let app = App {
             paths,
             config,
@@ -98,6 +101,7 @@ impl App {
             predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
             worktree_lock: Arc::new(tokio::sync::Mutex::new(())),
             terminals: terminals::Terminals::default(),
+            push: web_push,
         };
         predrafts::link_skill()?;
         app.sessions.load(&app).await?;

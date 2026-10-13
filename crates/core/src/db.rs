@@ -147,7 +147,8 @@ CREATE TABLE IF NOT EXISTS workspace (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS task_worktree (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS browser_operation (id TEXT PRIMARY KEY, path TEXT NOT NULL, request_hash TEXT NOT NULL, status INTEGER, response TEXT);
 CREATE TABLE IF NOT EXISTS review_state (key TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS browser_device (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);",
+CREATE TABLE IF NOT EXISTS browser_device (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_id TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, titles INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these
     // additive columns directly, like the unversioned tables above.
@@ -160,6 +161,10 @@ CREATE TABLE IF NOT EXISTS browser_device (id TEXT PRIMARY KEY, secret_hash TEXT
         .collect::<rusqlite::Result<Vec<_>>>()?;
     if !project_columns.iter().any(|c| c == "worktree_setup") { conn.execute_batch("ALTER TABLE project ADD COLUMN worktree_setup TEXT;")?; }
     if !project_columns.iter().any(|c| c == "merge_when_done") { conn.execute_batch("ALTER TABLE project ADD COLUMN merge_when_done INTEGER NOT NULL DEFAULT 0;")?; }
+    let device_columns = conn.prepare("PRAGMA table_info(browser_device)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !device_columns.iter().any(|c| c == "last_seen_at") { conn.execute_batch("ALTER TABLE browser_device ADD COLUMN last_seen_at INTEGER;")?; }
     if !has("quota_pause_json") { conn.execute_batch("ALTER TABLE session ADD COLUMN quota_pause_json TEXT;")?; }
     if !has("title_pending") { conn.execute_batch("ALTER TABLE session ADD COLUMN title_pending INTEGER;")?; }
     // Existing sessions start as seen, so old Done sessions do not all need you at once.
