@@ -139,6 +139,7 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedu
   const harnesses = useHarnesses().filter((h) => h.capabilities.quota);
   const needs = sessions.filter(needsYou).sort((a, b) => b.status_since - a.status_since);
   const running = sessions.filter(isRunning).sort((a, b) => b.status_since - a.status_since);
+  const quotaPaused = sessions.filter(isQuotaPaused).sort((a, b) => b.status_since - a.status_since);
   const nextCron = crons.filter((c) => !c.paused && c.next_run_at != null).sort((a, b) => a.next_run_at! - b.next_run_at!)[0];
   const upcoming = [
     ...schedules.filter((l) => l.status === "queued").map((l) => ({
@@ -164,6 +165,10 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedu
         <HomeSection title={`Running · ${running.length}`}>
           {running.length ? running.slice(0, 8).map((s) => <HomeRow key={s.id} s={s} project={name(s)} onOpen={() => onOpen(s.id)} />) : <span className="px-2 text-ink-3">No agent is running.</span>}
           {running.length > 8 && <span className="px-2 text-ink-3">{running.length - 8} more in the list on the left</span>}
+        </HomeSection>
+        <HomeSection title={`Quota paused · ${quotaPaused.length}`}>
+          {quotaPaused.length ? quotaPaused.slice(0, 8).map((s) => <HomeRow key={s.id} s={s} project={name(s)} onOpen={() => onOpen(s.id)} />) : <span className="px-2 text-ink-3">No agent is quota paused.</span>}
+          {quotaPaused.length > 8 && <span className="px-2 text-ink-3">{quotaPaused.length - 8} more in the list on the left</span>}
         </HomeSection>
         <HomeSection title={`Scheduled launches · ${upcoming.length}`}>
           {upcoming.length ? upcoming.slice(0, 5).map((launch) => <button key={launch.id} onClick={launch.open} className="grid h-[46px] w-full grid-cols-[14px_minmax(0,1fr)] items-center gap-x-2 rounded-md px-2 py-1 text-left hover:bg-sunk">
