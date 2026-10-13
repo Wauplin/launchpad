@@ -93,7 +93,6 @@ export function MobileShell() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [menu, setMenu] = useState(false);
   const scope = useScope();
-  const workspaces = useWorkspaces().data ?? [];
   const sessions = (useSessions().data ?? []).filter(scope.hasSession);
   const needs = sessions.filter(needsYou).length;
   const running = sessions.filter(isRunning).length;
@@ -101,7 +100,7 @@ export function MobileShell() {
   const inbox = useInboxNeeds();
   const start = useComposer((s) => s.start);
   const terminals = path.startsWith("/terminals");
-  const workspaceName = scope.workspace?.name ?? (workspaces.length ? "All workspaces" : "Launchpad");
+  const workspaceName = scope.workspace?.name ?? "All workspaces";
   return (
     <div className="flex h-dvh flex-col bg-paper pt-[env(safe-area-inset-top)]">
       <IconSprite />
@@ -115,7 +114,7 @@ export function MobileShell() {
       <main className="relative min-h-0 flex-1 overflow-hidden">
         {!terminals && <Outlet />}
         {/* Visited terminals stay mounted while other pages show. */}
-        <div className={terminals ? "flex h-full flex-col" : "hidden"}>{terminals && <Outlet />}<TerminalDock fill /></div>
+        <div className={terminals ? "flex h-full flex-col" : "hidden"}><TerminalDock fill={terminals} />{terminals && <Outlet />}</div>
       </main>
       <div id="draft-pill-slot" className="flex flex-none justify-center empty:hidden border-t border-line-2 bg-chrome px-2 py-1" />
       <nav className="flex flex-none border-t border-line bg-chrome pb-[env(safe-area-inset-bottom)]" aria-label="Main">

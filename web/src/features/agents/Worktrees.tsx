@@ -11,6 +11,7 @@ import { Icon } from "@/components/Icon";
 import { Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
+import { isPhone } from "@/lib/phone";
 
 export function useSessionWorktrees(sessionId: string) {
   return useQuery({ queryKey: ["worktrees", "session", sessionId], queryFn: () => api.get<WorktreeInfo[]>(`/api/sessions/${sessionId}/worktrees`), refetchInterval: 10_000 });
@@ -65,6 +66,8 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  // The phone confirms merges in a sheet-like panel that lists what will happen.
+  const [mergeAsk, setMergeAsk] = useState(false);
   const base = w.base_branch;
   const running = !!session && ["starting", "working", "background"].includes(session.status);
   const act = async (action: string, done?: string) => {
@@ -109,7 +112,16 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
       {canMerge && i.target_checkout === null && <div className="text-[11px] text-ink-3">No checkout has {base} checked out: the merge waits until one does.</div>}
       {w.cleanup_note && w.state === "active" && !i.ahead && <div className="text-[11px] text-ink-3">Cleanup: {w.cleanup_note}</div>}
       <div className="flex flex-wrap gap-1.5">
-        {canMerge && <button className="btn btn-sm btn-primary" disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : `Rebase onto ${base} if needed and fast-forward ${base}${i.target_checkout ? ` in ${i.target_checkout}` : ""}. Waits while that checkout has uncommitted changes.`} onClick={() => void act("merge")}>Merge into {base}</button>}
+        {canMerge && mergeAsk && <div className="grid w-full gap-1.5 rounded-lg border border-line bg-chrome p-2">
+          <b>Merge {w.branch} into {base}?</b>
+          <ul className="m-0 list-disc pl-4 text-ink-2">
+            <li>Waits until the agent is idle and {i.target_checkout ?? `a checkout of ${base}`} has no uncommitted changes.</li>
+            <li>Rebases the branch onto {base} if needed, then fast-forwards {base} ({i.ahead} commit{i.ahead === 1 ? "" : "s"}). Nothing is pushed.</li>
+            <li>A conflict goes back to the agent; nothing is forced.</li>
+          </ul>
+          <div className="flex gap-1.5"><button className="btn btn-sm btn-primary" disabled={busy} onClick={() => { setMergeAsk(false); void act("merge"); }}>Merge</button><button className="btn btn-sm" onClick={() => setMergeAsk(false)}>Cancel</button></div>
+        </div>}
+        {canMerge && !mergeAsk && <button className="btn btn-sm btn-primary" disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : `Rebase onto ${base} if needed and fast-forward ${base}${i.target_checkout ? ` in ${i.target_checkout}` : ""}. Waits while that checkout has uncommitted changes.`} onClick={() => (isPhone ? setMergeAsk(true) : void act("merge"))}>Merge into {base}</button>}
         {w.merge && w.merge.phase !== "waiting" && session && <button className="btn btn-sm btn-primary" disabled={busy} title="Send the problem to the agent: it rebases, resolves and asks to merge again" onClick={() => void act("fix", "Sent to the agent")}>Fix with agent</button>}
         {w.merge && <button className="btn btn-sm" disabled={busy} onClick={() => void act("cancel-merge")}>Cancel merge</button>}
         {w.state === "active" && w.primary && !w.merge && <button className="btn btn-sm" disabled={busy || running} title={`Check out ${w.branch} in ${w.repo} to run it there. Both folders must be clean.`} onClick={() => void act("handoff", "Branch checked out locally")}>Check out locally</button>}

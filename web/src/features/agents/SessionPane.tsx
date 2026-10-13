@@ -350,7 +350,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         </span>
       </div>
 
-      {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} />}
+      {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} canMessage={s.status !== "in_terminal" && s.status !== "quota_paused" && !(running && !harness?.capabilities.messages_while_running)} />}
       <CodeLinksContext.Provider value={codeLinks}>
       <ShellCodeContext.Provider value={s.cwd}>
       {childrenOpen && log && <SubagentsPanel key={s.id} log={log} agents={children} sessionId={s.id} live={s.live} back={() => setView("trace")} />}

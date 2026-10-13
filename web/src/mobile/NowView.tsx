@@ -14,6 +14,7 @@ import { buildRows } from "@/features/agents/rows";
 import { StatusBadge } from "@/features/agents/SessionBits";
 import { usePublishItems } from "@/features/publish/items";
 import { useConnection } from "@/app/Connection";
+import { cachedAt } from "@/lib/offlineCache";
 import { NotificationsPrompt } from "@/app/NotificationsPrompt";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
@@ -124,6 +125,9 @@ function Freshness() {
   const { online, since } = useConnection();
   const [, tick] = useState(0);
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 20_000); return () => clearInterval(t); }, []);
+  const saved = cachedAt();
+  const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (saved) return <p className="py-4 text-center text-[12.5px] text-attn" role="status">Saved data from {clock(saved)} · connecting…</p>;
   return <p className="py-4 text-center text-[12.5px] text-ink-3" role="status">{online ? "Live · updated just now" : `Offline · last update ${since ? new Date(since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "unknown"}`}</p>;
 }
 

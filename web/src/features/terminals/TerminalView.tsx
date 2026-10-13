@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { keyBar, terminalInputs } from "./keybar";
 import { copyText } from "@/lib/clipboard";
 import { toastError } from "@/components/Toast";
 import { terminalOutput } from "./output";
@@ -100,7 +101,16 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
     });
     const encoder = new TextEncoder();
     const send = (data: Uint8Array<ArrayBuffer>) => { if (socket?.readyState === WebSocket.OPEN) socket.send(data); };
-    const input = t.onData((d) => send(encoder.encode(d)));
+    const input = t.onData((d) => {
+      // Phone key bar: a sticky Ctrl turns the next typed letter into its control character.
+      if (keyBar.ctrl && d.length === 1 && /[a-z@[\\\]^_]/i.test(d)) {
+        keyBar.ctrl = false;
+        keyBar.changed();
+        d = String.fromCharCode(d.toUpperCase().charCodeAt(0) & 0x1f);
+      }
+      send(encoder.encode(d));
+    });
+    terminalInputs.set(id, t);
     const binary = t.onBinary((d) => send(Uint8Array.from(d, (c) => c.charCodeAt(0) & 0xff)));
     // The size this view would fit; the daemon applies it only while this view owns the PTY size.
     const sendSize = () => {
@@ -205,7 +215,7 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
     connect();
     const observer = new ResizeObserver(refit);
     observer.observe(host.current);
-    return () => { disposed = true; clearTimeout(retryTimer); clearInterval(watchdog); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("online", check); window.removeEventListener("pageshow", check); instance.current = null; observer.disconnect(); input.dispose(); binary.dispose(); socket?.close(); t.dispose(); };
+    return () => { terminalInputs.delete(id); disposed = true; clearTimeout(retryTimer); clearInterval(watchdog); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("online", check); window.removeEventListener("pageshow", check); instance.current = null; observer.disconnect(); input.dispose(); binary.dispose(); socket?.close(); t.dispose(); };
   }, [id]);
 
   useEffect(() => {

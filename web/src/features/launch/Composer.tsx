@@ -726,7 +726,7 @@ export function Composer() {
         </Popover>
       </div>
 
-      <div className="flex items-center gap-2 border-t border-line bg-chrome px-3.5 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-t border-line bg-chrome px-3.5 py-2.5">
         <label className="mr-auto inline-flex items-center gap-[7px] text-xs text-ink-2" style={scheduled || cron ? { visibility: "hidden" } : undefined}>
           <input type="checkbox" className="accent-teal" disabled={scheduled || !!cron} checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
           Open after launch

@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client";
 import { HarnessProvider } from "@/components/HarnessMark";
 import { makeRouter, type Entry } from "@/app/router";
 import { isPhone, watchLayout } from "@/lib/phone";
+import { isDesktopShell } from "@/lib/platform";
+import { persistCache, restoreCache } from "@/lib/offlineCache";
 import { logToDaemon } from "@/lib/api";
 import { registerServiceWorker } from "@/lib/push";
 import { connectEvents } from "@/lib/ws";
@@ -38,7 +40,9 @@ window.addEventListener("unhandledrejection", (e) => logToDaemon(`unhandled reje
 // Each shell is its own chunk: a phone never downloads the desktop shell, and the reverse.
 watchLayout();
 const entry: Promise<Entry> = isPhone ? import("@/mobile/entry").then((m) => m.entry) : import("@/app/desktop").then((m) => m.entry);
-void entry.then((pages) => {
+// Browser tabs draw from the last saved lists while the daemon answers (lib/offlineCache.ts).
+const cache = isDesktopShell ? Promise.resolve() : restoreCache(queryClient).then(() => persistCache(queryClient));
+void Promise.all([entry, cache]).then(([pages]) => {
   const router = makeRouter(pages);
   navigateTo = (url) => router.history.push(url);
   createRoot(document.getElementById("root")!).render(
