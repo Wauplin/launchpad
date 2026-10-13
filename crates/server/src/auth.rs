@@ -45,6 +45,20 @@ fn hash(secret: &str) -> String {
     hex::encode(Sha256::digest(secret.as_bytes()))
 }
 
+fn local_pair_warning(origin: &str) -> Option<&'static str> {
+    let authority = origin.split_once("://")?.1;
+    let host = if let Some(ipv6) = authority.strip_prefix('[') {
+        ipv6.split(']').next()?
+    } else {
+        authority.split(':').next()?
+    };
+    if host == "localhost" || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback()) {
+        Some("This link only works on this machine. No reachable tailnet address is configured or discovered. Connect Tailscale and restart Launchpad, or set [server] public_origin and bind in config.toml for your network address, then restart the daemon.")
+    } else {
+        None
+    }
+}
+
 struct Session {
     id: String,
     expires_at: i64,
@@ -256,7 +270,8 @@ impl Auth {
             "too many pending pairing links; wait five minutes"
         );
         pairs.insert(hash(&code), expires_at);
-        Ok(json!({"url":url,"expires_at":expires_at,"svg":svg,"terminal":terminal}))
+        let warning = local_pair_warning(origin);
+        Ok(json!({"url":url,"expires_at":expires_at,"svg":svg,"terminal":terminal,"warning":warning}))
     }
 
     async fn exchange(&self, code: &str, name: String) -> anyhow::Result<Option<String>> {
@@ -357,7 +372,7 @@ fn private_response(mut response: Response, private: bool) -> Response {
 }
 
 async fn pair(State(s): State<Server>, headers: HeaderMap) -> ApiResult<Value> {
-    // Local browser links must work even when a public origin is configured.
+    // Only desktop bootstrap requests a local link; device pairing uses the remote origin.
     let host = headers
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
@@ -365,7 +380,7 @@ async fn pair(State(s): State<Server>, headers: HeaderMap) -> ApiResult<Value> {
     let origin = if host == format!("127.0.0.1:{}", s.app.paths.port)
         || host == format!("localhost:{}", s.app.paths.port)
     {
-        // CLI explicitly requests the public link; local browser buttons use their own origin.
+        // Desktop bootstrap must stay on loopback even when a remote origin is available.
         if headers.get("x-launchpad-local-pair").is_some() {
             format!("http://{host}")
         } else {
@@ -644,6 +659,33 @@ mod tests {
         let mut access = auth.authenticate(&browser(&auth, &token2)).unwrap();
         access.session.as_mut().unwrap().1 = now() - 1;
         assert!(!access.valid());
+    }
+
+    #[tokio::test]
+    async fn tailnet_origin_is_exact_and_local_fallback_warns() {
+        let fixture = Fixture::new();
+        let config = ServerConfig {
+            public_origin: Some("http://100.64.1.2:7318".into()),
+            ..ServerConfig::default()
+        };
+        let auth = Auth::new(&fixture.0, &config,
+            launchpad_core::db::open_state(&fixture.0.state_db()).unwrap()).await.unwrap();
+        assert!(auth.remote());
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, "100.64.1.2:7318".parse().unwrap());
+        headers.insert(header::ORIGIN, "http://100.64.1.2:7318".parse().unwrap());
+        assert!(auth.check_front_door(&headers, &Method::POST).is_ok());
+        headers.insert(header::ORIGIN, "http://100.64.1.3:7318".parse().unwrap());
+        assert_eq!(auth.check_front_door(&headers, &Method::POST), Err("foreign Origin"));
+        let pair = auth.pair(&auth.origin).unwrap();
+        assert!(pair["url"].as_str().unwrap().starts_with("http://100.64.1.2:7318/auth#code="));
+        assert!(pair["warning"].is_null());
+        let local = auth.pair(&fixture.0.base_url()).unwrap();
+        assert!(local["warning"].as_str().unwrap().contains("only works on this machine"));
+        assert!(local_pair_warning("http://[::1]:7318").is_some());
+        assert!(local_pair_warning("http://[::1]").is_some());
+        assert!(local_pair_warning("http://127.0.0.2").is_some());
+        assert!(local_pair_warning("http://[fd7a:115c:a1e0::1]:7318").is_none());
     }
 
     #[tokio::test]

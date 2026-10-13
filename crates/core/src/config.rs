@@ -37,11 +37,13 @@ pub struct Config {
 pub struct ServerConfig {
     pub bind: String,
     pub public_origin: Option<String>,
+    /// Discover and listen on this machine's Tailscale address when no origin is configured.
+    pub auto_tailnet: bool,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        Self { bind: "127.0.0.1".into(), public_origin: None }
+        Self { bind: "127.0.0.1".into(), public_origin: None, auto_tailnet: true }
     }
 }
 
@@ -169,7 +171,8 @@ remove_published_worktree = false   # keep local PR worktrees after publication
 presets = []                       # add your own prompt instructions in Settings
 
 [server]
-bind = "127.0.0.1"                 # keep loopback behind Tailscale Serve or a proxy
+bind = "127.0.0.1"                 # local desktop and CLI listener
+auto_tailnet = true               # also listen on a discovered Tailscale IP
 # public_origin = "https://launchpad.example.com"  # restart daemon after changes
 
 [commands]

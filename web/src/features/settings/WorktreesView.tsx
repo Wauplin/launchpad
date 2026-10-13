@@ -7,7 +7,7 @@ import type { Config } from "@/gen/Config";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
-import { useConfig } from "@/lib/queries";
+import { useConfig, type ConfigResponse } from "@/lib/queries";
 import { useLayout } from "@/stores/layout";
 import { useNavigate } from "@tanstack/react-router";
 import { worktreeState } from "@/features/agents/Worktrees";
@@ -63,8 +63,8 @@ export function WorktreesView() {
   const total = sizes ? Object.values(sizes).reduce((a, b) => a + b, 0) : null;
   const save = async () => {
     try {
-      const res = await api.put<{ config: Config }>("/api/config", merged);
-      qc.setQueryData(["config"], { config: res.config, error: null });
+      const res = await api.put<ConfigResponse>("/api/config", merged);
+      qc.setQueryData(["config"], res);
       setDraft(res.config);
       toast("Settings saved");
     } catch (e) { toastError(e); }

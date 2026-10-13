@@ -2,7 +2,7 @@
 
 This guide covers running the Launchpad daemon on a headless Linux host (a VPS, a home server or a laptop that stays on) and using it from a browser or a phone. One daemon runs everything: agents, terminals, the GitHub cache and the UI. Every device is a client of that daemon.
 
-The daemon keeps listening on `127.0.0.1`. Something in front of it handles TLS and network access. Browser access uses pairing: see [Trusted remote access and pairing](../README.md#trusted-remote-access-and-pairing) in the README.
+The daemon keeps listening on `127.0.0.1` and, by default, discovers and also listens on its own running Tailscale node’s IP. Pairing links then work directly on the tailnet. Set `[server] auto_tailnet = false` to keep loopback only. An explicit `public_origin` takes precedence over discovery. A gateway handles TLS for HTTPS features. Browser access uses pairing: see [Trusted remote access and pairing](../README.md#trusted-remote-access-and-pairing) in the README.
 
 ## 1. Install the daemon without the desktop shell
 

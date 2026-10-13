@@ -25,8 +25,10 @@ export function useSession(id: string | null | undefined) {
   return data?.find((s) => s.id === id) ?? null;
 }
 
+export type ConfigResponse = { config: Config; error: string | null; remote: boolean };
+
 export const useConfig = () =>
-  useQuery({ queryKey: ["config"], queryFn: () => api.get<{ config: Config; error: string | null }>("/api/config"), staleTime: Infinity });
+  useQuery({ queryKey: ["config"], queryFn: () => api.get<ConfigResponse>("/api/config"), staleTime: Infinity });
 
 export const useHarnessDefaults = (h: HarnessKind | null) =>
   useQuery({

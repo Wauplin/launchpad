@@ -89,6 +89,21 @@ async fn front_door_protocol() {
         .json()
         .await
         .unwrap();
+    assert!(pair["url"].as_str().unwrap().starts_with("https://launchpad.example/auth#code="));
+    assert!(pair["warning"].is_null());
+    // Device pairing in a locally launched desktop uses the external origin;
+    // only the native bootstrap header requests a loopback link.
+    let local_pair = |bootstrap: bool| {
+        let request = client.post(format!("{base}/api/devices/pair"))
+            .header("Host", "127.0.0.1:7318")
+            .bearer_auth(&auth.token);
+        if bootstrap { request.header("X-Launchpad-Local-Pair", "1") } else { request }
+    };
+    let desktop_pair: Value = local_pair(false).send().await.unwrap().json().await.unwrap();
+    assert!(desktop_pair["url"].as_str().unwrap().starts_with("https://launchpad.example/auth#code="));
+    let bootstrap_pair: Value = local_pair(true).send().await.unwrap().json().await.unwrap();
+    assert!(bootstrap_pair["url"].as_str().unwrap().starts_with("http://127.0.0.1:7318/auth#code="));
+    assert!(bootstrap_pair["warning"].is_string());
     let code = tests::code(pair);
     let response = post("/auth")
         .json(&json!({"code":code,"name":"Protocol browser"}))
@@ -131,6 +146,7 @@ async fn front_door_protocol() {
         .json()
         .await
         .unwrap();
+    assert_eq!(response["remote"], true);
     assert_eq!(response["config"]["variants"][0]["env"], json!({}));
     let host_config = config;
     let mut config = response["config"].clone();
@@ -143,7 +159,10 @@ async fn front_door_protocol() {
             .header("Cookie", cookie)
             .json(body)
     };
-    assert_eq!(put(&config).send().await.unwrap().status(), StatusCode::OK);
+    let saved = put(&config).send().await.unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+    let saved: Value = saved.json().await.unwrap();
+    assert_eq!(saved["remote"], true);
     assert_eq!(
         host_config.get().variants[0].env["EXAMPLE_KEY"],
         "private-value"

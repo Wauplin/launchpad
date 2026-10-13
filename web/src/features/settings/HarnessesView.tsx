@@ -2,13 +2,12 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import type { Config } from "@/gen/Config";
 import type { HarnessVariant } from "@/gen/HarnessVariant";
 import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
-import { useConfig, useHarnessDefaults } from "@/lib/queries";
+import { useConfig, useHarnessDefaults, type ConfigResponse } from "@/lib/queries";
 import { parseUsd } from "@/lib/variants";
 import { Card, SaveBar, SettingsPage } from "./SettingsView";
 import { SignInCard } from "./SignInCard";
@@ -56,8 +55,8 @@ export function HarnessesView() {
       return { ...d, id };
     });
     try {
-      const res = await api.put<{ config: Config }>("/api/config", { ...saved, variants: toVariants(list) });
-      qc.setQueryData(["config"], { config: res.config, error: null });
+      const res = await api.put<ConfigResponse>("/api/config", { ...saved, variants: toVariants(list) });
+      qc.setQueryData(["config"], res);
       setDrafts(res.config.variants.map(toDraft));
       toast("Harness variants saved");
     } catch (e) {
@@ -85,7 +84,7 @@ export function HarnessesView() {
       >
         <p className="text-[12.5px] text-ink-2">A variant runs a registered harness with its own environment variables, default model and effort, and billing mode. It appears beside the harnesses in the composer. Use it for another account (<code className="font-mono">CLAUDE_CONFIG_DIR</code>, <code className="font-mono">CODEX_HOME</code>), an API key or a provider endpoint. Values are saved in config.toml (readable only by you); sessions store the variant ID, so deleting or renaming the ID prevents resuming them.</p>
         {drafts.length === 0 && <div className="text-xs text-ink-3">No variant yet.</div>}
-        {drafts.map((d, i) => <VariantEditor key={i} fileEnvironment={!!saved.server.public_origin} draft={d} onChange={(f) => setAt(i, f)} onDelete={() => setDrafts((all) => all && all.filter((_, j) => j !== i))} />)}
+        {drafts.map((d, i) => <VariantEditor key={i} fileEnvironment={q.data.remote} draft={d} onChange={(f) => setAt(i, f)} onDelete={() => setDrafts((all) => all && all.filter((_, j) => j !== i))} />)}
       </Card>
       <SaveBar dirty={dirty} invalid={invalid ? "Each variant needs a name, a valid cost limit and unique variable names." : null} onSave={() => void save()} onRevert={() => setDrafts(saved.variants.map(toDraft))} />
     </SettingsPage>

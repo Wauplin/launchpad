@@ -1,4 +1,4 @@
-//! HTTP + WebSocket server; loopback by default, configurable for a trusted gateway.
+//! HTTP + WebSocket server; loopback plus discovered tailnet access, or a configured gateway.
 
 mod api;
 mod auth;
@@ -13,6 +13,7 @@ mod routes;
 mod setup;
 mod suggestions;
 mod terminals;
+mod tailnet;
 mod worktrees;
 mod ui;
 mod ws;
@@ -33,15 +34,25 @@ pub struct Server {
 
 pub async fn serve(app: App) -> Result<()> {
     let port = app.paths.port;
-    let config = app.config.get().server;
+    let mut config = app.config.get().server;
     let bind = config.bind.parse::<std::net::IpAddr>()?;
-    let auth = Arc::new(auth::Auth::new(&app.paths, &config, app.state_db.clone()).await?);
-    let server = Server { app, auth };
     let listener = tokio::net::TcpListener::bind((bind, port))
         .await
         .with_context(|| format!("bind {bind}:{port} (is another daemon running?)"))?;
     tracing::info!("listening on {bind}:{port}");
-    axum::serve(listener, router(server)).with_graceful_shutdown(shutdown_signal()).await?;
+    let tailnet = tailnet::prepare(&mut config, port, &app.env).await;
+    let auth = Arc::new(auth::Auth::new(&app.paths, &config, app.state_db.clone()).await?);
+    let server = Server { app, auth };
+    let router = router(server);
+    if let Some(tailnet) = tailnet {
+        use std::future::IntoFuture;
+        tokio::try_join!(
+            axum::serve(listener, router.clone()).with_graceful_shutdown(shutdown_signal()).into_future(),
+            axum::serve(tailnet, router).with_graceful_shutdown(shutdown_signal()).into_future(),
+        )?;
+    } else {
+        axum::serve(listener, router).with_graceful_shutdown(shutdown_signal()).await?;
+    }
     Ok(())
 }
 

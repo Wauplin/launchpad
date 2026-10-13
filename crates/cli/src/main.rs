@@ -243,6 +243,9 @@ async fn main() -> Result<()> {
                 .bearer_auth(paths.token()?).send().await.context("is the daemon running?")?;
             let body: serde_json::Value = res.error_for_status()?.json().await?;
             println!("{}", body["url"].as_str().context("missing pairing URL")?);
+            if let Some(warning) = body["warning"].as_str() {
+                eprintln!("Warning: {warning}");
+            }
             if matches!(cli.command, Command::Pair) {
                 println!("\n{}\nSingle-use link; expires in five minutes.", body["terminal"].as_str().unwrap_or(""));
             }

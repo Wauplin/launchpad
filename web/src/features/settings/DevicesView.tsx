@@ -9,7 +9,7 @@ import { disablePush, enablePush, sendTestPush, setPushTitles, usePushState, use
 import { Card, SettingsPage } from "./SettingsView";
 
 type Device = { id: string; name: string; created_at: number; expires_at: number; last_seen_at: number | null; push: boolean; current: boolean };
-type Pair = { url: string; svg: string; expires_at: number };
+type Pair = { url: string; svg: string; expires_at: number; warning: string | null };
 
 export function DevicesView() {
   const qc = useQueryClient();
@@ -41,6 +41,7 @@ export function DevicesView() {
     <NotificationsCard />
     <Card title="Pair a device" end={<button className="btn btn-sm btn-primary" disabled={busy !== null} onClick={() => void createPair()}>Create pairing link</button>}>
       <p className="text-sm text-ink-2">Scan the QR code with your phone, or open the link in another browser. Give that browser a name to finish pairing. Each link works once and expires after five minutes.</p>
+      {pair?.warning && <p className="text-sm text-attn" role="status">{pair.warning}</p>}
       {pair && (remaining > 0 ? <div className="grid justify-items-start gap-2">
         <img alt="Scan to pair Launchpad" className="h-64 w-64 max-w-full" src={`data:image/svg+xml;base64,${btoa(pair.svg)}`} />
         <a className="text-sm text-teal-ink underline break-all" href={pair.url} target="_blank" rel="noopener noreferrer">Open pairing link</a>

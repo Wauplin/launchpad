@@ -9,7 +9,7 @@ import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { DEFAULT_ZOOM, ZOOM_LEVELS, useZoom } from "@/lib/zoom";
-import { useConfig } from "@/lib/queries";
+import { useConfig, type ConfigResponse } from "@/lib/queries";
 import { CloseAllTerminals } from "@/features/terminals/TerminalDock";
 
 export function Card({ title, end, children, id }: { title: string; end?: React.ReactNode; children: React.ReactNode; id?: string }) {
@@ -88,8 +88,8 @@ export function SettingsView() {
   const dirty = JSON.stringify(merged) !== JSON.stringify(saved);
   const save = async () => {
     try {
-      const res = await api.put<{ config: Config }>("/api/config", merged);
-      qc.setQueryData(["config"], { config: res.config, error: null });
+      const res = await api.put<ConfigResponse>("/api/config", merged);
+      qc.setQueryData(["config"], res);
       setDraft(res.config);
       toast("Settings saved");
     } catch (e) {

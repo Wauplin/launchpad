@@ -37,7 +37,7 @@ fn browser_config(s: &Server) -> Config {
     config
 }
 async fn get_config(State(s): State<Server>) -> Json<Value> {
-    Json(json!({"config": browser_config(&s), "error": s.app.config.error()}))
+    Json(json!({"config": browser_config(&s), "error": s.app.config.error(), "remote": s.auth.remote()}))
 }
 
 async fn put_config(State(s): State<Server>, Json(mut config): Json<Config>) -> ApiResult<Value> {
@@ -55,7 +55,7 @@ async fn put_config(State(s): State<Server>, Json(mut config): Json<Config>) -> 
     }
     config.validate().map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
     s.app.config.save(config)?;
-    Ok(Json(json!({"config": browser_config(&s), "error": null})))
+    Ok(Json(json!({"config": browser_config(&s), "error": null, "remote": s.auth.remote()})))
 }
 
 #[derive(Deserialize)]
