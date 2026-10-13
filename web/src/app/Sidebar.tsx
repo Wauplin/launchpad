@@ -14,7 +14,7 @@ function NavItem({ to, icon, children, end }: { to: string; icon: IconName; chil
   return (
     <Link
       to={to}
-      className="flex h-[31px] items-center gap-[9px] rounded-[7px] px-[9px] text-ink-2 no-underline hover:bg-sunk"
+      className="flex min-h-[31px] flex-none items-center gap-[9px] rounded-[7px] px-[9px] py-1 text-ink-2 no-underline hover:bg-sunk"
       activeProps={{ className: "!bg-paper !text-ink font-semibold shadow-[inset_0_0_0_1px_var(--color-line)]" }}
       activeOptions={{ exact: to === "/" }}
     >
@@ -82,18 +82,17 @@ export function Sidebar() {
       <NavItem to="/" icon="inbox" end={needs > 0 ? <span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold text-attn tabular-nums" title={`${needs} unread review requests, mentions and assignments`}>{needs}</span> : undefined}>
         Inbox
       </NavItem>
-      <NavItem
-        to="/agents"
-        icon="agents"
-        end={
-          <span className="flex items-center gap-1.5 text-[11px] font-semibold whitespace-nowrap tabular-nums">
-            {waiting > 0 && <span className="rounded-full bg-attn-soft px-1.5 text-attn" title={`${waiting} need you: questions and unseen Done, Failed or Interrupted sessions`}>{waiting} waiting</span>}
-            {quotaPaused > 0 && <span className="rounded-full bg-attn-soft px-1.5 text-attn" title={`${quotaPaused} quota paused`}>{quotaPaused} paused</span>}
-            {running > 0 && <span className="flex items-center gap-1 text-work" title={`${running} running`}><span className="lp-spin" />{waiting > 0 || quotaPaused > 0 ? running : `${running} running`}</span>}
-          </span>
-        }
-      >
-        Agents
+      <NavItem to="/agents" icon="agents">
+        <span className="min-w-0 flex-1">
+          <span className="block">Agents</span>
+          {(waiting > 0 || quotaPaused > 0 || running > 0) && (
+            <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] font-semibold tabular-nums">
+              {waiting > 0 && <span className="rounded-full bg-attn-soft px-1.5 whitespace-nowrap text-attn" title={`${waiting} need you: questions and unseen Done, Failed or Interrupted sessions`}>{waiting} waiting</span>}
+              {quotaPaused > 0 && <span className="rounded-full bg-attn-soft px-1.5 whitespace-nowrap text-attn" title={`${quotaPaused} quota paused`}>{quotaPaused} paused</span>}
+              {running > 0 && <span className="flex items-center gap-1 whitespace-nowrap text-work" title={`${running} running`}><span className="lp-spin" />{running} running</span>}
+            </span>
+          )}
+        </span>
       </NavItem>
       <NavItem to="/publish" icon="pr-local" end={toPublish > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${toPublish} agent drafts and pre-draft PRs wait for your click`}>{toPublish}</span> : undefined}>
         To publish
