@@ -48,10 +48,11 @@ impl Paths {
             profile,
             config_dir: home.join(".config").join(suffix),
             data_dir: home.join(".local/share").join(suffix),
-            port: match profile {
+            // `LAUNCHPAD_PORT` lets isolated checks (with their own `HOME`) run next to the dev daemon.
+            port: std::env::var("LAUNCHPAD_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(match profile {
                 Profile::Prod => 7317,
                 Profile::Dev => 7318,
-            },
+            }),
         }
     }
 
