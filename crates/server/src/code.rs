@@ -21,6 +21,7 @@ pub fn router() -> Router<Server> {
         .route("/api/code/raw", get(raw))
         .route("/api/code/search", get(search))
         .route("/api/code/commit", get(commit))
+        .route("/api/code/resolve-commits", get(resolve_commits))
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
@@ -55,6 +56,18 @@ async fn files(State(s): State<Server>, Query(q): Query<SourceQuery>) -> ApiResu
 async fn commit(State(s): State<Server>, Query(q): Query<SourceQuery>) -> ApiResult<CommitInfo> {
     let src = source(&s, &q.root, q.rev.as_deref()).await?;
     Ok(Json(code::commit(&s.app, &src).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct CommitQuery {
+    root: String,
+    oids: String,
+}
+
+async fn resolve_commits(State(s): State<Server>, Query(q): Query<CommitQuery>) -> ApiResult<std::collections::BTreeMap<String, String>> {
+    let src = source(&s, &q.root, None).await?;
+    let oids = q.oids.split(',').map(str::to_string).collect::<Vec<_>>();
+    Ok(Json(code::resolve_commits(&s.app.env, &src, &oids).await.map_err(bad)?))
 }
 
 #[derive(Deserialize)]

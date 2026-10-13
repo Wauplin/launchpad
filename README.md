@@ -110,7 +110,7 @@ LAUNCHPAD_PROFILE=dev cargo run -p launchpad -- status   # status as JSON
 - Types shared with the UI are generated from Rust: `cargo run -p launchpad -- gen-types` (writes `web/src/gen/`).
 - Desktop window for the dev daemon: `cargo build -p launchpad-desktop && LAUNCHPAD_PROFILE=dev ./target/debug/launchpad-desktop` (a dev window is not single-instance and quits when closed). `--open <route>` opens a given screen, `--workspace <id or name>` starts on a workspace. Each dev process is its own window.
 - WebKitGTK benchmark: open `/dev/perf?auto=1` in the window; results go to the daemon log ([spike 4](docs/spikes/4-webkitgtk.md)).
-- Code viewer: Code on a project page, on a worktree or `/projects/<id>/code?root=<folder>&rev=<revision>&path=<file>&line=<n>`. Files come from disk and git (`/api/code/*`); only registered projects and their git worktrees are readable. Colors come from Shiki in a Web Worker, so a file shows as plain text first.
+- Code viewer: Code on a project page, on a worktree or `/projects/<id>/code?root=<folder>&rev=<revision>&path=<file>&line=<n>`. Files come from disk and git (`/api/code/*`); only registered projects and their git worktrees are readable. Colors come from Shiki in a Web Worker, so a file shows as plain text first. Commit hashes (7–40 hex characters) in session Markdown prose and inline code become links only after Git confirms a unique commit in that project; links open that revision in Launchpad with Back to session, including after session worktree cleanup.
 - Tests: `cargo test` covers core parsers, native terminal behavior, durable retry operations, and front-door pairing/HTTP/WebSocket checks with isolated state.
 
 ## Continuous integration
@@ -123,7 +123,7 @@ Run the same checks locally:
 
 ```sh
 cargo +1.93.1 clippy --workspace --all-targets --locked -- -D warnings
-(cd web && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test:attachments && pnpm test:composer && pnpm build)
+(cd web && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test:attachments && pnpm test:composer && pnpm test:markdown && pnpm build)
 cargo +1.93.1 test --locked
 cargo +1.93.1 build --release --locked -p launchpad -p launchpad-desktop
 ```

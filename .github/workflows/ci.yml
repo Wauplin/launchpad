@@ -59,6 +59,9 @@ jobs:
       - name: Composer defaults regressions
         working-directory: web
         run: pnpm test:composer
+      - name: Agent Markdown commit regressions
+        working-directory: web
+        run: pnpm test:markdown
       - name: Check clipboard attachments
         working-directory: web
         run: pnpm test:attachments

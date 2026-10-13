@@ -4,9 +4,13 @@
 //
 // Inside a session, inline code naming a file of the session's folder (`hf_file_system.py:407`)
 // becomes a link to the code viewer (CodeLinks context). The code viewer's Markdown preview resolves
-// relative images and links to files of the same source (`links` prop).
+// relative images and links to files of the same source (`links` prop). Verified commit IDs in
+// prose and inline code link to their revision in the session project, even after worktree cleanup.
 
 import MarkdownIt from "markdown-it";
+import { useQueries } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { commitCandidates, installCommitLinks, type CommitLinks } from "@/lib/commitLinks";
 import { createContext, memo, useContext, useMemo, type MouseEvent } from "react";
 import { copyText } from "@/lib/clipboard";
 import { useOpenTerminal } from "@/features/terminals/lib";
@@ -14,13 +18,17 @@ import { toast } from "./Toast";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
 
-/** Resolves `path:line` references of a session to its files, and opens them in the code viewer. */
-export type CodeLinks = { resolve: (raw: string) => { path: string; line: number | null } | null; open: (path: string, line: number | null) => void };
+/** Opens session file references and repository-verified commits in the code viewer. */
+export type CodeLinks = {
+  resolve: (raw: string) => { path: string; line: number | null } | null;
+  open: (path: string, line: number | null) => void;
+  commits?: { root: string; href: (sha: string) => string; open: (sha: string) => void };
+};
 export const CodeLinksContext = createContext<CodeLinks | null>(null);
 export const ShellCodeContext = createContext<string | null>(null);
 
 type Links = { image: (src: string) => string | null; link: (href: string) => boolean };
-type Env = { codeLinks?: CodeLinks | null; links?: Links; runShell?: boolean };
+type Env = { codeLinks?: CodeLinks | null; links?: Links; runShell?: boolean; commits?: CommitLinks };
 const SHELL_LANGUAGES = new Set(["sh", "bash", "zsh", "shell", "fish", "powershell", "pwsh"]);
 
 const defaultFence = md.renderer.rules.fence!;
@@ -51,19 +59,39 @@ md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
   return self.renderToken(tokens, idx, options);
 };
 
+installCommitLinks(md);
+
 export const Markdown = memo(function Markdown({ text, className = "", links, runShell = false }: { text: string; className?: string; links?: Links; runShell?: boolean }) {
   const codeLinks = useContext(CodeLinksContext);
   const cwd = useContext(ShellCodeContext);
   const terminal = useOpenTerminal();
+  const candidates = useMemo(() => codeLinks?.commits ? commitCandidates(md.parse(text, {})) : [], [text, codeLinks?.commits]);
+  const batches = useMemo(() => {
+    const chunks: string[][] = [];
+    for (let i = 0; i < candidates.length; i += 64) chunks.push(candidates.slice(i, i + 64));
+    return chunks;
+  }, [candidates]);
+  const resolved = useQueries({ queries: batches.map((oids) => ({
+    queryKey: ["code-commit-links", codeLinks?.commits?.root, oids],
+    queryFn: () => api.get<Record<string, string>>(`/api/code/resolve-commits?root=${encodeURIComponent(codeLinks!.commits!.root)}&oids=${oids.join(",")}`),
+    staleTime: 60_000,
+    retry: false,
+  })) });
+  const commits: CommitLinks = {};
+  for (const result of resolved) for (const [oid, sha] of Object.entries(result.data ?? {})) {
+    commits[oid] = { sha, href: codeLinks!.commits!.href(sha) };
+  }
+  // A stable signature keeps finished messages memoized when unrelated queries update.
+  const commitSignature = JSON.stringify(commits);
   const { html, codes } = useMemo(() => {
-    const env: Env = { codeLinks, links, runShell: runShell && !!cwd };
+    const env: Env = { codeLinks, links, runShell: runShell && !!cwd, commits: Object.keys(commits).length ? commits : undefined };
     const tokens = md.parse(text, env);
     const codes: Record<string, string> = {};
     tokens.forEach((t, i) => {
       if (t.type === "fence") codes[i] = t.content;
     });
     return { html: md.renderer.render(tokens, md.options, env), codes };
-  }, [text, codeLinks, links, runShell, cwd]);
+  }, [text, codeLinks, links, runShell, cwd, commitSignature]);
 
   const onClick = (e: MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
@@ -78,6 +106,13 @@ export const Markdown = memo(function Markdown({ text, className = "", links, ru
     const copy = target.closest<HTMLElement>("[data-copy]");
     if (copy) {
       void copyText(codes[copy.dataset.copy!] ?? "").then(() => toast("Code copied"));
+      return;
+    }
+    const commit = target.closest<HTMLAnchorElement>("a[data-commit]");
+    if (commit && codeLinks?.commits) {
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      codeLinks.commits.open(commit.dataset.commit!);
       return;
     }
     const path = target.closest<HTMLElement>("[data-path]");

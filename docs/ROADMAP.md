@@ -17,7 +17,7 @@ Status: implementation and acceptance tracker (updated 2026-10-13). See [ARCHITE
 | 0 | Foundations and spikes | Dock icon opens a window served by the daemon, with versions and quotas in the status bar | Done |
 | 1 | Launch and run agents | You stop launching agents from the terminal | In progress |
 | 2 | GitHub inbox | You triage notifications without opening github.com | In progress |
-| 2b | Code viewer | You read code (an agent's worktree, a branch, a PR head) without opening an editor | In progress |
+| 2b | Code viewer | You read code (an agent's worktree, a branch, a PR head or a verified commit from its message) without opening an editor | In progress |
 | 3 | Issues and pull requests | Reviewing and merging a PR is faster than on github.com | In progress |
 | 4 | Pre-draft PRs | Exploratory PRs no longer reach GitHub | In progress |
 | 5 | Workspace polish | Sessions are easy to find, inspect and resume, with summaries and same-session follow-ups | In progress |
@@ -168,6 +168,7 @@ Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which r
   - Session Markdown links to files in the session's working tree open the code viewer; unavailable local paths show a message instead of opening a daemon URL.
   - The open file and the file list reload when a session reports a `file_change` in the same working tree.
 - Checked with the dev daemon and Chrome through the DevTools protocol: this repository, its `code-viewer` worktree and branch, huggingface_hub (503 files in 0.3 s, a 15,442-line file from `origin/main`, permalinks to `huggingface/huggingface_hub`), an empty repository without commits; colors, find navigation, selection by click and shift-click, Go to file, search, README preview, image, Changed only, the composer prompt with a file chip, a session message box reference, and the 150% zoom position. A Claude Haiku session that edited the open file reloaded it in place within 5 seconds, with the scroll position kept.
+- Agent commit links added on 2026-10-13: repository-verified short/full hashes in session prose and inline code open the full commit revision in the code viewer with Back to session. Unknown/ambiguous and non-commit objects stay plain; existing links and code blocks stay intact. Four Markdown regressions, four code-module Rust tests, UI type check/build and pinned strict workspace Clippy pass. Built; live daily-use checks remain.
 - Added static HTML previews on 2026-10-10. Checked in Chrome against the dev daemon: `.htm` Preview/Source toggle, inline styles, embedded image rendering, script and navigation removal, and the existing Markdown preview. UI type checking and the production UI build pass.
 - Left for the **Done when** check: a week of daily use. "View file" on diffs comes with Phases 3 and 4.
 

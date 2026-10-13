@@ -164,6 +164,37 @@ pub async fn open(app: &App, root: &str, rev: Option<&str>) -> Result<Source> {
     Ok(Source { project, root, rev, git })
 }
 
+/// Resolve hexadecimal object IDs only, without accepting refs named like hashes or peeling tags.
+/// Unknown, ambiguous and non-commit objects are omitted.
+pub async fn resolve_commits(env: &UserEnv, src: &Source, oids: &[String]) -> Result<BTreeMap<String, String>> {
+    if oids.len() > 64 || oids.iter().any(|oid| !(7..=40).contains(&oid.len()) || !oid.bytes().all(|b| b.is_ascii_hexdigit())) {
+        bail!("expected at most 64 hexadecimal commit IDs of 7–40 characters");
+    }
+    if !src.git {
+        return Ok(BTreeMap::new());
+    }
+    resolve_commit_ids(env, &src.root, oids).await
+}
+
+async fn resolve_commit_ids(env: &UserEnv, root: &Path, oids: &[String]) -> Result<BTreeMap<String, String>> {
+    let mut found = BTreeMap::new();
+    for oid in oids {
+        if found.contains_key(oid) {
+            continue;
+        }
+        let prefix = format!("--disambiguate={}", oid.to_ascii_lowercase());
+        let matches = run(env, root, &["rev-parse", &prefix]).await?;
+        let mut matches = matches.lines();
+        if let Some(sha) = matches.next()
+            && matches.next().is_none()
+            && run(env, root, &["cat-file", "-t", sha]).await? == "commit"
+        {
+            found.insert(oid.clone(), sha.to_string());
+        }
+    }
+    Ok(found)
+}
+
 /// The main checkout of a linked worktree, checked against git's own records: the worktree's `.git`
 /// file points to `<main>/.git/worktrees/<name>`, whose `gitdir` file points back to the worktree.
 pub(crate) fn main_worktree(root: &Path) -> Option<PathBuf> {
@@ -720,6 +751,33 @@ pub async fn commit(app: &App, src: &Source) -> Result<CommitInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn commit_ids_ignore_missing_objects_blobs_tags_and_hash_named_refs() {
+        let root = std::env::temp_dir().join(format!("launchpad-commit-links-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let env = UserEnv::resolve().await;
+        run(&env, &root, &["init"]).await.unwrap();
+        run(&env, &root, &["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "test"]).await.unwrap();
+        let sha = run(&env, &root, &["rev-parse", "HEAD"]).await.unwrap();
+        std::fs::write(root.join("blob"), "not a commit").unwrap();
+        let blob = run(&env, &root, &["hash-object", "-w", "blob"]).await.unwrap();
+        run(&env, &root, &["branch", "deadbee", "HEAD"]).await.unwrap();
+        run(&env, &root, &["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "tag.gpgsign=false", "tag", "-a", "test-tag", "-m", "tag"]).await.unwrap();
+        let tag = run(&env, &root, &["rev-parse", "test-tag"]).await.unwrap();
+        let short = sha[..7].to_string();
+        let upper = short.to_ascii_uppercase();
+        let oids = vec![short.clone(), upper.clone(), sha.clone(), blob, tag, "deadbee".into()];
+        let found = resolve_commit_ids(&env, &root, &oids).await.unwrap();
+        assert_eq!(found, BTreeMap::from([(short, sha.clone()), (upper, sha.clone()), (sha.clone(), sha.clone())]));
+        // A second loose object with the same prefix makes abbreviations ambiguous.
+        let other = format!("{}{}", &sha[..39], if sha.ends_with('0') { '1' } else { '0' });
+        let object = root.join(".git/objects").join(&sha[..2]).join(&sha[2..]);
+        let collision = root.join(".git/objects").join(&other[..2]).join(&other[2..]);
+        std::fs::copy(object, collision).unwrap();
+        assert!(resolve_commit_ids(&env, &root, &[sha[..7].into()]).await.unwrap().is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn mark(start: u32, end: u32, kind: &str) -> LineMark {
         LineMark { start, end, kind: kind.into() }

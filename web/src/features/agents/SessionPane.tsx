@@ -140,14 +140,21 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
 function useCodeLinks(s: { id: string; project_id: string | null; cwd: string } | null): CodeLinks | null {
   const navigate = useNavigate();
   const files = useCodeFiles(s?.project_id ? s.cwd : null, null).data;
+  const project = useProjects().data?.find((p) => p.id === s?.project_id);
   return useMemo(() => {
-    if (!s?.project_id || !files) return null;
+    if (!s?.project_id) return null;
     const { id, project_id, cwd } = s;
+    const commitRoot = project?.path ?? cwd;
     return {
-      resolve: pathResolver(files.files, cwd),
+      resolve: pathResolver(files?.files ?? [], cwd),
+      commits: {
+        root: commitRoot,
+        href: (sha) => `/projects/${encodeURIComponent(project_id)}/code?root=${encodeURIComponent(commitRoot)}&rev=${sha}&session=${encodeURIComponent(id)}`,
+        open: (sha) => void navigate({ to: "/projects/$id/code", params: { id: project_id }, search: { root: commitRoot, rev: sha, session: id } }),
+      },
       open: (path, line) => void navigate({ to: "/projects/$id/code", params: { id: project_id }, search: { root: cwd, path, line: line ?? undefined, session: id } }),
     };
-  }, [files, s?.id, s?.project_id, s?.cwd, navigate]);
+  }, [files, project?.path, s?.id, s?.project_id, s?.cwd, navigate]);
 }
 
 type View = "summary" | "trace" | "changes" | "subagents";
