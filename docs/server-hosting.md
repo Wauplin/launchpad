@@ -52,3 +52,11 @@ Then clone or add projects: Projects → **Clone from GitHub** clones a reposito
 - **Time zone.** Crons and the "at a date and time" start condition use the server's local time zone. Set it on purpose (`sudo timedatectl set-timezone Europe/Paris`). The cron and schedule editors show the server time zone when it differs from the browser's.
 - **Backups.** Copy `state.db` with the SQLite backup API while the daemon runs, for example `sqlite3 ~/.local/share/launchpad/state.db ".backup /backups/launchpad-state.db"`. `cache.db` can be rebuilt and does not need a backup.
 - **Several devices.** A focused window only marks sessions seen, and only suppresses notifications, when someone used it in the last minute, so an unattended laptop does not hide work from the phone. Composer drafts, PR viewed markers and unsent review notes are stored by the daemon and shared by every device. A terminal follows the size of the device that typed last; other devices see it letterboxed with a **Use this size** button.
+
+## 5. Phones and other browsers
+
+- **Phone layout.** Screens narrower than 720 px get the phone shell: Now, Agents, Launch, Review and Inbox tabs, and a workspace menu for Projects, Terminals, Devices and Settings. The workspace menu has **Use desktop layout**; Settings and zoom are per device.
+- **Install and notifications.** Open the paired origin, then use the browser's Install / Add to Home Screen. In Settings → Devices, turn on notifications for this browser and choose whether session titles may show on the lock screen (off by default; notifications never contain code or messages). iOS delivers Web Push only to an app added to the Home Screen. Web Push needs HTTPS, which Tailscale Serve provides. The VAPID keys are in `vapid.json` in the data folder; back them up with `state.db` to keep existing subscriptions.
+- **Links.** In a browser tab, GitHub links open in that browser, and Open in new tab replaces the desktop shell's new windows.
+- **Flaky networks.** The UI pings the daemon, replays missed updates after reconnecting, resumes terminals from the last byte received and keeps unsent replies. Proxies must allow long-lived WebSockets on `/ws` and `/api/terminals/*/ws`.
+- **Attachments.** Files upload once to the daemon; photos larger than 1.5 MB, larger than 2,048 px or in other formats are converted to JPEG in the browser first.

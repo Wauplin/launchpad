@@ -332,7 +332,9 @@ Status: built, awaiting daily use from a second device. Implements sections E–
 - F: input-based watching for seen and notifications, draft revisions with a conflict notice, shared review state, terminal size ownership with letterboxing.
 - G: `install.sh --headless` with lingering, server hosting guide, sign-in checks in Settings → Harnesses, server time zone in schedule/cron editors, Clone from GitHub.
 
-Acceptance: use one daemon from a laptop and a phone for a week; an unattended laptop never hides a finished run from the phone, drafts and review notes never silently overwrite each other, and a cold phone start shows the Agents view quickly. Remaining: mobile entry and layout, service worker and offline cache, attachments stored once.
+Acceptance: use one daemon from a laptop and a phone for a week; an unattended laptop never hides a finished run from the phone, drafts and review notes never silently overwrite each other, and a cold phone start shows the Agents view quickly.
+
+Browsers on other devices and the phone shell (2026-10-13, built, awaiting daily use from a phone; ARCHITECTURE 15.2): external links and new workspaces open on the client device, per-device zoom, trimmed health endpoint, host and connection chip; a phone shell (Now · Agents · Launch · Review · Inbox, workspace menu, terminal key bar) loaded as its own entry (about 145 KB gzip of JavaScript before the first page); light session lists and upload-once attachments with photo re-encoding; socket heartbeats, bus replay and terminal resume by offset; persisted session replies; cached first screen; viewed markers and line notes in session Changes; installable app and Web Push with per-device lock-screen titles. Checked in Chrome at 390 px and 1440 px against the dev daemon and an isolated daemon with a throwaway repository (Now, Agents, session, Changes with notes and viewed markers, Review, Inbox, workspace menu, composer sheet, terminals with key bar, desktop layout). Not checked: a real phone, real push delivery through a browser push service, iOS Home Screen install, Tailscale Serve. Deferred: Tauri remote mode and a tablet layout.
 
 ## Not planned
 
