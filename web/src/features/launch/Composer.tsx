@@ -26,7 +26,7 @@ import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/q
 import { parseUsd, usd, useVariants } from "@/lib/variants";
 import { useScope } from "@/lib/workspace";
 import { zoomScale } from "@/lib/zoom";
-import { rememberedRun, rememberSuccessfulSession, useComposer } from "@/stores/composer";
+import { rememberProjectCompletion, rememberedRun, rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { ProjectPicker } from "./ProjectPicker";
 import { AgentTracePicker } from "./AgentTracePicker";
@@ -217,6 +217,14 @@ export function Composer() {
   const harnesses = useHarnesses();
   const { open, minimized, setMinimized, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, conditions, setConditions } = useComposer();
   const projects = useProjects().data ?? [];
+  const completionDefault = useMutation({
+    mutationFn: ({ projectId, merge }: { projectId: string; merge: boolean }) => api.patch<Project>(`/api/projects/${projectId}`, { merge_when_done: merge }),
+    onSuccess: (project) => {
+      rememberProjectCompletion(project.id, project.merge_when_done);
+      queryClient.setQueryData<Project[]>(["projects"], (projects) => projects?.map((p) => p.id === project.id ? project : p));
+    },
+    onError: toastError,
+  });
   const scope = useScope();
   const sessions = useSessions().data;
   useEffect(() => {
@@ -502,7 +510,11 @@ export function Composer() {
           </label>
           <label className="inline-flex items-center gap-1.5 whitespace-nowrap" title="Merge into the base branch: the agent asks Launchpad to merge when it is done; Launchpad waits for a clean checkout, rebases and fast-forwards. Conflicts go back to the agent.">
             When done
-            <select className="field-input h-6 py-0 text-xs" aria-label="When done" value={spec.worktree?.merge_when_done ? "merge" : "keep"} onChange={(e) => set((s) => ({ ...s, worktree: { ...s.worktree!, merge_when_done: e.target.value === "merge" } }))}>
+            <select className="field-input h-6 py-0 text-xs" aria-label="When done" value={spec.worktree?.merge_when_done ? "merge" : "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project" onChange={(e) => {
+              const merge = e.target.value === "merge";
+              set((s) => ({ ...s, worktree: { ...s.worktree!, merge_when_done: merge } }));
+              completionDefault.mutate({ projectId: target.id, merge });
+            }}>
               <option value="keep">Keep branch for review</option>
               <option value="merge">Merge into {baseLabel}</option>
             </select>

@@ -12,7 +12,7 @@ use crate::App;
 use crate::model::Project;
 use crate::util::now_ms;
 
-const COLUMNS: &str = "id, name, path, remote_url, gh_repo, gh_upstream, description, is_temp, pinned, created_at, worktree_setup";
+const COLUMNS: &str = "id, name, path, remote_url, gh_repo, gh_upstream, description, is_temp, pinned, created_at, worktree_setup, merge_when_done";
 
 fn from_row(r: &Row) -> rusqlite::Result<Project> {
     Ok(Project {
@@ -27,6 +27,7 @@ fn from_row(r: &Row) -> rusqlite::Result<Project> {
         pinned: r.get::<_, i64>(8)? != 0,
         created_at: r.get(9)?,
         worktree_setup: r.get::<_, Option<String>>(10)?.unwrap_or_default(),
+        merge_when_done: r.get::<_, i64>(11)? != 0,
     })
 }
 
@@ -47,6 +48,7 @@ pub struct ProjectPatch {
     pub pinned: Option<bool>,
     /// Command run in each new task worktree of this project before the agent starts.
     pub worktree_setup: Option<String>,
+    pub merge_when_done: Option<bool>,
 }
 
 pub async fn list(app: &App) -> Result<Vec<Project>> {
@@ -172,6 +174,7 @@ pub async fn register(app: &App, path: &Path, is_temp: bool) -> Result<Project> 
         pinned: false,
         created_at: now_ms(),
         worktree_setup: String::new(),
+        merge_when_done: false,
     };
     let saved = p.clone();
     let existing = app
@@ -181,8 +184,8 @@ pub async fn register(app: &App, path: &Path, is_temp: bool) -> Result<Project> 
                 return Ok(Some(e));
             }
             c.execute(
-                &format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"),
-                params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup],
+                &format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"),
+                params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.merge_when_done as i64],
             )?;
             Ok(None)
         })
@@ -204,6 +207,9 @@ pub async fn update(app: &App, id: &str, patch: ProjectPatch) -> Result<Project>
             }
             if let Some(p) = patch.pinned {
                 c.execute("UPDATE project SET pinned = ?1 WHERE id = ?2", params![p as i64, id2])?;
+            }
+            if let Some(merge) = patch.merge_when_done {
+                c.execute("UPDATE project SET merge_when_done = ?1 WHERE id = ?2", params![merge as i64, id2])?;
             }
             if let Some(w) = patch.worktree_setup {
                 c.execute("UPDATE project SET worktree_setup = ?1 WHERE id = ?2", params![w.trim(), id2])?;

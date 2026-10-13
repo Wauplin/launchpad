@@ -6,11 +6,12 @@ import type { AgentTraceRef } from "@/gen/AgentTraceRef";
 import type { ContextProject } from "@/gen/ContextProject";
 import type { FileRef } from "@/gen/FileRef";
 import type { GitHubRef } from "@/gen/GitHubRef";
+import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
-import { api } from "@/lib/api";
-import { draftQuery, useWorkspace } from "./workspace";
+import { api } from "../lib/api.ts";
+import { draftQuery, useWorkspace } from "./workspace.ts";
 
 export const emptySpec = (): LaunchSpec => ({
   harness: null,
@@ -79,6 +80,19 @@ function flush(spec: LaunchSpec, open: boolean, minimized: boolean, conditions: 
   return api.put(`/api/launch/draft${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`, { spec, open, minimized, conditions }).catch(() => {});
 }
 
+const projectCompletionDefaults = new Map<string, boolean>();
+export function rememberProjectDefaults(projects: Project[]) {
+  projectCompletionDefaults.clear();
+  for (const project of projects) projectCompletionDefaults.set(project.id, project.merge_when_done);
+}
+export function rememberProjectCompletion(projectId: string, merge: boolean) {
+  projectCompletionDefaults.set(projectId, merge);
+}
+function withProjectCompletion(spec: LaunchSpec): LaunchSpec {
+  if (spec.target.kind !== "project" || !spec.worktree) return spec;
+  return { ...spec, worktree: { ...spec.worktree, merge_when_done: projectCompletionDefaults.get(spec.target.project_id) ?? false } };
+}
+
 type RunDefaults = Pick<LaunchSpec, "model" | "effort">;
 const runs = new Map<string, { startedAt: number; defaults: RunDefaults }>();
 const runKey = (harness: LaunchSpec["harness"], variant: LaunchSpec["variant"]) => JSON.stringify([harness, variant ?? null]);
@@ -116,8 +130,9 @@ export const useComposer = create<Composer>((set, get) => ({
   },
   start: (ctx) => {
     const cur = get().spec;
-    const spec: LaunchSpec = get().open ? { ...cur } : { ...cur, ...lastLaunch };
+    let spec: LaunchSpec = get().open ? { ...cur } : { ...cur, ...lastLaunch };
     if (ctx?.projectId !== undefined) spec.target = ctx.projectId ? { kind: "project", project_id: ctx.projectId } : { kind: "none" };
+    if (!get().open || JSON.stringify(spec.target) !== JSON.stringify(cur.target)) spec = withProjectCompletion(spec);
     for (const r of ctx?.githubRefs ?? []) if (!spec.github_refs.some((g) => g.url === r.url)) spec.github_refs = [...spec.github_refs, r];
     const same = (a: FileRef, b: FileRef) => a.root === b.root && a.rev === b.rev && a.path === b.path && a.start_line === b.start_line && a.end_line === b.end_line;
     for (const f of ctx?.files ?? []) if (!(spec.files ?? []).some((g) => same(f, g))) spec.files = [...(spec.files ?? []), f];
@@ -141,7 +156,9 @@ export const useComposer = create<Composer>((set, get) => ({
     save(spec, true, []);
   },
   update: (f) => {
-    const spec = f(get().spec);
+    const previous = get().spec;
+    let spec = f(previous);
+    if (JSON.stringify(spec.target) !== JSON.stringify(previous.target) || (!previous.worktree && spec.worktree)) spec = withProjectCompletion(spec);
     set({ spec });
     save(spec, get().open, get().conditions);
   },
@@ -162,7 +179,8 @@ export const useComposer = create<Composer>((set, get) => ({
   setOpenAfterLaunch: (v) => set({ openAfterLaunch: v }),
   restore: async () => {
     try {
-      const sessions = await api.get<Session[]>("/api/sessions");
+      const [sessions, projects] = await Promise.all([api.get<Session[]>("/api/sessions"), api.get<Project[]>("/api/projects")]);
+      rememberProjectDefaults(projects);
       for (const session of sessions) rememberSuccessfulSession(session);
       const d = await api.get<{ spec?: LaunchSpec; open?: boolean; minimized?: boolean; conditions?: LaunchDelay[]; delay?: LaunchDelay | null } | null>(`/api/launch/draft${draftQuery()}`);
       if (d?.spec) set({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, minimized: !!d.open && !!d.minimized, conditions: d.conditions ?? (d.delay ? [d.delay] : []) });

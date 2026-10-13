@@ -423,6 +423,9 @@ pub struct Project {
     pub created_at: i64,
     /// Owner-configured command run in each new task worktree before the agent starts. Empty: none.
     pub worktree_setup: String,
+    /// Default task worktree completion choice, remembered when selected in the composer.
+    #[serde(default)]
+    pub merge_when_done: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

@@ -34,6 +34,7 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 
 Built on 2026-10-11, awaiting daily use ([managed-worktrees-plan.md](managed-worktrees-plan.md)):
 
+- Per-project When done preference (2026-10-13): selecting keep/merge saves immediately for subsequent drafts across workspaces and restarts; existing saved drafts and launched/scheduled specs retain their choices.
 - Default New worktree launches for Git projects, with base branch, Copy uncommitted changes and When done (keep or merge) in the composer; per-project setup command; `.worktreeinclude` copying.
 - Editable context projects with their own worktrees; `launchpad work add-project` during a task.
 - Merge into the base branch (owner button or `launchpad work finish`), waiting for a clean target, rebase and fast-forward, conflicts sent back to the agent.

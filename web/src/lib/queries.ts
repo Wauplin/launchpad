@@ -8,9 +8,10 @@ import type { HarnessKind } from "@/gen/HarnessKind";
 import type { Project } from "@/gen/Project";
 import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
+import { rememberProjectDefaults } from "@/stores/composer";
 import { api } from "./api";
 
-export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: () => api.get<Project[]>("/api/projects"), staleTime: Infinity });
+export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: async () => { const projects = await api.get<Project[]>("/api/projects"); rememberProjectDefaults(projects); return projects; }, staleTime: Infinity });
 
 export function useProject(id: string | null | undefined) {
   const { data } = useProjects();

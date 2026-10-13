@@ -12,4 +12,8 @@ gh_upstream: string | null, description: string, is_temp: boolean, pinned: boole
 /**
  * Owner-configured command run in each new task worktree before the agent starts. Empty: none.
  */
-worktree_setup: string, };
+worktree_setup: string,
+/**
+ * Default task worktree completion choice, remembered when selected in the composer.
+ */
+merge_when_done: boolean, };

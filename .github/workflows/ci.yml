@@ -56,6 +56,9 @@ jobs:
       - name: Check operation retries
         working-directory: web
         run: pnpm test:operations
+      - name: Composer defaults regressions
+        working-directory: web
+        run: pnpm test:composer
       - name: Check clipboard attachments
         working-directory: web
         run: pnpm test:attachments
