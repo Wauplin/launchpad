@@ -238,8 +238,7 @@ export function AgentsView() {
     if (phone) void navigate({ to: "/agents", search: { session: id } });
   };
   const back = () => {
-    if (window.history.length > 1) window.history.back();
-    else void navigate({ to: "/agents", search: {} });
+    void navigate({ to: "/agents", search: {} });
   };
   const [initialView, setInitialView] = useState<"changes" | undefined>(undefined);
 

@@ -12,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { Session } from "@/gen/Session";
 import type { ImageAttachment } from "@/gen/ImageAttachment";
 import { HarnessMark, useHarnessInfo } from "@/components/HarnessMark";
 import { CodeLinksContext, ShellCodeContext, type CodeLinks } from "@/components/Markdown";
@@ -32,7 +33,8 @@ import { MenuItem, Popover } from "@/components/Popover";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import { StatusBadge, usageLine } from "./SessionBits";
 import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
-import { WorktreeChip } from "./Worktrees";
+import { Sheet } from "@/mobile/Sheet";
+import { WorktreeCard, useSessionWorktrees, WorktreeChip } from "./Worktrees";
 import { usePhone } from "@/lib/phone";
 
 function act(id: string, action: string) {
@@ -158,10 +160,16 @@ function useCodeLinks(s: { id: string; project_id: string | null; cwd: string } 
   }, [files, project?.path, s?.id, s?.project_id, s?.cwd, navigate]);
 }
 
+function SessionWorktreeDetails({ session }: { session: Session }) {
+  const list = useSessionWorktrees(session.id).data ?? [];
+  return <>{list.map((info) => <WorktreeCard key={info.worktree.id} info={info} session={session} />)}</>;
+}
+
 type View = "summary" | "trace" | "changes" | "subagents";
 
 export function SessionPane({ sessionId, onClear, initialView }: { sessionId: string; onClear: () => void; initialView?: "changes" }) {
   const phone = usePhone();
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
@@ -293,51 +301,65 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(false); dropImages.current?.(Array.from(e.dataTransfer.files)); } }}
     >
       {dragging && <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center border-2 border-teal bg-teal-soft/80 font-semibold text-teal-ink">{harness?.capabilities.images ? "Drop images to attach to your message" : `${name} does not accept images`}</div>}
-      <div className="grid grid-cols-[18px_1fr] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
-        <span className="order-1 row-span-2 self-start pt-px">
+      <div className="session-header grid grid-cols-[18px_1fr] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
+        <span className={`order-1 row-span-2 self-start pt-px ${phone ? "hidden" : ""}`}>
           <HarnessMark harness={s.harness} size={18} />
         </span>
-        <div className="order-2 flex min-w-0 items-center gap-1">
+        <div className="session-heading order-2 flex min-w-0 items-center gap-1">
           {renaming ? <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
             <input autoFocus aria-label="Session title" className="field-input min-w-0 flex-1 basis-32 text-[12.5px] font-[650]" maxLength={100} value={title} disabled={savingTitle} onChange={(e) => setTitle(e.target.value)} />
             <button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, { title: title.trim() }); setRenaming(false); } catch (e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button>
             <button className="btn btn-sm" disabled={savingTitle} onClick={() => setRenaming(false)}>Cancel</button>
-          </div> : <button className="min-w-0 flex-1 truncate text-left text-[12.5px] font-[650] hover:text-teal-ink" title={`${s.title} · Click to edit`} aria-label={`Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
+          </div> : <button className="session-title min-w-0 flex-1 truncate text-left text-[12.5px] font-[650] hover:text-teal-ink" title={`${s.title} · Click to edit`} aria-label={`Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
             {isPinned && <span className="mr-1 text-teal-ink" title="Pinned">★</span>}{s.title}
           </button>}
           {phone
-            ? <button className="btn btn-sm order-first shrink-0 self-start" aria-label="Back to the list" onClick={onClear}><Icon name="chev" size={14} className="rotate-90" />Back</button>
+            ? <button className="iconbtn session-back order-first shrink-0 self-start" title="Back to agents" aria-label="Back to agents" onClick={onClear}><Icon name="chev" size={20} className="rotate-90" /></button>
             : <button className="iconbtn shrink-0 self-start" title="Close panel" aria-label="Close panel" onClick={onClear}>
               <Icon name="x" size={14} />
             </button>}
         </div>
-        <span className="order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3 tabular-nums">
-          {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Pre-draft PR</button>}
-          <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
-          <WorktreeChip session={s} />
-          {s.launch_spec.variant && <span title="Harness variant">{variantName ?? `${s.launch_spec.variant} (deleted variant)`}</span>}
-          <StatusBadge s={s} />
-          <PaidUsageToggle session={s} badge />
-          <CostLimit session={s} badge />
-          <span>{usageLine(s)}</span>
-          <span className="ml-auto" title="Started">{new Date(s.started_at).toLocaleDateString()}</span>
+        <span className="session-meta order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3 tabular-nums">
+          {phone ? <>
+            <StatusBadge s={s} />
+            <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{projectName(projects, s.project_id, s.cwd)} <Icon name="chev" size={12} /></button>
+            <span className="ml-auto flex flex-wrap justify-end gap-1">{primary}</span>
+            <PaidUsageToggle session={s} badge />
+            <CostLimit session={s} badge />
+          </> : <>
+            {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Pre-draft PR</button>}
+            <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
+            <WorktreeChip session={s} />
+            {s.launch_spec.variant && <span title="Harness variant">{variantName ?? `${s.launch_spec.variant} (deleted variant)`}</span>}
+            <StatusBadge s={s} />
+            <PaidUsageToggle session={s} badge />
+            <CostLimit session={s} badge />
+            <span>{usageLine(s)}</span>
+            <span className="ml-auto" title="Started">{new Date(s.started_at).toLocaleDateString()}</span>
+          </>}
         </span>
-        <span className="order-4 col-span-2 flex flex-wrap items-center gap-1 pt-1">
-          <span className="mr-1 inline-flex max-w-full flex-wrap gap-0.5 rounded border border-line p-0.5" aria-label="Session view">
-            <button className={`btn btn-sm ${summary ? "bg-select!" : ""}`} aria-pressed={summary} disabled={running} onClick={() => setView("summary")}>Summary</button>
-            <button className={`btn btn-sm ${traceOpen ? "bg-select!" : ""}`} aria-pressed={traceOpen} onClick={() => setView("trace")}>Trace</button>
-            {children.length > 0 && <button className={`btn btn-sm ${childrenOpen ? "bg-select!" : ""}`} aria-pressed={childrenOpen} onClick={() => setView("subagents")}><Icon name="agents" size={12} />Subagents · {children.filter((a) => a.status === "running").length || children.length}{children.some((a) => a.status === "running") ? " running" : ""}</button>}
-            {isGit && <button className={`btn btn-sm ${changesOpen ? "bg-select!" : ""}`} aria-pressed={changesOpen} title="Git changes of the session folder" onClick={() => showChanges(onlyMain)}>Changes{changed ? ` · ${git.data!.files.length || mainChanges}` : ""}</button>}
-          </span>
-          <span className="ml-auto flex flex-wrap items-center gap-1">
-            {primary}
-            <FollowUpAgent session={s} />
-            <button className="btn btn-sm" title={`Open a shell in ${s.cwd}`} onClick={() => void openTerminal.shell(s.cwd)}>
-              <Icon name="term" size={12} />
-              Terminal
-            </button>
-            <Popover align="right" width={260} trigger={({ open, toggle }) => <button className={`btn btn-sm ${open ? "bg-select!" : ""}`} aria-expanded={open} onClick={toggle}>More<Icon name="chev" size={12} /></button>}>
+        <div className="session-toolbar order-4 col-span-2 flex flex-wrap items-center gap-1 pt-1">
+          <div className="session-views mr-1 inline-flex max-w-full flex-wrap gap-0.5 rounded border border-line p-0.5" role="group" aria-label="Session view">
+            <button className={`btn btn-sm ${summary && !phone ? "bg-select!" : ""}`} aria-pressed={summary} disabled={running} onClick={() => setView("summary")}>Summary</button>
+            <button className={`btn btn-sm ${traceOpen && !phone ? "bg-select!" : ""}`} aria-pressed={traceOpen} onClick={() => setView("trace")}>Trace</button>
+            {children.length > 0 && <button className={`btn btn-sm ${childrenOpen && !phone ? "bg-select!" : ""}`} aria-pressed={childrenOpen} onClick={() => setView("subagents")}><Icon name="agents" size={12} />Subagents · {children.filter((a) => a.status === "running").length || children.length}{children.some((a) => a.status === "running") ? " running" : ""}</button>}
+            {isGit && <button className={`btn btn-sm ${changesOpen && !phone ? "bg-select!" : ""}`} aria-pressed={changesOpen} title="Git changes of the session folder" onClick={() => showChanges(onlyMain)}>Changes{changed ? ` · ${git.data!.files.length || mainChanges}` : ""}</button>}
+          </div>
+          <div className="session-actions ml-auto flex flex-wrap items-center gap-1">
+            {!phone && <>
+              {primary}
+              <FollowUpAgent session={s} />
+              <button className="btn btn-sm" title={`Open a shell in ${s.cwd}`} onClick={() => void openTerminal.shell(s.cwd)}>
+                <Icon name="term" size={12} />
+                Terminal
+              </button>
+            </>}
+            <Popover align="right" width={260} trigger={({ open, toggle }) => <button className={`${phone ? "iconbtn" : "btn btn-sm"} ${open ? "bg-select!" : ""}`} aria-label="Session actions" title="Session actions" aria-expanded={open} onClick={toggle}>{phone ? <span aria-hidden="true" className="text-xl leading-none">⋯</span> : <>More<Icon name="chev" size={12} /></>}</button>}>
               {(close) => <>
+                {phone && <>
+                  <MenuItem label="Session details" detail="Branch, usage and follow-up agent" onClick={() => { close(); setDetailsOpen(true); }} />
+                  <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder" onClick={() => { close(); void openTerminal.shell(s.cwd); }} />
+                </>}
                 {s.status === "in_terminal" && tui && <MenuItem label="Show TUI" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}
                 {!running && s.status !== "in_terminal" && s.status !== "quota_paused" && harness?.capabilities.terminal && <MenuItem icon={<Icon name="term" size={14} />} label="Open in terminal" detail={`Continue in the ${name} TUI, outside quota protection`} onClick={() => { close(); void openTerminal.tui(s.id); }} />}
                 {s.project_id && <MenuItem icon={<Icon name="file" size={14} />} label="Files" detail="Read the folder in the code viewer" onClick={() => { close(); void navigate({ to: "/projects/$id/code", params: { id: s.project_id! }, search: { root: s.cwd, session: s.id } }); }} />}
@@ -346,9 +368,21 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
                 <MenuItem icon={<span className="text-teal-ink">{isPinned ? "★" : "☆"}</span>} label={isPinned ? "Unpin session" : "Pin session"} onClick={() => { close(); togglePin(s.id); }} />
               </>}
             </Popover>
-          </span>
-        </span>
+          </div>
+        </div>
       </div>
+      {phone && detailsOpen && <Sheet title="Session details" onClose={() => setDetailsOpen(false)}>
+        <div className="session-detail-sheet grid gap-4 p-4 text-sm">
+          <div className="flex items-start gap-2"><HarnessMark harness={s.harness} size={20} /><div className="min-w-0"><b className="break-words">{s.title}</b><p className="mt-1 text-ink-3">{projectName(projects, s.project_id, s.cwd)} · {s.launch_spec.variant ? variantName ?? `${s.launch_spec.variant} (deleted variant)` : name}</p></div></div>
+          <dl className="grid gap-2 text-ink-2">
+            {usageLine(s) && <div><dt className="text-xs text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
+            <div><dt className="text-xs text-ink-3">Started</dt><dd>{new Date(s.started_at).toLocaleString()}</dd></div>
+          </dl>
+          {localPr && <button className="btn" onClick={() => { setDetailsOpen(false); void navigate({ to: "/predrafts/$id", params: { id: localPr.id } }); }}>Pre-draft PR</button>}
+          <SessionWorktreeDetails session={s} />
+          <FollowUpAgent session={s} inline onPrepared={() => setDetailsOpen(false)} />
+        </div>
+      </Sheet>}
 
       {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} canMessage={s.status !== "in_terminal" && s.status !== "quota_paused" && !(running && !harness?.capabilities.messages_while_running)} />}
       <CodeLinksContext.Provider value={codeLinks}>

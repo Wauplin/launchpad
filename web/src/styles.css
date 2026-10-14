@@ -367,3 +367,59 @@ button {
     @apply text-[11.5px];
   }
 }
+
+/* Phone agent view: title, live status/action, then a swipeable view strip. */
+.lp-phone .session-header {
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 2px 4px;
+  flex-shrink: 0;
+  padding: 6px 12px 0;
+}
+.lp-phone .session-heading { grid-column: 1; grid-row: 1; gap: 4px; }
+.lp-phone .session-back,
+.lp-phone .session-actions .iconbtn { width: 44px; height: 44px; }
+.lp-phone .session-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  line-height: 20px;
+  min-height: 44px;
+}
+.lp-phone .session-meta { grid-column: 1 / -1; grid-row: 2; font-size: 12px; gap: 4px 8px; }
+.lp-phone .session-meta .btn,
+.lp-phone .session-details { min-height: 44px; }
+.lp-phone .session-details { min-width: 44px; }
+/* Cost editors anchor at the left edge so their popover also fits a narrow phone. */
+.lp-phone .session-meta > .relative { width: 100%; }
+.lp-phone .session-toolbar,
+.lp-phone .session-actions { display: contents; }
+.lp-phone .session-actions > div { grid-column: 2; grid-row: 1; align-self: start; }
+.lp-phone .session-actions button { min-height: 44px; }
+.lp-phone .session-views {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  margin: 0;
+  padding: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  scrollbar-width: none;
+}
+.lp-phone .session-views .btn {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-ink-3);
+}
+.lp-phone .session-views .btn[aria-pressed="true"] { border-bottom-color: var(--color-teal); color: var(--color-teal-ink); }
+.lp-phone .session-detail-sheet { overflow-wrap: anywhere; }
