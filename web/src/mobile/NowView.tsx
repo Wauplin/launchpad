@@ -3,7 +3,9 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { TerminalInfo } from "@/gen/TerminalInfo";
 import type { Session } from "@/gen/Session";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import { HarnessMark } from "@/components/HarnessMark";
@@ -22,11 +24,52 @@ import { projectName, useProjects, useSessions } from "@/lib/queries";
 import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
 import { isDone, isQuotaPaused, isRunning, needsYou } from "@/lib/sessionStatus";
 import { useScope } from "@/lib/workspace";
+import { terminalStatus, useScopedTerminals } from "@/features/terminals/lib";
+import { useLayout } from "@/stores/layout";
 
 const open = (navigate: ReturnType<typeof useNavigate>, id: string) => void navigate({ to: "/agents", search: { session: id } });
 
 function Section({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   return <section className="grid min-w-0 grid-cols-1 gap-2"><h2 className="seclabel px-1">{title} · {count}</h2>{children}</section>;
+}
+
+const TerminalRow = memo(function TerminalRow({ terminal, project }: { terminal: TerminalInfo; project: string }) {
+  const setDock = useLayout((s) => s.setDock);
+  return <Link to="/terminals" onClick={() => setDock({ open: true, active: terminal.id })} className="flex h-16 min-w-0 items-center gap-2.5 px-3 text-ink no-underline active:bg-sunk" title={`${terminal.title} · ${terminal.cwd}`}>
+    <Icon name="term" size={18} className="flex-none text-ink-3" />
+    <span className="min-w-0 flex-1">
+      <span className="block truncate font-medium">{terminal.title}</span>
+      <span className="block truncate text-[12.5px] text-ink-3">{project} · {terminal.kind === "tui" ? "TUI" : "Shell"} · {terminalStatus(terminal)}</span>
+    </span>
+    <Icon name="chev" size={14} className="flex-none -rotate-90 text-ink-3" />
+  </Link>;
+});
+
+function OpenTerminals() {
+  const terminals = useScopedTerminals();
+  const projects = useProjects().data;
+  const scroll = useRef<HTMLDivElement>(null);
+  const list = useVirtualizer({
+    count: terminals.length,
+    getScrollElement: () => scroll.current,
+    estimateSize: () => 64,
+    getItemKey: (index) => terminals[index].id,
+    overscan: 2,
+    useFlushSync: false,
+  });
+  if (!terminals.length) return null;
+  return <Section title="Open terminals" count={terminals.length}>
+    <div ref={scroll} className="overflow-y-auto rounded-xl border border-line bg-paper" style={{ height: Math.min(terminals.length * 64, 256) + 2 }}>
+      <div className="relative" style={{ height: list.getTotalSize() }}>
+        {list.getVirtualItems().map((row) => {
+          const terminal = terminals[row.index];
+          return <div key={row.key} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${row.start}px)` }}>
+            <TerminalRow terminal={terminal} project={projectName(projects, terminal.project_id, terminal.cwd)} />
+          </div>;
+        })}
+      </div>
+    </div>
+  </Section>;
 }
 
 function CardHead({ s, project }: { s: Session; project: string }) {
@@ -156,6 +199,7 @@ export function NowView() {
     <div className="h-full overflow-y-auto [overflow-wrap:anywhere]">
       <div className="mx-auto grid min-w-0 max-w-[640px] grid-cols-1 gap-5 px-3 pt-4">
         <div className="flex min-w-0 items-center gap-2"><h1 className="min-w-0 flex-1 px-1 text-[19px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "agent needs" : "agents need"} you` : "Nothing waits for you"}</h1><NotificationsPrompt /></div>
+        <OpenTerminals />
         {needs.length > 0 && <Section title="Needs you" count={needs.length}>
           {needs.map((s) => s.open_question ? <QuestionCard key={s.id} s={s} project={name(s)} /> : <OutcomeCard key={s.id} s={s} project={name(s)} />)}
         </Section>}
