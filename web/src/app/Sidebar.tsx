@@ -9,6 +9,7 @@ import type { Session } from "@/gen/Session";
 import { Icon, type IconName } from "@/components/Icon";
 import { formatAge } from "@/lib/format";
 import { useProjects, useSessions } from "@/lib/queries";
+import { useTheme } from "@/stores/theme";
 
 function NavItem({ to, icon, children, end }: { to: string; icon: IconName; children: ReactNode; end?: ReactNode }) {
   return (
@@ -60,6 +61,7 @@ function ProjectLink({ p, sessions }: { p: Project; sessions: Session[] }) {
 }
 
 export function Sidebar() {
+  const { theme, toggle } = useTheme();
   const needs = useInboxNeeds();
   const toPublish = usePublishItems().length;
   const scope = useScope();
@@ -114,10 +116,15 @@ export function Sidebar() {
           {allTemp ? "Show only folders with agents" : `+ ${temp.length - tempActive.length} more temporary ${temp.length - tempActive.length === 1 ? "folder" : "folders"}`}
         </button>
       )}
-      <div className="mt-auto pt-2">
-        <NavItem to="/settings" icon="sliders">
-          Settings
-        </NavItem>
+      <div className="mt-auto flex items-center gap-1 pt-2">
+        <div className="min-w-0 flex-1">
+          <NavItem to="/settings" icon="sliders">
+            Settings
+          </NavItem>
+        </div>
+        <button type="button" className="flex size-[31px] flex-none items-center justify-center rounded-[7px] text-ink-2 hover:bg-sunk" aria-label="Dark theme" aria-pressed={theme === "dark"} title={`Switch to ${theme === "light" ? "dark" : "light"} theme on this device`} onClick={toggle}>
+          <span aria-hidden="true">{theme === "dark" ? "☾" : "☀"}</span>
+        </button>
       </div>
     </aside>
   );

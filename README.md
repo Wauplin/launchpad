@@ -1,6 +1,6 @@
 # Launchpad
 
-Use the **Light / Dark** button beside Launch to switch themes. The choice is saved in this browser or desktop webview on this device and survives reloads; other devices keep their own choice. New browser profiles start in light mode. The theme also covers agent summaries, GitHub Markdown, diffs, syntax colors and integrated terminals.
+Use the sun/moon button beside **Settings** at the bottom left to switch themes. The choice is saved in this browser or desktop webview on this device and survives reloads; other devices keep their own choice. New browser profiles start in light mode. The theme also covers agent summaries, GitHub Markdown, diffs, syntax colors and integrated terminals.
 
 Launchpad is a personal desktop app for Linux (primary target), macOS and Windows that launches and drives coding agents (Claude Code, Codex and OpenCode) and replaces the parts of GitHub used every day: notifications, issues, pull requests and reviews. Everything GitHub-related is cached locally, so moving between items never reloads a page. Launchpad also keeps pre-draft PRs: pull requests that exist only on the laptop until they are worth publishing. A read-only code viewer shows the files of projects, worktrees and branches, and turns selected lines into context for an agent.
 

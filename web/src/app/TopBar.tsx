@@ -8,13 +8,11 @@ import { LaunchButton } from "@/features/launch/LaunchButton";
 import { useProjects } from "@/lib/queries";
 import { WorkspaceSwitcher } from "@/features/workspaces/Switcher";
 
-import { useTheme } from "@/stores/theme";
 import { NotificationsPrompt } from "./NotificationsPrompt";
 
 const sep = <span className="text-ink-3">/</span>;
 
 export function TopBar() {
-  const { theme, toggle } = useTheme();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const projects = useProjects().data ?? [];
   const projectId = path.match(/^\/projects\/([^/]+)/)?.[1];
@@ -66,10 +64,6 @@ export function TopBar() {
         {/* The minimized composer renders its draft pill here (portal). */}
         <span id="draft-pill-slot" className="flex min-w-0 items-center" />
         <NotificationsPrompt />
-        <button type="button" className="btn btn-ghost" aria-label="Dark theme" aria-pressed={theme === "dark"} title={`Switch to ${theme === "light" ? "dark" : "light"} theme on this device`} onClick={toggle}>
-          <span aria-hidden="true">{theme === "dark" ? "☾" : "☀"}</span>
-          {theme === "dark" ? "Dark" : "Light"}
-        </button>
         <LaunchButton ctx={project ? { projectId: project.id } : undefined} />
       </span>
     </header>

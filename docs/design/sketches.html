@@ -190,7 +190,9 @@ h2 { margin: 0; font-stretch: 82%; font-weight: 720; font-size: clamp(24px, 3.4v
 .proj .age { margin-left: auto; font-size: 11px; color: var(--ink-3); }
 .proj .age + .run { margin-left: 6px; }
 .proj.tmp { color: var(--ink-2); font-family: var(--font-mono); font-size: 11.5px; }
-.side-foot { margin-top: auto; }
+.side-foot { margin-top: auto; display: flex; align-items: center; gap: 4px; }
+.side-foot .nav-item { flex: 1; }
+.side-foot [data-theme-toggle] { width: 31px; height: 31px; padding: 0; justify-content: center; }
 .rail { background: var(--chrome); border-right: 1px solid var(--line); padding: 10px 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .rail .r { width: 36px; height: 34px; border-radius: 8px; display: grid; place-items: center; color: var(--ink-2); position: relative; }
 .rail .r.on { background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
@@ -744,7 +746,7 @@ footer.end code { font: 12.5px var(--font-mono); }
   <div class="kicker">Launchpad · design sketches · 2 October 2026</div>
   <h1>Launchpad sketches</h1>
   <button type="button" class="btn" data-theme-toggle aria-label="Dark theme" aria-pressed="false">Light</button>
-  <p class="lede">Eight static mockups of the main screens, filled with example data. Use the theme toggle below to compare light and dark palettes. In the app, the Light / Dark button beside Launch saves the choice on this device only. The UI is click only, with one keyboard shortcut: <code>Ctrl+F</code> opens find in the code viewer. Typing helpers include <code>@</code> and <code>#</code> suggestions in the composer prompt and screenshot paste in both the composer prompt and session message box. Pink numbered pins in each window match the notes below it. The design rationale is in <code>docs/ARCHITECTURE.md</code>.</p>
+  <p class="lede">Eight static mockups of the main screens, filled with example data. Use the theme toggle below to compare light and dark palettes. In the app, the icon-only sun/moon button beside Settings at the bottom left saves the choice on this device only. The UI is click only, with one keyboard shortcut: <code>Ctrl+F</code> opens find in the code viewer. Typing helpers include <code>@</code> and <code>#</code> suggestions in the composer prompt and screenshot paste in both the composer prompt and session message box. Pink numbered pins in each window match the notes below it. The design rationale is in <code>docs/ARCHITECTURE.md</code>.</p>
   <div class="legend">
     <span><i class="sw" style="background:var(--teal)"></i>Launchpad: primary actions and anything that exists only on your laptop</span>
     <span><i class="sw" style="background:var(--clay)"></i>Claude Code</span>
@@ -802,8 +804,7 @@ footer.end code { font: 12.5px var(--font-mono); }
           <span class="btn">Launchpad <svg class="ic sm"><use href="#i-window"/></svg></span>
         </div>
         <div class="crumbs"><b>Inbox</b></div>
-        <button type="button" class="btn" style="margin-left:auto" data-theme-toggle aria-label="Dark theme" aria-pressed="false">Light</button>
-        <span class="btn primary"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
+        <span class="btn primary" style="margin-left:auto"><svg class="ic sm"><use href="#i-play"/></svg>Launch</span>
         <div class="wctl"><span></span><span></span><span></span></div>
       </div>
       <div class="app s1">
@@ -821,7 +822,7 @@ footer.end code { font: 12.5px var(--font-mono); }
           <div class="side-label">Temporary</div>
           <div class="proj tmp">tmp-1002-xet-bench<span class="age">2 h</span><span class="spin" title="Running"></span></div>
           <div class="proj tmp">tmp-0929-gguf-check<span class="age">3 d</span></div>
-          <div class="side-foot"><div class="nav-item"><svg class="ic"><use href="#i-sliders"/></svg>Settings</div></div>
+          <div class="side-foot"><div class="nav-item"><svg class="ic"><use href="#i-sliders"/></svg>Settings</div><button type="button" class="btn ghost" data-theme-toggle data-icon-only aria-label="Dark theme" aria-pressed="false">☀</button></div>
         </aside>
 
         <div class="ilist">
@@ -996,7 +997,7 @@ footer.end code { font: 12.5px var(--font-mono); }
           <div class="side-label">Temporary</div>
           <div class="proj tmp">tmp-1002-xet-bench<span class="age">2 h</span><span class="spin" title="Running"></span></div>
           <div class="proj tmp">tmp-0929-gguf-check<span class="age">3 d</span></div>
-          <div class="side-foot"><div class="nav-item"><svg class="ic"><use href="#i-sliders"/></svg>Settings</div></div>
+          <div class="side-foot"><div class="nav-item"><svg class="ic"><use href="#i-sliders"/></svg>Settings</div><button type="button" class="btn ghost" data-theme-toggle data-icon-only aria-label="Dark theme" aria-pressed="false">☀</button></div>
         </aside>
 
         <div class="issue">
@@ -2155,7 +2156,7 @@ function toggleAgentGroup(button) {
   function apply(theme) {
     document.documentElement.dataset.theme = theme;
     document.querySelectorAll('[data-theme-toggle]').forEach(button => {
-      button.textContent = theme === 'dark' ? 'Dark' : 'Light';
+      button.textContent = button.hasAttribute('data-icon-only') ? (theme === 'dark' ? '☾' : '☀') : (theme === 'dark' ? 'Dark' : 'Light');
       button.setAttribute('aria-pressed', String(theme === 'dark'));
     });
   }
