@@ -424,6 +424,15 @@ button {
 .lp-phone .session-views .btn[aria-pressed="true"] { border-bottom-color: var(--color-teal); color: var(--color-teal-ink); }
 .lp-phone .session-detail-sheet { overflow-wrap: anywhere; }
 
+/* Center one line beside the 44 px actions; keep the last line aligned as it grows. */
+.lp-phone .session-message-input > textarea {
+  min-height: 44px;
+  padding-block: 12px;
+  font-size: 16px;
+  line-height: 20px;
+}
+.lp-phone .session-message-input > .iconbtn { flex-shrink: 0; }
+
 /* Shared phone page chrome; explicit feature classes leave desktop zoom/layout intact. */
 .lp-phone .btn,
 .lp-phone .btn-sm { min-height: 44px; }

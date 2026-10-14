@@ -32,6 +32,8 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 
 Codex status correction (2026-10-14, built; awaiting updated-app daily use): background output stays Background, the trace/composer identify background work, command cards remain pending across turn ends, and Stop explains the native limitation when only background commands remain.
 
+Phone session reply alignment (2026-10-14, built; awaiting device daily use): centered single-line text beside 44 px attachment/send controls, explicit 16 px phone text, and bottom-aligned multiline replies with non-shrinking actions.
+
 ## Managed worktrees
 
 Built on 2026-10-11, awaiting daily use ([managed-worktrees-plan.md](managed-worktrees-plan.md)):
