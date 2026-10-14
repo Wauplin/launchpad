@@ -127,11 +127,11 @@ export function MenuItem({
     <button
       disabled={disabled}
       onClick={onClick}
-      className={`grid grid-cols-[16px_1fr] gap-x-[9px] gap-y-px rounded-md px-[9px] py-[7px] text-left text-[12.5px] hover:bg-select disabled:opacity-50 ${
+      className={`grid grid-cols-[16px_minmax(0,1fr)] content-center items-center gap-x-[9px] gap-y-px rounded-md px-[9px] py-[7px] text-left text-[12.5px] hover:bg-select disabled:opacity-50 ${
         active ? "bg-select" : ""
       }`}
     >
-      <span className="flex items-center">{icon}</span>
+      <span className="flex items-center justify-center">{icon}</span>
       <span className="min-w-0 truncate">{label}</span>
       {detail && <span className="col-start-2 truncate text-[11.5px] text-ink-3">{detail}</span>}
     </button>

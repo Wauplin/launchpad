@@ -40,6 +40,8 @@ The UX suggestions pass (2026-10-11, built and awaiting daily use) implements th
 
 The phone top bar centers each section title on the window, with long workspace names truncated to keep the title and server-status button clear. The session reply field uses 16 px text centered beside 44 px attachment/send buttons; multiline replies grow with the actions aligned to the last line.
 
+Shared menu rows center icons beside their labels, including single-line phone actions; descriptions stay below the label and phone actions retain at least 48 px touch targets.
+
 On phones and desktop, a Done agent’s action menu offers **Mark as unread**, returning to the agent list and keeping the run in **Needs you** until reopened.
 
 Managed worktrees (2026-10-11, built and awaiting daily use): new agents in a Git project run in their own worktree and branch, created by Launchpad before the agent starts, with an optional per-project setup command and `.worktreeinclude` files. Context projects can be marked editable to get their own worktree. The session header and Summary show the branch with **Merge into main**, **Check out locally**, **Create pre-draft PR** and **Discard**. The composer remembers **When done** per project as soon as you select it, across workspaces and restarts; new projects default to **Keep branch for review**. With **When done: Merge into main**, the agent asks Launchpad to merge, Launchpad waits for a clean main checkout, rebases and fast-forwards, and sends conflicts back to the agent. Archiving removes clean worktrees, the branch keeps the commits, and sending a message restores the folder. Settings → Worktrees sets how many clean worktrees stay on disk.

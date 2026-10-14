@@ -32,6 +32,8 @@ Agents keep the Status column up to date (Next, In progress, Done) and note what
 
 Codex status correction (2026-10-14, built; awaiting updated-app daily use): background output stays Background, the trace/composer identify background work, command cards remain pending across turn ends, and Stop explains the native limitation when only background commands remain.
 
+Menu icon alignment (2026-10-14, built; awaiting device daily use): shared menu rows center icons with their main labels and center row content within phone touch targets, including Pin/Unpin and actions without descriptions. Glyphs are centered in the fixed icon column and long text remains shrinkable. Node 24 UI typecheck/production build passed; isolated Chrome fixtures at 320/390/430/719 px and desktop 1440 px passed alignment, truncation/no-overflow and 48 px phone target checks, including SVG/text icons, active/disabled rows and missing icons/descriptions.
+
 Phone session reply alignment (2026-10-14, built; awaiting device daily use): centered single-line text beside 44 px attachment/send controls, explicit 16 px phone text, and bottom-aligned multiline replies with non-shrinking actions.
 
 ## Managed worktrees
