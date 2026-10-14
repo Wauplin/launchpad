@@ -14,7 +14,7 @@ export function Popover({
   children: (close: () => void) => ReactNode;
   align?: "left" | "right";
   up?: boolean;
-  width?: number;
+  width?: number | string;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);

@@ -69,6 +69,7 @@ const ThreadRow = memo(function ThreadRow({ t, selected, projects, select, act, 
   </div>;
 });
 function RepoPicker({ threads, selected }: { threads: Thread[]; selected: string | null }) {
+  const phone = usePhone();
   const [query, setQuery] = useState("");
   const repos = useMemo(() => {
     const counts = new Map<string, number>();
@@ -76,7 +77,7 @@ function RepoPicker({ threads, selected }: { threads: Thread[]; selected: string
     const q = query.trim().toLowerCase();
     return [...counts].filter(([r]) => !q || r.toLowerCase().includes(q)).sort(([a], [b]) => a.localeCompare(b));
   }, [threads, query]);
-  return <Popover align="right" width={300} trigger={({ toggle }) => <button className={`btn btn-sm max-w-[260px] ${selected ? "bg-select!" : ""}`} title={selected ?? "Filter by repository"} onClick={toggle}><span className="truncate">Repository: {selected ?? "all"}</span><Icon name="chev" size={12} /></button>}>
+  return <Popover align={phone ? "left" : "right"} width={phone ? "min(300px, calc(100vw - 24px))" : 300} className={phone ? "w-full" : ""} trigger={({ toggle }) => <button className={`btn btn-sm max-w-[min(260px,100%)] ${selected ? "bg-select!" : ""}`} title={selected ?? "Filter by repository"} onClick={toggle}><span className="truncate">Repository: {selected ?? "all"}</span><Icon name="chev" size={12} /></button>}>
     {(close) => <RepoList repos={repos} total={threads.length} selected={selected} query={query} setQuery={setQuery} pick={(repo) => { useView.setState({ repo, scroll: 0 }); setQuery(""); close(); }} />}
   </Popover>;
 }
