@@ -121,12 +121,13 @@ export function MobileShell() {
   return (
     <div className="flex h-dvh flex-col bg-paper pt-[env(safe-area-inset-top)]" style={viewport ? { position: "fixed", insetInline: 0, top: viewport.top, height: viewport.height } : undefined}>
       <IconSprite />
-      <header className="flex min-h-12 flex-none items-center gap-2 border-b border-line bg-chrome px-2">
-        <button className="btn btn-ghost max-w-[60%] min-w-0 px-2!" aria-label={`Workspace: ${workspaceName}. Open the menu`} onClick={() => setMenu(true)}>
-          <span className="truncate font-semibold text-ink">{workspaceName}</span><Icon name="chev" size={14} />
+      {/* Equal side columns keep every section title centered on the viewport. */}
+      <header className="grid min-h-12 flex-none grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-chrome px-2">
+        <button className="btn btn-ghost max-w-full min-w-0 justify-self-start px-2!" aria-label={`Workspace: ${workspaceName}. Open the menu`} onClick={() => setMenu(true)}>
+          <span className="truncate font-semibold text-ink">{workspaceName}</span><Icon name="chev" size={14} className="shrink-0" />
         </button>
-        <b className="min-w-0 flex-1 truncate text-center text-[15px]">{pageTitle(path)}</b>
-        <ServerStatus />
+        <b className="max-w-[40vw] min-w-0 truncate text-center text-[15px]">{pageTitle(path)}</b>
+        <div className="flex min-w-0 justify-end"><ServerStatus /></div>
       </header>
       <main className="relative min-h-0 flex-1 overflow-hidden">
         {!terminals && <Outlet />}
