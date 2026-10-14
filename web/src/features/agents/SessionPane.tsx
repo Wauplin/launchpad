@@ -354,7 +354,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
                 Terminal
               </button>
             </>}
-            <Popover align="right" width={260} trigger={({ open, toggle }) => <button className={`${phone ? "iconbtn" : "btn btn-sm"} ${open ? "bg-select!" : ""}`} aria-label="Session actions" title="Session actions" aria-expanded={open} onClick={toggle}>{phone ? <span aria-hidden="true" className="text-xl leading-none">⋯</span> : <>More<Icon name="chev" size={12} /></>}</button>}>
+            <Popover viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={`${phone ? "iconbtn" : "btn btn-sm"} ${open ? "bg-select!" : ""}`} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}>{phone ? <span aria-hidden="true" className="text-xl leading-none">⋯</span> : <>More<Icon name="chev" size={12} /></>}</button>}>
               {(close) => <>
                 {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Needs you for later" onClick={() => { close(); onClear(); void act(s.id, "unread"); }} />}
                 {phone && <>

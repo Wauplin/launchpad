@@ -431,9 +431,28 @@ button {
 .lp-phone .phone-page-content { padding: 12px; gap: 16px; }
 .lp-phone .phone-page-header { min-width: 0; }
 .lp-phone .phone-page-title { overflow-wrap: anywhere; }
-.lp-phone .phone-action-sheet { overflow-wrap: anywhere; }
+.lp-phone .phone-action-content { overflow-wrap: anywhere; }
 .lp-phone .phone-action-buttons > div { display: contents; }
-.lp-phone .phone-action-buttons .btn { justify-content: flex-start; margin-left: 0; }
+.lp-phone .phone-action-buttons .btn {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 48px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  white-space: normal;
+}
+.lp-phone .phone-action-buttons .btn:hover { background: var(--color-select); }
+.lp-phone .phone-action-buttons .btn > svg { flex-shrink: 0; }
+.lp-phone .phone-action-details { border-top: 1px solid var(--color-line-2); }
+.lp-phone .phone-action-popover { overscroll-behavior: contain; }
+.lp-phone .phone-action-popover > button,
+.lp-phone .phone-action-popover .btn { min-height: 48px; }
+.lp-phone .phone-action-popover:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 2px; }
 .lp-phone .phone-item-controls { width: 100%; border: 0; border-radius: 12px; }
 .lp-phone .phone-tabs {
   min-width: 0;
@@ -488,8 +507,8 @@ button {
 .lp-phone .phone-file-toolbar { gap: 4px; padding: 4px 12px; }
 .lp-phone .phone-file-toolbar > span:first-child { flex-basis: 100%; }
 .lp-phone .phone-file-toolbar > span:last-child { width: 100%; justify-content: flex-end; }
-.lp-phone .phone-action-sheet .font-mono { overflow-wrap: anywhere; }
-.lp-phone .phone-action-sheet .phone-action-buttons { min-width: 0; }
+.lp-phone .phone-action-content .font-mono { overflow-wrap: anywhere; }
+.lp-phone .phone-action-content .phone-action-buttons { min-width: 0; }
 .lp-phone .phone-publish-row { height: 88px; gap: 8px; padding-inline: 12px; }
 .lp-phone .phone-row-title { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
 .lp-phone .phone-row-meta { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
