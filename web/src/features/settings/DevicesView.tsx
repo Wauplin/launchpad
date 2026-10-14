@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { isDesktopShell } from "@/lib/platform";
 import { api } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import { toast, toastError } from "@/components/Toast";
 import { formatAge } from "@/lib/format";
 import { disablePush, enablePush, sendTestPush, setPushTitles, usePushState, useRefreshPush, type PushState } from "@/lib/push";
@@ -44,8 +45,13 @@ export function DevicesView() {
       {pair?.warning && <p className="text-sm text-attn" role="status">{pair.warning}</p>}
       {pair && (remaining > 0 ? <div className="grid justify-items-start gap-2">
         <img alt="Scan to pair Launchpad" className="h-64 w-64 max-w-full" src={`data:image/svg+xml;base64,${btoa(pair.svg)}`} />
-        <a className="text-sm text-teal-ink underline break-all" href={pair.url} target="_blank" rel="noopener noreferrer">Open pairing link</a>
-        <button className="btn btn-sm" onClick={() => void navigator.clipboard.writeText(pair.url).catch(toastError)}>Copy pairing link</button>
+        <div className="grid w-full min-w-0 gap-1">
+          <span className="text-xs text-ink-3">Pairing URL</span>
+          <div className="flex min-w-0 flex-wrap items-start gap-2">
+            <a className="min-w-0 max-w-full flex-1 basis-[240px] break-all font-mono text-xs text-teal-ink underline" href={pair.url} target="_blank" rel="noopener noreferrer">{pair.url}</a>
+            <button className="btn btn-sm shrink-0" onClick={() => void copyText(pair.url).then(() => toast("Pairing URL copied")).catch(toastError)}>Copy URL</button>
+          </div>
+        </div>
         <span className="text-xs text-ink-3" role="status">Expires in {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} · single use</span>
       </div> : <p className="text-sm text-ink-3" role="status">Pairing link expired. Create a new link.</p>)}
     </Card>
