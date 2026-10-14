@@ -2125,7 +2125,7 @@ Read codex.rs</pre></details></div>
   <h2>Phone shell (2026-10-13)</h2>
   <div style="display:flex;gap:24px;flex-wrap:wrap">
     <div style="width:300px;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--paper)">
-      <div style="display:flex;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--chrome)"><b>Work ▾</b><b>Now</b><small>● vps · live</small></div>
+      <div style="display:flex;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--chrome)"><b>Work ▾</b><b>Now</b><button type="button" aria-label="Server status and quotas">● vps</button></div>
       <div style="padding:12px;display:grid;gap:10px">
         <b>2 agents need you</b>
         <div style="border:1px solid var(--line);border-radius:12px;padding:10px"><b>Migrate quota tests</b><br><small>launchpad · Question</small><p>Keep the old fixtures?</p><button type="button">1 Yes</button> <button type="button">2 No</button> <button type="button">Other answer…</button></div>
@@ -2137,6 +2137,7 @@ Read codex.rs</pre></details></div>
     <div style="max-width:420px">
       <p>Below 720 CSS px (or by per-device choice) the app loads a separate phone shell: workspace menu and host chip on top, one page at a time, bottom tabs. Agents and Inbox are the desktop features in a one-pane mode; a session opens full screen with Back. The composer is a full-screen sheet; terminals are a page with a key bar (Esc, Tab, Ctrl, arrows, Paste).</p>
       <p>Now cards stay within the viewport: titles use at most two lines, status sits below them, and branch/Git details and long text wrap.</p>
+      <p>Tap the top-right host button to open Server status and quotas: each monitored harness shows 5-hour and weekly usage meters, reset times and reading age. Unknown readings, stale data, errors and offline status remain explicit.</p>
       <p>Review lists what waits for a decision: items to publish, agent branches (merge asks for confirmation on the phone) and review requests. In a session's Changes, tap a line to write a note; notes and viewed files follow you to the laptop and go to the agent as one message you read first.</p>
     </div>
   </div>

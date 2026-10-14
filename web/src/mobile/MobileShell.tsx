@@ -6,7 +6,6 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useLayoutEffect, useState, type ReactNode } from "react";
 import { IconSprite, Icon, type IconName } from "@/components/Icon";
 import { Toasts } from "@/components/Toast";
-import { HostChip } from "@/app/Connection";
 import { Composer } from "@/features/launch/Composer";
 import { TerminalDock } from "@/features/terminals/TerminalDock";
 import { useInboxNeeds } from "@/features/inbox/data";
@@ -19,6 +18,7 @@ import { useComposer } from "@/stores/composer";
 import { useTheme } from "@/stores/theme";
 import { useWorkspace } from "@/stores/workspace";
 import { Sheet } from "./Sheet";
+import { ServerStatus } from "./ServerStatus";
 
 function pageTitle(path: string): string {
   if (path.startsWith("/now")) return "Now";
@@ -109,7 +109,7 @@ export function MobileShell() {
           <span className="truncate font-semibold text-ink">{workspaceName}</span><Icon name="chev" size={14} />
         </button>
         <b className="min-w-0 flex-1 truncate text-center text-[15px]">{pageTitle(path)}</b>
-        <span className="max-w-[38%] min-w-0 text-[12px]"><HostChip compact /></span>
+        <ServerStatus />
       </header>
       <main className="relative min-h-0 flex-1 overflow-hidden">
         {!terminals && <Outlet />}
