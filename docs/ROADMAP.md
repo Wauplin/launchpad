@@ -345,6 +345,9 @@ Browsers on other devices and the phone shell (2026-10-13, built, awaiting daily
 
 Phone quota access (2026-10-14): the top-right server-status button opens 5-hour and weekly quota meters, reset times, reading age and unavailable/stale/offline notices for every monitored harness. Node 24 UI build/typecheck and isolated Chrome fixtures passed at 320/390/430 px, including live quota updates, long host names, close/backdrop dismissal and unknown/unstarted/stale/error/offline states; the mobile trigger stays absent at desktop 1440 px. Real-phone daily-use checks remain pending.
 
+Phone terminal key bar (2026-10-14, built): visual-viewport keyboard placement, automatic bottom-navigation hiding/restoration, two swipeable 44 px rows for completion/Esc/sticky Ctrl/arrows, Copy/Paste/Clear, Ctrl+C and Ctrl+R, plus More for line editing/Ctrl+D/Select all. Input claims the viewer's PTY size; arrows honor application cursor mode, paste preserves bracketed paste, and copy feedback does not cover keys. Node 24 UI typecheck/build and all eight terminal regressions passed. Isolated Chrome touch fixtures at 320/390/430 px verified shortcut bytes, sticky Ctrl, selection copying, bracketed paste, cursor mode and simulated keyboard positioning/navigation restoration, unavailable-clipboard feedback and exited-terminal input/copy controls; desktop 1440 px retained its layout without the phone key bar. Real-device keyboard and clipboard-permission checks remain pending.
+
+
 ## Not planned
 
 Keyboard shortcuts other than `Ctrl+F` in the code viewer and keys sent to a focused integrated terminal (for now), a large test suite or mocks, multiple users, GitHub search, Actions logs, release versioning, data migrations for the cache.

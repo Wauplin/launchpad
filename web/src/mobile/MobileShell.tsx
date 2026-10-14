@@ -84,6 +84,22 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** The visual viewport shrinks for the keyboard even when the layout viewport / dvh does not. */
+function useTerminalViewport(enabled: boolean) {
+  const [viewport, setViewport] = useState<{ height: number; top: number; keyboard: boolean } | null>(null);
+  useLayoutEffect(() => {
+    const vv = window.visualViewport;
+    if (!enabled || !vv) { setViewport(null); return; }
+    const update = () => setViewport({ height: vv.height, top: vv.offsetTop, keyboard: window.innerHeight - vv.height > 120 });
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    return () => { vv.removeEventListener("resize", update); vv.removeEventListener("scroll", update); window.removeEventListener("resize", update); };
+  }, [enabled]);
+  return enabled ? viewport : null;
+}
+
 export function MobileShell() {
   useWorkspaceSync();
   useLayoutEffect(() => {
@@ -100,9 +116,10 @@ export function MobileShell() {
   const inbox = useInboxNeeds();
   const start = useComposer((s) => s.start);
   const terminals = path.startsWith("/terminals");
+  const viewport = useTerminalViewport(terminals);
   const workspaceName = scope.workspace?.name ?? "All workspaces";
   return (
-    <div className="flex h-dvh flex-col bg-paper pt-[env(safe-area-inset-top)]">
+    <div className="flex h-dvh flex-col bg-paper pt-[env(safe-area-inset-top)]" style={viewport ? { position: "fixed", insetInline: 0, top: viewport.top, height: viewport.height } : undefined}>
       <IconSprite />
       <header className="flex min-h-12 flex-none items-center gap-2 border-b border-line bg-chrome px-2">
         <button className="btn btn-ghost max-w-[60%] min-w-0 px-2!" aria-label={`Workspace: ${workspaceName}. Open the menu`} onClick={() => setMenu(true)}>
@@ -116,8 +133,8 @@ export function MobileShell() {
         {/* Visited terminals stay mounted while other pages show. */}
         <div className={terminals ? "flex h-full flex-col" : "hidden"}><TerminalDock fill={terminals} />{terminals && <Outlet />}</div>
       </main>
-      <div id="draft-pill-slot" className="flex flex-none justify-center empty:hidden border-t border-line-2 bg-chrome px-2 py-1" />
-      <nav className="flex flex-none border-t border-line bg-chrome pb-[env(safe-area-inset-bottom)]" aria-label="Main">
+      {!viewport?.keyboard && <div id="draft-pill-slot" className="flex flex-none justify-center empty:hidden border-t border-line-2 bg-chrome px-2 py-1" />}
+      {!viewport?.keyboard && <nav className="flex flex-none border-t border-line bg-chrome pb-[env(safe-area-inset-bottom)]" aria-label="Main">
         <Tab to="/now" icon="alert" label="Now" count={needs} highlight />
         <Tab to="/agents" icon="agents" label="Agents" count={running} />
         <button className="flex min-h-[54px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold text-teal-ink" onClick={() => start()}>
@@ -125,7 +142,7 @@ export function MobileShell() {
         </button>
         <Tab to="/review" icon="pr" label="Review" count={publish} />
         <Tab to="/inbox" icon="inbox" label="Inbox" count={inbox} highlight />
-      </nav>
+      </nav>}
       <Composer />
       {menu && <WorkspaceMenu onClose={() => setMenu(false)} />}
       <Toasts />

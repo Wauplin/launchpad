@@ -2135,12 +2135,26 @@ Read codex.rs</pre></details></div>
       <div style="display:flex;justify-content:space-around;padding:8px;border-top:1px solid var(--line);background:var(--chrome)"><span>Now</span><span>Agents</span><b>＋ Launch</b><span>Review</span><span>Inbox</span></div>
     </div>
     <div style="max-width:420px">
-      <p>Below 720 CSS px (or by per-device choice) the app loads a separate phone shell: workspace menu and host chip on top, one page at a time, bottom tabs. Agents and Inbox are the desktop features in a one-pane mode; a session opens full screen with Back. The composer is a full-screen sheet; terminals are a page with a key bar (Esc, Tab, Ctrl, arrows, Paste).</p>
+      <p>Below 720 CSS px (or by per-device choice) the app loads a separate phone shell: workspace menu and host chip on top, one page at a time, bottom tabs. Agents and Inbox are the desktop features in a one-pane mode; a session opens full screen with Back. The composer is a full-screen sheet; terminals are a page with two swipeable rows of 44 px keys (Tab, Esc, sticky Ctrl, arrows; Copy, Paste, Clear, Ctrl+C, Ctrl+R, More). The page fits the visual viewport: the bar stays immediately above the soft keyboard and bottom navigation hides until the keyboard closes. More offers line editing, Ctrl+D and Select all; Clear sends shell Ctrl+L and Paste preserves bracketed paste.</p>
       <p>Now cards stay within the viewport: titles use at most two lines, status sits below them, and branch/Git details and long text wrap.</p>
       <p>Tap the top-right host button to open Server status and quotas: each monitored harness shows 5-hour and weekly usage meters, reset times and reading age. Unknown readings, stale data, errors and offline status remain explicit.</p>
       <p>Review lists what waits for a decision: items to publish, agent branches (merge asks for confirmation on the phone) and review requests. In a session's Changes, tap a line to write a note; notes and viewed files follow you to the laptop and go to the agent as one message you read first.</p>
     </div>
   </div>
+</section>
+
+<section id="phone-terminal" style="margin-block:48px">
+  <h2>Phone terminal keyboard (2026-10-14)</h2>
+  <div style="width:320px;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--paper)">
+    <div style="padding:12px;background:var(--chrome);border-bottom:1px solid var(--line)"><b>Work ▾ · Terminals</b></div>
+    <div style="padding:10px;font-family:monospace;min-height:120px">$ git status<br>On branch lp/mobile-terminal<br>nothing to commit<br>$ <span style="background:var(--teal)">&nbsp;</span></div>
+    <div style="padding:6px;background:var(--chrome);border-top:1px solid var(--line);display:grid;gap:4px">
+      <div style="display:flex;gap:4px;overflow-x:auto"><button style="min-width:44px;min-height:44px;flex:none">Tab</button><button style="min-width:44px;min-height:44px;flex:none">Esc</button><button style="min-width:44px;min-height:44px;flex:none">Ctrl</button><button style="min-width:44px;min-height:44px;flex:none">↑</button><button style="min-width:44px;min-height:44px;flex:none">↓</button><button style="min-width:44px;min-height:44px;flex:none">←</button><button style="min-width:44px;min-height:44px;flex:none">→</button></div>
+      <div style="display:flex;gap:4px;overflow-x:auto"><button style="min-width:44px;min-height:44px;flex:none">Copy</button><button style="min-width:44px;min-height:44px;flex:none">Paste</button><button style="min-width:44px;min-height:44px;flex:none">Clear</button><button style="min-width:44px;min-height:44px;flex:none">^C</button><button style="min-width:44px;min-height:44px;flex:none">^R</button><button style="min-width:44px;min-height:44px;flex:none">More</button></div>
+    </div>
+    <div style="padding:24px;text-align:center;background:var(--sunk);border-top:1px solid var(--line)">Device keyboard<br><small>Key bar remains directly above it</small></div>
+  </div>
+  <p>Preserve terminal focus and selection on taps. Copy never sends Ctrl+C; Clear sends Ctrl+L. More contains ^A, ^E, ^U, ^W, ^D and Select all. Swiping either row exposes the remaining keys without widening the page. Bottom navigation returns when the keyboard closes.</p>
 </section>
 
 <section id="phone-agent" style="margin-block:48px">

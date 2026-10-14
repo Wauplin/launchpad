@@ -110,7 +110,15 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
       }
       send(encoder.encode(d));
     });
-    terminalInputs.set(id, t);
+    terminalInputs.set(id, {
+      input: (data, wasUserInput) => { if (!disposed) { claim(); t.input(data, wasUserInput); } },
+      paste: (text) => { if (!disposed) { claim(); t.paste(text); } },
+      focus: () => { if (!disposed) t.focus(); },
+      getSelection: () => t.getSelection(),
+      selectAll: () => t.selectAll(),
+      // Respect cursor-key mode in full-screen programs as well as normal shell prompts.
+      arrow: (direction) => { claim(); t.input(`\u001b${t.modes.applicationCursorKeysMode ? "O" : "["}${direction}`, true); },
+    });
     const binary = t.onBinary((d) => send(Uint8Array.from(d, (c) => c.charCodeAt(0) & 0xff)));
     // The size this view would fit; the daemon applies it only while this view owns the PTY size.
     const sendSize = () => {
