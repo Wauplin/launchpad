@@ -128,6 +128,31 @@ async fn front_door_protocol() {
             .status(),
         StatusCode::UNAUTHORIZED
     );
+    // Reverse pairing starts publicly, but approval requires an authenticated browser.
+    let response = post("/auth/reverse/start").json(&json!({"name":"Reverse phone"})).send().await.unwrap();
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let reverse: Value = response.json().await.unwrap();
+    let reverse_code = reverse["code"].as_str().unwrap();
+    for endpoint in ["/api/devices/reverse/check", "/api/devices/reverse/approve"] {
+        assert_eq!(post(endpoint).json(&json!({"code":reverse_code})).send().await.unwrap().status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(post(endpoint).header("Cookie", cookie).header("Origin", "https://evil.example").json(&json!({"code":reverse_code})).send().await.unwrap().status(), StatusCode::FORBIDDEN);
+    }
+    assert_eq!(post("/auth/reverse/start").header("Origin", "https://evil.example").json(&json!({"name":"Intruder"})).send().await.unwrap().status(), StatusCode::FORBIDDEN);
+    let checked: Value = post("/api/devices/reverse/check").header("Cookie", cookie).json(&json!({"code":reverse_code})).send().await.unwrap().json().await.unwrap();
+    assert_eq!(checked["name"], "Reverse phone");
+    assert_eq!(post("/api/devices/reverse/approve").header("Cookie", cookie).json(&json!({"code":reverse_code})).send().await.unwrap().status(), StatusCode::OK);
+    assert_eq!(post("/auth/reverse/poll").json(&json!({"code":reverse_code,"secret":reverse_code})).send().await.unwrap().status(), StatusCode::BAD_REQUEST);
+    let response = post("/auth/reverse/poll").json(&json!({"code":reverse_code,"secret":reverse["secret"]})).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let reverse_cookie = response.headers()[header::SET_COOKIE].to_str().unwrap().to_string();
+    assert!(reverse_cookie.contains("HttpOnly; SameSite=Strict"));
+    assert!(reverse_cookie.contains("; Secure"));
+    let reverse_cookie = reverse_cookie.split(';').next().unwrap();
+    let reverse_devices: Value = get("/api/devices").header("Cookie", reverse_cookie).send().await.unwrap().json().await.unwrap();
+    let reverse_id = reverse_devices.as_array().unwrap().iter().find(|d| d["current"] == true).unwrap()["id"].as_str().unwrap();
+    assert_eq!(client.delete(format!("{base}/api/devices/{reverse_id}")).header("Host", "launchpad.example").header("Origin", "https://launchpad.example").header("Cookie", cookie).send().await.unwrap().status(), StatusCode::OK);
+    assert_eq!(get("/api/devices").header("Cookie", reverse_cookie).send().await.unwrap().status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(post("/auth/reverse/poll").json(&json!({"code":reverse_code,"secret":reverse["secret"]})).send().await.unwrap().status(), StatusCode::BAD_REQUEST);
     let devices: Value = get("/api/devices")
         .header("Cookie", cookie)
         .send()

@@ -42,6 +42,7 @@ export function DevicesView() {
     <NotificationsCard />
     <Card title="Pair a device" end={<button className="btn btn-sm btn-primary" disabled={busy !== null} onClick={() => void createPair()}>Create pairing link</button>}>
       <p className="text-sm text-ink-2">Scan the QR code with your phone, or open the link in another browser. Give that browser a name to finish pairing. Each link works once and expires after five minutes.</p>
+      <ReversePairing disabled={busy !== null} />
       <HttpsSetup disabled={busy !== null} onBusy={(active) => setBusy(active ? "https" : null)} onPair={setPair} />
       {pair?.warning && <p className="text-sm text-attn" role="status">{pair.warning}</p>}
       {pair && (remaining > 0 ? <div className="grid justify-items-start gap-2">
@@ -70,6 +71,47 @@ export function DevicesView() {
         </div>}
     </Card>
   </SettingsPage>;
+}
+
+function ReversePairing({ disabled }: { disabled: boolean }) {
+  const [code, setCode] = useState("");
+  const [request, setRequest] = useState<{ code: string; name: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const qc = useQueryClient();
+  const check = async () => {
+    setBusy(true);
+    setRequest(null);
+    try {
+      const normalized = code.replace(/[\s-]/g, "").toUpperCase();
+      const result = await api.post<{ name: string }>("/api/devices/reverse/check", { code: normalized });
+      setRequest({ code: normalized, name: result.name });
+    } catch (error) { toastError(error); }
+    finally { setBusy(false); }
+  };
+  const approve = async () => {
+    if (!request) return;
+    setBusy(true);
+    try {
+      await api.post("/api/devices/reverse/approve", { code: request.code });
+      setRequest(null); setCode("");
+      toast("Approved. The waiting browser will connect shortly.");
+      await qc.invalidateQueries({ queryKey: ["devices"] });
+    } catch (error) { setRequest(null); toastError(error); }
+    finally { setBusy(false); }
+  };
+  return <div className="grid gap-2 rounded border border-line p-3">
+    <p className="text-sm font-medium">Pair with a code from another browser</p>
+    <p className="text-xs text-ink-2">On the unpaired browser, choose Show pairing code. Enter its eight-character code here.</p>
+    <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); void check(); }}>
+      <label className="grid gap-1 text-xs">Pairing code<input className="field-input w-40 font-mono uppercase" value={code} maxLength={12} autoComplete="off" autoCapitalize="characters" spellCheck={false} placeholder="ABCD 2345" required disabled={disabled || busy} onChange={(event) => { setCode(event.target.value); setRequest(null); }} /></label>
+      <button className="btn btn-sm" disabled={disabled || busy}>Check code</button>
+    </form>
+    {request && <div className="grid gap-2" role="status">
+      <p className="text-sm">Allow <strong>{request.name}</strong> with code <span className="font-mono">{request.code}</span> full access to Launchpad?</p>
+      <p className="text-xs text-ink-2">Only approve a code you can see on your own device. The browser supplies its name; it is not proof of identity.</p>
+      <div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={disabled || busy} onClick={() => void approve()}>Approve browser</button><button className="btn btn-sm" disabled={busy} onClick={() => setRequest(null)}>Cancel</button></div>
+    </div>}
+  </div>;
 }
 
 type PairingInfo = { origin: string; daemon_port: number; https_port: number | null; installed: boolean; connected: boolean };

@@ -52,8 +52,14 @@ fn local_pair_warning(origin: &str) -> Option<&'static str> {
     } else {
         authority.split(':').next()?
     };
-    if host == "localhost" || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback()) {
-        Some("This link only works on this machine. Use a reachable network address to pair a browser on another device.")
+    if host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+    {
+        Some(
+            "This link only works on this machine. Use a reachable network address to pair a browser on another device.",
+        )
     } else {
         None
     }
@@ -82,6 +88,33 @@ impl Access {
     }
 }
 
+struct ReversePair {
+    secret_hash: String,
+    name: String,
+    expires_at: i64,
+    approved: bool,
+    polled_at: i64,
+}
+
+#[derive(Default)]
+struct ReversePairs {
+    pending: HashMap<String, ReversePair>,
+    started: Vec<i64>,
+    attempts: Vec<i64>,
+}
+
+fn rate_limit(attempts: &mut Vec<i64>, limit: usize) -> Result<(), ApiError> {
+    attempts.retain(|time| *time > now() - 60);
+    if attempts.len() >= limit {
+        return Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many pairing requests. Wait a minute.",
+        ));
+    }
+    attempts.push(now());
+    Ok(())
+}
+
 struct FrontDoor {
     origin: String,
     remote: bool,
@@ -97,6 +130,7 @@ pub struct Auth {
     serve_lock: tokio::sync::Mutex<()>,
     sessions: RwLock<HashMap<String, Session>>,
     pairs: RwLock<HashMap<String, i64>>,
+    reverse: RwLock<ReversePairs>,
     changes: watch::Sender<u64>,
     db: Db,
 }
@@ -145,10 +179,16 @@ impl Auth {
             token: paths.token()?,
             cookie: paths.cookie_name(),
             bind: config.bind.parse()?,
-            front_door: RwLock::new(FrontDoor { origin, hosts, origins, remote: config.public_origin.is_some() }),
+            front_door: RwLock::new(FrontDoor {
+                origin,
+                hosts,
+                origins,
+                remote: config.public_origin.is_some(),
+            }),
             serve_lock: tokio::sync::Mutex::new(()),
             sessions: RwLock::new(sessions),
             pairs: RwLock::new(HashMap::new()),
+            reverse: RwLock::new(ReversePairs::default()),
             changes,
             db,
         })
@@ -163,13 +203,20 @@ impl Auth {
     }
 
     fn activate_https(&self, origin: &str) -> anyhow::Result<()> {
-        let config = ServerConfig { public_origin: Some(origin.into()), ..ServerConfig::default() };
+        let config = ServerConfig {
+            public_origin: Some(origin.into()),
+            ..ServerConfig::default()
+        };
         let origin = config.origin()?.unwrap();
         anyhow::ensure!(origin.starts_with("https://"), "HTTPS origin required");
         let mut network = self.front_door.write().unwrap();
         let host = origin.split_once("://").unwrap().1.to_string();
-        if !network.hosts.contains(&host) { network.hosts.push(host); }
-        if !network.origins.contains(&origin) { network.origins.push(origin.clone()); }
+        if !network.hosts.contains(&host) {
+            network.hosts.push(host);
+        }
+        if !network.origins.contains(&origin) {
+            network.origins.push(origin.clone());
+        }
         network.origin = origin;
         network.remote = true;
         Ok(())
@@ -178,9 +225,16 @@ impl Auth {
     fn secure_cookie(&self, headers: &HeaderMap) -> bool {
         let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
         let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
-        self.front_door.read().unwrap().origins.iter().any(|allowed| {
-            allowed.starts_with("https://") && (host == allowed.split_once("://").map(|(_, host)| host) || origin == Some(allowed.as_str()))
-        })
+        self.front_door
+            .read()
+            .unwrap()
+            .origins
+            .iter()
+            .any(|allowed| {
+                allowed.starts_with("https://")
+                    && (host == allowed.split_once("://").map(|(_, host)| host)
+                        || origin == Some(allowed.as_str()))
+            })
     }
 
     fn check_token(&self, candidate: &str) -> bool {
@@ -302,7 +356,9 @@ impl Auth {
         );
         pairs.insert(hash(&code), expires_at);
         let warning = local_pair_warning(origin);
-        Ok(json!({"url":url,"expires_at":expires_at,"svg":svg,"terminal":terminal,"warning":warning}))
+        Ok(
+            json!({"url":url,"expires_at":expires_at,"svg":svg,"terminal":terminal,"warning":warning}),
+        )
     }
 
     async fn exchange(&self, code: &str, name: String) -> anyhow::Result<Option<String>> {
@@ -310,6 +366,10 @@ impl Auth {
         if expiry.is_none_or(|expiry| expiry <= now()) {
             return Ok(None);
         }
+        Ok(Some(self.create_device(name).await?))
+    }
+
+    async fn create_device(&self, name: String) -> anyhow::Result<String> {
         let token = secret();
         let id = uuid::Uuid::new_v4().to_string();
         let secret_hash = hash(&token);
@@ -329,7 +389,7 @@ impl Auth {
                 seen: AtomicI64::new(now()),
             },
         );
-        Ok(Some(token))
+        Ok(token)
     }
 
     async fn revoke(&self, id: String) -> anyhow::Result<()> {
@@ -337,7 +397,10 @@ impl Auth {
         self.db
             .call(move |conn| {
                 conn.execute("DELETE FROM browser_device WHERE id = ?1", [&db_id])?;
-                conn.execute("DELETE FROM push_subscription WHERE device_id = ?1", [&db_id])?;
+                conn.execute(
+                    "DELETE FROM push_subscription WHERE device_id = ?1",
+                    [&db_id],
+                )?;
                 Ok(())
             })
             .await?;
@@ -357,6 +420,10 @@ impl Auth {
 pub fn router() -> Router<Server> {
     Router::new()
         .route("/auth", get(sign_in).post(exchange))
+        .route("/auth/reverse/start", post(reverse_start))
+        .route("/auth/reverse/poll", post(reverse_poll))
+        .route("/api/devices/reverse/check", post(reverse_check))
+        .route("/api/devices/reverse/approve", post(reverse_approve))
         .route("/api/devices", get(devices))
         .route("/api/devices/pair", post(pair))
         .route("/api/devices/pairing-info", get(pairing_info))
@@ -370,12 +437,17 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
         return (StatusCode::FORBIDDEN, message).into_response();
     }
     let path = req.uri().path();
-    let private =
-        path == "/auth" || path.starts_with("/api/devices") || path.starts_with("/api/push");
+    let private = path == "/auth"
+        || path.starts_with("/auth/reverse/")
+        || path.starts_with("/api/devices")
+        || path.starts_with("/api/push");
     // Installable-app files hold no data, and browsers fetch the manifest, icons and service
     // worker updates without the session cookie (or before pairing on a Home Screen).
     let public = matches!(path, "/sw.js" | "/manifest.webmanifest") || path.starts_with("/icons/");
-    if path == "/api/health" || path == "/auth" || public {
+    if path == "/api/health"
+        || matches!(path, "/auth" | "/auth/reverse/start" | "/auth/reverse/poll")
+        || public
+    {
         // Health answers everyone, but only signed-in clients learn the profile and process id.
         if let Some(access) = s.auth.authenticate(req.headers()) {
             req.extensions_mut().insert(access);
@@ -414,7 +486,9 @@ async fn pairing_info(State(s): State<Server>) -> ApiResult<Value> {
 }
 
 #[derive(Deserialize)]
-struct HttpsPort { port: u16 }
+struct HttpsPort {
+    port: u16,
+}
 
 fn adopt_https(s: &Server, origin: &str) -> anyhow::Result<Value> {
     // Save only the selected origin, preserving all host-edited commands and environments.
@@ -426,19 +500,48 @@ fn adopt_https(s: &Server, origin: &str) -> anyhow::Result<Value> {
 }
 
 async fn run_https(State(s): State<Server>, Json(request): Json<HttpsPort>) -> ApiResult<Value> {
-    let _lock = s.auth.serve_lock.try_lock().map_err(|_| ApiError::conflict("HTTPS setup is already running"))?;
-    if request.port == 0 { return Err(ApiError::bad_request("Choose an HTTPS port from 1 to 65535")); }
-    let result = crate::tailnet::run(&s.app.env, s.app.paths.port, s.auth.bind, request.port).await?;
-    let pair = result.origin.as_deref().map(|origin| adopt_https(&s, origin)).transpose()?;
-    Ok(Json(json!({"pair":pair, "output":result.output, "approval_url":result.approval_url})))
+    let _lock = s
+        .auth
+        .serve_lock
+        .try_lock()
+        .map_err(|_| ApiError::conflict("HTTPS setup is already running"))?;
+    if request.port == 0 {
+        return Err(ApiError::bad_request(
+            "Choose an HTTPS port from 1 to 65535",
+        ));
+    }
+    let result =
+        crate::tailnet::run(&s.app.env, s.app.paths.port, s.auth.bind, request.port).await?;
+    let pair = result
+        .origin
+        .as_deref()
+        .map(|origin| adopt_https(&s, origin))
+        .transpose()?;
+    Ok(Json(
+        json!({"pair":pair, "output":result.output, "approval_url":result.approval_url}),
+    ))
 }
 
 async fn check_https(State(s): State<Server>, Json(request): Json<HttpsPort>) -> ApiResult<Value> {
-    let _lock = s.auth.serve_lock.try_lock().map_err(|_| ApiError::conflict("HTTPS setup is already running"))?;
-    if request.port == 0 { return Err(ApiError::bad_request("Choose an HTTPS port from 1 to 65535")); }
-    let origin = crate::tailnet::check(&s.app.env, s.app.paths.port, s.auth.bind, request.port).await?;
-    let pair = origin.as_deref().map(|origin| adopt_https(&s, origin)).transpose()?;
-    Ok(Json(json!({"pair":pair, "output":if pair.is_some() { "HTTPS is ready. Pairing URL updated." } else { "HTTPS is not ready yet. Complete any Tailscale approval, then check again." }, "approval_url":null})))
+    let _lock = s
+        .auth
+        .serve_lock
+        .try_lock()
+        .map_err(|_| ApiError::conflict("HTTPS setup is already running"))?;
+    if request.port == 0 {
+        return Err(ApiError::bad_request(
+            "Choose an HTTPS port from 1 to 65535",
+        ));
+    }
+    let origin =
+        crate::tailnet::check(&s.app.env, s.app.paths.port, s.auth.bind, request.port).await?;
+    let pair = origin
+        .as_deref()
+        .map(|origin| adopt_https(&s, origin))
+        .transpose()?;
+    Ok(Json(
+        json!({"pair":pair, "output":if pair.is_some() { "HTTPS is ready. Pairing URL updated." } else { "HTTPS is not ready yet. Complete any Tailscale approval, then check again." }, "approval_url":null}),
+    ))
 }
 
 async fn pair(State(s): State<Server>, headers: HeaderMap) -> ApiResult<Value> {
@@ -484,21 +587,160 @@ async fn exchange(
             "Pairing link expired or already used. Create a new link.",
         ));
     };
+    Ok(device_response(&s.auth, &headers, &token))
+}
+
+fn device_response(auth: &Auth, headers: &HeaderMap, token: &str) -> Response {
     // Never trust forwarded protocol headers. Secure is decided by the configured external origin
     // and its Host/Origin; the local desktop's HTTP cookie must keep working behind the same daemon.
-    let secure = if s.auth.secure_cookie(&headers) { "; Secure" } else { "" };
+    let secure = if auth.secure_cookie(headers) {
+        "; Secure"
+    } else {
+        ""
+    };
     let cookie = format!(
         "{}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={DEVICE_LIFETIME}{secure}",
-        s.auth.cookie
+        auth.cookie
     );
-    Ok((
+    (
         [
             (header::SET_COOKIE, cookie),
             (header::CACHE_CONTROL, "no-store".into()),
         ],
         Json(json!({"ok":true})),
     )
-        .into_response())
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct ReverseStart {
+    name: String,
+}
+#[derive(Deserialize)]
+struct ReverseCode {
+    code: String,
+}
+#[derive(Deserialize)]
+struct ReversePoll {
+    code: String,
+    secret: String,
+}
+
+fn normalize_code(code: &str) -> String {
+    code.chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .collect::<String>()
+        .to_ascii_uppercase()
+}
+
+impl Auth {
+    fn start_reverse(&self, name: String) -> Result<Value, ApiError> {
+        let name = name.trim().to_string();
+        if name.is_empty() || name.chars().count() > 80 {
+            return Err(ApiError::bad_request(
+                "Use a device name of 1 to 80 characters",
+            ));
+        }
+        let mut state = self.reverse.write().unwrap();
+        rate_limit(&mut state.started, 20)?;
+        state.pending.retain(|_, pair| pair.expires_at > now());
+        if state.pending.len() >= 100 {
+            return Err(ApiError::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Too many pending requests. Wait five minutes.",
+            ));
+        }
+        // Exactly 40 random bits; omit visually ambiguous letters and digits.
+        const ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        let code = loop {
+            let candidate: String = rand::random::<[u8; 8]>()
+                .iter()
+                .map(|b| ALPHABET[(b & 31) as usize] as char)
+                .collect();
+            if !state.pending.contains_key(&candidate) {
+                break candidate;
+            }
+        };
+        let secret = secret();
+        let expires_at = now() + PAIR_LIFETIME;
+        state.pending.insert(
+            code.clone(),
+            ReversePair {
+                secret_hash: hash(&secret),
+                name,
+                expires_at,
+                approved: false,
+                polled_at: 0,
+            },
+        );
+        Ok(json!({"code":code,"secret":secret,"expires_at":expires_at}))
+    }
+
+    fn check_reverse(&self, code: &str, approve: bool) -> Result<Value, ApiError> {
+        let mut state = self.reverse.write().unwrap();
+        rate_limit(&mut state.attempts, 30)?;
+        let pair = state
+            .pending
+            .get_mut(&normalize_code(code))
+            .filter(|pair| pair.expires_at > now() && !pair.approved)
+            .ok_or_else(|| ApiError::bad_request("Code expired, already approved or not found."))?;
+        if approve {
+            pair.approved = true;
+        }
+        Ok(json!({"name":pair.name,"expires_at":pair.expires_at}))
+    }
+
+    fn collect_reverse(&self, code: &str, secret: &str) -> Result<Option<String>, ApiError> {
+        let mut state = self.reverse.write().unwrap();
+        let code = normalize_code(code);
+        let pair = state
+            .pending
+            .get_mut(&code)
+            .filter(|pair| pair.expires_at > now() && pair.secret_hash == hash(secret))
+            .ok_or_else(|| {
+                ApiError::bad_request(
+                    "Pairing request expired or unavailable. Generate a new code.",
+                )
+            })?;
+        if pair.polled_at > now() - 2 {
+            return Err(ApiError::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Wait before checking again.",
+            ));
+        }
+        pair.polled_at = now();
+        if !pair.approved {
+            return Ok(None);
+        }
+        Ok(state.pending.remove(&code).map(|pair| pair.name))
+    }
+}
+
+async fn reverse_start(
+    State(s): State<Server>,
+    Json(body): Json<ReverseStart>,
+) -> ApiResult<Value> {
+    Ok(Json(s.auth.start_reverse(body.name)?))
+}
+async fn reverse_check(State(s): State<Server>, Json(body): Json<ReverseCode>) -> ApiResult<Value> {
+    Ok(Json(s.auth.check_reverse(&body.code, false)?))
+}
+async fn reverse_approve(
+    State(s): State<Server>,
+    Json(body): Json<ReverseCode>,
+) -> ApiResult<Value> {
+    Ok(Json(s.auth.check_reverse(&body.code, true)?))
+}
+async fn reverse_poll(
+    State(s): State<Server>,
+    headers: HeaderMap,
+    Json(body): Json<ReversePoll>,
+) -> Result<Response, ApiError> {
+    let Some(name) = s.auth.collect_reverse(&body.code, &body.secret)? else {
+        return Ok(Json(json!({"ok":false})).into_response());
+    };
+    let token = s.auth.create_device(name).await?;
+    Ok(device_response(&s.auth, &headers, &token))
 }
 
 #[derive(Serialize)]
@@ -516,13 +758,29 @@ async fn devices(
     State(s): State<Server>,
     Extension(access): Extension<Access>,
 ) -> ApiResult<Value> {
-    let rows = s.auth.db.call(move |conn| {
-        let mut stmt = conn.prepare("SELECT id, name, created_at, expires_at, last_seen_at,
+    let rows = s
+        .auth
+        .db
+        .call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, name, created_at, expires_at, last_seen_at,
             EXISTS (SELECT 1 FROM push_subscription p WHERE p.device_id = browser_device.id)
-            FROM browser_device WHERE expires_at > ?1 ORDER BY created_at DESC")?;
-        let rows = stmt.query_map([now()], |r| Ok(Device { id:r.get(0)?, name:r.get(1)?, created_at:r.get(2)?, expires_at:r.get(3)?, last_seen_at:r.get(4)?, push:r.get(5)?, current:false }))?;
-        Ok(rows.collect::<Result<Vec<_>, _>>()?)
-    }).await?;
+            FROM browser_device WHERE expires_at > ?1 ORDER BY created_at DESC",
+            )?;
+            let rows = stmt.query_map([now()], |r| {
+                Ok(Device {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    created_at: r.get(2)?,
+                    expires_at: r.get(3)?,
+                    last_seen_at: r.get(4)?,
+                    push: r.get(5)?,
+                    current: false,
+                })
+            })?;
+            Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        })
+        .await?;
     let rows: Vec<_> = rows
         .into_iter()
         .map(|mut d| {
@@ -553,6 +811,9 @@ async fn sign_in() -> impl IntoResponse {
 const SIGN_IN: &str = r#"<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pair Launchpad</title></head>
 <body style="font:16px system-ui;padding:24px;color:#17202B;background:#F4F6F9;max-width:480px;margin:auto">
 <h1 id="heading">Pair this browser</h1><p id="instructions">On the host, run <code>launchpad pair</code>, or open Settings → Devices in a signed-in browser. Scan the QR code or open its link on this device.</p>
+<section id="reverse" hidden><p>Or show a code here and enter it in Settings → Devices on your signed-in laptop.</p>
+<form id="reverse-form"><p><label>Device name<br><input id="reverse-name" maxlength="80" required autocomplete="off" placeholder="My phone" style="font:inherit;padding:8px;max-width:90%"></label></p><button id="generate" style="font:inherit;padding:8px">Show pairing code</button></form>
+<p id="reverse-code" style="font: bold 32px monospace;letter-spacing:3px" aria-live="polite"></p><p id="reverse-status" role="status"></p></section>
 <button id="reconnect" hidden style="font:inherit;padding:8px">Reconnect to this machine</button>
 <form id="form"><p><label>Device name<br><input id="name" autocomplete="off" maxlength="80" required style="font:inherit;padding:8px;max-width:90%" placeholder="My phone"></label></p>
 <button style="font:inherit;padding:8px" id="button">Pair browser</button></form><p id="message" role="status"></p>
@@ -568,12 +829,24 @@ if(window.__launchpadDesktop && window.__launchpadReconnect){
  reconnect.hidden=false;
  reconnect.onclick=async()=>{reconnect.disabled=true;message.textContent='Connecting…';try{await window.__launchpadReconnect();}catch(e){message.textContent=String(e);reconnect.disabled=false;}};
 }
-if(!code){form.hidden=true;}else{document.getElementById('name').focus();}
+if(!code){form.hidden=true;document.getElementById('reverse').hidden=!!window.__launchpadDesktop;}else{document.getElementById('name').focus();}
 form.onsubmit=async(e)=>{e.preventDefault(); const button=document.getElementById('button'); button.disabled=true;
 try{const r=await fetch('/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,name:document.getElementById('name').value})});
 const data=await r.json();if(!r.ok)throw new Error(data.error || 'Could not pair browser');
 location.replace(destination());
 }catch(e){message.textContent=e.message;button.disabled=false;}};
+const reverseForm=document.getElementById('reverse-form'), reverseStatus=document.getElementById('reverse-status'), generate=document.getElementById('generate');
+reverseForm.onsubmit=async(e)=>{e.preventDefault();generate.disabled=true;reverseStatus.textContent='Creating code…';
+try{const r=await fetch('/auth/reverse/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:document.getElementById('reverse-name').value})});
+const request=await r.json();if(!r.ok)throw new Error(request.error || 'Could not create code');
+document.getElementById('reverse-code').textContent=request.code.slice(0,4)+' '+request.code.slice(4);
+reverseStatus.textContent='Enter this code on your laptop in Settings → Devices. Expires after five minutes. Waiting for approval…';
+const poll=async()=>{if(Date.now()>=request.expires_at*1000){reverseStatus.textContent='Code expired. Show a new code.';generate.disabled=false;return;}
+try{const r=await fetch('/auth/reverse/poll',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:request.code,secret:request.secret})});const data=await r.json();
+if(r.status===429){setTimeout(poll,3000);return;}if(!r.ok)throw new Error(data.error || 'Pairing failed');if(data.ok){location.replace(destination());return;}
+}catch(e){if(e instanceof TypeError){reverseStatus.textContent='Connection lost. Retrying…';setTimeout(poll,3000);return;}reverseStatus.textContent=e.message;generate.disabled=false;return;}
+setTimeout(poll,3000);};setTimeout(poll,3000);
+}catch(e){reverseStatus.textContent=e.message;generate.disabled=false;}};
 // The local shell has already requested a one-time link through its bearer credential.
 if(code && params.get('desktop')==='1'){
 fetch('/api/devices').then(r=>{if(r.ok){location.replace(destination());}
@@ -584,6 +857,70 @@ else{document.getElementById('name').value='Desktop';form.requestSubmit();}}).ca
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn reverse_pairing_requires_approval_and_private_secret() {
+        let fixture = Fixture::new();
+        let auth = fixture.auth().await;
+        let request = auth.start_reverse("Phone".into()).unwrap();
+        let code = request["code"].as_str().unwrap();
+        let secret = request["secret"].as_str().unwrap();
+        assert_eq!(code.len(), 8);
+        assert!(
+            code.bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+        );
+        assert!(auth.collect_reverse(code, "wrong").is_err());
+        assert_eq!(auth.collect_reverse(code, secret).unwrap(), None);
+        assert!(auth.collect_reverse(code, secret).is_err()); // poll rate limit
+        assert_eq!(
+            auth.check_reverse(&code.to_lowercase(), false).unwrap()["name"],
+            "Phone"
+        );
+        auth.check_reverse(code, true).unwrap();
+        assert!(auth.check_reverse(code, true).is_err());
+        auth.reverse
+            .write()
+            .unwrap()
+            .pending
+            .get_mut(code)
+            .unwrap()
+            .polled_at = 0;
+        assert!(auth.collect_reverse(code, "wrong").is_err());
+        let name = auth.collect_reverse(code, secret).unwrap().unwrap();
+        let token = auth.create_device(name).await.unwrap();
+        assert!(auth.authenticate(&browser(&auth, &token)).is_some());
+        assert!(auth.collect_reverse(code, secret).is_err());
+    }
+
+    #[tokio::test]
+    async fn reverse_requests_expire_and_are_bounded() {
+        let fixture = Fixture::new();
+        let auth = fixture.auth().await;
+        assert!(auth.start_reverse(" ".into()).is_err());
+        let request = auth.start_reverse("Phone".into()).unwrap();
+        let code = request["code"].as_str().unwrap();
+        auth.reverse
+            .write()
+            .unwrap()
+            .pending
+            .get_mut(code)
+            .unwrap()
+            .expires_at = now() - 1;
+        assert!(auth.check_reverse(code, true).is_err());
+        assert!(
+            auth.collect_reverse(code, request["secret"].as_str().unwrap())
+                .is_err()
+        );
+        for _ in 1..20 {
+            auth.start_reverse("Phone".into()).unwrap();
+        }
+        assert!(auth.start_reverse("Phone".into()).is_err());
+        for _ in 1..30 {
+            assert!(auth.check_reverse("INVALID", false).is_err());
+        }
+        assert_eq!(auth.reverse.read().unwrap().attempts.len(), 30);
+    }
+
     pub(super) struct Fixture(pub(super) Paths);
     impl Fixture {
         pub(super) fn new() -> Self {
@@ -722,19 +1059,29 @@ mod tests {
     #[tokio::test]
     async fn https_activation_updates_guard_and_cookies_without_losing_loopback() {
         let fixture = Fixture::new();
-        let auth = Auth::new(&fixture.0, &ServerConfig::default(),
-            launchpad_core::db::open_state(&fixture.0.state_db()).unwrap()).await.unwrap();
+        let auth = Auth::new(
+            &fixture.0,
+            &ServerConfig::default(),
+            launchpad_core::db::open_state(&fixture.0.state_db()).unwrap(),
+        )
+        .await
+        .unwrap();
         let mut headers = HeaderMap::new();
         headers.insert(header::HOST, "host.example.ts.net".parse().unwrap());
-        headers.insert(header::ORIGIN, "https://host.example.ts.net".parse().unwrap());
+        headers.insert(
+            header::ORIGIN,
+            "https://host.example.ts.net".parse().unwrap(),
+        );
         assert!(!auth.remote());
         assert!(auth.check_front_door(&headers, &Method::POST).is_err());
-        auth.activate_https("https://host.example.ts.net:443").unwrap();
+        auth.activate_https("https://host.example.ts.net:443")
+            .unwrap();
         assert_eq!(auth.origin(), "https://host.example.ts.net");
         assert!(auth.remote());
         assert!(auth.check_front_door(&headers, &Method::POST).is_ok());
         assert!(auth.secure_cookie(&headers));
-        auth.activate_https("https://host.example.ts.net:8443").unwrap();
+        auth.activate_https("https://host.example.ts.net:8443")
+            .unwrap();
         assert!(auth.secure_cookie(&headers)); // old HTTPS viewers remain trusted too
         assert!(auth.check_front_door(&headers, &Method::POST).is_ok());
         headers.insert(header::HOST, "127.0.0.1:7318".parse().unwrap());
@@ -744,7 +1091,12 @@ mod tests {
         assert!(auth.activate_https("http://foreign.example").is_err());
         assert!(auth.activate_https("https://host.example/path").is_err());
         let pair = auth.pair(&auth.origin()).unwrap();
-        assert!(pair["url"].as_str().unwrap().starts_with("https://host.example.ts.net:8443/auth#code="));
+        assert!(
+            pair["url"]
+                .as_str()
+                .unwrap()
+                .starts_with("https://host.example.ts.net:8443/auth#code=")
+        );
     }
 
     #[tokio::test]
@@ -754,20 +1106,38 @@ mod tests {
             public_origin: Some("http://100.64.1.2:7318".into()),
             ..ServerConfig::default()
         };
-        let auth = Auth::new(&fixture.0, &config,
-            launchpad_core::db::open_state(&fixture.0.state_db()).unwrap()).await.unwrap();
+        let auth = Auth::new(
+            &fixture.0,
+            &config,
+            launchpad_core::db::open_state(&fixture.0.state_db()).unwrap(),
+        )
+        .await
+        .unwrap();
         assert!(auth.remote());
         let mut headers = HeaderMap::new();
         headers.insert(header::HOST, "100.64.1.2:7318".parse().unwrap());
         headers.insert(header::ORIGIN, "http://100.64.1.2:7318".parse().unwrap());
         assert!(auth.check_front_door(&headers, &Method::POST).is_ok());
         headers.insert(header::ORIGIN, "http://100.64.1.3:7318".parse().unwrap());
-        assert_eq!(auth.check_front_door(&headers, &Method::POST), Err("foreign Origin"));
+        assert_eq!(
+            auth.check_front_door(&headers, &Method::POST),
+            Err("foreign Origin")
+        );
         let pair = auth.pair(&auth.origin()).unwrap();
-        assert!(pair["url"].as_str().unwrap().starts_with("http://100.64.1.2:7318/auth#code="));
+        assert!(
+            pair["url"]
+                .as_str()
+                .unwrap()
+                .starts_with("http://100.64.1.2:7318/auth#code=")
+        );
         assert!(pair["warning"].is_null());
         let local = auth.pair(&fixture.0.base_url()).unwrap();
-        assert!(local["warning"].as_str().unwrap().contains("only works on this machine"));
+        assert!(
+            local["warning"]
+                .as_str()
+                .unwrap()
+                .contains("only works on this machine")
+        );
         assert!(local_pair_warning("http://[::1]:7318").is_some());
         assert!(local_pair_warning("http://[::1]").is_some());
         assert!(local_pair_warning("http://127.0.0.2").is_some());

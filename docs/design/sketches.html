@@ -2095,6 +2095,15 @@ Read codex.rs</pre></details></div>
   <div style="background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:24px;max-width:700px">
     <p>General · Workspaces · Harnesses · Worktrees · <b>Devices</b></p>
     <h3>Pair a device <button type="button">Create pairing link</button></h3>
+    <div style="border:1px solid var(--line);border-radius:8px;padding:12px;margin-block:12px">
+      <b>Pair with a code from another browser</b>
+      <p>On the unpaired phone tab: name the device → Show pairing code → <code>ABCD 2345</code> (five minutes).</p>
+      <p><label>Pairing code <input value="ABCD 2345" style="width:120px"></label> <button type="button">Check code</button></p>
+      <p>Allow <b>My phone</b> with code <code>ABCD2345</code> full access to Launchpad?</p>
+      <p><small>Only approve a code you can see on your own device. The browser supplies its name; it is not proof of identity.</small></p>
+      <button type="button">Approve browser</button> <button type="button">Cancel</button>
+      <p><small>The waiting phone tab connects automatically after approval. Keep it open.</small></p>
+    </div>
     <div style="width:200px;height:200px;border:2px dashed var(--line);display:grid;place-items:center">QR code appears here</div>
     <p>Pairing URL<br><code style="overflow-wrap:anywhere">https://launchpad.example.ts.net/auth#code=example-code</code> <button type="button">Copy URL</button><br><small>Expires in 4:59 · single use</small></p>
     <div style="border:1px solid var(--line);border-radius:8px;padding:12px;margin-block:12px">
