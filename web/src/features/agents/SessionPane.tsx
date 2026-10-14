@@ -18,7 +18,7 @@ import { HarnessMark, useHarnessInfo } from "@/components/HarnessMark";
 import { CodeLinksContext, ShellCodeContext, type CodeLinks } from "@/components/Markdown";
 import { pathResolver, useCodeFiles } from "@/features/code/lib";
 import { useMessageDrafts } from "@/stores/messages";
-import { isRunning } from "@/lib/sessionStatus";
+import { isDone, isRunning } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { abandonOperation } from "@/lib/operations";
@@ -357,6 +357,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
             <Popover align="right" width={260} trigger={({ open, toggle }) => <button className={`${phone ? "iconbtn" : "btn btn-sm"} ${open ? "bg-select!" : ""}`} aria-label="Session actions" title="Session actions" aria-expanded={open} onClick={toggle}>{phone ? <span aria-hidden="true" className="text-xl leading-none">⋯</span> : <>More<Icon name="chev" size={12} /></>}</button>}>
               {(close) => <>
                 {phone && <>
+                  {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Needs you for later" onClick={() => { close(); onClear(); void act(s.id, "unread"); }} />}
                   <MenuItem label="Session details" detail="Branch, usage and follow-up agent" onClick={() => { close(); setDetailsOpen(true); }} />
                   <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder" onClick={() => { close(); void openTerminal.shell(s.cwd); }} />
                 </>}
