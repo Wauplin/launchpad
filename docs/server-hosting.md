@@ -28,7 +28,7 @@ Recommended: [Tailscale Serve](https://tailscale.com/kb/1312/serve). It gives HT
 tailscale serve --bg 7317
 ```
 
-The app is then at `https://<host>.<tailnet>.ts.net`. With no explicit `public_origin`, restart the daemon to discover this matching HTTPS route automatically. Alternatively, set `public_origin` in the `[server]` section of `~/.config/launchpad/config.toml` to that exact origin and restart. Then run `launchpad pair` on the server and scan the QR code with each device. Alternatively, use a reverse proxy with an identity-aware login in front (Cloudflare Access, oauth2-proxy, …). Do not expose port 7317 directly to the internet.
+The app is then at `https://<host>.<tailnet>.ts.net`. Settings → Devices → Pair a device offers Run command when Tailscale is installed, or Update HTTPS URL after manual setup; both can save and activate the matching private HTTPS origin and refresh the QR/link without restarting Launchpad. Startup discovery also recognizes matching routes when no explicit `public_origin` is configured. Alternatively, set `public_origin` in the `[server]` section of `~/.config/launchpad/config.toml` to that exact origin and restart when idle. Then run `launchpad pair` on the server and scan the QR code with each device. Alternatively, use a reverse proxy with an identity-aware login in front (Cloudflare Access, oauth2-proxy, …). Do not expose port 7317 directly to the internet.
 
 The app must live at the root of a host name: the UI uses absolute paths (`/api`, `/ws`, `/assets`, `/auth`). Use a dedicated host name such as `launchpad.example.com`, not a sub-path such as `example.com/launchpad`.
 

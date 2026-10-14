@@ -2097,20 +2097,19 @@ Read codex.rs</pre></details></div>
     <h3>Pair a device <button type="button">Create pairing link</button></h3>
     <div style="width:200px;height:200px;border:2px dashed var(--line);display:grid;place-items:center">QR code appears here</div>
     <p>Pairing URL<br><code style="overflow-wrap:anywhere">https://launchpad.example.ts.net/auth#code=example-code</code> <button type="button">Copy URL</button><br><small>Expires in 4:59 · single use</small></p>
-    <h3>HTTPS access with Tailscale</h3>
-    <p>Tailscale Serve gives Launchpad an HTTPS address and manages its certificate. It keeps running in the background.</p>
-    <ol>
-      <li>Install Tailscale and sign in on the Launchpad machine. Check existing routes with <code>tailscale serve status</code>.</li>
-      <li>Run this command on that machine and follow any certificate approval or permission instructions.<p>HTTPS port <input type="number" value="8443" min="1" max="65535" style="width:90px"><br><small>Suggested port: 8443. Port 443 already serves another app.</small></p><p><code style="overflow-wrap:anywhere">tailscale serve --bg --https=8443 http://127.0.0.1:7317</code> <button type="button">Copy command</button></p></li>
-      <li>When agents and terminals are idle, restart the Launchpad daemon and create a new pairing link.</li>
-    </ol>
-    <p><small>The helper copies instructions; it does not change Tailscale or restart Launchpad. Avoid occupied or Funnel-enabled ports.</small></p>
-    <p><a href="https://tailscale.com/docs/reference/tailscale-cli/serve" target="_blank" rel="noopener noreferrer">Tailscale Serve setup guide</a></p>
+    <div style="border:1px solid var(--line);border-radius:8px;padding:12px;margin-block:12px">
+      <p>Use Tailscale Serve to pair over HTTPS. Tailscale manages the certificate and keeps the connection running in the background.</p>
+      <p>HTTPS port <input type="number" value="8443" min="1" max="65535" style="width:90px"><br><small>Suggested port: 8443. Existing routes are kept. Forwards to Launchpad on port 7317.</small></p>
+      <p><code style="overflow-wrap:anywhere">tailscale serve --bg --https=8443 --set-path=/ http://127.0.0.1:7317</code></p>
+      <p><button type="button">Run command</button> <button type="button">Copy command</button> <button type="button">Update HTTPS URL</button></p>
+      <p><small>Once ready, the QR code and URL update automatically.</small></p>
+      <p><a href="https://tailscale.com/docs/reference/tailscale-cli/serve" target="_blank" rel="noopener noreferrer">Tailscale Serve help</a></p>
+    </div>
     <h3>Paired browsers</h3>
     <p><b>My laptop</b> · This browser <button type="button">Sign out</button></p>
     <p><b>My phone</b> · Paired 13/10/2026 <button type="button">Revoke</button></p>
   </div>
-  <p>Scanning opens a plain sign-in page with a device name field and Pair browser button. Revocation disconnects viewers while host processes keep running. Use the existing settings cards and a virtualized browser list; navigation wraps at narrow widths.</p>
+  <p>The Tailscale box is part of Pair a device and appears only when its CLI is installed. Run command preserves other routes, shows any approval link/output inline and activates the verified HTTPS URL with a fresh QR code immediately; Update HTTPS URL checks completed manual setup or pending approval. No daemon restart or agent interruption. Scanning opens a plain sign-in page with a device name field and Pair browser button. Revocation disconnects viewers while host processes keep running. Use the existing settings cards and a virtualized browser list; navigation wraps at narrow widths.</p>
 </section>
 
 <section id="phone" style="margin-block:48px">

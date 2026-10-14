@@ -31,7 +31,7 @@ pub struct Config {
     pub variants: Vec<HarnessVariant>,
 }
 
-/// Network front door. Changes require a daemon restart; configure these in the file.
+/// Network front door. File edits require restart; pairing can apply verified HTTPS live.
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(default)]
 pub struct ServerConfig {

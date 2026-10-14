@@ -42,6 +42,7 @@ export function DevicesView() {
     <NotificationsCard />
     <Card title="Pair a device" end={<button className="btn btn-sm btn-primary" disabled={busy !== null} onClick={() => void createPair()}>Create pairing link</button>}>
       <p className="text-sm text-ink-2">Scan the QR code with your phone, or open the link in another browser. Give that browser a name to finish pairing. Each link works once and expires after five minutes.</p>
+      <HttpsSetup disabled={busy !== null} onBusy={(active) => setBusy(active ? "https" : null)} onPair={setPair} />
       {pair?.warning && <p className="text-sm text-attn" role="status">{pair.warning}</p>}
       {pair && (remaining > 0 ? <div className="grid justify-items-start gap-2">
         <img alt="Scan to pair Launchpad" className="h-64 w-64 max-w-full" src={`data:image/svg+xml;base64,${btoa(pair.svg)}`} />
@@ -55,7 +56,6 @@ export function DevicesView() {
         <span className="text-xs text-ink-3" role="status">Expires in {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} · single use</span>
       </div> : <p className="text-sm text-ink-3" role="status">Pairing link expired. Create a new link.</p>)}
     </Card>
-    <HttpsSetup />
     <Card title="Paired browsers">
       <p className="text-sm text-ink-2">Revoke signs out that browser and disconnects its event and terminal viewers. Agents and terminals keep running on the host.</p>
       {devices.error && <p className="text-sm text-attn" role="alert">{devices.error.message}</p>}
@@ -72,37 +72,55 @@ export function DevicesView() {
   </SettingsPage>;
 }
 
-type PairingInfo = { origin: string; daemon_port: number; https_port: number | null; automatic_origin: boolean; config_file: string };
+type PairingInfo = { origin: string; daemon_port: number; https_port: number | null; installed: boolean; connected: boolean };
+type HttpsResult = { pair: Pair | null; output: string; approval_url: string | null };
 
-function HttpsSetup() {
+function HttpsSetup({ disabled, onBusy, onPair }: { disabled: boolean; onBusy: (busy: boolean) => void; onPair: (pair: Pair) => void }) {
+  const qc = useQueryClient();
   const info = useQuery({ queryKey: ["pairing-info"], queryFn: () => api.get<PairingInfo>("/api/devices/pairing-info"), staleTime: 30_000 });
   const [port, setPort] = useState<string | null>(null);
+  const [working, setWorking] = useState<"run" | "check" | null>(null);
+  const [result, setResult] = useState<HttpsResult | null>(null);
   const data = info.data;
-  const value = port ?? (data?.https_port?.toString() ?? "");
+  if (!data?.installed) return null;
+  const value = port ?? (data.https_port?.toString() ?? "");
   const httpsPort = Number(value);
   const valid = /^\d+$/.test(value) && Number.isInteger(httpsPort) && httpsPort >= 1 && httpsPort <= 65535;
-  const command = data && valid ? `tailscale serve --bg --https=${httpsPort} http://127.0.0.1:${data.daemon_port}` : null;
-  const instructions = <div className="grid min-w-0 gap-3 text-sm">
-    <p>Tailscale Serve gives Launchpad an HTTPS address and manages its certificate. The other device must be signed in to your tailnet. The command keeps Serve running in the background.</p>
-    <ol className="list-decimal space-y-2 pl-5">
-      <li>Install Tailscale and sign in on the machine running Launchpad. Run <code className="font-mono text-xs">tailscale serve status</code> to check existing routes before changing them.</li>
-      <li>
-        Run this command on the Launchpad machine. Follow any Tailscale approval link or permission instructions it prints.
-        <div className="mt-2 grid min-w-0 gap-2">
-          <label className="flex flex-wrap items-center gap-2">HTTPS port <input className="field-input w-24 font-mono text-xs" type="number" inputMode="numeric" min={1} max={65535} placeholder="443" value={value} onChange={(e) => setPort(e.target.value)} /></label>
-          <p className="text-xs text-ink-3">{data?.https_port ? `Suggested port: ${data.https_port}. Use an unused port to keep other apps' routes intact. This forwards to this daemon on port ${data.daemon_port}.` : "Choose an unused HTTPS port. The usual ports are already in use or could not be checked."}</p>
-          {command ? <div className="flex min-w-0 flex-wrap items-start gap-2"><code className="min-w-0 flex-1 basis-[240px] break-all rounded bg-chrome p-2 text-xs">{command}</code><button className="btn btn-sm" onClick={() => void copyText(command).then(() => toast("HTTPS setup command copied")).catch(toastError)}>Copy command</button></div> : <p className="text-xs text-attn">Choose a port from 1 to 65535 to see the command.</p>}
-          <p className="text-xs text-ink-3">This changes the selected port's Serve route. Do not use a port that forwards to another app or has Funnel enabled.</p>
-        </div>
-      </li>
-      <li>{data?.automatic_origin ? "Once agents and terminals are idle, restart the Launchpad daemon to discover the new HTTPS address. Then create a new pairing link above." : <>Set <code className="font-mono text-xs">[server] public_origin</code> in <code className="break-all font-mono text-xs">{data?.config_file}</code> to the exact HTTPS origin printed by Tailscale (including a non-default port). Once agents and terminals are idle, restart the Launchpad daemon and create a new pairing link above.</>}</li>
-    </ol>
-    <p className="text-xs text-ink-3">Restarting the daemon interrupts active agents and closes integrated terminals. This helper copies instructions; it does not change Tailscale or restart Launchpad.</p>
-    <a className="justify-self-start text-teal-ink underline" {...externalLinkProps("https://tailscale.com/docs/reference/tailscale-cli/serve")}>Tailscale Serve setup guide</a>
+  const command = valid ? `tailscale serve --bg --https=${httpsPort} --set-path=/ http://127.0.0.1:${data.daemon_port}` : null;
+  const run = async (action: "run" | "check") => {
+    onBusy(true);
+    setWorking(action);
+    try {
+      const res = await api.post<HttpsResult>(`/api/devices/https/${action}`, { port: httpsPort });
+      setResult(res);
+      if (res.pair) { onPair(res.pair); toast("HTTPS pairing URL updated"); }
+      await Promise.all([qc.invalidateQueries({ queryKey: ["pairing-info"] }), qc.invalidateQueries({ queryKey: ["config"] })]);
+    } catch (error) { setResult({ pair: null, output: error instanceof Error ? error.message : String(error), approval_url: null }); }
+    finally { setWorking(null); onBusy(false); }
+  };
+  const controls = <div className="grid min-w-0 gap-2 text-sm">
+    <p>Use Tailscale Serve to pair over HTTPS. Tailscale manages the certificate and keeps the connection running in the background. Both devices must be signed in to your tailnet.</p>
+    {!data.connected && <p className="text-attn">Sign in using the Tailscale app on this machine, then refresh.</p>}
+    <label className="flex flex-wrap items-center gap-2">HTTPS port <input className="field-input w-24 font-mono text-xs" type="number" inputMode="numeric" min={1} max={65535} placeholder="443" value={value} disabled={disabled} onChange={(e) => { setPort(e.target.value); setResult(null); }} /></label>
+    <p className="text-xs text-ink-3">{data.https_port ? `Suggested port: ${data.https_port}. Existing routes are kept. This forwards to Launchpad on port ${data.daemon_port}.` : "Choose an unused HTTPS port from 1 to 65535."}</p>
+    {command && <code className="min-w-0 break-all rounded bg-chrome p-2 text-xs">{command}</code>}
+    <div className="flex flex-wrap gap-2">
+      <button className="btn btn-sm btn-primary" disabled={disabled || !valid || !data.connected} onClick={() => void run("run")}>{working === "run" ? "Running…" : "Run command"}</button>
+      <button className="btn btn-sm" disabled={disabled || !command} onClick={() => command && void copyText(command).then(() => toast("HTTPS setup command copied")).catch(toastError)}>Copy command</button>
+      <button className="btn btn-sm" disabled={disabled || !valid} onClick={() => void run("check")}>{working === "check" ? "Checking…" : "Update HTTPS URL"}</button>
+      {!data.connected && <button className="btn btn-sm" disabled={disabled} onClick={() => void info.refetch()}>Refresh</button>}
+    </div>
+    <p className="text-xs text-ink-3">Run command creates a private HTTPS route for this Launchpad. Once ready, the QR code and URL update automatically.</p>
+    {result && <div className="grid min-w-0 gap-2" role="status">
+      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-chrome p-2 text-xs">{result.output}</pre>
+      {result.approval_url && <a className="justify-self-start text-teal-ink underline" {...externalLinkProps(result.approval_url)}>Approve HTTPS in Tailscale</a>}
+      {!result.pair && result.approval_url && <p className="text-xs text-ink-3">After approving HTTPS, choose Update HTTPS URL. If setup still needs to run, click Run command again.</p>}
+    </div>}
+    <a className="justify-self-start text-xs text-teal-ink underline" {...externalLinkProps("https://tailscale.com/docs/reference/tailscale-cli/serve")}>Tailscale Serve help</a>
   </div>;
-  return <Card title="HTTPS access with Tailscale">
-    {info.error ? <><p className="text-sm text-attn" role="alert">Could not load HTTPS setup: {info.error.message}</p><button className="btn btn-sm justify-self-start" onClick={() => void info.refetch()}>Try again</button></> : !data ? <p className="text-sm text-ink-3">Loading HTTPS setup…</p> : data.origin.startsWith("https://") ? <><p className="text-sm">Pairing already uses HTTPS: <span className="break-all font-mono text-xs">{data.origin}</span></p><details><summary className="cursor-pointer text-sm text-teal-ink">HTTPS setup instructions</summary><div className="mt-3">{instructions}</div></details></> : instructions}
-  </Card>;
+  return <div className="min-w-0 rounded-lg border border-line-2 p-3">
+    {data.origin.startsWith("https://") ? <><p className="text-sm">Pairing uses HTTPS: <span className="break-all font-mono text-xs">{data.origin}</span></p><details className="mt-2" open={!!result || port !== null}><summary className="cursor-pointer text-xs text-teal-ink">Tailscale HTTPS settings</summary><div className="mt-2">{controls}</div></details></> : controls}
+  </div>;
 }
 
 const DeviceRow = memo(function DeviceRow({ device, height, top, busy, onRevoke }: { device: Device; height: number; top: number; busy: boolean; onRevoke: (device: Device) => Promise<void> }) {
@@ -126,7 +144,7 @@ function lastActive(unixSeconds: number) {
 const UNAVAILABLE: Record<Exclude<PushState["support"], "supported">, string> = {
   desktop: "The desktop app shows notifications through the host's notification center. Use a paired browser or an installed web app on another device for push notifications.",
   "ios-home-screen": "On iPhone and iPad, notifications work only in the installed web app: open Share → Add to Home Screen, start Launchpad from the Home Screen, and come back to this page.",
-  insecure: "Notifications need a secure address: HTTPS (for example through Tailscale Serve) or http://127.0.0.1.",
+  insecure: "Notifications need an HTTPS address or http://127.0.0.1.",
   unsupported: "This browser does not support push notifications.",
 };
 

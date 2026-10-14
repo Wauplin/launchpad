@@ -28,6 +28,16 @@ fn addresses(status: &Value) -> Vec<IpAddr> {
 
 /// Adopt only this node's private HTTPS Serve route to this daemon at the origin root.
 fn https_origin(status: &Value, serve: &Value, port: u16, bind: IpAddr) -> Option<String> {
+    https_origin_at(status, serve, port, bind, None)
+}
+
+fn https_origin_at(
+    status: &Value,
+    serve: &Value,
+    port: u16,
+    bind: IpAddr,
+    selected: Option<u16>,
+) -> Option<String> {
     if status["BackendState"] != "Running" {
         return None;
     }
@@ -67,7 +77,8 @@ fn https_origin(status: &Value, serve: &Value, port: u16, bind: IpAddr) -> Optio
             let Ok(https_port) = https_port.parse::<u16>() else {
                 continue;
             };
-            if https_port == 0
+            if selected.is_some_and(|port| port != https_port)
+                || https_port == 0
                 || !host.eq_ignore_ascii_case(dns)
                 || config["TCP"][https_port.to_string()]["HTTPS"] != true
                 || config["AllowFunnel"][authority] == true
@@ -148,9 +159,9 @@ async fn command_json(env: &UserEnv, executable: &std::path::Path, args: &[&str]
     serde_json::from_slice(&output.stdout).ok()
 }
 
-async fn read_state(env: &UserEnv) -> Option<(Value, Value)> {
+fn executable(env: &UserEnv) -> Option<std::path::PathBuf> {
     // GUI launches may not have Tailscale's install directory on PATH.
-    let mut commands = vec![std::path::PathBuf::from("tailscale")];
+    let mut commands: Vec<_> = env.which("tailscale").into_iter().collect();
     #[cfg(target_os = "macos")]
     commands.push("/Applications/Tailscale.app/Contents/MacOS/Tailscale".into());
     #[cfg(target_os = "windows")]
@@ -159,15 +170,43 @@ async fn read_state(env: &UserEnv) -> Option<(Value, Value)> {
     }
     #[cfg(target_os = "linux")]
     commands.push("/usr/bin/tailscale".into());
-    for executable in commands {
-        if let Some(status) = command_json(env, &executable, &["status", "--json"]).await {
-            let serve = command_json(env, &executable, &["serve", "status", "--json"])
-                .await
-                .unwrap_or(Value::Null);
-            return Some((status, serve));
-        }
-    }
-    None
+    commands.into_iter().find(|path| path.is_file())
+}
+
+async fn read_state(env: &UserEnv) -> Option<(Value, Value)> {
+    let executable = executable(env)?;
+    let status = command_json(env, &executable, &["status", "--json"])
+        .await
+        .unwrap_or(Value::Null);
+    let serve = command_json(env, &executable, &["serve", "status", "--json"])
+        .await
+        .unwrap_or(Value::Null);
+    Some((status, serve))
+}
+
+fn port_taken(serve: &Value, port: u16) -> bool {
+    let key = port.to_string();
+    std::iter::once(serve)
+        .chain(
+            serve["Foreground"]
+                .as_object()
+                .into_iter()
+                .flat_map(|v| v.values()),
+        )
+        .any(|config| {
+            config["TCP"].get(&key).is_some()
+                || config["AllowFunnel"]
+                    .as_object()
+                    .into_iter()
+                    .flat_map(|v| v.iter())
+                    .any(|(authority, enabled)| {
+                        *enabled == true
+                            && authority
+                                .rsplit_once(':')
+                                .and_then(|(_, value)| value.parse::<u16>().ok())
+                                == Some(port)
+                    })
+        })
 }
 
 fn setup_port(status: &Value, serve: &Value, port: u16, bind: IpAddr) -> Option<u16> {
@@ -179,39 +218,178 @@ fn setup_port(status: &Value, serve: &Value, port: u16, bind: IpAddr) -> Option<
                 .unwrap_or(443),
         );
     }
-    [443, 8443, 9443, 10443].into_iter().find(|port| {
-        let key = port.to_string();
-        !std::iter::once(serve)
-            .chain(
-                serve["Foreground"]
-                    .as_object()
-                    .into_iter()
-                    .flat_map(|v| v.values()),
-            )
-            .any(|config| {
-                config["TCP"].get(&key).is_some()
-                    || config["AllowFunnel"]
-                        .as_object()
-                        .into_iter()
-                        .flat_map(|v| v.iter())
-                        .any(|(authority, enabled)| {
-                            *enabled == true
-                                && authority
-                                    .rsplit_once(':')
-                                    .and_then(|(_, value)| value.parse::<u16>().ok())
-                                    == Some(*port)
-                        })
-            })
-    })
+    [443, 8443, 9443, 10443]
+        .into_iter()
+        .find(|port| !port_taken(serve, *port))
 }
 
-/// Read-only setup guidance. Never run Serve or change existing routes from this endpoint.
-pub async fn setup(env: &UserEnv, port: u16, bind: IpAddr) -> Option<u16> {
-    let (status, serve) = read_state(env).await?;
-    if serve.is_null() {
-        return None;
+pub struct Setup {
+    pub installed: bool,
+    pub connected: bool,
+    pub port: Option<u16>,
+}
+
+pub async fn setup(env: &UserEnv, port: u16, bind: IpAddr) -> Setup {
+    let state = read_state(env).await;
+    let connected = state
+        .as_ref()
+        .is_some_and(|(status, _)| status["BackendState"] == "Running");
+    let suggested = state.as_ref().and_then(|(status, serve)| {
+        if serve.is_null() {
+            None
+        } else {
+            setup_port(status, serve, port, bind)
+        }
+    });
+    Setup {
+        installed: executable(env).is_some(),
+        connected,
+        port: suggested,
     }
-    setup_port(&status, &serve, port, bind)
+}
+
+pub struct RunResult {
+    pub origin: Option<String>,
+    pub output: String,
+    pub approval_url: Option<String>,
+}
+
+fn approval_url(output: &str) -> Option<String> {
+    output
+        .split_whitespace()
+        .map(|word| word.trim_matches(|c: char| matches!(c, '(' | ')' | '\'' | '"' | ',' | '.')))
+        .find(|url| {
+            [
+                "https://login.tailscale.com/",
+                "https://tailscale.com/",
+                "https://admin.tailscale.com/",
+            ]
+            .iter()
+            .any(|prefix| url.starts_with(prefix))
+        })
+        .map(String::from)
+}
+
+pub async fn check(
+    env: &UserEnv,
+    port: u16,
+    bind: IpAddr,
+    https_port: u16,
+) -> anyhow::Result<Option<String>> {
+    anyhow::ensure!(https_port != 0, "Choose an HTTPS port from 1 to 65535");
+    let (status, serve) = read_state(env)
+        .await
+        .ok_or_else(|| anyhow::anyhow!("Tailscale is not installed"))?;
+    Ok(https_origin_at(
+        &status,
+        &serve,
+        port,
+        bind,
+        Some(https_port),
+    ))
+}
+
+/// Runs only a fixed private Serve root proxy, after checking the selected port.
+/// Output is bounded; approval or permission requests are returned to the owner.
+pub async fn run(
+    env: &UserEnv,
+    port: u16,
+    bind: IpAddr,
+    https_port: u16,
+) -> anyhow::Result<RunResult> {
+    use std::process::Stdio;
+    use tokio::io::AsyncReadExt;
+    anyhow::ensure!(https_port != 0, "Choose an HTTPS port from 1 to 65535");
+    anyhow::ensure!(
+        bind == "127.0.0.1".parse::<IpAddr>()? || bind == "0.0.0.0".parse::<IpAddr>()?,
+        "Launchpad must listen on 127.0.0.1 for Tailscale Serve"
+    );
+    let executable =
+        executable(env).ok_or_else(|| anyhow::anyhow!("Tailscale is not installed"))?;
+    let (status, serve) = read_state(env)
+        .await
+        .ok_or_else(|| anyhow::anyhow!("Tailscale is not installed"))?;
+    anyhow::ensure!(
+        status["BackendState"] == "Running",
+        "Sign in to Tailscale on this machine, then try again"
+    );
+    anyhow::ensure!(
+        !serve.is_null(),
+        "Cannot inspect existing Tailscale Serve routes; no command was run"
+    );
+    if let Some(origin) = https_origin_at(&status, &serve, port, bind, Some(https_port)) {
+        return Ok(RunResult {
+            origin: Some(origin),
+            output: "HTTPS is already ready. Pairing URL updated.".into(),
+            approval_url: None,
+        });
+    }
+    anyhow::ensure!(
+        !port_taken(&serve, https_port),
+        "HTTPS port {https_port} is already reserved by another route or Funnel. Choose an unused port"
+    );
+    let mut child = procs::command(env, &executable.to_string_lossy(), None)
+        .args([
+            "serve",
+            "--bg",
+            &format!("--https={https_port}"),
+            "--set-path=/",
+            &format!("http://127.0.0.1:{port}"),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let out = tokio::spawn(async move {
+        let mut bytes = Vec::new();
+        stdout
+            .take(65536)
+            .read_to_end(&mut bytes)
+            .await
+            .map(|_| bytes)
+    });
+    let err = tokio::spawn(async move {
+        let mut bytes = Vec::new();
+        stderr
+            .take(65536)
+            .read_to_end(&mut bytes)
+            .await
+            .map(|_| bytes)
+    });
+    let timed_out = match tokio::time::timeout(Duration::from_secs(12), child.wait()).await {
+        Ok(status) => {
+            status?;
+            false
+        }
+        Err(_) => {
+            child.kill().await?;
+            let _ = child.wait().await;
+            true
+        }
+    };
+    let (out, err) = tokio::join!(out, err);
+    let output = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&out??),
+        String::from_utf8_lossy(&err??)
+    );
+    let approval_url = approval_url(&output);
+    let origin = check(env, port, bind, https_port).await?;
+    let mut output = output.trim().to_string();
+    if origin.is_some() {
+        output.push_str("\nHTTPS is ready. Pairing URL updated.");
+    } else if timed_out {
+        output.push_str("\nThe command timed out. Complete any Tailscale approval, then check HTTPS before running the command again.");
+    } else {
+        output.push_str("\nHTTPS is not ready. Complete any approval or resolve the error above, then run the command again.");
+    }
+    Ok(RunResult {
+        origin,
+        output,
+        approval_url,
+    })
 }
 
 /// Prefer a configured private HTTPS Serve route, then an available direct listener.
@@ -254,6 +432,17 @@ pub async fn prepare(config: &mut ServerConfig, port: u16, env: &UserEnv) -> Opt
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn approval_links_only_open_tailscale_https_hosts() {
+        assert_eq!(
+            approval_url("Approve: https://login.tailscale.com/a/abc"),
+            Some("https://login.tailscale.com/a/abc".into())
+        );
+        assert!(approval_url("https://login.tailscale.com.evil.example/a").is_none());
+        assert!(approval_url("http://login.tailscale.com/a").is_none());
+        assert!(approval_url("https://other.example/a").is_none());
+    }
 
     #[test]
     fn setup_port_keeps_existing_routes_and_public_funnel_ports() {

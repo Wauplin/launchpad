@@ -53,7 +53,7 @@ fn local_pair_warning(origin: &str) -> Option<&'static str> {
         authority.split(':').next()?
     };
     if host == "localhost" || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback()) {
-        Some("This link only works on this machine. No reachable tailnet address is configured or discovered. Connect Tailscale and restart Launchpad, or set [server] public_origin and bind in config.toml for your network address, then restart the daemon.")
+        Some("This link only works on this machine. Use a reachable network address to pair a browser on another device.")
     } else {
         None
     }
@@ -82,13 +82,19 @@ impl Access {
     }
 }
 
-pub struct Auth {
-    token: String,
-    cookie: &'static str,
-    pub origin: String,
+struct FrontDoor {
+    origin: String,
     remote: bool,
     hosts: Vec<String>,
     origins: Vec<String>,
+}
+
+pub struct Auth {
+    token: String,
+    cookie: &'static str,
+    bind: std::net::IpAddr,
+    front_door: RwLock<FrontDoor>,
+    serve_lock: tokio::sync::Mutex<()>,
     sessions: RwLock<HashMap<String, Session>>,
     pairs: RwLock<HashMap<String, i64>>,
     changes: watch::Sender<u64>,
@@ -136,12 +142,11 @@ impl Auth {
             .await?;
         let (changes, _) = watch::channel(0);
         Ok(Auth {
-            remote: config.public_origin.is_some(),
             token: paths.token()?,
             cookie: paths.cookie_name(),
-            origin,
-            hosts,
-            origins,
+            bind: config.bind.parse()?,
+            front_door: RwLock::new(FrontDoor { origin, hosts, origins, remote: config.public_origin.is_some() }),
+            serve_lock: tokio::sync::Mutex::new(()),
             sessions: RwLock::new(sessions),
             pairs: RwLock::new(HashMap::new()),
             changes,
@@ -150,7 +155,32 @@ impl Auth {
     }
 
     pub fn remote(&self) -> bool {
-        self.remote
+        self.front_door.read().unwrap().remote
+    }
+
+    pub fn origin(&self) -> String {
+        self.front_door.read().unwrap().origin.clone()
+    }
+
+    fn activate_https(&self, origin: &str) -> anyhow::Result<()> {
+        let config = ServerConfig { public_origin: Some(origin.into()), ..ServerConfig::default() };
+        let origin = config.origin()?.unwrap();
+        anyhow::ensure!(origin.starts_with("https://"), "HTTPS origin required");
+        let mut network = self.front_door.write().unwrap();
+        let host = origin.split_once("://").unwrap().1.to_string();
+        if !network.hosts.contains(&host) { network.hosts.push(host); }
+        if !network.origins.contains(&origin) { network.origins.push(origin.clone()); }
+        network.origin = origin;
+        network.remote = true;
+        Ok(())
+    }
+
+    fn secure_cookie(&self, headers: &HeaderMap) -> bool {
+        let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
+        let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
+        self.front_door.read().unwrap().origins.iter().any(|allowed| {
+            allowed.starts_with("https://") && (host == allowed.split_once("://").map(|(_, host)| host) || origin == Some(allowed.as_str()))
+        })
     }
 
     fn check_token(&self, candidate: &str) -> bool {
@@ -222,12 +252,13 @@ impl Auth {
     }
 
     fn check_front_door(&self, headers: &HeaderMap, method: &Method) -> Result<(), &'static str> {
+        let network = self.front_door.read().unwrap();
         let host = headers
             .get(header::HOST)
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
         if headers.get_all(header::HOST).iter().count() != 1
-            || !self.hosts.iter().any(|h| h == host)
+            || !network.hosts.iter().any(|h| h == host)
         {
             return Err("unexpected Host header");
         }
@@ -240,7 +271,7 @@ impl Auth {
             if let Some(origin) = headers.get(header::ORIGIN)
                 && !origin
                     .to_str()
-                    .is_ok_and(|o| self.origins.iter().any(|allowed| allowed == o))
+                    .is_ok_and(|o| network.origins.iter().any(|allowed| allowed == o))
             {
                 return Err("foreign Origin");
             }
@@ -329,6 +360,8 @@ pub fn router() -> Router<Server> {
         .route("/api/devices", get(devices))
         .route("/api/devices/pair", post(pair))
         .route("/api/devices/pairing-info", get(pairing_info))
+        .route("/api/devices/https/run", post(run_https))
+        .route("/api/devices/https/check", post(check_https))
         .route("/api/devices/{id}", axum::routing::delete(revoke))
 }
 
@@ -373,16 +406,39 @@ fn private_response(mut response: Response, private: bool) -> Response {
 }
 
 async fn pairing_info(State(s): State<Server>) -> ApiResult<Value> {
-    let config = s.app.config.get().server;
-    let bind = config.bind.parse::<std::net::IpAddr>()?;
-    let https_port = crate::tailnet::setup(&s.app.env, s.app.paths.port, bind).await;
+    let setup = crate::tailnet::setup(&s.app.env, s.app.paths.port, s.auth.bind).await;
     Ok(Json(json!({
-        "origin": s.auth.origin,
-        "daemon_port": s.app.paths.port,
-        "https_port": https_port,
-        "automatic_origin": config.public_origin.is_none() && config.auto_tailnet,
-        "config_file": s.app.paths.config_file().display().to_string(),
+        "origin": s.auth.origin(), "daemon_port": s.app.paths.port,
+        "installed": setup.installed, "connected": setup.connected, "https_port": setup.port,
     })))
+}
+
+#[derive(Deserialize)]
+struct HttpsPort { port: u16 }
+
+fn adopt_https(s: &Server, origin: &str) -> anyhow::Result<Value> {
+    // Save only the selected origin, preserving all host-edited commands and environments.
+    let mut config = s.app.config.get();
+    config.server.public_origin = Some(origin.into());
+    s.app.config.save(config)?;
+    s.auth.activate_https(origin)?;
+    s.auth.pair(&s.auth.origin())
+}
+
+async fn run_https(State(s): State<Server>, Json(request): Json<HttpsPort>) -> ApiResult<Value> {
+    let _lock = s.auth.serve_lock.try_lock().map_err(|_| ApiError::conflict("HTTPS setup is already running"))?;
+    if request.port == 0 { return Err(ApiError::bad_request("Choose an HTTPS port from 1 to 65535")); }
+    let result = crate::tailnet::run(&s.app.env, s.app.paths.port, s.auth.bind, request.port).await?;
+    let pair = result.origin.as_deref().map(|origin| adopt_https(&s, origin)).transpose()?;
+    Ok(Json(json!({"pair":pair, "output":result.output, "approval_url":result.approval_url})))
+}
+
+async fn check_https(State(s): State<Server>, Json(request): Json<HttpsPort>) -> ApiResult<Value> {
+    let _lock = s.auth.serve_lock.try_lock().map_err(|_| ApiError::conflict("HTTPS setup is already running"))?;
+    if request.port == 0 { return Err(ApiError::bad_request("Choose an HTTPS port from 1 to 65535")); }
+    let origin = crate::tailnet::check(&s.app.env, s.app.paths.port, s.auth.bind, request.port).await?;
+    let pair = origin.as_deref().map(|origin| adopt_https(&s, origin)).transpose()?;
+    Ok(Json(json!({"pair":pair, "output":if pair.is_some() { "HTTPS is ready. Pairing URL updated." } else { "HTTPS is not ready yet. Complete any Tailscale approval, then check again." }, "approval_url":null})))
 }
 
 async fn pair(State(s): State<Server>, headers: HeaderMap) -> ApiResult<Value> {
@@ -398,10 +454,10 @@ async fn pair(State(s): State<Server>, headers: HeaderMap) -> ApiResult<Value> {
         if headers.get("x-launchpad-local-pair").is_some() {
             format!("http://{host}")
         } else {
-            s.auth.origin.clone()
+            s.auth.origin()
         }
     } else {
-        s.auth.origin.clone()
+        s.auth.origin()
     };
     Ok(Json(s.auth.pair(&origin)?))
 }
@@ -430,19 +486,7 @@ async fn exchange(
     };
     // Never trust forwarded protocol headers. Secure is decided by the configured external origin
     // and its Host/Origin; the local desktop's HTTP cookie must keep working behind the same daemon.
-    let host = headers
-        .get(header::HOST)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let secure = if s.auth.origin.starts_with("https://")
-        && (host == s.auth.origin.split_once("://").unwrap().1
-            || headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
-                == Some(s.auth.origin.as_str()))
-    {
-        "; Secure"
-    } else {
-        ""
-    };
+    let secure = if s.auth.secure_cookie(&headers) { "; Secure" } else { "" };
     let cookie = format!(
         "{}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={DEVICE_LIFETIME}{secure}",
         s.auth.cookie
@@ -595,7 +639,7 @@ mod tests {
     async fn pairing_is_single_use_expiring_and_independent_of_bearer_token() {
         let fixture = Fixture::new();
         let auth = fixture.auth().await;
-        let pair = auth.pair(&auth.origin).unwrap();
+        let pair = auth.pair(&auth.origin()).unwrap();
         assert!(pair["svg"].as_str().unwrap().contains("<svg"));
         assert!(!pair["url"].as_str().unwrap().contains(&auth.token));
         let code = code(pair);
@@ -634,12 +678,12 @@ mod tests {
         let fixture = Fixture::new();
         let auth = fixture.auth().await;
         let token = auth
-            .exchange(&code(auth.pair(&auth.origin).unwrap()), "Laptop".into())
+            .exchange(&code(auth.pair(&auth.origin()).unwrap()), "Laptop".into())
             .await
             .unwrap()
             .unwrap();
         let token2 = auth
-            .exchange(&code(auth.pair(&auth.origin).unwrap()), "Phone".into())
+            .exchange(&code(auth.pair(&auth.origin()).unwrap()), "Phone".into())
             .await
             .unwrap()
             .unwrap();
@@ -676,6 +720,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn https_activation_updates_guard_and_cookies_without_losing_loopback() {
+        let fixture = Fixture::new();
+        let auth = Auth::new(&fixture.0, &ServerConfig::default(),
+            launchpad_core::db::open_state(&fixture.0.state_db()).unwrap()).await.unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, "host.example.ts.net".parse().unwrap());
+        headers.insert(header::ORIGIN, "https://host.example.ts.net".parse().unwrap());
+        assert!(!auth.remote());
+        assert!(auth.check_front_door(&headers, &Method::POST).is_err());
+        auth.activate_https("https://host.example.ts.net:443").unwrap();
+        assert_eq!(auth.origin(), "https://host.example.ts.net");
+        assert!(auth.remote());
+        assert!(auth.check_front_door(&headers, &Method::POST).is_ok());
+        assert!(auth.secure_cookie(&headers));
+        auth.activate_https("https://host.example.ts.net:8443").unwrap();
+        assert!(auth.secure_cookie(&headers)); // old HTTPS viewers remain trusted too
+        assert!(auth.check_front_door(&headers, &Method::POST).is_ok());
+        headers.insert(header::HOST, "127.0.0.1:7318".parse().unwrap());
+        headers.insert(header::ORIGIN, "http://127.0.0.1:7318".parse().unwrap());
+        assert!(auth.check_front_door(&headers, &Method::POST).is_ok());
+        assert!(!auth.secure_cookie(&headers));
+        assert!(auth.activate_https("http://foreign.example").is_err());
+        assert!(auth.activate_https("https://host.example/path").is_err());
+        let pair = auth.pair(&auth.origin()).unwrap();
+        assert!(pair["url"].as_str().unwrap().starts_with("https://host.example.ts.net:8443/auth#code="));
+    }
+
+    #[tokio::test]
     async fn tailnet_origin_is_exact_and_local_fallback_warns() {
         let fixture = Fixture::new();
         let config = ServerConfig {
@@ -691,7 +763,7 @@ mod tests {
         assert!(auth.check_front_door(&headers, &Method::POST).is_ok());
         headers.insert(header::ORIGIN, "http://100.64.1.3:7318".parse().unwrap());
         assert_eq!(auth.check_front_door(&headers, &Method::POST), Err("foreign Origin"));
-        let pair = auth.pair(&auth.origin).unwrap();
+        let pair = auth.pair(&auth.origin()).unwrap();
         assert!(pair["url"].as_str().unwrap().starts_with("http://100.64.1.2:7318/auth#code="));
         assert!(pair["warning"].is_null());
         let local = auth.pair(&fixture.0.base_url()).unwrap();
