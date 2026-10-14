@@ -437,6 +437,8 @@ button {
 .lp-phone .btn,
 .lp-phone .btn-sm { min-height: 44px; }
 .lp-phone .iconbtn { width: 44px; height: 44px; }
+/* Keep key labels centered without the inherited body line height. */
+.lp-phone .terminal-keybar .btn { line-height: 1; }
 .lp-phone .phone-page-content { padding: 12px; gap: 16px; }
 .lp-phone .phone-page-header { min-width: 0; }
 .lp-phone .phone-page-title { overflow-wrap: anywhere; }

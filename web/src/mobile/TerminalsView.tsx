@@ -7,6 +7,9 @@ import { useLayout } from "@/stores/layout";
 import { useScopedTerminals } from "@/features/terminals/lib";
 import { keyBar, terminalInputs } from "@/features/terminals/keybar";
 import { copyText } from "@/lib/clipboard";
+import { Icon } from "@/components/Icon";
+
+const keyButtonClass = "btn btn-sm min-w-11 flex-none justify-center font-mono";
 
 function KeyBar() {
   const dock = useLayout((s) => s.dock);
@@ -30,8 +33,8 @@ function KeyBar() {
   // Preserve the terminal's text selection and soft keyboard while tapping or swiping the bar.
   const keep = (e: React.PointerEvent) => e.preventDefault();
   const type = (data: string) => { const t = target(); t?.input(data, true); t?.focus(); };
-  const button = (label: string, description: string, action: () => void, input = true) => (
-    <button key={label} type="button" className="btn btn-sm min-w-11 flex-none font-mono" title={description} aria-label={description} disabled={input && !active.alive} onPointerDown={keep} onClick={action}>{label}</button>
+  const button = (label: React.ReactNode, description: string, action: () => void, input = true) => (
+    <button key={description} type="button" className={keyButtonClass} title={description} aria-label={description} disabled={input && !active.alive} onPointerDown={keep} onClick={action}>{label}</button>
   );
   const copy = () => {
     const t = target();
@@ -45,8 +48,8 @@ function KeyBar() {
       <div className="flex gap-1 overflow-x-auto [scrollbar-width:none]">
         {button("Tab", "Tab — complete command", () => type("\t"))}
         {button("Esc", "Escape", () => type("\u001b"))}
-        <button type="button" className={`btn btn-sm min-w-11 flex-none font-mono ${ctrl ? "bg-teal-soft! border-teal! text-teal-ink!" : ""}`} disabled={!active.alive} aria-pressed={ctrl} title="Ctrl applies to the next letter you type" onPointerDown={keep} onClick={() => { keyBar.ctrl = !keyBar.ctrl; setCtrl(keyBar.ctrl); target()?.focus(); }}>Ctrl</button>
-        {([ ["↑", "A", "up — previous command"], ["↓", "B", "down — next command"], ["←", "D", "left"], ["→", "C", "right"]] as const).map(([label, direction, description]) => button(label, `Arrow ${description}`, () => { target()?.arrow(direction); target()?.focus(); }))}
+        <button type="button" className={`${keyButtonClass} ${ctrl ? "bg-teal-soft! border-teal! text-teal-ink!" : ""}`} disabled={!active.alive} aria-pressed={ctrl} title="Ctrl applies to the next letter you type" onPointerDown={keep} onClick={() => { keyBar.ctrl = !keyBar.ctrl; setCtrl(keyBar.ctrl); target()?.focus(); }}>Ctrl</button>
+        {([ ["", "A", "up — previous command"], ["rotate-180", "B", "down — next command"], ["-rotate-90", "D", "left"], ["rotate-90", "C", "right"]] as const).map(([rotation, direction, description]) => button(<Icon name="up" className={rotation} />, `Arrow ${description}`, () => { target()?.arrow(direction); target()?.focus(); }))}
       </div>
       <div className="flex gap-1 overflow-x-auto [scrollbar-width:none]">
         {button("Copy", "Copy selected terminal text", copy, false)}
@@ -62,7 +65,7 @@ function KeyBar() {
         {button("Clear", "Clear / redraw — Ctrl+L", () => type("\u000c"))}
         {button("^C", "Ctrl+C — interrupt", () => type("\u0003"))}
         {button("^R", "Ctrl+R — search command history", () => type("\u0012"))}
-        <button type="button" className="btn btn-sm flex-none" aria-expanded={more} aria-controls="terminal-extra-keys" onPointerDown={keep} onClick={() => setMore(!more)}>More</button>
+        <button type="button" className={keyButtonClass} aria-expanded={more} aria-controls="terminal-extra-keys" onPointerDown={keep} onClick={() => setMore(!more)}>More</button>
       </div>
       {more && <div id="terminal-extra-keys" className="flex gap-1 overflow-x-auto [scrollbar-width:none]">
         {button("^A", "Ctrl+A — start of line", () => type("\u0001"))}

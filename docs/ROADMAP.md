@@ -353,6 +353,7 @@ Phone quota access (2026-10-14): the top-right server-status button opens 5-hour
 
 Phone terminal key bar (2026-10-14, built): visual-viewport keyboard placement, automatic bottom-navigation hiding/restoration, two swipeable 44 px rows for completion/Esc/sticky Ctrl/arrows, Copy/Paste/Clear, Ctrl+C and Ctrl+R, plus More for line editing/Ctrl+D/Select all. Input claims the viewer's PTY size; arrows honor application cursor mode, paste preserves bracketed paste, and copy feedback does not cover keys. Node 24 UI typecheck/build and all eight terminal regressions passed. Isolated Chrome touch fixtures at 320/390/430 px verified shortcut bytes, sticky Ctrl, selection copying, bracketed paste, cursor mode and simulated keyboard positioning/navigation restoration, unavailable-clipboard feedback and exited-terminal input/copy controls; desktop 1440 px retained its layout without the phone key bar. Real-device keyboard and clipboard-permission checks remain pending.
 
+Phone terminal key alignment (2026-10-14): all key buttons share horizontal centering and a single line height; arrows reuse the SVG icon to avoid font-dependent baselines. Node 24 UI build/typecheck and all eight terminal regressions passed. Isolated Chrome touch fixtures at 320/390/430 px verified centered text/icons including More keys, 44 px targets, shortcut bytes, sticky Ctrl, clipboard/selection controls, cursor mode and keyboard placement; desktop 1440 px and exited-terminal controls passed. Real-phone verification remains pending.
 
 ## Not planned
 
