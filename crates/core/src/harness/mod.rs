@@ -19,7 +19,6 @@ use std::{
     sync::{Arc, RwLock},
     time::Duration,
 };
-use tokio::process::Command;
 use ts_rs::TS;
 
 #[derive(Clone, Copy, Serialize, TS)]
@@ -81,6 +80,10 @@ pub trait Harness: Send + Sync {
     fn sign_in_program(&self) -> &'static str;
     /// Command the owner runs once on the daemon host to sign in.
     fn sign_in_command(&self) -> &'static str;
+    /// The vendor's official install command, shown by host preflight (never run without a click).
+    fn install_command(&self) -> Option<&'static str> {
+        None
+    }
     /// Read-only sign-in check with this environment: never signs in, refreshes a token or returns secrets.
     async fn sign_in(&self, _env: &UserEnv) -> crate::signin::SignIn {
         crate::signin::SignIn { signed_in: None, detail: None }
@@ -96,7 +99,7 @@ pub trait Harness: Send + Sync {
     fn terminal_resume_markers(&self) -> &'static [&'static str] {
         &[]
     }
-    fn title_command(&self, _app: &App, _session: &Session, _cwd: &Path) -> Option<Command> {
+    fn title_command(&self, _app: &App, _session: &Session, _cwd: &Path) -> Option<crate::exec::Cmd> {
         None
     }
     fn title_response(&self, stdout: String) -> Result<String> {

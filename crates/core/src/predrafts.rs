@@ -52,6 +52,9 @@ pub struct Publish {
     pub head: String,
 }
 
+/// The repository skill, installed as a managed copy for agents on SSH hosts.
+pub const SKILL: &str = include_str!("../../../skills/launchpad/SKILL.md");
+
 pub fn link_skill() -> Result<()> {
     let installed = std::env::current_exe()?
         .parent()
@@ -148,7 +151,7 @@ pub async fn check_session_work(app: &App, root: &str) -> Result<()> {
     Ok(())
 }
 pub async fn resolve(app: &App, cwd: &str) -> Result<Predraft> {
-    let root = git(app, cwd, &["rev-parse", "--show-toplevel"]).await?;
+    let root = crate::hosts::loc::rehost(cwd, &git(app, cwd, &["rev-parse", "--show-toplevel"]).await?);
     list(app)
         .await?
         .into_iter()
@@ -176,7 +179,7 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
         if let Ok(p) = resolve(app, &cwd).await {
             return Ok(p);
         }
-        let root = git(app, &cwd, &["rev-parse", "--show-toplevel"]).await?;
+        let root = crate::hosts::loc::rehost(&cwd, &git(app, &cwd, &["rev-parse", "--show-toplevel"]).await?);
         let source = crate::code::open(app, &root, None).await?;
         (source.project, Some(root))
     };
@@ -222,7 +225,7 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
     let title = q.title.unwrap_or_else(|| "Local pull request".into());
     // A Launchpad task worktree becomes the pre-draft itself: same folder, branch and commits.
     if let Some(root) = &existing
-        && let Ok(root) = std::fs::canonicalize(root).map(|r| r.to_string_lossy().into_owned())
+        && let Ok(root) = crate::hostfs::canonicalize(root).await.map(|r| r.to_string_lossy().into_owned())
         && let Some(w) = crate::worktrees::find_by_path(app, &root).await?.filter(|w| w.root == root && w.primary)
     {
         let user = app.github.get("/user").await.ok().and_then(|u| u["login"].as_str().map(str::to_string));
@@ -252,13 +255,10 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
     }
     let slug = format!("{}-{}", crate::compose::slug_from(&title), &id[..8]);
     let branch = format!("lp/{slug}");
-    let parent = app
-        .config
-        .get()
-        .projects_root()
+    let parent = crate::projects::projects_root(app, crate::hosts::loc::host_of(&project.path))?
         .join(".worktrees")
         .join(&project.id);
-    std::fs::create_dir_all(&parent)?;
+    crate::hostfs::create_dir_all(&parent).await?;
     let root = parent.join(&slug).to_string_lossy().to_string();
     let start = if let Some(cwd) = &existing {
         ensure!(
@@ -282,7 +282,7 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
         .ok()
         .and_then(|u| u["login"].as_str().map(str::to_string));
     let default_remote_branch = format!("{}/{}", user.unwrap_or_else(|| "local".into()), slug);
-    let root = std::fs::canonicalize(&root)?.to_string_lossy().to_string();
+    let root = crate::hostfs::canonicalize(&root).await?.to_string_lossy().to_string();
     let p = Predraft {
         default_remote_branch,
         id,
@@ -313,7 +313,7 @@ pub fn instruction(app: &App, p: &Predraft) -> String {
     format!(
         "You are working in a dedicated git worktree on branch `{}`. Commit your work on this branch. Do not push and do not open a pull request on GitHub. Do not remove this worktree. When done, set the title and description with `{} pr update --title \"…\" --body-file <file>`. Pre-draft id: {}.",
         p.branch,
-        app.paths.cli_command(),
+        app.cli_command_in(&p.root),
         p.id
     )
 }
@@ -371,7 +371,7 @@ pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
     if fetch {
         git(app, &project.path, &["fetch", "origin"]).await?;
     }
-    if p.archived || p.published_url.is_some() && !Path::new(&p.root).exists() {
+    if p.archived || p.published_url.is_some() && !crate::hostfs::exists(&p.root).await {
         return Ok(json!({"predraft":p,"status":status,"files":[],"commits":[],"base_ahead":0}));
     }
     let head = git(
@@ -475,7 +475,7 @@ async fn cleanup(app: &App, p: &Predraft, delete_branch: bool) -> Result<()> {
         app.sessions.close_in(app, &p.root).await?;
         return Ok(());
     };
-    if Path::new(&p.root).exists() {
+    if crate::hostfs::exists(&p.root).await {
         ensure!(
             git(
                 app,
@@ -547,6 +547,7 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
         .await?
         .context("project not found")?;
     let repo = crate::git::remotes(Path::new(&project.path))
+        .await
         .into_iter()
         .find(|(n, _)| n == "origin")
         .and_then(|(_, u)| crate::git::github_repo(&u))

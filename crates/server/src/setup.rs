@@ -21,11 +21,13 @@ async fn clone_suggestions(State(s): State<Server>) -> ApiResult<Vec<String>> {
 #[derive(Deserialize)]
 struct Clone {
     repo: String,
+    /// Clone onto this SSH host, into its projects root.
+    host: Option<String>,
     workspace_id: Option<String>,
 }
 
 async fn clone(State(s): State<Server>, Json(b): Json<Clone>) -> ApiResult<Project> {
-    let p = project_clone::clone(&s.app, &b.repo).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    let p = project_clone::clone(&s.app, &b.repo, b.host.as_deref()).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     if let Some(ws) = &b.workspace_id {
         workspace::add_project(&s.app, ws, &p.id).await?;
     }

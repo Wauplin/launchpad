@@ -43,6 +43,8 @@ pub struct StartSpec {
     pub session_id: String,
     pub harness_session_id: Option<String>,
     pub resume: bool,
+    /// The SSH host of the session folder; `cwd` and `add_dirs` are then paths on that host.
+    pub host: Option<String>,
     pub cwd: PathBuf,
     pub title: String,
     pub model: Option<String>,
@@ -430,6 +432,37 @@ impl Sessions {
         }
         let spec = &resolved_spec;
         crate::attachments::validate(&spec.attachments)?;
+        let (cwd, project) = match &spec.target {
+            Target::Project { project_id } | Target::Predraft { project_id } => {
+                let p = crate::projects::get(app, project_id).await?.context("the project no longer exists")?;
+                (Some(p.path.clone()), Some(p))
+            }
+            Target::ExistingPredraft { predraft_id } => {
+                let p = crate::predrafts::get(app, predraft_id).await?;
+                anyhow::ensure!(
+                    !p.archived && p.published_url.is_none() && p.pushed_head.is_none(),
+                    "pre-draft is archived, published, or publication has started"
+                );
+                let project = crate::projects::get(app, &p.project_id)
+                    .await?
+                    .context("project not found")?;
+                (Some(p.root), Some(project))
+            }
+            Target::SessionFolder { session_id } => {
+                let source = self.get(session_id).context("source session no longer exists")?;
+                anyhow::ensure!(crate::hostfs::is_dir(&source.cwd).await, "source session folder no longer exists");
+                let project = match &source.project_id {
+                    Some(id) => Some(crate::projects::get(app, id).await?.context("the project no longer exists")?),
+                    None => None,
+                };
+                (Some(source.cwd), project)
+            }
+            Target::Temp => (None, None),
+            Target::None => (None, None),
+        };
+        // The session runs on the machine of its folder; agents there use the helper's `launchpad` CLI.
+        let host = cwd.as_deref().and_then(crate::hosts::loc::host_of).map(str::to_string);
+        let cli = app.cli_command_on(host.as_deref());
         let config = app.config.get();
         let mut context = Vec::new();
         let mut add_dirs = Vec::new();
@@ -437,6 +470,8 @@ impl Sessions {
         let worktree_launch = matches!(spec.target, Target::Project { .. }) && spec.worktree.is_some();
         for cp in &spec.context_projects {
             if let Some(p) = crate::projects::get(app, &cp.project_id).await? {
+                let on = crate::hosts::loc::host_of(&p.path).map(str::to_string);
+                anyhow::ensure!(on == host, "Context project {} is on {} but the agent runs on {}: Launchpad does not copy projects between machines.", p.name, on.as_deref().unwrap_or("this computer"), host.as_deref().unwrap_or("this computer"));
                 add_dirs.push(p.path.clone());
                 context.push(ContextInfo { path: p.path, description: p.description, branch: cp.branch.clone(), editable: cp.editable, own_worktree: cp.editable && !in_checkout });
             }
@@ -461,7 +496,7 @@ impl Sessions {
             if !prompt.is_empty() {
                 prompt.push_str("\n\n");
             }
-            prompt.push_str(&crate::compose::trace_references(&traces, &app.paths.cli_command()));
+            prompt.push_str(&crate::compose::trace_references(&traces, &cli));
         }
         if !prompt.trim().is_empty() && matches!(
             spec.target,
@@ -474,34 +509,6 @@ impl Sessions {
             prompt.push_str(&format!("\n\nLaunchpad worktree: Launchpad creates dedicated Git worktrees for this task at launch{}, and lists their exact folders and branches here.", if worktree_launch { format!(", starting from {base}") } else { String::new() }));
         }
         crate::compose::append_initial_summary_instruction(&mut prompt);
-        let (cwd, project) = match &spec.target {
-            Target::Project { project_id } | Target::Predraft { project_id } => {
-                let p = crate::projects::get(app, project_id).await?.context("the project no longer exists")?;
-                (Some(p.path.clone()), Some(p))
-            }
-            Target::ExistingPredraft { predraft_id } => {
-                let p = crate::predrafts::get(app, predraft_id).await?;
-                anyhow::ensure!(
-                    !p.archived && p.published_url.is_none() && p.pushed_head.is_none(),
-                    "pre-draft is archived, published, or publication has started"
-                );
-                let project = crate::projects::get(app, &p.project_id)
-                    .await?
-                    .context("project not found")?;
-                (Some(p.root), Some(project))
-            }
-            Target::SessionFolder { session_id } => {
-                let source = self.get(session_id).context("source session no longer exists")?;
-                anyhow::ensure!(std::path::Path::new(&source.cwd).is_dir(), "source session folder no longer exists");
-                let project = match &source.project_id {
-                    Some(id) => Some(crate::projects::get(app, id).await?.context("the project no longer exists")?),
-                    None => None,
-                };
-                (Some(source.cwd), project)
-            }
-            Target::Temp => (None, None),
-            Target::None => (None, None),
-        };
         Ok(Preview {
             title: title_from(&spec.text, project.as_ref().map(|p| p.name.as_str()).unwrap_or("New session")),
             prompt,
@@ -637,10 +644,10 @@ impl Sessions {
         {
             tracing::warn!("launch: could not add the project to its workspace: {e:#}");
         }
-        let (images, attachment_dir, instruction) = crate::attachments::prepare(app, &id, &spec.attachments).await?;
+        let (images, attachment_dir, instruction) = crate::attachments::prepare(app, crate::hosts::loc::host_of(&cwd), &id, &spec.attachments).await?;
         if let Some(dir) = attachment_dir { preview.add_dirs.push(dir.to_string_lossy().into_owned()); }
         preview.prompt.push_str(&instruction);
-        preview.prompt.push_str(&format!("\n\n{}", crate::suggestions::instruction(app, &id)));
+        preview.prompt.push_str(&format!("\n\n{}", crate::suggestions::instruction(app, &id, &cwd)));
         let now = now_ms();
         let session = Session {
             id: id.clone(),
@@ -685,15 +692,17 @@ impl Sessions {
         app.bus.publish("sessions", "updated", serde_json::to_value(session.light())?);
         self.publish_counts(app);
 
+        let (host, native_cwd, add_dirs) = on_machine(&cwd, preview.add_dirs)?;
         let start = StartSpec {
             session_id: id.clone(),
             harness_session_id: None,
             resume: false,
-            cwd: cwd.into(),
+            host,
+            cwd: native_cwd,
             title: preview.title,
             model,
             effort,
-            add_dirs: preview.add_dirs,
+            add_dirs,
             env,
         };
         setups.retain(|(p, _)| !p.worktree_setup.trim().is_empty());
@@ -794,8 +803,8 @@ impl Sessions {
         let s = self.get(id).context("no such session")?;
         let worktrees = crate::worktrees::for_session(app, id).await?;
         let mut add_dirs = Vec::new();
-        let attachment_dir = app.paths.data_dir.join("attachments").join(&s.id);
-        if attachment_dir.is_dir() { add_dirs.push(attachment_dir.to_string_lossy().into_owned()); }
+        let attachment_dir = crate::attachments::dir(app, crate::hosts::loc::host_of(&s.cwd), &s.id);
+        if crate::hostfs::is_dir(&attachment_dir).await { add_dirs.push(attachment_dir.to_string_lossy().into_owned()); }
         for cp in &s.launch_spec.context_projects {
             if let Some(p) = crate::projects::get(app, &cp.project_id).await? {
                 // Editable context projects resolve to their recorded worktree, never to today's checkout.
@@ -807,20 +816,22 @@ impl Sessions {
             let dir = crate::worktrees::folder(w);
             if !add_dirs.contains(&dir) { add_dirs.push(dir); }
         }
+        if !crate::hostfs::is_dir(&s.cwd).await {
+            bail!("the folder {} no longer exists", s.cwd);
+        }
+        let (host, cwd, add_dirs) = on_machine(&s.cwd, add_dirs)?;
         let start = StartSpec {
             session_id: s.id.clone(),
             harness_session_id: s.harness_session_id.clone(),
             resume: s.harness_session_id.is_some(),
-            cwd: s.cwd.clone().into(),
+            host,
+            cwd,
             title: s.title.clone(),
             model: s.model.clone(),
             effort: s.effort.clone(),
             add_dirs,
             env: crate::variants::env(app, s.harness, &s.launch_spec)?,
         };
-        if !start.cwd.exists() {
-            bail!("the folder {} no longer exists", s.cwd);
-        }
         let live = self.attach(app, s.harness, start, self.sink(app, id)).await?;
         Ok(live)
     }
@@ -1314,6 +1325,16 @@ impl Sessions {
             sink.emit(EventBody::Error { message: e }).await;
         }
     }
+}
+
+/// The host of a session folder and the folder and extra directories as that machine sees them.
+fn on_machine(cwd: &str, add_dirs: Vec<String>) -> Result<(Option<String>, PathBuf, Vec<String>)> {
+    use crate::hosts::loc;
+    let host = loc::host_of(cwd).map(str::to_string);
+    for d in &add_dirs {
+        anyhow::ensure!(loc::host_of(d) == host.as_deref(), "{d} is on another machine than the session folder {cwd}");
+    }
+    Ok((host, PathBuf::from(loc::native(cwd)), add_dirs.iter().map(|d| loc::native(d).to_string()).collect()))
 }
 
 fn check_budget(harness: HarnessKind, budget_usd: Option<f64>) -> Result<()> {

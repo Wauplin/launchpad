@@ -58,7 +58,7 @@ async fn title(app: &App, session: &Session) -> Result<Option<String>> {
         return Ok(Some(session.title.clone()));
     };
     cmd.envs(crate::variants::env(app, session.harness, &session.launch_spec)?);
-    cmd.arg(prompt).stdin(std::process::Stdio::null());
+    cmd.arg(prompt).stdin(crate::exec::Io::Null);
     cmd.kill_on_drop(true);
     let output = cmd.output();
     tokio::pin!(output);

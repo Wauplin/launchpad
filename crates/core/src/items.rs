@@ -512,6 +512,7 @@ pub async fn diff(app: &App, repo: &str, n: u64) -> Result<Value> {
     if let Some(p) = registered {
         let root = std::path::Path::new(&p.path);
         let remote = crate::git::remotes(root)
+            .await
             .into_iter()
             .find(|(_, url)| crate::git::github_repo(url).as_deref() == Some(repo))
             .map(|(name, _)| name)

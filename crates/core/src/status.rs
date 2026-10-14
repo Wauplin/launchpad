@@ -24,6 +24,8 @@ pub struct Status {
     pub time_zone: Option<String>,
     /// Current UTC offset of the daemon host, in minutes east of UTC.
     pub utc_offset_minutes: i32,
+    /// SSH hosts and their connection state.
+    pub hosts: Vec<crate::hosts::HostStatus>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, TS)]

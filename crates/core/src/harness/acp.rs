@@ -18,7 +18,6 @@ use std::{
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{ChildStdin, Command},
     sync::{mpsc, oneshot},
 };
 
@@ -28,7 +27,7 @@ enum Incoming {
     Exited(Option<String>),
 }
 struct Connection {
-    stdin: tokio::sync::Mutex<Option<ChildStdin>>,
+    stdin: tokio::sync::Mutex<Option<crate::exec::Stdin>>,
     pending: Mutex<HashMap<i64, oneshot::Sender<Result<Value>>>>,
     sequence: AtomicI64,
     alive: AtomicBool,
@@ -38,15 +37,16 @@ struct Connection {
     sink: Sink,
 }
 impl Connection {
-    fn spawn(
-        mut command: Command,
+    async fn spawn(
+        mut command: crate::exec::Cmd,
         sink: Sink,
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
         let mut child = command
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+            .stdin(crate::exec::Io::Piped)
+            .stdout(crate::exec::Io::Piped)
+            .stderr(crate::exec::Io::Piped)
             .spawn()
+            .await
             .context("start ACP harness")?;
         let stdin = child.stdin.take().context("ACP stdin")?;
         let stdout = child.stdout.take().context("ACP stdout")?;
@@ -112,6 +112,8 @@ impl Connection {
             let error = error.or_else(|| match status {
                 Ok(status) if status.success() || conn.stopping.load(Ordering::SeqCst) => None,
                 Ok(status) => Some(format!("ACP process exited ({status})")),
+                // Ended on an unreachable host: Interrupted, resumable there.
+                Err(error) if crate::exec::is_lost(&error) => None,
                 Err(error) => Some(error.to_string()),
             });
             let _ = conn.incoming.send(Incoming::Exited(error));
@@ -213,8 +215,8 @@ pub struct AcpSession {
 
 /// Starts one ACP process per session. Resume without replay when negotiated; otherwise suppress
 /// the historical session/load replay because Launchpad already has its own persisted trace.
-pub async fn start(command: Command, spec: StartSpec, sink: Sink, extensions: Extensions) -> Result<Arc<dyn LiveSession>> {
-    let (connection, mut receiver) = Connection::spawn(command, sink.clone())?;
+pub async fn start(command: crate::exec::Cmd, spec: StartSpec, sink: Sink, extensions: Extensions) -> Result<Arc<dyn LiveSession>> {
+    let (connection, mut receiver) = Connection::spawn(command, sink.clone()).await?;
     let state = Arc::new(Mutex::new(State {
         loading: true,
         tool_child: Some(extensions.tool_child),

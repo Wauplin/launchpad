@@ -191,14 +191,30 @@ pub fn validate_images(images: &[ImageAttachment]) -> Result<()> {
     Ok(())
 }
 
-/// Keep files outside the checkout; numbered names avoid collisions and path traversal.
+/// The private attachment folder of a session: in the data folder here, or in the helper folder of its host.
+pub fn dir(app: &crate::App, host: Option<&str>, id: &str) -> PathBuf {
+    match host {
+        Some(h) => {
+            let home = app.hosts.home(h).unwrap_or_else(|| "/nonexistent".into());
+            PathBuf::from(crate::hosts::loc::join(Some(h), &format!("{}/.local/share/launchpad-host/{}/attachments/{id}", home.trim_end_matches('/'), app.paths.profile.name())))
+        }
+        None => app.paths.data_dir.join("attachments").join(id),
+    }
+}
+
+/// Keep files outside the checkout; numbered names avoid collisions and path traversal. Files of a session
+/// on an SSH host go to a private folder on that host.
 pub async fn prepare(
     app: &crate::App,
+    host: Option<&str>,
     id: &str,
     files: &[FileAttachment],
 ) -> Result<(Vec<ImageAttachment>, Option<std::path::PathBuf>, String)> {
     let mut images = Vec::new();
-    let dir = app.paths.data_dir.join("attachments").join(id);
+    if let Some(h) = host {
+        ensure!(files.iter().all(|f| is_image(&f.data_url)) || app.hosts.home(h).is_some(), "{h} is not connected: attached files cannot be copied there now");
+    }
+    let dir = dir(app, host, id);
     let mut paths = Vec::new();
     for (i, file) in files.iter().enumerate() {
         if is_image(&file.data_url) {
@@ -207,12 +223,7 @@ pub async fn prepare(
                 data_url: to_data_url(&file.data_url)?,
             });
         } else {
-            tokio::fs::create_dir_all(&dir).await?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                tokio::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).await?;
-            }
+            crate::hostfs::create_dir_all_mode(&dir, Some(0o700)).await?;
             let name: String = file
                 .name
                 .chars()
@@ -229,13 +240,8 @@ pub async fn prepare(
                 "{i}-{}",
                 if name.is_empty() { "attachment" } else { &name }
             ));
-            tokio::fs::write(&path, decode(&file.data_url, false)?).await?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await?;
-            }
-            paths.push(format!("- {}", path.display()));
+            crate::hostfs::write_mode(&path, &decode(&file.data_url, false)?, Some(0o600)).await?;
+            paths.push(format!("- {}", crate::hosts::loc::native(&path.to_string_lossy())));
         }
     }
     let has_files = !paths.is_empty();

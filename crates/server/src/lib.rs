@@ -4,6 +4,7 @@ mod api;
 mod auth;
 mod code;
 mod error;
+mod hosts;
 mod items;
 mod operations;
 mod predrafts;
@@ -69,6 +70,7 @@ pub(crate) fn router(server: Server) -> Router {
         .merge(terminals::router())
         .merge(worktrees::router())
         .merge(setup::router())
+        .merge(hosts::router())
         .merge(push::router())
         .route("/ws", axum::routing::get(ws::handler))
         .merge(auth::router())

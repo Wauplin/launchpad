@@ -137,15 +137,16 @@ pub struct CommitInfo {
 
 /// Checks a root (and resolves a revision) before anything is read.
 pub async fn open(app: &App, root: &str, rev: Option<&str>) -> Result<Source> {
-    let root = std::fs::canonicalize(root).with_context(|| format!("{root} does not exist"))?;
+    let root = crate::hostfs::canonicalize(root).await.with_context(|| format!("{root} does not exist"))?;
     let projects = crate::projects::list(app).await?;
     let project = match projects.iter().find(|p| Path::new(&p.path) == root) {
         Some(p) => p.clone(),
         None => main_worktree(&root)
+            .await
             .and_then(|main| projects.into_iter().find(|p| Path::new(&p.path) == main))
             .with_context(|| format!("{} is not a registered project or one of its worktrees", root.display()))?,
     };
-    let git = crate::git::git_dir(&root).is_some();
+    let git = crate::git::git_dir(&root).await.is_some();
     let rev = match rev.map(str::trim).filter(|r| !r.is_empty()) {
         None => None,
         Some(r) => {
@@ -328,14 +329,15 @@ async fn commit_diff_file_at(env: &UserEnv, root: &Path, sha: &str, path: &str) 
 
 /// The main checkout of a linked worktree, checked against git's own records: the worktree's `.git`
 /// file points to `<main>/.git/worktrees/<name>`, whose `gitdir` file points back to the worktree.
-pub(crate) fn main_worktree(root: &Path) -> Option<PathBuf> {
-    let dir = crate::git::git_dir(root)?;
-    let back = std::fs::read_to_string(dir.join("gitdir")).ok()?;
-    if std::fs::canonicalize(back.trim()).ok()? != std::fs::canonicalize(root.join(".git")).ok()? {
+pub(crate) async fn main_worktree(root: &Path) -> Option<PathBuf> {
+    use crate::hostfs::{canonicalize, read_to_string};
+    let dir = crate::git::git_dir(root).await?;
+    let back = read_to_string(dir.join("gitdir")).await.ok()?;
+    if canonicalize(crate::git::resolve_on(&dir, back.trim())).await.ok()? != canonicalize(root.join(".git")).await.ok()? {
         return None;
     }
-    let common = std::fs::read_to_string(dir.join("commondir")).ok()?;
-    let common = std::fs::canonicalize(dir.join(common.trim())).ok()?;
+    let common = read_to_string(dir.join("commondir")).await.ok()?;
+    let common = canonicalize(crate::git::resolve_on(&dir, common.trim())).await.ok()?;
     Some(common.parent()?.to_path_buf())
 }
 
@@ -349,8 +351,8 @@ fn check_path(path: &str) -> Result<&Path> {
 }
 
 /// The file on disk, after following symlinks, must stay inside the root.
-fn inside(root: &Path, rel: &Path) -> Result<PathBuf> {
-    let full = std::fs::canonicalize(root.join(rel)).with_context(|| format!("{} does not exist", rel.display()))?;
+async fn inside(root: &Path, rel: &Path) -> Result<PathBuf> {
+    let full = crate::hostfs::canonicalize(root.join(rel)).await.with_context(|| format!("{} does not exist", rel.display()))?;
     if !full.starts_with(root) {
         bail!("{} is outside the folder", rel.display());
     }
@@ -366,7 +368,7 @@ async fn run_raw(env: &UserEnv, root: &Path, args: &[&str]) -> Result<Vec<u8>> {
     let out = crate::procs::command(env, "git", Some(root))
         .args(["--literal-pathspecs", "-c", "core.quotepath=off"])
         .args(args)
-        .stdin(std::process::Stdio::null())
+        .stdin(crate::exec::Io::Null)
         .output()
         .await
         .context("run git")?;
@@ -399,7 +401,7 @@ async fn default_branch(env: &UserEnv, root: &Path) -> Option<String> {
 pub async fn sources(app: &App, project: &Project) -> Result<CodeSources> {
     let root = Path::new(&project.path);
     let main = Worktree { path: project.path.clone(), branch: None, main: true };
-    if crate::git::git_dir(root).is_none() {
+    if crate::git::git_dir(root).await.is_none() {
         return Ok(CodeSources { git: false, default_branch: None, worktrees: vec![main], refs: vec![] });
     }
     let env = &app.env;
@@ -415,8 +417,9 @@ pub async fn sources(app: &App, project: &Project) -> Result<CodeSources> {
                 branch = Some(b.trim_start_matches("refs/heads/").to_string());
             }
         }
-        let Some(path) = path.filter(|p| Path::new(p).is_dir()) else { continue };
-        let path = std::fs::canonicalize(&path).map(|p| p.to_string_lossy().into_owned()).unwrap_or(path);
+        let Some(path) = path.map(|p| crate::hosts::loc::rehost(&project.path, &p)) else { continue };
+        if !crate::hostfs::is_dir(&path).await { continue }
+        let path = crate::hostfs::canonicalize(&path).await.map(|p| p.to_string_lossy().into_owned()).unwrap_or(path);
         let is_main = path == project.path;
         worktrees.push(Worktree { path, branch, main: is_main });
     }
@@ -480,8 +483,7 @@ async fn base(env: &UserEnv, src: &Source) -> Option<(String, String)> {
 pub async fn files(app: &App, src: &Source) -> Result<FileList> {
     let env = &app.env;
     if !src.git {
-        let root = src.root.clone();
-        let files = tokio::task::spawn_blocking(move || walk(&root)).await?;
+        let files = crate::hostfs::walk(&src.root).await?;
         return Ok(FileList { git: false, files, changes: BTreeMap::new(), base: None });
     }
     let root = &src.root;
@@ -531,7 +533,7 @@ pub async fn files(app: &App, src: &Source) -> Result<FileList> {
 }
 
 /// A folder that is not a git repository: hidden and ignored files are skipped.
-fn walk(root: &Path) -> Vec<String> {
+pub(crate) fn walk(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
     for entry in ignore::WalkBuilder::new(root).require_git(false).build().flatten() {
         if entry.file_type().is_some_and(|t| t.is_file())
@@ -570,15 +572,15 @@ async fn read(env: &UserEnv, src: &Source, path: &str, limit: u64) -> Result<std
             Ok(Ok(run_raw(env, &src.root, &["cat-file", "blob", &object]).await?))
         }
         None => {
-            let full = inside(&src.root, rel)?;
-            let meta = std::fs::metadata(&full)?;
+            let full = inside(&src.root, rel).await?;
+            let meta = crate::hostfs::metadata(&full).await?;
             if meta.is_dir() {
                 bail!("{path} is a folder (a git submodule?)");
             }
-            if meta.len() > limit {
-                return Ok(Err(meta.len()));
+            if meta.len > limit {
+                return Ok(Err(meta.len));
             }
-            Ok(Ok(tokio::fs::read(&full).await?))
+            Ok(Ok(crate::hostfs::read_limited(&full, limit).await?))
         }
     }
 }
@@ -801,7 +803,7 @@ pub async fn search(app: &App, src: &Source, q: &SearchQuery) -> Result<SearchRe
         cmd.arg(sha);
     }
     cmd.arg("--");
-    let mut child = cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn()?;
+    let mut child = cmd.stdin(crate::exec::Io::Null).stdout(crate::exec::Io::Piped).stderr(crate::exec::Io::Piped).spawn().await?;
     let prefix = src.rev.as_ref().map(|(_, sha)| format!("{sha}:"));
     let mut reader = tokio::io::BufReader::new(child.stdout.take().context("git stdout")?);
     let mut hits = Vec::new();
@@ -872,7 +874,7 @@ pub async fn commit(app: &App, src: &Source) -> Result<CommitInfo> {
         },
     };
     let branches = run(env, &src.root, &["branch", "-r", "--format=%(refname:short)", "--contains", &sha]).await.unwrap_or_default();
-    let remotes = crate::git::remotes(&src.root);
+    let remotes = crate::git::remotes(&src.root).await;
     let mut names: Vec<&str> = branches.lines().filter_map(|b| b.split('/').next()).collect();
     names.sort_by_key(|n| *n != "origin");
     let github = names.iter().find_map(|n| remotes.iter().find(|(r, _)| r == n).and_then(|(_, url)| crate::git::github_repo(url)));

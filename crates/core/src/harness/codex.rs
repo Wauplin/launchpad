@@ -304,13 +304,16 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
                     } else { entry };
                     request(&server, entry, id, &method, &params).await;
                 }
-                Ok(Incoming::Exited) => {
+                Ok(Incoming::Exited { lost }) => {
                     // Every live thread is lost. Done sessions resume when you send a message.
                     let all: Vec<(String, ThreadSession)> =
                         router_threads.lock().unwrap().drain().collect();
                     for (_, (sink, _)) in all {
                         if sink.agent_id.is_some() { sink.set_status(SessionStatus::Interrupted).await; continue; }
-                        sink.exited(Some("codex app-server exited".into())).await;
+                        if lost {
+                            sink.emit(EventBody::Notice { text: "The Codex app-server on the host ended while it was unreachable (the host or its helper restarted).".into() }).await;
+                        }
+                        sink.exited((!lost).then(|| "codex app-server exited".into())).await;
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => tracing::warn!("codex router lagged by {n} messages"),
@@ -686,13 +689,14 @@ pub const REGISTRATION: super::Registration = super::Registration {
             || key == "CODEX_SANDBOX_NETWORK_DISABLED"
     },
 };
-type VariantEnv = Vec<(String, String)>;
+/// A host (None: this computer) and variant environment.
+type VariantEnv = (Option<String>, Vec<(String, String)>);
 pub struct Adapter {
     env: crate::shellenv::UserEnv,
     /// The shared app-server, also used for quotas and models.
     server: CodexServer,
-    /// One app-server per distinct variant environment (`CODEX_HOME`, API keys), started on first use,
-    /// with its own thread routes: an app-server exit only ends its own threads.
+    /// One app-server per host and distinct variant environment (`CODEX_HOME`, API keys), started on first
+    /// use, with its own thread routes: an app-server exit only ends its own threads.
     variant_servers: Mutex<HashMap<VariantEnv, (CodexServer, Threads)>>,
     threads: Threads,
 }
@@ -703,6 +707,9 @@ impl super::Harness for Adapter {
     }
     fn sign_in_command(&self) -> &'static str {
         "codex login --device-auth"
+    }
+    fn install_command(&self) -> Option<&'static str> {
+        Some("npm install -g @openai/codex")
     }
     /// `codex login status` exits 0 when signed in. A masked API key suffix after " - " is dropped.
     async fn sign_in(&self, env: &crate::shellenv::UserEnv) -> crate::signin::SignIn {
@@ -716,13 +723,13 @@ impl super::Harness for Adapter {
         }
     }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
-        if spec.env.is_empty() {
+        if spec.env.is_empty() && spec.host.is_none() {
             return start(&self.server, &self.threads, spec, sink).await;
         }
         let (server, threads) = {
             let mut servers = self.variant_servers.lock().unwrap();
-            servers.entry(spec.env.clone()).or_insert_with(|| {
-                let server = CodexServer::new(self.env.with(&spec.env));
+            servers.entry((spec.host.clone(), spec.env.clone())).or_insert_with(|| {
+                let server = CodexServer::new(self.env.on(spec.host.as_deref()).with(&spec.env));
                 let threads = Threads::default();
                 spawn_router(app, &server, &threads);
                 (server, threads)
@@ -779,7 +786,7 @@ impl super::Harness for Adapter {
         app: &App,
         session: &Session,
         cwd: &std::path::Path,
-    ) -> Option<tokio::process::Command> {
+    ) -> Option<crate::exec::Cmd> {
         let mut cmd = crate::procs::child_command(&app.env, "codex", Some(cwd));
         cmd.args([
             "exec",
@@ -888,7 +895,7 @@ fn spawn_updates(app: &App) {
                 .update_harness(ID, |s| s.updating_to = Some("latest".into()));
             let result = crate::procs::command(&app.env, "codex", None)
                 .arg("update")
-                .stdin(std::process::Stdio::null())
+                .stdin(crate::exec::Io::Null)
                 .output()
                 .await;
             match result {

@@ -9,16 +9,15 @@ use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::ChildStdin;
 
 use crate::App;
 use crate::model::*;
 use crate::sessions::{LiveSession, Sink, StartSpec, json_line, shorten, text_of, truncate_output};
 
 pub struct ClaudeSession {
-    stdin: tokio::sync::Mutex<Option<ChildStdin>>,
+    stdin: tokio::sync::Mutex<Option<crate::exec::Stdin>>,
     state: Arc<Mutex<State>>,
-    child_pid: Option<u32>,
+    killer: crate::exec::Killer,
 }
 
 #[derive(Default)]
@@ -80,15 +79,15 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     for d in &spec.add_dirs {
         args.extend(["--add-dir".into(), d.clone()]);
     }
-    let mut cmd = crate::procs::child_command(&app.env, "claude", Some(&spec.cwd));
+    let mut cmd = crate::procs::child_command(&app.env.on(spec.host.as_deref()), "claude", Some(&spec.cwd));
     cmd.args(&args)
         .envs(spec.env.iter().cloned())
         .env("LAUNCHPAD_PROFILE", app.paths.profile.name())
         .env("LAUNCHPAD_SESSION_ID", &spec.session_id)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    let mut child = cmd.spawn().context("start claude")?;
+        .stdin(crate::exec::Io::Piped)
+        .stdout(crate::exec::Io::Piped)
+        .stderr(crate::exec::Io::Piped);
+    let mut child = cmd.spawn().await.context("start claude")?;
     sink.raw("cmd", &format!("claude {}", args.join(" "))).await;
     sink.set_harness_id(&harness_id).await;
     let stdin = child.stdin.take().unwrap();
@@ -97,7 +96,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     // `total_cost_usd` counts from the start of each process: add what earlier processes reported.
     let cost_base = app.sessions.get(&spec.session_id).and_then(|s| s.usage.cost_usd).unwrap_or(0.0);
     let state = Arc::new(Mutex::new(State { cwd: spec.cwd.to_string_lossy().to_string(), cost_base, ..Default::default() }));
-    let session = Arc::new(ClaudeSession { stdin: tokio::sync::Mutex::new(Some(stdin)), state: state.clone(), child_pid: child.id() });
+    let session = Arc::new(ClaudeSession { stdin: tokio::sync::Mutex::new(Some(stdin)), state: state.clone(), killer: child.killer() });
 
     let stderr_tail = Arc::new(Mutex::new(Vec::<String>::new()));
     let tail = stderr_tail.clone();
@@ -129,6 +128,11 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
         let error = match status {
             Ok(s) if s.success() || stopping => None,
             Ok(s) => Some(format!("claude exited ({s}): {}", stderr_tail.lock().unwrap().join("\n"))),
+            // The host lost the process: Interrupted, resumable on the host.
+            Err(e) if crate::exec::is_lost(&e) => {
+                out_sink.emit(EventBody::Notice { text: format!("{e}") }).await;
+                None
+            }
             Err(e) => Some(format!("claude: {e}")),
         };
         out_sink.exited(error).await;
@@ -202,19 +206,11 @@ impl LiveSession for ClaudeSession {
         self.state.lock().unwrap().stopping = true;
         // Closing stdin ends the process after the current step; kill it if it does not exit.
         self.stdin.lock().await.take();
-        if let Some(pid) = self.child_pid {
-            tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                #[cfg(unix)]
-                unsafe {
-                    libc::kill(pid as i32, libc::SIGTERM);
-                }
-                #[cfg(windows)]
-                {
-                    let _ = tokio::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status().await;
-                }
-            });
-        }
+        let killer = self.killer.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            killer.terminate().await;
+        });
         Ok(())
     }
 }
@@ -621,10 +617,11 @@ fn file_change(name: &str, input: &Value, id: &str, cwd: &str) -> Option<EventBo
 pub async fn models(app: &App) -> Result<Vec<ModelInfo>> {
     let mut child = crate::procs::child_command(&app.env, "claude", None)
         .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()?;
+        .stdin(crate::exec::Io::Piped)
+        .stdout(crate::exec::Io::Piped)
+        .stderr(crate::exec::Io::Null)
+        .spawn()
+        .await?;
     let mut stdin = child.stdin.take().unwrap();
     let stdout = child.stdout.take().unwrap();
     stdin
@@ -701,6 +698,9 @@ impl super::Harness for Adapter {
     }
     fn sign_in_command(&self) -> &'static str {
         "claude auth login"
+    }
+    fn install_command(&self) -> Option<&'static str> {
+        Some("curl -fsSL https://claude.ai/install.sh | bash")
     }
     /// `claude auth status` prints JSON; only the method, plan and account e-mail are kept.
     async fn sign_in(&self, env: &crate::shellenv::UserEnv) -> crate::signin::SignIn {
@@ -784,7 +784,7 @@ impl super::Harness for Adapter {
         app: &App,
         _session: &Session,
         cwd: &std::path::Path,
-    ) -> Option<tokio::process::Command> {
+    ) -> Option<crate::exec::Cmd> {
         let mut cmd = crate::procs::child_command(&app.env, "claude", Some(cwd));
         cmd.args([
             "-p",
@@ -922,10 +922,11 @@ async fn claude_code_usage(app: &App) -> Result<QuotaPair> {
     let home = dirs::home_dir();
     let mut child = crate::procs::child_command(&app.env, "claude", home.as_deref())
         .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--strict-mcp-config"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stdin(crate::exec::Io::Piped)
+        .stdout(crate::exec::Io::Piped)
+        .stderr(crate::exec::Io::Null)
         .spawn()
+        .await
         .context("start claude")?;
     let mut stdin = child.stdin.take().context("claude stdin")?;
     let request = json!({"type": "control_request", "request_id": "launchpad-usage", "request": {"subtype": "get_usage", "skip_behaviors": true}});

@@ -60,7 +60,7 @@ pub async fn list(app: &App) -> Result<Vec<Project>> {
             Ok(rows)
         })
         .await?;
-    refresh_metadata(app, projects).await
+    refresh_metadata(app, projects, false).await
 }
 
 pub async fn get(app: &App, id: &str) -> Result<Option<Project>> {
@@ -69,29 +69,30 @@ pub async fn get(app: &App, id: &str) -> Result<Option<Project>> {
         .state_db
         .call(move |c| Ok(c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE id = ?1"), [id], from_row).optional()?))
         .await?;
-    Ok(refresh_metadata(app, project.into_iter().collect()).await?.pop())
+    Ok(refresh_metadata(app, project.into_iter().collect(), false).await?.pop())
 }
 
-/// Remote metadata is derived from disk, never from the registration-time snapshot.
-async fn refresh_metadata(app: &App, projects: Vec<Project>) -> Result<Vec<Project>> {
+/// Remote metadata is derived from disk, never from the registration-time snapshot. Projects on SSH hosts
+/// are only read by the periodic refresh (`include_hosts`), so listing projects never waits for a network.
+async fn refresh_metadata(app: &App, projects: Vec<Project>, include_hosts: bool) -> Result<Vec<Project>> {
     if projects.is_empty() {
         return Ok(projects);
     }
-    let (projects, refreshed) = tokio::task::spawn_blocking(move || {
-        let mut refreshed = Vec::new();
-        let projects = projects.into_iter().map(|mut p| {
-            // Keep the last known mapping when a folder is temporarily unavailable.
-            if Path::new(&p.path).is_dir() {
-                let (remote_url, gh_repo, gh_upstream) = remote_info(Path::new(&p.path));
-                if p.remote_url != remote_url || p.gh_repo != gh_repo || p.gh_upstream != gh_upstream {
-                    (p.remote_url, p.gh_repo, p.gh_upstream) = (remote_url, gh_repo, gh_upstream);
-                    refreshed.push(p.clone());
-                }
+    let checks = projects.into_iter().map(|mut p| async move {
+        let remote = crate::hosts::loc::host_of(&p.path).is_some();
+        // Keep the last known mapping when a folder is temporarily unavailable.
+        if (include_hosts || !remote) && crate::hostfs::is_dir(&p.path).await {
+            let (remote_url, gh_repo, gh_upstream) = remote_info(Path::new(&p.path)).await;
+            if p.remote_url != remote_url || p.gh_repo != gh_repo || p.gh_upstream != gh_upstream {
+                (p.remote_url, p.gh_repo, p.gh_upstream) = (remote_url, gh_repo, gh_upstream);
+                return (p, true);
             }
-            p
-        }).collect::<Vec<_>>();
-        (projects, refreshed)
-    }).await?;
+        }
+        (p, false)
+    });
+    let results = futures_util::future::join_all(checks).await;
+    let refreshed: Vec<Project> = results.iter().filter(|(_, changed)| *changed).map(|(p, _)| p.clone()).collect();
+    let projects: Vec<Project> = results.into_iter().map(|(p, _)| p).collect();
     if refreshed.is_empty() {
         return Ok(projects);
     }
@@ -126,14 +127,19 @@ pub fn spawn(app: &App) {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tick.tick().await;
-            if let Err(e) = list(&app).await {
+            let all = app.state_db.call(|c| {
+                let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM project"))?;
+                let rows = st.query_map([], from_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            }).await;
+            if let Err(e) = async { refresh_metadata(&app, all?, true).await }.await {
                 tracing::warn!("project metadata refresh: {e:#}");
             }
         }
     });
 }
 
-/// Project whose folder contains `cwd` (the longest match).
+/// Project whose folder contains `cwd` (the longest match), on the same machine.
 pub async fn for_path(app: &App, cwd: &Path) -> Result<Option<Project>> {
     let all = list(app).await?;
     Ok(all.into_iter().filter(|p| cwd.starts_with(&p.path)).max_by_key(|p| p.path.len()))
@@ -146,8 +152,8 @@ pub async fn for_repo(app: &App, repo: &str) -> Result<Option<Project>> {
     Ok(all.iter().find(|p| eq(&p.gh_repo)).or_else(|| all.iter().find(|p| eq(&p.gh_upstream))).cloned())
 }
 
-fn remote_info(path: &Path) -> (Option<String>, Option<String>, Option<String>) {
-    let remotes = crate::git::remotes(path);
+async fn remote_info(path: &Path) -> (Option<String>, Option<String>, Option<String>) {
+    let remotes = crate::git::remotes(path).await;
     let url = |name: &str| remotes.iter().find(|(n, _)| n == name).map(|(_, u)| u.clone());
     let origin = url("origin");
     let gh_repo = origin.as_deref().and_then(crate::git::github_repo);
@@ -155,13 +161,16 @@ fn remote_info(path: &Path) -> (Option<String>, Option<String>, Option<String>) 
     (origin, gh_repo, gh_upstream)
 }
 
-/// Registers a folder (or returns the existing project for it).
+/// Registers a folder (or returns the existing project for it). A folder on an SSH host is `<host>:<path>`.
 pub async fn register(app: &App, path: &Path, is_temp: bool) -> Result<Project> {
-    let path = std::fs::canonicalize(path).with_context(|| format!("{} does not exist", path.display()))?;
-    if !path.is_dir() {
+    if let Some(host) = crate::hosts::loc::host_of_path(path) {
+        anyhow::ensure!(app.hosts.record(host).is_some(), "unknown host {host}; add it in Settings → Hosts");
+    }
+    let path = crate::hostfs::canonicalize(path).await.with_context(|| format!("{} does not exist", path.display()))?;
+    if !crate::hostfs::is_dir(&path).await {
         bail!("{} is not a folder", path.display());
     }
-    let (remote_url, gh_repo, gh_upstream) = remote_info(&path);
+    let (remote_url, gh_repo, gh_upstream) = remote_info(&path).await;
     let p = Project {
         id: uuid::Uuid::new_v4().to_string(),
         name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
@@ -190,7 +199,7 @@ pub async fn register(app: &App, path: &Path, is_temp: bool) -> Result<Project> 
             Ok(None)
         })
         .await?;
-    let project = refresh_metadata(app, vec![existing.unwrap_or(saved)]).await?.pop().unwrap();
+    let project = refresh_metadata(app, vec![existing.unwrap_or(saved)], true).await?.pop().unwrap();
     app.bus.publish("projects", "changed", serde_json::Value::Null);
     Ok(project)
 }
@@ -231,32 +240,36 @@ pub async fn unregister(app: &App, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// "Scan projects root": git repositories in the projects root (one level deep).
-pub async fn discover(app: &App) -> Result<Vec<Discovered>> {
-    let root = app.config.get().projects_root();
+/// The projects root of this computer, or of an SSH host (as a host location).
+pub fn projects_root(app: &App, host: Option<&str>) -> Result<PathBuf> {
+    match host {
+        Some(h) => Ok(PathBuf::from(app.hosts.projects_root(h)?)),
+        None => Ok(app.config.get().projects_root()),
+    }
+}
+
+/// "Scan projects root": git repositories in the projects root (one level deep), here or on a host.
+pub async fn discover(app: &App, host: Option<&str>) -> Result<Vec<Discovered>> {
+    let root = projects_root(app, host)?;
     let registered: std::collections::HashSet<String> = list(app).await?.into_iter().map(|p| p.path).collect();
-    tokio::task::spawn_blocking(move || {
-        let mut out = Vec::new();
-        for entry in std::fs::read_dir(&root).with_context(|| format!("read {}", root.display()))? {
-            let entry = entry?;
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') || !path.is_dir() || crate::git::git_dir(&path).is_none() {
-                continue;
-            }
-            let (_, gh_repo, _) = remote_info(&path);
-            let canonical = std::fs::canonicalize(&path).unwrap_or(path.clone());
-            out.push(Discovered {
-                registered: registered.contains(&canonical.to_string_lossy().to_string()),
-                name,
-                path: canonical.to_string_lossy().to_string(),
-                gh_repo,
-            });
+    let entries = crate::hostfs::read_dir(&root).await.with_context(|| format!("read {}", root.display()))?;
+    let found = entries.into_iter().filter(|e| !e.name.starts_with('.') && matches!(e.kind.as_str(), "dir" | "symlink")).map(|e| {
+        let path = root.join(&e.name);
+        async move {
+            crate::git::git_dir(&path).await?;
+            let (_, gh_repo, _) = remote_info(&path).await;
+            let canonical = crate::hostfs::canonicalize(&path).await.unwrap_or(path.clone());
+            Some((e.name, canonical.to_string_lossy().to_string(), gh_repo))
         }
-        out.sort_by_key(|d| d.name.to_lowercase());
-        Ok(out)
-    })
-    .await?
+    });
+    let mut out: Vec<Discovered> = futures_util::future::join_all(found).await.into_iter().flatten().map(|(name, path, gh_repo)| Discovered {
+        registered: registered.contains(&path),
+        name,
+        path,
+        gh_repo,
+    }).collect();
+    out.sort_by_key(|d| d.name.to_lowercase());
+    Ok(out)
 }
 
 /// Creates `<projects_root>/tmp-<MMDD>-<slug>` and registers it as a temporary project.

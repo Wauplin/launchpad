@@ -32,10 +32,9 @@ pub struct SignInCheck {
 
 /// Runs a status command and returns (success, stdout, stderr). A missing program is an error.
 pub async fn status_output(env: &UserEnv, program: &str, args: &[&str]) -> anyhow::Result<(bool, String, String)> {
-    let child = crate::procs::command(env, program, None)
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .output();
+    let mut cmd = crate::procs::command(env, program, None);
+    cmd.args(args).stdin(crate::exec::Io::Null);
+    let child = cmd.output();
     let out = tokio::time::timeout(Duration::from_secs(20), child).await.map_err(|_| anyhow::anyhow!("{program} did not answer within 20 s"))??;
     Ok((out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned(), String::from_utf8_lossy(&out.stderr).into_owned()))
 }

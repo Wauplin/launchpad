@@ -86,12 +86,22 @@ async fn get_project(State(s): State<Server>, Path(id): Path<String>) -> ApiResu
 #[derive(Deserialize)]
 struct AddProject {
     path: String,
+    /// The SSH host of `path` (a native path on that host, `~` for its home).
+    host: Option<String>,
     /// The workspace of the window that adds it.
     workspace_id: Option<String>,
 }
 
 async fn add_project(State(s): State<Server>, Json(b): Json<AddProject>) -> ApiResult<Project> {
-    let path = launchpad_core::paths::expand_home(b.path.trim());
+    let path = match b.host.as_deref() {
+        Some(h) => {
+            let home = s.app.hosts.home(h).ok_or_else(|| ApiError::bad_request(format!("{h} is not connected")))?;
+            let p = b.path.trim();
+            let native = if p == "~" { home } else if let Some(rest) = p.strip_prefix("~/") { format!("{}/{rest}", home.trim_end_matches('/')) } else { p.to_string() };
+            std::path::PathBuf::from(launchpad_core::hosts::loc::join(Some(h), &native))
+        }
+        None => launchpad_core::paths::expand_home(b.path.trim()),
+    };
     let p = projects::register(&s.app, &path, false).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     if let Some(ws) = &b.workspace_id {
         workspace::add_project(&s.app, ws, &p.id).await?;
@@ -156,8 +166,15 @@ async fn open_window(State(s): State<Server>, Json(b): Json<OpenWindow>) -> ApiR
     Ok(Json(json!({"ok": true})))
 }
 
-async fn discover(State(s): State<Server>) -> ApiResult<Vec<Discovered>> {
-    Ok(Json(projects::discover(&s.app).await?))
+#[derive(Deserialize, Default)]
+struct Discover {
+    /// Scan the projects root of this SSH host instead of this computer's.
+    host: Option<String>,
+}
+
+async fn discover(State(s): State<Server>, body: Option<Json<Discover>>) -> ApiResult<Vec<Discovered>> {
+    let host = body.map(|b| b.0).unwrap_or_default().host;
+    Ok(Json(projects::discover(&s.app, host.as_deref()).await.map_err(bad)?))
 }
 
 async fn patch_project(State(s): State<Server>, Path(id): Path<String>, Json(patch): Json<ProjectPatch>) -> ApiResult<Project> {
@@ -417,17 +434,10 @@ async fn task_output(State(s): State<Server>, Path(id): Path<String>, Query(q): 
         _ => None,
     });
     let Some(file) = file else { return Ok(Json(json!({"text": null}))) };
-    let text = tokio::task::spawn_blocking(move || -> std::io::Result<String> {
-        use std::io::{Read, Seek, SeekFrom};
-        let mut f = std::fs::File::open(&file)?;
-        let len = f.metadata()?.len();
-        f.seek(SeekFrom::Start(len.saturating_sub(4096)))?;
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf)?;
-        Ok(String::from_utf8_lossy(&buf).to_string())
-    })
-    .await?
-    .ok();
+    // The harness reports a path on the machine of the session.
+    let host = s.app.sessions.get(&id).and_then(|x| launchpad_core::hosts::loc::host_of(&x.cwd).map(str::to_string));
+    let file = if file.starts_with('/') { launchpad_core::hosts::loc::join(host.as_deref(), &file) } else { file };
+    let text = launchpad_core::hostfs::tail(&file, 4096).await.ok().map(|b| String::from_utf8_lossy(&b).to_string());
     Ok(Json(json!({"text": text})))
 }
 
@@ -469,7 +479,7 @@ async fn open_url(State(s): State<Server>, Json(b): Json<OpenUrl>) -> ApiResult<
         return Err(ApiError::bad_request("only http and https links"));
     }
     let browser = s.app.config.get().commands.browser;
-    launchpad_core::procs::command(&s.app.env, &browser, None).arg(&b.url).kill_on_drop(false).spawn().map_err(|e| bad(e.into()))?;
+    launchpad_core::procs::command(&s.app.env, &browser, None).arg(&b.url).kill_on_drop(false).spawn().await.map_err(|e| bad(e.into()))?;
     Ok(Json(json!({"ok": true})))
 }
 

@@ -11,7 +11,6 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::ChildStdin;
 use tokio::sync::{broadcast, oneshot};
 
 use crate::shellenv::UserEnv;
@@ -29,12 +28,12 @@ pub enum Incoming {
         method: String,
         params: Value,
     },
-    /// The process exited. Running turns are lost.
-    Exited,
+    /// The process exited. Running turns are lost. `lost`: it ended on an unreachable host (Interrupted).
+    Exited { lost: bool },
 }
 
 struct Proc {
-    stdin: tokio::sync::Mutex<ChildStdin>,
+    stdin: tokio::sync::Mutex<crate::exec::Stdin>,
     pending: Mutex<HashMap<i64, oneshot::Sender<Result<Value>>>>,
     alive: std::sync::atomic::AtomicBool,
 }
@@ -97,10 +96,11 @@ impl CodexServer {
     async fn spawn(&self) -> Result<Arc<Proc>> {
         let mut child = crate::procs::child_command(&self.env, "codex", None)
             .args(["app-server", "-c", "check_for_update_on_startup=false"])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+            .stdin(crate::exec::Io::Piped)
+            .stdout(crate::exec::Io::Piped)
+            .stderr(crate::exec::Io::Piped)
             .spawn()
+            .await
             .context("start codex app-server")?;
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
@@ -159,9 +159,10 @@ impl CodexServer {
             for (_, tx) in reader_proc.pending.lock().unwrap().drain() {
                 let _ = tx.send(Err(anyhow!("codex app-server exited")));
             }
-            let _ = incoming.send(Incoming::Exited);
             let status = child.wait().await;
             tracing::warn!("codex app-server exited: {status:?}");
+            let lost = status.as_ref().is_err_and(crate::exec::is_lost);
+            let _ = incoming.send(Incoming::Exited { lost });
         });
         Ok(p)
     }

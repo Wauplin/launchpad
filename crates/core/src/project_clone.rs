@@ -42,18 +42,23 @@ pub async fn suggestions(app: &App) -> Result<Vec<String>> {
 /// Clones into `<projects_root>/<name>` with `gh repo clone` (its configured protocol and credentials),
 /// or `git clone` over HTTPS without the GitHub CLI. A hidden staging folder keeps Discover from listing a
 /// partial clone; no prompt can block the request.
-pub async fn clone(app: &App, input: &str) -> Result<Project> {
+/// On an SSH host, the clone runs there with the host's own `gh` or `git` credentials.
+pub async fn clone(app: &App, input: &str, host: Option<&str>) -> Result<Project> {
     let (owner, repo) = parse_repo(input)?;
-    let root = app.config.get().projects_root();
-    std::fs::create_dir_all(&root).with_context(|| format!("create {}", root.display()))?;
+    let root = crate::projects::projects_root(app, host)?;
+    crate::hostfs::create_dir_all(&root).await.with_context(|| format!("create {}", root.display()))?;
     let dest = root.join(&repo);
-    if dest.exists() {
+    if crate::hostfs::exists(&dest).await {
         bail!("{} already exists; use Discover to add it", dest.display());
     }
     let staging = root.join(format!(".{repo}.cloning-{}", &uuid::Uuid::new_v4().to_string()[..8]));
     let full = format!("{owner}/{repo}");
     let staging_s = staging.to_string_lossy().into_owned();
-    let mut cmd = if app.env.which("gh").is_some_and(|p| p.is_file()) {
+    let gh = match host {
+        Some(h) => crate::hosts::conn(h)?.request(crate::hosts::proto::Op::Which { programs: vec!["gh".into()] }).await.ok().and_then(|v| v[0].as_str().map(str::to_string)).is_some(),
+        None => app.env.which("gh").is_some_and(|p| p.is_file()),
+    };
+    let mut cmd = if gh {
         let mut c = crate::procs::command(&app.env, "gh", Some(&root));
         c.args(["repo", "clone", &full, &staging_s]);
         c
@@ -62,7 +67,7 @@ pub async fn clone(app: &App, input: &str) -> Result<Project> {
         c.args(["clone", &format!("https://github.com/{full}.git"), &staging_s]);
         c
     };
-    cmd.env("GIT_TERMINAL_PROMPT", "0").env("GH_PROMPT_DISABLED", "1").stdin(std::process::Stdio::null());
+    cmd.env("GIT_TERMINAL_PROMPT", "0").env("GH_PROMPT_DISABLED", "1").stdin(crate::exec::Io::Null);
     let result = tokio::time::timeout(Duration::from_secs(15 * 60), cmd.output()).await;
     let ok = match result {
         Ok(Ok(out)) if out.status.success() => Ok(()),
@@ -71,13 +76,13 @@ pub async fn clone(app: &App, input: &str) -> Result<Project> {
         Err(_) => Err(anyhow::anyhow!("clone did not finish within 15 minutes")),
     };
     if let Err(e) = ok {
-        let _ = std::fs::remove_dir_all(&staging);
+        let _ = crate::hostfs::remove_dir_all(&staging).await;
         return Err(e);
     }
-    if dest.exists() {
-        let _ = std::fs::remove_dir_all(&staging);
+    if crate::hostfs::exists(&dest).await {
+        let _ = crate::hostfs::remove_dir_all(&staging).await;
         bail!("{} appeared during the clone; use Discover to add it", dest.display());
     }
-    std::fs::rename(&staging, &dest).with_context(|| format!("move the clone to {}", dest.display()))?;
+    crate::hostfs::rename(&staging, &dest).await.with_context(|| format!("move the clone to {}", dest.display()))?;
     crate::projects::register(app, &dest, false).await
 }

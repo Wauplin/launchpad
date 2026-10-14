@@ -15,6 +15,8 @@ const START: &str = "__LAUNCHPAD_ENV_START__";
 #[derive(Clone)]
 pub struct UserEnv {
     vars: Arc<BTreeMap<String, String>>,
+    /// An SSH host: `vars` then holds only overrides, added to the host's own login-shell environment.
+    host: Option<Arc<str>>,
 }
 
 impl UserEnv {
@@ -33,14 +35,31 @@ impl UserEnv {
         // Launchpad's own profile must not leak either: an agent running `launchpad` commands
         // talks to the instance that started it, which the agent sets explicitly when needed.
         vars.remove("LAUNCHPAD_PROFILE");
-        UserEnv { vars: Arc::new(vars) }
+        UserEnv { vars: Arc::new(vars), host: None }
+    }
+
+    /// The environment of processes on an SSH host (`exec.rs` runs them through its helper).
+    pub fn for_host(id: &str) -> UserEnv {
+        UserEnv { vars: Arc::new(BTreeMap::new()), host: Some(id.into()) }
+    }
+
+    /// This environment, or the host's when `host` is set.
+    pub fn on(&self, host: Option<&str>) -> UserEnv {
+        match host {
+            Some(h) => UserEnv::for_host(h),
+            None => self.clone(),
+        }
+    }
+
+    pub fn host(&self) -> Option<&str> {
+        self.host.as_deref()
     }
 
     /// This environment with variant overrides.
     pub fn with(&self, overrides: &[(String, String)]) -> UserEnv {
         let mut vars = (*self.vars).clone();
         vars.extend(overrides.iter().cloned());
-        UserEnv { vars: Arc::new(vars) }
+        UserEnv { vars: Arc::new(vars), host: self.host.clone() }
     }
 
     pub fn vars(&self) -> &BTreeMap<String, String> {
@@ -51,8 +70,11 @@ impl UserEnv {
         self.vars.get(key).map(|s| s.as_str())
     }
 
-    /// Absolute path of a program, searched in the user `PATH`.
+    /// Absolute path of a program, searched in the user `PATH`. On a host, the helper resolves it.
     pub fn which(&self, program: &str) -> Option<std::path::PathBuf> {
+        if self.host.is_some() {
+            return None;
+        }
         if program.contains('/') || program.contains('\\') {
             return Some(program.into());
         }

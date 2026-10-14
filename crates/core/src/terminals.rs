@@ -72,9 +72,11 @@ struct Term {
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     size: Mutex<PtySize>,
     viewers: Mutex<Viewers>,
-    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    killer: Mutex<Option<Box<dyn ChildKiller + Send + Sync>>>,
     #[cfg_attr(not(unix), allow(dead_code))]
     pid: Option<u32>,
+    /// A PTY owned by the helper of an SSH host: input, size and signals go through the connection.
+    remote: Option<(Arc<crate::hosts::Conn>, Arc<crate::hosts::RemoteProc>)>,
 }
 
 /// The retained output and the absolute number of bytes the terminal ever produced, so a viewer
@@ -217,6 +219,11 @@ impl Terminals {
 
     pub fn write(&self, id: &str, data: &[u8]) -> Result<()> {
         let t = self.get(id)?;
+        if let Some((conn, p)) = &t.remote {
+            anyhow::ensure!(t.info.lock().unwrap().alive, "the terminal has exited");
+            conn.write(p, data);
+            return Ok(());
+        }
         let mut writer = t.writer.lock().unwrap();
         let w = writer.as_mut().context("the terminal has exited")?;
         w.write_all(data)?;
@@ -232,6 +239,19 @@ impl Terminals {
             return Ok(());
         }
         #[cfg(unix)]
+        if let Some((conn, p)) = &t.remote {
+            conn.signal(p, libc::SIGHUP, true);
+            conn.signal(p, libc::SIGTERM, true);
+            let (t, conn, p) = (t.clone(), conn.clone(), p.clone());
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                if t.info.lock().unwrap().alive {
+                    conn.signal(&p, libc::SIGKILL, true);
+                }
+            });
+            return Ok(());
+        }
+        #[cfg(unix)]
         if let Some(pid) = t.pid {
             // portable-pty makes the child a session (and process group) leader.
             unsafe {
@@ -243,12 +263,12 @@ impl Terminals {
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 if t.info.lock().unwrap().alive {
                     unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
-                    let _ = t.killer.lock().unwrap().kill();
+                    if let Some(k) = t.killer.lock().unwrap().as_mut() { let _ = k.kill(); }
                 }
             });
             return Ok(());
         }
-        t.killer.lock().unwrap().kill()?;
+        if let Some(k) = t.killer.lock().unwrap().as_mut() { k.kill()?; }
         Ok(())
     }
 
@@ -287,13 +307,16 @@ impl Terminals {
         Ok(())
     }
 
-    fn spawn(&self, app: &App, mut info: TerminalInfo, argv: Vec<String>, env: Vec<(String, String)>) -> Result<TerminalInfo> {
+    async fn spawn(&self, app: &App, mut info: TerminalInfo, argv: Vec<String>, env: Vec<(String, String)>) -> Result<TerminalInfo> {
         // The PTY would otherwise start the process in another folder.
-        if !Path::new(&info.cwd).is_dir() {
+        if !crate::hostfs::is_dir(&info.cwd).await {
             bail!("the folder {} no longer exists", info.cwd);
         }
         if self.alive_count() >= MAX_OPEN {
             bail!("{MAX_OPEN} terminals are already open; close one first");
+        }
+        if let Some(host) = crate::hosts::loc::host_of(&info.cwd).map(str::to_string) {
+            return self.spawn_remote(app, info, &host, argv, env).await;
         }
         let pair = portable_pty::native_pty_system().openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })?;
         let mut cmd = CommandBuilder::from_argv(argv.iter().map(Into::into).collect());
@@ -322,8 +345,9 @@ impl Terminals {
             master: Mutex::new(Some(pair.master)),
             size: Mutex::new(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }),
             viewers: Mutex::new(Viewers::default()),
-            killer: Mutex::new(child.clone_killer()),
+            killer: Mutex::new(Some(child.clone_killer())),
             pid: child.process_id(),
+            remote: None,
         });
         self.inner.lock().unwrap().insert(info.id.clone(), term.clone());
         tracing::info!("terminal {} started in {}: {}", info.id, info.cwd, argv.join(" "));
@@ -353,23 +377,58 @@ impl Terminals {
             let code = child.wait().ok().map(|s| s.exit_code());
             // Lets the reader drain the last output (ConPTY only ends it when the master is dropped).
             let _ = done_rx.recv_timeout(Duration::from_secs(1));
-            let _buffer = t.buffer.lock().unwrap();
-            t.writer.lock().unwrap().take();
-            t.master.lock().unwrap().take();
-            let info = {
-                let mut info = t.info.lock().unwrap();
-                info.alive = false;
-                info.exit_code = code;
-                info.clone()
-            };
-            let _ = t.tx.send(Output::Exit(code));
-            tracing::info!("terminal {} exited ({code:?})", info.id);
-            app.bus.publish("terminals", "exited", serde_json::json!(info));
-            // A normal shell exit (Ctrl+D or `exit`) closes its tab in every viewer. Keep failed
-            // shells, explicit snippet commands and harness TUIs so their final output can still be inspected.
-            if info.kind == TerminalKind::Shell && code == Some(0) {
-                let _ = app.terminals.remove(&app, &info.id);
+            finished(&app, &t, code);
+        });
+        info.alive = true;
+        Ok(info)
+    }
+
+    /// A PTY on an SSH host: the helper owns it, so it survives a lost connection and the output resumes.
+    async fn spawn_remote(&self, app: &App, mut info: TerminalInfo, host: &str, argv: Vec<String>, env: Vec<(String, String)>) -> Result<TerminalInfo> {
+        let conn = crate::hosts::conn(host)?;
+        let mut vars = vec![("TERM".to_string(), "xterm-256color".to_string()), ("COLORTERM".into(), "truecolor".into()), ("LAUNCHPAD_PROFILE".into(), app.paths.profile.name().into())];
+        vars.extend(env.into_iter().map(|(k, v)| (k, crate::hosts::loc::localize_arg(host, &v))));
+        let argv: Vec<String> = argv.iter().map(|a| crate::hosts::loc::localize_arg(host, a)).collect();
+        let cwd = crate::hosts::loc::native(&info.cwd).to_string();
+        let (p, [mut out, _err]) = conn.spawn(argv.clone(), Some(cwd), vars, Some((24, 80)), true).await?;
+        let (tx, _) = broadcast::channel(1024);
+        let term = Arc::new(Term {
+            info: Mutex::new(info.clone()),
+            buffer: Mutex::new(Buffer::default()),
+            tx,
+            writer: Mutex::new(None),
+            master: Mutex::new(None),
+            size: Mutex::new(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }),
+            viewers: Mutex::new(Viewers::default()),
+            killer: Mutex::new(None),
+            pid: None,
+            remote: Some((conn.clone(), p.clone())),
+        });
+        self.inner.lock().unwrap().insert(info.id.clone(), term.clone());
+        tracing::info!("terminal {} started on {host} in {}: {}", info.id, info.cwd, argv.join(" "));
+        app.bus.publish("terminals", "opened", serde_json::json!(info));
+        let (t, app) = (term.clone(), app.clone());
+        tokio::spawn(async move {
+            while let Some(chunk) = out.recv().await {
+                let mut buffer = t.buffer.lock().unwrap();
+                buffer.bytes.extend(&chunk);
+                buffer.end += chunk.len() as u64;
+                let extra = buffer.bytes.len().saturating_sub(BUFFER);
+                buffer.bytes.drain(..extra);
+                let _ = t.tx.send(Output::Data(chunk.into()));
             }
+            let code = match conn.wait(&p).await {
+                Ok(s) => s.code.map(|c| c as u32),
+                Err(e) => {
+                    let note = format!("\r\n[{e}]\r\n");
+                    let mut buffer = t.buffer.lock().unwrap();
+                    buffer.bytes.extend(note.as_bytes());
+                    buffer.end += note.len() as u64;
+                    let _ = t.tx.send(Output::Data(note.as_bytes().into()));
+                    None
+                }
+            };
+            finished(&app, &t, code);
         });
         info.alive = true;
         Ok(info)
@@ -401,11 +460,13 @@ impl Terminals {
             exit_code: None,
             created_at: now_ms(),
         };
+        let remote = crate::hosts::loc::host_of(&info.cwd).is_some();
         let argv = match command {
-            Some(command) => command_shell(app, command, language.unwrap_or("shell"))?,
+            Some(command) => command_shell(app, command, language.unwrap_or("shell"), remote)?,
+            None if remote => vec!["@shell".into(), "-l".into()],
             None => shell(app),
         };
-        self.spawn(app, info, argv, vec![])
+        self.spawn(app, info, argv, vec![]).await
     }
 
     /// Opens the harness TUI of a session. The caller detaches the headless harness first.
@@ -429,7 +490,31 @@ impl Terminals {
             exit_code: None,
             created_at: now_ms(),
         };
-        self.spawn(app, info, argv, env)
+        self.spawn(app, info, argv, env).await
+    }
+}
+
+/// Marks a terminal exited and tells its viewers; a clean shell exit closes its tab.
+fn finished(app: &App, t: &Arc<Term>, code: Option<u32>) {
+    let info = {
+        let _buffer = t.buffer.lock().unwrap();
+        t.writer.lock().unwrap().take();
+        t.master.lock().unwrap().take();
+        let info = {
+            let mut info = t.info.lock().unwrap();
+            info.alive = false;
+            info.exit_code = code;
+            info.clone()
+        };
+        let _ = t.tx.send(Output::Exit(code));
+        info
+    };
+    tracing::info!("terminal {} exited ({code:?})", info.id);
+    app.bus.publish("terminals", "exited", serde_json::json!(info));
+    // A normal shell exit (Ctrl+D or `exit`) closes its tab in every viewer. Keep failed
+    // shells, explicit snippet commands and harness TUIs so their final output can still be inspected.
+    if info.kind == TerminalKind::Shell && code == Some(0) {
+        let _ = app.terminals.remove(app, &info.id);
     }
 }
 
@@ -441,6 +526,14 @@ fn take_size(t: &Term, v: &Viewers) -> bool {
     let mut current = t.size.lock().unwrap();
     if (current.rows, current.cols) == (size.rows, size.cols) {
         return false;
+    }
+    if let Some((conn, p)) = &t.remote {
+        if !t.info.lock().unwrap().alive {
+            return false;
+        }
+        conn.resize(p, size.rows, size.cols);
+        *current = size;
+        return true;
     }
     // An exited terminal keeps its last size.
     let Some(m) = t.master.lock().unwrap().as_ref().map(|m| m.resize(size)) else { return false };
@@ -473,8 +566,12 @@ fn shell(app: &App) -> Vec<String> {
     vec![app.env.get("SHELL").filter(|s| !s.is_empty()).unwrap_or(fallback).to_string(), "-l".into()]
 }
 
-fn command_shell(app: &App, command: &str, language: &str) -> Result<Vec<String>> {
+fn command_shell(app: &App, command: &str, language: &str, remote: bool) -> Result<Vec<String>> {
+    // On a host the helper resolves programs on the host's login-shell PATH.
     let mut argv = match language {
+        "shell" if remote => vec!["@shell".into()],
+        "sh" | "bash" | "zsh" | "fish" if remote => vec![language.to_string()],
+        "powershell" | "pwsh" if remote => vec!["pwsh".into(), "-NoLogo".into()],
         "shell" => shell(app),
         "sh" | "bash" | "zsh" | "fish" => vec![app.env.which(language).with_context(|| format!("{language} is not installed"))?.to_string_lossy().into_owned()],
         "powershell" | "pwsh" => {
@@ -483,25 +580,37 @@ fn command_shell(app: &App, command: &str, language: &str) -> Result<Vec<String>
         }
         _ => bail!("unsupported shell language: {language}"),
     };
-    let powershell = matches!(language, "powershell" | "pwsh") || (language == "shell" && cfg!(windows));
+    let powershell = matches!(language, "powershell" | "pwsh") || (language == "shell" && cfg!(windows) && !remote);
     // Pass the whole snippet as one argument, never interpolate it into a wrapper command.
     argv.push(if powershell { "-Command" } else { "-c" }.into());
     argv.push(command.into());
     Ok(argv)
 }
 
-/// Like `code::open`: a registered project, one of its git worktrees, or the folder of a session.
+/// Like `code::open`: a registered project, one of its git worktrees, the folder of a session, or the home
+/// folder of an SSH host (setup terminals: install and sign-in commands).
 async fn check_cwd(app: &App, cwd: &str) -> Result<(PathBuf, Option<crate::model::Project>)> {
-    let root = std::fs::canonicalize(cwd).with_context(|| format!("{cwd} does not exist"))?;
+    let root = crate::hostfs::canonicalize(cwd).await.with_context(|| format!("{cwd} does not exist"))?;
+    if let Some(host) = crate::hosts::loc::host_of_path(&root)
+        && app.hosts.home(host).is_some_and(|h| crate::hosts::loc::join(Some(host), &h) == root.to_string_lossy())
+    {
+        return Ok((root, None));
+    }
     let projects = crate::projects::list(app).await?;
     if let Some(p) = projects.iter().find(|p| Path::new(&p.path) == root) {
         return Ok((root, Some(p.clone())));
     }
-    if let Some(main) = crate::code::main_worktree(&root)
+    if let Some(main) = crate::code::main_worktree(&root).await
         && let Some(p) = projects.iter().find(|p| Path::new(&p.path) == main) {
         return Ok((root, Some(p.clone())));
     }
-    let session = app.sessions.list().into_iter().find(|s| std::fs::canonicalize(&s.cwd).is_ok_and(|c| c == root));
+    let mut session = None;
+    for s in app.sessions.list() {
+        if Path::new(&s.cwd) == root || crate::hostfs::canonicalize(&s.cwd).await.is_ok_and(|c| c == root) {
+            session = Some(s);
+            break;
+        }
+    }
     match session {
         Some(s) => {
             let project = projects.into_iter().find(|p| Some(&p.id) == s.project_id.as_ref());
@@ -515,7 +624,8 @@ async fn check_cwd(app: &App, cwd: &str) -> Result<(PathBuf, Option<crate::model
 fn tui_command(app: &App, s: &Session, is_temp: bool) -> Result<Vec<String>> {
     let mut command = app.harnesses.get(s.harness).terminal_command(s, is_temp)?;
     anyhow::ensure!(!command.is_empty(), "empty harness terminal command");
-    if let Some(path) = app.env.which(&command[0]) {
+    if crate::hosts::loc::host_of(&s.cwd).is_none()
+        && let Some(path) = app.env.which(&command[0]) {
         command[0] = path.to_string_lossy().to_string();
     }
     Ok(command)
@@ -527,6 +637,10 @@ pub fn tui_running(app: &App, s: &Session) -> bool {
     let Some(id) = &s.harness_session_id else {
         return false;
     };
+    // On a host, an integrated terminal is the only TUI Launchpad can see.
+    if crate::hosts::loc::host_of(&s.cwd).is_some() {
+        return app.terminals.tui_of(&s.id).is_some();
+    }
     let markers = app.harnesses.get(s.harness).terminal_resume_markers();
     #[cfg(not(target_os = "linux"))]
     {

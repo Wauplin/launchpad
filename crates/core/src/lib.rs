@@ -8,9 +8,12 @@ pub mod crons;
 pub mod db;
 pub mod drafts;
 pub mod events;
+pub mod exec;
 pub mod git;
 pub mod github;
 pub mod harness;
+pub mod hostfs;
+pub mod hosts;
 pub mod inbox;
 pub mod items;
 pub mod model;
@@ -68,6 +71,7 @@ pub struct App {
     pub worktree_lock: Arc<tokio::sync::Mutex<()>>,
     pub terminals: terminals::Terminals,
     pub push: push::Push,
+    pub hosts: hosts::Hosts,
 }
 
 impl App {
@@ -85,6 +89,7 @@ impl App {
         let harnesses = harness::Registry::new(&env);
         let github = github::GitHub::new(env.clone(), cache_db.clone());
         let web_push = push::Push::new(paths.clone());
+        let hosts = hosts::Hosts::start(paths.clone(), env.clone(), state_db.clone(), status.clone()).await?;
         let app = App {
             paths,
             config,
@@ -102,6 +107,7 @@ impl App {
             worktree_lock: Arc::new(tokio::sync::Mutex::new(())),
             terminals: terminals::Terminals::default(),
             push: web_push,
+            hosts,
         };
         predrafts::link_skill()?;
         app.sessions.load(&app).await?;
@@ -119,7 +125,23 @@ impl App {
         inbox::spawn(&app);
         projects::spawn(&app);
         worktrees::spawn(&app);
+        hosts::preflight::spawn(&app);
         Ok(app)
+    }
+}
+
+impl App {
+    /// The `launchpad` invocation given to agents: this daemon's CLI, or the helper's on an SSH host.
+    pub fn cli_command_on(&self, host: Option<&str>) -> String {
+        match host {
+            Some(_) => format!("LAUNCHPAD_PROFILE={} \"$HOME/{}/launchpad\"", self.paths.profile.name(), hosts::helper::BIN_DIR),
+            None => self.paths.cli_command(),
+        }
+    }
+
+    /// The `launchpad` invocation for agents working in `path`.
+    pub fn cli_command_in(&self, path: &str) -> String {
+        self.cli_command_on(hosts::loc::host_of(path))
     }
 }
 
@@ -159,5 +181,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     session_git::GitDiff::export_all(&cfg)?;
     workspace::Workspace::export_all(&cfg)?;
     worktrees::WorktreeInfo::export_all(&cfg)?;
+    hosts::HostStatus::export_all(&cfg)?;
+    hosts::sshconfig::SshConfigHost::export_all(&cfg)?;
     Ok(())
 }

@@ -116,8 +116,13 @@ async fn git(app: &App, dir: &str, args: &[&str]) -> Result<String> {
     crate::procs::output(&app.env, "git", args, Some(Path::new(dir))).await
 }
 
-fn canonical(path: &str) -> Result<String> {
-    Ok(std::fs::canonicalize(path).with_context(|| format!("{path} does not exist"))?.to_string_lossy().into_owned())
+async fn canonical(path: &str) -> Result<String> {
+    Ok(crate::hostfs::canonicalize(path).await.with_context(|| format!("{path} does not exist"))?.to_string_lossy().into_owned())
+}
+
+/// A path printed by git in `dir`, on the machine of `dir`.
+fn on(dir: &str, native: &str) -> String {
+    crate::hosts::loc::rehost(dir, native)
 }
 
 pub fn folder(w: &TaskWorktree) -> String {
@@ -180,11 +185,11 @@ async fn notice(app: &App, w: &TaskWorktree, text: &str) {
 async fn repository(app: &App, path: &str) -> Result<(String, String)> {
     let top = git(app, path, &["rev-parse", "--show-toplevel"]).await.map_err(|_| anyhow::anyhow!("{path} is not in a Git repository; run in the project checkout instead"))?;
     let common = git(app, path, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).await?;
-    Ok((canonical(&top)?, canonical(&common)?))
+    Ok((canonical(&on(path, &top)).await?, canonical(&on(path, &common)).await?))
 }
 
-fn subdir_of(project_path: &str, top: &str) -> String {
-    let project = std::fs::canonicalize(project_path).unwrap_or_else(|_| PathBuf::from(project_path));
+async fn subdir_of(project_path: &str, top: &str) -> String {
+    let project = crate::hostfs::canonicalize(project_path).await.unwrap_or_else(|_| PathBuf::from(project_path));
     project.strip_prefix(top).map(|p| p.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/")).unwrap_or_default()
 }
 
@@ -193,7 +198,7 @@ fn subdir_of(project_path: &str, top: &str) -> String {
 pub async fn create(app: &App, session_id: &str, project: &Project, opts: &WorktreeOptions, primary: bool, title: &str) -> Result<(TaskWorktree, String)> {
     let _lock = app.worktree_lock.lock().await;
     let (top, common_dir) = repository(app, &project.path).await?;
-    let subdir = subdir_of(&project.path, &top);
+    let subdir = subdir_of(&project.path, &top).await;
     if let Some(w) = for_session(app, session_id).await?.into_iter().find(|w| w.common_dir == common_dir && w.state == WorktreeState::Active) {
         return Ok((w.clone(), folder_in(&w.root, &subdir)));
     }
@@ -211,13 +216,13 @@ pub async fn create(app: &App, session_id: &str, project: &Project, opts: &Workt
     let slug = format!("{}-{}", if name.is_empty() { "task" } else { &name }, &session_id[..8.min(session_id.len())]);
     let branch = format!("lp/{slug}");
     ensure!(git(app, &top, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")]).await.is_err(), "branch {branch} already exists");
-    let parent = app.config.get().projects_root().join(".worktrees").join(&project.id);
-    std::fs::create_dir_all(&parent)?;
+    let parent = crate::projects::projects_root(app, crate::hosts::loc::host_of(&project.path))?.join(".worktrees").join(&project.id);
+    crate::hostfs::create_dir_all(&parent).await?;
     let root_path = parent.join(&slug);
-    ensure!(!root_path.exists(), "{} already exists", root_path.display());
+    ensure!(!crate::hostfs::exists(&root_path).await, "{} already exists", root_path.display());
     let root = root_path.to_string_lossy().into_owned();
     git(app, &top, &["worktree", "add", "-b", &branch, &root, &base_commit]).await?;
-    let root = canonical(&root)?;
+    let root = canonical(&root).await?;
     let w = TaskWorktree {
         id,
         sessions: vec![session_id.to_string()],
@@ -259,14 +264,11 @@ async fn copy_changes(app: &App, source: &str, dest: &str) -> Result<()> {
     let out = crate::procs::command(&app.env, "git", Some(Path::new(source))).args(["diff", "--binary", "HEAD"]).output().await?;
     ensure!(out.status.success(), "git diff failed: {}", String::from_utf8_lossy(&out.stderr).trim());
     if !out.stdout.is_empty() {
-        let patch = std::env::temp_dir().join(format!("launchpad-{}.patch", uuid::Uuid::new_v4()));
-        std::fs::write(&patch, &out.stdout)?;
-        let applied = git(app, dest, &["apply", "--binary", "--whitespace=nowarn", &patch.to_string_lossy()]).await;
-        let _ = std::fs::remove_file(&patch);
-        applied.context("could not copy uncommitted changes")?;
+        let applied = crate::procs::command(&app.env, "git", Some(Path::new(dest))).args(["apply", "--binary", "--whitespace=nowarn", "-"]).stdin_bytes(out.stdout).output().await?;
+        ensure!(applied.status.success(), "could not copy uncommitted changes: {}", String::from_utf8_lossy(&applied.stderr).trim());
     }
     let untracked = crate::procs::command(&app.env, "git", Some(Path::new(source))).args(["ls-files", "-z", "--others", "--exclude-standard"]).output().await?;
-    copy_files(source, dest, &untracked.stdout)?;
+    copy_files(source, dest, &untracked.stdout).await?;
     Ok(())
 }
 
@@ -283,7 +285,7 @@ async fn copy_included(app: &App, source: &str, dest: &str) -> Result<()> {
         wanted.extend_from_slice(b"AGENTS.override.md\0");
     }
     let include = Path::new(source).join(".worktreeinclude");
-    if include.is_file() {
+    if crate::hostfs::is_file(&include).await {
         let listed = crate::procs::command(&app.env, "git", Some(Path::new(source)))
             .args(["ls-files", "-z", "--others", "--ignored", "--exclude-from"])
             .arg(&include)
@@ -294,10 +296,10 @@ async fn copy_included(app: &App, source: &str, dest: &str) -> Result<()> {
             wanted.push(0);
         }
     }
-    copy_files(source, dest, &wanted)
+    copy_files(source, dest, &wanted).await
 }
 
-fn copy_files(source: &str, dest: &str, list: &[u8]) -> Result<()> {
+async fn copy_files(source: &str, dest: &str, list: &[u8]) -> Result<()> {
     for rel in list.split(|b| *b == 0).filter(|p| !p.is_empty()) {
         let rel = String::from_utf8_lossy(rel);
         let rel = Path::new(rel.as_ref());
@@ -305,14 +307,14 @@ fn copy_files(source: &str, dest: &str, list: &[u8]) -> Result<()> {
             continue;
         }
         let (from, to) = (Path::new(source).join(rel), Path::new(dest).join(rel));
-        let Ok(meta) = std::fs::symlink_metadata(&from) else { continue };
-        if !meta.is_file() || to.exists() {
+        let Ok(meta) = crate::hostfs::symlink_metadata(&from).await else { continue };
+        if !meta.is_file() || crate::hostfs::exists(&to).await {
             continue;
         }
         if let Some(parent) = to.parent() {
-            std::fs::create_dir_all(parent)?;
+            crate::hostfs::create_dir_all(parent).await?;
         }
-        std::fs::copy(&from, &to).with_context(|| format!("copy {}", rel.display()))?;
+        crate::hostfs::copy(&from, &to).await.with_context(|| format!("copy {}", rel.display()))?;
     }
     Ok(())
 }
@@ -343,7 +345,7 @@ pub async fn join(app: &App, source_session: &str, session_id: &str) -> Result<V
 
 /// Launch instructions: where to work, and how the task ends. Overrides checkout workflow rules only.
 pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, String)], projects: &[Project], merge_when_done: bool, changes_copied: bool) -> String {
-    let cli = app.paths.cli_command();
+    let cli = worktrees.first().map(|(w, _)| app.cli_command_in(&w.root)).unwrap_or_else(|| app.paths.cli_command());
     let name = |id: &str| projects.iter().find(|p| p.id == id).map(|p| p.name.clone()).unwrap_or_else(|| "project".into());
     let mut text = String::from(
         "Launchpad worktree: Launchpad created dedicated Git worktrees for this task and manages them. This launch setting overrides repository or preset instructions to work on the main branch, in the main checkout, or to create, merge or delete worktrees yourself; follow all other repository rules (checks, documentation, commit conventions).",
@@ -385,7 +387,7 @@ pub async fn run_setup(app: &App, project: &Project, folder: &str, sink: &crate:
     }
     sink.emit(EventBody::Notice { text: format!("Running the worktree setup of {}: {command}", project.name) }).await;
     let started = std::time::Instant::now();
-    let mut cmd = if cfg!(windows) {
+    let mut cmd = if cfg!(windows) && crate::hosts::loc::host_of(folder).is_none() {
         let mut c = crate::procs::child_command(&app.env, "powershell", Some(Path::new(folder)));
         c.args(["-NoProfile", "-Command", command]);
         c
@@ -394,7 +396,7 @@ pub async fn run_setup(app: &App, project: &Project, folder: &str, sink: &crate:
         c.args(["-c", command]);
         c
     };
-    cmd.stdin(std::process::Stdio::null()).env("LAUNCHPAD_WORKTREE", folder).env("LAUNCHPAD_SOURCE_CHECKOUT", &project.path);
+    cmd.stdin(crate::exec::Io::Null).env("LAUNCHPAD_WORKTREE", folder).env("LAUNCHPAD_SOURCE_CHECKOUT", &project.path);
     let out = tokio::time::timeout(Duration::from_secs(30 * 60), cmd.output()).await.context("setup did not finish within 30 minutes")??;
     let mut log = String::from_utf8_lossy(&out.stdout).into_owned();
     log.push_str(&String::from_utf8_lossy(&out.stderr));
@@ -434,7 +436,7 @@ async fn dirty_files(app: &App, dir: &str) -> Result<Vec<String>> {
 async fn operation_in_progress(app: &App, dir: &str) -> bool {
     for marker in ["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD"] {
         if let Ok(p) = git(app, dir, &["rev-parse", "--path-format=absolute", "--git-path", marker]).await
-            && Path::new(&p).exists()
+            && crate::hostfs::exists(on(dir, &p)).await
         {
             return true;
         }
@@ -448,7 +450,7 @@ async fn checkout_of(app: &App, repo: &str, branch: &str) -> Result<Option<Strin
     let mut path = None;
     for line in list.lines() {
         if let Some(p) = line.strip_prefix("worktree ") {
-            path = Some(p.to_string());
+            path = Some(on(repo, p));
         } else if line.strip_prefix("branch refs/heads/") == Some(branch) {
             return Ok(path);
         }
@@ -463,7 +465,7 @@ async fn count(app: &App, dir: &str, range: &str) -> u32 {
 pub async fn info(app: &App, w: TaskWorktree) -> WorktreeInfo {
     let project_name = crate::projects::get(app, &w.project_id).await.ok().flatten().map(|p| p.name).unwrap_or_else(|| "Removed project".into());
     let path = folder(&w);
-    let exists = Path::new(&w.root).is_dir();
+    let exists = crate::hostfs::is_dir(&w.root).await;
     let dir = if exists { w.root.clone() } else { w.repo.clone() };
     let dirty_files = if exists { dirty_files(app, &w.root).await.map(|f| f.len() as u32).unwrap_or(0) } else { 0 };
     let (mut ahead, mut behind, mut target_checkout) = (0, 0, None);
@@ -522,12 +524,12 @@ pub async fn restore_for_session(app: &App, session_id: &str) -> Result<bool> {
 pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
     let _lock = app.worktree_lock.lock().await;
     let mut w = get(app, id).await?;
-    if w.state == WorktreeState::Active && Path::new(&w.root).is_dir() {
+    if w.state == WorktreeState::Active && crate::hostfs::is_dir(&w.root).await {
         return Ok(w);
     }
     ensure!(w.state == WorktreeState::Removed, "this worktree cannot be restored");
-    ensure!(Path::new(&w.repo).is_dir(), "the project checkout {} no longer exists", w.repo);
-    ensure!(!Path::new(&w.root).exists(), "{} already exists", w.root);
+    ensure!(crate::hostfs::is_dir(&w.repo).await, "the project checkout {} no longer exists", w.repo);
+    ensure!(!crate::hostfs::exists(&w.root).await, "{} already exists", w.root);
     let _ = git(app, &w.repo, &["worktree", "prune"]).await;
     if git(app, &w.repo, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{}", w.branch)]).await.is_ok() {
         git(app, &w.repo, &["worktree", "add", &w.root, &w.branch]).await?;
@@ -550,7 +552,7 @@ async fn remove_clean(app: &App, w: &mut TaskWorktree) -> Result<()> {
         bail!("{reason}");
     }
     ensure!(w.merge.is_none(), "a merge is pending");
-    if Path::new(&w.root).exists() {
+    if crate::hostfs::exists(&w.root).await {
         let dirty = dirty_files(app, &w.root).await?;
         ensure!(dirty.is_empty(), "{} uncommitted files", dirty.len());
         ensure!(!operation_in_progress(app, &w.root).await, "a Git operation is in progress");
@@ -609,7 +611,7 @@ pub async fn discard(app: &App, id: &str) -> Result<TaskWorktree> {
         }
     }
     let _lock = app.worktree_lock.lock().await;
-    if Path::new(&w.root).exists() {
+    if crate::hostfs::exists(&w.root).await {
         git(app, &w.repo, &["worktree", "remove", "--force", &w.root]).await?;
     }
     if git(app, &w.repo, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{}", w.branch)]).await.is_ok() {
@@ -711,7 +713,7 @@ pub async fn request_merge(app: &App, id: &str, by_agent: bool) -> Result<TaskWo
         let mut w = get(app, id).await?;
         ensure!(w.state == WorktreeState::Active, "only an active worktree can be merged");
         let base = w.base_branch.clone().context("this worktree started from a detached checkout: there is no branch to merge into")?;
-        ensure!(Path::new(&w.root).is_dir(), "the worktree folder is missing");
+        ensure!(crate::hostfs::is_dir(&w.root).await, "the worktree folder is missing");
         let retries = w.merge.as_ref().filter(|m| m.by_agent && by_agent).map(|m| m.agent_retries).unwrap_or(0);
         w.merge = Some(MergeRequest { phase: MergePhase::Waiting, reason: format!("Waiting to merge into {base}"), by_agent, agent_retries: retries, requested_at: now_ms() });
         save(app, &w).await?;
@@ -770,7 +772,7 @@ fn conflict_message(app: &App, w: &TaskWorktree, reason: &str, session_id: &str)
         w.root,
         w.base_branch.as_deref().unwrap_or_default(),
         w.base_branch.as_deref().unwrap_or_default(),
-        app.paths.cli_command(),
+        app.cli_command_in(&w.root),
         w.base_branch.as_deref().unwrap_or_default(),
     )
 }
@@ -843,7 +845,7 @@ async fn try_merge(app: &App, w: &TaskWorktree) -> Result<Step> {
     if let Some(reason) = idle_reason(app, w, false) {
         return Ok(Step::Wait(format!("Waiting: {reason}")));
     }
-    ensure!(Path::new(&w.root).is_dir(), "the worktree folder is missing");
+    ensure!(crate::hostfs::is_dir(&w.root).await, "the worktree folder is missing");
     let dirty = dirty_files(app, &w.root).await?;
     if !dirty.is_empty() {
         return Ok(Step::Conflict(format!("the worktree has {} uncommitted files ({}); commit them first", dirty.len(), dirty.iter().take(5).cloned().collect::<Vec<_>>().join(", "))));
@@ -959,17 +961,8 @@ pub fn spawn(app: &App) {
 
 /// Disk usage of the worktree folders, in bytes (Settings → Worktrees).
 pub async fn sizes(app: &App) -> Result<HashMap<String, u64>> {
-    let records = list(app).await?;
-    Ok(tokio::task::spawn_blocking(move || {
-        fn walk(p: &Path) -> u64 {
-            let Ok(meta) = std::fs::symlink_metadata(p) else { return 0 };
-            if meta.is_dir() {
-                std::fs::read_dir(p).map(|d| d.flatten().map(|e| walk(&e.path())).sum()).unwrap_or(0)
-            } else {
-                meta.len()
-            }
-        }
-        records.into_iter().filter(|w| w.state == WorktreeState::Active).map(|w| { let size = walk(Path::new(&w.root)); (w.id, size) }).collect()
-    })
-    .await?)
+    let records: Vec<TaskWorktree> = list(app).await?.into_iter().filter(|w| w.state == WorktreeState::Active).collect();
+    let roots: Vec<String> = records.iter().map(|w| w.root.clone()).collect();
+    let sizes = crate::hostfs::disk_usage(&roots).await;
+    Ok(records.into_iter().zip(sizes).map(|(w, s)| (w.id, s)).collect())
 }

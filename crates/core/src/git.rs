@@ -1,5 +1,6 @@
 //! Git helpers. Shells out to the `git` CLI (it uses your SSH configuration as is), except for reading
-//! remotes, which parses `.git/config` directly so that scanning 200 folders stays fast.
+//! remotes, which parses `.git/config` directly so that scanning 200 folders stays fast. Paths may be on
+//! an SSH host (`hostfs.rs`).
 
 use std::path::{Path, PathBuf};
 
@@ -7,30 +8,37 @@ use anyhow::Result;
 
 use crate::shellenv::UserEnv;
 
+/// A path read from a git file, relative to `base` or absolute on the same machine.
+pub(crate) fn resolve_on(base: &Path, target: &str) -> PathBuf {
+    let p = Path::new(target);
+    if p.is_absolute() || target.starts_with('/') {
+        PathBuf::from(crate::hosts::loc::rehost(&base.to_string_lossy(), target))
+    } else {
+        base.join(p)
+    }
+}
+
 /// The git directory of a checkout: `.git/`, or the target of a `.git` file (worktrees, submodules).
-pub fn git_dir(repo: &Path) -> Option<PathBuf> {
+pub async fn git_dir(repo: &Path) -> Option<PathBuf> {
     let dot = repo.join(".git");
-    if dot.is_dir() {
+    if crate::hostfs::metadata(&dot).await.ok()?.is_dir() {
         return Some(dot);
     }
-    let text = std::fs::read_to_string(&dot).ok()?;
+    let text = crate::hostfs::read_to_string(&dot).await.ok()?;
     let target = text.strip_prefix("gitdir:")?.trim();
-    let p = Path::new(target);
-    Some(if p.is_absolute() { p.to_path_buf() } else { repo.join(p) })
+    Some(resolve_on(repo, target))
 }
 
 /// Remote URLs from the git config: `[(name, url)]`.
-pub fn remotes(repo: &Path) -> Vec<(String, String)> {
-    let Some(dir) = git_dir(repo) else { return vec![] };
+pub async fn remotes(repo: &Path) -> Vec<(String, String)> {
+    let Some(dir) = git_dir(repo).await else { return vec![] };
     // Worktrees keep their config in the main repository (`commondir`).
-    let common = std::fs::read_to_string(dir.join("commondir"))
+    let common = crate::hostfs::read_to_string(dir.join("commondir"))
+        .await
         .ok()
-        .map(|c| {
-            let p = Path::new(c.trim());
-            if p.is_absolute() { p.to_path_buf() } else { dir.join(p) }
-        })
+        .map(|c| resolve_on(&dir, c.trim()))
         .unwrap_or(dir);
-    let Ok(text) = std::fs::read_to_string(common.join("config")) else { return vec![] };
+    let Ok(text) = crate::hostfs::read_to_string(common.join("config")).await else { return vec![] };
     let mut out = Vec::new();
     let mut current: Option<String> = None;
     for line in text.lines() {

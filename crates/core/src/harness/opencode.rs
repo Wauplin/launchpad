@@ -36,6 +36,9 @@ impl super::Harness for Adapter {
     fn sign_in_command(&self) -> &'static str {
         "opencode auth login"
     }
+    fn install_command(&self) -> Option<&'static str> {
+        Some("curl -fsSL https://opencode.ai/install | bash")
+    }
     /// `opencode auth list` ends its sections with "N credentials" and "N environment variables";
     /// only those counts are kept (provider names are not secrets, values are never shown by OpenCode).
     async fn sign_in(&self, env: &crate::shellenv::UserEnv) -> crate::signin::SignIn {
@@ -61,7 +64,7 @@ impl super::Harness for Adapter {
         }
     }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
-        let mut command = crate::procs::child_command(&app.env, "opencode", Some(&spec.cwd));
+        let mut command = crate::procs::child_command(&app.env.on(spec.host.as_deref()), "opencode", Some(&spec.cwd));
         command
             .arg("acp")
             .env("LAUNCHPAD_PROFILE", app.paths.profile.name())
