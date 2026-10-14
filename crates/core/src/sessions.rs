@@ -851,7 +851,7 @@ impl Sessions {
             if s.budget_reached() && s.status.is_running() && !s.open_question
                 && let Some(live) = self.live(&s.id).filter(|l| l.turn_active())
                 && self.inner.budget_interrupts.lock().unwrap().get(&s.id).is_none_or(|at| now_ms() - at >= 10_000) {
-                // Ends as Stopped, like an owner Stop; the reached limit was announced when the cost was reported.
+                // Ends as Stopped, with an automatic-stop notification; the trace also records the reached limit.
                 self.inner.budget_interrupts.lock().unwrap().insert(s.id.clone(), now_ms());
                 self.inner.stop_requests.lock().unwrap().insert(s.id.clone());
                 if let Err(e) = live.interrupt().await {
@@ -1024,7 +1024,10 @@ impl Sessions {
         }.await;
         match result {
             Ok(()) => {
-                self.update(app, id, |s| s.quota_pause = None).await?;
+                let resumed = self.update(app, id, |s| s.quota_pause = None).await?;
+                if !paid && !manual && !self.is_watched(id) {
+                    crate::notify::session(app, &resumed, crate::notify::SessionNotification::QuotaResumed);
+                }
                 Ok(())
             }
             Err(e) => { self.inner.manual_quota_retries.lock().unwrap().remove(id); self.quota_attention(app, id, &format!("Continuation outcome needs inspection: {e:#}")).await?; Err(e) }
@@ -1114,6 +1117,8 @@ impl Sessions {
 
     pub async fn interrupt(&self, app: &App, id: &str) -> Result<()> {
         let _action = self.inner.actions.lock().await;
+        // An owner Stop takes precedence over a pending cost-limit interruption.
+        self.inner.budget_interrupts.lock().unwrap().remove(id);
         let setup = self.inner.setups.lock().unwrap().remove(id);
         if let Some(task) = setup {
             task.abort();
@@ -1455,6 +1460,8 @@ impl Sink {
         }
         // Detached adapters can still report a final result after Archive or reattachment.
         if self.instance != 0 && self.sessions.inner.live.lock().unwrap().get(&self.id).is_none_or(|(instance, _)| *instance != self.instance) { return; }
+        let budget_stop = self.sessions.inner.budget_interrupts.lock().unwrap().contains_key(&self.id);
+        let manual_stop = self.stop_requested() && !budget_stop;
         if matches!(status, SessionStatus::Stopped | SessionStatus::Closed | SessionStatus::Interrupted | SessionStatus::Error) {
             self.sessions.inner.stop_requests.lock().unwrap().remove(&self.id);
         }
@@ -1479,21 +1486,16 @@ impl Sink {
         if self.sessions.get(&self.id).is_none_or(|s| s.status != status) { return; }
         self.emit(EventBody::Status { status }).await;
         self.sessions.publish_counts(&self.app);
-        // A question already notified when it opened (`set_open_question`).
-        if before.status.is_running() && status.is_done() && !before.open_question && !self.sessions.is_watched(&self.id) {
+        if let Some(event) = crate::notify::status_notification(before.status, status, before.open_question, manual_stop, budget_stop)
+            && !self.sessions.is_watched(&self.id) {
             let s = self.sessions.get(&self.id).unwrap();
-            crate::notify::session_done(&self.app, &s);
+            crate::notify::session(&self.app, &s, event);
         }
     }
 
     pub async fn set_open_question(&self, open: bool) {
         if self.agent_id.is_some() { return; }
-        let Some(before) = self.sessions.get(&self.id) else { return };
         let _ = self.sessions.update(&self.app, &self.id, |s| s.open_question = open).await;
-        if open && !before.open_question && !self.sessions.is_watched(&self.id)
-            && let Some(s) = self.sessions.get(&self.id) {
-            crate::notify::session_done(&self.app, &s);
-        }
     }
 
     pub async fn set_harness_id(&self, harness_id: &str) {

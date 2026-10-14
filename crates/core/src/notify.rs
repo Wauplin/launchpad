@@ -12,18 +12,51 @@ use crate::model::{Session, SessionStatus};
 static WAITING: AtomicUsize = AtomicUsize::new(0);
 const MAX_WAITING: usize = 32;
 
-/// The session needs you: it finished a turn or asked a question, and no window in use shows it.
-pub fn session_done(app: &App, s: &Session) {
+#[derive(Clone, Copy)]
+pub(crate) enum SessionNotification {
+    Done,
+    Failed,
+    Interrupted,
+    QuotaPaused,
+    CostLimit,
+    QuotaResumed,
+}
+
+impl SessionNotification {
+    pub(crate) fn summary(self, project: &str) -> String {
+        let status = match self {
+            Self::Done => "Done",
+            Self::Failed => "Failed",
+            Self::Interrupted => "Interrupted",
+            Self::QuotaPaused => "Quota paused",
+            Self::CostLimit => "Cost limit reached",
+            Self::QuotaResumed => "Quota available; agent resumed",
+        };
+        format!("{status} in {project}")
+    }
+}
+
+/// Only completed work and automatic stops qualify; setup, questions and owner actions are silent.
+pub(crate) fn status_notification(before: SessionStatus, after: SessionStatus, question: bool, manual: bool, budget: bool) -> Option<SessionNotification> {
+    if !before.is_running() || manual { return None; }
+    match after {
+        SessionStatus::Waiting if before != SessionStatus::Starting && !question => Some(SessionNotification::Done),
+        SessionStatus::Error => Some(SessionNotification::Failed),
+        SessionStatus::Interrupted => Some(SessionNotification::Interrupted),
+        SessionStatus::QuotaPaused if before != SessionStatus::Starting => Some(SessionNotification::QuotaPaused),
+        SessionStatus::Stopped if budget => Some(SessionNotification::CostLimit),
+        _ => None,
+    }
+}
+
+/// The caller selects an eligible event and checks active-window suppression.
+pub(crate) fn session(app: &App, s: &Session, event: SessionNotification) {
     if !app.config.get().agents.notify {
         return;
     }
-    app.push.session(app, s);
+    app.push.session(app, s, event);
     let project = std::path::Path::new(&s.cwd).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    let summary = match (s.status, s.open_question) {
-        (_, true) => format!("{} has a question in {project}", s.harness.display()),
-        (SessionStatus::Background, _) => format!("{} waits on a background command in {project}", s.harness.display()),
-        _ => format!("{} is waiting in {project}", s.harness.display()),
-    };
+    let summary = event.summary(&project);
     let body = s.title.clone();
     let route = format!("/agents?session={}", s.id);
     let desktop = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(format!("launchpad-desktop{}", std::env::consts::EXE_SUFFIX)))).filter(|p| p.exists());
@@ -59,4 +92,41 @@ pub fn session_done(app: &App, s: &Session) {
             Err(e) => tracing::warn!("desktop notification: {e}"),
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use SessionStatus::*;
+
+    #[test]
+    fn notifications_only_cover_completion_and_automatic_stops() {
+        let cases = [
+            (Starting, Waiting, false, false, false, false),
+            (Starting, Working, false, false, false, false),
+            (Starting, QuotaPaused, false, false, false, false),
+            (Working, Background, false, false, false, false),
+            (Working, Waiting, true, false, false, false),
+            (Working, Waiting, false, false, false, true),
+            (Background, Waiting, false, false, false, true),
+            (Starting, Error, false, false, false, true),
+            (Working, Error, false, false, false, true),
+            (Working, Interrupted, false, false, false, true),
+            (Working, QuotaPaused, false, false, false, true),
+            (Working, Stopped, false, false, true, true),
+            (Working, Stopped, false, true, false, false),
+            (Working, Waiting, false, true, false, false),
+            (Working, Error, false, true, false, false),
+            (Working, Interrupted, false, true, false, false),
+            (Working, Closed, false, false, false, false),
+            (Working, InTerminal, false, false, false, false),
+            (QuotaPaused, Working, false, false, false, false),
+            (QuotaPaused, Waiting, false, false, false, false),
+            (Waiting, Waiting, false, false, false, false),
+        ];
+        for (before, after, question, manual, budget, expected) in cases {
+            assert_eq!(status_notification(before, after, question, manual, budget).is_some(), expected,
+                "{before:?} -> {after:?}, question={question}, manual={manual}, budget={budget}");
+        }
+    }
 }

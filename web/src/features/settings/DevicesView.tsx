@@ -130,7 +130,7 @@ const UNAVAILABLE: Record<Exclude<PushState["support"], "supported">, string> = 
   unsupported: "This browser does not support push notifications.",
 };
 
-/** Web Push for this browser: when an agent finishes or asks a question and no window in use shows it. */
+/** Web Push for this browser: completed turns, automatic stops and automatic quota resumption. */
 function NotificationsCard() {
   const state = usePushState();
   const refresh = useRefreshPush();
@@ -148,7 +148,7 @@ function NotificationsCard() {
   return <Card title="Notifications on this browser" end={push?.support === "supported" && (on
     ? <button className="btn btn-sm" disabled={busy} onClick={() => void run(disablePush, "Notifications turned off on this browser")}>Turn off</button>
     : <button className="btn btn-sm btn-primary" disabled={busy || push.permission === "denied"} onClick={() => void run(() => enablePush(showTitles), "Notifications turned on on this browser")}>Turn on</button>)}>
-    <p className="text-sm text-ink-2">Get a notification when an agent finishes or asks a question and no window in use shows it. Notifications show the status and the project; never code or messages.</p>
+    <p className="text-sm text-ink-2">Get a notification when an agent finishes, fails, stops automatically, or resumes after quota becomes available, and no window in use shows it. Launches, questions and manual stops stay silent. Notifications show the status and the project; never code or messages.</p>
     {state.error && <p className="text-sm text-attn" role="alert">{state.error.message}</p>}
     {!push ? <p className="text-sm text-ink-3">Loading…</p> : push.support !== "supported" ? <p className="text-sm text-ink-3" role="status">{UNAVAILABLE[push.support]}</p> : <>
       <p className="text-sm" role="status">

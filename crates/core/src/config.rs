@@ -106,7 +106,7 @@ pub struct GitHub {
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(default)]
 pub struct Agents {
-    /// Desktop notification when a session becomes done.
+    /// Notifications for completion, automatic stops and automatic quota resumption.
     pub notify: bool,
 }
 
@@ -182,7 +182,7 @@ browser = "xdg-open"
 poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
 [agents]
-notify = true                       # desktop notification when a session becomes done
+notify = true                       # completion, automatic stops and automatic quota resumption
 
 [worktrees]
 keep = 15                           # clean task worktrees of idle agents kept on disk (0: keep all)

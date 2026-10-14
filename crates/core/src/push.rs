@@ -18,7 +18,7 @@ use serde_json::json;
 use sha2::Sha256;
 
 use crate::App;
-use crate::model::{Session, SessionStatus};
+use crate::model::Session;
 
 /// Push services keep undelivered messages this long (seconds). A stale "done" is not worth more.
 const TTL: u32 = 12 * 60 * 60;
@@ -190,26 +190,21 @@ impl Push {
         Ok(n)
     }
 
-    /// The session needs you (Done or a question). Sent in the background; never blocks callers.
-    pub fn session(&self, app: &App, s: &Session) {
+    /// An eligible session notification. Sent in the background; never blocks callers.
+    pub(crate) fn session(&self, app: &App, s: &Session, event: crate::notify::SessionNotification) {
         let (push, app, s) = (self.clone(), app.clone(), s.clone());
         tokio::spawn(async move {
             let project = project_name(&app, &s).await;
-            // This session counts even when its Done status lands just after its question.
-            let needs = app.sessions.list().iter().filter(|x| x.id != s.id && x.needs_you()).count() + 1;
-            let title = match (s.status, s.open_question) {
-                (_, true) => format!("Question in {project}"),
-                (SessionStatus::Background, _) => format!("Waiting on a background command in {project}"),
-                _ => format!("Done in {project}"),
-            };
+            let needs = app.sessions.list().iter().filter(|s| s.needs_you()).count();
+            let title = event.summary(&project);
             let result = push
                 .send(&app, None, |titles| Message {
                     title: title.clone(),
-                    body: if titles && !s.title.is_empty() { s.title.chars().take(160).collect() } else { format!("{} needs you", s.harness.display()) },
+                    body: if titles && !s.title.is_empty() { s.title.chars().take(160).collect() } else { s.harness.display().to_string() },
                     url: format!("/agents?session={}", s.id),
                     tag: s.id.clone(),
                     needs,
-                    urgent: s.open_question,
+                    urgent: false,
                 })
                 .await;
             if let Err(e) = result {

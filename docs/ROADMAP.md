@@ -1,6 +1,6 @@
 # Launchpad roadmap
 
-Status: implementation and acceptance tracker (updated 2026-10-13). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
+Status: implementation and acceptance tracker (updated 2026-10-14). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
 
 ## How to read this
 
@@ -82,7 +82,7 @@ Done means: a week of daily use with worktrees as the default, without lost work
 - **Temporary projects:** create, clean up, promote (including moving Claude transcripts).
 - **Adapters:** Claude and Codex, normalized events, event log in `state.db`, WebSocket streaming with replay.
 - **Agents view:** list grouped as Done (waiting for input), Running (including background and long commands) and Archived; session pane (messages, collapsed tool calls, inline diffs, copy buttons, input, interrupt, archive, close panel, resume), one selected session panel per window.
-- **Signals:** tokens, context usage and cost per session; desktop notification when a session becomes Done.
+- **Signals:** tokens, context usage and cost per session; desktop/Web Push notifications for completion, failure, automatic stops and automatic quota resumption; launches, questions and manual stops are silent (2026-10-14, built; awaiting daily use).
 - **Maintenance:** background `codex update`; "Open in terminal" (integrated terminal since Phase 7a) and "Re-attach".
 - **Settings → General:** projects root. (The external terminal setting was removed by Phase 7a.)
 
@@ -101,7 +101,7 @@ Done means: a week of daily use with worktrees as the default, without lost work
   - Temporary projects: create, delete with a second click, promote (the folder, the Claude transcripts and the session folders move).
   - Adapters: Claude and Codex, normalized events in `state.db`, WebSocket streaming with replay after a reconnect.
   - Agents view: independently collapsible Done, Running and Archived groups with remembered expansion state; session pane with messages, collapsed tool calls, inline diffs, plan, question cards, background commands with their output, copy buttons, message box (`Enter` sends), Stop, Archive, Close panel, Resume, Open in terminal and Re-attach; one selected session panel per window.
-  - Signals: context tokens and usage, cost (Claude), desktop notification when a session becomes Done.
+  - Signals: context tokens and usage, cost (Claude), desktop/Web Push notifications for completion, failures, automatic stops and automatic quota resumption; no launch, question or manual-stop notifications.
   - Maintenance: `codex update` at daemon start and every 6 hours.
   - Settings → General (projects root; the terminal setting was later removed by Phase 7a) and Presets.
 - Usability updates on 2026-10-02: direct Launch with remembered selections; image attachments by file picker, console drop and clipboard paste for both harnesses; larger 120% default UI with stronger contrast and five saved zoom positions; Done/Running/Archived with long commands kept Running; separate colored sidebar counts and simultaneous project dots/spinners; virtualized session list; AI-generated session titles based on the initial prompt.
