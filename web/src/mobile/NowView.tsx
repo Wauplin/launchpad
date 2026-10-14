@@ -26,17 +26,17 @@ import { useScope } from "@/lib/workspace";
 const open = (navigate: ReturnType<typeof useNavigate>, id: string) => void navigate({ to: "/agents", search: { session: id } });
 
 function Section({ title, count, children }: { title: string; count: number; children: ReactNode }) {
-  return <section className="grid gap-2"><h2 className="seclabel px-1">{title} · {count}</h2>{children}</section>;
+  return <section className="grid min-w-0 grid-cols-1 gap-2"><h2 className="seclabel px-1">{title} · {count}</h2>{children}</section>;
 }
 
 function CardHead({ s, project }: { s: Session; project: string }) {
-  return <div className="flex min-w-0 items-start gap-2.5">
+  return <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-2.5 gap-y-1.5">
     <span className="mt-0.5"><HarnessMark harness={s.harness} size={18} /></span>
-    <div className="min-w-0 flex-1">
-      <div className="truncate text-[15px] font-semibold" title={s.title}>{s.title}</div>
+    <div className="min-w-0">
+      <div className="line-clamp-2 text-[15px] font-semibold" title={s.title}>{s.title}</div>
       <div className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-3"><span className="truncate">{project}</span><span className="flex-none">· {formatAge(s.status_since)} ago</span></div>
     </div>
-    <StatusBadge s={s} />
+    <div className="col-start-2 min-w-0"><StatusBadge s={s} /></div>
   </div>;
 }
 
@@ -60,7 +60,7 @@ const QuestionCard = memo(function QuestionCard({ s, project }: { s: Session; pr
     for (let i = rows.length - 1; i >= 0; i--) { const r = rows[i]; if (r.t === "ask") return r.answers ? null : r; }
     return null;
   }, [log]);
-  return <article className="grid gap-2.5 rounded-xl border border-attn-line bg-paper p-3">
+  return <article className="grid min-w-0 grid-cols-1 gap-2.5 rounded-xl border border-attn-line bg-paper p-3">
     <CardHead s={s} project={project} />
     {ask && s.live ? <AskCard row={ask} sessionId={s.id} live={s.live} hint="Or tap Other answer to write one." /> : <p className="text-[13.5px] text-ink-2">{s.last_message ?? "The agent asked a question."}</p>}
     <div className="flex flex-wrap gap-2"><button className="btn" onClick={() => open(navigate, s.id)}>Other answer…</button></div>
@@ -76,7 +76,7 @@ function GitFacts({ id }: { id: string }) {
   if (d.main_changes?.files) parts.push(`${d.main_changes.files} file${d.main_changes.files === 1 ? "" : "s"} differ from main${d.main_changes.additions != null ? ` (+${d.main_changes.additions} −${d.main_changes.deletions ?? 0})` : ""}`);
   if (d.unpushed_commits) parts.push(`${d.unpushed_commits} unpushed commit${d.unpushed_commits === 1 ? "" : "s"}`);
   if (!parts.length) parts.push("No changes in Git");
-  return <div className="flex items-center gap-1.5 text-[12.5px] text-ink-2"><Icon name="branch" size={13} className="text-ink-3" /><span className="font-mono">{d.branch}</span> · {parts.join(" · ")}</div>;
+  return <div className="flex min-w-0 items-start gap-1.5 text-[12.5px] text-ink-2"><Icon name="branch" size={13} className="mt-0.5 flex-none text-ink-3" /><div className="min-w-0"><div className="font-mono">{d.branch}</div><div>{parts.join(" · ")}</div></div></div>;
 }
 
 const OutcomeCard = memo(function OutcomeCard({ s, project }: { s: Session; project: string }) {
@@ -87,7 +87,7 @@ const OutcomeCard = memo(function OutcomeCard({ s, project }: { s: Session; proj
     try { await api.post(`/api/sessions/${s.id}/${path}`, body); } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   const done = isDone(s);
-  return <article className={`grid gap-2.5 rounded-xl border bg-paper p-3 ${done ? "border-line" : "border-gh-closed/40"}`}>
+  return <article className={`grid min-w-0 grid-cols-1 gap-2.5 rounded-xl border bg-paper p-3 ${done ? "border-line" : "border-gh-closed/40"}`}>
     <CardHead s={s} project={project} />
     {s.last_message && <p className="line-clamp-4 text-[13.5px] text-ink-2">{s.last_message}</p>}
     {done && <GitFacts id={s.id} />}
@@ -102,7 +102,7 @@ const OutcomeCard = memo(function OutcomeCard({ s, project }: { s: Session; proj
 const PausedCard = memo(function PausedCard({ s, project }: { s: Session; project: string }) {
   const navigate = useNavigate();
   const blockers = s.quota_pause?.blockers.map((b) => `${b.window} resets ${b.resets_at === null ? "at an unknown time" : new Date(b.resets_at * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`).join(" · ");
-  return <article className="grid gap-2.5 rounded-xl border border-attn-line bg-paper p-3">
+  return <article className="grid min-w-0 grid-cols-1 gap-2.5 rounded-xl border border-attn-line bg-paper p-3">
     <CardHead s={s} project={project} />
     <p className="text-[13.5px] text-attn">{s.quota_pause?.error ?? blockers ?? "Waiting for a quota update"}</p>
     <div className="flex flex-wrap gap-2">
@@ -153,9 +153,9 @@ export function NowView() {
   }, [needs.map((s) => s.id).join(), load]);
   if (query.isPending) return <div className="grid h-full place-items-center text-ink-3" role="status">Loading…</div>;
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto grid max-w-[640px] gap-5 px-3 pt-4">
-<div className="flex items-center gap-2">        <h1 className="flex-1 px-1 text-[19px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "agent needs" : "agents need"} you` : "Nothing waits for you"}</h1><NotificationsPrompt /></div>
+    <div className="h-full overflow-y-auto [overflow-wrap:anywhere]">
+      <div className="mx-auto grid min-w-0 max-w-[640px] grid-cols-1 gap-5 px-3 pt-4">
+        <div className="flex min-w-0 items-center gap-2"><h1 className="min-w-0 flex-1 px-1 text-[19px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "agent needs" : "agents need"} you` : "Nothing waits for you"}</h1><NotificationsPrompt /></div>
         {needs.length > 0 && <Section title="Needs you" count={needs.length}>
           {needs.map((s) => s.open_question ? <QuestionCard key={s.id} s={s} project={name(s)} /> : <OutcomeCard key={s.id} s={s} project={name(s)} />)}
         </Section>}
