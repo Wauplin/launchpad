@@ -11,7 +11,7 @@ import { useScope } from "@/lib/workspace";
 
 const SHOWN = 30;
 
-export function CloneFromGitHub({ root, onClose }: { root: string | undefined; onClose: () => void }) {
+export function CloneFromGitHub({ root, host = null, onClose }: { root: string | undefined; host?: string | null; onClose: () => void }) {
   const qc = useQueryClient();
   const workspaceId = useScope().workspace?.id ?? null;
   const [repo, setRepo] = useState("");
@@ -22,7 +22,7 @@ export function CloneFromGitHub({ root, onClose }: { root: string | undefined; o
   const clone = async (name: string) => {
     setCloning(name);
     try {
-      const p = await api.post<Project>("/api/projects/clone", { repo: name, workspace_id: workspaceId });
+      const p = await api.post<Project>("/api/projects/clone", { repo: name, host, workspace_id: workspaceId });
       toast(`Cloned ${name} into ${p.path}`);
       setRepo("");
       await qc.invalidateQueries({ queryKey: ["projects"] });
@@ -49,8 +49,8 @@ export function CloneFromGitHub({ root, onClose }: { root: string | undefined; o
           {cloning ? "Cloning…" : "Clone"}
         </button>
       </div>
-      {cloning && <div className="text-xs text-ink-2">Cloning {cloning} on the daemon host. Large repositories can take a few minutes.</div>}
-      <p className="text-xs text-ink-3">Uses <code className="font-mono">gh repo clone</code> with the GitHub CLI sign-in and Git protocol of the daemon host (<code className="font-mono">git clone</code> over HTTPS without the GitHub CLI).</p>
+      {cloning && <div className="text-xs text-ink-2">Cloning {cloning} on {host ?? "the daemon host"}. Large repositories can take a few minutes.</div>}
+      <p className="text-xs text-ink-3">Uses <code className="font-mono">gh repo clone</code> with the GitHub CLI sign-in and Git protocol of {host ?? "the daemon host"} (<code className="font-mono">git clone</code> over HTTPS without the GitHub CLI).</p>
       {q.isLoading && <div className="text-xs text-ink-3">Loading cached repositories…</div>}
       {q.data && q.data.length === 0 && <div className="text-xs text-ink-3">No other repository in the GitHub cache yet. Type owner/name.</div>}
       {matches.length > 0 && (

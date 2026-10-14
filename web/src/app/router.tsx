@@ -43,6 +43,7 @@ const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/settings/workspaces", component: lazyRouteComponent(() => import("@/features/workspaces/Workspaces"), "WorkspacesView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/harnesses", component: lazyRouteComponent(() => import("@/features/settings/HarnessesView"), "HarnessesView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/worktrees", component: lazyRouteComponent(() => import("@/features/settings/WorktreesView"), "WorktreesView") }),
+  createRoute({ getParentRoute: () => root, path: "/settings/hosts", component: lazyRouteComponent(() => import("@/features/settings/HostsView"), "HostsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/devices", component: lazyRouteComponent(() => import("@/features/settings/DevicesView"), "DevicesView") }),
   // Spike 4 benchmark page, not linked from the UI.
   createRoute({

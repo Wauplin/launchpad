@@ -1,6 +1,7 @@
 // Bottom dock with one tab per integrated terminal of the current workspace. Hide keeps the processes running.
 
 import { isDesktopShell } from "@/lib/platform";
+import { HostLabel } from "@/components/HostLabel";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -99,6 +100,7 @@ export function TerminalDock({ fill }: { fill?: boolean } = {}) {
               <button className="min-w-0 truncate py-0.5 text-left" title={`${t.title} · ${t.cwd}`} onClick={() => setDock({ active: t.id })}>
                 <Icon name="term" size={12} className="mr-1 inline text-ink-3" />
                 {t.kind === "tui" && <span className="mr-1 text-teal-ink">TUI</span>}
+                <HostLabel path={t.cwd} className="mr-1" />
                 {t.title}
               </button>
               <span className={`text-[11px] ${t.alive ? "text-gh-open" : "text-ink-3"}`}>{terminalStatus(t)}</span>

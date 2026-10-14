@@ -1,4 +1,5 @@
 import { isDesktopShell } from "@/lib/platform";
+import { harnessOnHost, hostOf, useHost } from "@/lib/hosts";
 import { isPhone } from "@/lib/phone";
 import { useStatus } from "@/lib/queries";
 // Composer drawer (sketch S2): stays on the right while you navigate, so context can be added from
@@ -328,7 +329,12 @@ export function Composer() {
   const missingVariant = !!spec.variant && !variant;
   // The daemon renders and checks the prompt at launch; Launch does not wait for a preview.
   const hasPrompt = !!spec.text.trim() || items > 0 || spec.presets.length > 0;
-  const blocker = !spec.harness ? "Pick a harness in the options" : missingVariant ? "The harness variant no longer exists" : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  // The host follows from the project: harnesses missing or signed out there cannot launch.
+  const targetHost = hostOf(target?.path);
+  const hostStatus = useHost(targetHost);
+  const hostHarness = (id: string | null | undefined) => (id ? harnessOnHost(hostStatus, id) : null);
+  const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Hosts` : hostHarness(spec.harness)?.ok === false ? hostHarness(spec.harness)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context projects must be on the same machine as the project" : null;
+  const blocker = hostBlocker ? hostBlocker : !spec.harness ? "Pick a harness in the options" : missingVariant ? "The harness variant no longer exists" : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
@@ -601,6 +607,7 @@ export function Composer() {
           <Token warn={!spec.harness || missingVariant}>{spec.harness && <HarnessMark harness={spec.harness} size={13} />}{variant?.name ?? (spec.harness ? harnessName(spec.harness) : "No harness")}</Token>
           <Token>{modelLabel}</Token>
           {!!efforts.length && effortLabel && <Token>{effortLabel}</Token>}
+          {targetHost && <Token warn={hostStatus?.state !== "connected"} title={hostStatus?.state === "connected" ? `The agent runs on ${targetHost}` : `${targetHost} is ${hostStatus?.state ?? "unknown"}: the launch waits up to 25 s for a connection`}>on {targetHost}</Token>}
           {runIn && <Token>{runIn}</Token>}
           {worktreeMode && spec.worktree?.merge_when_done && <Token title={`The agent asks Launchpad to merge into ${baseLabel} when it is done`}>merge when done</Token>}
           {presetLabels.map((l) => <Token key={l}>{l}</Token>)}
@@ -617,14 +624,15 @@ export function Composer() {
               {harnessOptions.map((o) => (
                 <button
                   key={o.key}
-                  title={o.variant ? `${harnessName(o.harness)} variant${o.variant.billing === "pay_as_you_go" ? " · pay as you go" : ""}` : undefined}
+                  title={hostHarness(o.harness)?.ok === false ? hostHarness(o.harness)!.reason : o.variant ? `${harnessName(o.harness)} variant${o.variant.billing === "pay_as_you_go" ? " · pay as you go" : ""}` : undefined}
+                  disabled={hostHarness(o.harness)?.ok === false}
                   onClick={() => { setBudgetText(null); set((s) => {
                     const same = s.harness === o.harness && (s.variant ?? null) === (o.variant?.id ?? null);
                     const cost = harnesses.find((h) => h.id === o.harness)?.capabilities.cost;
                     const run = same ? { model: s.model, effort: s.effort } : rememberedRun(o.harness, o.variant?.id ?? null);
                     return { ...s, harness: o.harness, variant: o.variant?.id ?? null, ...run, budget_usd: same ? s.budget_usd : cost ? (o.variant?.budget_usd ?? null) : null };
                   }); }}
-                  className={`inline-flex h-[26px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[12.5px] ${
+                  className={`inline-flex h-[26px] shrink-0 items-center disabled:cursor-not-allowed disabled:opacity-45 gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[12.5px] ${
                     spec.harness === o.harness && (spec.variant ?? null) === (o.variant?.id ?? null) ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"
                   }`}
                 >

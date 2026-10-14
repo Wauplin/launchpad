@@ -36,6 +36,7 @@ export function SettingsPage({ children }: { children: React.ReactNode }) {
           <Link to="/settings" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }} activeOptions={{ exact: true }}>General</Link>
           <Link to="/settings/workspaces" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Workspaces</Link>
           <Link to="/settings/harnesses" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Harnesses</Link>
+          <Link to="/settings/hosts" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Hosts</Link>
           <Link to="/settings/devices" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Devices</Link>
           <Link to="/settings/worktrees" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Worktrees</Link>
         </nav>

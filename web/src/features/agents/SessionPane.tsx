@@ -2,6 +2,8 @@
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
 import { FollowUpAgent } from "./FollowUpAgent";
+import { HostLabel } from "@/components/HostLabel";
+import { hostOf, linkLabel, useHost } from "@/lib/hosts";
 import { useVariant } from "@/lib/variants";
 import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle } from "./SessionSummary";
 import { SubagentsPanel, subagents } from "./SubagentsPanel";
@@ -321,6 +323,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         </div>
         <span className="session-meta order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3 tabular-nums">
           {phone ? <>
+            <HostLabel path={s.cwd} />
             <StatusBadge s={s} />
             <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{projectName(projects, s.project_id, s.cwd)} <Icon name="chev" size={12} /></button>
             <span className="ml-auto flex flex-wrap justify-end gap-1">{primary}</span>
@@ -331,6 +334,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
             <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
             <WorktreeChip session={s} />
             {s.launch_spec.variant && <span title="Harness variant">{variantName ?? `${s.launch_spec.variant} (deleted variant)`}</span>}
+            <HostLabel path={s.cwd} />
             <StatusBadge s={s} />
             <PaidUsageToggle session={s} badge />
             <CostLimit session={s} badge />
@@ -385,6 +389,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         </div>
       </Sheet>}
 
+      <HostBand cwd={s.cwd} running={running} />
       {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} canMessage={s.status !== "in_terminal" && s.status !== "quota_paused" && !(running && !harness?.capabilities.messages_while_running)} />}
       <CodeLinksContext.Provider value={codeLinks}>
       <ShellCodeContext.Provider value={s.cwd}>
@@ -453,6 +458,24 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       </ShellCodeContext.Provider>
       </CodeLinksContext.Provider>
       {!childrenOpen && <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal" || s.status === "quota_paused" || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={s.open_question && s.live ? ask : null} />}
+    </div>
+  );
+}
+
+/** The host of the session folder is not connected: a connection state, never a session status. */
+function HostBand({ cwd, running }: { cwd: string; running: boolean }) {
+  const id = hostOf(cwd);
+  const h = useHost(id);
+  if (!id || !h || h.state === "connected") return null;
+  const since = new Date(Number(h.since)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-attn-line bg-attn-soft px-3 py-2 text-[12px]" role="status">
+      <span className="min-w-0 flex-1">
+        <b>{id} is {linkLabel[h.state].toLowerCase()}{h.state === "connecting" ? "" : ` since ${since}`}.</b>{" "}
+        {running ? "The agent keeps running on the host; its output appears here when the connection returns. Stop is sent once it is back." : "Changes, files and new turns need the host; Launchpad reconnects every 15 s."}
+        {h.error && <span className="block text-ink-3">{h.error}</span>}
+      </span>
+      <button className="btn btn-sm" onClick={() => void api.post(`/api/hosts/${id}/retry`).catch(toastError)}>Retry now</button>
     </div>
   );
 }

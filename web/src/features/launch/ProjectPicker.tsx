@@ -3,6 +3,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Project } from "@/gen/Project";
 import { Icon } from "@/components/Icon";
 import { MenuItem } from "@/components/Popover";
+import { HostLabel } from "@/components/HostLabel";
+import { hostOf, linkLabel, useHosts } from "@/lib/hosts";
 
 // Match characters in order, preferring contiguous matches and shorter gaps.
 function matchScore(value: string, query: string): number | null {
@@ -22,7 +24,7 @@ function matchScore(value: string, query: string): number | null {
 
 const ProjectRow = memo(function ProjectRow({ project, active, onPick }: { project: Project; active: boolean; onPick: (project: Project | null) => void }) {
   return <div className="grid h-[48px]">
-    <MenuItem icon={<Icon name="folder" size={13} />} label={project.name} detail={project.description || project.gh_repo || project.path} active={active} onClick={() => onPick(project)} />
+    <MenuItem icon={<Icon name="folder" size={13} />} label={<span className="inline-flex items-center gap-1.5">{project.name}<HostLabel path={project.path} /></span>} detail={project.description || project.gh_repo || project.path} active={active} onClick={() => onPick(project)} />
   </div>;
 });
 
@@ -46,12 +48,23 @@ export function ProjectPicker({ projects, workspaceName, hasProject, selected, t
         return score === null ? [] : [score];
       });
     return scores.length ? [{ project, score: Math.min(...scores) }] : [];
-  }).sort((a, b) => (workspaceName ? Number(hasProject(b.project.id)) - Number(hasProject(a.project.id)) : 0) || a.score - b.score);
-  const rows: (Project | null)[] = matches.map(({ project }) => project);
-  const firstOther = workspaceName ? rows.findIndex((project) => project && !hasProject(project.id)) : -1;
-  if (firstOther >= 0) rows.splice(firstOther, 0, null);
-  const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => scroll.current, estimateSize: (index) => rows[index] ? 48 : 24, getItemKey: (index) => rows[index]?.id ?? "outside-workspace", overscan: 4, useFlushSync: false });
-  const height = Math.min(matches.length * 48 + (firstOther >= 0 ? 24 : 0), 200);
+  }).sort((a, b) => (workspaceName ? Number(hasProject(b.project.id)) - Number(hasProject(a.project.id)) : 0) || (hostOf(a.project.path) ?? "").localeCompare(hostOf(b.project.path) ?? "") || a.score - b.score);
+  // Grouped by machine (this computer first) when some projects live on SSH hosts, then by workspace.
+  const hosts = useHosts();
+  const byHost = projects.some((p) => hostOf(p.path));
+  const rows: (Project | string)[] = [];
+  let group: string | null = null;
+  for (const { project } of matches) {
+    const host = hostOf(project.path);
+    const outside = !!workspaceName && !hasProject(project.id);
+    const machine = host ? `${host}${(() => { const h = hosts.find((x) => x.host.id === host); return h && h.state !== "connected" ? ` · ${linkLabel[h.state].toLowerCase()}` : ""; })()}` : "This computer";
+    const label = [outside ? `Not in ${workspaceName}` : null, byHost ? machine : null].filter(Boolean).join(" · ");
+    if (label && label !== group) rows.push(label);
+    group = label;
+    rows.push(project);
+  }
+  const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => scroll.current, estimateSize: (index) => typeof rows[index] === "string" ? 24 : 48, getItemKey: (index) => { const r = rows[index]; return typeof r === "string" ? `group-${r}` : r.id; }, overscan: 4, useFlushSync: false });
+  const height = Math.min(rows.reduce((n, r) => n + (typeof r === "string" ? 24 : 48), 0), 220);
   return <div className="grid gap-1">
     <input autoFocus className="field-input w-full" aria-label="Find project" placeholder="Find a project…" value={search} onChange={(e) => { setSearch(e.target.value); scroll.current?.scrollTo({ top: 0 }); }} />
     <MenuItem icon={<Icon name="plus" size={13} />} label="New temporary folder" detail={`in ${projectsRoot}`} active={temporary} onClick={() => onPick(null)} />
@@ -60,7 +73,7 @@ export function ProjectPicker({ projects, workspaceName, hasProject, selected, t
         {virtual.getVirtualItems().map((row) => {
           const project = rows[row.index];
           return <div key={row.key} className="absolute left-0 top-0 w-full" style={{ transform: `translateY(${row.start}px)`, height: row.size }}>
-            {project ? <ProjectRow project={project} active={project.id === selected} onPick={onPick} /> : <div className="px-[9px] pt-2 pb-1 seclabel" title="Launching here adds the project to this workspace">Not in {workspaceName}</div>}
+            {typeof project !== "string" ? <ProjectRow project={project} active={project.id === selected} onPick={onPick} /> : <div className="truncate px-[9px] pt-2 pb-1 seclabel" title={project.startsWith("Not in") ? "Launching here adds the project to this workspace" : "Agents of these projects run on this machine"}>{project}</div>}
           </div>;
         })}
       </div>

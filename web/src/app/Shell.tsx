@@ -9,6 +9,7 @@ import { useWorkspaceSync } from "@/lib/workspace";
 import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
+import { HostPrompts } from "./HostPrompt";
 
 export function Shell() {
   const scale = useZoomScale();
@@ -31,6 +32,7 @@ export function Shell() {
       </div>
       <StatusBar />
       <Toasts />
+      <HostPrompts />
     </div>
   );
 }

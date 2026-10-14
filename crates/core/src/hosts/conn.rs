@@ -348,7 +348,7 @@ impl Conn {
         };
         let FromHelper::Hello { version, procs, info } = serde_json::from_str(&first).context("unexpected helper answer")? else { bail!("unexpected helper answer") };
         anyhow::ensure!(version == super::build_id(), "the host runs helper build {version}");
-        *self.latency_ms.lock().unwrap() = Some(started.elapsed().as_millis() as u64);
+        tracing::debug!("host {}: helper answered in {} ms", self.id, started.elapsed().as_millis());
         *self.info.lock().unwrap() = Some(info);
         // Processes the helper no longer has ended with the helper (host restart): Interrupted, never Done.
         let lost: Vec<Arc<RemoteProc>> = {
@@ -399,11 +399,12 @@ impl Conn {
         let me = self.clone();
         let pinger = tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_secs(30)).await;
                 let t = std::time::Instant::now();
                 if me.request(Op::Ping).await.is_ok() {
                     *me.latency_ms.lock().unwrap() = Some(t.elapsed().as_millis() as u64);
+                    me.hosts.publish();
                 }
+                tokio::time::sleep(Duration::from_secs(30)).await;
             }
         });
         let result = loop {
