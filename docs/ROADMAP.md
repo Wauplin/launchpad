@@ -146,6 +146,8 @@ Done means: a week of daily use with worktrees as the default, without lost work
 
 ## Phase 2b: code viewer
 
+- Large-file safety (2026-10-14, built; awaiting desktop daily use): conservative shared highlighting limits, five-second worker termination/recovery, plain-text fallback, preview limits and refusal of extreme line lengths/counts. Regression checks, UI type checking and production build pass.
+
 Added on 2026-10-02. It only needs Phase 1, and it comes before Phase 3, which reuses its code renderer for Files changed. Design in [ARCHITECTURE.md, section 8.1](ARCHITECTURE.md#81-code-viewer) and sketch S7.
 
 - Daemon `code` module: sources (checkout, worktrees, branches, tags, fetched PR refs), file list with change letters, file content with changed line ranges, `git grep` search, path checks.

@@ -11,6 +11,7 @@
     "test:operations": "node --experimental-strip-types --test tests/operations.test.mjs",
     "test:attachments": "node --experimental-strip-types --test tests/attachments.test.mjs",
     "test:terminals": "node --experimental-strip-types --test tests/terminals.test.mjs",
+    "test:code": "node --experimental-strip-types --test tests/codeSafety.test.mjs",
     "test:markdown": "node --experimental-strip-types --test tests/commitLinks.test.mjs"
   },
   "dependencies": {

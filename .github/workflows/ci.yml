@@ -62,6 +62,9 @@ jobs:
       - name: Agent Markdown commit regressions
         working-directory: web
         run: pnpm test:markdown
+      - name: Code viewer safety regressions
+        working-directory: web
+        run: pnpm test:code
       - name: Check clipboard attachments
         working-directory: web
         run: pnpm test:attachments

@@ -34,9 +34,7 @@ import { basename, dirname, findAll, githubUrl, lineRef, matcher, rawUrl, useCod
 import { FilesPanel, FindToggles, SearchPanel } from "./SidePanel";
 import { sourceKey, useCode, type CodeSearch } from "./store";
 import { useOpenTerminal } from "@/features/terminals/lib";
-
-const MAX_COLORS_BYTES = 1024 * 1024;
-const MAX_COLORS_LINES = 20_000;
+import { textLimits } from "./limits";
 
 const sizeText = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
@@ -321,7 +319,8 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
   const lines = useRef<CodeLinesHandle>(null);
   const markdown = f?.language === "markdown";
   const html = f?.language === "html";
-  const isText = f?.kind === "text" && f.text !== null;
+  const limits = useMemo(() => textLimits(f?.text ?? ""), [f?.text]);
+  const isText = f?.kind === "text" && f.text !== null && !limits.display;
 
   const openFind = useCallback(() => {
     setPreview(false);
@@ -370,7 +369,7 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
             </button>
           )}
           {(markdown || html) && isText && (
-            <button className="btn btn-sm" title={preview ? "Show the source" : `Show the rendered ${html ? "HTML" : "Markdown"}`} onClick={() => setPreview((p) => !p)}>
+            <button className="btn btn-sm disabled:opacity-40" disabled={!limits.colors} title={!limits.colors ? "Preview disabled for large or long-line files" : preview ? "Show the source" : `Show the rendered ${html ? "HTML" : "Markdown"}`} onClick={() => setPreview((p) => !p)}>
               <Icon name={preview ? "file" : "eye"} size={12} />
               {preview ? "Source" : "Preview"}
             </button>
@@ -400,9 +399,11 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
             {f.kind === "binary" ? `Binary file · ${sizeText(f.size)}` : `This file is ${sizeText(f.size)}: too large to show here.`}
           </div>
         </div>
-      ) : preview && html ? (
+      ) : limits.display ? (
+        <div className="grid flex-1 place-items-center p-6 text-center text-ink-2">{limits.display}</div>
+      ) : preview && limits.colors && html ? (
         <HtmlPreview text={f.text ?? ""} path={path} />
-      ) : preview && markdown ? (
+      ) : preview && limits.colors && markdown ? (
         <MarkdownPreview text={f.text ?? ""} root={root} rev={rev} path={path} projectId={project.id} />
       ) : (
         <TextView
@@ -426,7 +427,7 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
 
 function FileMeta({ f, letter }: { f: CodeFile; letter: string | undefined }) {
   const parts: React.ReactNode[] = [f.language_name ?? (f.kind === "text" ? "Plain text" : f.kind === "image" ? "Image" : "Binary")];
-  if (f.text !== null) {
+  if (f.text !== null && !textLimits(f.text).display) {
     const n = splitLines(f.text).length;
     parts.push(`${n.toLocaleString()} line${n === 1 ? "" : "s"}`);
   }
@@ -441,7 +442,7 @@ function FileMeta({ f, letter }: { f: CodeFile; letter: string | undefined }) {
         {l === "A" && " (new file)"}
       </span>,
     );
-  if (f.kind === "text" && (f.size > MAX_COLORS_BYTES || (f.text && splitLines(f.text).length > MAX_COLORS_LINES))) parts.push("no colors (large file)");
+  if (f.kind === "text" && !textLimits(f.text ?? "").colors) parts.push("plain text (file safety limit)");
   return (
     <span className="text-xs whitespace-nowrap text-ink-3">
       {parts.map((p, i) => (
@@ -552,7 +553,7 @@ function TextView({
 
   // Colors: plain text first, Shiki when the worker answers. None for very large files.
   const theme = useTheme((s) => s.theme);
-  const colors = !!f.language && f.size <= MAX_COLORS_BYTES && lines.length <= MAX_COLORS_LINES;
+  const colors = !!f.language && textLimits(text).colors;
   const [tokens, setTokens] = useState<{ text: string; theme: Theme; tokens: Tokens } | null>(() => {
     const t = colors ? cachedTokens(fileKey, text, theme) : null;
     return t ? { text, theme, tokens: t } : null;
@@ -657,7 +658,7 @@ function TextView({
       )}
       <CodeLines
         lines={lines}
-        tokens={(tokens?.text === text && tokens.theme === theme) ? tokens.tokens : null}
+        tokens={(colors && tokens?.text === text && tokens.theme === theme) ? tokens.tokens : null}
         marks={f.marks}
         matchesByLine={byLine}
         current={cur ? { line: cur.line, start: cur.start } : null}
