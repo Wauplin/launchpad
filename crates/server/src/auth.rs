@@ -328,6 +328,7 @@ pub fn router() -> Router<Server> {
         .route("/auth", get(sign_in).post(exchange))
         .route("/api/devices", get(devices))
         .route("/api/devices/pair", post(pair))
+        .route("/api/devices/pairing-info", get(pairing_info))
         .route("/api/devices/{id}", axum::routing::delete(revoke))
 }
 
@@ -369,6 +370,19 @@ fn private_response(mut response: Response, private: bool) -> Response {
             .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     }
     response
+}
+
+async fn pairing_info(State(s): State<Server>) -> ApiResult<Value> {
+    let config = s.app.config.get().server;
+    let bind = config.bind.parse::<std::net::IpAddr>()?;
+    let https_port = crate::tailnet::setup(&s.app.env, s.app.paths.port, bind).await;
+    Ok(Json(json!({
+        "origin": s.auth.origin,
+        "daemon_port": s.app.paths.port,
+        "https_port": https_port,
+        "automatic_origin": config.public_origin.is_none() && config.auto_tailnet,
+        "config_file": s.app.paths.config_file().display().to_string(),
+    })))
 }
 
 async fn pair(State(s): State<Server>, headers: HeaderMap) -> ApiResult<Value> {

@@ -148,7 +148,7 @@ async fn command_json(env: &UserEnv, executable: &std::path::Path, args: &[&str]
     serde_json::from_slice(&output.stdout).ok()
 }
 
-async fn discover(env: &UserEnv, port: u16, bind: IpAddr) -> (Vec<IpAddr>, Option<String>) {
+async fn read_state(env: &UserEnv) -> Option<(Value, Value)> {
     // GUI launches may not have Tailscale's install directory on PATH.
     let mut commands = vec![std::path::PathBuf::from("tailscale")];
     #[cfg(target_os = "macos")]
@@ -164,13 +164,54 @@ async fn discover(env: &UserEnv, port: u16, bind: IpAddr) -> (Vec<IpAddr>, Optio
             let serve = command_json(env, &executable, &["serve", "status", "--json"])
                 .await
                 .unwrap_or(Value::Null);
-            return (
-                addresses(&status),
-                https_origin(&status, &serve, port, bind),
-            );
+            return Some((status, serve));
         }
     }
-    (Vec::new(), None)
+    None
+}
+
+fn setup_port(status: &Value, serve: &Value, port: u16, bind: IpAddr) -> Option<u16> {
+    if let Some(origin) = https_origin(status, serve, port, bind) {
+        return Some(
+            origin
+                .rsplit_once(':')
+                .and_then(|(_, port)| port.parse().ok())
+                .unwrap_or(443),
+        );
+    }
+    [443, 8443, 9443, 10443].into_iter().find(|port| {
+        let key = port.to_string();
+        !std::iter::once(serve)
+            .chain(
+                serve["Foreground"]
+                    .as_object()
+                    .into_iter()
+                    .flat_map(|v| v.values()),
+            )
+            .any(|config| {
+                config["TCP"].get(&key).is_some()
+                    || config["AllowFunnel"]
+                        .as_object()
+                        .into_iter()
+                        .flat_map(|v| v.iter())
+                        .any(|(authority, enabled)| {
+                            *enabled == true
+                                && authority
+                                    .rsplit_once(':')
+                                    .and_then(|(_, value)| value.parse::<u16>().ok())
+                                    == Some(*port)
+                        })
+            })
+    })
+}
+
+/// Read-only setup guidance. Never run Serve or change existing routes from this endpoint.
+pub async fn setup(env: &UserEnv, port: u16, bind: IpAddr) -> Option<u16> {
+    let (status, serve) = read_state(env).await?;
+    if serve.is_null() {
+        return None;
+    }
+    setup_port(&status, &serve, port, bind)
 }
 
 /// Prefer a configured private HTTPS Serve route, then an available direct listener.
@@ -180,7 +221,9 @@ pub async fn prepare(config: &mut ServerConfig, port: u16, env: &UserEnv) -> Opt
         return None;
     }
     let bind: IpAddr = config.bind.parse().ok()?;
-    let (ips, https) = discover(env, port, bind).await;
+    let (status, serve) = read_state(env).await?;
+    let ips = addresses(&status);
+    let https = https_origin(&status, &serve, port, bind);
     if let Some(origin) = https {
         tracing::info!("using Tailscale Serve origin {origin}");
         config.public_origin = Some(origin);
@@ -211,6 +254,18 @@ pub async fn prepare(config: &mut ServerConfig, port: u16, env: &UserEnv) -> Opt
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn setup_port_keeps_existing_routes_and_public_funnel_ports() {
+        let bind = "127.0.0.1".parse().unwrap();
+        let mut serve = json!({"TCP":{"443":{"HTTPS":true}},
+            "Foreground":{"other":{"TCP":{"8443":{"HTTPS":true}}}},
+            "AllowFunnel":{"host.example.ts.net:9443":true}});
+        assert_eq!(setup_port(&Value::Null, &serve, 7317, bind), Some(10443));
+        serve["TCP"]["10443"] = json!({"TCPForward":"127.0.0.1:8765"});
+        assert_eq!(setup_port(&Value::Null, &serve, 7317, bind), None);
+        assert_eq!(setup_port(&Value::Null, &json!({}), 7317, bind), Some(443));
+    }
 
     #[test]
     fn https_serve_must_match_this_node_daemon_and_private_root_route() {

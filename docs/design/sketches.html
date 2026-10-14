@@ -2090,12 +2090,21 @@ Read codex.rs</pre></details></div>
 </section>
 
 <section id="devices" style="margin-block:48px">
-  <h2>Settings · Devices (2026-10-13)</h2>
+  <h2>Settings · Devices (2026-10-14)</h2>
   <div style="background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:24px;max-width:700px">
     <p>General · Workspaces · Harnesses · Worktrees · <b>Devices</b></p>
     <h3>Pair a device <button type="button">Create pairing link</button></h3>
     <div style="width:200px;height:200px;border:2px dashed var(--line);display:grid;place-items:center">QR code appears here</div>
-    <p>Open pairing link · Copy pairing link<br><small>Expires in 4:59 · single use</small></p>
+    <p>Pairing URL<br><code style="overflow-wrap:anywhere">https://launchpad.example.ts.net/auth#code=example-code</code> <button type="button">Copy URL</button><br><small>Expires in 4:59 · single use</small></p>
+    <h3>HTTPS access with Tailscale</h3>
+    <p>Tailscale Serve gives Launchpad an HTTPS address and manages its certificate. It keeps running in the background.</p>
+    <ol>
+      <li>Install Tailscale and sign in on the Launchpad machine. Check existing routes with <code>tailscale serve status</code>.</li>
+      <li>Run this command on that machine and follow any certificate approval or permission instructions.<p>HTTPS port <input type="number" value="8443" min="1" max="65535" style="width:90px"><br><small>Suggested port: 8443. Port 443 already serves another app.</small></p><p><code style="overflow-wrap:anywhere">tailscale serve --bg --https=8443 http://127.0.0.1:7317</code> <button type="button">Copy command</button></p></li>
+      <li>When agents and terminals are idle, restart the Launchpad daemon and create a new pairing link.</li>
+    </ol>
+    <p><small>The helper copies instructions; it does not change Tailscale or restart Launchpad. Avoid occupied or Funnel-enabled ports.</small></p>
+    <p><a href="https://tailscale.com/docs/reference/tailscale-cli/serve" target="_blank" rel="noopener noreferrer">Tailscale Serve setup guide</a></p>
     <h3>Paired browsers</h3>
     <p><b>My laptop</b> · This browser <button type="button">Sign out</button></p>
     <p><b>My phone</b> · Paired 13/10/2026 <button type="button">Revoke</button></p>
