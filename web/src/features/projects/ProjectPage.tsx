@@ -1,3 +1,5 @@
+import { usePhone } from "@/lib/phone";
+import { PhoneHeader, PhoneActions } from "@/mobile/PhoneHeader";
 // A project: running agents, GitHub items, worktrees and all agents.
 
 import { openExternal } from "@/lib/platform";
@@ -25,6 +27,7 @@ import { useOpenTerminal } from "@/features/terminals/lib";
 import { Description, TempProjectCard } from "./ProjectsView";
 
 export function ProjectPage() {
+  const phone = usePhone();
   const { id } = useParams({ strict: false }) as { id: string };
   const p = useProject(id);
   const sessions = (useSessions().data ?? []).filter((s) => s.project_id === id);
@@ -36,7 +39,25 @@ export function ProjectPage() {
   if (!p) return <div className="p-6 text-ink-3">This project is not registered.</div>;
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
+      <div className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
+        {phone ? <PhoneHeader title={p.name} onBack={() => void navigate({ to: "/projects" })} backLabel="Back to projects" primary={<LaunchButton ctx={{ projectId: p.id }} />} subtitle={`${sessions.filter(isRunning).length} running · ${sessions.filter(needsYou).length} waiting · ${predrafts.filter((d) => !d.archived && !d.published_url).length} pre-draft`} actions={
+          <div className="ml-auto flex gap-1.5">
+            {p.gh_repo && (
+              <button className="btn" title="Open on GitHub" onClick={() => openExternal(`https://github.com/${p.gh_repo}`)}>
+                <Icon name="ext" size={14} />
+                GitHub
+              </button>
+            )}
+            <Link to="/projects/$id/code" params={{ id: p.id }} className="btn no-underline" title="Read the code of this project">
+              <Icon name="search" size={14} />
+              Code
+            </Link>
+            <button className="btn" title={`Open a shell in ${p.path}`} onClick={() => void terminal.shell(p.path)}>
+              <Icon name="term" size={14} />
+              Terminal
+            </button>
+
+          </div>        } details={<div className="grid gap-2"><span className="break-all font-mono text-xs text-ink-3">{p.path}</span><Description p={p} /></div>} /> : <>
         <div className="flex items-start gap-3">
           <div className="grid min-w-0 gap-1">
             <h2 className="m-0 text-lg font-semibold">{p.name}</h2>
@@ -70,6 +91,7 @@ export function ProjectPage() {
             <LaunchButton ctx={{ projectId: p.id }} />
           </div>
         </div>
+        </>}
         {p.is_temp && <TempProjectCard p={p} />}
         <ProjectAgents title="Running agents" sessions={sessions.filter(isRunning)} empty="No running agents in this project." />
         <RepoItems key={p.gh_repo ?? p.id} repo={p.gh_repo ?? ""} projectId={p.id} />
@@ -81,18 +103,8 @@ export function ProjectPage() {
                 const session = sessions.filter((s) => s.cwd === w.path).sort((a, b) => b.started_at - a.started_at)[0];
                 const draft = predrafts.find((d) => d.root === w.path);
                 const canLaunch = draft && !draft.archived && !draft.published_url && !draft.pushed_head;
-                return (
-                  <div key={w.path} className="flex h-[52px] items-center gap-2.5 border-b border-line-2 px-4 last:border-0">
-                    <Icon name="branch" size={14} className="text-ink-3" />
-                    <span className="grid min-w-0 flex-1">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate font-mono text-xs font-semibold">{w.branch ?? "detached"}</span>
-                        {session && <StatusBadge s={session} />}
-                        {draft && <Link to="/predrafts/$id" params={{ id: draft.id }} className="truncate text-xs text-teal-ink">Pre-draft PR · {draft.archived ? "discarded" : draft.published_number ? `published #${draft.published_number}` : draft.title}</Link>}
-                      </span>
-                      <span className="truncate font-mono text-[11.5px] text-ink-3" title={w.path}>{w.path}</span>
-                    </span>
-                    {session && <button className="btn btn-sm" title={session.title} onClick={() => { show(session.id); void navigate({ to: "/agents" }); }}>Agent</button>}
+                const rowActions = <>
+                  {session && <button className="btn btn-sm" title={session.title} onClick={() => { show(session.id); void navigate({ to: "/agents", search: phone ? { session: session.id } : {} }); }}>Agent</button>}
                     {canLaunch && !session && <button className="btn btn-sm btn-primary" title="Launch an agent in this worktree" onClick={() => { useComposer.getState().start({ projectId: p.id }); useComposer.getState().update((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: draft.id } })); }}><Icon name="play" size={12} />Launch here</button>}
                     <Link to="/projects/$id/code" params={{ id: p.id }} search={{ root: w.path }} className="btn btn-sm no-underline" title="Read the code of this worktree">
                       <Icon name="search" size={12} />
@@ -102,6 +114,19 @@ export function ProjectPage() {
                       <Icon name="term" size={12} />
                       Terminal
                     </button>
+                </>;
+                return (
+                  <div key={w.path} className="phone-worktree-row flex h-[52px] items-center gap-2.5 border-b border-line-2 px-4 last:border-0">
+                    <Icon name="branch" size={14} className="text-ink-3" />
+                    <span className="grid min-w-0 flex-1">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate font-mono text-xs font-semibold">{w.branch ?? "detached"}</span>
+                        {session && <StatusBadge s={session} />}
+                        {draft && <Link to="/predrafts/$id" params={{ id: draft.id }} className="truncate text-xs text-teal-ink">Pre-draft PR · {draft.archived ? "discarded" : draft.published_number ? `published #${draft.published_number}` : draft.title}</Link>}
+                      </span>
+                      <span className="truncate font-mono text-[11.5px] text-ink-3" title={w.path}>{w.path}</span>
+                    </span>
+                    {phone ? <PhoneActions label="Worktree actions" children={rowActions} details={<p className="break-all font-mono text-xs">{w.branch}<br />{w.path}</p>} /> : rowActions}
                   </div>
                 );
               })}
@@ -148,11 +173,13 @@ function WorktreeSetup({ p }: { p: Project }) {
 }
 
 function ProjectAgents({ title, sessions, empty }: { title: string; sessions: Session[]; empty: string }) {
+  const phone = usePhone();
+  const rowHeight = phone ? 56 : 40;
   const ref = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({
     count: sessions.length,
     getScrollElement: () => ref.current,
-    estimateSize: () => 40,
+    estimateSize: () => rowHeight,
     overscan: 3,
     useFlushSync: false,
   });
@@ -160,7 +187,7 @@ function ProjectAgents({ title, sessions, empty }: { title: string; sessions: Se
   return (
     <section className="grid gap-3">
       <div className="seclabel">{title} · {sessions.length}</div>
-      <div ref={ref} className="overflow-auto rounded-lg border border-line" style={sessions.length ? { height: Math.min(sessions.length, 8) * 40 + 2 } : undefined}>
+      <div ref={ref} className="overflow-auto rounded-lg border border-line" style={sessions.length ? { height: Math.min(sessions.length, 8) * rowHeight + 2 } : undefined}>
         {sessions.length === 0 ? (
           <div className="p-4 text-[12.5px] text-ink-2">{empty}</div>
         ) : (
@@ -178,20 +205,21 @@ function ProjectAgents({ title, sessions, empty }: { title: string; sessions: Se
 }
 
 const ProjectAgentRow = memo(function ProjectAgentRow({ s }: { s: Session }) {
+  const phone = usePhone();
   const show = useLayout((s) => s.show);
   const navigate = useNavigate();
   return (
     <button
-      className="flex h-10 w-full items-center gap-2.5 border-b border-line-2 px-4 text-left hover:bg-chrome"
+      className="phone-project-agent flex h-10 w-full items-center gap-2.5 border-b border-line-2 px-4 text-left hover:bg-chrome"
       onClick={() => {
         show(s.id);
-        void navigate({ to: "/agents" });
+        void navigate({ to: "/agents", search: phone ? { session: s.id } : {} });
       }}
     >
       <HarnessMark harness={s.harness} size={16} />
       <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold">{s.title}</span>
       <StatusBadge s={s} />
-      <span className="text-xs text-ink-3">{new Date(s.started_at).toLocaleDateString()}</span>
+      {!phone && <span className="text-xs text-ink-3">{new Date(s.started_at).toLocaleDateString()}</span>}
     </button>
   );
 });

@@ -1,3 +1,5 @@
+import { usePhone } from "@/lib/phone";
+import { PhoneHeader } from "@/mobile/PhoneHeader";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -300,7 +302,7 @@ function Controls({
     ? method
     : (allowed[0]?.[0] ?? method);
   return (
-    <aside className="w-[260px] flex-none overflow-auto border-l border-line bg-chrome p-3 text-xs">
+    <aside className="phone-item-controls w-[260px] flex-none overflow-auto border-l border-line bg-chrome p-3 text-xs">
       <div className="grid gap-3">
         <div>
           <b>Labels</b>
@@ -509,6 +511,7 @@ export function ItemView() {
   );
 }
 export function ItemDetail({ repo, number }: { repo: string; number: number }) {
+  const phone = usePhone();
   const key = itemKey(repo, number),
     path = itemPath(repo, number),
     qc = useQueryClient();
@@ -594,27 +597,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   }, [q.data, inbox?.threads, repo, number]);
   const item = q.data;
   const isPr = item?.__typename === "PullRequest";
-  return (
-    <div className="flex h-full flex-col">
-      <header className="flex-none border-b border-line p-4">
-        <div className="text-xs text-ink-3">
-          {repo} #{number} ·{" "}
-          {item?.merged
-            ? "merged"
-            : item?.isDraft
-              ? "draft"
-              : item?.state.toLowerCase()}
-        </div>
-        <h2 className="mt-1 mb-3 text-lg font-semibold">
-          {item?.title ?? `#${number}`}
-        </h2>
-        {isPr && (
-          <p className="mb-3 text-xs text-ink-3">
-            {item.headRefName} → {item.baseRefName} ·{" "}
-            {item.headRefOid?.slice(0, 7)}
-          </p>
-        )}
-        <div className="flex flex-wrap gap-2">
+  const launchControl = (
           <LaunchButton
             small
             ctx={{
@@ -624,6 +607,10 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
                 : [],
             }}
           />
+  );
+  const headerActions = (
+        <div className="flex flex-wrap gap-2">
+          {!phone && launchControl}
           {isPr && item && <button className="btn btn-sm" onClick={() => {
             useComposer.getState().start({ projectId: project?.id ?? null, githubRefs: [reference(repo, item, "pr")] });
             useComposer.getState().update((s) => ({ ...s, text: `Review ${repo}#${number} at commit ${item.headRefOid}. Inspect the changes and relevant context, summarize concrete findings, and save a local suggested review using launchpad suggest review --repo ${repo} --number ${number} --head ${item.headRefOid} --body-file <file> with your session id. Use --event request-changes for blocking findings, otherwise a comment review. Do not post to GitHub or change the code.` }));
@@ -656,7 +643,34 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
             </span>
           )}
         </div>
+  );
+  return (
+    <div className="flex h-full flex-col">
+      {phone ? <PhoneHeader title={item?.title ?? `#${number}`} subtitle={`${repo} #${number} · ${item?.merged ? "merged" : item?.isDraft ? "draft" : item?.state.toLowerCase() ?? "loading"}`} primary={launchControl} actions={headerActions} details={<>
+        {isPr && <p className="break-all font-mono text-xs text-ink-3">{item.headRefName} → {item.baseRefName} · {item.headRefOid?.slice(0, 7)}</p>}
+        {item && <Controls key={item.updatedAt} item={item} act={act} busy={busy} />}
+      </>} /> : (
+      <header className="flex-none border-b border-line p-4">
+        <div className="text-xs text-ink-3">
+          {repo} #{number} ·{" "}
+          {item?.merged
+            ? "merged"
+            : item?.isDraft
+              ? "draft"
+              : item?.state.toLowerCase()}
+        </div>
+        <h2 className="mt-1 mb-3 text-lg font-semibold">
+          {item?.title ?? `#${number}`}
+        </h2>
+        {isPr && (
+          <p className="mb-3 text-xs text-ink-3">
+            {item.headRefName} → {item.baseRefName} ·{" "}
+            {item.headRefOid?.slice(0, 7)}
+          </p>
+        )}
+        {headerActions}
       </header>
+      )}
       {(error || q.error) && (
         <p className="m-0 border-b border-line p-3 text-gh-closed">
           {error ?? String(q.error)}
@@ -664,11 +678,12 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
       )}
       {item && <DraftBanner item={item} onReview={reviewDraft} />}
       {isPr && (
-        <nav className="flex gap-2 border-b border-line px-4 py-2">
+        <nav className="phone-tabs flex gap-2 border-b border-line px-4 py-2" aria-label="Pull request views">
           {["conversation", "files", "threads"].map((t) => (
             <button
               key={t}
-              className={`btn btn-sm ${tab === t ? "bg-select!" : ""}`}
+              className={`btn btn-sm ${tab === t && !phone ? "bg-select!" : ""}`}
+              aria-pressed={tab === t}
               onClick={() => setTab(t)}
             >
               {t === "files"
@@ -757,7 +772,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
               </div>}
             </div>
           </div>
-          <Controls key={item.updatedAt} item={item} act={act} busy={busy} />
+          {!phone && <Controls key={item.updatedAt} item={item} act={act} busy={busy} />}
         </div>
       ) : (
         <p className="p-4 text-ink-3">Fetching this item for the first time…</p>

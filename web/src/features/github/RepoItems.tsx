@@ -1,3 +1,6 @@
+import { Icon } from "@/components/Icon";
+import { usePhone } from "@/lib/phone";
+import { PhoneActions } from "@/mobile/PhoneHeader";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -68,6 +71,7 @@ export function RepoItems({
   repo: string;
   projectId: string;
 }) {
+  const phone = usePhone();
   const qc = useQueryClient();
   const key = ["repo-items", repo];
   const q = useQuery({
@@ -148,6 +152,11 @@ export function RepoItems({
   ];
   return (
     <section className="rounded-lg border border-line overflow-clip">
+      {phone ? <div className="flex min-w-0 items-center gap-1 border-b border-line bg-chrome px-2">
+        <div className="phone-tabs flex min-w-0 flex-1" role="group" aria-label="Project GitHub items"><button className="btn btn-sm" aria-pressed={tab === "prs"} onClick={() => setTab("prs")}>PRs {(q.data?.prs?.length ?? 0) + predrafts.length}</button><button className="btn btn-sm" aria-pressed={tab === "issues"} onClick={() => setTab("issues")}>Issues {q.data?.issues?.length ?? 0}</button></div>
+        <button className="iconbtn" aria-label="Refresh project items" title="Refresh project items" disabled={busy || !repo} onClick={() => void refresh()}><Icon name="refresh" size={16} /></button>
+        <PhoneActions label="Project item options" closeOnAction={false} details={<div className="grid gap-3"><button className="btn" disabled={!repo} onClick={() => openGitHub(`https://github.com/${repo}/${tab === "prs" ? "pulls" : "issues"}`)}>Open on GitHub</button><label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Discarded local PRs</label></div>} />
+      </div> : <>
       <div className="flex flex-wrap items-center gap-2 bg-chrome p-3">
         <button
           className={`btn ${tab === "prs" ? "bg-select!" : ""}`}
@@ -188,6 +197,7 @@ export function RepoItems({
           Discarded local PRs
         </label>
       </div>
+      </>}
       {repo && (
         <div className="flex flex-wrap items-center gap-2 border-b border-line bg-paper px-3 py-2 text-xs">
           <label className="flex items-center gap-2">

@@ -1,3 +1,5 @@
+import { usePhone } from "@/lib/phone";
+import { PhoneHeader } from "@/mobile/PhoneHeader";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
 import { memo, useEffect, useRef, useState } from "react";
@@ -20,6 +22,7 @@ export function PredraftView() {
   return <Review key={id} id={id} />;
 }
 function Review({ id }: { id: string }) {
+  const phone = usePhone();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const show = useLayout((s) => s.show);
@@ -83,24 +86,37 @@ function Review({ id }: { id: string }) {
   const active = !p.archived && !p.published_url;
   const running = ["starting", "working", "background", "in_terminal"].includes(d.status ?? "");
   const state = p.archived ? "Discarded" : p.published_url ? "Published" : running ? "In progress" : d.status === "waiting" ? "Ready for review" : d.status === "error" || d.status === "interrupted" ? "Agent needs attention" : "Local review";
+  const headerActions = (
+      <div className="flex flex-wrap items-center gap-2">
+
+        <button className="btn btn-sm ml-auto" disabled={busy} onClick={() => void run(async () => { qc.setQueryData(["predrafts", id], await api.post<Detail>(`/api/predrafts/${id}/refresh`)); })}>Refresh</button>
+        {active && !p.pushed_head && !p.session_id && <button className="btn btn-sm" disabled={busy} onClick={() => { useComposer.getState().start({ projectId: p.project_id }); useComposer.getState().update((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: p.id }, text: `Continue this local PR: ${p.title}` })); }}>Launch agent</button>}
+        {p.session_id && <button className="btn btn-sm" onClick={() => { show(p.session_id!); void navigate({ to: "/agents", search: phone ? { session: p.session_id! } : {} }); }}>Agent session</button>}
+        {!p.archived && <Link className="btn btn-sm no-underline" to="/projects/$id/code" params={{ id: p.project_id }} search={{ root: p.root }}>Code</Link>}
+        {!p.archived && <button className="btn btn-sm" title={`Open a shell in ${p.root}`} onClick={() => void terminal.shell(p.root)}>Terminal</button>}
+      </div>
+  );
   return <div className="flex h-full min-h-0 flex-col">
-    <div className="border-b border-line bg-teal-soft p-4">
+    <div className="predraft-header shrink-0 border-b border-line bg-teal-soft p-4">
+      {phone ? <PhoneHeader title={p.title} subtitle={`Pre-draft PR · ${state}`} onBack={() => void navigate({ to: "/review" })} backLabel="Back to review" actions={headerActions} details={<p className="break-all font-mono text-xs text-ink-3">{p.branch} → {p.base_branch}</p>} /> : <>
+
       <div className="flex flex-wrap items-center gap-2">
         <Link to="/projects/$id" params={{ id: p.project_id }} className="btn btn-sm no-underline">Project</Link>
         <span className="rounded bg-teal-soft px-2 py-1 text-xs font-semibold text-teal-ink">Pre-draft PR · {state}</span>
         <span className="font-mono text-xs text-ink-3">{p.branch} → {p.base_branch}</span>
         <button className="btn btn-sm ml-auto" disabled={busy} onClick={() => void run(async () => { qc.setQueryData(["predrafts", id], await api.post<Detail>(`/api/predrafts/${id}/refresh`)); })}>Refresh</button>
         {active && !p.pushed_head && !p.session_id && <button className="btn btn-sm" disabled={busy} onClick={() => { useComposer.getState().start({ projectId: p.project_id }); useComposer.getState().update((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: p.id }, text: `Continue this local PR: ${p.title}` })); }}>Launch agent</button>}
-        {p.session_id && <button className="btn btn-sm" onClick={() => { show(p.session_id!); void navigate({ to: "/agents" }); }}>Agent session</button>}
+        {p.session_id && <button className="btn btn-sm" onClick={() => { show(p.session_id!); void navigate({ to: "/agents", search: phone ? { session: p.session_id! } : {} }); }}>Agent session</button>}
         {!p.archived && <Link className="btn btn-sm no-underline" to="/projects/$id/code" params={{ id: p.project_id }} search={{ root: p.root }}>Code</Link>}
         {!p.archived && <button className="btn btn-sm" title={`Open a shell in ${p.root}`} onClick={() => void terminal.shell(p.root)}>Terminal</button>}
       </div>
       <h2 className="my-2 text-lg font-semibold">{p.title}</h2>
+      </>}
       {p.published_url && <button className="text-teal-ink hover:underline" onClick={() => openGitHub(p.published_url!)}>Published on GitHub #{p.published_number}</button>}
       {d.base_ahead > 0 && <p className="my-2 text-xs text-amber-800">Base moved: {p.base_branch} is {d.base_ahead} commits ahead of this branch. Review against the refreshed base before publishing.</p>}
       {d.dirty && <p className="my-2 text-xs text-amber-800">Uncommitted changes are excluded from this review. Ask the agent to commit them before publishing.</p>}
       {error && <p className="my-2 text-gh-closed">{error}</p>}
-      <div className="flex gap-2">{["description", "files", "commits", "notes"].map((t) => <button key={t} className={`btn btn-sm ${tab === t ? "bg-select!" : ""}`} onClick={() => setTab(t)}>{t === "files" ? `Files changed (${d.files.length})` : t[0].toUpperCase() + t.slice(1)}</button>)}</div>
+      <div className="phone-tabs flex gap-2" role="group" aria-label="Pre-draft views">{["description", "files", "commits", "notes"].map((t) => <button key={t} className={`btn btn-sm ${tab === t && !phone ? "bg-select!" : ""}`} aria-pressed={tab === t} onClick={() => setTab(t)}>{t === "files" ? `Files changed (${d.files.length})` : t[0].toUpperCase() + t.slice(1)}</button>)}</div>
     </div>
     {tab === "files" && !p.archived && d.head ? <FilesChanged repo="local" number={0} head={d.head} local={{ id, root: p.root }} /> : <div className="min-h-0 flex-1 overflow-auto p-4">
       {tab === "description" && <>{editing && active ? <div className="grid gap-3"><input aria-label="PR title" className="field-input" value={title} onChange={(e) => setTitle(e.target.value)} /><textarea aria-label="PR description" className="field-input min-h-48" value={body} onChange={(e) => setBody(e.target.value)} /><button className="btn w-fit" disabled={busy} onClick={() => void run(save)}>Save title and description</button></div> : <><Markdown text={p.body || "No description yet. The agent can set it with launchpad pr update."} />{active && <button className="btn mt-3" onClick={() => { setTitle(p.title); setBody(p.body); setEditing(true); }}>Edit title and description</button>}</>}<LocalSuggestions id={id} /></>}
@@ -110,7 +126,7 @@ function Review({ id }: { id: string }) {
         {active && <><select aria-label="Note file" className="field-input" value={notePath} onChange={(e) => setNotePath(e.target.value)}><option value="">General review note</option>{d.files.map((f) => <option key={f.filename} value={f.filename}>{f.filename}</option>)}</select><textarea aria-label="New review note" placeholder="Feedback for the agent…" className="field-input min-h-24" value={note} onChange={(e) => setNote(e.target.value)} /><div className="flex gap-2"><button className="btn" disabled={busy} onClick={() => void run(save)}>Save notes</button><button className="btn btn-primary" disabled={busy || running || !p.session_id || !allNotes().length} onClick={() => void run(async () => { await save(); await api.post(`/api/predrafts/${id}/feedback`); setNotes([]); })}>Send feedback to agent</button></div></>}
       </div>}
     </div>}
-    {active && <div className="flex flex-wrap items-center gap-2 border-t border-line p-3">
+    {active && <div className="phone-publish-bar flex flex-wrap items-center gap-2 border-t border-line p-3">
       <input aria-label="Remote branch name" className="field-input min-w-48 flex-1" value={remote} onChange={(e) => { setRemote(e.target.value); setConfirm(null); }} placeholder="Remote branch name" />
       <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={draft} onChange={(e) => { setDraft(e.target.checked); setConfirm(null); }} />Publish as draft</label>
       <button className="btn btn-primary" disabled={busy || running || d.dirty || !d.head || !remote.trim()} onClick={() => { if (confirm !== "publish") { setConfirm("publish"); return; } void run(async () => { await save(); await api.post(`/api/predrafts/${id}/publish`, { remote_branch: remote, draft, head: d.head }); await saved.clear(); }); }}>{busy ? "Working…" : confirm === "publish" ? "Confirm push and create GitHub PR" : "Publish"}</button>

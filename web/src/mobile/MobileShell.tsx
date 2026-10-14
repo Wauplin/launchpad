@@ -105,7 +105,7 @@ export function MobileShell() {
     <div className="flex h-dvh flex-col bg-paper pt-[env(safe-area-inset-top)]">
       <IconSprite />
       <header className="flex min-h-12 flex-none items-center gap-2 border-b border-line bg-chrome px-2">
-        <button className="btn btn-ghost max-w-[45%] min-w-0 px-2!" aria-label={`Workspace: ${workspaceName}. Open the menu`} onClick={() => setMenu(true)}>
+        <button className="btn btn-ghost max-w-[60%] min-w-0 px-2!" aria-label={`Workspace: ${workspaceName}. Open the menu`} onClick={() => setMenu(true)}>
           <span className="truncate font-semibold text-ink">{workspaceName}</span><Icon name="chev" size={14} />
         </button>
         <b className="min-w-0 flex-1 truncate text-center text-[15px]">{pageTitle(path)}</b>

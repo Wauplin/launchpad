@@ -1,3 +1,4 @@
+import { Icon } from "@/components/Icon";
 import { useEffect, useState } from "react";
 import { HostChip, useConnection } from "@/app/Connection";
 import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
@@ -56,8 +57,8 @@ function StatusDetails() {
 export function ServerStatus() {
   const [open, setOpen] = useState(false);
   return <>
-    <button type="button" className="btn btn-ghost min-h-11! max-w-[38%] min-w-11 px-2! text-[12px]!" aria-label="Server status and quotas" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
-      <HostChip compact />
+    <button type="button" className="phone-connection iconbtn shrink-0" aria-label="Server status and quotas" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
+      <Icon name="window" size={16} /><HostChip compact iconOnly />
     </button>
     {open && <Sheet title="Server status and quotas" onClose={() => setOpen(false)}><StatusDetails /></Sheet>}
   </>;

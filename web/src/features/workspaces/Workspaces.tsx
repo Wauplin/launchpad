@@ -29,7 +29,7 @@ function WorkspaceCard({ w }: { w: Workspace }) {
   const listed = projects.filter((p) => !p.is_temp || ids.has(p.id));
   return (
     <div className="grid gap-2.5 rounded-lg border border-line p-3.5">
-      <div className="flex items-center gap-2">
+      <div className="phone-workspace-tools flex items-center gap-2">
         <input aria-label="Workspace name" className="field-input h-8 w-56 font-semibold" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} />
         {name.trim() !== w.name && <button className="btn btn-sm" disabled={!name.trim() || patch.isPending} onClick={() => patch.mutate({ name })}>Rename</button>}
         <span className="text-xs text-ink-3">{w.project_ids.length} project{w.project_ids.length === 1 ? "" : "s"}</span>
@@ -51,7 +51,7 @@ function WorkspaceCard({ w }: { w: Workspace }) {
       </div>
       <div className="grid max-h-[240px] grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-3 gap-y-0.5 overflow-y-auto">
         {listed.map((p) => (
-          <label key={p.id} className="flex min-w-0 items-center gap-2 rounded px-1 py-0.5 text-[12.5px] hover:bg-sunk" title={p.gh_repo ?? p.path}>
+          <label key={p.id} className="phone-workspace-project flex min-w-0 items-center gap-2 rounded px-1 py-0.5 text-[12.5px] hover:bg-sunk" title={p.gh_repo ?? p.path}>
             <input type="checkbox" checked={ids.has(p.id)} disabled={patch.isPending} onChange={() => toggle(p.id)} />
             <span className={`truncate ${p.is_temp ? "font-mono text-[11.5px]" : ""}`}>{p.name}</span>
           </label>

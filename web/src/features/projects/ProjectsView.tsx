@@ -1,3 +1,5 @@
+import { usePhone } from "@/lib/phone";
+import { PhoneHeader } from "@/mobile/PhoneHeader";
 // Projects: the registry, discovery in the projects root, and temporary projects (sketch S6).
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -220,6 +222,7 @@ function Discover({ onClose }: { onClose: () => void }) {
 }
 
 export function ProjectsView() {
+  const phone = usePhone();
   const projects = useProjects().data ?? [];
   const scope = useScope();
   const w = scope.workspace;
@@ -244,7 +247,16 @@ export function ProjectsView() {
   };
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
+      <div className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
+        {phone ? <PhoneHeader title={w ? `Projects in ${w.name}` : "Projects"} subtitle={`${mine.length} projects`} actions={<>
+          <button className="btn ml-auto" onClick={() => setScan((v) => !v)}>
+            <Icon name="search" size={14} />
+            Scan projects root
+          </button>
+          <button className="btn" onClick={() => setCloning((v) => !v)}>
+            <Icon name="branch" size={14} />
+            Clone from GitHub
+          </button>        </>} details={<p className="break-all font-mono text-xs text-ink-3">{config?.projects_root}</p>} /> : <>
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="m-0 text-lg font-semibold">{w ? `Projects in ${w.name}` : "Projects"}</h2>
           <span className="min-w-0 truncate text-xs text-ink-3">in {config?.projects_root}</span>
@@ -257,6 +269,7 @@ export function ProjectsView() {
             Clone from GitHub
           </button>
         </div>
+        </>}
         {scan && <Discover onClose={() => setScan(false)} />}
         {cloning && <CloneFromGitHub root={config?.projects_root} onClose={() => setCloning(false)} />}
         <div className="overflow-hidden rounded-lg border border-line">

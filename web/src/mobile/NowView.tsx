@@ -60,7 +60,7 @@ const QuestionCard = memo(function QuestionCard({ s, project }: { s: Session; pr
     for (let i = rows.length - 1; i >= 0; i--) { const r = rows[i]; if (r.t === "ask") return r.answers ? null : r; }
     return null;
   }, [log]);
-  return <article className="grid min-w-0 grid-cols-1 gap-2.5 rounded-xl border border-attn-line bg-paper p-3">
+  return <article className="grid min-w-0 grid-cols-1 gap-2.5 phone-review-card rounded-xl border border-attn-line bg-paper p-3">
     <CardHead s={s} project={project} />
     {ask && s.live ? <AskCard row={ask} sessionId={s.id} live={s.live} hint="Or tap Other answer to write one." /> : <p className="text-[13.5px] text-ink-2">{s.last_message ?? "The agent asked a question."}</p>}
     <div className="flex flex-wrap gap-2"><button className="btn" onClick={() => open(navigate, s.id)}>Other answer…</button></div>
@@ -102,7 +102,7 @@ const OutcomeCard = memo(function OutcomeCard({ s, project }: { s: Session; proj
 const PausedCard = memo(function PausedCard({ s, project }: { s: Session; project: string }) {
   const navigate = useNavigate();
   const blockers = s.quota_pause?.blockers.map((b) => `${b.window} resets ${b.resets_at === null ? "at an unknown time" : new Date(b.resets_at * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`).join(" · ");
-  return <article className="grid min-w-0 grid-cols-1 gap-2.5 rounded-xl border border-attn-line bg-paper p-3">
+  return <article className="grid min-w-0 grid-cols-1 gap-2.5 phone-review-card rounded-xl border border-attn-line bg-paper p-3">
     <CardHead s={s} project={project} />
     <p className="text-[13.5px] text-attn">{s.quota_pause?.error ?? blockers ?? "Waiting for a quota update"}</p>
     <div className="flex flex-wrap gap-2">
@@ -161,10 +161,10 @@ export function NowView() {
         </Section>}
         {paused.length > 0 && <Section title="Quota paused" count={paused.length}>{paused.map((s) => <PausedCard key={s.id} s={s} project={name(s)} />)}</Section>}
         {publish.length > 0 && <Section title="Ready to publish" count={publish.length}>
-          <Link to="/review" className="flex min-h-12 items-center gap-2 rounded-xl border border-line bg-paper px-3 text-ink no-underline"><Icon name="pr" size={16} />{publish.length} {publish.length === 1 ? "item waits" : "items wait"} for your review<Icon name="chev" size={14} className="ml-auto -rotate-90" /></Link>
+          <Link to="/review" className="flex min-h-12 items-center gap-2 phone-review-card rounded-xl border border-line bg-paper px-3 text-ink no-underline"><Icon name="pr" size={16} />{publish.length} {publish.length === 1 ? "item waits" : "items wait"} for your review<Icon name="chev" size={14} className="ml-auto -rotate-90" /></Link>
         </Section>}
         <Section title="Running" count={running.length}>
-          {running.length ? <div className="rounded-xl border border-line bg-paper p-1">{running.map((s) => <Row key={s.id} s={s} project={name(s)} />)}</div> : <p className="px-1 text-ink-3">No agent is running.</p>}
+          {running.length ? <div className="phone-review-card rounded-xl border border-line bg-paper p-1">{running.map((s) => <Row key={s.id} s={s} project={name(s)} />)}</div> : <p className="px-1 text-ink-3">No agent is running.</p>}
         </Section>
         <Freshness />
       </div>

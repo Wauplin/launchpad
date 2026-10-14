@@ -1,3 +1,4 @@
+import { usePhone } from "@/lib/phone";
 // Settings (sketch S6): General and Presets, saved to config.toml, which can also be edited by hand. Workspaces have their own page.
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -27,15 +28,16 @@ export function Card({ title, end, children, id }: { title: string; end?: React.
 
 /** The layout of every Settings page, with visible buttons to switch between them. */
 export function SettingsPage({ children }: { children: React.ReactNode }) {
+  const phone = usePhone();
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto grid max-w-[860px] grid-cols-[minmax(0,1fr)] gap-5 p-6">
-        <nav className="flex flex-wrap gap-1.5" aria-label="Settings pages">
-          <Link to="/settings" className="btn" activeProps={{ className: "bg-select!" }} activeOptions={{ exact: true }}>General</Link>
-          <Link to="/settings/workspaces" className="btn" activeProps={{ className: "bg-select!" }}>Workspaces</Link>
-          <Link to="/settings/harnesses" className="btn" activeProps={{ className: "bg-select!" }}>Harnesses</Link>
-          <Link to="/settings/devices" className="btn" activeProps={{ className: "bg-select!" }}>Devices</Link>
-          <Link to="/settings/worktrees" className="btn" activeProps={{ className: "bg-select!" }}>Worktrees</Link>
+      <div className="phone-page-content mx-auto grid max-w-[860px] grid-cols-[minmax(0,1fr)] gap-5 p-6">
+        <nav className="phone-tabs flex flex-wrap gap-1.5" aria-label="Settings pages">
+          <Link to="/settings" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }} activeOptions={{ exact: true }}>General</Link>
+          <Link to="/settings/workspaces" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Workspaces</Link>
+          <Link to="/settings/harnesses" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Harnesses</Link>
+          <Link to="/settings/devices" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Devices</Link>
+          <Link to="/settings/worktrees" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Worktrees</Link>
         </nav>
         {children}
       </div>
@@ -47,7 +49,7 @@ export function SettingsPage({ children }: { children: React.ReactNode }) {
 export function SaveBar({ dirty, onSave, onRevert, invalid }: { dirty: boolean; onSave: () => void; onRevert: () => void; invalid?: string | null }) {
   if (!dirty) return null;
   return (
-    <div className="sticky bottom-3 z-10 flex items-center gap-2 rounded-[10px] border border-attn-line bg-attn-soft px-3.5 py-2 text-[12.5px] shadow-[0_8px_20px_-10px_rgba(23,32,43,.35)]">
+    <div className="phone-save-bar sticky bottom-3 z-10 flex items-center gap-2 rounded-[10px] border border-attn-line bg-attn-soft px-3.5 py-2 text-[12.5px] shadow-[0_8px_20px_-10px_rgba(23,32,43,.35)]">
       <b className="text-attn">Unsaved changes</b>
       {invalid && <span className="text-gh-closed">{invalid}</span>}
       <span className="ml-auto flex gap-1.5">
@@ -60,7 +62,7 @@ export function SaveBar({ dirty, onSave, onRevert, invalid }: { dirty: boolean; 
 
 function Row({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[170px_1fr] items-start gap-3.5 border-line-2 not-first:border-t not-first:pt-3">
+    <div className="phone-setting-row grid grid-cols-[170px_1fr] items-start gap-3.5 border-line-2 not-first:border-t not-first:pt-3">
       <div className="grid gap-0.5 text-[12.5px]">
         <b className="font-[650]">{title}</b>
         <span className="text-[11.5px] text-ink-3">{hint}</span>
@@ -145,7 +147,7 @@ export function SettingsView() {
         }
       >
         {draft.presets.map((p, i) => (
-          <div key={p.id} className="grid grid-cols-[22px_150px_1fr_26px] items-start gap-2.5 rounded-lg border border-line p-2.5">
+          <div key={p.id} className="phone-preset grid grid-cols-[22px_150px_1fr_26px] items-start gap-2.5 rounded-lg border border-line p-2.5">
             <span className="grid">
               <button className="text-ink-3 hover:text-ink disabled:opacity-30" disabled={i === 0} title="Move up" onClick={() => move(i, -1)}>
                 ▲

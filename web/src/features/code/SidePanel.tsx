@@ -1,3 +1,4 @@
+import { isPhone } from "@/lib/phone";
 // Left panel of the code viewer: the file tree with "Go to file" and "Changed only", and the search
 // in the project. Both lists are virtualized with fixed row heights.
 
@@ -11,7 +12,7 @@ import { api } from "@/lib/api";
 import { ancestors, basename, buildTree, dirname, filterFiles, flatten, lineRanges, matcher, sourceParams, type FindOpts, type TreeRow } from "./lib";
 import { useCode } from "./store";
 
-const TREE_ROW = 24;
+const TREE_ROW = isPhone ? 44 : 24;
 
 export function Toggle({ on, onClick, title, children }: { on: boolean; onClick: () => void; title: string; children: React.ReactNode }) {
   return (
@@ -47,7 +48,7 @@ const TreeLine = memo(function TreeLine({ row, letter, changedDir, active, onCli
     <button
       onClick={() => onClick(row)}
       title={row.path}
-      className={`flex h-6 w-full items-center gap-1.5 pr-2.5 text-left text-[12.5px] whitespace-nowrap ${active ? "bg-select font-semibold shadow-[inset_2px_0_0_var(--color-teal)]" : "hover:bg-sunk"} ${letter ? "text-attn" : "text-ink"}`}
+      className={`code-tree-line flex h-6 w-full items-center gap-1.5 pr-2.5 text-left text-[12.5px] whitespace-nowrap ${active ? "bg-select font-semibold shadow-[inset_2px_0_0_var(--color-teal)]" : "hover:bg-sunk"} ${letter ? "text-attn" : "text-ink"}`}
       style={{ paddingLeft: pad }}
     >
       {row.kind === "dir" && <Icon name="chev" size={12} className={`text-ink-3 ${row.open ? "" : "-rotate-90"}`} />}
@@ -64,7 +65,7 @@ const GoLine = memo(function GoLine({ path, letter, active, onClick }: { path: s
     <button
       onClick={() => onClick(path)}
       title={path}
-      className={`flex h-6 w-full items-center gap-1.5 px-2.5 text-left text-[12.5px] whitespace-nowrap ${active ? "bg-select" : "hover:bg-sunk"} ${letter ? "text-attn" : ""}`}
+      className={`code-tree-line flex h-6 w-full items-center gap-1.5 px-2.5 text-left text-[12.5px] whitespace-nowrap ${active ? "bg-select" : "hover:bg-sunk"} ${letter ? "text-attn" : ""}`}
     >
       <Icon name="file" size={13} className="text-ink-3" />
       <span className="flex-none font-[550]">{basename(path)}</span>

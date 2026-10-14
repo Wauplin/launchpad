@@ -23,7 +23,7 @@ function Section({ title, count, empty, children }: { title: string; count: numb
   </section>;
 }
 
-const card = "grid gap-2 rounded-xl border border-line bg-paper p-3";
+const card = "phone-review-card grid gap-2 rounded-xl border border-line bg-paper p-3";
 const event = (e: string) => (e === "APPROVE" ? "Approve" : e === "REQUEST_CHANGES" ? "Request changes" : "Comment");
 
 export function ReviewView() {

@@ -1,3 +1,4 @@
+import { usePhone } from "@/lib/phone";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -285,8 +286,9 @@ export function FilesChanged({
     queryFn: () => local ? api.get<Diff>(`/api/predrafts/${local.id}`) : api.post<Diff>(`${itemPath(repo, number)}/diff`),
     staleTime: Infinity,
   });
+  const phone = usePhone();
   const [split, setSplit] = useState(
-    () => localStorage.getItem("diff-view") === "split",
+    () => !phone && localStorage.getItem("diff-view") === "split",
   );
   const [selected, setSelected] = useState(0);
   // Viewed markers live in the daemon so every device shares review progress.
@@ -312,7 +314,7 @@ export function FilesChanged({
   });
   return (
     <section className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b border-line p-3">
+      <div className="phone-diff-toolbar flex items-center gap-2 border-b border-line p-3">
         <b>{files.length} files changed</b>
         <span className="text-xs text-ink-3">
           {q.data?.fallback
@@ -331,10 +333,10 @@ export function FilesChanged({
       </div>
       {q.error && <p className="p-4 text-gh-closed">{String(q.error)}</p>}
       {q.isPending && <p className="p-4 text-ink-3">Fetching PR changes…</p>}
-      <div className="flex min-h-0 flex-1">
+      <div className={`flex min-h-0 flex-1 ${phone ? "flex-col" : ""}`}>
         <div
           ref={ref}
-          className="w-[240px] flex-none overflow-auto border-r border-line"
+          className={phone ? "h-32 shrink-0 overflow-auto border-b border-line" : "w-[240px] flex-none overflow-auto border-r border-line"}
         >
           <div className="relative" style={{ height: v.getTotalSize() }}>
             {v.getVirtualItems().map((r) => {

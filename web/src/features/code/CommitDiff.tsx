@@ -1,3 +1,4 @@
+import { usePhone } from "@/lib/phone";
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useRef, useState } from "react";
@@ -32,7 +33,8 @@ export function CommitDiff({ root, rev, path, select, openFile }: { root: string
     staleTime: Infinity,
     retry: false,
   });
-  const [split, setSplit] = useState(() => localStorage.getItem("diff-view") === "split");
+  const phone = usePhone();
+  const [split, setSplit] = useState(() => !phone && localStorage.getItem("diff-view") === "split");
   const ref = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({ count: files.length, getScrollElement: () => ref.current, estimateSize: () => 40, overscan: 3, useFlushSync: false });
   return <section className="flex min-h-0 flex-1 flex-col">
@@ -44,8 +46,8 @@ export function CommitDiff({ root, rev, path, select, openFile }: { root: string
     {q.isPending && <p className="p-4 text-ink-3">Loading commit changes…</p>}
     {q.error && <p className="p-4 text-gh-closed">{String(q.error)}</p>}
     {q.data && !files.length && <p className="p-4 text-ink-3">This commit has no file changes.</p>}
-    {!!files.length && <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-      <div ref={ref} className="h-36 shrink-0 overflow-auto border-b border-line sm:h-auto sm:w-[240px] sm:border-r sm:border-b-0">
+    {!!files.length && <div className={`flex min-h-0 flex-1 ${phone ? "flex-col" : "flex-col sm:flex-row"}`}>
+      <div ref={ref} className={phone ? "h-32 shrink-0 overflow-auto border-b border-line" : "h-36 shrink-0 overflow-auto border-b border-line sm:h-auto sm:w-[240px] sm:border-r sm:border-b-0"}>
         <div className="relative" style={{ height: v.getTotalSize() }}>
           {v.getVirtualItems().map((row) => <div key={files[row.index].filename} className="absolute w-full" style={{ top: row.start }}><CommitFileRow file={files[row.index]} active={file === files[row.index]} select={select} /></div>)}
         </div>

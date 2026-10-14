@@ -16,7 +16,7 @@ export function useConnection() {
 }
 
 /** `● host · live` or `Offline since 14:02`, plus the host time zone when it differs from this device. */
-export function HostChip({ compact = false }: { compact?: boolean }) {
+export function HostChip({ compact = false, iconOnly = false }: { compact?: boolean; iconOnly?: boolean }) {
   const status = useStatus().data;
   const tz = useServerTimeZone();
   const { online, since } = useConnection();
@@ -25,7 +25,7 @@ export function HostChip({ compact = false }: { compact?: boolean }) {
   return (
     <span className={`inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap ${online ? "text-ink-2" : "font-semibold text-gh-closed"}`} role="status" title={online ? `Connected to ${host}${zone ? ` · host time ${zone}` : ""}` : `Not connected to ${host}; showing what was last received`}>
       <span className={`size-[7px] flex-none rounded-full ${online ? "bg-gh-open" : "bg-gh-closed"}`} />
-      <span className="truncate">{online ? `${host}${compact ? "" : " · live"}` : `Offline${since ? ` since ${clock(since)}` : ""}`}</span>
+      <span className={iconOnly ? "sr-only" : "truncate"}>{online ? `${host}${compact ? "" : " · live"}` : `Offline${since ? ` since ${clock(since)}` : ""}`}</span>
       {online && zone && !compact && <span className="truncate text-ink-3">· {zone}</span>}
     </span>
   );

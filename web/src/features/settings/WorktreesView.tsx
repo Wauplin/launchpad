@@ -73,7 +73,7 @@ export function WorktreesView() {
     <SettingsPage>
       <Card title="Worktrees">
         <p className="m-0 text-xs text-ink-2">New agents in a Git project run in their own worktree: a new branch and folder under <span className="font-mono">{saved.projects_root}/.worktrees</span>, sharing the repository history. Archiving an agent removes its clean worktree; older clean worktrees of idle agents are removed too. The branch keeps the commits and sending a message restores the folder. Worktrees with uncommitted work are never removed automatically.</p>
-        <label className="grid grid-cols-[170px_1fr] items-center gap-3.5 text-[12.5px]">
+        <label className="phone-setting-row grid grid-cols-[170px_1fr] items-center gap-3.5 text-[12.5px]">
           <span className="grid gap-0.5"><b className="font-[650]">Keep on disk</b><span className="text-[11.5px] text-ink-3">Clean worktrees of idle agents. 0 keeps all.</span></span>
           <input type="number" min={0} className="field-input w-24" value={draft.worktrees.keep} onChange={(e) => setDraft({ ...draft, worktrees: { keep: Math.max(0, Math.floor(Number(e.target.value) || 0)) } })} />
         </label>

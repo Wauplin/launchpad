@@ -1,7 +1,9 @@
+import { PhoneActions } from "@/mobile/PhoneHeader";
 // Code viewer (sketch S7, ARCHITECTURE.md section 8.1): one source at a time (a working tree or a git
 // revision), a file tree, tabs, colored code with changed-line bars, find in file (Ctrl+F) and
 // search in the project. Selected lines become agent context. Read only.
 
+import { usePhone } from "@/lib/phone";
 import { openExternal } from "@/lib/platform";
 import { CommitDiff, type CommitChanges } from "./CommitDiff";
 import { useQueryClient } from "@tanstack/react-query";
@@ -83,6 +85,8 @@ export function CodeView() {
 function Viewer({ project, root, rev, path, line, session }: { project: Project; root: string; rev: string | null; path: string | null; line: number | null; session: string | null }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const phone = usePhone();
+  const [browserOpen, setBrowserOpen] = useState(!path);
   const skey = sourceKey(root, rev);
   const list = useCodeFiles(root, rev, { always: true });
   const tabs = useCode((s) => s.sources[skey]?.tabs) ?? [];
@@ -96,7 +100,7 @@ function Viewer({ project, root, rev, path, line, session }: { project: Project;
     (s: CodeSearch) => void navigate({ to: "/projects/$id/code", params: { id: project.id }, search: { root, rev: rev ?? undefined, session: session ?? undefined, ...s }, replace: true }),
     [navigate, project.id, root, rev, session],
   );
-  const open = useCallback((p: string, l?: number) => go({ path: p, line: l }), [go]);
+  const open = useCallback((p: string, l?: number) => { go({ path: p, line: l }); if (phone) setBrowserOpen(false); }, [go, phone]);
 
   useEffect(() => {
     if (path) openTab(skey, path);
@@ -131,13 +135,18 @@ function Viewer({ project, root, rev, path, line, session }: { project: Project;
   }, [qc, root, rev]);
 
   return (
-    <div className="grid h-full grid-cols-[284px_minmax(0,1fr)]">
-      <aside className="flex min-h-0 min-w-0 flex-col border-r border-line bg-paper">
+    <div className={`code-layout h-full ${phone ? "flex flex-col" : "grid grid-cols-[284px_minmax(0,1fr)]"}`}>
+      {phone && <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1">
+        <button className="btn btn-sm" aria-expanded={browserOpen} onClick={() => setBrowserOpen((v) => !v)}><Icon name={browserOpen ? "x" : "folder"} size={16} />{browserOpen ? "Close files" : "Files & search"}</button>
+        <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{path ?? project.name}</span>
+        {session && !rev && <BackToSession id={session} />}
+      </div>}
+      <aside className={`code-browser min-h-0 min-w-0 flex-col border-r border-line bg-paper ${phone ? browserOpen ? "flex flex-1" : "hidden" : "flex"}`}>
         <div className="grid grid-cols-[minmax(0,1fr)] gap-2 px-2.5 pt-2.5 pb-1">
-          {session && !rev && <BackToSession id={session} />}
+          {session && !rev && !phone && <BackToSession id={session} />}
           <div className="flex min-w-0 gap-1.5">
-            <div className="min-w-0 flex-1"><SourcePicker project={project} root={root} rev={rev} path={path} /></div>
-            <button className="btn h-[34px]!" title={`Open a shell in ${root}`} onClick={() => void openTerminal.shell(root)}>
+            <div className="min-w-0 flex-1"><SourcePicker project={project} root={root} rev={rev} path={path} session={session} /></div>
+            <button className={phone ? "btn" : "btn h-[34px]!"} title={`Open a shell in ${root}`} onClick={() => void openTerminal.shell(root)}>
               <Icon name="term" size={14} />
               Terminal
             </button>
@@ -161,8 +170,8 @@ function Viewer({ project, root, rev, path, line, session }: { project: Project;
           <SearchPanel root={root} rev={rev} onOpen={open} state={searchState} setState={setSearchState} />
         )}
       </aside>
-      <div className="flex min-h-0 min-w-0 flex-col">
-        <div className="flex h-[34px] flex-none items-stretch overflow-x-auto border-b border-line bg-chrome">
+      <div className={`min-h-0 min-w-0 flex-col ${phone ? browserOpen ? "hidden" : "flex flex-1" : "flex"}`}>
+        <div className="code-file-tabs flex h-[34px] flex-none items-stretch overflow-x-auto border-b border-line bg-chrome">
           {tabs.map((t) => (
             <div
               key={t}
@@ -174,7 +183,7 @@ function Viewer({ project, root, rev, path, line, session }: { project: Project;
                 {tabHint(t, tabs) && <span className="text-[11px] font-normal text-ink-3">{tabHint(t, tabs)}</span>}
               </button>
               <button
-                className={`iconbtn size-5! ${t === path ? "" : "opacity-0 group-hover:opacity-100"}`}
+                className={`iconbtn ${phone ? "" : "size-5!"} ${t === path ? "" : "opacity-0 group-hover:opacity-100"}`}
                 title="Close tab"
                 onClick={() => {
                   const next = closeTab(skey, t);
@@ -210,21 +219,23 @@ function tabHint(t: string, tabs: string[]): string | null {
 
 /** Shown when the viewer was opened from an agent session. */
 function BackToSession({ id }: { id: string }) {
+  const phone = usePhone();
   const navigate = useNavigate();
   const title = useSessions().data?.find((s) => s.id === id)?.title;
   if (!title) return null;
-  return <button className="truncate text-left text-xs text-teal-ink hover:underline" title={`Back to the session "${title}"`} onClick={() => void navigate({ to: "/agents", search: { session: id } })}>← Back to session · {title}</button>;
+  return <button aria-label="Back to session" className={phone ? "iconbtn shrink-0 text-teal-ink" : "truncate text-left text-xs text-teal-ink hover:underline"} title={`Back to the session "${title}"`} onClick={() => void navigate({ to: "/agents", search: { session: id } })}>{phone ? <Icon name="chev" size={20} className="rotate-90" /> : <>← Back to session · {title}</>}</button>;
 }
 
 // ---------------------------------------------------------------- source picker
 
-function SourcePicker({ project, root, rev, path }: { project: Project; root: string; rev: string | null; path: string | null }) {
+function SourcePicker({ project, root, rev, path, session }: { project: Project; root: string; rev: string | null; path: string | null; session: string | null }) {
+  const phone = usePhone();
   const harnessName = useHarnessName();
   const navigate = useNavigate();
   const sources = useCodeSources(project.id).data;
   const sessions = useSessions().data ?? [];
   const [filter, setFilter] = useState("");
-  const pick = (r: string, v: string | null) => void navigate({ to: "/projects/$id/code", params: { id: project.id }, search: { root: r, rev: v ?? undefined, path: path ?? undefined } });
+  const pick = (r: string, v: string | null) => void navigate({ to: "/projects/$id/code", params: { id: project.id }, search: { root: r, rev: v ?? undefined, path: path ?? undefined, session: session ?? undefined } });
   const worktree = sources?.worktrees.find((w) => w.path === root);
   const current = rev ? sources?.refs.find((r) => r.name === rev) : null;
   const f = filter.trim().toLowerCase();
@@ -238,7 +249,7 @@ function SourcePicker({ project, root, rev, path }: { project: Project; root: st
   };
   return (
     <Popover
-      width={340}
+      width={phone ? 280 : 340}
       trigger={({ toggle }) => (
         <button onClick={toggle} className="flex h-[34px] w-full min-w-0 items-center gap-2 rounded-[7px] border border-line bg-paper px-2.5 text-left text-[12.5px] hover:border-line" title={rev ? `${rev} in ${root}` : root}>
           <Icon name={rev ? "branch" : "folder"} size={14} className="text-ink-3" />
@@ -308,6 +319,7 @@ function splitLines(text: string): string[] {
 }
 
 function FileView({ project, root, rev, path, line, letter }: { project: Project; root: string; rev: string | null; path: string; line: number | null; letter: string | undefined }) {
+  const phone = usePhone();
   const qc = useQueryClient();
   const q = useCodeFile(root, rev, path);
   const commit = useCommit(root, rev).data;
@@ -353,19 +365,31 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
   const dirtyReason = f?.dirty ? "This file has uncommitted changes, so GitHub shows other lines" : null;
   const ghTitle = !commit ? "Checking GitHub…" : !ghFile ? "This commit is not on GitHub" : (dirtyReason ?? "Open on GitHub at this commit");
 
+  const fileActions = <>
+          <button className={phone ? "btn btn-sm" : "iconbtn"} title="Copy path" onClick={() => void copyText(path).then(() => toast("Path copied"))}>
+            <Icon name="copy" size={14} />{phone && "Copy path"}
+          </button>
+          <button className={phone ? "btn btn-sm disabled:opacity-40" : "iconbtn disabled:opacity-40"} disabled={!ghFile} title={ghTitle} onClick={() => ghFile && openExternal(ghFile)}>
+            <Icon name="ext" size={14} />{phone && "Open on GitHub"}
+          </button>
+          <button className={phone ? "btn btn-sm" : "iconbtn"} title="Reload the file and the file list" onClick={reload}>
+            <Icon name="refresh" size={14} />{phone && "Reload file"}
+          </button>
+  </>;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-[42px] flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-line-2 px-3.5 py-1.5">
+      <div className="phone-file-toolbar flex min-h-[42px] flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-line-2 px-3.5 py-1.5">
         <span className="min-w-0 truncate font-mono text-[12.5px] text-ink-2" title={path}>
           {dirname(path) && <>{dirname(path).split("/").join(" / ")} / </>}
           <b className="font-semibold text-ink">{basename(path)}</b>
         </span>
-        {f && <FileMeta f={f} letter={letter} />}
+        {f && !phone && <FileMeta f={f} letter={letter} />}
         <span className="ml-auto flex items-center gap-1">
           {isText && (
             <button className={`btn btn-sm ${findOpen ? "border-teal! bg-teal-soft!" : ""}`} title="Find in this file (Ctrl+F)" onClick={openFind}>
               <Icon name="search" size={12} />
-              Find <span className="rounded border border-line px-1 font-mono text-[10px] text-ink-3">Ctrl+F</span>
+              Find {!phone && <span className="rounded border border-line px-1 font-mono text-[10px] text-ink-3">Ctrl+F</span>}
             </button>
           )}
           {(markdown || html) && isText && (
@@ -374,15 +398,7 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
               {preview ? "Source" : "Preview"}
             </button>
           )}
-          <button className="iconbtn" title="Copy path" onClick={() => void copyText(path).then(() => toast("Path copied"))}>
-            <Icon name="copy" size={14} />
-          </button>
-          <button className="iconbtn disabled:opacity-40" disabled={!ghFile} title={ghTitle} onClick={() => ghFile && openExternal(ghFile)}>
-            <Icon name="ext" size={14} />
-          </button>
-          <button className="iconbtn" title="Reload the file and the file list" onClick={reload}>
-            <Icon name="refresh" size={14} />
-          </button>
+          {phone ? <PhoneActions label="File actions" children={fileActions} details={f && <FileMeta f={f} letter={letter} />} /> : fileActions}
         </span>
       </div>
       {q.isError ? (

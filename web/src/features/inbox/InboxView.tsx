@@ -1,3 +1,4 @@
+import { PhoneHeader, PhoneActions } from "@/mobile/PhoneHeader";
 import { openExternal } from "@/lib/platform";
 import { Link } from "@tanstack/react-router";
 import { AddContext, GitHubHTML, reference, itemKey, itemPath } from "@/features/github/lib";
@@ -16,7 +17,7 @@ import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { useProjects } from "@/lib/queries";
-import { usePhone } from "@/lib/phone";
+import { isPhone, usePhone } from "@/lib/phone";
 import { useInbox, useInboxThreads, useView, whyOf, whys, type Why } from "./data";
 export { useInbox, useInboxNeeds, useInboxThreads } from "./data";
 
@@ -83,8 +84,8 @@ function RepoPicker({ threads, selected }: { threads: Thread[]; selected: string
 }
 function RepoList({ repos, total, selected, query, setQuery, pick }: { repos: [string, number][]; total: number; selected: string | null; query: string; setQuery: (q: string) => void; pick: (repo: string | null) => void }) {
   const ref = useRef<HTMLDivElement>(null);
-  const v = useVirtualizer({ count: repos.length, getScrollElement: () => ref.current, estimateSize: () => 30, overscan: 6, useFlushSync: false });
-  const row = "flex h-[30px] w-full items-center gap-2 rounded-md px-2 text-left text-[12.5px] hover:bg-select";
+  const v = useVirtualizer({ count: repos.length, getScrollElement: () => ref.current, estimateSize: () => isPhone ? 44 : 30, overscan: 6, useFlushSync: false });
+  const row = `flex ${isPhone ? "h-11" : "h-[30px]"} w-full items-center gap-2 rounded-md px-2 text-left text-[12.5px] hover:bg-select`;
   return <div className="grid gap-1">
     <input autoFocus aria-label="Search repositories" className="field-input h-8" placeholder="Search repositories…" value={query} onChange={(e) => setQuery(e.target.value)} />
     <button className={`${row} ${selected === null ? "bg-select font-semibold" : ""}`} onClick={() => pick(null)}><span className="flex-1">All repositories</span><span className="text-ink-3">{total}</span></button>
@@ -110,6 +111,20 @@ function PreviewPane({ t, projects, act, busy }: { t: Thread; projects: Project[
   const p = preview.data;
   const phone = usePhone();
   return <section className={`flex min-h-0 flex-col bg-paper ${phone ? "w-full" : "w-[40%] min-w-[320px] border-l border-line"}`}>
+    {phone ? <PhoneHeader title={t.title} onBack={() => useView.setState({ selected: null })} backLabel="Back to inbox" subtitle={`${t.repo}${t.number !== null ? ` #${t.number}` : ""} · ${t.kind}${t.state ? ` · ${t.state}` : ""}`} primary={<button className="btn btn-sm" title="Mark as done" disabled={busy} onClick={() => act(t, "done")}><Icon name="check" size={12} />Done</button>} actions={<>
+      <div className="flex flex-wrap items-center gap-2">
+
+        <button className="btn btn-sm" title={t.unread ? "Mark as read" : "Mark as unread locally (github.com stays read)"} disabled={busy} onClick={() => act(t, t.unread ? "read" : "unread")}>{t.unread ? "Mark read" : "Mark unread"}</button>
+        <button className="btn btn-sm" title="Ignore future notifications and mark as done" disabled={busy} onClick={() => act(t, "unsubscribe")}>Unsubscribe</button>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <LaunchButton small ctx={launchContext(t, projects)} />
+        {supported && t.number !== null && <><Link className="btn btn-sm no-underline" to="/github/$owner/$repo/$number" params={{owner:t.repo.split("/")[0],repo:t.repo.split("/")[1],number:String(t.number)}}>Full conversation</Link><AddContext refItem={reference(t.repo,{number:t.number,title:t.title,url:t.url},t.kind === "PullRequest" ? "pr" : "issue")}/></>}
+        <button className="btn btn-sm" onClick={() => openExternal(t.url)}>Open on GitHub</button>
+        {hasSummary && <button className="btn btn-sm" disabled={refresh.isPending} onClick={() => refresh.mutate(true)}>{refresh.isPending ? "Refreshing…" : "Refresh"}</button>}
+      </div>
+      {(t.review_decision || t.checks) && <div className="mt-2 text-xs text-ink-2">{[t.review_decision && `Review: ${reason(t.review_decision.toLowerCase())}`, t.checks && `Checks: ${t.checks.toLowerCase()}`].filter(Boolean).join(" · ")}</div>}
+    </>} /> : <>
     <div className="flex-none border-b border-line p-4">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
@@ -131,6 +146,7 @@ function PreviewPane({ t, projects, act, busy }: { t: Thread; projects: Project[
       </div>
       {(t.review_decision || t.checks) && <div className="mt-2 text-xs text-ink-2">{[t.review_decision && `Review: ${reason(t.review_decision.toLowerCase())}`, t.checks && `Checks: ${t.checks.toLowerCase()}`].filter(Boolean).join(" · ")}</div>}
     </div>
+    </>}
     <div className="min-h-0 flex-1 overflow-y-auto p-4">
       {refreshError && <p className="text-gh-closed">{refreshError}</p>}
       {preview.isError && <p className="text-gh-closed">{String(preview.error)}</p>}
@@ -212,6 +228,15 @@ export function InboxView() {
   }, [view.selected, visible, qc]);
   if (phone && selected) return <div className="flex h-full"><PreviewPane key={selected.id} t={selected} projects={projects} act={act} busy={action.isPending} /></div>;
   return <div className="flex h-full flex-col">
+    {phone ? <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1">
+      <span className="flex-1 text-xs text-ink-3">{threads.filter((t) => t.unread).length} unread · {data?.status.syncing ? "Syncing…" : data?.status.last_sync ? `Synced ${formatAge(data.status.last_sync)} ago` : "Waiting for GitHub"}</span>
+      <button className="iconbtn" aria-label="Refresh inbox" title="Refresh inbox" disabled={sync.isPending || data?.status.syncing} onClick={() => sync.mutate()}><Icon name="refresh" size={18} /></button>
+      <PhoneActions label="Inbox filters" closeOnAction={false} details={<div className="grid gap-3">
+        {scope.workspace && <div className="flex flex-wrap gap-2"><button className="btn" aria-pressed={!allRepos} onClick={() => useView.setState({ allRepos: false, scroll: 0 })}>{scope.workspace.name} repos</button><button className="btn" aria-pressed={allRepos} onClick={() => useView.setState({ allRepos: true, scroll: 0 })}>All repos{!allRepos && hidden > 0 ? ` · ${hidden} more` : ""}</button></div>}
+        <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={view.unread} onChange={(e) => useView.setState({ unread: e.target.checked, scroll: 0 })} />Unread only</label>
+        <RepoPicker threads={counted} selected={view.repo} />
+      </div>} />
+    </div> : <>
     <div className={`flex flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-4 ${phone ? "py-2" : "h-14"}`}>
       {!phone && <h1 className="text-lg font-semibold">Inbox</h1>}<span className="text-xs text-ink-3">{threads.filter((t) => t.unread).length} unread</span>
       {scope.workspace && <span className="flex items-center gap-1" title="Notifications of this workspace's repositories, or of every repository">
@@ -221,11 +246,12 @@ export function InboxView() {
       <span className="ml-auto text-xs text-ink-3">{data?.status.syncing ? "Syncing…" : data?.status.last_sync ? `Synced ${formatAge(data.status.last_sync)} ago` : "Waiting for GitHub"}</span>
       <button className="btn btn-sm" disabled={sync.isPending || data?.status.syncing} onClick={() => sync.mutate()}>Refresh</button>
     </div>
+    </>}
     {(error || data?.status.error) && <div className="border-b border-line bg-attn-soft px-4 py-2 text-xs text-gh-closed">{String(error ?? data?.status.error)} · Cached notifications remain available. Sign in with gh auth login if needed.</div>}
-    <div className="flex flex-none flex-wrap items-center gap-1.5 border-b border-line px-3 py-2">
+    <div className="inbox-filters flex flex-none flex-wrap items-center gap-1.5 border-b border-line px-3 py-2">
       {whys.map(([k, label, title]) => <button key={k} title={title} aria-pressed={view.why === k} className={`inline-flex h-[26px] items-center gap-1.5 rounded-full border px-2.5 text-xs whitespace-nowrap ${view.why === k ? "border-ink bg-ink text-paper" : "border-line bg-paper hover:bg-chrome"}`} onClick={() => useView.setState({ why: k, scroll: 0 })}>{label}<b className={`font-semibold tabular-nums ${view.why === k ? "text-paper/80" : "text-ink-3"}`}>{counts[k]}</b></button>)}
-      <label className="ml-auto flex items-center gap-2 text-xs"><input type="checkbox" checked={view.unread} onChange={(e) => useView.setState({ unread: e.target.checked, scroll: 0 })} />Unread only</label>
-      <RepoPicker threads={counted} selected={view.repo} />
+      {!phone && <><label className="ml-auto flex items-center gap-2 text-xs"><input type="checkbox" checked={view.unread} onChange={(e) => useView.setState({ unread: e.target.checked, scroll: 0 })} />Unread only</label>
+      <RepoPicker threads={counted} selected={view.repo} /></>}
     </div>
     <div className="flex min-h-0 flex-1">
       <div data-inbox-list ref={ref} className="min-w-0 flex-1 overflow-y-auto" onScroll={() => useView.setState({ scroll: ref.current?.scrollTop ?? 0 })}>

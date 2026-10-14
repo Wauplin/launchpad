@@ -1,3 +1,4 @@
+import { isPhone } from "@/lib/phone";
 // Checkbox pickers for labels and reviewers, filled from the repository data already in cache.db.
 
 import { useQuery } from "@tanstack/react-query";
@@ -27,18 +28,18 @@ function List({ options, selected, onChange, allowNew, render }: { options: stri
   const q = query.trim().toLowerCase();
   const rows = q ? all.filter((o) => o.toLowerCase().includes(q)) : all;
   const ref = useRef<HTMLDivElement>(null);
-  const v = useVirtualizer({ count: rows.length, getScrollElement: () => ref.current, estimateSize: () => 28, overscan: 6, useFlushSync: false });
+  const v = useVirtualizer({ count: rows.length, getScrollElement: () => ref.current, estimateSize: () => isPhone ? 44 : 28, overscan: 6, useFlushSync: false });
   const toggle = (name: string) => onChange(selected.includes(name) ? selected.filter((s) => s !== name) : [...selected, name]);
   return (
     <div className="grid gap-1">
       <input className="field-input h-7" aria-label="Search" placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
       {allowNew && q && !all.some((o) => o.toLowerCase() === q) && <button className="rounded px-2 py-1 text-left text-[12px] text-teal-ink hover:bg-select" onClick={() => { toggle(query.trim()); setQuery(""); }}>{allowNew} “{query.trim()}”</button>}
-      <div ref={ref} className="overflow-auto" style={{ height: Math.min(240, rows.length * 28) }}>
+      <div ref={ref} className="overflow-auto" style={{ height: Math.min(240, rows.length * (isPhone ? 44 : 28)) }}>
         <div className="relative" style={{ height: v.getTotalSize() }}>
           {v.getVirtualItems().map((r) => {
             const name = rows[r.index];
             return (
-              <label key={name} className="absolute left-0 flex h-7 w-full cursor-pointer items-center gap-2 rounded px-1.5 text-[12px] hover:bg-select" style={{ top: r.start }}>
+              <label key={name} className={`absolute left-0 flex ${isPhone ? "h-11" : "h-7"} w-full cursor-pointer items-center gap-2 rounded px-1.5 text-[12px] hover:bg-select`} style={{ top: r.start }}>
                 <input type="checkbox" checked={selected.includes(name)} onChange={() => toggle(name)} />
                 <span className="min-w-0 truncate">{render ? render(name) : name}</span>
               </label>
