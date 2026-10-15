@@ -154,8 +154,15 @@ pub(crate) fn ssh_command(hosts: &Hosts, host: &Host) -> tokio::process::Command
     let mut cmd = tokio::process::Command::new(program);
     cmd.env_clear().envs(hosts.env.vars().iter());
     cmd.args(["-T", "-x", "-a", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-o", "ConnectTimeout=20", "-o", "ClearAllForwardings=yes"]);
-    cmd.args(["-o", "ControlMaster=auto", "-o", "ControlPersist=600"]);
-    cmd.arg("-o").arg(format!("ControlPath={}/%C", control.display()));
+    // OpenSSH appends a dot and 16 random characters when creating the socket. Allow for the
+    // 40-character %C hash and the smaller Unix socket limit on macOS. Long data paths still
+    // work without connection sharing; also override a ControlPath inherited from ssh config.
+    if control.as_os_str().len() + 1 + 40 + 17 < 104 {
+        cmd.args(["-o", "ControlMaster=auto", "-o", "ControlPersist=600"]);
+        cmd.arg("-o").arg(format!("ControlPath={}/%C", control.display()));
+    } else {
+        cmd.args(["-o", "ControlMaster=no", "-o", "ControlPath=none"]);
+    }
     if let Some(port) = host.port {
         cmd.args(["-p", &port.to_string()]);
     }

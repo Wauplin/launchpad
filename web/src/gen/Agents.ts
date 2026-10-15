@@ -2,6 +2,6 @@
 
 export type Agents = {
 /**
- * Desktop notification when a session becomes done.
+ * Notifications for completion, automatic stops and automatic quota resumption.
  */
 notify: boolean, };

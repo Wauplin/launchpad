@@ -1,5 +1,5 @@
 //! Startup-only Tailscale discovery. Never widen the listener to a LAN/public interface.
-use launchpad_core::{config::ServerConfig, procs, shellenv::UserEnv};
+use launchpad_core::{config::ServerConfig, exec::Io, procs, shellenv::UserEnv};
 use serde_json::Value;
 use std::{
     net::{IpAddr, SocketAddr},
@@ -147,7 +147,7 @@ async fn command_json(env: &UserEnv, executable: &std::path::Path, args: &[&str]
         Duration::from_secs(2),
         procs::command(env, &executable.to_string_lossy(), None)
             .args(args)
-            .stdin(std::process::Stdio::null())
+            .stdin(Io::Null)
             .output(),
     )
     .await
@@ -297,7 +297,6 @@ pub async fn run(
     bind: IpAddr,
     https_port: u16,
 ) -> anyhow::Result<RunResult> {
-    use std::process::Stdio;
     use tokio::io::AsyncReadExt;
     anyhow::ensure!(https_port != 0, "Choose an HTTPS port from 1 to 65535");
     anyhow::ensure!(
@@ -336,10 +335,10 @@ pub async fn run(
             "--set-path=/",
             &format!("http://127.0.0.1:{port}"),
         ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stdin(Io::Null)
+        .stdout(Io::Piped)
+        .stderr(Io::Piped)
+        .spawn().await?;
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
     let out = tokio::spawn(async move {

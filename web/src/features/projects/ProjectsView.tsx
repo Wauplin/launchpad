@@ -283,13 +283,11 @@ export function ProjectsView() {
   const mine = w ? regular.filter((p) => scope.hasProject(p.id)) : regular;
   const others = w ? regular.filter((p) => !scope.hasProject(p.id)) : [];
   const temp = projects.filter((p) => p.is_temp && scope.hasProject(p.id));
-  const machinePicker = (
-    hosts.length > 0 && (
-            <span className="ml-auto inline-flex flex-wrap gap-0.5 rounded border border-line p-0.5" aria-label="Machine">
-              <button className={`btn btn-sm ${host === null ? "bg-select!" : ""}`} aria-pressed={host === null} onClick={() => { setMachine(null); setBrowsing(false); }}>This computer</button>
-              {hosts.map((h) => <button key={h.host.id} className={`btn btn-sm ${host === h.host.id ? "bg-select!" : ""}`} aria-pressed={host === h.host.id} title={h.state === "connected" ? `Scan, clone and add folders on ${h.host.id}` : h.error ?? h.state} onClick={() => setMachine(h.host.id)}>{h.host.id}{h.state !== "connected" && <span className="text-gh-closed">●</span>}</button>)}
-            </span>
-          )
+  const machinePicker = hosts.length > 0 && (
+    <span className="ml-auto inline-flex flex-wrap gap-0.5 rounded border border-line p-0.5" aria-label="Machine">
+      <button className={`btn btn-sm ${host === null ? "bg-select!" : ""}`} aria-pressed={host === null} onClick={() => { setMachine(null); setBrowsing(false); }}>This computer</button>
+      {hosts.map((h) => <button key={h.host.id} className={`btn btn-sm ${host === h.host.id ? "bg-select!" : ""}`} aria-pressed={host === h.host.id} title={h.state === "connected" ? `Scan, clone and add folders on ${h.host.id}` : h.error ?? h.state} onClick={() => setMachine(h.host.id)}>{h.host.id}{h.state !== "connected" && <span className="text-gh-closed">●</span>}</button>)}
+    </span>
   );
   const addPath = async () => {
     try {

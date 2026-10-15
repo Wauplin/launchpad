@@ -19,11 +19,11 @@ use super::proto::*;
 /// Output kept per process stream while the daemon is away (oldest bytes dropped first).
 const HARNESS_BUFFER: usize = 64 << 20;
 const PTY_BUFFER: usize = 2 << 20;
-/// The helper exits after this long without a daemon and without processes.
+/// The helper exits after this long without a daemon or retained processes/CLI calls.
 const IDLE_EXIT: Duration = Duration::from_secs(15 * 60);
-/// Processes are stopped when no daemon connected for this long.
 /// How long an agent's `launchpad` call waits for the daemon to reconnect.
 const CLI_WAIT: Duration = Duration::from_secs(30 * 60);
+/// Processes are stopped and buffered results discarded when no daemon connected for this long.
 const ABANDONED: Duration = Duration::from_secs(30 * 24 * 3600);
 
 /// `~/.local/share/launchpad-host/<profile>`: sockets, log and attachments of one daemon profile.
@@ -287,10 +287,6 @@ mod unix {
                     }
                 });
             }
-        }
-
-        fn alive(&self) -> bool {
-            self.procs.lock().unwrap().values().any(|p| p.streams.lock().unwrap().exit.is_none())
         }
     }
 
@@ -617,19 +613,24 @@ mod unix {
             let id = h.next_cli.fetch_add(1, Ordering::Relaxed) + 1;
             h.send(generation, &FromHelper::Cli { id, method, path, body, queued: true });
         }
-        while let Some(line) = lines.next_line().await? {
+        let result = loop {
+            let line = match lines.next_line().await {
+                Ok(Some(line)) => line,
+                Ok(None) => break Ok(()),
+                Err(e) => break Err(e.into()),
+            };
             match serde_json::from_str::<ToHelper>(&line) {
                 Ok(msg) => on_message(&h, generation, msg).await,
                 Err(e) => tracing::warn!("invalid message: {e}"),
             }
-        }
+        };
         let mut c = h.client.lock().unwrap();
         if c.generation == generation {
             c.tx = None;
             c.since = Instant::now();
         }
         tracing::info!("daemon disconnected");
-        Ok(())
+        result
     }
 
     async fn cli_client(h: Arc<Helper>, stream: UnixStream) -> Result<()> {
@@ -643,11 +644,19 @@ mod unix {
             c.tx.is_some().then_some(c.generation)
         };
         // The daemon's computer may be asleep: hold the call until it reconnects rather than failing the agent's step.
-        let mut generation = connected();
         let (method, path, body) = (req["method"].as_str().unwrap_or("GET").to_string(), req["path"].as_str().unwrap_or("/").to_string(), req["body"].as_str().map(str::to_string));
         // Merge requests and suggestions only record local state: accept them now, deliver them on reconnect.
-        if generation.is_none() && method == "POST" && matches!(path.as_str(), "/api/worktrees/finish" | "/api/suggestions") {
-            h.queued.lock().unwrap().push((method, path.clone(), body));
+        // Hold the client lock through enqueueing, so a reconnect cannot drain the queue first.
+        let (mut generation, queued) = {
+            let c = h.client.lock().unwrap();
+            let generation = c.tx.is_some().then_some(c.generation);
+            let queued = generation.is_none() && method == "POST" && matches!(path.as_str(), "/api/worktrees/finish" | "/api/suggestions");
+            if queued {
+                h.queued.lock().unwrap().push((method.clone(), path.clone(), body.clone()));
+            }
+            (generation, queued)
+        };
+        if queued {
             let message = if path.ends_with("finish") { "Merge request queued: the Launchpad daemon is away (its computer may be asleep). Launchpad receives it when it reconnects and merges after your turn ends. End your turn and report the merge as requested, not as done." } else { "Suggestion queued: the Launchpad daemon is away (its computer may be asleep) and saves it locally when it reconnects." };
             w.write_all(json!({"status": 202, "body": json!({"message": message, "queued": true}).to_string()}).to_string().as_bytes()).await?;
             w.write_all(b"\n").await?;
@@ -747,8 +756,13 @@ mod unix {
                         for p in procs {
                             h.kill(&p);
                         }
+                        h.queued.lock().unwrap().clear();
                     }
-                    if since > IDLE_EXIT && !h.alive() {
+                    // An exited process still owns output the sleeping daemon has not received.
+                    // Keep it and queued agent calls until reconnect, release or abandonment.
+                    if since > IDLE_EXIT && h.procs.lock().unwrap().is_empty()
+                        && h.queued.lock().unwrap().is_empty() && h.cli.lock().unwrap().is_empty()
+                    {
                         let _ = stop_tx.send(());
                         return;
                     }
