@@ -12,11 +12,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { keyBar, terminalInputs } from "./keybar";
 import { copyText } from "@/lib/clipboard";
 import { toastError } from "@/components/Toast";
 import { terminalOutput } from "./output";
+import { terminalLinkModifier, terminalLinkUrl } from "./links";
+import { openExternal } from "@/lib/platform";
 
 import { useTheme } from "@/stores/theme";
 
@@ -41,6 +44,7 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
   const instance = useRef<{ terminal: Terminal; refit: () => void; claim: () => void } | null>(null);
   // Set when another viewer decides the PTY size: this view is then letterboxed at that size.
   const [shared, setShared] = useState<{ rows: number; cols: number } | null>(null);
+  const [touchLink, setTouchLink] = useState<string | null>(null);
   const currentScale = useRef(scale);
   currentScale.current = scale;
   const currentVisible = useRef(visible);
@@ -48,6 +52,7 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
 
   useEffect(() => {
     if (!host.current) return;
+    setTouchLink(null);
     let disposed = false;
     let socket: WebSocket | null = null;
     let retry = 0;
@@ -59,11 +64,33 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
     const fit = new FitAddon();
     t.loadAddon(fit);
     t.open(host.current);
+    const mac = /Mac/.test(navigator.platform);
+    let touch = false;
+    const pointerDown = (event: PointerEvent) => { touch = event.pointerType === "touch" || event.pointerType === "pen"; };
+    t.element!.addEventListener("pointerdown", pointerDown, true);
+    const links = {
+      activate: (event: MouseEvent, uri: string) => {
+        const url = terminalLinkUrl(uri);
+        if (!url) return;
+        if (touch) setTouchLink(url);
+        else if (terminalLinkModifier(event, mac)) {
+          event.preventDefault();
+          openExternal(url);
+        }
+      },
+      hover: (_event: MouseEvent, uri: string) => {
+        const url = terminalLinkUrl(uri);
+        if (t.element) t.element.title = url ? `${mac ? "Cmd" : "Ctrl"}+click to open: ${url}` : "";
+      },
+      leave: () => { if (t.element) t.element.title = ""; },
+    };
+    // Use the same policy for printed URLs and explicit OSC 8 hyperlinks.
+    t.options.linkHandler = links;
+    t.loadAddon(new WebLinksAddon(links.activate, links));
     let owner: Owner = "self";
     let pty = { rows: t.rows, cols: t.cols };
     let sent = "";
     let claiming = false;
-    const mac = /Mac/.test(navigator.platform);
     t.attachCustomKeyEventHandler((event) => {
       const key = event.key.toLowerCase();
       const command = mac && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
@@ -223,7 +250,7 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
     connect();
     const observer = new ResizeObserver(refit);
     observer.observe(host.current);
-    return () => { terminalInputs.delete(id); disposed = true; clearTimeout(retryTimer); clearInterval(watchdog); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("online", check); window.removeEventListener("pageshow", check); instance.current = null; observer.disconnect(); input.dispose(); binary.dispose(); socket?.close(); t.dispose(); };
+    return () => { terminalInputs.delete(id); disposed = true; clearTimeout(retryTimer); clearInterval(watchdog); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("online", check); window.removeEventListener("pageshow", check); instance.current = null; observer.disconnect(); input.dispose(); binary.dispose(); socket?.close(); t.element?.removeEventListener("pointerdown", pointerDown, true); t.dispose(); };
   }, [id]);
 
   useEffect(() => {
@@ -238,7 +265,7 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
   }, [id, scale, visible]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" style={{ display: visible ? undefined : "none" }}>
+    <div className="relative flex min-h-0 flex-1 flex-col" style={{ display: visible ? undefined : "none" }}>
       {shared && (
         <div className="flex items-center gap-2 border-b border-line bg-paper px-2 py-0.5 text-[12px] text-ink-2" role="status">
           <span>Sized for another device ({shared.cols} × {shared.rows}). Typing here also resizes it.</span>
@@ -248,6 +275,15 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
       <div className={`min-h-0 flex-1 bg-paper px-2 py-1 ${shared ? "overflow-auto" : "overflow-hidden"}`} style={{ zoom: 1 / scale }}>
         <div ref={host} className="h-full w-full" />
       </div>
+      {touchLink && (
+        <div className="absolute inset-x-2 bottom-2 z-10 rounded border border-line bg-paper p-2 shadow-lg" role="group" aria-label="Terminal link">
+          <div className="mb-2 max-h-24 overflow-auto break-all text-[12px] text-ink-2">{touchLink}</div>
+          <div className="flex gap-2">
+            <button className="btn min-h-11" onClick={() => { openExternal(touchLink); setTouchLink(null); }}>Open link</button>
+            <button className="btn min-h-11" onClick={() => setTouchLink(null)}>Dismiss</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

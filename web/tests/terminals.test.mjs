@@ -2,6 +2,32 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import headless from "@xterm/headless";
 import { terminalOutput } from "../src/features/terminals/output.ts";
+import { terminalLinkUrl, terminalLinkModifier } from "../src/features/terminals/links.ts";
+
+test("terminal links allow web destinations, including local development servers", () => {
+  for (const uri of ["https://example.com/path?q=1#section", "http://localhost:3000/", "http://127.0.0.1:8080/", "http://[::1]:3000/"]) {
+    assert.equal(terminalLinkUrl(uri), uri);
+  }
+});
+
+test("explicit terminal links cannot open executable or local-file destinations", () => {
+  for (const uri of ["javascript:alert(1)", "data:text/html,hello", "file:///etc/passwd", "ftp://example.com", "/relative", "not a URL"]) {
+    assert.equal(terminalLinkUrl(uri), null);
+  }
+});
+
+test("terminal mouse links require the platform modifier and primary button", () => {
+  const click = { ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, button: 0 };
+  for (const mac of [false, true]) {
+    assert.equal(terminalLinkModifier(click, mac), false);
+    const modified = { ...click, [mac ? "metaKey" : "ctrlKey"]: true };
+    assert.equal(terminalLinkModifier(modified, mac), true);
+    assert.equal(terminalLinkModifier({ ...click, [mac ? "ctrlKey" : "metaKey"]: true }, mac), false);
+    for (const extra of [{ button: 1 }, { button: 2 }, { altKey: true }, { shiftKey: true }]) {
+      assert.equal(terminalLinkModifier({ ...modified, ...extra }, mac), false);
+    }
+  }
+});
 
 const { Terminal } = headless;
 const encoder = new TextEncoder();

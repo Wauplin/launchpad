@@ -734,6 +734,8 @@ Local PR description cards use Add to local notes instead of a GitHub publicatio
 
 ### 13.1 Integrated terminals
 
+Printed HTTP(S) URLs use xterm's web-links addon; explicit OSC 8 hyperlinks share the same handler. Ctrl-click opens on Linux/Windows and Cmd-click on macOS, with the full destination and shortcut shown on hover. Touch/pen taps show the destination with Open link and Dismiss actions. Only HTTP(S) destinations are allowed, and `openExternal` opens on the viewing device (through `/api/open` only in the desktop shell). Link handling loads with the lazy terminal view.
+
 - **Need:** use a shell or a harness TUI without leaving Launchpad. Scope and acceptance check: [integrated-terminal-plan.md](integrated-terminal-plan.md).
 - **Size with several viewers:** one PTY has one size, owned by one viewer: the first one, then whichever typed, pasted or clicked Use this size; a single remaining viewer takes over when the owner disconnects. Every viewer reports the size it would fit; only the owner's applies. `reset` and `size` control messages carry `rows`, `cols` and `owner` (`self`/`other`/`none`), ordered with the output; non-owners render letterboxed at the PTY size.
 - **Ownership:** the daemon starts and owns each terminal (`crates/core/src/terminals.rs`), a `portable-pty` child (ConPTY on Windows). Shells are `$SHELL -l` (`pwsh.exe` or `powershell.exe` on Windows) with the login-shell environment plus `TERM=xterm-256color`, `COLORTERM=truecolor` and `LAUNCHPAD_PROFILE`. At most 12 terminals run at once.
