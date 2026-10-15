@@ -87,6 +87,8 @@ pub struct Inner {
     conns: RwLock<HashMap<String, Arc<Conn>>>,
     prompts: Mutex<HashMap<String, Prompt>>,
     checks: Mutex<HashMap<String, (Vec<preflight::Check>, i64)>>,
+    /// The running daemon, set once it is assembled (session notices from relayed agent calls).
+    app: OnceLock<crate::App>,
 }
 
 #[derive(Clone)]
@@ -210,6 +212,7 @@ impl Hosts {
             conns: RwLock::default(),
             prompts: Mutex::default(),
             checks: Mutex::default(),
+            app: OnceLock::new(),
         }));
         let _ = HOSTS.set(hosts.clone());
         for h in rows {
@@ -229,6 +232,14 @@ impl Hosts {
         if !cfg!(windows) {
             tokio::spawn(conn.run());
         }
+    }
+
+    pub(crate) fn set_app(&self, app: &crate::App) {
+        let _ = self.app.set(app.clone());
+    }
+
+    pub(crate) fn app(&self) -> Option<crate::App> {
+        self.app.get().cloned()
     }
 
     pub fn record(&self, id: &str) -> Option<Host> {

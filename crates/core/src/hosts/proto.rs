@@ -68,7 +68,15 @@ pub enum FromHelper {
     /// Input written up to this offset.
     InputAck { key: String, off: u64 },
     /// A `launchpad` CLI call from an agent on the host, for the daemon's API.
-    Cli { id: u64, method: String, path: String, body: Option<String> },
+    Cli {
+        id: u64,
+        method: String,
+        path: String,
+        body: Option<String>,
+        /// Accepted by the helper while the daemon was away; a failure is reported to the session.
+        #[serde(default)]
+        queued: bool,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -84,6 +92,9 @@ pub struct HostInfo {
     pub os: String,
     pub arch: String,
     pub home: String,
+    /// The account the helper runs as (agents run as it too).
+    #[serde(default)]
+    pub user: String,
     pub shell: String,
     /// Absolute path of the helper binary (the `launchpad` CLI agents call on the host).
     pub cli: String,

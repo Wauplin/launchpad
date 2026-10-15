@@ -125,6 +125,7 @@ impl App {
         inbox::spawn(&app);
         projects::spawn(&app);
         worktrees::spawn(&app);
+        app.hosts.set_app(&app);
         hosts::preflight::spawn(&app);
         Ok(app)
     }

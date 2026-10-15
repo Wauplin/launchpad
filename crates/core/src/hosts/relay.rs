@@ -10,16 +10,16 @@ use super::Hosts;
 fn allowed(method: &str, path: &str) -> bool {
     let route = path.split('?').next().unwrap_or(path);
     let segments: Vec<&str> = route.trim_start_matches('/').split('/').collect();
-    match (method, segments.as_slice()) {
-        ("POST", ["api", "suggestions"]) => true,
-        ("POST", ["api", "worktrees", "finish" | "add-project"]) => true,
-        ("GET" | "POST", ["api", "predrafts"]) => true,
-        ("GET", ["api", "predrafts", "resolve"]) => true,
-        ("GET" | "PATCH", ["api", "predrafts", _]) => true,
-        ("GET", ["api", "sessions", _, "trace"]) => true,
-        ("GET", ["api", "status"]) => true,
-        _ => false,
-    }
+    matches!(
+        (method, segments.as_slice()),
+        ("POST", ["api", "suggestions"])
+            | ("POST", ["api", "worktrees", "finish" | "add-project"])
+            | ("GET" | "POST", ["api", "predrafts"])
+            | ("GET", ["api", "predrafts", "resolve"])
+            | ("GET" | "PATCH", ["api", "predrafts", _])
+            | ("GET", ["api", "sessions", _, "trace"])
+            | ("GET", ["api", "status"])
+    )
 }
 
 /// Folders the CLI reports are native paths on the host: the daemon knows them as host locations.

@@ -383,7 +383,7 @@ fn split_z(bytes: &[u8]) -> Vec<String> {
 }
 
 /// `origin/HEAD`, then the usual names.
-async fn default_branch(env: &UserEnv, root: &Path) -> Option<String> {
+pub(crate) async fn default_branch(env: &UserEnv, root: &Path) -> Option<String> {
     if let Ok(b) = run(env, root, &["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]).await
         && !b.is_empty()
     {

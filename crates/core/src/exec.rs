@@ -341,6 +341,7 @@ impl Killer {
 
 impl Proc {
     /// A process on a host, with the pipes the caller asked for.
+    #[allow(clippy::too_many_arguments)]
     pub fn remote(conn: Arc<Conn>, p: Arc<RemoteProc>, out: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>, err: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>, stdin: bool, stdout: bool, stderr: bool, kill_on_drop: bool) -> Proc {
         Proc {
             stdin: stdin.then(|| Box::new(RemoteStdin { conn: conn.clone(), p: p.clone() }) as Stdin),

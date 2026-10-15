@@ -58,7 +58,8 @@ pub async fn run(app: &App, id: &str) -> anyhow::Result<Vec<Check>> {
     checks.push(check("ssh", "SSH connection", Some(true), format!("{}{latency} · system OpenSSH with your ~/.ssh/config", jump.map(|j| format!("via {j} (ProxyJump)")).unwrap_or_else(|| format!("to {}", host.destination)))));
     let info = status.info.clone().unwrap_or_default();
     let linux = info.os == "Linux";
-    checks.push(check("system", "System", Some(linux).filter(|ok| *ok), format!("{} {}{}", info.os, info.arch, if linux { "" } else { " · Linux hosts are the supported first step" })));
+    let root = info.user == "root";
+    checks.push(check("system", "System", Some(linux && !root).filter(|ok| *ok), format!("{} {}{}{}", info.os, info.arch, if info.user.is_empty() { String::new() } else { format!(" · user {}", info.user) }, if !linux { " · Linux hosts are the supported first step" } else if root { " · Claude Code refuses to skip permission prompts as root: use a regular account, or set IS_SANDBOX=1 in the login environment of a disposable sandbox" } else { "" })));
     checks.push(check("helper", "Launchpad helper", Some(true), format!("Installed in ~/.local/share/launchpad-host, build {} (same as this daemon)", crate::hosts::build_id())));
     let _ = crate::hosts::conn(id)?.request(crate::hosts::proto::Op::RefreshEnv).await;
     let env = UserEnv::for_host(id);

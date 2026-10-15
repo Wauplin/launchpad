@@ -2194,6 +2194,17 @@ Read codex.rs</pre></details></div>
   </div>
 </section>
 
+<section id="ssh-hosts" style="margin-block:48px">
+  <h2>SSH hosts (2026-10-14)</h2>
+  <div class="frag" role="img" aria-label="SSH host settings and disconnected session mockup">
+    <b>Settings → Hosts</b>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-block:12px"><b>devbox</b><small>user@devbox · Connected · 24 ms</small><span class="btn sm">Open terminal on host</span><span class="btn sm">Reconnect</span><span class="btn sm">Remove</span></div>
+    <p>Projects root: <code>~/projects</code> · Git ✓ · GitHub CLI ✓ · Claude Code ✓ · Codex ✓ · OpenCode: sign in <span class="btn sm">Run in terminal on host</span></p>
+    <div style="padding:12px;border:1px solid var(--attn-line);background:var(--attn-soft);border-radius:8px"><b>devbox is unreachable</b><p>The agent keeps running on the host. Its output catches up when the connection returns.</p><span class="btn sm">Retry now</span></div>
+  </div>
+  <p>Add a machine from ~/.ssh/config or as user@host; SSH password and host key questions appear in a dialog. Project pickers group by machine, and agent rows, session headers, project rows and terminal tabs show a host chip. Projects offers a machine selector for Browse, Scan and Clone from GitHub. The project determines where every harness runs. Preflight checks are read-only; install and sign-in commands run only through the visible terminal button. See <a href="../ssh-hosts-plan.md">the SSH hosts design</a> for scope and limits.</p>
+</section>
+
 <footer class="end">
   <span>Sketches for discussion, not a spec. Example people and issues are invented.</span>
   <span>Source: <code>docs/design/sketches.html</code></span>

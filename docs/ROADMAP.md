@@ -1,6 +1,6 @@
 # Launchpad roadmap
 
-Status: implementation and acceptance tracker (updated 2026-10-14). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
+Status: implementation and acceptance tracker (updated 2026-10-15). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
 
 ## How to read this
 
@@ -26,6 +26,7 @@ Status: implementation and acceptance tracker (updated 2026-10-14). See [ARCHITE
 | 7a | Integrated terminal (scoped) | Shells and harness TUIs run in a dock inside Launchpad instead of external terminals | In progress |
 | 7c | Trusted-network front door | Pair and revoke browsers behind Tailscale/private proxy | Built; awaiting deployment daily use |
 | 7b | Subagent monitoring (scoped) | Nested native agents and separate read-only traces inside their parent session | In progress |
+| 7d | SSH hosts (scoped) | Projects and agents on machines reached with ssh, in the same list, surviving a sleeping laptop | Built; awaiting daily use |
 | UX | UX suggestions pass (2026-10-11) | The next action is one click away: Needs you, To publish, inbox triage, state-driven session actions | In progress |
 
 Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
@@ -299,7 +300,7 @@ Owner-selected first step (2026-10-10): harness registration and OpenCode.
 
 - Built: stable registry IDs, adapter factories and lifecycle hooks; capabilities and assets returned to the UI; native discovery, quotas, titles, inherited markers and terminal behavior isolated in adapters; shared ACP client and OpenCode registration.
 - Acceptance: existing Claude/Codex behavior remains available, OpenCode launches and resumes through ACP with streamed events and cancellation, and another module can register without editing identity switches in core/server/React. Native CLI and isolated dev checks accompany this change; daily-use checks remain with the owner.
-- Deferred: Pi (the follow-up integration example), SSH and billing ledgers.
+- Deferred: Pi (the follow-up integration example) and billing ledgers. SSH hosts were scoped and built as Phase 7d.
 
 Owner-selected follow-up (2026-10-10): named local variants/settings and reported-cost PAYG limits, with [scope and acceptance](harness-variants-plan.md).
 
@@ -356,6 +357,14 @@ Phone quota access (2026-10-14): the top-right server-status button opens 5-hour
 Phone terminal key bar (2026-10-14, built): visual-viewport keyboard placement, automatic bottom-navigation hiding/restoration, two swipeable 44 px rows for completion/Esc/sticky Ctrl/arrows, Copy/Paste/Clear, Ctrl+C and Ctrl+R, plus More for line editing/Ctrl+D/Select all. Input claims the viewer's PTY size; arrows honor application cursor mode, paste preserves bracketed paste, and copy feedback does not cover keys. Node 24 UI typecheck/build and all eight terminal regressions passed. Isolated Chrome touch fixtures at 320/390/430 px verified shortcut bytes, sticky Ctrl, selection copying, bracketed paste, cursor mode and simulated keyboard positioning/navigation restoration, unavailable-clipboard feedback and exited-terminal input/copy controls; desktop 1440 px retained its layout without the phone key bar. Real-device keyboard and clipboard-permission checks remain pending.
 
 Phone terminal key alignment (2026-10-14): all key buttons share horizontal centering and a single line height; arrows reuse the SVG icon to avoid font-dependent baselines. Node 24 UI build/typecheck and all eight terminal regressions passed. Isolated Chrome touch fixtures at 320/390/430 px verified centered text/icons including More keys, 44 px targets, shortcut bytes, sticky Ctrl, clipboard/selection controls, cursor mode and keyboard placement; desktop 1440 px and exited-terminal controls passed. Real-phone verification remains pending.
+
+## Phase 7d: SSH hosts (2026-10-14)
+
+Scope: the first step of the report "Remote SSH hosts for Launchpad", with the recommended owner decisions. Design: [ssh-hosts-plan.md](ssh-hosts-plan.md).
+
+- Built: Settings → Hosts (from `~/.ssh/config` or `user@host`, askpass dialog, projects root, Reconnect, Remove), automatic helper upload per build, read-only preflight with install/sign-in commands and Run in terminal on host, projects on hosts (Browse, Scan, Clone from GitHub, Add folder), sessions for Claude Code, Codex and OpenCode on hosts in task worktrees, terminals and harness TUIs on hosts, Changes and the code viewer on hosts, merges and pre-draft publication from the host, the `launchpad` CLI and skill on hosts through the helper, host labels on rows, headers, terminal tabs and the project picker, the unreachable band and status bar health, survival across disconnects with trace catch-up, Interrupted when the host lost a process.
+- Acceptance (2026-10-14, HF Jobs sandbox over `ssh.hf.jobs`): added the host, cloned a project, launched one Claude and one Codex session plus a shell, froze the daemon for three minutes during their 100-second commands; after waking both turns had finished, traces were complete, both were in Needs you, and their merge requests went through. Local Docker checks covered SSH outages, host-key prompts, helper loss (Interrupted, then Resume) and the code viewer, Changes and terminals on a host.
+- Later: port forwarding for dev servers, moving a task between machines, macOS hosts from Linux daemons, Windows hosts, quota meters for other accounts on hosts.
 
 ## Not planned
 

@@ -22,6 +22,8 @@ const PTY_BUFFER: usize = 2 << 20;
 /// The helper exits after this long without a daemon and without processes.
 const IDLE_EXIT: Duration = Duration::from_secs(15 * 60);
 /// Processes are stopped when no daemon connected for this long.
+/// How long an agent's `launchpad` call waits for the daemon to reconnect.
+const CLI_WAIT: Duration = Duration::from_secs(30 * 60);
 const ABANDONED: Duration = Duration::from_secs(30 * 24 * 3600);
 
 /// `~/.local/share/launchpad-host/<profile>`: sockets, log and attachments of one daemon profile.
@@ -66,7 +68,7 @@ pub(crate) fn fs_op(op: FsOp) -> std::result::Result<serde_json::Value, ErrorInf
     fn kind(t: std::fs::FileType) -> &'static str {
         if t.is_symlink() { "symlink" } else if t.is_dir() { "dir" } else if t.is_file() { "file" } else { "other" }
     }
-    let r = match op {
+    match op {
         FsOp::Canonicalize { path } => std::fs::canonicalize(&path).map(|p| json!(p.to_string_lossy())).map_err(|e| err(e, &path)),
         FsOp::Metadata { path, follow } => {
             let m = if follow { std::fs::metadata(&path) } else { std::fs::symlink_metadata(&path) };
@@ -140,8 +142,7 @@ pub(crate) fn fs_op(op: FsOp) -> std::result::Result<serde_json::Value, ErrorInf
             Ok(json!(paths.iter().map(|p| walk(Path::new(p))).collect::<Vec<u64>>()))
         }
         FsOp::InstallSkill => install_skill().map(|_| json!(null)).map_err(|e| ErrorInfo { message: format!("{e:#}"), kind: "other".into() }),
-    };
-    r
+    }
 }
 
 /// Installs the Launchpad skill for agents on this machine as a managed copy, like the Windows daemon. A real
@@ -221,6 +222,8 @@ mod unix {
         boot: Mutex<Option<String>>,
         cli: Mutex<HashMap<u64, oneshot::Sender<(u16, String)>>>,
         next_cli: AtomicU64,
+        /// Agent calls accepted while no daemon was connected, sent when one connects.
+        queued: Mutex<Vec<(String, String, Option<String>)>>,
     }
 
     impl Helper {
@@ -609,6 +612,11 @@ mod unix {
                 h.send(generation, &FromHelper::Exit { key: p.key.clone(), code, signal });
             }
         }
+        let queued: Vec<_> = h.queued.lock().unwrap().drain(..).collect();
+        for (method, path, body) in queued {
+            let id = h.next_cli.fetch_add(1, Ordering::Relaxed) + 1;
+            h.send(generation, &FromHelper::Cli { id, method, path, body, queued: true });
+        }
         while let Some(line) = lines.next_line().await? {
             match serde_json::from_str::<ToHelper>(&line) {
                 Ok(msg) => on_message(&h, generation, msg).await,
@@ -630,20 +638,34 @@ mod unix {
         let req: Value = serde_json::from_str(&line)?;
         let (tx, rx) = oneshot::channel();
         let id = h.next_cli.fetch_add(1, Ordering::Relaxed) + 1;
-        let generation = {
+        let connected = || {
             let c = h.client.lock().unwrap();
             c.tx.is_some().then_some(c.generation)
         };
+        // The daemon's computer may be asleep: hold the call until it reconnects rather than failing the agent's step.
+        let mut generation = connected();
+        let (method, path, body) = (req["method"].as_str().unwrap_or("GET").to_string(), req["path"].as_str().unwrap_or("/").to_string(), req["body"].as_str().map(str::to_string));
+        // Merge requests and suggestions only record local state: accept them now, deliver them on reconnect.
+        if generation.is_none() && method == "POST" && matches!(path.as_str(), "/api/worktrees/finish" | "/api/suggestions") {
+            h.queued.lock().unwrap().push((method, path.clone(), body));
+            let message = if path.ends_with("finish") { "Merge request queued: the Launchpad daemon is away (its computer may be asleep). Launchpad receives it when it reconnects and merges after your turn ends. End your turn and report the merge as requested, not as done." } else { "Suggestion queued: the Launchpad daemon is away (its computer may be asleep) and saves it locally when it reconnects." };
+            w.write_all(json!({"status": 202, "body": json!({"message": message, "queued": true}).to_string()}).to_string().as_bytes()).await?;
+            w.write_all(b"\n").await?;
+            return Ok(());
+        }
+        if generation.is_none() {
+            w.write_all(b"{\"waiting\":true}\n").await?;
+            let deadline = Instant::now() + CLI_WAIT;
+            while generation.is_none() && Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                generation = connected();
+            }
+        }
         let response = match generation {
-            None => (503, json!({"error": "The Launchpad daemon is not connected to this host right now. Try again when it reconnects."}).to_string()),
+            None => (503, json!({"error": "The Launchpad daemon did not reconnect to this host within 30 minutes. Run the command again later."}).to_string()),
             Some(generation) => {
                 h.cli.lock().unwrap().insert(id, tx);
-                h.send(generation, &FromHelper::Cli {
-                    id,
-                    method: req["method"].as_str().unwrap_or("GET").into(),
-                    path: req["path"].as_str().unwrap_or("/").into(),
-                    body: req["body"].as_str().map(str::to_string),
-                });
+                h.send(generation, &FromHelper::Cli { id, method, path, body, queued: false });
                 match tokio::time::timeout(Duration::from_secs(180), rx).await {
                     Ok(Ok(r)) => r,
                     _ => {
@@ -686,6 +708,7 @@ mod unix {
             os: match std::env::consts::OS { "linux" => "Linux", "macos" => "Darwin", o => o }.into(),
             arch: std::env::consts::ARCH.into(),
             home: dirs::home_dir().unwrap_or_default().to_string_lossy().into_owned(),
+            user: env.get("USER").or_else(|| env.get("LOGNAME")).map(str::to_string).unwrap_or_else(|| if unsafe { libc::geteuid() } == 0 { "root".into() } else { String::new() }),
             shell: env.get("SHELL").unwrap_or("").into(),
             cli: std::env::current_exe().map(|p| p.to_string_lossy().trim_end_matches(" (deleted)").to_string()).unwrap_or_default(),
         };
@@ -698,6 +721,7 @@ mod unix {
             boot: Mutex::default(),
             cli: Mutex::default(),
             next_cli: AtomicU64::new(0),
+            queued: Mutex::default(),
         });
         for name in ["helper.sock", "cli.sock"] {
             let _ = std::fs::remove_file(dir.join(name));
@@ -892,7 +916,12 @@ mod unix {
         let (r, mut w) = stream.into_split();
         w.write_all(json!({"method": method, "path": path, "body": body}).to_string().as_bytes()).await?;
         w.write_all(b"\n").await?;
-        let line = BufReader::new(r).lines().next_line().await?.context("no answer from the host helper")?;
+        let mut lines = BufReader::new(r).lines();
+        let mut line = lines.next_line().await?.context("no answer from the host helper")?;
+        if serde_json::from_str::<Value>(&line).is_ok_and(|v| v["waiting"] == true) {
+            eprintln!("Waiting for the Launchpad daemon to reconnect to this host (its computer may be asleep)…");
+            line = lines.next_line().await?.context("no answer from the host helper")?;
+        }
         let v: Value = serde_json::from_str(&line)?;
         Ok((v["status"].as_u64().unwrap_or(500) as u16, v["body"].as_str().unwrap_or("").to_string()))
     }

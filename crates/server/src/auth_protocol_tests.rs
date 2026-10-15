@@ -29,12 +29,15 @@ async fn front_door_protocol() {
     let state_db = core::db::open_state(&fixture.0.state_db()).unwrap();
     let cache_db = core::db::open_cache(&fixture.0.cache_db()).unwrap();
     let env = core::shellenv::UserEnv::resolve().await;
+    let status = core::status::StatusHandle::new(bus.clone());
+    let hosts = core::hosts::Hosts::start(Arc::new(fixture.0.clone()), env.clone(), state_db.clone(), status.clone()).await.unwrap();
     let app = core::App {
         paths: Arc::new(fixture.0.clone()),
         config: config.clone(),
         state_db: state_db.clone(),
         cache_db: cache_db.clone(),
-        status: core::status::StatusHandle::new(bus.clone()),
+        status,
+        hosts,
         harnesses: core::harness::Registry::new(&env),
         github: core::github::GitHub::new(env.clone(), cache_db),
         env,

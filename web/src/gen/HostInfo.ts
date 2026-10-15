@@ -4,7 +4,11 @@ export type HostInfo = {
 /**
  * `uname -s` style name: `Linux`, `Darwin`.
  */
-os: string, arch: string, home: string, shell: string,
+os: string, arch: string, home: string,
+/**
+ * The account the helper runs as (agents run as it too).
+ */
+user: string, shell: string,
 /**
  * Absolute path of the helper binary (the `launchpad` CLI agents call on the host).
  */

@@ -40,6 +40,7 @@ pub struct GitDiff {
 pub async fn status(app: &App, id: &str) -> Result<GitStatus> {
     let s = app.sessions.get(id).context("no such session")?;
     let cwd = std::path::Path::new(&s.cwd);
+    let base = main_branch(app, cwd).await;
     let out = procs::command(&app.env, "git", Some(cwd))
         .env("GIT_OPTIONAL_LOCKS", "0")
         .args(["status", "--porcelain=v1", "-z", "--untracked-files=all"])
@@ -101,7 +102,7 @@ pub async fn status(app: &App, id: &str) -> Result<GitStatus> {
             "--no-ext-diff",
             "--no-textconv",
             "--numstat",
-            "main",
+            base.as_str(),
             "--",
         ],
         Some(cwd),
@@ -135,7 +136,7 @@ pub async fn status(app: &App, id: &str) -> Result<GitStatus> {
             "--no-textconv",
             "--name-only",
             "-z",
-            "main",
+            base.as_str(),
             "--",
         ])
         .output()
@@ -175,6 +176,7 @@ pub async fn diff(app: &App, id: &str, path: &str, main: bool) -> Result<GitDiff
         .find(|f| f.path == path)
         .context("file is no longer changed; refresh status")?;
     let cwd = std::path::Path::new(&s.cwd);
+    let base = main_branch(app, cwd).await;
     let mut paths = vec![path];
     if let Some(previous) = &file.previous {
         paths.push(previous);
@@ -189,7 +191,7 @@ pub async fn diff(app: &App, id: &str, path: &str, main: bool) -> Result<GitDiff
                 "--no-ext-diff",
                 "--no-textconv",
                 "--no-color",
-                "main",
+                base.as_str(),
                 "--",
                 path,
             ],
@@ -245,4 +247,12 @@ pub async fn diff(app: &App, id: &str, path: &str, main: bool) -> Result<GitDiff
         unstaged: truncate_output(&unstaged, 200_000),
         truncated,
     })
+}
+
+/// The branch "compared with main" uses: the local default branch (`main`, `master` or origin's HEAD),
+/// where task worktrees merge.
+async fn main_branch(app: &App, cwd: &std::path::Path) -> String {
+    let default = crate::code::default_branch(&app.env, cwd).await.unwrap_or_else(|| "main".into());
+    let local = default.strip_prefix("origin/").unwrap_or(&default).to_string();
+    if procs::output(&app.env, "git", &["show-ref", "--verify", "--quiet", &format!("refs/heads/{local}")], Some(cwd)).await.is_ok() { local } else { default }
 }

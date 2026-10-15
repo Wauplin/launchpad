@@ -485,14 +485,26 @@ impl Conn {
                 input.buf.drain(..drop);
                 input.start += drop as u64;
             }
-            FromHelper::Cli { id, method, path, body } => {
+            FromHelper::Cli { id, method, path, body, queued } => {
                 let me = self.clone();
                 tokio::spawn(async move {
-                    let (status, body) = match super::relay::call(&me.hosts, &me.id, &method, &path, body).await {
+                    let session = body.as_deref().and_then(|b| serde_json::from_str::<Value>(b).ok()).and_then(|v| v["session_id"].as_str().map(str::to_string));
+                    let (status, text) = match super::relay::call(&me.hosts, &me.id, &method, &path, body).await {
                         Ok(r) => r,
                         Err(e) => (502, serde_json::json!({"error": format!("{e:#}")}).to_string()),
                     };
-                    me.send(&ToHelper::CliResponse { id, status, body });
+                    if queued {
+                        let ok = (200..300).contains(&status);
+                        let error = serde_json::from_str::<Value>(&text).ok().and_then(|v| v["error"].as_str().map(str::to_string)).unwrap_or(text.clone());
+                        tracing::info!("host {}: queued {method} {path}: {status}", me.id);
+                        if let (Some(session), Some(app)) = (session, me.hosts.app()) {
+                            let what = if path.ends_with("finish") { "merge request" } else { "suggestion" };
+                            let note = if ok { format!("The agent's {what}, queued on {} while Launchpad was away, was received.", me.id) } else { format!("The agent's {what}, queued on {} while Launchpad was away, failed: {error}", me.id) };
+                            app.sessions.sink(&app, &session).emit(crate::model::EventBody::Notice { text: note }).await;
+                        }
+                    } else {
+                        me.send(&ToHelper::CliResponse { id, status, body: text });
+                    }
                 });
             }
         }
