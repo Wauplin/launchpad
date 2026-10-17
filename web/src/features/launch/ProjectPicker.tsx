@@ -28,13 +28,14 @@ const ProjectRow = memo(function ProjectRow({ project, active, onPick }: { proje
   </div>;
 });
 
-export function ProjectPicker({ projects, workspaceName, hasProject, selected, temporary, projectsRoot, onPick }: {
+export function ProjectPicker({ projects, workspaceName, hasProject, selected, temporary, projectsRoot, emptyMessage = "No project yet: add some in Projects.", onPick }: {
   projects: Project[];
   workspaceName?: string;
   hasProject: (id: string) => boolean;
   selected?: string;
   temporary: boolean;
-  projectsRoot: string;
+  projectsRoot?: string;
+  emptyMessage?: string;
   onPick: (project: Project | null) => void;
 }) {
   const [search, setSearch] = useState("");
@@ -67,7 +68,7 @@ export function ProjectPicker({ projects, workspaceName, hasProject, selected, t
   const height = Math.min(rows.reduce((n, r) => n + (typeof r === "string" ? 24 : 48), 0), 220);
   return <div className="grid gap-1">
     <input autoFocus className="field-input w-full" aria-label="Find project" placeholder="Find a project…" value={search} onChange={(e) => { setSearch(e.target.value); scroll.current?.scrollTo({ top: 0 }); }} />
-    <MenuItem icon={<Icon name="plus" size={13} />} label="New temporary folder" detail={`in ${projectsRoot}`} active={temporary} onClick={() => onPick(null)} />
+    {projectsRoot !== undefined && <MenuItem icon={<Icon name="plus" size={13} />} label="New temporary folder" detail={`in ${projectsRoot}`} active={temporary} onClick={() => onPick(null)} />}
     <div ref={scroll} className="overflow-y-auto" style={{ height }}>
       <div className="relative" style={{ height: virtual.getTotalSize() }}>
         {virtual.getVirtualItems().map((row) => {
@@ -78,6 +79,6 @@ export function ProjectPicker({ projects, workspaceName, hasProject, selected, t
         })}
       </div>
     </div>
-    {!matches.length && <div className="px-2 py-1.5 text-xs text-ink-3">{projects.length ? "No matching projects." : "No project yet: add some in Projects."}</div>}
+    {!matches.length && <div className="px-2 py-1.5 text-xs text-ink-3">{projects.length ? "No matching projects." : emptyMessage}</div>}
   </div>;
 }

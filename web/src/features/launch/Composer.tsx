@@ -148,7 +148,7 @@ function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject,
     >
       {(close) => {
         const back = <MenuItem icon={<Icon name="chev" size={13} className="rotate-90" />} label="Back" onClick={() => setMode("menu")} />;
-        if (mode === "project") return <>{back}{projects.map((p) => <MenuItem key={p.id} icon={<Icon name="folder" size={13} />} label={p.name} detail={p.description || undefined} onClick={() => (onProject(p), close())} />)}{!projects.length && <div className="px-2 py-1 text-xs text-ink-3">No other project.</div>}</>;
+        if (mode === "project") return <>{back}<ProjectPicker projects={projects} hasProject={() => true} temporary={false} emptyMessage="No other project." onPick={(p) => { if (p) { onProject(p); close(); } }} /></>;
         if (mode === "github") return <>{back}<GitHubLinkForm onAdd={onGitHub} onDone={close} /></>;
         if (mode === "trace") return <>{back}<AgentTracePicker sessions={sessions} selected={selectedTraces} onPick={(t) => { onTrace(t); close(); }} /></>;
         return (
