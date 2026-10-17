@@ -1,5 +1,5 @@
 import { isDesktopShell } from "@/lib/platform";
-import { harnessOnHost, hostOf, useHost } from "@/lib/hosts";
+import { harnessOnHost, hostOf, useHosts } from "@/lib/hosts";
 import { isPhone } from "@/lib/phone";
 import { useStatus } from "@/lib/queries";
 // Composer drawer (sketch S2): stays on the right while you navigate, so context can be added from
@@ -310,6 +310,8 @@ export function Composer() {
   const existing = spec.target.kind === "existing_predraft" ? localPrs.data?.find((p) => p.id === (spec.target as { predraft_id: string }).predraft_id) : undefined;
   const source = spec.target.kind === "session_folder" ? sessions?.find((s) => s.id === (spec.target as { session_id: string }).session_id) : undefined;
   const recentSessions = (sessions ?? []).filter(scope.hasSession);
+  const hosts = useHosts();
+  // Keep every hook above this early return: hook order must not change when the draft opens or closes.
   if (!open) return null;
 
   const refreshingModels = refreshModels.isPending;
@@ -331,7 +333,7 @@ export function Composer() {
   const hasPrompt = !!spec.text.trim() || items > 0 || spec.presets.length > 0;
   // The host follows from the project: harnesses missing or signed out there cannot launch.
   const targetHost = hostOf(target?.path);
-  const hostStatus = useHost(targetHost);
+  const hostStatus = targetHost ? (hosts.find((h) => h.host.id === targetHost) ?? null) : null;
   const hostHarness = (id: string | null | undefined) => (id ? harnessOnHost(hostStatus, id) : null);
   const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Hosts` : hostHarness(spec.harness)?.ok === false ? hostHarness(spec.harness)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context projects must be on the same machine as the project" : null;
   const blocker = hostBlocker ? hostBlocker : !spec.harness ? "Pick a harness in the options" : missingVariant ? "The harness variant no longer exists" : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
