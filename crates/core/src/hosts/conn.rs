@@ -498,6 +498,11 @@ impl Conn {
                         let error = serde_json::from_str::<Value>(&text).ok().and_then(|v| v["error"].as_str().map(str::to_string)).unwrap_or(text.clone());
                         tracing::info!("host {}: queued {method} {path}: {status}", me.id);
                         if let (Some(session), Some(app)) = (session, me.hosts.app()) {
+                            // The helper controls session_id; never write into another host's log.
+                            let target = app.sessions.get(&session);
+                            if !queued_notice_allowed(&me.id, target.as_ref().map(|s| s.cwd.as_str())) {
+                                return;
+                            }
                             let what = if path.ends_with("finish") { "merge request" } else { "suggestion" };
                             let note = if ok { format!("The agent's {what}, queued on {} while Launchpad was away, was received.", me.id) } else { format!("The agent's {what}, queued on {} while Launchpad was away, failed: {error}", me.id) };
                             app.sessions.sink(&app, &session).emit(crate::model::EventBody::Notice { text: note }).await;
@@ -514,4 +519,19 @@ impl Conn {
 fn ssh_error(tail: &[String]) -> String {
     let text = tail.iter().filter(|l| !l.trim().is_empty()).cloned().collect::<Vec<_>>().join(" ");
     if text.is_empty() { "ssh closed the connection".into() } else { text }
+}
+
+fn queued_notice_allowed(host: &str, cwd: Option<&str>) -> bool {
+    cwd.and_then(super::loc::host_of) == Some(host)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn queued_notices_require_an_existing_session_on_the_sending_host() {
+        assert!(super::queued_notice_allowed("devbox", Some("devbox:/work/project")));
+        for cwd in [None, Some("/work/project"), Some("other:/work/project"), Some("devbox-extra:/work/project"), Some("devbox:relative")] {
+            assert!(!super::queued_notice_allowed("devbox", cwd), "{cwd:?}");
+        }
+    }
 }

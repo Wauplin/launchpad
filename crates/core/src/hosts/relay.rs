@@ -49,13 +49,33 @@ fn rehost_cwd(host: &str, path: &str, body: Option<String>) -> Result<(String, O
     Ok((path, body))
 }
 
-pub(super) async fn call(hosts: &Hosts, host: &str, method: &str, path: &str, body: Option<String>) -> Result<(u16, String)> {
-    if !path.starts_with('/') || !allowed(method, path) {
+/// Validate before URL parsing, then authorize the final URL that reqwest will send.
+/// Agent routes have literal ASCII segments; percent escapes belong only in the query.
+fn request_url(host: &str, method: &str, path: &str, body: Option<String>, base: &str) -> Result<(reqwest::Url, Option<String>)> {
+    let route = path.split('?').next().unwrap_or(path);
+    if !route.starts_with("/api/")
+        || path.contains('#')
+        || path.chars().any(char::is_control)
+        || route.contains(['\\', '%'])
+        || route.split('/').any(|s| matches!(s, "." | ".."))
+    {
         bail!("{method} {path} is not available to agents on a host");
     }
     let (path, body) = rehost_cwd(host, path, body)?;
+    let url = reqwest::Url::parse(&format!("{base}{path}"))?;
+    // Reject any parser normalization, including whitespace or authority-like paths.
+    if url.path() != route || !allowed(method, url.path()) {
+        bail!("{method} {path} is not available to agents on a host");
+    }
+    Ok((url, body))
+}
+
+pub(super) async fn call(hosts: &Hosts, host: &str, method: &str, path: &str, body: Option<String>) -> Result<(u16, String)> {
+    let (url, body) = request_url(host, method, path, body, &hosts.paths.base_url())?;
     let method = reqwest::Method::from_bytes(method.as_bytes())?;
-    let mut req = reqwest::Client::new().request(method, format!("{}{path}", hosts.paths.base_url())).bearer_auth(hosts.paths.token()?);
+    // A redirect must not turn an allowed agent request into another API call.
+    let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build()?;
+    let mut req = client.request(method, url).bearer_auth(hosts.paths.token()?);
     if let Some(body) = body {
         req = req.header(reqwest::header::CONTENT_TYPE, "application/json").body(body);
     }
@@ -67,6 +87,52 @@ pub(super) async fn call(hosts: &Hosts, host: &str, method: &str, path: &str, bo
 #[cfg(test)]
 mod tests {
     #[test]
+    fn relay_rejects_path_normalization_and_encoded_routes() {
+        for path in [
+            r"/api/predrafts/..\projects\victim",
+            "/api/predrafts/../projects",
+            "/api/predrafts/.",
+            "/api/predrafts/%2e%2e",
+            "/api/predrafts/.%2E",
+            "/api/predrafts/%252e%252e",
+            "/api/predrafts/x%2f..%2fprojects",
+            "/api/predrafts/x%5c..%5cprojects",
+            "/api/predrafts/x#fragment",
+            "/api/predrafts/x\n",
+            "/api/predrafts/x ",
+            "//api/predrafts/x",
+            "http://elsewhere/api/predrafts/x",
+        ] {
+            assert!(super::request_url("devbox", "PATCH", path, None, "http://127.0.0.1:7317").is_err(), "{path:?}");
+        }
+    }
+
+    #[test]
+    fn final_request_keeps_allowed_route_and_rehosts_only_cwd() {
+        for (method, path) in [
+            ("POST", "/api/suggestions"),
+            ("POST", "/api/worktrees/finish"),
+            ("POST", "/api/worktrees/add-project"),
+            ("GET", "/api/predrafts"),
+            ("POST", "/api/predrafts"),
+            ("GET", "/api/predrafts/resolve"),
+            ("GET", "/api/predrafts/abc"),
+            ("PATCH", "/api/predrafts/abc"),
+            ("GET", "/api/sessions/abc/trace"),
+            ("GET", "/api/status"),
+        ] {
+            let input = format!("{path}?cwd=%2Fhome%2Fu%2Fa%20b&through=3");
+            let (url, _) = super::request_url("devbox", method, &input, None, "http://127.0.0.1:7317").unwrap();
+            assert_eq!(url.path(), path);
+            assert_eq!(url.origin().ascii_serialization(), "http://127.0.0.1:7317");
+            assert_eq!(url.query_pairs().collect::<Vec<_>>(), [("cwd".into(), "devbox:/home/u/a b".into()), ("through".into(), "3".into())]);
+        }
+        for (method, path) in [("PATCH", "/api/projects/abc"), ("POST", "/api/sessions/abc/send")] {
+            assert!(super::request_url("devbox", method, path, None, "http://127.0.0.1:7317").is_err());
+        }
+    }
+
+    #[test]
     fn only_agent_endpoints_are_relayed_with_host_folders() {
         assert!(super::allowed("POST", "/api/suggestions"));
         assert!(super::allowed("GET", "/api/predrafts/resolve?cwd=/x"));
@@ -77,7 +143,10 @@ mod tests {
         let (path, body) = super::rehost_cwd("devbox", "/api/predrafts/resolve?cwd=%2Fhome%2Fu%2Fp", None).unwrap();
         assert_eq!(path, "/api/predrafts/resolve?cwd=devbox%3A%2Fhome%2Fu%2Fp");
         assert!(body.is_none());
-        let (_, body) = super::rehost_cwd("devbox", "/api/predrafts", Some(r#"{"cwd":"/w","title":"t"}"#.into())).unwrap();
+        let (url, body) = super::request_url("devbox", "POST", "/api/predrafts", Some(r#"{"cwd":"/w","title":"t"}"#.into()), "http://127.0.0.1:7317").unwrap();
+        assert_eq!(url.path(), "/api/predrafts");
         assert!(body.unwrap().contains(r#""cwd":"devbox:/w""#));
+        let (_, body) = super::request_url("devbox", "POST", "/api/suggestions", Some(r#"{"body":"unchanged"}"#.into()), "http://127.0.0.1:7317").unwrap();
+        assert_eq!(body.as_deref(), Some(r#"{"body":"unchanged"}"#));
     }
 }

@@ -8,6 +8,8 @@ Totals: 56 bugs in 12 groups: 0 critical, 6 high, 24 medium, 26 low.
 
 ## 1. SSH host relay boundary
 
+Fixed on 2026-10-17: the relay rejects ambiguous/escaped route paths, authorizes the exact outgoing URL and disables redirects. Queued-result notices require an existing session on the sending host. Regression tests cover traversal variants, allowed CLI routes and session host isolation. Findings below describe the analyzed revision.
+
 - **[High] Relay allowlist can be bypassed with backslashes and `..`** [C] — `crates/core/src/hosts/relay.rs:10-23`, `relay.rs:26`
   - Bug: `allowed()` checks the raw path split on `/`, but `Url::parse` then turns `\` into `/` and resolves `..`. A process on the host can send `PATCH /api/predrafts/..\projects\<id>` and the daemon calls `PATCH /api/projects/<id>` with the full bearer token (verified with the `url` crate). Setting `worktree_setup` this way runs a command on the daemon machine at the next launch.
   - Recommendation: Normalize the URL first, reject paths that contain `\`, dot segments or encoded dots, and run `allowed()` on the exact path that is sent.

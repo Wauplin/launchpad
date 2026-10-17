@@ -801,7 +801,7 @@ Built from the report "Remote SSH hosts for Launchpad" with the recommended owne
 - **Helper.** `launchpad host-helper serve` runs detached on the host (`~/.local/share/launchpad-host/<profile>/`), owns harness processes and PTYs, keeps unacknowledged output with byte offsets (including completed processes during long sleeps) and writes input exactly once. `host-helper bridge` is what `ssh` runs; one connection per host carries every request, process stream and agent CLI call (`hosts/proto.rs`).
 - **Connection.** System `ssh` with the user's configuration, a ControlMaster, forwarding disabled and `SSH_ASKPASS` questions shown in the UI. Reconnects every 15 s; skips connection sharing when the data path exceeds the Unix socket limit. Unreachable is a host state shown on rows, headers, terminal tabs and the status bar, never a session status. A process lost with its host is Interrupted.
 - **Daemon restarts** still interrupt turns: each boot has an ID and the helper stops processes of other boots.
-- **Agents' CLI** on a host goes through the helper to an allowlist of daemon endpoints; merge requests and suggestions made while the daemon is away are queued and delivered on reconnect.
+- **Agents' CLI** on a host goes through the helper to an allowlist of daemon endpoints; merge requests and suggestions made while the daemon is away are queued and delivered on reconnect. The relay rejects escaped or normalized route paths, checks the exact outgoing URL against the allowlist and does not follow redirects. Queued-result notices are emitted only into existing sessions whose folder is on the sending host.
 - **Preflight** is read-only; the composer disables harnesses missing or signed out on the project's host.
 
 ## 16. Risks and unknowns
