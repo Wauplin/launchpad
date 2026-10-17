@@ -502,6 +502,7 @@ async fn permission(sink: &Sink, state: &Mutex<State>, message: &Value) {
     sink.emit(EventBody::AskUser {
         request_id: request_id.clone(),
         questions: vec![Question {
+            permission: true,
             id: request_id,
             header: "Permission".into(),
             question: params["toolCall"]["title"]

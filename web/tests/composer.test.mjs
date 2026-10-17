@@ -60,3 +60,23 @@ test("scheduled dependencies accept completed archives without making archived a
     assert.equal(dependencyDone({ ...session, status }), false);
   }
 });
+
+test("permission defaults are YOLO and remain independent for each harness and variant", async () => {
+  const { rememberedRun } = await import("../src/stores/composer.ts");
+  assert.equal(emptySpec().permission_mode, "yolo");
+  useComposer.setState({ spec: { ...emptySpec(), harness: "claude" }, open: true });
+  draft().update((s) => ({ ...s, permission_mode: "approvals" }));
+  assert.equal(rememberedRun("claude", null).permission_mode, "approvals");
+  assert.equal(rememberedRun("codex", null).permission_mode, "yolo");
+  assert.equal(rememberedRun("claude", "other-account").permission_mode, "yolo");
+  draft().update((s) => ({ ...s, target: { kind: "temp" } }));
+  assert.equal(draft().spec.permission_mode, "approvals");
+  draft().discard();
+  assert.equal(draft().spec.permission_mode, "approvals");
+  draft().rememberLaunch({ ...emptySpec(), harness: "codex", variant: "review", permission_mode: "approvals" }, 100);
+  assert.equal(rememberedRun("codex", "review").permission_mode, "approvals");
+  assert.equal(rememberedRun("codex", null).permission_mode, "yolo");
+  // A more recent launch from another device supersedes an older browser selection.
+  draft().rememberLaunch({ ...emptySpec(), harness: "claude", permission_mode: "yolo" }, Date.now() + 1);
+  assert.equal(rememberedRun("claude", null).permission_mode, "yolo");
+});

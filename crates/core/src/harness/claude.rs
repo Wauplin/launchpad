@@ -14,7 +14,18 @@ use crate::App;
 use crate::model::*;
 use crate::sessions::{LiveSession, Sink, StartSpec, json_line, shorten, text_of, truncate_output};
 
+use super::permission_options;
+
+fn claude_permission_response(input: &Value, answers: &[String]) -> Result<Value> {
+    match answers.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        ["Allow once"] => Ok(json!({"behavior":"allow", "updatedInput":input})),
+        ["Deny"] => Ok(json!({"behavior":"deny", "message":"The owner denied this operation."})),
+        _ => bail!("Choose Allow once or Deny on the approval card"),
+    }
+}
+
 pub struct ClaudeSession {
+    sink: Sink,
     stdin: tokio::sync::Mutex<Option<crate::exec::Stdin>>,
     state: Arc<Mutex<State>>,
     killer: crate::exec::Killer,
@@ -32,7 +43,7 @@ struct State {
     /// Every background task started in this process (`task_notification` can come after the running
     /// list is already empty).
     background_known: HashSet<String>,
-    /// `request_id` of pending `can_use_tool` requests for AskUserQuestion → their input.
+    /// Pending native questions or tagged permission inputs, keyed by request ID.
     questions: HashMap<String, Value>,
     context_window: Option<u64>,
     /// Id of the assistant message being streamed (from `message_start`).
@@ -45,6 +56,7 @@ struct State {
     cwd: String,
     /// Cost reported by earlier processes of this session.
     cost_base: f64,
+    permission_mode: PermissionMode,
 }
 
 pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
@@ -56,7 +68,6 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
         "stream-json",
         "--verbose",
         "--include-partial-messages",
-        "--dangerously-skip-permissions",
         "--replay-user-messages",
         "--permission-prompt-tool",
         "stdio",
@@ -64,6 +75,10 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     .into_iter()
     .map(String::from)
     .collect();
+    args.extend(match spec.permission_mode {
+        PermissionMode::Yolo => vec!["--dangerously-skip-permissions".into()],
+        PermissionMode::Approvals => vec!["--permission-mode".into(), "default".into()],
+    });
     let harness_id = spec.harness_session_id.clone().unwrap_or_else(|| spec.session_id.clone());
     if spec.resume {
         args.extend(["--resume".into(), harness_id.clone()]);
@@ -95,8 +110,8 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     let stderr = child.stderr.take().unwrap();
     // `total_cost_usd` counts from the start of each process: add what earlier processes reported.
     let cost_base = app.sessions.get(&spec.session_id).and_then(|s| s.usage.cost_usd).unwrap_or(0.0);
-    let state = Arc::new(Mutex::new(State { cwd: spec.cwd.to_string_lossy().to_string(), cost_base, ..Default::default() }));
-    let session = Arc::new(ClaudeSession { stdin: tokio::sync::Mutex::new(Some(stdin)), state: state.clone(), killer: child.killer() });
+    let state = Arc::new(Mutex::new(State { cwd: spec.cwd.to_string_lossy().to_string(), cost_base, permission_mode: spec.permission_mode, ..Default::default() }));
+    let session = Arc::new(ClaudeSession { sink: sink.clone(), stdin: tokio::sync::Mutex::new(Some(stdin)), state: state.clone(), killer: child.killer() });
 
     let stderr_tail = Arc::new(Mutex::new(Vec::<String>::new()));
     let tail = stderr_tail.clone();
@@ -135,6 +150,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
             }
             Err(e) => Some(format!("claude: {e}")),
         };
+        cancel_questions(&out_sink, &st).await;
         out_sink.exited(error).await;
     });
     Ok(session)
@@ -183,7 +199,14 @@ impl LiveSession for ClaudeSession {
 
     fn has_open_questions(&self) -> bool { !self.state.lock().unwrap().questions.is_empty() }
     async fn answer(&self, request_id: &str, answers: Vec<String>) -> Result<()> {
-        let input = self.state.lock().unwrap().questions.remove(request_id).context("this question was already answered")?;
+        let input = self.state.lock().unwrap().questions.get(request_id).cloned().context("this question was already answered")?;
+        if input["launchpad_permission"] == true {
+            let response = claude_permission_response(&input["input"], &answers)?;
+            self.write(&json!({"type":"control_response", "response":{"subtype":"success", "request_id":request_id, "response":response}})).await?;
+            self.state.lock().unwrap().questions.remove(request_id);
+            return Ok(());
+        }
+        self.state.lock().unwrap().questions.remove(request_id);
         let questions = input["questions"].as_array().cloned().unwrap_or_default();
         let mut map = serde_json::Map::new();
         for (q, a) in questions.iter().zip(answers) {
@@ -204,6 +227,7 @@ impl LiveSession for ClaudeSession {
 
     async fn stop(&self) -> Result<()> {
         self.state.lock().unwrap().stopping = true;
+        cancel_questions(&self.sink, &self.state).await;
         // Closing stdin ends the process after the current step; kill it if it does not exit.
         self.stdin.lock().await.take();
         let killer = self.killer.clone();
@@ -215,9 +239,17 @@ impl LiveSession for ClaudeSession {
     }
 }
 
+async fn cancel_questions(sink: &Sink, st: &Mutex<State>) {
+    let pending = st.lock().unwrap().questions.drain().map(|(id, _)| id).collect::<Vec<_>>();
+    if !pending.is_empty() {
+        for request_id in pending { sink.emit(EventBody::AskAnswered { request_id, answers: vec!["Request ended".into()] }).await; }
+        sink.set_open_question(false).await;
+    }
+}
+
 /// Maps one stdout message to normalized events.
 async fn handle(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>, msg: &Value) {
-    if msg["type"] == "control_request" || msg["type"] == "system" && matches!(msg["subtype"].as_str(), Some("task_started" | "task_notification" | "task_updated" | "background_tasks_changed")) {
+    if matches!(msg["type"].as_str(), Some("control_request" | "control_cancel_request")) || msg["type"] == "system" && matches!(msg["subtype"].as_str(), Some("task_started" | "task_notification" | "task_updated" | "background_tasks_changed")) {
         // Native permission/question responses are owned by the one Claude process.
         handle_message(sink, st, writer, msg).await;
     } else if let Some(id) = msg["parent_tool_use_id"].as_str() {
@@ -319,7 +351,14 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
             }
         }
         "result" => {
-            st.lock().unwrap().turn_running = false;
+            let cancelled = {
+                let mut state = st.lock().unwrap();
+                state.turn_running = false;
+                if msg["is_error"] == true || msg["subtype"] == "error_during_execution" { state.questions.drain().map(|(id, _)| id).collect::<Vec<_>>() } else { vec![] }
+            };
+            for request_id in cancelled { sink.emit(EventBody::AskAnswered { request_id, answers: vec!["Request ended".into()] }).await; }
+            let open = !st.lock().unwrap().questions.is_empty();
+            sink.set_open_question(open).await;
             let error = if msg["is_error"].as_bool() == Some(true) && msg["subtype"] != "error_during_execution" {
                 Some(msg["result"].as_str().unwrap_or(msg["subtype"].as_str().unwrap_or("error")).to_string())
             } else {
@@ -355,6 +394,15 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
                 else if background { SessionStatus::Background } else { SessionStatus::Waiting }).await;
         }
         "rate_limit_event" => rate_limit_event(&sink.app().status, &msg["rate_limit_info"]),
+        "control_cancel_request" => {
+            let request_id = msg["request_id"].as_str().unwrap_or("");
+            let removed = st.lock().unwrap().questions.remove(request_id).is_some();
+            if removed {
+                sink.emit(EventBody::AskAnswered { request_id: request_id.into(), answers: vec!["Request ended".into()] }).await;
+                let open = !st.lock().unwrap().questions.is_empty();
+                sink.set_open_question(open).await;
+            }
+        }
         "control_request" => {
             let req = &msg["request"];
             let request_id = msg["request_id"].as_str().unwrap_or("").to_string();
@@ -368,6 +416,7 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
                     .iter()
                     .enumerate()
                     .map(|(i, q)| Question {
+                        permission: false,
                         id: i.to_string(),
                         header: q["header"].as_str().unwrap_or("").into(),
                         question: q["question"].as_str().unwrap_or("").into(),
@@ -387,15 +436,18 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
                 sink.emit(EventBody::AskUser { request_id, questions }).await;
                 sink.set_open_question(true).await;
                 sink.set_status(SessionStatus::Waiting).await;
+            } else if req["subtype"] == "can_use_tool" && st.lock().unwrap().permission_mode == PermissionMode::Yolo {
+                let _ = writer.write(&json!({"type":"control_response", "response":{"subtype":"success", "request_id":request_id, "response":{"behavior":"allow", "updatedInput":req["input"]}}})).await;
             } else if req["subtype"] == "can_use_tool" {
-                // Everything else runs without asking, as with --dangerously-skip-permissions.
-                tracing::info!("claude {}: allowing {}", sink.id, req["tool_name"]);
-                let _ = writer
-                    .write(&json!({
-                        "type": "control_response",
-                        "response": {"subtype": "success", "request_id": request_id, "response": {"behavior": "allow", "updatedInput": req["input"]}},
-                    }))
-                    .await;
+                // The native permission engine decides which tools need an owner decision.
+                st.lock().unwrap().questions.insert(request_id.clone(), json!({"launchpad_permission":true,"input":req["input"]}));
+                sink.emit(EventBody::AskUser { request_id: request_id.clone(), questions: vec![Question {
+                    permission: true, id: request_id, header: "Approval required".into(),
+                    question: format!("{}\n{}", req["tool_name"].as_str().unwrap_or("Tool"), serde_json::to_string_pretty(&req["input"]).unwrap_or_default()),
+                    options: permission_options(), multi_select: false,
+                }] }).await;
+                sink.set_open_question(true).await;
+                sink.set_status(SessionStatus::Waiting).await;
             } else {
                 let _ = writer
                     .write(&json!({"type": "control_response", "response": {"subtype": "error", "request_id": request_id, "error": "not supported by Launchpad"}}))
@@ -675,6 +727,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
         color: "#b46a4b",
         working_message: "Message Claude. It is read after the current step.",
         capabilities: super::HarnessCapabilities {
+            permission_modes: true,
             images: true,
             messages_while_running: true,
             terminal: true,
@@ -771,8 +824,11 @@ impl super::Harness for Adapter {
             "claude".into(),
             "--resume".into(),
             id,
-            "--dangerously-skip-permissions".into(),
         ]);
+        args.extend(match s.launch_spec.permission_mode {
+            PermissionMode::Yolo => vec!["--dangerously-skip-permissions".into()],
+            PermissionMode::Approvals => vec!["--permission-mode".into(), "default".into()],
+        });
         Ok(args)
     }
     fn terminal_env(&self, is_temp: bool) -> &'static [(&'static str, &'static str)] {
@@ -975,4 +1031,22 @@ fn claude_transcripts_dir(cwd: &str) -> std::path::PathBuf {
         .unwrap_or_default()
         .join(".claude/projects")
         .join(encoded)
+}
+
+#[cfg(test)]
+mod permission_tests {
+    use super::*;
+    #[test]
+    fn approvals_require_an_explicit_choice_and_preserve_tool_input() {
+        let input = json!({"command":"printf hello", "description":"A harmless test"});
+        assert_eq!(claude_permission_response(&input, &["Allow once".into()]).unwrap(), json!({"behavior":"allow","updatedInput":input}));
+        assert_eq!(claude_permission_response(&input, &["Deny".into()]).unwrap()["behavior"], "deny");
+        for answers in [vec![], vec!["yes".into()], vec!["Allow once".into(), "Deny".into()]] {
+            assert!(claude_permission_response(&input, &answers).is_err());
+        }
+        let old: LaunchSpec = serde_json::from_value(json!({"harness":"claude"})).unwrap();
+        assert_eq!(old.permission_mode, PermissionMode::Yolo);
+        let approvals: LaunchSpec = serde_json::from_value(json!({"harness":"codex","permission_mode":"approvals"})).unwrap();
+        assert_eq!(approvals.permission_mode, PermissionMode::Approvals);
+    }
 }

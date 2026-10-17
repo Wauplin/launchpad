@@ -108,13 +108,13 @@ const QuestionCard = memo(function QuestionCard({ s, project }: { s: Session; pr
   const log = useTail(s.id);
   const ask = useMemo(() => {
     const rows = log ? buildRows(log) : [];
-    for (let i = rows.length - 1; i >= 0; i--) { const r = rows[i]; if (r.t === "ask") return r.answers ? null : r; }
+    for (let i = rows.length - 1; i >= 0; i--) { const r = rows[i]; if (r.t === "ask" && !r.answers) return r; }
     return null;
   }, [log]);
   return <AgentCard s={s} className="phone-review-card border-attn-line">
     <CardHead s={s} project={project} />
     {ask && s.live ? <div className="pointer-events-none relative z-20 [&_button]:pointer-events-auto"><AskCard row={ask} sessionId={s.id} live={s.live} hint="Or tap Other answer to write one." /></div> : <p className="text-[13.5px] text-ink-2">{s.last_message ?? "The agent asked a question."}</p>}
-    <div className="pointer-events-none relative z-20 flex flex-wrap gap-2 [&_button]:pointer-events-auto"><button className="btn" onClick={() => open(navigate, s.id)}>Other answer…</button></div>
+    <div className="pointer-events-none relative z-20 flex flex-wrap gap-2 [&_button]:pointer-events-auto"><button className="btn" onClick={() => open(navigate, s.id)}>{ask?.questions.some((q) => q.permission) ? "View session" : "Other answer…"}</button></div>
   </AgentCard>;
 });
 

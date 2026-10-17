@@ -23,6 +23,7 @@ use ts_rs::TS;
 
 #[derive(Clone, Copy, Serialize, TS)]
 pub struct HarnessCapabilities {
+    pub permission_modes: bool,
     pub images: bool,
     /// Native steering or queuing while a turn runs.
     pub messages_while_running: bool,
@@ -41,6 +42,11 @@ pub struct HarnessDescriptor {
     pub color: &'static str,
     pub working_message: &'static str,
     pub capabilities: HarnessCapabilities,
+}
+
+pub fn permission_options() -> Vec<crate::model::QuestionOption> {
+    [("Allow once", "Run this operation"), ("Deny", "Do not run this operation")].into_iter()
+        .map(|(label, description)| crate::model::QuestionOption { label: label.into(), description: description.into() }).collect()
 }
 
 pub struct Registration {

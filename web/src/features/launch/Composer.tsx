@@ -607,6 +607,7 @@ export function Composer() {
           <Token warn={!spec.harness || missingVariant}>{spec.harness && <HarnessMark harness={spec.harness} size={13} />}{variant?.name ?? (spec.harness ? harnessName(spec.harness) : "No harness")}</Token>
           <Token>{modelLabel}</Token>
           {!!efforts.length && effortLabel && <Token>{effortLabel}</Token>}
+          {harness?.capabilities.permission_modes && <Token>{spec.permission_mode === "approvals" ? "Ask for approval" : "YOLO"}</Token>}
           {targetHost && <Token warn={hostStatus?.state !== "connected"} title={hostStatus?.state === "connected" ? `The agent runs on ${targetHost}` : `${targetHost} is ${hostStatus?.state ?? "unknown"}: the launch waits up to 25 s for a connection`}>on {targetHost}</Token>}
           {runIn && <Token>{runIn}</Token>}
           {worktreeMode && spec.worktree?.merge_when_done && <Token title={`The agent asks Launchpad to merge into ${baseLabel} when it is done`}>merge when done</Token>}
@@ -629,7 +630,7 @@ export function Composer() {
                   onClick={() => { setBudgetText(null); set((s) => {
                     const same = s.harness === o.harness && (s.variant ?? null) === (o.variant?.id ?? null);
                     const cost = harnesses.find((h) => h.id === o.harness)?.capabilities.cost;
-                    const run = same ? { model: s.model, effort: s.effort } : rememberedRun(o.harness, o.variant?.id ?? null);
+                    const run = same ? { model: s.model, effort: s.effort, permission_mode: s.permission_mode } : rememberedRun(o.harness, o.variant?.id ?? null);
                     return { ...s, harness: o.harness, variant: o.variant?.id ?? null, ...run, budget_usd: same ? s.budget_usd : cost ? (o.variant?.budget_usd ?? null) : null };
                   }); }}
                   className={`inline-flex h-[26px] shrink-0 items-center disabled:cursor-not-allowed disabled:opacity-45 gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[12.5px] ${
@@ -642,6 +643,15 @@ export function Composer() {
               ))}
             </span>
           </OptionRow>
+          {harness?.capabilities.permission_modes && <OptionRow label="Permissions">
+            <div className="grid gap-1.5">
+              <select className="field-input w-auto text-xs" aria-label="Permission mode" value={spec.permission_mode ?? "yolo"} onChange={(e) => set((s) => ({ ...s, permission_mode: e.target.value as LaunchSpec["permission_mode"] }))}>
+                <option value="yolo">YOLO · Full access</option>
+                <option value="approvals">Ask for approval</option>
+              </select>
+              <span className="text-[11.5px] text-ink-3">{spec.permission_mode === "approvals" ? "Uses native permission rules. Requested commands and changes wait for your approval in the session." : "Commands and file changes run without permission prompts."}</span>
+            </div>
+          </OptionRow>}
           <OptionRow label="Model" end={
             <button className="inline-flex size-5 items-center justify-center rounded hover:bg-select hover:text-ink disabled:opacity-50" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} title={refreshingModels ? "Refreshing models…" : "Refresh models"} aria-label={refreshingModels ? "Refreshing models" : "Refresh models"} aria-busy={refreshingModels}>
               <Icon name="refresh" size={12} className={refreshingModels ? "animate-spin" : ""} />

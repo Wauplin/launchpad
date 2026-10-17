@@ -17,6 +17,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
         color: "#4b5563",
         working_message: "OpenCode is working. Wait for this turn to finish before sending another message.",
         capabilities: super::HarnessCapabilities {
+            permission_modes: false,
             images: true,
             messages_while_running: false,
             terminal: true,

@@ -5,13 +5,14 @@ import type { FileAttachment } from "./FileAttachment";
 import type { FileRef } from "./FileRef";
 import type { GitHubRef } from "./GitHubRef";
 import type { HarnessKind } from "./HarnessKind";
+import type { PermissionMode } from "./PermissionMode";
 import type { Target } from "./Target";
 import type { WorktreeOptions } from "./WorktreeOptions";
 
 /**
  * What to launch (ARCHITECTURE.md, section 9.7).
  */
-export type LaunchSpec = {
+export type LaunchSpec = { permission_mode: PermissionMode,
 /**
  * Permit additional paid usage after included subscription quotas are exhausted.
  */

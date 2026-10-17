@@ -30,6 +30,8 @@ pub trait LiveSession: Send + Sync {
     fn ready_for_turn(&self) -> bool;
     fn turn_active(&self) -> bool;
     fn has_open_questions(&self) -> bool { false }
+    /// This explicit choice cancels the current turn (a silent owner Stop).
+    fn answer_stops_turn(&self, _request_id: &str, _answers: &[String]) -> bool { false }
     /// Answers an `ask_user` request: one answer per question.
     async fn answer(&self, request_id: &str, answers: Vec<String>) -> Result<()>;
     /// Stops the process; the conversation stays resumable.
@@ -40,6 +42,7 @@ pub trait LiveSession: Send + Sync {
 
 /// Everything an adapter needs to start or resume a session.
 pub struct StartSpec {
+    pub permission_mode: PermissionMode,
     pub session_id: String,
     pub harness_session_id: Option<String>,
     pub resume: bool,
@@ -694,6 +697,7 @@ impl Sessions {
 
         let (host, native_cwd, add_dirs) = on_machine(&cwd, preview.add_dirs)?;
         let start = StartSpec {
+            permission_mode: spec.permission_mode,
             session_id: id.clone(),
             harness_session_id: None,
             resume: false,
@@ -821,6 +825,7 @@ impl Sessions {
         }
         let (host, cwd, add_dirs) = on_machine(&s.cwd, add_dirs)?;
         let start = StartSpec {
+            permission_mode: s.launch_spec.permission_mode,
             session_id: s.id.clone(),
             harness_session_id: s.harness_session_id.clone(),
             resume: s.harness_session_id.is_some(),
@@ -1166,11 +1171,18 @@ impl Sessions {
         anyhow::ensure!(!crate::quota::protected(app, s.harness, &s.launch_spec) || crate::quota::blockers(app, s.harness).is_empty(), "Included quota exhausted; wait for the quota pause.");
         ensure_budget(&s)?;
         let live = self.live(id).context("the session has no running process")?;
-        live.answer(request_id, answers.clone()).await?;
+        let stopping = live.answer_stops_turn(request_id, &answers);
+        if stopping { self.inner.stop_requests.lock().unwrap().insert(id.into()); }
+        if let Err(e) = live.answer(request_id, answers.clone()).await {
+            if stopping { self.inner.stop_requests.lock().unwrap().remove(id); }
+            return Err(e);
+        }
         let sink = self.sink(app, id);
         sink.emit(EventBody::AskAnswered { request_id: request_id.to_string(), answers }).await;
-        sink.set_open_question(live.has_open_questions()).await;
-        sink.set_status(SessionStatus::Working).await;
+        let open = live.has_open_questions();
+        sink.set_open_question(open).await;
+        if open { sink.set_status(SessionStatus::Waiting).await; }
+        else if live.turn_active() { sink.set_status(SessionStatus::Working).await; }
         Ok(())
     }
 

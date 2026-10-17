@@ -32,6 +32,7 @@ export const emptySpec = (): LaunchSpec => ({
   agent_traces: [],
   model: null,
   effort: null,
+  permission_mode: "yolo",
   workspace_id: null,
 });
 
@@ -161,17 +162,29 @@ function withProjectCompletion(spec: LaunchSpec): LaunchSpec {
   return { ...spec, worktree: { ...spec.worktree, merge_when_done: projectCompletionDefaults.get(spec.target.project_id) ?? false } };
 }
 
-type RunDefaults = Pick<LaunchSpec, "model" | "effort">;
+type RunDefaults = Pick<LaunchSpec, "model" | "effort" | "permission_mode">;
 const runs = new Map<string, { startedAt: number; defaults: RunDefaults }>();
 const runKey = (harness: LaunchSpec["harness"], variant: LaunchSpec["variant"]) => JSON.stringify([harness, variant ?? null]);
 
+// Remember a deliberate permission selection immediately, including before the next launch.
+const permissionChoices: Record<string, { mode: LaunchSpec["permission_mode"]; selectedAt: number }> = (() => {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem("launchpad-permission-modes") ?? "{}");
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
+    return Object.fromEntries(Object.entries(saved).filter(([, value]) => value && (value.mode === "yolo" || value.mode === "approvals") && Number.isFinite(value.selectedAt)));
+  } catch { return {}; }
+})();
+
 /** Latest successful launch for this harness/variant, across all projects and workspaces. */
 export function rememberedRun(harness: LaunchSpec["harness"], variant: LaunchSpec["variant"]): RunDefaults {
-  return runs.get(runKey(harness, variant))?.defaults ?? { model: null, effort: null };
+  const key = runKey(harness, variant);
+  const run = runs.get(key)?.defaults ?? { model: null, effort: null, permission_mode: "yolo" as const };
+  const selected = permissionChoices[key];
+  return { ...run, permission_mode: selected && selected.selectedAt > (runs.get(key)?.startedAt ?? 0) ? selected.mode : run.permission_mode };
 }
 
 let lastLaunchAt = 0;
-let lastLaunch: Pick<LaunchSpec, "harness" | "variant" | "budget_usd" | "model" | "effort"> = { harness: null, variant: null, budget_usd: null, model: null, effort: null };
+let lastLaunch: Pick<LaunchSpec, "harness" | "variant" | "budget_usd" | "model" | "effort" | "permission_mode"> = { harness: null, variant: null, budget_usd: null, model: null, effort: null, permission_mode: "yolo" };
 
 export function rememberSuccessfulSession(session: Session) {
   if (session.launch_spec.harness && session.last_seq > 0 && session.status !== "error") {
@@ -190,15 +203,15 @@ export const useComposer = create<Composer>((set, get) => ({
   rememberLaunch: (spec, startedAt) => {
     if (!spec.harness) return;
     const key = runKey(spec.harness, spec.variant);
-    if (startedAt > (runs.get(key)?.startedAt ?? 0)) runs.set(key, { startedAt, defaults: { model: spec.model, effort: spec.effort } });
+    if (startedAt > (runs.get(key)?.startedAt ?? 0)) runs.set(key, { startedAt, defaults: { model: spec.model, effort: spec.effort, permission_mode: spec.permission_mode ?? "yolo" } });
     if (startedAt > lastLaunchAt) {
       lastLaunchAt = startedAt;
-      lastLaunch = { harness: spec.harness, variant: spec.variant ?? null, budget_usd: spec.budget_usd ?? null, model: spec.model, effort: spec.effort };
+      lastLaunch = { harness: spec.harness, variant: spec.variant ?? null, budget_usd: spec.budget_usd ?? null, model: spec.model, effort: spec.effort, permission_mode: spec.permission_mode ?? "yolo" };
     }
   },
   start: (ctx) => {
     const cur = get().spec;
-    let spec: LaunchSpec = get().open ? { ...cur } : { ...cur, ...lastLaunch };
+    let spec: LaunchSpec = get().open ? { ...cur } : { ...cur, ...lastLaunch, permission_mode: rememberedRun(lastLaunch.harness, lastLaunch.variant).permission_mode };
     if (ctx?.projectId !== undefined) spec.target = ctx.projectId ? { kind: "project", project_id: ctx.projectId } : { kind: "none" };
     if (!get().open || JSON.stringify(spec.target) !== JSON.stringify(cur.target)) spec = withProjectCompletion(spec);
     for (const r of ctx?.githubRefs ?? []) if (!spec.github_refs.some((g) => g.url === r.url)) spec.github_refs = [...spec.github_refs, r];
@@ -214,7 +227,7 @@ export const useComposer = create<Composer>((set, get) => ({
   },
   followUpFrom: (session, review = false) => {
     const spec: LaunchSpec = {
-      ...emptySpec(), ...lastLaunch,
+      ...emptySpec(), ...lastLaunch, permission_mode: rememberedRun(lastLaunch.harness, lastLaunch.variant).permission_mode,
       target: { kind: "session_folder", session_id: session.id },
       worktree: null,
       text: review ? "Review the previous agent’s work in this folder. Use the attached agent trace, when available, to understand the task and reported results, then inspect the actual changes and run relevant checks. Report concrete bugs, regressions, and missing requirements with file references. Do not modify files unless I ask." : "",
@@ -226,6 +239,10 @@ export const useComposer = create<Composer>((set, get) => ({
   update: (f) => {
     const previous = get().spec;
     let spec = f(previous);
+    if (spec.permission_mode !== previous.permission_mode && spec.harness === previous.harness && spec.variant === previous.variant) {
+      permissionChoices[runKey(spec.harness, spec.variant)] = { mode: spec.permission_mode, selectedAt: Date.now() };
+      try { localStorage.setItem("launchpad-permission-modes", JSON.stringify(permissionChoices)); } catch { /* Session history still retains launched choices. */ }
+    }
     if (JSON.stringify(spec.target) !== JSON.stringify(previous.target) || (!previous.worktree && spec.worktree)) spec = withProjectCompletion(spec);
     set({ spec });
     save(spec, get().open, get().conditions);
@@ -240,7 +257,7 @@ export const useComposer = create<Composer>((set, get) => ({
   },
   discard: () => {
     const { harness, variant, budget_usd } = get().spec;
-    const spec = { ...emptySpec(), harness, variant, budget_usd };
+    const spec = { ...emptySpec(), harness, variant, budget_usd, ...rememberedRun(harness, variant) };
     set({ spec, open: false, minimized: false, conditions: [] });
     save(spec, false, []);
   },

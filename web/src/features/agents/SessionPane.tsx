@@ -43,7 +43,7 @@ function act(id: string, action: string) {
   return api.post(`/api/sessions/${id}/${action}`).catch(toastError);
 }
 
-type PendingAsk = { request_id: string; count: number } | null;
+type PendingAsk = { request_id: string; count: number; permission: boolean } | null;
 
 function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, dropImages, inputRef: ref, onSent }: { acceptsImages: boolean; sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null>; inputRef: React.RefObject<HTMLTextAreaElement | null>; onSent: () => void }) {
   const text = useMessageDrafts((s) => s.drafts[sessionId] ?? "");
@@ -76,7 +76,7 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
   }, [text, ref]);
   const send = async () => {
     const t = text.trim();
-    if ((!t && !images.length) || busy || disabled || reading) return;
+    if ((!t && !images.length) || busy || disabled || reading || ask?.permission) return;
     setBusy(true);
     setDelivery("sending");
     try {
@@ -214,10 +214,10 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const ask: PendingAsk = useMemo(() => {
     for (let i = rows.length - 1; i >= 0; i--) {
       const r = rows[i];
-      if (r.t === "ask") return r.answers ? null : { request_id: r.request_id, count: r.questions.length };
+      if (r.t === "ask" && !r.answers) return { request_id: r.request_id, count: r.questions.length, permission: r.questions.some((q) => q.permission) };
     }
     const earlier = log?.earlier?.last_ask?.body;
-    return earlier?.kind === "ask_user" && !log?.earlier?.last_ask_answers ? { request_id: earlier.request_id, count: earlier.questions.length } : null;
+    return earlier?.kind === "ask_user" && !log?.earlier?.last_ask_answers ? { request_id: earlier.request_id, count: earlier.questions.length, permission: earlier.questions.some((q) => q.permission) } : null;
   }, [rows, log?.earlier]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -232,7 +232,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const [answering, setAnswering] = useState(0);
   useEffect(() => {
     if (!answering || !traceOpen) return;
-    const i = trace.findLastIndex((r) => r.t === "ask");
+    const i = trace.findLastIndex((r) => r.t === "ask" && !r.answers);
     atBottom.current = false;
     if (i >= 0) v.scrollToIndex(i, { align: "start" });
     inputRef.current?.focus();
@@ -286,7 +286,10 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       <button className="btn btn-sm" onClick={() => setReattaching(false)}>Cancel</button>
     </> : <button className="btn btn-sm btn-primary" title="Continue this session in Launchpad" onClick={() => (tui ? setReattaching(true) : void act(s.id, "resume"))}>Re-attach</button>
   ) : s.status === "waiting" && s.open_question ? (
-    <button className="btn btn-sm btn-primary" title="Show the question and focus the message box" onClick={() => { setView("trace"); setAnswering((n) => n + 1); }}>Answer</button>
+    <>
+      <button className="btn btn-sm btn-primary" title={ask?.permission ? "Review the requested operation" : "Show the question and focus the message box"} onClick={() => { setView("trace"); setAnswering((n) => n + 1); }}>{ask?.permission ? "Review approval" : "Answer"}</button>
+      {s.live && <button className="iconbtn text-danger" title="Stop the agent while it waits for your decision" aria-label="Stop agent" onClick={() => void act(s.id, "interrupt")}><Icon name="stop" size={14} /></button>}
+    </>
   ) : s.status === "waiting" ? (
     uncommitted
       ? <button className="btn btn-sm btn-primary" title="Open the uncommitted files in the Changes view" onClick={() => showChanges(false)}>Review changes</button>
@@ -457,7 +460,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       </div>
       </ShellCodeContext.Provider>
       </CodeLinksContext.Provider>
-      {!childrenOpen && <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={placeholder} disabled={s.status === "in_terminal" || s.status === "quota_paused" || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={s.open_question && s.live ? ask : null} />}
+      {!childrenOpen && <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={s.open_question && ask?.permission ? "Choose a decision on the approval card." : placeholder} disabled={!!(s.open_question && ask?.permission) || s.status === "in_terminal" || s.status === "quota_paused" || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={s.open_question && s.live ? ask : null} />}
     </div>
   );
 }

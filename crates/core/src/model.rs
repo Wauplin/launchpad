@@ -320,6 +320,9 @@ pub struct PlanItem {
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct Question {
+    /// Permission choices must be selected explicitly; arbitrary text is not an approval.
+    #[serde(default)]
+    pub permission: bool,
     pub id: String,
     pub header: String,
     pub question: String,
@@ -333,10 +336,19 @@ pub struct QuestionOption {
     pub description: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionMode {
+    #[default]
+    Yolo,
+    Approvals,
+}
+
 /// What to launch (ARCHITECTURE.md, section 9.7).
 #[derive(Clone, Debug, Serialize, Deserialize, TS, Default)]
 #[serde(default)]
 pub struct LaunchSpec {
+    pub permission_mode: PermissionMode,
     /// Permit additional paid usage after included subscription quotas are exhausted.
     pub allow_paid_usage: bool,
     pub harness: Option<HarnessKind>,

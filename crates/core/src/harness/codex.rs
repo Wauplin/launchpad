@@ -35,6 +35,9 @@ struct State {
     open: HashMap<String, (String, i64, i64)>,
     /// Pending `item/tool/requestUserInput`: our request id → (JSON-RPC id, question ids).
     requests: HashMap<String, (Value, Vec<String>)>,
+    approvals: HashMap<String, Vec<(String, Value)>>,
+    request_turns: HashMap<String, (Value, Value)>,
+    approval_items: HashMap<String, Value>,
     completed: HashSet<String>,
     running: bool,
     cwd: String,
@@ -67,6 +70,10 @@ async fn start(
     sink: Sink,
 ) -> Result<Arc<dyn LiveSession>> {
     let cwd = spec.cwd.to_string_lossy().to_string();
+    let (approval, sandbox) = match spec.permission_mode {
+        PermissionMode::Yolo => ("never", "danger-full-access"),
+        PermissionMode::Approvals => ("untrusted", "workspace-write"),
+    };
     let thread_id = if spec.resume {
         let id = spec
             .harness_session_id
@@ -76,7 +83,7 @@ async fn start(
             .request(
                 "thread/resume",
                 {
-                    let mut params = json!({"threadId": id, "cwd": cwd, "excludeTurns": true, "approvalPolicy": "never", "sandbox": "danger-full-access"});
+                    let mut params = json!({"threadId": id, "cwd": cwd, "excludeTurns": true, "approvalPolicy": approval, "sandbox": sandbox});
                     if let Some(m) = &spec.model {
                         params["model"] = json!(m);
                     }
@@ -87,7 +94,7 @@ async fn start(
             .context("thread/resume")?;
         id
     } else {
-        let mut params = json!({"cwd": cwd, "approvalPolicy": "never", "sandbox": "danger-full-access"});
+        let mut params = json!({"cwd": cwd, "approvalPolicy": approval, "sandbox": sandbox});
         if let Some(m) = &spec.model {
             params["model"] = json!(m);
         }
@@ -228,8 +235,25 @@ impl LiveSession for CodexSession {
     }
 
     fn has_open_questions(&self) -> bool { !self.state.lock().unwrap().requests.is_empty() }
+    fn answer_stops_turn(&self, request_id: &str, answers: &[String]) -> bool {
+        self.state.lock().unwrap().approvals.get(request_id)
+            .and_then(|options| approval_answer(options, answers).ok())
+            .is_some_and(|response| matches!(response["decision"].as_str(), Some("cancel" | "abort")))
+    }
     async fn answer(&self, request_id: &str, answers: Vec<String>) -> Result<()> {
+        let pending = self.state.lock().unwrap().requests.get(request_id).cloned().context("this question was already answered")?;
+        let approval = self.state.lock().unwrap().approvals.get(request_id).cloned();
+        if let Some(options) = approval {
+            let response = approval_answer(&options, &answers)?;
+            self.server.respond(pending.0, response).await?;
+            let mut state = self.state.lock().unwrap();
+            state.requests.remove(request_id);
+            state.approvals.remove(request_id);
+            state.request_turns.remove(request_id);
+            return Ok(());
+        }
         let (rpc_id, ids) = self.state.lock().unwrap().requests.remove(request_id).context("this question was already answered")?;
+        self.state.lock().unwrap().request_turns.remove(request_id);
         let mut map = serde_json::Map::new();
         for (qid, a) in ids.iter().zip(answers) {
             map.insert(qid.clone(), json!({"answers": [a]}));
@@ -241,6 +265,8 @@ impl LiveSession for CodexSession {
         for (thread, turn) in self.active_turns() {
             let _ = self.server.request("turn/interrupt", json!({"threadId":thread,"turnId":turn})).await;
         }
+        let root = self.threads.lock().unwrap().get(&self.thread_id).cloned();
+        if let Some((sink, state)) = root { cancel_requests(&sink, &state).await; }
         let children: Vec<String> = {
             let mut threads = self.threads.lock().unwrap();
             let ids = threads.iter().filter(|(_, (sink, _))| sink.id == threads.get(&self.thread_id).map(|(s, _)| s.id.as_str()).unwrap_or("") && sink.agent_id.is_some()).map(|(id, _)| id.clone()).collect::<Vec<_>>();
@@ -288,15 +314,23 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
                             &json!({"method": method, "params": params}).to_string(),
                         )
                         .await;
+                    if method == "serverRequest/resolved" {
+                        let root = router_threads.lock().unwrap().values().find(|(root, _)| root.id == entry.0.id && root.agent_id.is_none()).cloned();
+                        if let Some((sink, state)) = root { resolve_request(&sink, &state, &params["requestId"]).await; }
+                    }
                     discover_children(&server, &router_threads, &entry.0, &params["item"]).await;
                     notification(&entry.0, &entry.1, &method, &params, &router_threads).await;
                     settle_parent(&router_threads, &entry.0).await;
                 }
-                Ok(Incoming::Request { id, method, params }) => {
+                Ok(Incoming::Request { id, method, mut params }) => {
                     let entry = params["threadId"]
                         .as_str()
                         .and_then(|t| router_threads.lock().unwrap().get(t).cloned());
-                    let entry = if method == "item/tool/requestUserInput" {
+                    if let Some((_, state)) = &entry {
+                        let item = state.lock().unwrap().approval_items.get(params["itemId"].as_str().unwrap_or("")).cloned();
+                        if let Some(item) = item { params["proposedChanges"] = item["changes"].clone(); }
+                    }
+                    let entry = if method == "item/tool/requestUserInput" || method.ends_with("requestApproval") || method == "execCommandApproval" || method == "applyPatchApproval" {
                         if let Some((child, _)) = &entry && child.agent_id.is_some() {
                             child.emit(EventBody::Notice { text: "Waiting for your answer in the parent session.".into() }).await;
                             router_threads.lock().unwrap().values().find(|(root, _)| root.id == child.id && root.agent_id.is_none()).cloned()
@@ -308,7 +342,8 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
                     // Every live thread is lost. Done sessions resume when you send a message.
                     let all: Vec<(String, ThreadSession)> =
                         router_threads.lock().unwrap().drain().collect();
-                    for (_, (sink, _)) in all {
+                    for (_, (sink, state)) in all {
+                        cancel_requests(&sink, &state).await;
                         if sink.agent_id.is_some() { sink.set_status(SessionStatus::Interrupted).await; continue; }
                         if lost {
                             sink.emit(EventBody::Notice { text: "The Codex app-server on the host ended while it was unreachable (the host or its helper restarted).".into() }).await;
@@ -403,6 +438,7 @@ async fn request(
             let questions: Vec<Question> = qs
                 .iter()
                 .map(|q| Question {
+                    permission: false,
                     id: q["id"].as_str().unwrap_or("").into(),
                     header: q["header"].as_str().unwrap_or("").into(),
                     question: q["question"].as_str().unwrap_or("").into(),
@@ -417,23 +453,69 @@ async fn request(
                 })
                 .collect();
             st.lock().unwrap().requests.insert(request_id.clone(), (id, questions.iter().map(|q| q.id.clone()).collect()));
+            st.lock().unwrap().request_turns.insert(request_id.clone(), (params["threadId"].clone(), params["turnId"].clone()));
             sink.emit(EventBody::AskUser { request_id, questions }).await;
             sink.set_open_question(true).await;
             sink.set_status(SessionStatus::Waiting).await;
         }
-        (m, entry) if m.ends_with("requestApproval") || m == "applyPatchApproval" || m == "execCommandApproval" => {
-            // Should not happen with approvalPolicy "never": declined and logged.
-            tracing::warn!("codex approval request declined: {m}");
-            if let Some((sink, _)) = entry {
-                sink.emit(EventBody::Notice { text: format!("Declined an approval request ({m})") }).await;
+        (m, Some((sink, st))) if matches!(m, "item/commandExecution/requestApproval" | "item/fileChange/requestApproval" | "item/permissions/requestApproval" | "applyPatchApproval" | "execCommandApproval") => {
+            let request_id = uuid::Uuid::new_v4().to_string();
+            let options = approval_decisions(m, params);
+            let item = st.lock().unwrap().approval_items.get(params["itemId"].as_str().unwrap_or("")).cloned();
+            {
+                let mut state = st.lock().unwrap();
+                state.requests.insert(request_id.clone(), (id, vec![]));
+                state.approvals.insert(request_id.clone(), options.clone());
+                state.request_turns.insert(request_id.clone(), (params["threadId"].clone(), params["turnId"].clone()));
             }
-            let _ = server.respond(id, json!({"decision": "decline"})).await;
+            sink.emit(EventBody::AskUser { request_id: request_id.clone(), questions: vec![Question {
+                permission: true, id: request_id, header: "Approval required".into(),
+                question: approval_preview(m, params, item.as_ref()),
+                options: options.iter().map(|(label, _)| QuestionOption { label: label.clone(), description: String::new() }).collect(), multi_select: false,
+            }] }).await;
+            sink.set_open_question(true).await;
+            sink.set_status(SessionStatus::Waiting).await;
+        }
+        (m, entry) if m.ends_with("requestApproval") || matches!(m, "applyPatchApproval" | "execCommandApproval") => {
+            if let Some((sink, _)) = entry {
+                sink.emit(EventBody::Notice { text: format!("Unsupported approval request ({m}) was denied.") }).await;
+            }
+            let response = if m == "item/permissions/requestApproval" { json!({"permissions":{}}) }
+                else { json!({"decision":if matches!(m, "applyPatchApproval" | "execCommandApproval") { "denied" } else { "decline" }}) };
+            let _ = server.respond(id, response).await;
         }
         (m, _) => {
             tracing::warn!("codex server request not supported: {m}");
             let _ = server.respond(id, json!({})).await;
         }
     }
+}
+
+fn approval_answer(options: &[(String, Value)], answers: &[String]) -> Result<Value> {
+    anyhow::ensure!(answers.len() == 1, "Select one approval decision");
+    options.iter().find(|(label, _)| label == &answers[0]).map(|(_, response)| response.clone()).context("Choose an available decision on the approval card")
+}
+
+fn approval_decisions(method: &str, params: &Value) -> Vec<(String, Value)> {
+    if method == "item/permissions/requestApproval" {
+        return vec![("Allow once".into(), json!({"permissions":params["permissions"],"scope":"turn"})), ("Deny".into(), json!({"permissions":{}}))];
+    }
+    let legacy = matches!(method, "applyPatchApproval" | "execCommandApproval");
+    [("Allow once", "accept", "approved"), ("Allow for session", "acceptForSession", "approved_for_session"), ("Deny", "decline", "denied"), ("Cancel turn", "cancel", "abort")].into_iter()
+        .filter(|(_, decision, _)| params["availableDecisions"].as_array().is_none_or(|available| available.contains(&json!(decision))))
+        .map(|(label, decision, old)| (label.into(), json!({"decision":if legacy { old } else { decision }}))).collect()
+}
+
+fn approval_preview(method: &str, params: &Value, item: Option<&Value>) -> String {
+    let title = if params.get("networkApprovalContext").is_some_and(|v| !v.is_null()) { "Network access" }
+        else if method.contains("fileChange") || method == "applyPatchApproval" { "File changes" }
+        else if method.contains("permissions") { "Additional permissions" } else { "Run command" };
+    let mut detail = params.clone();
+    if let Some(item) = item { detail["proposedChanges"] = item["changes"].clone(); }
+    if let Some(object) = detail.as_object_mut() {
+        for key in ["threadId", "turnId", "itemId", "availableDecisions", "proposedExecpolicyAmendment"] { object.remove(key); }
+    }
+    format!("{title}\n{}", serde_json::to_string_pretty(&detail).unwrap_or_default())
 }
 
 fn item_summary(item: &Value) -> (String, String) {
@@ -452,6 +534,29 @@ fn item_summary(item: &Value) -> (String, String) {
 }
 
 const TOOL_ITEMS: &[&str] = &["commandExecution", "mcpToolCall", "dynamicToolCall", "webSearch", "imageView", "collabAgentToolCall"];
+
+async fn cancel_requests(sink: &Sink, st: &Mutex<State>) {
+    let pending = st.lock().unwrap().requests.values().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+    for id in pending { resolve_request(sink, st, &id).await; }
+}
+
+async fn resolve_request(sink: &Sink, st: &Mutex<State>, rpc_id: &Value) {
+    let request_id = {
+        let state = st.lock().unwrap();
+        state.requests.iter().find(|(_, (id, _))| id == rpc_id).map(|(key, _)| key.clone())
+    };
+    if let Some(request_id) = request_id {
+        {
+            let mut state = st.lock().unwrap();
+            state.requests.remove(&request_id);
+            state.approvals.remove(&request_id);
+            state.request_turns.remove(&request_id);
+        }
+        sink.emit(EventBody::AskAnswered { request_id, answers: vec!["Request ended".into()] }).await;
+        let open = !st.lock().unwrap().requests.is_empty();
+        sink.set_open_question(open).await;
+    }
+}
 
 async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Value, threads: &Threads) {
     match method {
@@ -472,6 +577,9 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
         }
         "item/started" => {
             let item = &p["item"];
+            if item["type"] == "fileChange" {
+                st.lock().unwrap().approval_items.insert(item["id"].as_str().unwrap_or("").into(), item.clone());
+            }
             let (t, id) = (item["type"].as_str().unwrap_or(""), item["id"].as_str().unwrap_or("").to_string());
             match t {
                 "userMessage" => {
@@ -505,6 +613,9 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
         }
         "item/completed" => {
             let item = &p["item"];
+            if item["type"] == "fileChange" {
+                st.lock().unwrap().approval_items.remove(item["id"].as_str().unwrap_or(""));
+            }
             let (t, id) = (item["type"].as_str().unwrap_or(""), item["id"].as_str().unwrap_or("").to_string());
             if !st.lock().unwrap().completed.insert(id.clone()) { return; }
             st.lock().unwrap().open.remove(&id);
@@ -603,6 +714,12 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             let turn = &p["turn"];
             let interrupted = turn["status"] == "interrupted";
             let error = turn["error"]["message"].as_str().map(str::to_string);
+            let pending = {
+                let state = st.lock().unwrap();
+                state.requests.iter().filter(|(key, _)| state.request_turns.get(*key).is_some_and(|(thread, id)| thread == &p["threadId"] && id == &turn["id"]))
+                    .map(|(_, (id, _))| id.clone()).collect::<Vec<_>>()
+            };
+            for rpc_id in pending { resolve_request(sink, st, &rpc_id).await; }
             let ended = st.lock().unwrap().end_turn();
             for id in ended {
                 sink.emit(EventBody::ToolResult { item_id: id, output: "Interrupted".into(), is_error: true, exit_code: None, duration_ms: None }).await;
@@ -668,6 +785,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
         color: "#566477",
         working_message: "Message Codex. It steers the running turn.",
         capabilities: super::HarnessCapabilities {
+            permission_modes: true,
             images: true,
             messages_while_running: true,
             terminal: true,
@@ -768,18 +886,22 @@ impl super::Harness for Adapter {
         &["resume"]
     }
     fn terminal_command(&self, s: &Session, _is_temp: bool) -> Result<Vec<String>> {
-        Ok(vec![
+        let mut args = vec![
             "codex".into(),
             "resume".into(),
             s.harness_session_id
                 .clone()
                 .context("the session has no conversation yet")?,
-            "--dangerously-bypass-approvals-and-sandbox".into(),
             "-c".into(),
             "check_for_update_on_startup=false".into(),
             "-c".into(),
             project_trust_override(&s.cwd),
-        ])
+        ];
+        args.extend(match s.launch_spec.permission_mode {
+            PermissionMode::Yolo => vec!["--dangerously-bypass-approvals-and-sandbox".into()],
+            PermissionMode::Approvals => vec!["--ask-for-approval".into(), "untrusted".into(), "--sandbox".into(), "workspace-write".into()],
+        });
+        Ok(args)
     }
     fn title_command(
         &self,
@@ -923,6 +1045,23 @@ fn project_trust_override(cwd: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn approval_decisions_respect_advertised_choices_and_reject_typed_consent() {
+        use super::*;
+        let options = approval_decisions("item/commandExecution/requestApproval", &json!({"availableDecisions":["accept", "decline"]}));
+        assert_eq!(options.len(), 2);
+        assert_eq!(approval_answer(&options, &["Allow once".into()]).unwrap(), json!({"decision":"accept"}));
+        assert_eq!(approval_answer(&options, &["Deny".into()]).unwrap(), json!({"decision":"decline"}));
+        assert!(approval_answer(&options, &["Allow for session".into()]).is_err());
+        assert!(approval_answer(&options, &["yes".into()]).is_err());
+        let requested = json!({"permissions":{"network":{"enabled":true}}});
+        let options = approval_decisions("item/permissions/requestApproval", &requested);
+        assert_eq!(approval_answer(&options, &["Allow once".into()]).unwrap(), json!({"permissions":requested["permissions"],"scope":"turn"}));
+        assert_eq!(approval_answer(&options, &["Deny".into()]).unwrap(), json!({"permissions":{}}));
+        let options = approval_decisions("execCommandApproval", &json!({}));
+        assert_eq!(approval_answer(&options, &["Deny".into()]).unwrap(), json!({"decision":"denied"}));
+    }
+
     #[test]
     fn background_commands_survive_turn_end_until_real_completion() {
         let mut state = super::State {

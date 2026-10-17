@@ -24,6 +24,7 @@ import { compact, statusInfo, STYLES } from "./SessionBits";
 import type { Row } from "./rows";
 import type { Suggestion } from "@/gen/Suggestion";
 import { splitPrompt } from "./traceRows";
+import { AskCard } from "./AskCard";
 import { Instructions } from "./EventRow";
 
 export function StateBand({ session: s, children }: { session: Session; children?: ReactNode }) {
@@ -101,7 +102,6 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   const [conditions, setConditions] = useState<LaunchDelay[]>([{ kind: "in", minutes: 30 }]);
   const [valid, setValid] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [choices, setChoices] = useState<Record<number, string>>({});
   const finalRef = useRef<HTMLDivElement>(null);
   // With a tail-first log, the first prompt and older facts come from `earlier`.
   const earlierFinal = earlier?.last_assistant?.body.kind === "assistant_message" ? earlier.last_assistant.body.text : null;
@@ -118,8 +118,8 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   const commands = rows.flatMap((r) => r.t === "tools" ? r.calls : []).filter((c) => /^(Bash|Shell)$/.test(c.name));
   const lastCommand = commands.at(-1);
   const earlierAsk = earlier?.last_ask?.body.kind === "ask_user" ? { ...earlier.last_ask.body, answers: earlier.last_ask_answers } : undefined;
-  const lastAsk = rows.filter((r) => r.t === "ask").at(-1) ?? earlierAsk;
-  const question = s.open_question && lastAsk && !lastAsk.answers ? lastAsk : null;
+  const pendingQuestions = s.open_question ? rows.flatMap((r) => r.t === "ask" && !r.answers ? [r] : []) : [];
+  if (s.open_question && earlierAsk && !earlierAsk.answers && !rows.some((r) => r.t === "ask" && r.request_id === earlierAsk.request_id)) pendingQuestions.unshift({ ...earlierAsk, t: "ask", key: earlierAsk.request_id, v: "" });
   const refs = [...s.launch_spec.github_refs];
   if (localPr?.published_url && !refs.some((r) => r.url === localPr.published_url)) refs.push({ url: localPr.published_url, kind: "pr", repo: "", number: localPr.published_number, title: localPr.title });
   const tokens = s.usage.input_tokens + s.usage.cached_tokens + s.usage.output_tokens;
@@ -133,6 +133,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   if (s.launch_spec.variant) metadata.push(["Harness", <VariantLabel session={s} />]);
   if (supportsCost) metadata.push(["Cost limit", <CostLimit session={s} />]);
   metadata.push(["Model", <span className="inline-flex flex-wrap items-center gap-2"><ModelSwitch session={s} />{contextShare}</span>]);
+  if (useHarnessInfo(s.harness)?.capabilities.permission_modes) metadata.push(["Permissions", s.launch_spec.permission_mode === "approvals" ? "Ask for approval" : "YOLO · Full access"]);
   metadata.push(["Paid usage", <PaidUsageToggle session={s} />]);
   metadata.push(["Folder", s.cwd]);
   if (git.data) metadata.push(["Branch", `${git.data.branch} · ${git.data.files.length ? `${git.data.files.length} uncommitted files` : "clean"}${git.data.unpushed_commits == null ? "" : git.data.unpushed_commits ? ` · ${git.data.unpushed_commits} commits absent from cached remote refs` : " · present in cached remote refs"}`]);
@@ -146,19 +147,11 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
     localStorage.setItem(`launchpad.session-predraft.${s.id}`, p.id);
     await navigate({ to: "/predrafts/$id", params: { id: p.id } });
   });
-  const answer = (i: number, label: string) => {
-    if (!question) return;
-    const selected = { ...choices, [i]: label }; setChoices(selected);
-    if (question.questions.every((_, j) => selected[j])) void run(async () => {
-      if (s.live) await api.post(`/api/sessions/${s.id}/answer`, { request_id: question.request_id, answers: question.questions.map((_, j) => selected[j]) });
-      else await api.post(`/api/sessions/${s.id}/input`, { text: question.questions.map((q, j) => `${q.question}\n${selected[j]}`).join("\n\n") });
-      showTrace();
-    });
-  };
   const followUp = schedules.some((q) => q.resume_session_id === s.id);
   const unfinished = ["stopped", "interrupted", "error"].includes(s.status);
   return <div className="min-h-0 flex-1 overflow-y-auto bg-paper">
     <StateBand session={s} /><FollowUpBands sessionId={s.id} /><QuotaBand session={s} />
+    {pendingQuestions.length > 0 && <Section title="Needs your decision">{pendingQuestions.map((question) => <AskCard key={question.request_id} row={question} sessionId={s.id} live={s.live} />)}</Section>}
     <Section title="Run"><dl className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">{metadata.map(([key, value]) => <Fragment key={key}><dt className="text-ink-3">{key}</dt><dd className="break-words whitespace-pre-wrap">{value}</dd></Fragment>)}</dl></Section>
     <Section title="Task · first prompt"><Fold lines={4} label="Show full task"><div className="whitespace-pre-wrap">{split ? split.typed : prompt}</div>{split && <Instructions blocks={split.instructions} className="mt-1" />}</Fold></Section>
     {final && <Section title={s.status === "stopped" || unfinished ? "Last agent message" : "Final message"} actions={<><button className="btn btn-sm" onClick={() => void copyText(final.text).then(() => toast("Copied"))}>Copy</button><button className="btn btn-sm" onClick={() => void copyText(renderedText(finalRef.current, final.text)).then(() => toast("Copied as text"))}>Copy as text</button></>}><Fold lines={30} label="Show full message"><div ref={finalRef}><Markdown text={final.text} runShell /></div></Fold></Section>}
@@ -169,8 +162,6 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
       {((changes?.files ?? 0) > 0 || (git.data?.files.length ?? 0) > 0) && <NextStep source="Git" text={`${git.data?.files.length ?? 0} uncommitted files${changes ? `; ${changes.files} tracked files differ from main` : ""}.`} button="Review diff" onClick={() => reviewDiff((changes?.files ?? 0) > 0)} />}
       {(unfinished || s.status === "closed") && <NextStep source="Session" text={s.status === "closed" ? "This archived session is still resumable." : "The last turn did not finish successfully."} button="Resume" disabled={busy} onClick={() => void run(async () => { if (unfinished) await api.post(`/api/sessions/${s.id}/input`, { text: "Continue the unfinished turn." }); else await api.post(`/api/sessions/${s.id}/resume`); showTrace(); })} />}
       {refs.map((r, i) => <NextStep key={i} source="GitHub" text={r.title ?? `Linked ${r.kind}${r.number ? ` #${r.number}` : ""}.`} button={`Open ${r.number ? `#${r.number}` : r.kind}`} onClick={() => { if (r.number && r.repo.includes("/")) { const [owner, repo] = r.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(r.number) } }); } else openExternal(r.url); }} />)}
-      {question && question.questions.length > 1 && <p className="py-1 text-xs text-ink-3">Choose an answer for each question; the last choice sends all answers.</p>}
-      {question?.questions.flatMap((q, i) => q.options.map((o) => <NextStep key={`${i}-${o.label}`} source="Agent" text={`${q.question} ${o.description}`} button={`${choices[i] === o.label ? "✓ " : ""}${o.label}`} disabled={busy} onClick={() => answer(i, o.label)} />))}
       {!scheduling && <p className="pt-2 text-xs text-ink-3">{followUp ? "A follow-up is already scheduled for this session." : s.status === "quota_paused" ? null : <button className="text-teal-ink hover:underline" onClick={() => setScheduling(true)}>Schedule follow-up</button>}</p>}
       {scheduling && <div className="grid gap-3 border-t border-line py-3"><b className="text-xs">Schedule follow-up · same session, new message</b><textarea className="field-input min-h-20" aria-label="Follow-up message" placeholder="Message to send later…" value={message} onChange={(e) => setMessage(e.target.value)} /><DelaySelector conditions={conditions} harness={s.harness} onChange={setConditions} onValidityChange={setValid} /><p className="text-xs text-ink-3">If this session is running, in a terminal or awaiting an answer at that time, the follow-up stays queued until it is ready.</p><div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !message.trim() || !conditions.length || !valid} onClick={() => void run(async () => { await api.post(`/api/sessions/${s.id}/follow-up`, { message, conditions }); setScheduling(false); setMessage(""); })}>Schedule</button><button className="btn btn-sm" onClick={() => setScheduling(false)}>Cancel</button></div></div>}
     </Section>
