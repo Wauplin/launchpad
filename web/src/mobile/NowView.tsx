@@ -1,4 +1,4 @@
-// Now (phone): what needs you first, each card with its main action, then what waits to be published and what
+// Now (phone): what needs you first, with cards that open the agent, then what waits to be published and what
 // runs. Uses the same predicates and workspace scope as the desktop Agents list and To publish.
 
 import { useQuery } from "@tanstack/react-query";
@@ -72,6 +72,14 @@ function OpenTerminals() {
   </Section>;
 }
 
+// Cover the card with a real link; action controls sit above it and leave gaps clickable.
+function AgentCard({ s, className, children }: { s: Session; className: string; children: ReactNode }) {
+  return <article className={`relative grid min-w-0 grid-cols-1 gap-2.5 rounded-xl border bg-paper p-3 ${className}`}>
+    <Link to="/agents" search={{ session: s.id }} aria-label={`Open agent: ${s.title}`} className="absolute inset-0 z-10 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal" />
+    {children}
+  </article>;
+}
+
 function CardHead({ s, project }: { s: Session; project: string }) {
   return <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-2.5 gap-y-1.5">
     <span className="mt-0.5"><HarnessMark harness={s.harness} size={18} /></span>
@@ -103,11 +111,11 @@ const QuestionCard = memo(function QuestionCard({ s, project }: { s: Session; pr
     for (let i = rows.length - 1; i >= 0; i--) { const r = rows[i]; if (r.t === "ask") return r.answers ? null : r; }
     return null;
   }, [log]);
-  return <article className="grid min-w-0 grid-cols-1 gap-2.5 phone-review-card rounded-xl border border-attn-line bg-paper p-3">
+  return <AgentCard s={s} className="phone-review-card border-attn-line">
     <CardHead s={s} project={project} />
-    {ask && s.live ? <AskCard row={ask} sessionId={s.id} live={s.live} hint="Or tap Other answer to write one." /> : <p className="text-[13.5px] text-ink-2">{s.last_message ?? "The agent asked a question."}</p>}
-    <div className="flex flex-wrap gap-2"><button className="btn" onClick={() => open(navigate, s.id)}>Other answer…</button></div>
-  </article>;
+    {ask && s.live ? <div className="pointer-events-none relative z-20 [&_button]:pointer-events-auto"><AskCard row={ask} sessionId={s.id} live={s.live} hint="Or tap Other answer to write one." /></div> : <p className="text-[13.5px] text-ink-2">{s.last_message ?? "The agent asked a question."}</p>}
+    <div className="pointer-events-none relative z-20 flex flex-wrap gap-2 [&_button]:pointer-events-auto"><button className="btn" onClick={() => open(navigate, s.id)}>Other answer…</button></div>
+  </AgentCard>;
 });
 
 function GitFacts({ id }: { id: string }) {
@@ -123,36 +131,32 @@ function GitFacts({ id }: { id: string }) {
 }
 
 const OutcomeCard = memo(function OutcomeCard({ s, project }: { s: Session; project: string }) {
-  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const act = async (path: string, body?: unknown) => {
     setBusy(true);
     try { await api.post(`/api/sessions/${s.id}/${path}`, body); } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   const done = isDone(s);
-  return <article className={`grid min-w-0 grid-cols-1 gap-2.5 rounded-xl border bg-paper p-3 ${done ? "border-line" : "border-gh-closed/40"}`}>
+  return <AgentCard s={s} className={done ? "border-line" : "border-gh-closed/40"}>
     <CardHead s={s} project={project} />
     {s.last_message && <p className="line-clamp-4 text-[13.5px] text-ink-2">{s.last_message}</p>}
     {done && <GitFacts id={s.id} />}
-    <div className="flex flex-wrap gap-2">
-      <button className="btn btn-primary" onClick={() => open(navigate, s.id)}>Open</button>
+    <div className="pointer-events-none relative z-20 flex flex-wrap gap-2 [&_button]:pointer-events-auto">
       {done && <button className="btn" disabled={busy} title="Archive the session (it stays resumable)" onClick={() => void act("close")}><Icon name="archive" size={14} />Archive</button>}
       {!done && <button className="btn" disabled={busy} title="Send “Continue the unfinished turn.”" onClick={() => void act("input", { text: "Continue the unfinished turn." })}>Resume</button>}
     </div>
-  </article>;
+  </AgentCard>;
 });
 
 const PausedCard = memo(function PausedCard({ s, project }: { s: Session; project: string }) {
-  const navigate = useNavigate();
   const blockers = s.quota_pause?.blockers.map((b) => `${b.window} resets ${b.resets_at === null ? "at an unknown time" : new Date(b.resets_at * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`).join(" · ");
-  return <article className="grid min-w-0 grid-cols-1 gap-2.5 phone-review-card rounded-xl border border-attn-line bg-paper p-3">
+  return <AgentCard s={s} className="phone-review-card border-attn-line">
     <CardHead s={s} project={project} />
     <p className="text-[13.5px] text-attn">{s.quota_pause?.error ?? blockers ?? "Waiting for a quota update"}</p>
-    <div className="flex flex-wrap gap-2">
-      <button className="btn btn-primary" onClick={() => open(navigate, s.id)}>Open</button>
+    <div className="pointer-events-none relative z-20 flex flex-wrap gap-2 [&_button]:pointer-events-auto">
       <button className="btn" onClick={() => void api.post(`/api/sessions/${s.id}/interrupt`).catch(toastError)}><Icon name="stop" size={14} />Stop</button>
     </div>
-  </article>;
+  </AgentCard>;
 });
 
 function Row({ s, project }: { s: Session; project: string }) {
