@@ -133,7 +133,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   if (s.launch_spec.variant) metadata.push(["Harness", <VariantLabel session={s} />]);
   if (supportsCost) metadata.push(["Cost limit", <CostLimit session={s} />]);
   metadata.push(["Model", <span className="inline-flex flex-wrap items-center gap-2"><ModelSwitch session={s} />{contextShare}</span>]);
-  if (useHarnessInfo(s.harness)?.capabilities.permission_modes) metadata.push(["Permissions", s.launch_spec.permission_mode === "approvals" ? "Ask for approval" : "YOLO · Full access"]);
+  if (useHarnessInfo(s.harness)?.capabilities.permission_modes) metadata.push(["Permissions", s.launch_spec.permission_mode === "auto" ? "Auto approval · AI review" : s.launch_spec.permission_mode === "approvals" ? "Ask for approval" : "YOLO · Full access"]);
   metadata.push(["Paid usage", <PaidUsageToggle session={s} />]);
   metadata.push(["Folder", s.cwd]);
   if (git.data) metadata.push(["Branch", `${git.data.branch} · ${git.data.files.length ? `${git.data.files.length} uncommitted files` : "clean"}${git.data.unpushed_commits == null ? "" : git.data.unpushed_commits ? ` · ${git.data.unpushed_commits} commits absent from cached remote refs` : " · present in cached remote refs"}`]);

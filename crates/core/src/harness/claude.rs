@@ -16,6 +16,14 @@ use crate::sessions::{LiveSession, Sink, StartSpec, json_line, shorten, text_of,
 
 use super::permission_options;
 
+fn permission_args(mode: PermissionMode) -> Vec<String> {
+    match mode {
+        PermissionMode::Yolo => vec!["--dangerously-skip-permissions".into()],
+        PermissionMode::Approvals => vec!["--permission-mode".into(), "default".into()],
+        PermissionMode::Auto => vec!["--permission-mode".into(), "auto".into()],
+    }
+}
+
 fn claude_permission_response(input: &Value, answers: &[String]) -> Result<Value> {
     match answers.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["Allow once"] => Ok(json!({"behavior":"allow", "updatedInput":input})),
@@ -57,6 +65,7 @@ struct State {
     /// Cost reported by earlier processes of this session.
     cost_base: f64,
     permission_mode: PermissionMode,
+    auto_unavailable_notified: bool,
 }
 
 pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
@@ -75,10 +84,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     .into_iter()
     .map(String::from)
     .collect();
-    args.extend(match spec.permission_mode {
-        PermissionMode::Yolo => vec!["--dangerously-skip-permissions".into()],
-        PermissionMode::Approvals => vec!["--permission-mode".into(), "default".into()],
-    });
+    args.extend(permission_args(spec.permission_mode));
     let harness_id = spec.harness_session_id.clone().unwrap_or_else(|| spec.session_id.clone());
     if spec.resume {
         args.extend(["--resume".into(), harness_id.clone()]);
@@ -463,6 +469,16 @@ async fn handle_system(sink: &Sink, st: &Arc<Mutex<State>>, msg: &Value) {
         // Sent at the start of every turn, including turns Claude starts by itself after a background task.
         "init" => {
             st.lock().unwrap().turn_running = true;
+            let unavailable = {
+                let mut state = st.lock().unwrap();
+                let unavailable = state.permission_mode == PermissionMode::Auto && !state.auto_unavailable_notified
+                    && msg["permissionMode"].as_str().is_some_and(|mode| mode != "auto");
+                state.auto_unavailable_notified |= unavailable;
+                unavailable
+            };
+            if unavailable {
+                sink.emit(EventBody::Notice { text: format!("Claude could not enable AI auto approval (native mode: {}). Check model/account support and managed policy. Remaining permission requests need your decision here.", msg["permissionMode"].as_str().unwrap_or("unknown")) }).await;
+            }
             if let Some(model) = msg["model"].as_str() {
                 sink.set_model(model).await;
             }
@@ -825,10 +841,7 @@ impl super::Harness for Adapter {
             "--resume".into(),
             id,
         ]);
-        args.extend(match s.launch_spec.permission_mode {
-            PermissionMode::Yolo => vec!["--dangerously-skip-permissions".into()],
-            PermissionMode::Approvals => vec!["--permission-mode".into(), "default".into()],
-        });
+        args.extend(permission_args(s.launch_spec.permission_mode));
         Ok(args)
     }
     fn terminal_env(&self, is_temp: bool) -> &'static [(&'static str, &'static str)] {
@@ -1036,6 +1049,14 @@ fn claude_transcripts_dir(cwd: &str) -> std::path::PathBuf {
 #[cfg(test)]
 mod permission_tests {
     use super::*;
+    #[test]
+    fn auto_permissions_use_the_native_classifier_without_bypass_flags() {
+        assert_eq!(permission_args(PermissionMode::Auto), ["--permission-mode", "auto"]);
+        assert_eq!(permission_args(PermissionMode::Approvals), ["--permission-mode", "default"]);
+        let spec: LaunchSpec = serde_json::from_value(json!({"permission_mode":"auto"})).unwrap();
+        assert_eq!(spec.permission_mode, PermissionMode::Auto);
+    }
+
     #[test]
     fn approvals_require_an_explicit_choice_and_preserve_tool_input() {
         let input = json!({"command":"printf hello", "description":"A harmless test"});

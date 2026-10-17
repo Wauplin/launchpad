@@ -63,6 +63,28 @@ impl State {
 type ThreadSession = (Sink, Arc<Mutex<State>>);
 type Threads = Arc<Mutex<HashMap<String, ThreadSession>>>;
 
+fn permission_settings(mode: PermissionMode) -> (&'static str, &'static str, &'static str) {
+    match mode {
+        PermissionMode::Yolo => ("never", "user", "danger-full-access"),
+        PermissionMode::Approvals => ("untrusted", "user", "workspace-write"),
+        PermissionMode::Auto => ("on-request", "auto_review", "workspace-write"),
+    }
+}
+
+fn permission_args(mode: PermissionMode) -> Vec<String> {
+    let (approval, reviewer, sandbox) = permission_settings(mode);
+    let mut args = if mode == PermissionMode::Yolo { vec!["--dangerously-bypass-approvals-and-sandbox".into()] }
+        else { vec!["--ask-for-approval".into(), approval.into(), "--sandbox".into(), sandbox.into()] };
+    args.extend(["-c".into(), format!("approvals_reviewer=\"{reviewer}\"")]);
+    args
+}
+
+fn ensure_auto_reviewer(mode: PermissionMode, response: &Value) -> Result<()> {
+    anyhow::ensure!(mode != PermissionMode::Auto || matches!(response["approvalsReviewer"].as_str(), Some("auto_review" | "guardian_subagent")),
+        "Codex did not enable AI auto-review. Update Codex or check account and managed permission settings; Launchpad will not start an unreviewed turn.");
+    Ok(())
+}
+
 async fn start(
     server: &CodexServer,
     threads: &Threads,
@@ -70,20 +92,17 @@ async fn start(
     sink: Sink,
 ) -> Result<Arc<dyn LiveSession>> {
     let cwd = spec.cwd.to_string_lossy().to_string();
-    let (approval, sandbox) = match spec.permission_mode {
-        PermissionMode::Yolo => ("never", "danger-full-access"),
-        PermissionMode::Approvals => ("untrusted", "workspace-write"),
-    };
+    let (approval, reviewer, sandbox) = permission_settings(spec.permission_mode);
     let thread_id = if spec.resume {
         let id = spec
             .harness_session_id
             .clone()
             .context("no Codex thread to resume")?;
-        server
+        let res = server
             .request(
                 "thread/resume",
                 {
-                    let mut params = json!({"threadId": id, "cwd": cwd, "excludeTurns": true, "approvalPolicy": approval, "sandbox": sandbox});
+                    let mut params = json!({"threadId": id, "cwd": cwd, "excludeTurns": true, "approvalPolicy": approval, "approvalsReviewer": reviewer, "sandbox": sandbox});
                     if let Some(m) = &spec.model {
                         params["model"] = json!(m);
                     }
@@ -92,9 +111,10 @@ async fn start(
             )
             .await
             .context("thread/resume")?;
+        ensure_auto_reviewer(spec.permission_mode, &res)?;
         id
     } else {
-        let mut params = json!({"cwd": cwd, "approvalPolicy": approval, "sandbox": sandbox});
+        let mut params = json!({"cwd": cwd, "approvalPolicy": approval, "approvalsReviewer": reviewer, "sandbox": sandbox});
         if let Some(m) = &spec.model {
             params["model"] = json!(m);
         }
@@ -102,6 +122,7 @@ async fn start(
             .request("thread/start", params)
             .await
             .context("thread/start")?;
+        ensure_auto_reviewer(spec.permission_mode, &res)?;
         let id = res["thread"]["id"]
             .as_str()
             .context("no thread id")?
@@ -533,7 +554,7 @@ fn item_summary(item: &Value) -> (String, String) {
     }
 }
 
-const TOOL_ITEMS: &[&str] = &["commandExecution", "mcpToolCall", "dynamicToolCall", "webSearch", "imageView", "collabAgentToolCall"];
+const TOOL_ITEMS: &[&str] = &["commandExecution", "mcpToolCall", "dynamicToolCall", "webSearch", "imageView", "collabAgentToolCall", "autoApprovalReview"];
 
 async fn cancel_requests(sink: &Sink, st: &Mutex<State>) {
     let pending = st.lock().unwrap().requests.values().map(|(id, _)| id.clone()).collect::<Vec<_>>();
@@ -558,8 +579,46 @@ async fn resolve_request(sink: &Sink, st: &Mutex<State>, rpc_id: &Value) {
     }
 }
 
+fn auto_review_output(p: &Value) -> String {
+    let review = &p["review"];
+    let mut text: String = match review["status"].as_str() {
+        Some("approved") => "AI review approved this action".into(),
+        Some("denied") => "AI review denied this action".into(),
+        Some("timedOut") => "AI review timed out".into(),
+        Some("aborted") => "AI review was cancelled".into(),
+        _ => "AI review ended without a reported decision".into(),
+    };
+    if let Some(risk) = review["riskLevel"].as_str() { text.push_str(&format!("\nRisk: {risk}")); }
+    if let Some(reason) = review["rationale"].as_str() { text.push_str(&format!("\n{reason}")); }
+    text
+}
+
 async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Value, threads: &Threads) {
     match method {
+        "item/autoApprovalReview/started" => {
+            let id = format!("auto-review:{}", p["reviewId"].as_str().unwrap_or("unknown"));
+            let started = p["startedAtMs"].as_i64().unwrap_or_else(now_ms);
+            st.lock().unwrap().open.insert(id.clone(), ("autoApprovalReview".into(), started, started));
+            sink.emit(EventBody::ToolCall {
+                item_id: id, name: "AI approval review".into(),
+                summary: shorten(p["action"]["command"].as_str().unwrap_or(p["action"]["type"].as_str().unwrap_or("Permission request")), 160),
+                input: p["action"].clone(),
+            }).await;
+        }
+        "item/autoApprovalReview/completed" => {
+            let id = format!("auto-review:{}", p["reviewId"].as_str().unwrap_or("unknown"));
+            st.lock().unwrap().open.remove(&id);
+            sink.emit(EventBody::ToolResult { item_id: id, output: auto_review_output(p), is_error: p["review"]["status"] != "approved", exit_code: None,
+                duration_ms: p["completedAtMs"].as_i64().zip(p["startedAtMs"].as_i64()).map(|(end, start)| end.saturating_sub(start)),
+            }).await;
+        }
+        "guardianWarning" => {
+            if let Some(message) = p["message"].as_str() {
+                let reviewing = st.lock().unwrap().open.values().any(|(kind, _, _)| kind == "autoApprovalReview");
+                let duplicate_outcome = message.starts_with("Automatic approval review approved") || message.starts_with("Automatic approval review denied");
+                if !reviewing || !duplicate_outcome { sink.emit(EventBody::Notice { text: format!("AI approval review: {message}") }).await; }
+            }
+        }
         "thread/status/changed" if sink.agent_id.is_some() => {
             st.lock().unwrap().running = p["status"]["type"] == "active";
             match p["status"]["type"].as_str() {
@@ -897,10 +956,7 @@ impl super::Harness for Adapter {
             "-c".into(),
             project_trust_override(&s.cwd),
         ];
-        args.extend(match s.launch_spec.permission_mode {
-            PermissionMode::Yolo => vec!["--dangerously-bypass-approvals-and-sandbox".into()],
-            PermissionMode::Approvals => vec!["--ask-for-approval".into(), "untrusted".into(), "--sandbox".into(), "workspace-write".into()],
-        });
+        args.extend(permission_args(s.launch_spec.permission_mode));
         Ok(args)
     }
     fn title_command(
@@ -1045,6 +1101,21 @@ fn project_trust_override(cwd: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn auto_review_keeps_a_sandbox_and_requires_a_confirmed_native_reviewer() {
+        use super::*;
+        assert_eq!(permission_settings(PermissionMode::Auto), ("on-request", "auto_review", "workspace-write"));
+        assert_eq!(permission_settings(PermissionMode::Approvals), ("untrusted", "user", "workspace-write"));
+        assert!(ensure_auto_reviewer(PermissionMode::Auto, &json!({})).is_err());
+        assert!(ensure_auto_reviewer(PermissionMode::Auto, &json!({"approvalsReviewer":"user"})).is_err());
+        assert!(ensure_auto_reviewer(PermissionMode::Auto, &json!({"approvalsReviewer":"auto_review"})).is_ok());
+        assert!(ensure_auto_reviewer(PermissionMode::Approvals, &json!({})).is_ok());
+        let args = permission_args(PermissionMode::Auto);
+        assert!(args.iter().any(|a| a == "approvals_reviewer=\"auto_review\""));
+        assert!(!args.iter().any(|a| a.contains("bypass")));
+        assert!(auto_review_output(&json!({"review":{"status":"denied","rationale":"Outside the requested task","riskLevel":"high"}})).contains("Outside the requested task"));
+    }
+
     #[test]
     fn approval_decisions_respect_advertised_choices_and_reject_typed_consent() {
         use super::*;

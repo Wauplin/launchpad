@@ -342,6 +342,8 @@ pub enum PermissionMode {
     #[default]
     Yolo,
     Approvals,
+    /// The harness routes permission decisions to its native AI reviewer.
+    Auto,
 }
 
 /// What to launch (ARCHITECTURE.md, section 9.7).

@@ -80,3 +80,16 @@ test("permission defaults are YOLO and remain independent for each harness and v
   draft().rememberLaunch({ ...emptySpec(), harness: "claude", permission_mode: "yolo" }, Date.now() + 1);
   assert.equal(rememberedRun("claude", null).permission_mode, "yolo");
 });
+
+test("AI auto approval is remembered per variant and survives new drafts", async () => {
+  const { rememberedRun } = await import("../src/stores/composer.ts");
+  useComposer.setState({ spec: { ...emptySpec(), harness: "codex", variant: "ai-review" }, open: true });
+  draft().update((s) => ({ ...s, permission_mode: "auto" }));
+  assert.equal(rememberedRun("codex", "ai-review").permission_mode, "auto");
+  assert.equal(rememberedRun("codex", null).permission_mode, "yolo");
+  draft().discard();
+  assert.equal(draft().spec.permission_mode, "auto");
+  draft().rememberLaunch({ ...emptySpec(), harness: "claude", variant: "ai-review", permission_mode: "auto" }, Date.now() + 10);
+  draft().start();
+  assert.equal(draft().spec.permission_mode, "auto");
+});

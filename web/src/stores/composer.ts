@@ -171,7 +171,7 @@ const permissionChoices: Record<string, { mode: LaunchSpec["permission_mode"]; s
   try {
     const saved: unknown = JSON.parse(localStorage.getItem("launchpad-permission-modes") ?? "{}");
     if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
-    return Object.fromEntries(Object.entries(saved).filter(([, value]) => value && (value.mode === "yolo" || value.mode === "approvals") && Number.isFinite(value.selectedAt)));
+    return Object.fromEntries(Object.entries(saved).filter(([, value]) => value && (value.mode === "yolo" || value.mode === "approvals" || value.mode === "auto") && Number.isFinite(value.selectedAt)));
   } catch { return {}; }
 })();
 
