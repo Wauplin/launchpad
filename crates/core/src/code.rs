@@ -139,14 +139,9 @@ pub struct CommitInfo {
 pub async fn open(app: &App, root: &str, rev: Option<&str>) -> Result<Source> {
     let root = crate::hostfs::canonicalize(root).await.with_context(|| format!("{root} does not exist"))?;
     let projects = crate::projects::list(app).await?;
-    let project = match projects.iter().find(|p| Path::new(&p.path) == root) {
-        Some(p) => p.clone(),
-        None => main_worktree(&root)
-            .await
-            .and_then(|main| projects.into_iter().find(|p| Path::new(&p.path) == main))
-            .with_context(|| format!("{} is not a registered project or one of its worktrees", root.display()))?,
-    };
-    let git = crate::git::git_dir(&root).await.is_some();
+    let project = project_for_root(&projects, &root).await
+        .with_context(|| format!("{} is not a registered project or one of its worktrees", root.display()))?;
+    let git = repository_root(&root).await.is_some();
     let rev = match rev.map(str::trim).filter(|r| !r.is_empty()) {
         None => None,
         Some(r) => {
@@ -219,6 +214,7 @@ async fn commit_diff_at(env: &UserEnv, root: &Path, sha: &str) -> Result<serde_j
             "--root",
             "--first-parent",
             "--diff-merges=first-parent",
+            "--relative",
             "--find-renames",
             "--no-ext-diff",
             "--no-textconv",
@@ -262,6 +258,7 @@ async fn commit_changed_files(env: &UserEnv, root: &Path, sha: &str) -> Result<V
             "--root",
             "--first-parent",
             "--diff-merges=first-parent",
+            "--relative",
             "--find-renames",
             "--no-ext-diff",
             "--no-textconv",
@@ -307,6 +304,7 @@ async fn commit_diff_file_at(env: &UserEnv, root: &Path, sha: &str, path: &str) 
         "--root",
         "--first-parent",
         "--diff-merges=first-parent",
+        "--relative",
         "--find-renames",
         "--no-ext-diff",
         "--no-textconv",
@@ -339,6 +337,35 @@ pub(crate) async fn main_worktree(root: &Path) -> Option<PathBuf> {
     let common = read_to_string(dir.join("commondir")).await.ok()?;
     let common = canonicalize(crate::git::resolve_on(&dir, common.trim())).await.ok()?;
     Some(common.parent()?.to_path_buf())
+}
+
+/// Find the nearest checkout boundary without crossing into a containing repository.
+async fn repository_root(root: &Path) -> Option<PathBuf> {
+    for ancestor in root.ancestors() {
+        if crate::git::git_dir(ancestor).await.is_some() {
+            return Some(ancestor.to_path_buf());
+        }
+    }
+    None
+}
+
+/// Match a subfolder only to the same subfolder in a verified linked worktree. Registering
+/// repo/sub never grants the code API access to the whole repository or sibling folders.
+pub(crate) async fn project_for_root(projects: &[Project], root: &Path) -> Option<Project> {
+    for p in projects {
+        if crate::hostfs::canonicalize(&p.path).await.is_ok_and(|path| path == root) {
+            return Some(p.clone());
+        }
+    }
+    let checkout = repository_root(root).await?;
+    let main = main_worktree(&checkout).await?;
+    let counterpart = crate::hostfs::canonicalize(main.join(root.strip_prefix(&checkout).ok()?)).await.ok()?;
+    for p in projects {
+        if crate::hostfs::canonicalize(&p.path).await.is_ok_and(|path| path == counterpart) {
+            return Some(p.clone());
+        }
+    }
+    None
 }
 
 /// A relative path without `..`, as given by the UI.
@@ -401,9 +428,10 @@ pub(crate) async fn default_branch(env: &UserEnv, root: &Path) -> Option<String>
 pub async fn sources(app: &App, project: &Project) -> Result<CodeSources> {
     let root = Path::new(&project.path);
     let main = Worktree { path: project.path.clone(), branch: None, main: true };
-    if crate::git::git_dir(root).await.is_none() {
+    let Some(checkout) = repository_root(root).await else {
         return Ok(CodeSources { git: false, default_branch: None, worktrees: vec![main], refs: vec![] });
-    }
+    };
+    let subdir = root.strip_prefix(&checkout)?;
     let env = &app.env;
     let list = run(env, root, &["worktree", "list", "--porcelain"]).await.unwrap_or_default();
     let mut worktrees: Vec<Worktree> = Vec::new();
@@ -417,7 +445,7 @@ pub async fn sources(app: &App, project: &Project) -> Result<CodeSources> {
                 branch = Some(b.trim_start_matches("refs/heads/").to_string());
             }
         }
-        let Some(path) = path.map(|p| crate::hosts::loc::rehost(&project.path, &p)) else { continue };
+        let Some(path) = path.map(|p| PathBuf::from(crate::hosts::loc::rehost(&project.path, &p)).join(subdir).to_string_lossy().into_owned()) else { continue };
         if !crate::hostfs::is_dir(&path).await { continue }
         let path = crate::hostfs::canonicalize(&path).await.map(|p| p.to_string_lossy().into_owned()).unwrap_or(path);
         let is_main = path == project.path;
@@ -502,7 +530,7 @@ pub async fn files(app: &App, src: &Source) -> Result<FileList> {
         }
     };
     if let Some((_, commit)) = &base {
-        let mut args = vec!["diff", "--name-status", "--no-renames", "-z", commit.as_str()];
+        let mut args = vec!["diff", "--relative", "--name-status", "--no-renames", "-z", commit.as_str()];
         if let Some((_, sha)) = &src.rev {
             args.push(sha);
         }
@@ -564,7 +592,8 @@ async fn read(env: &UserEnv, src: &Source, path: &str, limit: u64) -> Result<std
     let rel = check_path(path)?;
     match &src.rev {
         Some((_, sha)) => {
-            let object = format!("{sha}:{path}");
+            // Git's ./ syntax keeps object paths relative to the authorized source folder.
+            let object = format!("{sha}:./{path}");
             let size: u64 = run(env, &src.root, &["cat-file", "-s", &object]).await.with_context(|| format!("{path} does not exist here"))?.parse()?;
             if size > limit {
                 return Ok(Err(size));

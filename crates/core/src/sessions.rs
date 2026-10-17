@@ -555,65 +555,66 @@ impl Sessions {
             bail!("the prompt is empty");
         }
         let mut predraft = None;
-        let (mut cwd, project_id) = match &spec.target {
-            Target::Temp => {
-                let p = crate::projects::create_temp(app, &spec.text).await?;
-                (p.path, Some(p.id))
-            }
-            Target::Project { project_id } => (preview.cwd.clone().unwrap_or_default(), Some(project_id.clone())),
-            Target::Predraft { project_id } => {
-                let mut p = crate::predrafts::create(
-                    app,
-                    crate::predrafts::Create {
-                        project_id: Some(project_id.clone()),
-                        title: Some(preview.title.clone()),
-                        ..Default::default()
-                    },
-                )
-                .await?;
-                p.session_id = Some(id.clone());
-                crate::predrafts::save(app, &p).await?;
-                preview
-                    .prompt
-                    .push_str(&format!("\n\n{}", crate::predrafts::instruction(app, &p)));
-                let cwd = p.root.clone();
-                predraft = Some(p);
-                (cwd, Some(project_id.clone()))
-            }
-            Target::ExistingPredraft { predraft_id } => {
-                let _lock = app.predraft_lock.lock().await;
-                let mut p = crate::predrafts::get(app, predraft_id).await?;
-                anyhow::ensure!(
-                    !p.archived && p.published_url.is_none() && p.pushed_head.is_none(),
-                    "pre-draft is archived, published, or publication has started"
-                );
-                anyhow::ensure!(
-                    !self.list().iter().any(|s| s.cwd == p.root
-                        && (self.is_busy(s) || s.status == SessionStatus::InTerminal)),
-                    "pre-draft already has an active agent"
-                );
-                p.session_id = Some(id.clone());
-                crate::predrafts::save(app, &p).await?;
-                preview
-                    .prompt
-                    .push_str(&format!("\n\n{}", crate::predrafts::instruction(app, &p)));
-                let cwd = p.root.clone();
-                let project_id = p.project_id.clone();
-                predraft = Some(p);
-                (cwd, Some(project_id))
-            }
-            Target::SessionFolder { session_id } => {
-                let source = self.get(session_id).context("source session no longer exists")?;
-                crate::worktrees::join(app, session_id, &id).await?;
-                (preview.cwd.clone().context("source session folder missing")?, source.project_id)
-            }
-            Target::None => unreachable!(),
-        };
-        // Task worktrees for the project and the editable context projects, before any agent starts.
         let mut worktrees: Vec<(crate::worktrees::TaskWorktree, String)> = vec![];
         let mut setups: Vec<(Project, String)> = vec![];
-        let in_checkout = matches!(spec.target, Target::Project { .. }) && spec.worktree.is_none();
-        let prepared: Result<()> = async {
+        let prepared = async {
+            let (mut cwd, project_id) = match &spec.target {
+                Target::Temp => {
+                    let p = crate::projects::create_temp(app, &spec.text).await?;
+                    (p.path, Some(p.id))
+                }
+                Target::Project { project_id } => (preview.cwd.clone().unwrap_or_default(), Some(project_id.clone())),
+                Target::Predraft { project_id } => {
+                    let mut p = crate::predrafts::create(
+                        app,
+                        crate::predrafts::Create {
+                            project_id: Some(project_id.clone()),
+                            title: Some(preview.title.clone()),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
+                    predraft = Some(p.clone());
+                    p.session_id = Some(id.clone());
+                    crate::predrafts::save(app, &p).await?;
+                    preview
+                        .prompt
+                        .push_str(&format!("\n\n{}", crate::predrafts::instruction(app, &p)));
+                    let cwd = p.root.clone();
+                    predraft = Some(p);
+                    (cwd, Some(project_id.clone()))
+                }
+                Target::ExistingPredraft { predraft_id } => {
+                    let _lock = app.predraft_lock.lock().await;
+                    let mut p = crate::predrafts::get(app, predraft_id).await?;
+                    anyhow::ensure!(
+                        !p.archived && p.published_url.is_none() && p.pushed_head.is_none(),
+                        "pre-draft is archived, published, or publication has started"
+                    );
+                    anyhow::ensure!(
+                        !self.list().iter().any(|s| s.cwd == p.root
+                            && (self.is_busy(s) || s.status == SessionStatus::InTerminal)),
+                        "pre-draft already has an active agent"
+                    );
+                    predraft = Some(p.clone());
+                    p.session_id = Some(id.clone());
+                    crate::predrafts::save(app, &p).await?;
+                    preview
+                        .prompt
+                        .push_str(&format!("\n\n{}", crate::predrafts::instruction(app, &p)));
+                    let cwd = p.root.clone();
+                    let project_id = p.project_id.clone();
+                    (cwd, Some(project_id))
+                }
+                Target::SessionFolder { session_id } => {
+                    let source = self.get(session_id).context("source session no longer exists")?;
+                    crate::worktrees::join(app, session_id, &id).await?;
+                    (preview.cwd.clone().context("source session folder missing")?, source.project_id)
+                }
+                Target::None => unreachable!(),
+            };
+            // Task worktrees for the project and the editable context projects, before any agent starts.
+            let in_checkout = matches!(spec.target, Target::Project { .. }) && spec.worktree.is_none();
             if let (Target::Project { project_id }, Some(opts)) = (&spec.target, &spec.worktree) {
                 let project = crate::projects::get(app, project_id).await?.context("the project no longer exists")?;
                 let (w, folder) = crate::worktrees::create(app, &id, &project, opts, true, &preview.title).await?;
@@ -629,89 +630,104 @@ impl Sessions {
                 if !worktrees.iter().any(|(x, _)| x.id == w.id) { setups.push((project, folder.clone())); }
                 worktrees.push((w, folder));
             }
-            Ok(())
+            if !worktrees.is_empty() {
+                let projects = crate::projects::list(app).await?;
+                let opts = spec.worktree.clone().unwrap_or_default();
+                preview.prompt.push_str(&format!("\n\n{}", crate::worktrees::instruction(app, &id, &worktrees, &projects, opts.merge_when_done && !in_checkout, opts.include_changes)));
+            }
+            if let (Some(ws), Some(project_id)) = (&spec.workspace_id, &project_id)
+                && let Err(e) = crate::workspace::add_project(app, ws, project_id).await
+            {
+                tracing::warn!("launch: could not add the project to its workspace: {e:#}");
+            }
+            let (images, attachment_dir, instruction) = crate::attachments::prepare(app, crate::hosts::loc::host_of(&cwd), &id, &spec.attachments).await?;
+            if let Some(dir) = attachment_dir { preview.add_dirs.push(dir.to_string_lossy().into_owned()); }
+            preview.prompt.push_str(&instruction);
+            preview.prompt.push_str(&format!("\n\n{}", crate::suggestions::instruction(app, &id, &cwd)));
+            let now = now_ms();
+            let session = Session {
+                id: id.clone(),
+                harness,
+                harness_session_id: None,
+                project_id,
+                cwd: cwd.clone(),
+                title: preview.title.clone(),
+                title_pending: true,
+                status: SessionStatus::Starting,
+                archived_done: false,
+                status_since: now,
+                live: false,
+                open_question: false,
+                model: model.clone(),
+                effort: effort.clone(),
+                prompt: preview.prompt.clone(),
+                usage: Usage::default(),
+                started_at: now,
+                ended_at: None,
+                last_seq: 0,
+                launch_spec: spec.clone(),
+                quota_pause: None,
+                seen_at: 0,
+                last_message: None,
+            };
+            self.persist(app, &session).await?;
+            if let Some(p) = &predraft {
+                let session_id = id.clone();
+                let predraft_id = p.id.clone();
+                app.state_db
+                    .call(move |c| {
+                        c.execute(
+                            "UPDATE session SET predraft_id=?1 WHERE id=?2",
+                            rusqlite::params![predraft_id, session_id],
+                        )?;
+                        Ok(())
+                    })
+                    .await?;
+            }
+            let (host, native_cwd, add_dirs) = on_machine(&cwd, preview.add_dirs)?;
+            let start = StartSpec {
+                permission_mode: spec.permission_mode,
+                session_id: id.clone(),
+                harness_session_id: None,
+                resume: false,
+                host,
+                cwd: native_cwd,
+                title: preview.title,
+                model,
+                effort,
+                add_dirs,
+                env,
+            };
+            app.bus.publish("sessions", "updated", serde_json::to_value(session.light())?);
+            self.inner.records.lock().unwrap().insert(id.clone(), session);
+            self.publish_counts(app);
+            Ok::<_, anyhow::Error>((start, images, preview.prompt))
         }.await;
-        if let Err(e) = prepared {
-            let mut created: Vec<crate::worktrees::TaskWorktree> = vec![];
-            for (w, _) in worktrees { if !created.iter().any(|c| c.id == w.id) { created.push(w); } }
-            crate::worktrees::abandon(app, &created).await;
-            return Err(e);
-        }
-        if !worktrees.is_empty() {
-            let projects = crate::projects::list(app).await?;
-            let opts = spec.worktree.clone().unwrap_or_default();
-            preview.prompt.push_str(&format!("\n\n{}", crate::worktrees::instruction(app, &id, &worktrees, &projects, opts.merge_when_done && !in_checkout, opts.include_changes)));
-        }
-        if let (Some(ws), Some(project_id)) = (&spec.workspace_id, &project_id)
-            && let Err(e) = crate::workspace::add_project(app, ws, project_id).await
-        {
-            tracing::warn!("launch: could not add the project to its workspace: {e:#}");
-        }
-        let (images, attachment_dir, instruction) = crate::attachments::prepare(app, crate::hosts::loc::host_of(&cwd), &id, &spec.attachments).await?;
-        if let Some(dir) = attachment_dir { preview.add_dirs.push(dir.to_string_lossy().into_owned()); }
-        preview.prompt.push_str(&instruction);
-        preview.prompt.push_str(&format!("\n\n{}", crate::suggestions::instruction(app, &id, &cwd)));
-        let now = now_ms();
-        let session = Session {
-            id: id.clone(),
-            harness,
-            harness_session_id: None,
-            project_id,
-            cwd: cwd.clone(),
-            title: preview.title.clone(),
-            title_pending: true,
-            status: SessionStatus::Starting,
-            archived_done: false,
-            status_since: now,
-            live: false,
-            open_question: false,
-            model: model.clone(),
-            effort: effort.clone(),
-            prompt: preview.prompt.clone(),
-            usage: Usage::default(),
-            started_at: now,
-            ended_at: None,
-            last_seq: 0,
-            launch_spec: spec.clone(),
-            quota_pause: None,
-            seen_at: 0,
-            last_message: None,
-        };
-        self.inner.records.lock().unwrap().insert(id.clone(), session.clone());
-        self.persist(app, &session).await?;
-        if let Some(p) = predraft {
-            let session_id = id.clone();
-            let predraft_id = p.id;
-            app.state_db
-                .call(move |c| {
-                    c.execute(
-                        "UPDATE session SET predraft_id=?1 WHERE id=?2",
-                        rusqlite::params![predraft_id, session_id],
-                    )?;
-                    Ok(())
-                })
-                .await?;
-        }
-        app.bus.publish("sessions", "updated", serde_json::to_value(session.light())?);
-        self.publish_counts(app);
-
-        let (host, native_cwd, add_dirs) = on_machine(&cwd, preview.add_dirs)?;
-        let start = StartSpec {
-            permission_mode: spec.permission_mode,
-            session_id: id.clone(),
-            harness_session_id: None,
-            resume: false,
-            host,
-            cwd: native_cwd,
-            title: preview.title,
-            model,
-            effort,
-            add_dirs,
-            env,
+        let (start, images, prompt) = match prepared {
+            Ok(result) => result,
+            Err(error) => {
+                self.inner.records.lock().unwrap().remove(&id);
+                let failed_id = id.clone();
+                let _ = app.state_db.call(move |c| Ok(c.execute("DELETE FROM session WHERE id = ?1", [failed_id])?)).await;
+                let mut created = Vec::new();
+                for (w, _) in worktrees { if w.sessions == [id.clone()] && !created.iter().any(|c: &crate::worktrees::TaskWorktree| c.id == w.id) { created.push(w); } }
+                crate::worktrees::abandon(app, &created).await;
+                if let Err(e) = crate::worktrees::leave(app, &id).await {
+                    tracing::warn!("could not unlink failed launch worktrees: {e:#}");
+                }
+                if let Some(p) = predraft {
+                    if matches!(spec.target, Target::Predraft { .. }) {
+                        crate::predrafts::abandon_launch(app, p).await;
+                    } else if let Err(e) = crate::predrafts::rollback_launch_link(app, &p, &id).await {
+                        tracing::warn!("could not restore pre-draft after failed launch: {e:#}");
+                    }
+                }
+                return Err(error);
+            }
         };
         setups.retain(|(p, _)| !p.worktree_setup.trim().is_empty());
         if setups.is_empty() {
-            self.start_new(app, &id, start, preview.prompt, images).await;
+            self.start_new(app, &id, start, prompt, images).await;
             return Ok(self.get(&id).unwrap());
         }
         // Setup can take minutes: it runs in the background, and the agent starts afterwards.
@@ -720,7 +736,7 @@ impl Sessions {
         let task = tokio::spawn(async move {
             let _ = wait.await;
             let sink = this.sink(&app2, &id2);
-            let mut prompt = preview.prompt;
+            let mut prompt = prompt;
             for (project, folder) in &setups {
                 if let Err(e) = crate::worktrees::run_setup(&app2, project, folder, &sink).await {
                     sink.emit(EventBody::Notice { text: format!("Worktree setup failed: {e:#}") }).await;
@@ -812,8 +828,12 @@ impl Sessions {
         for cp in &s.launch_spec.context_projects {
             if let Some(p) = crate::projects::get(app, &cp.project_id).await? {
                 // Editable context projects resolve to their recorded worktree, never to today's checkout.
-                let own = worktrees.iter().find(|w| !w.primary && w.project_id == p.id && w.state == crate::worktrees::WorktreeState::Active);
-                add_dirs.push(own.map(crate::worktrees::folder).unwrap_or(p.path));
+                let in_checkout = matches!(s.launch_spec.target, Target::Project { .. }) && s.launch_spec.worktree.is_none();
+                if cp.editable && !in_checkout {
+                    add_dirs.push(crate::worktrees::context_folder(app, &worktrees, &p).await?);
+                } else {
+                    add_dirs.push(p.path);
+                }
             }
         }
         for w in worktrees.iter().filter(|w| !w.primary && w.state == crate::worktrees::WorktreeState::Active) {
@@ -1197,6 +1217,11 @@ impl Sessions {
     /// Stops the process. The conversation stays resumable.
     pub async fn close(&self, app: &App, id: &str) -> Result<()> {
         let _action = self.inner.actions.lock().await;
+        self.close_locked(app, id).await
+    }
+
+    /// Caller holds the session action lock (for atomic worktree discard).
+    pub(crate) async fn close_locked(&self, app: &App, id: &str) -> Result<()> {
         let setup = self.inner.setups.lock().unwrap().remove(id);
         if let Some(task) = setup { task.abort(); }
         self.inner.manual_quota_retries.lock().unwrap().remove(id);

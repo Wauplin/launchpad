@@ -502,6 +502,34 @@ async fn cleanup(app: &App, p: &Predraft, delete_branch: bool) -> Result<()> {
     }
     Ok(())
 }
+/// Restore only the session link changed by a failed launch, preserving concurrent title/notes edits.
+pub(crate) async fn rollback_launch_link(app: &App, before: &Predraft, failed_session: &str) -> Result<()> {
+    let _lock = app.predraft_lock.lock().await;
+    let mut current = get(app, &before.id).await?;
+    if current.session_id.as_deref() == Some(failed_session) {
+        current.session_id = before.session_id.clone();
+        save(app, &current).await?;
+    }
+    Ok(())
+}
+
+/// Roll back a new pre-draft whose launch failed before starting a harness. The caller holds
+/// the work gate, and this record has never been published or used by an agent.
+pub(crate) async fn abandon_launch(app: &App, mut p: Predraft) {
+    let _lock = app.predraft_lock.lock().await;
+    let result: Result<()> = async {
+        let project = crate::projects::get(app, &p.project_id).await?.context("project no longer exists")?;
+        if crate::hostfs::exists(&p.root).await {
+            git(app, &project.path, &["worktree", "remove", "--force", &p.root]).await?;
+        }
+        git(app, &project.path, &["branch", "-D", &p.branch]).await?;
+        p.archived = true;
+        p.session_id = None;
+        save(app, &p).await
+    }.await;
+    if let Err(e) = result { tracing::warn!("could not clean up failed pre-draft launch {}: {e:#}", p.id); }
+}
+
 pub async fn discard(app: &App, id: &str) -> Result<Predraft> {
     let _work = app.sessions.allow_work().await;
     let _lock = app.predraft_lock.lock().await;

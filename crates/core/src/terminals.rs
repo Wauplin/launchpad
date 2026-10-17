@@ -439,6 +439,8 @@ impl Terminals {
         if command.is_some_and(|c| c.trim().is_empty()) {
             bail!("the command is empty");
         }
+        // Serialize terminal startup with task Git operations and their idle checks.
+        let _action = app.sessions.action_lock().await;
         let _guard = app.sessions.allow_work().await;
         let (cwd, project) = check_cwd(app, cwd).await?;
         let cwd_s = cwd.to_string_lossy().to_string();
@@ -597,12 +599,8 @@ async fn check_cwd(app: &App, cwd: &str) -> Result<(PathBuf, Option<crate::model
         return Ok((root, None));
     }
     let projects = crate::projects::list(app).await?;
-    if let Some(p) = projects.iter().find(|p| Path::new(&p.path) == root) {
-        return Ok((root, Some(p.clone())));
-    }
-    if let Some(main) = crate::code::main_worktree(&root).await
-        && let Some(p) = projects.iter().find(|p| Path::new(&p.path) == main) {
-        return Ok((root, Some(p.clone())));
+    if let Some(p) = crate::code::project_for_root(&projects, &root).await {
+        return Ok((root, Some(p)));
     }
     let mut session = None;
     for s in app.sessions.list() {

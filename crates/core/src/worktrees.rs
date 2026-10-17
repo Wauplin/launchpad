@@ -193,6 +193,15 @@ async fn subdir_of(project_path: &str, top: &str) -> String {
     project.strip_prefix(top).map(|p| p.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/")).unwrap_or_default()
 }
 
+/// Resolve editable context by repository, including projects sharing the primary worktree.
+pub(crate) async fn context_folder(app: &App, records: &[TaskWorktree], project: &Project) -> Result<String> {
+    let (top, common) = repository(app, &project.path).await?;
+    let w = records.iter().find(|w| w.common_dir == common && matches!(w.state, WorktreeState::Active | WorktreeState::HandedOff))
+        .with_context(|| format!("editable context project {} has no active worktree; restore it or remove it from the task before resuming", project.name))?;
+    let root = if w.state == WorktreeState::HandedOff { &w.repo } else { &w.root };
+    Ok(folder_in(root, &subdir_of(&project.path, &top).await))
+}
+
 /// Creates the worktree of `project` for a session, or returns the one it already has in the same
 /// repository. Returns the record and the project folder inside it. Never edits the source checkout.
 pub async fn create(app: &App, session_id: &str, project: &Project, opts: &WorktreeOptions, primary: bool, title: &str) -> Result<(TaskWorktree, String)> {
@@ -275,10 +284,12 @@ async fn copy_changes(app: &App, source: &str, dest: &str) -> Result<()> {
 /// Copies the ignored files listed by `.worktreeinclude` (gitignore patterns, as in Codex) and an ignored
 /// `AGENTS.override.md`: symlinks are skipped and existing files are never overwritten.
 async fn copy_included(app: &App, source: &str, dest: &str) -> Result<()> {
+    copy_files(source, dest, &included_files(app, source).await?).await
+}
+
+async fn included_files(app: &App, source: &str) -> Result<Vec<u8>> {
     let ignored = crate::procs::command(&app.env, "git", Some(Path::new(source))).args(["ls-files", "-z", "--others", "--ignored", "--exclude-standard"]).output().await?;
-    if !ignored.status.success() {
-        return Ok(());
-    }
+    ensure!(ignored.status.success(), "could not list ignored worktree files");
     let ignored: std::collections::HashSet<&[u8]> = ignored.stdout.split(|b| *b == 0).filter(|p| !p.is_empty()).collect();
     let mut wanted: Vec<u8> = Vec::new();
     if ignored.contains(b"AGENTS.override.md".as_slice()) {
@@ -291,15 +302,17 @@ async fn copy_included(app: &App, source: &str, dest: &str) -> Result<()> {
             .arg(&include)
             .output()
             .await?;
+        ensure!(listed.status.success(), "could not apply .worktreeinclude rules");
         for p in listed.stdout.split(|b| *b == 0).filter(|p| !p.is_empty() && ignored.contains(p)) {
             wanted.extend_from_slice(p);
             wanted.push(0);
         }
     }
-    copy_files(source, dest, &wanted).await
+    Ok(wanted)
 }
 
 async fn copy_files(source: &str, dest: &str, list: &[u8]) -> Result<()> {
+    let dest_root = crate::hostfs::canonicalize(dest).await?;
     for rel in list.split(|b| *b == 0).filter(|p| !p.is_empty()) {
         let rel = String::from_utf8_lossy(rel);
         let rel = Path::new(rel.as_ref());
@@ -311,8 +324,18 @@ async fn copy_files(source: &str, dest: &str, list: &[u8]) -> Result<()> {
         if !meta.is_file() || crate::hostfs::exists(&to).await {
             continue;
         }
-        if let Some(parent) = to.parent() {
-            crate::hostfs::create_dir_all(parent).await?;
+        // Refuse symlink parents before creating directories or writing files.
+        let mut parent = PathBuf::from(dest);
+        if let Some(parts) = rel.parent() {
+            for part in parts.components() {
+                parent.push(part);
+                if let Ok(meta) = crate::hostfs::symlink_metadata(&parent).await {
+                    ensure!(meta.is_dir(), "copy destination {} is not a regular directory", parent.display());
+                } else {
+                    crate::hostfs::create_dir_all(&parent).await?;
+                }
+                ensure!(crate::hostfs::canonicalize(&parent).await?.starts_with(&dest_root), "copy destination is outside the worktree");
+            }
         }
         crate::hostfs::copy(&from, &to).await.with_context(|| format!("copy {}", rel.display()))?;
     }
@@ -321,12 +344,32 @@ async fn copy_files(source: &str, dest: &str, list: &[u8]) -> Result<()> {
 
 /// Removes worktrees created for a launch that failed before its agent started.
 pub async fn abandon(app: &App, created: &[TaskWorktree]) {
+    let _lock = app.worktree_lock.lock().await;
     for w in created {
-        let _ = git(app, &w.repo, &["worktree", "remove", "--force", &w.root]).await;
-        let _ = git(app, &w.repo, &["branch", "-D", &w.branch]).await;
-        let id = w.id.clone();
-        let _ = app.state_db.call(move |c| Ok(c.execute("DELETE FROM task_worktree WHERE id = ?1", [id])?)).await;
+        let result: Result<()> = async {
+            if crate::hostfs::exists(&w.root).await {
+                git(app, &w.repo, &["worktree", "remove", "--force", &w.root]).await?;
+            }
+            if git(app, &w.repo, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{}", w.branch)]).await.is_ok() {
+                git(app, &w.repo, &["branch", "-D", &w.branch]).await?;
+            }
+            let id = w.id.clone();
+            app.state_db.call(move |c| Ok(c.execute("DELETE FROM task_worktree WHERE id = ?1", [id])?)).await?;
+            app.bus.publish("worktrees", "removed", json!({"id": w.id}));
+            Ok(())
+        }.await;
+        if let Err(e) = result { tracing::warn!("could not clean up failed launch worktree {}: {e:#}", w.root); }
     }
+}
+
+/// Remove a failed launch's membership from worktrees shared with an older session.
+pub(crate) async fn leave(app: &App, session_id: &str) -> Result<()> {
+    let _lock = app.worktree_lock.lock().await;
+    for mut w in for_session(app, session_id).await?.into_iter().filter(|w| w.sessions.iter().any(|id| id != session_id)) {
+        w.sessions.retain(|id| id != session_id);
+        save(app, &w).await?;
+    }
+    Ok(())
 }
 
 /// A continuation with another agent works in the same worktrees.
@@ -422,7 +465,7 @@ fn idle_reason(app: &App, w: &TaskWorktree, strict: bool) -> Option<String> {
             return Some("an agent of this worktree waits for an answer".into());
         }
     }
-    if strict && !app.terminals.alive_in(&w.root).is_empty() {
+    if !app.terminals.alive_in(if w.state == WorktreeState::HandedOff { &w.repo } else { &w.root }).is_empty() {
         return Some("a terminal is open in this worktree".into());
     }
     None
@@ -585,14 +628,24 @@ pub async fn remove(app: &App, id: &str) -> Result<TaskWorktree> {
 
 /// Deletes the folder and branch, with uncommitted work, and archives the sessions. Owner confirmation only.
 pub async fn discard(app: &App, id: &str) -> Result<TaskWorktree> {
+    let _action = app.sessions.action_lock().await;
+    // Promotion holds this lock before changing the task record's ownership.
+    let _predraft = app.predraft_lock.lock().await;
+    let _lock = app.worktree_lock.lock().await;
     let mut w = get(app, id).await?;
     ensure!(matches!(w.state, WorktreeState::Active | WorktreeState::Removed), "only an active or removed worktree can be discarded");
     for sid in &w.sessions {
         if let Some(s) = app.sessions.get(sid)
-            && (app.sessions.is_busy(&s) || s.quota_pause.is_some() || app.sessions.setup_running(sid))
+            && (app.sessions.is_busy(&s) || s.quota_pause.is_some() || s.status == SessionStatus::InTerminal || app.sessions.setup_running(sid))
         {
             bail!("stop the agents of this worktree first");
         }
+    }
+    if crate::hostfs::exists(&w.root).await {
+        ensure!(w.state == WorktreeState::Active, "a folder appeared at the removed worktree path; inspect it before discarding");
+        let (top, common) = repository(app, &w.root).await?;
+        ensure!(top == canonical(&w.root).await? && common == w.common_dir, "the folder no longer belongs to this worktree");
+        ensure!(git(app, &w.root, &["branch", "--show-current"]).await? == w.branch, "the worktree is on another branch; inspect it before discarding");
     }
     app.terminals.close_in(&w.root).await?;
     // Without its working directory an agent cannot continue: archive it. A discarded editable
@@ -600,17 +653,15 @@ pub async fn discard(app: &App, id: &str) -> Result<TaskWorktree> {
     if w.primary {
         for sid in w.sessions.clone() {
             if app.sessions.get(&sid).is_some_and(|s| s.status != SessionStatus::Closed) {
-                app.sessions.close(app, &sid).await?;
+                app.sessions.close_locked(app, &sid).await?;
             }
         }
     }
-    let _action = app.sessions.action_lock().await;
     if !w.primary {
         for sid in w.sessions.clone() {
             app.sessions.release(app, &sid).await;
         }
     }
-    let _lock = app.worktree_lock.lock().await;
     if crate::hostfs::exists(&w.root).await {
         git(app, &w.repo, &["worktree", "remove", "--force", &w.root]).await?;
     }
@@ -637,6 +688,9 @@ pub async fn handoff(app: &App, id: &str) -> Result<TaskWorktree> {
     ensure!(dirty.is_empty(), "commit or discard the {} uncommitted files of the worktree first", dirty.len());
     let local = dirty_files(app, &w.repo).await?;
     ensure!(local.is_empty(), "the project checkout {} has {} uncommitted files; commit or stash them first", w.repo, local.len());
+    ensure!(app.terminals.alive_in(&w.repo).is_empty(), "a terminal is open in the project checkout");
+    let ignored = git(app, &w.root, &["ls-files", "--others", "--ignored", "--exclude-standard"]).await?;
+    ensure!(ignored.is_empty(), "the worktree contains ignored files; move or remove them before checking out locally to avoid losing them");
     let busy_here = app.sessions.list().iter().any(|s| !w.sessions.contains(&s.id) && crate::terminals::inside(&s.cwd, &w.repo) && app.sessions.is_busy(s));
     ensure!(!busy_here, "an agent is running in the project checkout");
     let previous = match git(app, &w.repo, &["branch", "--show-current"]).await? {
@@ -648,7 +702,7 @@ pub async fn handoff(app: &App, id: &str) -> Result<TaskWorktree> {
     }
     app.terminals.close_in(&w.root).await?;
     git(app, &w.repo, &["worktree", "remove", &w.root]).await?;
-    if let Err(e) = git(app, &w.repo, &["switch", &w.branch]).await {
+    if let Err(e) = git(app, &w.repo, &["switch", "--no-overwrite-ignore", &w.branch]).await {
         git(app, &w.repo, &["worktree", "add", &w.root, &w.branch]).await?;
         return Err(e);
     }
@@ -669,25 +723,31 @@ pub async fn handback(app: &App, id: &str) -> Result<TaskWorktree> {
     if let Some(reason) = idle_reason(app, &w, true) {
         bail!("{reason}");
     }
+    ensure!(app.terminals.alive_in(&w.repo).is_empty(), "a terminal is open in the project checkout");
+    ensure!(!app.sessions.list().iter().any(|s| !w.sessions.contains(&s.id) && crate::terminals::inside(&s.cwd, &w.repo) && app.sessions.is_busy(s)), "an agent is running in the project checkout");
     let current = git(app, &w.repo, &["branch", "--show-current"]).await?;
     ensure!(current == w.branch, "the project checkout is on {current:?}, not {}", w.branch);
     let local = dirty_files(app, &w.repo).await?;
     ensure!(local.is_empty(), "the project checkout has {} uncommitted files; commit them on {} first", local.len(), w.branch);
+    // Read the task branch's include rules before switching the project checkout away from it.
+    let included = included_files(app, &w.repo).await?;
     let previous = w.handoff_from.clone().context("previous checkout unknown")?;
     let is_branch = git(app, &w.repo, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{previous}")]).await.is_ok();
     for sid in w.sessions.clone() {
         app.sessions.release(app, &sid).await;
     }
     if is_branch {
-        git(app, &w.repo, &["switch", &previous]).await?;
+        git(app, &w.repo, &["switch", "--no-overwrite-ignore", &previous]).await?;
     } else {
-        git(app, &w.repo, &["switch", "--detach", &previous]).await?;
+        git(app, &w.repo, &["switch", "--no-overwrite-ignore", "--detach", &previous]).await?;
     }
     git(app, &w.repo, &["worktree", "add", &w.root, &w.branch]).await?;
+    let copied = copy_files(&w.repo, &w.root, &included).await;
     move_sessions(app, &w, &w.repo, &w.root).await?;
     w.state = WorktreeState::Active;
     w.handoff_from = None;
     save(app, &w).await?;
+    copied.context("branch moved back to its worktree, but copying included files failed")?;
     notice(app, &w, &format!("Branch {} is back in its worktree {}.", w.branch, w.root)).await;
     Ok(w)
 }
@@ -866,12 +926,19 @@ async fn try_merge(app: &App, w: &TaskWorktree) -> Result<Step> {
     if app.sessions.list().iter().any(|s| !w.sessions.contains(&s.id) && crate::terminals::inside(&s.cwd, &target) && !crate::terminals::inside(&s.cwd, &w.root) && app.sessions.is_busy(s)) {
         return Ok(Step::Wait(format!("Waiting: an agent is running in {target}.")));
     }
+    if !app.terminals.alive_in(&target).is_empty() {
+        return Ok(Step::Wait(format!("Waiting: a terminal is open in {target}.")));
+    }
     let head = git(app, &w.root, &["rev-parse", "HEAD"]).await?;
     let base_head = git(app, &w.root, &["rev-parse", &format!("refs/heads/{base}")]).await?;
     if git(app, &w.root, &["merge-base", "--is-ancestor", &head, &base_head]).await.is_ok() {
         return Ok(Step::Merged(base_head));
     }
-    if git(app, &w.root, &["merge-base", "--is-ancestor", &base_head, &head]).await.is_err()
+    let needs_rebase = git(app, &w.root, &["merge-base", "--is-ancestor", &base_head, &head]).await.is_err();
+    if needs_rebase && !git(app, &w.root, &["rev-list", "--merges", &format!("{base_head}..{head}"), "--"]).await?.is_empty() {
+        bail!("branch {} contains merge commits; integrate {base} manually while preserving merge resolutions, then request the merge again", w.branch);
+    }
+    if needs_rebase
         && let Err(e) = git(app, &w.root, &["rebase", &base_head]).await
     {
         let files = git(app, &w.root, &["diff", "--name-only", "--diff-filter=U"]).await.unwrap_or_default();

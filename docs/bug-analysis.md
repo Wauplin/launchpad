@@ -21,6 +21,8 @@ Fixed on 2026-10-17: the relay rejects ambiguous/escaped route paths, authorizes
 
 ## 2. Worktree merge, discard and isolation
 
+Fix status (2026-10-17): all eight findings addressed; implementation and behavior are documented in [Managed agent worktrees](managed-worktrees-plan.md). The original findings below describe the audited code before these fixes.
+
 - **[High] Automatic rebase drops changes made in merge commits** [X] — `crates/core/src/worktrees.rs:874-876`
   - Bug: `try_merge` runs a plain `git rebase <base>`, which linearizes history and drops merge commits. Changes that exist only in a merge commit (for example conflict resolutions) disappear, and Launchpad still reports a successful merge (reproduced by Codex).
   - Recommendation: Refuse automatic rebase when the branch contains merge commits, or use `--rebase-merges` and compare the final tree before the fast-forward.
