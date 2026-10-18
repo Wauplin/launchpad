@@ -365,7 +365,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
               {(close) => <>
                 {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Needs you for later" onClick={() => { close(); onClear(); void act(s.id, "unread"); }} />}
                 {phone && <>
-                  <MenuItem label="Session details" detail="Branch, usage and follow-up agent" onClick={() => { close(); setDetailsOpen(true); }} />
+                  <MenuItem label="Session details" detail="Branch, usage and follow up" onClick={() => { close(); setDetailsOpen(true); }} />
                   <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder" onClick={() => { close(); void openTerminal.shell(s.cwd); }} />
                 </>}
                 {s.status === "in_terminal" && tui && <MenuItem label="Show TUI" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}
@@ -388,7 +388,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
           </dl>
           {localPr && <button className="btn" onClick={() => { setDetailsOpen(false); void navigate({ to: "/predrafts/$id", params: { id: localPr.id } }); }}>Pre-draft PR</button>}
           <SessionWorktreeDetails session={s} />
-          <FollowUpAgent session={s} inline onPrepared={() => setDetailsOpen(false)} />
+          <FollowUpAgent session={s} onPrepared={() => setDetailsOpen(false)} />
         </div>
       </Sheet>}
 

@@ -58,7 +58,7 @@ type Composer = {
   openAfterLaunch: boolean;
   loaded: boolean;
   start: (ctx?: LaunchContext) => void;
-  followUpFrom: (session: Session, review?: boolean) => void;
+  followUpFrom: (session: Session) => void;
   rememberLaunch: (spec: LaunchSpec, startedAt: number) => void;
   update: (f: (s: LaunchSpec) => LaunchSpec) => void;
   close: () => void;
@@ -225,12 +225,11 @@ export const useComposer = create<Composer>((set, get) => ({
     set({ open: true, minimized: get().open && get().minimized && collect, spec });
     save(spec, true, get().conditions);
   },
-  followUpFrom: (session, review = false) => {
+  followUpFrom: (session) => {
     const spec: LaunchSpec = {
       ...emptySpec(), ...lastLaunch, permission_mode: rememberedRun(lastLaunch.harness, lastLaunch.variant).permission_mode,
       target: { kind: "session_folder", session_id: session.id },
       worktree: null,
-      text: review ? "Review the previous agent’s work in this folder. Use the attached agent trace, when available, to understand the task and reported results, then inspect the actual changes and run relevant checks. Report concrete bugs, regressions, and missing requirements with file references. Do not modify files unless I ask." : "",
       agent_traces: session.last_seq > 0 ? [{ session_id: session.id, through_seq: session.last_seq }] : [],
     };
     set({ spec, open: true, minimized: false, conditions: [] });
