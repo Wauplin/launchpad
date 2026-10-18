@@ -86,7 +86,7 @@ struct Inner {
     /// Sessions whose process must restart to use a new model or effort, once their turn ends.
     model_restarts: Mutex<HashSet<String>>,
     /// New sessions running their worktree setup command before the agent starts.
-    setups: Mutex<HashMap<String, tokio::task::AbortHandle>>,
+    setups: Mutex<HashMap<String, SetupTask>>,
     /// Serializes user actions and quota decisions; adapter events never take this lock.
     actions: tokio::sync::Mutex<()>,
     /// Serializes new work with pre-draft publication and cleanup.
@@ -97,6 +97,19 @@ struct Inner {
     raw_counts: Mutex<HashMap<String, i64>>,
     /// Sessions shown in a focused window, per window connection: no desktop notification for them.
     watched: Mutex<HashMap<u64, Presence>>,
+}
+
+/// Cancellation is acknowledged only after the setup process tree has exited.
+struct SetupTask {
+    cancel: tokio::sync::watch::Sender<bool>,
+    stopped: tokio::sync::oneshot::Receiver<()>,
+}
+
+impl SetupTask {
+    async fn stop(self) {
+        let _ = self.cancel.send(true);
+        let _ = self.stopped.await;
+    }
 }
 
 /// A window's focus, the sessions it shows, when it said so, and the time of its last user input.
@@ -735,24 +748,29 @@ impl Sessions {
         // Setup can take minutes: it runs in the background, and the agent starts afterwards.
         let (this, app2, id2) = (self.clone(), app.clone(), id.clone());
         let (ready, wait) = tokio::sync::oneshot::channel::<()>();
-        let task = tokio::spawn(async move {
+        let (cancel, mut cancelled) = tokio::sync::watch::channel(false);
+        let (stopped, stop_wait) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
             let _ = wait.await;
             let sink = this.sink(&app2, &id2);
             let mut prompt = prompt;
             for (project, folder) in &setups {
-                if let Err(e) = crate::worktrees::run_setup(&app2, project, folder, &sink).await {
+                if let Err(e) = crate::worktrees::run_setup(&app2, project, folder, &sink, &mut cancelled).await {
+                    if *cancelled.borrow() { break; }
                     sink.emit(EventBody::Notice { text: format!("Worktree setup failed: {e:#}") }).await;
                     prompt.push_str(&format!("\n\nNote: the worktree setup command of {} (`{}`) failed in `{folder}`:\n{e:#}\nFix the environment yourself if the task needs it.", project.name, project.worktree_setup.trim()));
                 }
             }
+            // Stop/Archive hold actions while waiting for this acknowledgement.
+            let _ = stopped.send(());
             let _action = this.inner.actions.lock().await;
             let _guard = this.allow_work().await;
             this.inner.setups.lock().unwrap().remove(&id2);
-            if this.get(&id2).is_some_and(|s| s.status == SessionStatus::Starting) {
+            if !*cancelled.borrow() && this.get(&id2).is_some_and(|s| s.status == SessionStatus::Starting) {
                 this.start_new(&app2, &id2, start, prompt, images).await;
             }
         });
-        self.inner.setups.lock().unwrap().insert(id.clone(), task.abort_handle());
+        self.inner.setups.lock().unwrap().insert(id.clone(), SetupTask { cancel, stopped: stop_wait });
         let _ = ready.send(());
         Ok(self.get(&id).unwrap())
     }
@@ -1159,7 +1177,7 @@ impl Sessions {
         self.inner.budget_interrupts.lock().unwrap().remove(id);
         let setup = self.inner.setups.lock().unwrap().remove(id);
         if let Some(task) = setup {
-            task.abort();
+            task.stop().await;
             let sink = self.sink(app, id);
             sink.emit(EventBody::Notice { text: "Worktree setup cancelled by you; the agent was not started.".into() }).await;
             sink.set_status(SessionStatus::Stopped).await;
@@ -1225,7 +1243,7 @@ impl Sessions {
     /// Caller holds the session action lock (for atomic worktree discard).
     pub(crate) async fn close_locked(&self, app: &App, id: &str) -> Result<()> {
         let setup = self.inner.setups.lock().unwrap().remove(id);
-        if let Some(task) = setup { task.abort(); }
+        if let Some(task) = setup { task.stop().await; }
         self.inner.manual_quota_retries.lock().unwrap().remove(id);
         self.inner.quota_stops.lock().unwrap().remove(id);
         self.update(app, id, |s| s.quota_pause = None).await?;

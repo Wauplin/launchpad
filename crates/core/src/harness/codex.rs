@@ -44,6 +44,13 @@ struct State {
 }
 
 impl State {
+    /// Some native requests omit turnId. Those still expire with the current turn.
+    fn ended_requests(&self, turn: &Value) -> Vec<Value> {
+        self.requests.iter().filter(|(key, _)| {
+            self.request_turns.get(*key).is_none_or(|(_, id)| id.is_null() || id.as_str() == Some("") || id == turn)
+        }).map(|(_, (id, _))| id.clone()).collect()
+    }
+
     /// A turn ending does not end its commands. Keep their trace cards pending until
     /// Codex reports the actual result, including commands from earlier turns.
     fn end_turn(&mut self) -> Vec<String> {
@@ -198,16 +205,13 @@ impl LiveSession for CodexSession {
         let turn = self.state.lock().unwrap().turn_id.clone();
         if let Some(turn_id) = turn {
             // Typing while the agent works steers the running turn.
-            let res = self.server
-                .request(
-                    "turn/steer",
-                    json!({"threadId": self.thread_id, "expectedTurnId": turn_id, "input": input, "clientUserMessageId": client_id}),
-                )
-                .await;
-            if res.is_ok() {
-                return Ok(());
-            }
-            // The turn ended in the meantime: start a new one.
+            // A failed/expired RPC may already have delivered the message. Never retry it
+            // as a fresh turn; return the error so the owner can inspect the trace.
+            self.server.request(
+                "turn/steer",
+                json!({"threadId": self.thread_id, "expectedTurnId": turn_id, "input": input, "clientUserMessageId": client_id}),
+            ).await.context("Codex steering failed; delivery may be uncertain. Inspect the turn before sending again")?;
+            return Ok(());
         }
         let mut params = json!({"threadId": self.thread_id, "input": input, "clientUserMessageId": client_id});
         let (model, effort) = self.model.lock().unwrap().clone();
@@ -247,7 +251,11 @@ impl LiveSession for CodexSession {
         let mut error = None;
         for (thread, turn) in turns {
             match self.server.request("turn/interrupt", json!({"threadId":thread,"turnId":turn})).await {
-                Ok(_) => interrupted = true,
+                Ok(_) => {
+                    interrupted = true;
+                    let session = self.threads.lock().unwrap().get(&thread).cloned();
+                    if let Some((sink, state)) = session { cancel_turn_requests(&sink, &state, &json!(turn)).await; }
+                },
                 Err(e) => error = Some(e),
             }
         }
@@ -556,6 +564,11 @@ fn item_summary(item: &Value) -> (String, String) {
 
 const TOOL_ITEMS: &[&str] = &["commandExecution", "mcpToolCall", "dynamicToolCall", "webSearch", "imageView", "collabAgentToolCall", "autoApprovalReview"];
 
+async fn cancel_turn_requests(sink: &Sink, st: &Mutex<State>, turn: &Value) {
+    let pending = st.lock().unwrap().ended_requests(turn);
+    for id in pending { resolve_request(sink, st, &id).await; }
+}
+
 async fn cancel_requests(sink: &Sink, st: &Mutex<State>) {
     let pending = st.lock().unwrap().requests.values().map(|(id, _)| id.clone()).collect::<Vec<_>>();
     for id in pending { resolve_request(sink, st, &id).await; }
@@ -773,12 +786,7 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             let turn = &p["turn"];
             let interrupted = turn["status"] == "interrupted";
             let error = turn["error"]["message"].as_str().map(str::to_string);
-            let pending = {
-                let state = st.lock().unwrap();
-                state.requests.iter().filter(|(key, _)| state.request_turns.get(*key).is_some_and(|(thread, id)| thread == &p["threadId"] && id == &turn["id"]))
-                    .map(|(_, (id, _))| id.clone()).collect::<Vec<_>>()
-            };
-            for rpc_id in pending { resolve_request(sink, st, &rpc_id).await; }
+            cancel_turn_requests(sink, st, &turn["id"]).await;
             let ended = st.lock().unwrap().end_turn();
             for id in ended {
                 sink.emit(EventBody::ToolResult { item_id: id, output: "Interrupted".into(), is_error: true, exit_code: None, duration_ms: None }).await;
@@ -1131,6 +1139,20 @@ mod tests {
         assert_eq!(approval_answer(&options, &["Deny".into()]).unwrap(), json!({"permissions":{}}));
         let options = approval_decisions("execCommandApproval", &json!({}));
         assert_eq!(approval_answer(&options, &["Deny".into()]).unwrap(), json!({"decision":"denied"}));
+    }
+
+    #[test]
+    fn turn_end_expires_questions_even_without_native_turn_ids() {
+        use super::*;
+        let mut state = super::State::default();
+        for (key, id, turn) in [("question", 1, json!("ended")), ("permission", 2, Value::Null), ("new", 3, json!("next"))] {
+            state.requests.insert(key.into(), (json!(id), vec![]));
+            state.request_turns.insert(key.into(), (json!("thread"), turn));
+        }
+        state.requests.insert("legacy".into(), (json!(4), vec![]));
+        let mut ended = state.ended_requests(&json!("ended"));
+        ended.sort_by_key(|id| id.as_i64());
+        assert_eq!(ended, vec![json!(1), json!(2), json!(4)]);
     }
 
     #[test]

@@ -105,6 +105,7 @@ pub struct Cmd {
     io: [Option<Io>; 3],
     kill_on_drop: bool,
     child: bool,
+    process_tree: bool,
     stdin_data: Option<Vec<u8>>,
 }
 
@@ -119,6 +120,7 @@ impl Cmd {
             io: [None; 3],
             kill_on_drop: true,
             child: false,
+            process_tree: false,
             stdin_data: None,
         }
     }
@@ -126,6 +128,12 @@ impl Cmd {
     /// Harness children also die with the daemon (`PR_SET_PDEATHSIG`) on this computer.
     pub(crate) fn child(mut self) -> Cmd {
         self.child = true;
+        self
+    }
+
+    /// Own a separate process group, including descendants, for cancellable setup/harness work.
+    pub fn process_tree(&mut self) -> &mut Self {
+        self.process_tree = true;
         self
     }
 
@@ -211,6 +219,8 @@ impl Cmd {
             }
         }
         cmd.kill_on_drop(self.kill_on_drop);
+        #[cfg(unix)]
+        if self.process_tree { cmd.process_group(0); }
         // SAFETY: prctl is async-signal-safe and only affects the child.
         #[cfg(target_os = "linux")]
         if self.child {
@@ -237,6 +247,19 @@ impl Cmd {
     }
 
     pub async fn output(&mut self) -> std::io::Result<Output> {
+        if self.process_tree {
+            if self.io[1].is_none() { self.stdout(Io::Piped); }
+            if self.io[2].is_none() { self.stderr(Io::Piped); }
+            if self.stdin_data.is_some() { self.stdin(Io::Piped); }
+            let mut child = self.spawn().await?;
+            if let (Some(data), Some(mut w)) = (self.stdin_data.clone(), child.stdin.take()) {
+                tokio::spawn(async move {
+                    use tokio::io::AsyncWriteExt;
+                    let _ = w.write_all(&data).await;
+                });
+            }
+            return child.wait_with_output().await;
+        }
         match self.host()? {
             None => {
                 let mut cmd = self.local();
@@ -284,6 +307,7 @@ impl Cmd {
                     stdin: child.stdin.take().map(|w| Box::new(w) as Stdin),
                     stdout: child.stdout.take().map(|r| Box::new(r) as Reader),
                     stderr: child.stderr.take().map(|r| Box::new(r) as Reader),
+                    tree_pid: if self.process_tree { child.id() } else { None },
                     inner: Inner::Local(child),
                 })
             }
@@ -308,22 +332,30 @@ pub struct Proc {
     pub stdout: Option<Reader>,
     pub stderr: Option<Reader>,
     inner: Inner,
+    tree_pid: Option<u32>,
 }
 
 /// Stops a process from another task (Stop of a harness).
 #[derive(Clone)]
 pub enum Killer {
     Local(Option<u32>),
+    LocalTree(u32),
     Remote(Arc<Conn>, Arc<RemoteProc>),
 }
 
 impl Killer {
-    pub async fn terminate(&self) {
+    pub async fn terminate(&self) { self.signal(false).await; }
+
+    /// Force the process (and its owned group) to exit before cleanup.
+    pub async fn kill(&self) { self.signal(true).await; }
+
+    async fn signal(&self, force: bool) {
         match self {
+            Killer::LocalTree(pid) => kill_tree(*pid, force),
             Killer::Local(Some(pid)) => {
                 #[cfg(unix)]
                 unsafe {
-                    libc::kill(*pid as i32, libc::SIGTERM);
+                    libc::kill(*pid as i32, if force { libc::SIGKILL } else { libc::SIGTERM });
                 }
                 #[cfg(windows)]
                 {
@@ -332,10 +364,21 @@ impl Killer {
             }
             Killer::Local(None) => {}
             #[cfg(unix)]
-            Killer::Remote(conn, p) => conn.signal(p, libc::SIGTERM, false),
+            Killer::Remote(conn, p) => conn.signal(p, if force { libc::SIGKILL } else { libc::SIGTERM }, true),
             #[cfg(not(unix))]
-            Killer::Remote(conn, p) => conn.signal(p, 15, false),
+            Killer::Remote(conn, p) => conn.signal(p, if force { 9 } else { 15 }, true),
         }
+    }
+}
+
+fn kill_tree(pid: u32, force: bool) {
+    #[cfg(unix)]
+    unsafe { libc::kill(-(pid as i32), if force { libc::SIGKILL } else { libc::SIGTERM }); }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = force;
+        let _ = std::process::Command::new("taskkill").creation_flags(0x08000000).args(["/PID", &pid.to_string(), "/T", "/F"]).status();
     }
 }
 
@@ -348,6 +391,7 @@ impl Proc {
             stdout: stdout.then(|| Box::new(ChanReader::new(out)) as Reader),
             stderr: stderr.then(|| Box::new(ChanReader::new(err)) as Reader),
             inner: Inner::Remote { conn, p, kill_on_drop },
+            tree_pid: None,
         }
     }
 
@@ -360,19 +404,25 @@ impl Proc {
 
     pub fn killer(&self) -> Killer {
         match &self.inner {
-            Inner::Local(c) => Killer::Local(c.id()),
+            Inner::Local(c) => self.tree_pid.map(Killer::LocalTree).unwrap_or_else(|| Killer::Local(c.id())),
             Inner::Remote { conn, p, .. } => Killer::Remote(conn.clone(), p.clone()),
         }
     }
 
     pub async fn wait(&mut self) -> std::io::Result<ExitStatus> {
         match &mut self.inner {
-            Inner::Local(c) => Ok(c.wait().await?.into()),
+            Inner::Local(c) => {
+                let status = c.wait().await?;
+                // A shell can exit while detached descendants still write into its folder.
+                if let Some(pid) = self.tree_pid.take() { kill_tree(pid, true); }
+                Ok(status.into())
+            },
             Inner::Remote { conn, p, .. } => conn.wait(p).await,
         }
     }
 
     pub fn start_kill(&mut self) -> std::io::Result<()> {
+        if let Some(pid) = self.tree_pid { kill_tree(pid, true); }
         match &mut self.inner {
             Inner::Local(c) => c.start_kill(),
             Inner::Remote { conn, p, .. } => {
@@ -413,6 +463,7 @@ impl Proc {
 
 impl Drop for Proc {
     fn drop(&mut self) {
+        if let Some(pid) = self.tree_pid { kill_tree(pid, true); }
         if let Inner::Remote { conn, p, kill_on_drop: true } = &self.inner
             && !p.exited()
         {

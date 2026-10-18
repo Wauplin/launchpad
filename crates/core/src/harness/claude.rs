@@ -37,6 +37,7 @@ pub struct ClaudeSession {
     stdin: tokio::sync::Mutex<Option<crate::exec::Stdin>>,
     state: Arc<Mutex<State>>,
     killer: crate::exec::Killer,
+    exited: tokio::sync::watch::Receiver<bool>,
 }
 
 #[derive(Default)]
@@ -101,7 +102,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
         args.extend(["--add-dir".into(), d.clone()]);
     }
     let mut cmd = crate::procs::child_command(&app.env.on(spec.host.as_deref()), "claude", Some(&spec.cwd));
-    cmd.args(&args)
+    cmd.process_tree().args(&args)
         .envs(spec.env.iter().cloned())
         .env("LAUNCHPAD_PROFILE", app.paths.profile.name())
         .env("LAUNCHPAD_SESSION_ID", &spec.session_id)
@@ -117,7 +118,8 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     // `total_cost_usd` counts from the start of each process: add what earlier processes reported.
     let cost_base = app.sessions.get(&spec.session_id).and_then(|s| s.usage.cost_usd).unwrap_or(0.0);
     let state = Arc::new(Mutex::new(State { cwd: spec.cwd.to_string_lossy().to_string(), cost_base, permission_mode: spec.permission_mode, ..Default::default() }));
-    let session = Arc::new(ClaudeSession { sink: sink.clone(), stdin: tokio::sync::Mutex::new(Some(stdin)), state: state.clone(), killer: child.killer() });
+    let (exited, exit_wait) = tokio::sync::watch::channel(false);
+    let session = Arc::new(ClaudeSession { sink: sink.clone(), stdin: tokio::sync::Mutex::new(Some(stdin)), state: state.clone(), killer: child.killer(), exited: exit_wait });
 
     let stderr_tail = Arc::new(Mutex::new(Vec::<String>::new()));
     let tail = stderr_tail.clone();
@@ -145,6 +147,8 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
             handle(&out_sink, &st, &writer, &msg).await;
         }
         let status = child.wait().await;
+        // Wake stop before emitting events: cleanup waits for this process, not event handling.
+        let _ = exited.send(true);
         let stopping = st.lock().unwrap().stopping;
         let error = match status {
             Ok(s) if s.success() || stopping => None,
@@ -200,7 +204,9 @@ impl LiveSession for ClaudeSession {
 
     async fn interrupt(&self) -> Result<()> {
         let id = format!("interrupt-{}", uuid::Uuid::new_v4());
-        self.write(&json!({"type": "control_request", "request_id": id, "request": {"subtype": "interrupt"}})).await
+        self.write(&json!({"type": "control_request", "request_id": id, "request": {"subtype": "interrupt"}})).await?;
+        cancel_questions(&self.sink, &self.state).await;
+        Ok(())
     }
 
     fn has_open_questions(&self) -> bool { !self.state.lock().unwrap().questions.is_empty() }
@@ -235,12 +241,15 @@ impl LiveSession for ClaudeSession {
         self.state.lock().unwrap().stopping = true;
         cancel_questions(&self.sink, &self.state).await;
         // Closing stdin ends the process after the current step; kill it if it does not exit.
-        self.stdin.lock().await.take();
-        let killer = self.killer.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            killer.terminate().await;
-        });
+        let mut exited = self.exited.clone();
+        let wait = async {
+            self.stdin.lock().await.take();
+            let _ = exited.wait_for(|done| *done).await;
+        };
+        if tokio::time::timeout(std::time::Duration::from_secs(5), wait).await.is_err() {
+            if !*exited.borrow() { self.killer.kill().await; }
+            let _ = exited.wait_for(|done| *done).await;
+        }
         Ok(())
     }
 }
@@ -357,14 +366,8 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
             }
         }
         "result" => {
-            let cancelled = {
-                let mut state = st.lock().unwrap();
-                state.turn_running = false;
-                if msg["is_error"] == true || msg["subtype"] == "error_during_execution" { state.questions.drain().map(|(id, _)| id).collect::<Vec<_>>() } else { vec![] }
-            };
-            for request_id in cancelled { sink.emit(EventBody::AskAnswered { request_id, answers: vec!["Request ended".into()] }).await; }
-            let open = !st.lock().unwrap().questions.is_empty();
-            sink.set_open_question(open).await;
+            st.lock().unwrap().turn_running = false;
+            cancel_questions(sink, st).await;
             let error = if msg["is_error"].as_bool() == Some(true) && msg["subtype"] != "error_during_execution" {
                 Some(msg["result"].as_str().unwrap_or(msg["subtype"].as_str().unwrap_or("error")).to_string())
             } else {

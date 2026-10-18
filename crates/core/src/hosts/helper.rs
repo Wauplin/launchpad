@@ -343,7 +343,7 @@ mod unix {
                 // Its own process group, so Stop and a new daemon boot reach the commands it started.
                 unsafe {
                     cmd.pre_exec(|| {
-                        libc::setpgid(0, 0);
+                        if libc::setpgid(0, 0) == -1 { return Err(std::io::Error::last_os_error()); }
                         Ok(())
                     });
                 }
@@ -381,6 +381,9 @@ mod unix {
                         let _ = r.await;
                     }
                     let status = child.wait().await;
+                    // A completed shell/harness must not leave descendants writing into a folder
+                    // that the daemon can now archive or remove.
+                    if let Some(pid) = p.pid { unsafe { libc::kill(-(pid as i32), libc::SIGKILL); } }
                     use std::os::unix::process::ExitStatusExt;
                     let (code, signal) = status.map(|s| (s.code(), s.signal())).unwrap_or((None, None));
                     p.input.lock().await.0.take();

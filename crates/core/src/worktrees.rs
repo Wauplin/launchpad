@@ -423,7 +423,8 @@ pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, Stri
 }
 
 /// Runs the owner-configured setup command of a project in a new worktree folder.
-pub async fn run_setup(app: &App, project: &Project, folder: &str, sink: &crate::sessions::Sink) -> Result<()> {
+pub async fn run_setup(app: &App, project: &Project, folder: &str, sink: &crate::sessions::Sink, cancelled: &mut tokio::sync::watch::Receiver<bool>) -> Result<()> {
+    anyhow::ensure!(!*cancelled.borrow(), "setup cancelled");
     let command = project.worktree_setup.trim();
     if command.is_empty() {
         return Ok(());
@@ -439,8 +440,30 @@ pub async fn run_setup(app: &App, project: &Project, folder: &str, sink: &crate:
         c.args(["-c", command]);
         c
     };
-    cmd.stdin(crate::exec::Io::Null).env("LAUNCHPAD_WORKTREE", folder).env("LAUNCHPAD_SOURCE_CHECKOUT", &project.path);
-    let out = tokio::time::timeout(Duration::from_secs(30 * 60), cmd.output()).await.context("setup did not finish within 30 minutes")??;
+    cmd.process_tree().stdin(crate::exec::Io::Null).stdout(crate::exec::Io::Piped).stderr(crate::exec::Io::Piped).env("LAUNCHPAD_WORKTREE", folder).env("LAUNCHPAD_SOURCE_CHECKOUT", &project.path);
+    let out = setup_output(&mut cmd, cancelled, Duration::from_secs(30 * 60)).await?;
+    finish_setup(sink, command, started, out).await
+}
+
+async fn setup_output(cmd: &mut crate::exec::Cmd, cancelled: &mut tokio::sync::watch::Receiver<bool>, timeout: Duration) -> Result<crate::exec::Output> {
+    anyhow::ensure!(!*cancelled.borrow(), "setup cancelled");
+    let child = cmd.spawn().await?;
+    let killer = child.killer();
+    let output = child.wait_with_output();
+    tokio::pin!(output);
+    let reason = tokio::select! {
+        out = &mut output => return Ok(out?),
+        _ = cancelled.wait_for(|cancel| *cancel) => "setup cancelled",
+        _ = tokio::time::sleep(timeout) => "setup did not finish within 30 minutes",
+    };
+    // Keep ownership until exit is confirmed, including SSH helper-owned processes. Dropping a
+    // remote Exec request cannot cancel it; setup deliberately uses Spawn instead.
+    killer.kill().await;
+    let _ = output.await;
+    bail!("{reason}")
+}
+
+async fn finish_setup(sink: &crate::sessions::Sink, command: &str, started: std::time::Instant, out: crate::exec::Output) -> Result<()> {
     let mut log = String::from_utf8_lossy(&out.stdout).into_owned();
     log.push_str(&String::from_utf8_lossy(&out.stderr));
     let tail = crate::sessions::truncate_output(log.trim(), 4000);
@@ -545,7 +568,8 @@ pub async fn add_project(app: &App, session_id: &str, project: &str) -> Result<S
     let (w, path) = create(app, session_id, &p, &WorktreeOptions { base, ..Default::default() }, false, &s.title).await?;
     let sink = app.sessions.sink(app, session_id);
     sink.emit(EventBody::Notice { text: format!("Added a worktree for {} on branch {}: {path}", p.name, w.branch) }).await;
-    if let Err(e) = run_setup(app, &p, &path, &sink).await {
+    let (_cancel, mut cancelled) = tokio::sync::watch::channel(false);
+    if let Err(e) = run_setup(app, &p, &path, &sink, &mut cancelled).await {
         return Ok(format!("Worktree for {} on branch `{}`: {path}\nIts setup command failed; fix the environment yourself if needed:\n{e:#}", p.name, w.branch));
     }
     Ok(format!("Worktree for {} on branch `{}`: {path}\nEdit this folder, never the original checkout {}. Commit your work on this branch.", p.name, w.branch, p.path))
@@ -1032,4 +1056,60 @@ pub async fn sizes(app: &App) -> Result<HashMap<String, u64>> {
     let roots: Vec<String> = records.iter().map(|w| w.root.clone()).collect();
     let sizes = crate::hostfs::disk_usage(&roots).await;
     Ok(records.into_iter().zip(sizes).map(|(w, s)| (w.id, s)).collect())
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod setup_tests {
+    use super::*;
+
+    // Use real shell descendants, including one that ignores TERM. No harness or daemon is started.
+    async fn check_setup_shutdown(mode: &str) {
+        let pid_file = std::env::temp_dir().join(format!("launchpad-setup-{}", uuid::Uuid::new_v4()));
+        let env = crate::shellenv::UserEnv::resolve().await;
+        let mut cmd = crate::procs::child_command(&env, "sh", None);
+        let script = if mode == "complete" {
+            r#"sh -c 'trap "" TERM; echo $$ > "$1"; while :; do sleep 1; done' child "$1" >/dev/null 2>&1 & while ! test -s "$1"; do sleep 0.01; done"#
+        } else {
+            r#"sh -c 'trap "" TERM; echo $$ > "$1"; while :; do sleep 1; done' child "$1" & wait"#
+        };
+        cmd.process_tree().args(["-c", script, "setup"])
+            .arg(&pid_file).stdin(crate::exec::Io::Null).stdout(crate::exec::Io::Piped).stderr(crate::exec::Io::Piped);
+        let (cancel, mut cancelled) = tokio::sync::watch::channel(false);
+        let timeout = mode == "timeout";
+        let task = tokio::spawn(async move {
+            setup_output(&mut cmd, &mut cancelled, if timeout { Duration::from_millis(500) } else { Duration::from_secs(5) }).await
+        });
+        let pid = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if let Ok(s) = tokio::fs::read_to_string(&pid_file).await
+                    && let Ok(pid) = s.trim().parse::<u32>() { break pid; }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.expect("setup descendant started");
+        if mode == "cancel" { cancel.send(true).unwrap(); }
+        let result = tokio::time::timeout(Duration::from_secs(3), task).await.unwrap().unwrap();
+        if mode == "complete" {
+            assert!(result.unwrap().status.success());
+        } else {
+            assert!(result.unwrap_err().to_string().contains(if timeout { "30 minutes" } else { "cancelled" }));
+        }
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let stat = tokio::fs::read_to_string(format!("/proc/{pid}/stat")).await;
+                // An orphan can remain a zombie until init reaps it; it cannot keep writing.
+                if stat.is_err() || stat.unwrap().split(") ").nth(1).is_some_and(|s| s.starts_with('Z')) { break; }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.expect("setup descendant stopped before cleanup");
+        let _ = tokio::fs::remove_file(pid_file).await;
+    }
+
+    #[tokio::test]
+    async fn setup_cancellation_stops_descendants() { check_setup_shutdown("cancel").await; }
+
+    #[tokio::test]
+    async fn setup_timeout_stops_descendants() { check_setup_shutdown("timeout").await; }
+
+    #[tokio::test]
+    async fn setup_exit_stops_detached_descendants() { check_setup_shutdown("complete").await; }
 }
