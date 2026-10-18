@@ -127,7 +127,7 @@ pub async fn list(app: &App) -> Result<Vec<Predraft>> {
                 .sessions
                 .list()
                 .into_iter()
-                .find(|s| s.cwd == p.root)
+                .find(|s| crate::hosts::loc::within(&s.cwd, &p.root))
                 .map(|s| s.id);
         }
     }
@@ -142,7 +142,7 @@ pub async fn get(app: &App, id: &str) -> Result<Predraft> {
         .context("pre-draft not found")
 }
 pub async fn check_session_work(app: &App, root: &str) -> Result<()> {
-    if let Some(p) = list(app).await?.into_iter().find(|p| p.root == root) {
+    if let Some(p) = list(app).await?.into_iter().find(|p| crate::hosts::loc::within(root, &p.root)) {
         ensure!(
             !p.archived && p.pushed_head.is_none(),
             "this pre-draft was discarded or publication has started; finish publication in its review page"
@@ -327,7 +327,7 @@ fn editable(p: &Predraft) -> Result<()> {
 }
 fn idle(app: &App, p: &Predraft) -> Result<()> {
     ensure!(
-        !app.sessions.list().iter().any(|s| s.cwd == p.root
+        !app.sessions.list().iter().any(|s| crate::hosts::loc::within(&s.cwd, &p.root)
             && (app.sessions.is_busy(s) || s.status == SessionStatus::InTerminal)),
         "the worktree has an active agent; wait for it to finish"
     );
@@ -443,7 +443,7 @@ pub async fn feedback(app: &App, id: &str) -> Result<()> {
         .as_ref()
         .context("this pre-draft has no linked session")?;
     ensure!(
-        app.sessions.get(session).is_some_and(|s| s.cwd == p.root),
+        app.sessions.get(session).is_some_and(|s| crate::hosts::loc::within(&s.cwd, &p.root)),
         "session is not in the pre-draft worktree"
     );
     ensure!(!p.notes.is_empty(), "write review notes first");
@@ -468,11 +468,12 @@ pub async fn feedback(app: &App, id: &str) -> Result<()> {
     }
     Ok(())
 }
+/// Caller holds the session action lock, work gate and pre-draft lock.
 async fn cleanup(app: &App, p: &Predraft, delete_branch: bool) -> Result<()> {
     idle(app, p)?;
     let Some(project) = crate::projects::get(app, &p.project_id).await? else {
         // Without its project there is no repository to run git in: close the sessions and keep the files on disk.
-        app.sessions.close_in(app, &p.root).await?;
+        app.sessions.close_in_locked(app, &p.root).await?;
         return Ok(());
     };
     if crate::hostfs::exists(&p.root).await {
@@ -486,7 +487,7 @@ async fn cleanup(app: &App, p: &Predraft, delete_branch: bool) -> Result<()> {
             .is_empty(),
             "worktree has uncommitted changes; commit or remove them before cleanup"
         );
-        app.sessions.close_in(app, &p.root).await?;
+        app.sessions.close_in_locked(app, &p.root).await?;
         git(app, &project.path, &["worktree", "remove", &p.root]).await?;
     }
     if delete_branch
@@ -531,6 +532,7 @@ pub(crate) async fn abandon_launch(app: &App, mut p: Predraft) {
 }
 
 pub async fn discard(app: &App, id: &str) -> Result<Predraft> {
+    let _action = app.sessions.action_lock().await;
     let _work = app.sessions.allow_work().await;
     let _lock = app.predraft_lock.lock().await;
     let mut p = get(app, id).await?;
@@ -545,6 +547,7 @@ pub async fn discard(app: &App, id: &str) -> Result<Predraft> {
     Ok(p)
 }
 pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
+    let _action = app.sessions.action_lock().await;
     let _work = app.sessions.allow_work().await;
     let _lock = app.predraft_lock.lock().await;
     let mut p = get(app, id).await?;
@@ -697,3 +700,7 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
     }
     Ok(p)
 }
+
+#[cfg(test)]
+#[path = "predrafts_tests.rs"]
+mod tests;

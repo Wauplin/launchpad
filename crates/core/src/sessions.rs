@@ -429,6 +429,7 @@ impl Sessions {
         let mut resolved_spec = spec.clone();
         if let Target::SessionFolder { session_id } = &spec.target {
             let source = self.get(session_id).context("source session no longer exists")?;
+            crate::predrafts::check_session_work(app, &source.cwd).await?;
             if let Some(p) = crate::predrafts::list(app).await?.into_iter().find(|p| p.root == source.cwd) {
                 resolved_spec.target = Target::ExistingPredraft { predraft_id: p.id };
             }
@@ -533,6 +534,7 @@ impl Sessions {
             let source = self.get(session_id).context("source session no longer exists")?;
             anyhow::ensure!(!self.is_busy(&source) && source.status != SessionStatus::InTerminal, "stop the source agent or re-attach its terminal before continuing with another agent");
             crate::worktrees::restore_for_session(app, session_id).await?;
+            crate::predrafts::check_session_work(app, &source.cwd).await?;
             if let Some(p) = crate::predrafts::list(app).await?.into_iter().find(|p| p.root == source.cwd) {
                 spec.target = Target::ExistingPredraft { predraft_id: p.id };
             }
@@ -1307,12 +1309,18 @@ impl Sessions {
 
     /// Stops and forgets the sessions and terminals running in a folder (temporary project clean-up).
     pub async fn close_in(&self, app: &App, path: &str) -> Result<()> {
+        let _action = self.action_lock().await;
+        self.close_in_locked(app, path).await
+    }
+
+    /// Caller holds the session action lock, including when holding the work gate for cleanup.
+    pub(crate) async fn close_in_locked(&self, app: &App, path: &str) -> Result<()> {
         app.terminals.close_in(path).await?;
         let ids: Vec<String> =
-            self.list().into_iter().filter(|s| s.cwd == path || s.cwd.starts_with(&format!("{path}/"))).map(|s| s.id).collect();
+            self.list().into_iter().filter(|s| crate::hosts::loc::within(&s.cwd, path)).map(|s| s.id).collect();
         for id in ids {
             if self.get(&id).is_some_and(|s| s.live || s.status.is_running() || s.status.is_done() || s.quota_pause.is_some()) {
-                self.close(app, &id).await?;
+                self.close_locked(app, &id).await?;
             }
         }
         Ok(())

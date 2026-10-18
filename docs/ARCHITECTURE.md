@@ -703,6 +703,8 @@ A pre-draft PR is a pull request that exists only on your laptop: a local branch
 8. **Discard:** after confirmation, removes a clean worktree, deletes the branch and archives the record. Running agents and uncommitted changes block cleanup. Published and discarded records remain accessible in the local list.
 9. **Removed project:** when the project of a pre-draft is unregistered, its page shows the record with an explanation and only Discard. Discard archives the record and closes its sessions and terminals, but keeps the worktree folder and branch on disk.
 
+Publication and discard take locks in this order: session actions, session work gate, pre-drafts. Cleanup closes sessions using the already-held action lock. Idle checks, publication/discard guards, feedback, session-link recovery and follow-up launches include the worktree root and descendant folders on the same host; sibling folders do not match. Feedback releases the pre-draft lock before sending input, so the session send path can acquire actions and work in the same order.
+
 The pre-draft breadcrumb reads `<project> / Pre-draft PRs / <title>`; unpublished pre-drafts are also listed in To publish ([11](#11-agent-written-suggestions)).
 
 ## 11. Agent-written suggestions

@@ -53,6 +53,12 @@ pub fn same_host(a: &str, b: &str) -> bool {
     host_of(a) == host_of(b)
 }
 
+/// A folder is the root itself or one of its descendants on the same machine.
+/// Paths supplied here are absolute locations, as stored for sessions and worktrees.
+pub fn within(path: &str, root: &str) -> bool {
+    same_host(path, root) && Path::new(native(path)).starts_with(native(root))
+}
+
 /// Rewrites host locations of `host` inside a command argument into native paths, so `--add-dir
 /// devbox:/x` or `projects."devbox:/x".trust_level` reach the host process as `/x`.
 pub fn localize_arg(host: &str, arg: &str) -> String {

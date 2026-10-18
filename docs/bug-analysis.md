@@ -58,6 +58,8 @@ Fix status (2026-10-17): all eight findings addressed; implementation and behavi
 
 ## 3. Pre-draft locking and guards
 
+Fixed on 2026-10-18: Publish and Discard take the session action lock before the work gate and pre-draft lock; cleanup closes sessions under the existing action lock. Guards, feedback, session-link recovery and follow-up launches include descendant folders on the same host. Isolated regression tests cover lock ordering, cleanup completion and subfolder guards. Findings below describe the analyzed revision.
+
 - **[High] Deadlock between pre-draft Discard/Publish and every session action** [C+X] — `crates/core/src/predrafts.rs:475`, `predrafts.rs:489`, `predrafts.rs:506-521`, `crates/core/src/sessions.rs:1067-1068`, `sessions.rs:1187`
   - Bug: `discard`/`publish` take `work` and then call `close_in` → `close`, which takes `actions`. Send, launch, resume and answer take `actions` then `work`. One concurrent send or cron launch blocks both mutexes forever, so every later action, including Stop, hangs until restart (reproduced by Codex).
   - Recommendation: Take `actions` before `work` in discard/publish and use a close variant that assumes the caller holds `actions`.
