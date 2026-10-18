@@ -204,6 +204,7 @@ mod unix {
         input: tokio::sync::Mutex<(Option<Input>, u64)>,
         pid: Option<u32>,
         pty: Mutex<Option<Box<dyn portable_pty::MasterPty + Send>>>,
+        closing: Mutex<crate::terminals::PtyClose>,
     }
 
     struct Client {
@@ -356,6 +357,7 @@ mod unix {
                     input: tokio::sync::Mutex::new((child.stdin.take().map(Input::Pipe), 0)),
                     pid: child.id(),
                     pty: Mutex::new(None),
+                    closing: Mutex::new(crate::terminals::PtyClose::default()),
                 });
                 h.procs.lock().unwrap().insert(key, p.clone());
                 let readers: Vec<_> = [child.stdout.take().map(|r| Box::new(r) as Box<dyn tokio::io::AsyncRead + Send + Unpin>), child.stderr.take().map(|r| Box::new(r) as Box<dyn tokio::io::AsyncRead + Send + Unpin>)]
@@ -427,6 +429,7 @@ mod unix {
                     input: tokio::sync::Mutex::new((Some(Input::Pty(wtx)), 0)),
                     pid: child.process_id(),
                     pty: Mutex::new(Some(pair.master)),
+                    closing: Mutex::new(crate::terminals::PtyClose::default()),
                 });
                 h.procs.lock().unwrap().insert(key, p.clone());
                 let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
@@ -444,6 +447,8 @@ mod unix {
                 let h = h.clone();
                 std::thread::spawn(move || {
                     let code = child.wait().ok().map(|s| s.exit_code() as i32);
+                    let close = p.closing.lock().unwrap().worker.take();
+                    if let Some(close) = close { let _ = close.join(); }
                     let _ = done_rx.recv_timeout(Duration::from_secs(1));
                     p.pty.lock().unwrap().take();
                     h.exited(&p, code, None);
@@ -459,8 +464,22 @@ mod unix {
             Op::Exec { argv, cwd, env, stdin } => exec(h, argv, cwd, env, stdin).await.map_err(other),
             Op::Spawn { key, argv, cwd, env, pty, stdin } => spawn(h, key, argv, cwd, env, pty, stdin).map_err(other),
             Op::Signal { key, signal, group } => {
-                let pid = h.procs.lock().unwrap().get(&key).and_then(|p| p.pid);
-                if let Some(pid) = pid {
+                let proc = h.procs.lock().unwrap().get(&key).cloned();
+                if let Some(p) = &proc
+                    && group && signal == libc::SIGHUP
+                    && let Some(pid) = p.pid
+                {
+                    let mut closing = p.closing.lock().unwrap();
+                    let pty = p.pty.lock().unwrap();
+                    if pty.is_some() {
+                        if !closing.started {
+                            closing.started = true;
+                            closing.worker = Some(crate::terminals::stop_pty(pid, pty.as_deref()));
+                        }
+                        return Ok(Value::Null);
+                    }
+                }
+                if let Some(pid) = proc.and_then(|p| p.pid) {
                     unsafe { libc::kill(if group { -(pid as i32) } else { pid as i32 }, signal) };
                 }
                 Ok(Value::Null)

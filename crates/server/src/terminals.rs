@@ -79,7 +79,7 @@ async fn ws(State(s): State<Server>, Path(id): Path<String>, Query(resume): Quer
     if !s.app.terminals.exists(&id) {
         return Err(ApiError::not_found("no such terminal"));
     }
-    Ok(ws.on_upgrade(move |socket| serve(s, id, socket, access, resume.offset)))
+    Ok(ws.max_message_size(launchpad_core::terminals::INPUT_CHUNK).on_upgrade(move |socket| serve(s, id, socket, access, resume.offset)))
 }
 
 #[derive(Deserialize)]
@@ -217,9 +217,10 @@ async fn serve(s: Server, id: String, socket: WebSocket, mut access: Access, mut
                 msg = rx.next() => match msg {
                     Some(Ok(Message::Binary(b))) => {
                         if !access.valid() { return }
-                        // A process that stops reading its input fills the PTY: block a pool thread, not the runtime.
-                        let (terminals, id) = (s.app.terminals.clone(), id.clone());
-                        let _ = tokio::task::spawn_blocking(move || terminals.write(&id, &b)).await;
+                        if s.app.terminals.write(&id, &b).is_err() {
+                            let _ = tx.send(Message::Text(json!({"type": "error", "message": "Terminal input was interrupted: queue full or terminal closed. Check the terminal before retrying."}).to_string().into())).await;
+                            return;
+                        }
                     }
                     Some(Ok(Message::Text(t))) => {
                         if !access.valid() { return }

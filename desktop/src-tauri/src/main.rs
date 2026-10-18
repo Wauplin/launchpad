@@ -221,6 +221,10 @@ fn show_error(w: &WebviewWindow, msg: &str) {
     ));
 }
 
+fn same_origin(url: &tauri::Url, origin: &str) -> bool {
+    url.origin().ascii_serialization() == origin
+}
+
 /// Builds a window on `url`. The main window hides on close when it stays warm; others close.
 fn build_window(app: &tauri::AppHandle, profile: &Profile, label: &str, url: WebviewUrl, visible: bool, keep_warm: bool) -> tauri::Result<WebviewWindow> {
     let origin = profile.origin();
@@ -245,7 +249,7 @@ fn build_window(app: &tauri::AppHandle, profile: &Profile, label: &str, url: Web
             }
         })
         .on_navigation(move |url| {
-            let internal = url.as_str().starts_with(&origin) || url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost");
+            let internal = same_origin(url, &origin) || url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost");
             if !internal && matches!(url.scheme(), "http" | "https" | "mailto") {
                 // Links to GitHub and elsewhere open in the browser, never inside the app window.
                 let mut cmd = if cfg!(target_os = "windows") {
@@ -328,13 +332,12 @@ fn main() {
         .setup(move |app| {
             if quit { app.handle().exit(0); return Ok(()); }
             let warm = healthy(profile.port);
-            let first_url = match (warm, app_url(&profile, &route, t0)) {
-                (true, Ok(url)) => WebviewUrl::External(url),
-                _ => WebviewUrl::App("index.html".into()),
-            };
+            let first = if warm { app_url(&profile, &route, t0).ok() } else { None };
+            let recover = first.is_none();
+            let first_url = first.map(WebviewUrl::External).unwrap_or_else(|| WebviewUrl::App("index.html".into()));
             let window = build_window(app.handle(), &profile, "main", first_url, !hidden, keep_warm)?;
-            if !warm {
-                std::thread::spawn(move || match start_daemon(&profile).and_then(|_| app_url(&profile, &route, t0)) {
+            if recover {
+                std::thread::spawn(move || match (if warm { Ok(()) } else { start_daemon(&profile) }).and_then(|_| app_url(&profile, &route, t0)) {
                     Ok(url) => {
                         let _ = window.navigate(url);
                     }
@@ -345,4 +348,17 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running Launchpad");
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    #[test]
+    fn daemon_origin_is_compared_exactly() {
+        for url in ["http://127.0.0.1:7317/", "http://127.0.0.1:7317/auth?code=x"] {
+            assert!(super::same_origin(&tauri::Url::parse(url).unwrap(), "http://127.0.0.1:7317"));
+        }
+        for url in ["http://127.0.0.1:73170/", "http://127.0.0.1:7317@evil.example/", "https://127.0.0.1:7317/"] {
+            assert!(!tauri::Url::parse(url).is_ok_and(|url| super::same_origin(&url, "http://127.0.0.1:7317")));
+        }
+    }
 }

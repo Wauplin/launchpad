@@ -179,6 +179,9 @@ async fn discover(State(s): State<Server>, body: Option<Json<Discover>>) -> ApiR
 }
 
 async fn patch_project(State(s): State<Server>, Path(id): Path<String>, Json(patch): Json<ProjectPatch>) -> ApiResult<Project> {
+    if s.auth.remote() && patch.worktree_setup.is_some() {
+        return Err(ApiError::bad_request("Edit worktree setup commands on the host while remote access is enabled"));
+    }
     Ok(Json(projects::update(&s.app, &id, patch).await?))
 }
 

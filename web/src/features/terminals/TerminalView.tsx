@@ -28,7 +28,7 @@ const lightTheme = { background: "#FFFFFF", foreground: "#17202B", cursor: "#167
 const darkTheme = { background: "#0D1117", foreground: "#E6EDF3", cursor: "#79D7C6", cursorAccent: "#0D1117", selectionBackground: "#23364D", black: "#484F58", brightBlack: "#98A6B7", red: "#FF939A", brightRed: "#FFA8AD", green: "#70D68B", brightGreen: "#8DE5A2", yellow: "#EAC76A", brightYellow: "#F4DB91", blue: "#83BAFF", brightBlue: "#A5CEFF", magenta: "#C3A0FF", brightMagenta: "#D5BAFF", cyan: "#79D7C6", brightCyan: "#9BE6D9", white: "#B6C2CF", brightWhite: "#E6EDF3" };
 
 type Owner = "self" | "other" | "none";
-type Control = { type: string; epoch: number; offset: number; rows: number; cols: number; owner: Owner };
+type Control = { message: string; type: string; epoch: number; offset: number; rows: number; cols: number; owner: Owner };
 
 /** No message for this long (the daemon pings every 25 s): the connection is dead, replace it. */
 const STALE_MS = 60_000;
@@ -127,7 +127,10 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
       return false;
     });
     const encoder = new TextEncoder();
-    const send = (data: Uint8Array<ArrayBuffer>) => { if (socket?.readyState === WebSocket.OPEN) socket.send(data); };
+    const send = (data: Uint8Array<ArrayBuffer>) => {
+      if (socket?.readyState !== WebSocket.OPEN) return;
+      for (let offset = 0; offset < data.length; offset += 64 * 1024) socket.send(data.subarray(offset, offset + 64 * 1024));
+    };
     const input = t.onData((d) => {
       // Phone key bar: a sticky Ctrl turns the next typed letter into its control character.
       if (keyBar.ctrl && d.length === 1 && /[a-z@[\\\]^_]/i.test(d)) {
@@ -216,6 +219,7 @@ export function TerminalView({ id, scale, visible = true }: { id: string; scale:
           if (control.type === "reset") stream.reset(control.epoch, control.rows, control.cols);
           else stream.resume(control.epoch, control.rows, control.cols);
         }
+        if (control.type === "error") toastError(new Error(control.message));
         if (control.type === "ready") stream.ready();
         // After the output that was written at the previous size.
         if (control.type === "size") t.write("", () => { if (!disposed && socket === ws) { takeSize(control); refit(); } });

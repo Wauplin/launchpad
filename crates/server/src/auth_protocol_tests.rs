@@ -62,7 +62,7 @@ async fn front_door_protocol() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move {
-        axum::serve(listener, crate::router(server)).await.unwrap();
+        axum::serve(listener, crate::router(server).into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
     });
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     let base = format!("http://{address}");
@@ -166,6 +166,10 @@ async fn front_door_protocol() {
         .unwrap();
     assert_eq!(devices[0]["current"], true);
     let id = devices[0]["id"].as_str().unwrap();
+    assert_eq!(client.patch(format!("{base}/api/projects/missing"))
+        .header("Host", "launchpad.example").header("Origin", "https://launchpad.example")
+        .header("Cookie", cookie).json(&json!({"worktree_setup": "touch unwanted"}))
+        .send().await.unwrap().status(), StatusCode::BAD_REQUEST);
     let response: Value = get("/api/config")
         .header("Cookie", cookie)
         .send()

@@ -247,7 +247,7 @@ impl ConfigHandle {
             Ok(c) => (c, None),
             Err(e) => {
                 tracing::error!("config: {e:#}, using defaults");
-                (Config::default(), Some(format!("{e:#}")))
+                (Config::default(), Some(browser_error(&e)))
             }
         };
         let handle = ConfigHandle {
@@ -309,8 +309,8 @@ impl ConfigHandle {
             }
             Err(e) => {
                 tracing::error!("config: {e:#}, keeping the previous config");
-                *self.error.write().unwrap() = Some(format!("{e:#}"));
-                self.bus.publish("config", "error", serde_json::json!(format!("{e:#}")));
+                *self.error.write().unwrap() = Some(browser_error(&e));
+                self.bus.publish("config", "error", serde_json::json!(browser_error(&e)));
             }
         }
     }
@@ -350,6 +350,17 @@ impl ConfigHandle {
     }
 }
 
+// TOML diagnostics include source lines, which may contain variant credentials.
+// Keep full diagnostics in host logs only, including for config bus events.
+fn browser_error(error: &anyhow::Error) -> String {
+    if let Some(parse) = error.downcast_ref::<toml::de::Error>() {
+        let location = parse.span().map(|span| format!(" at byte {}", span.start + 1)).unwrap_or_default();
+        format!("Invalid config.toml{location}. See the host logs for details.")
+    } else {
+        "Could not load config.toml. See the host logs for details.".into()
+    }
+}
+
 fn read(path: &PathBuf) -> Result<Config> {
     let text = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
     let config: Config = toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
@@ -360,6 +371,27 @@ fn read(path: &PathBuf) -> Result<Config> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn config_parse_errors_never_expose_source_in_browser_diagnostics() {
+        let error = toml::from_str::<Config>("[variants.env]\nSECRET = 'private-value' broken").unwrap_err();
+        assert!(error.to_string().contains("private-value"));
+        let error = anyhow::Error::new(error).context("parse config.toml");
+        let safe = browser_error(&error);
+        assert!(!safe.contains("private-value"));
+        assert!(safe.contains("at byte"));
+        let bus = Bus::new();
+        let mut events = bus.subscribe(None).rx;
+        let handle = ConfigHandle {
+            inner: Arc::new(RwLock::new(Config::default())),
+            path: PathBuf::from("unused"),
+            bus,
+            error: Arc::new(RwLock::new(None)),
+        };
+        handle.apply(Err(error));
+        assert_eq!(handle.error().unwrap(), safe);
+        assert!(!events.try_recv().unwrap().text.contains("private-value"));
+    }
 
     #[test]
     fn presets_are_only_user_defined() {

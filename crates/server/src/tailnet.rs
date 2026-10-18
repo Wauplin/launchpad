@@ -97,36 +97,20 @@ fn https_origin_at(
             if !targets.iter().any(|target| target == proxy) {
                 continue;
             }
-            // Other apps may share this host, but must not intercept Launchpad routes.
-            let paths = [
-                "/auth",
-                "/api",
-                "/ws",
-                "/assets",
-                "/icons",
-                "/sw.js",
-                "/manifest.webmanifest",
-                "/now",
-                "/review",
-                "/terminals",
-                "/inbox",
-                "/predrafts",
-                "/github",
-                "/publish",
-                "/agents",
-                "/projects",
-                "/settings",
-                "/dev",
-            ];
-            if handlers.keys().any(|path| {
-                path != "/"
-                    && paths.iter().any(|root| {
-                        let path = path.trim_end_matches('/');
-                        path == *root
-                            || path.starts_with(&format!("{root}/"))
-                            || root.starts_with(&format!("{path}/"))
-                    })
-            }) {
+            // Every path shares cookies and origin privileges with Launchpad.
+            let shared = std::iter::once(serve).chain(
+                serve["Foreground"].as_object().into_iter().flat_map(|v| v.values())
+            ).any(|other| {
+                other["Web"].as_object().into_iter().flat_map(|v| v.iter())
+                    .filter(|(name, _)| name.eq_ignore_ascii_case(authority))
+                    .any(|(_, web)| web["Handlers"].as_object().is_none_or(|h| {
+                        h.len() != 1 || h.get("/").and_then(|h| h["Proxy"].as_str()).is_none_or(|proxy| {
+                            let proxy = proxy.strip_prefix("http://").unwrap_or(proxy).trim_end_matches('/');
+                            !targets.iter().any(|target| target == proxy)
+                        })
+                    }))
+            });
+            if handlers.len() != 1 || shared {
                 continue;
             }
             let origin = ServerConfig {
@@ -458,11 +442,13 @@ mod tests {
     #[test]
     fn https_serve_must_match_this_node_daemon_and_private_root_route() {
         let status = json!({"BackendState":"Running", "Self":{"DNSName":"host.example.ts.net."}});
-        let serve = json!({"TCP":{"443":{"HTTPS":true},"8443":{"HTTPS":true}},
+        let mut serve = json!({"TCP":{"443":{"HTTPS":true},"8443":{"HTTPS":true}},
             "Web":{"host.example.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:7318"},
                 "/other-app":{"Proxy":"http://127.0.0.1:8765"}}}}});
         let bind = "127.0.0.1".parse().unwrap();
         let origin = Some("https://host.example.ts.net".into());
+        assert_eq!(https_origin(&status, &serve, 7318, bind), None);
+        serve["Web"]["host.example.ts.net:443"]["Handlers"].as_object_mut().unwrap().remove("/other-app");
         assert_eq!(https_origin(&status, &serve, 7318, bind), origin);
         assert_eq!(https_origin(&status, &serve, 7317, bind), None);
         assert_eq!(
@@ -473,6 +459,11 @@ mod tests {
             https_origin(&json!({"BackendState":"Stopped"}), &serve, 7318, bind),
             None
         );
+        let mut overlay = serve.clone();
+        overlay["Foreground"] = json!({"other": {"Web": {"host.example.ts.net:443": {"Handlers": {"/other-app": {"Proxy": "http://127.0.0.1:8765"}}}}}});
+        assert_eq!(https_origin(&status, &overlay, 7318, bind), None);
+        overlay["Foreground"]["other"]["Web"]["host.example.ts.net:443"]["Handlers"] = json!({"/": {"Proxy": "http://127.0.0.1:8765"}});
+        assert_eq!(https_origin(&status, &overlay, 7318, bind), None);
         for proxy in ["http://localhost:7318/", "127.0.0.1:7318", "7318"] {
             let mut changed = serve.clone();
             changed["Web"]["host.example.ts.net:443"]["Handlers"]["/"]["Proxy"] = json!(proxy);

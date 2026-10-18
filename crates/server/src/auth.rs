@@ -100,6 +100,7 @@ struct ReversePair {
 struct ReversePairs {
     pending: HashMap<String, ReversePair>,
     started: Vec<i64>,
+    sources: HashMap<std::net::IpAddr, Vec<i64>>,
     attempts: Vec<i64>,
 }
 
@@ -634,7 +635,7 @@ fn normalize_code(code: &str) -> String {
 }
 
 impl Auth {
-    fn start_reverse(&self, name: String) -> Result<Value, ApiError> {
+    fn start_reverse(&self, name: String, source: std::net::IpAddr) -> Result<Value, ApiError> {
         let name = name.trim().to_string();
         if name.is_empty() || name.chars().count() > 80 {
             return Err(ApiError::bad_request(
@@ -642,7 +643,20 @@ impl Auth {
             ));
         }
         let mut state = self.reverse.write().unwrap();
-        rate_limit(&mut state.started, 20)?;
+        state.sources.retain(|_, attempts| {
+            attempts.retain(|time| *time > now() - 60);
+            !attempts.is_empty()
+        });
+        // Bound each peer before consuming the shared budget. Forwarded headers are untrusted;
+        // a reverse proxy shares its peer budget, with link/QR pairing as the fallback.
+        if let Some(attempts) = state.sources.get_mut(&source) {
+            rate_limit(attempts, 5)?;
+            rate_limit(&mut state.started, 20)?;
+        } else {
+            // Allocate per-peer state only after passing the global cap.
+            rate_limit(&mut state.started, 20)?;
+            state.sources.insert(source, vec![now()]);
+        }
         state.pending.retain(|_, pair| pair.expires_at > now());
         if state.pending.len() >= 100 {
             return Err(ApiError::new(
@@ -718,9 +732,10 @@ impl Auth {
 
 async fn reverse_start(
     State(s): State<Server>,
+    axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(body): Json<ReverseStart>,
 ) -> ApiResult<Value> {
-    Ok(Json(s.auth.start_reverse(body.name)?))
+    Ok(Json(s.auth.start_reverse(body.name, peer.ip())?))
 }
 async fn reverse_check(State(s): State<Server>, Json(body): Json<ReverseCode>) -> ApiResult<Value> {
     Ok(Json(s.auth.check_reverse(&body.code, false)?))
@@ -861,7 +876,7 @@ mod tests {
     async fn reverse_pairing_requires_approval_and_private_secret() {
         let fixture = Fixture::new();
         let auth = fixture.auth().await;
-        let request = auth.start_reverse("Phone".into()).unwrap();
+        let request = auth.start_reverse("Phone".into(), "127.0.0.1".parse().unwrap()).unwrap();
         let code = request["code"].as_str().unwrap();
         let secret = request["secret"].as_str().unwrap();
         assert_eq!(code.len(), 8);
@@ -893,11 +908,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reverse_global_limit_also_bounds_peer_tracking() {
+        let fixture = Fixture::new();
+        let auth = fixture.auth().await;
+        for last in 1..=20 {
+            auth.start_reverse("Phone".into(), std::net::Ipv4Addr::new(100, 64, 0, last).into()).unwrap();
+        }
+        for last in 21..=100 {
+            assert!(auth.start_reverse("Phone".into(), std::net::Ipv4Addr::new(100, 64, 0, last).into()).is_err());
+        }
+        let state = auth.reverse.read().unwrap();
+        assert_eq!(state.sources.len(), 20);
+        assert_eq!(state.pending.len(), 20);
+    }
+
+    #[tokio::test]
     async fn reverse_requests_expire_and_are_bounded() {
         let fixture = Fixture::new();
         let auth = fixture.auth().await;
-        assert!(auth.start_reverse(" ".into()).is_err());
-        let request = auth.start_reverse("Phone".into()).unwrap();
+        assert!(auth.start_reverse(" ".into(), "127.0.0.1".parse().unwrap()).is_err());
+        let request = auth.start_reverse("Phone".into(), "127.0.0.1".parse().unwrap()).unwrap();
         let code = request["code"].as_str().unwrap();
         auth.reverse
             .write()
@@ -911,10 +941,12 @@ mod tests {
             auth.collect_reverse(code, request["secret"].as_str().unwrap())
                 .is_err()
         );
-        for _ in 1..20 {
-            auth.start_reverse("Phone".into()).unwrap();
+        for _ in 1..5 {
+            auth.start_reverse("Phone".into(), "127.0.0.1".parse().unwrap()).unwrap();
         }
-        assert!(auth.start_reverse("Phone".into()).is_err());
+        assert!(auth.start_reverse("Phone".into(), "127.0.0.1".parse().unwrap()).is_err());
+        // A saturated peer cannot consume the remaining global budget.
+        assert!(auth.start_reverse("Other phone".into(), "100.64.0.2".parse().unwrap()).is_ok());
         for _ in 1..30 {
             assert!(auth.check_reverse("INVALID", false).is_err());
         }

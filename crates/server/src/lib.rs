@@ -48,11 +48,11 @@ pub async fn serve(app: App) -> Result<()> {
     if let Some(tailnet) = tailnet {
         use std::future::IntoFuture;
         tokio::try_join!(
-            axum::serve(listener, router.clone()).with_graceful_shutdown(shutdown_signal()).into_future(),
-            axum::serve(tailnet, router).with_graceful_shutdown(shutdown_signal()).into_future(),
+            axum::serve(listener, router.clone().into_make_service_with_connect_info::<std::net::SocketAddr>()).with_graceful_shutdown(shutdown_signal()).into_future(),
+            axum::serve(tailnet, router.into_make_service_with_connect_info::<std::net::SocketAddr>()).with_graceful_shutdown(shutdown_signal()).into_future(),
         )?;
     } else {
-        axum::serve(listener, router).with_graceful_shutdown(shutdown_signal()).await?;
+        axum::serve(listener, router.into_make_service_with_connect_info::<std::net::SocketAddr>()).with_graceful_shutdown(shutdown_signal()).await?;
     }
     Ok(())
 }

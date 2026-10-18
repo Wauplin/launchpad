@@ -20,7 +20,7 @@ import { StatusBadge } from "@/features/agents/SessionBits";
 import { useCodeSources } from "@/features/code/lib";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
-import { useProject, useSessions } from "@/lib/queries";
+import { useConfig, useProject, useSessions } from "@/lib/queries";
 import { useLayout } from "@/stores/layout";
 import { useNavigate } from "@tanstack/react-router";
 import { useOpenTerminal } from "@/features/terminals/lib";
@@ -142,6 +142,7 @@ export function ProjectPage() {
 
 /** The owner's setup command for new task worktrees of this project (dependencies, build caches). */
 function WorktreeSetup({ p }: { p: Project }) {
+  const remote = useConfig().data?.remote ?? true;
   const [edit, setEdit] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const qc = useQueryClient();
@@ -156,10 +157,10 @@ function WorktreeSetup({ p }: { p: Project }) {
   return (
     <section className="grid gap-1.5">
       <div className="seclabel">Worktree setup</div>
-      {edit === null ? (
+      {edit === null || remote ? (
         <div className="flex items-center gap-2 text-xs">
           {p.worktree_setup ? <code className="min-w-0 flex-1 truncate rounded bg-sunk px-2 py-1">{p.worktree_setup}</code> : <span className="flex-1 text-ink-3">No setup command. New agent worktrees start with the committed files and the ignored files listed in <span className="font-mono">.worktreeinclude</span>.</span>}
-          <button className="btn btn-sm" onClick={() => setEdit(p.worktree_setup)}>{p.worktree_setup ? "Edit" : "Add setup command"}</button>
+          {remote ? <span className="text-ink-3">Edit on the host</span> : <button className="btn btn-sm" onClick={() => setEdit(p.worktree_setup)}>{p.worktree_setup ? "Edit" : "Add setup command"}</button>}
         </div>
       ) : (
         <div className="grid gap-1.5">

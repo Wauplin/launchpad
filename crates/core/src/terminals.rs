@@ -21,6 +21,46 @@ use crate::util::now_ms;
 
 const BUFFER: usize = 1 << 20;
 const MAX_OPEN: usize = 12;
+pub const INPUT_CHUNK: usize = 64 * 1024;
+
+// One writer per PTY, at most 256 KiB pending. No viewer waits on a blocking write.
+fn input_writer(mut writer: Box<dyn Write + Send>) -> std::sync::mpsc::SyncSender<Vec<u8>> {
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(4);
+    std::thread::spawn(move || {
+        for data in rx {
+            if writer.write_all(&data).and_then(|_| writer.flush()).is_err() { break; }
+        }
+    });
+    tx
+}
+
+#[derive(Default)]
+pub(crate) struct PtyClose {
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub started: bool,
+    pub worker: Option<std::thread::JoinHandle<()>>,
+}
+
+/// Capture job-control's foreground group before the shell exits and the PTY disappears.
+/// Waiters join the escalation before announcing exit, even when the shell exits on TERM.
+#[cfg(unix)]
+pub(crate) fn stop_pty(pid: u32, master: Option<&(dyn MasterPty + Send)>) -> std::thread::JoinHandle<()> {
+    let mut groups = vec![pid as i32];
+    if let Some(fd) = master.and_then(|m| m.as_raw_fd()) {
+        let foreground = unsafe { libc::tcgetpgrp(fd) };
+        if foreground > 0 && !groups.contains(&foreground) { groups.push(foreground); }
+    }
+    for group in &groups {
+        unsafe {
+            libc::kill(-*group, libc::SIGHUP);
+            libc::kill(-*group, libc::SIGTERM);
+        }
+    }
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(5));
+        for group in groups { unsafe { libc::kill(-group, libc::SIGKILL); } }
+    })
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -68,7 +108,9 @@ struct Term {
     /// so the snapshot and the live stream neither overlap nor leave a gap.
     buffer: Mutex<Buffer>,
     tx: broadcast::Sender<Output>,
-    writer: Mutex<Option<Box<dyn Write + Send>>>,
+    writer: Mutex<Option<std::sync::mpsc::SyncSender<Vec<u8>>>>,
+    #[cfg_attr(not(unix), allow(dead_code))]
+    closing: Mutex<PtyClose>,
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     size: Mutex<PtySize>,
     viewers: Mutex<Viewers>,
@@ -219,15 +261,15 @@ impl Terminals {
 
     pub fn write(&self, id: &str, data: &[u8]) -> Result<()> {
         let t = self.get(id)?;
+        anyhow::ensure!(data.len() <= INPUT_CHUNK, "terminal input frame is too large");
         if let Some((conn, p)) = &t.remote {
             anyhow::ensure!(t.info.lock().unwrap().alive, "the terminal has exited");
             conn.write(p, data);
             return Ok(());
         }
-        let mut writer = t.writer.lock().unwrap();
-        let w = writer.as_mut().context("the terminal has exited")?;
-        w.write_all(data)?;
-        w.flush()?;
+        let writer = t.writer.lock().unwrap();
+        writer.as_ref().context("the terminal has exited")?
+            .try_send(data.to_vec()).context("terminal input queue is full or closed")?;
         Ok(())
     }
 
@@ -242,30 +284,16 @@ impl Terminals {
         if let Some((conn, p)) = &t.remote {
             conn.signal(p, libc::SIGHUP, true);
             conn.signal(p, libc::SIGTERM, true);
-            let (t, conn, p) = (t.clone(), conn.clone(), p.clone());
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(5)).await;
-                if t.info.lock().unwrap().alive {
-                    conn.signal(&p, libc::SIGKILL, true);
-                }
-            });
             return Ok(());
         }
         #[cfg(unix)]
         if let Some(pid) = t.pid {
-            // portable-pty makes the child a session (and process group) leader.
-            unsafe {
-                libc::kill(-(pid as i32), libc::SIGHUP);
-                libc::kill(-(pid as i32), libc::SIGTERM);
+            let mut closing = t.closing.lock().unwrap();
+            if !closing.started {
+                closing.started = true;
+                let master = t.master.lock().unwrap();
+                closing.worker = Some(stop_pty(pid, master.as_deref()));
             }
-            let t = t.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(5)).await;
-                if t.info.lock().unwrap().alive {
-                    unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
-                    if let Some(k) = t.killer.lock().unwrap().as_mut() { let _ = k.kill(); }
-                }
-            });
             return Ok(());
         }
         if let Some(k) = t.killer.lock().unwrap().as_mut() { k.kill()?; }
@@ -335,13 +363,14 @@ impl Terminals {
         // The reader sees EOF only once no process holds the slave side.
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader()?;
-        let writer = pair.master.take_writer()?;
+        let writer = input_writer(pair.master.take_writer()?);
         let (tx, _) = broadcast::channel(1024);
         let term = Arc::new(Term {
             info: Mutex::new(info.clone()),
             buffer: Mutex::new(Buffer::default()),
             tx,
             writer: Mutex::new(Some(writer)),
+            closing: Mutex::new(PtyClose::default()),
             master: Mutex::new(Some(pair.master)),
             size: Mutex::new(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }),
             viewers: Mutex::new(Viewers::default()),
@@ -375,6 +404,8 @@ impl Terminals {
         let app = app.clone();
         std::thread::spawn(move || {
             let code = child.wait().ok().map(|s| s.exit_code());
+            let close = t.closing.lock().unwrap().worker.take();
+            if let Some(close) = close { let _ = close.join(); }
             // Lets the reader drain the last output (ConPTY only ends it when the master is dropped).
             let _ = done_rx.recv_timeout(Duration::from_secs(1));
             finished(&app, &t, code);
@@ -397,6 +428,7 @@ impl Terminals {
             buffer: Mutex::new(Buffer::default()),
             tx,
             writer: Mutex::new(None),
+            closing: Mutex::new(PtyClose::default()),
             master: Mutex::new(None),
             size: Mutex::new(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }),
             viewers: Mutex::new(Viewers::default()),
@@ -676,6 +708,64 @@ pub fn tui_running(app: &App, s: &Session) -> bool {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blocked_input_is_bounded_without_waiting_on_the_writer() {
+        struct Blocked(std::sync::mpsc::Receiver<()>);
+        impl Write for Blocked {
+            fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+                let _ = self.0.recv();
+                Ok(data.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+        }
+        let (release, gate) = std::sync::mpsc::channel();
+        let input = input_writer(Box::new(Blocked(gate)));
+        let mut rejected = false;
+        for _ in 0..6 {
+            if input.try_send(vec![0; INPUT_CHUNK]).is_err() { rejected = true; }
+        }
+        assert!(rejected);
+        drop(input);
+        drop(release);
+    }
+
+    #[test]
+    fn closing_kills_a_foreground_job_that_ignores_hup_and_term() {
+        use std::io::BufRead;
+        let pair = portable_pty::native_pty_system().openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = CommandBuilder::new("/bin/bash");
+        command.args(["--noprofile", "--norc", "-ic", "sh -c 'trap \"\" HUP TERM; echo READY; exec sleep 60'; :"]);
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        drop(pair.slave);
+        let mut reader = std::io::BufReader::new(pair.master.try_clone_reader().unwrap());
+        let mut line = String::new();
+        while !line.contains("READY") {
+            line.clear();
+            assert!(reader.read_line(&mut line).unwrap() > 0);
+        }
+        let pid = child.process_id().unwrap();
+        let foreground = unsafe { libc::tcgetpgrp(pair.master.as_raw_fd().unwrap()) };
+        if foreground <= 0 || foreground == pid as i32 {
+            unsafe { libc::kill(-(pid as i32), libc::SIGKILL); }
+            let _ = child.wait();
+            panic!("test shell did not create a separate foreground process group");
+        }
+        let stop = stop_pty(pid, Some(pair.master.as_ref()));
+        stop.join().unwrap();
+        let _ = child.wait().unwrap();
+        // The slave remains open until the resistant foreground job has actually died.
+        let (done, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut output = Vec::new();
+            let _ = reader.read_to_end(&mut output);
+            let _ = done.send(());
+        });
+        if rx.recv_timeout(Duration::from_secs(3)).is_err() {
+            unsafe { libc::kill(-foreground, libc::SIGKILL); }
+            panic!("foreground job survived terminal close");
+        }
+    }
 
     #[test]
     fn native_pty_preserves_progress_control_bytes_and_reports_resize() {

@@ -50,3 +50,9 @@ Local validation also uses the actual `TerminalView` with the app CSS in Chrome 
 - The daemon still owns every process; restarting it ends terminals. These changes do not add restart survival.
 
 For daily use, try the originally failing CLI plus a progress-heavy download/package install, a narrow-window multiline progress display and a full-screen program such as `vim` or `htop`. Check redraws while live, switching between two terminals, hiding/showing the dock, zooming/resizing and reloading. Close the terminals afterward. Report reload-only corruption separately from live redraw failures because their recovery mechanisms differ.
+
+### Close and input hardening (2026-10-19)
+
+Report group 8 regressions cover a blocked writer with a bounded input queue and a native foreground job in a separate process group that ignores HUP/TERM. Closing captures the foreground group before signalling the shell and waits for the five-second KILL escalation before reporting exit. Input queue overflow disconnects the sending viewer with an error; inspect terminal input before retrying a paste that may have been partially delivered.
+
+Acceptance also passed with a disposable Docker SSH host and an isolated dev daemon: a remote foreground `sleep` ignoring HUP/TERM was killed, the terminal stayed alive until escalation completed, and the project, host, daemon, container and scratch state were removed. No harness TUI was started or credentials copied to the host.
