@@ -53,6 +53,9 @@ jobs:
       - name: Check terminal output
         working-directory: web
         run: pnpm test:terminals
+      - name: Check session log recovery
+        working-directory: web
+        run: pnpm test:sessions
       - name: Check operation retries
         working-directory: web
         run: pnpm test:operations

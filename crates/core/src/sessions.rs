@@ -220,7 +220,7 @@ impl Sessions {
             }
         }
         for s in interrupted {
-            self.persist(app, &s).await?;
+            Self::persist(&app.state_db, &s).await?;
         }
         self.publish_counts(app);
         Ok(())
@@ -301,59 +301,60 @@ impl Sessions {
         })
     }
 
-    async fn persist(&self, app: &App, s: &Session) -> Result<()> {
+    fn persist(db: &crate::db::Db, s: &Session) -> impl std::future::Future<Output = Result<()>> + use<> {
         let s = s.clone();
-        app.state_db
-            .call(move |c| {
-                c.execute(
-                    "INSERT INTO session (id, harness, harness_session_id, project_id, cwd, title, status, status_since,
-                        open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
-                     ON CONFLICT (id) DO UPDATE SET harness_session_id = ?3, project_id = ?4, cwd = ?5, title = ?6, status = ?7,
-                        status_since = ?8, open_question = ?9, model = ?10, effort = ?11, cost_usd = ?14, usage_json = ?15,
-                        ended_at = ?17, last_seq = ?18, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20,
-                        seen_at = ?21, last_message = ?22, archived_done = ?23",
-                    params![
-                        s.id,
-                        s.harness.as_str(),
-                        s.harness_session_id,
-                        s.project_id,
-                        s.cwd,
-                        s.title,
-                        s.status.as_str(),
-                        s.status_since,
-                        s.open_question as i64,
-                        s.model,
-                        s.effort,
-                        serde_json::to_string(&s.launch_spec)?,
-                        s.prompt,
-                        s.usage.cost_usd,
-                        serde_json::to_string(&s.usage)?,
-                        s.started_at,
-                        s.ended_at,
-                        s.last_seq,
-                        s.quota_pause.as_ref().map(serde_json::to_string).transpose()?,
-                        s.title_pending,
-                        s.seen_at,
-                        s.last_message,
-                        s.archived_done,
-                    ],
-                )?;
-                Ok(())
-            })
-            .await
+        db.enqueue(move |c| {
+            c.execute(
+                "INSERT INTO session (id, harness, harness_session_id, project_id, cwd, title, status, status_since,
+                    open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
+                 ON CONFLICT (id) DO UPDATE SET harness_session_id = ?3, project_id = ?4, cwd = ?5, title = ?6, status = ?7,
+                    status_since = ?8, open_question = ?9, model = ?10, effort = ?11, cost_usd = ?14, usage_json = ?15,
+                    ended_at = ?17, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20,
+                    seen_at = ?21, archived_done = ?23",
+                params![
+                    s.id,
+                    s.harness.as_str(),
+                    s.harness_session_id,
+                    s.project_id,
+                    s.cwd,
+                    s.title,
+                    s.status.as_str(),
+                    s.status_since,
+                    s.open_question as i64,
+                    s.model,
+                    s.effort,
+                    serde_json::to_string(&s.launch_spec)?,
+                    s.prompt,
+                    s.usage.cost_usd,
+                    serde_json::to_string(&s.usage)?,
+                    s.started_at,
+                    s.ended_at,
+                    s.last_seq,
+                    s.quota_pause.as_ref().map(serde_json::to_string).transpose()?,
+                    s.title_pending,
+                    s.seen_at,
+                    s.last_message,
+                    s.archived_done,
+                ],
+            )?;
+            Ok(())
+        })
     }
 
     /// Applies a change to a session record, stores it, and pushes it to the UI.
     pub(crate) async fn update(&self, app: &App, id: &str, f: impl FnOnce(&mut Session)) -> Result<Session> {
-        let s = {
+        let (s, stored) = {
             let mut recs = self.inner.records.lock().unwrap();
             let s = recs.get_mut(id).context("no such session")?;
             f(s);
-            s.clone()
+            (s.clone(), Self::persist(&app.state_db, s))
         };
-        self.persist(app, &s).await?;
-        app.bus.publish("sessions", "updated", serde_json::to_value(s.light())?);
+        stored.await?;
+        // Another update may have completed while this task waited for the database.
+        if let Some(current) = self.inner.records.lock().unwrap().get(id) {
+            app.bus.publish("sessions", "updated", serde_json::to_value(current.light())?);
+        }
         Ok(s)
     }
 
@@ -685,7 +686,7 @@ impl Sessions {
                 seen_at: 0,
                 last_message: None,
             };
-            self.persist(app, &session).await?;
+            Self::persist(&app.state_db, &session).await?;
             if let Some(p) = &predraft {
                 let session_id = id.clone();
                 let predraft_id = p.id.clone();
@@ -1453,28 +1454,28 @@ impl Sink {
             return;
         }
         let preview = match &body { EventBody::AssistantMessage { text, .. } => message_preview(text), _ => None };
-        let seq = {
+        let stored = {
             let mut recs = self.sessions.inner.records.lock().unwrap();
             let Some(s) = recs.get_mut(&self.id) else { return };
             s.last_seq += 1;
             if preview.is_some() { s.last_message = preview.clone(); }
-            s.last_seq
-        };
-        let ev = SessionEvent { session_id: self.id.clone(), seq, ts, body };
-        let (id, kind, json) = (self.id.clone(), ev.body.kind(), serde_json::to_string(&ev.body).unwrap_or_default());
-        let res = self
-            .app
-            .state_db
-            .call(move |c| {
-                c.execute("INSERT INTO session_event (session_id, seq, ts, kind, json) VALUES (?1, ?2, ?3, ?4, ?5)", params![id, seq, ts, kind, json])?;
-                c.execute("UPDATE session SET last_seq = ?1, last_message = coalesce(?3, last_message) WHERE id = ?2", params![seq, id, preview])?;
+            let seq = s.last_seq;
+            let ev = SessionEvent { session_id: self.id.clone(), seq, ts, body };
+            let (id, kind, json) = (self.id.clone(), ev.body.kind(), serde_json::to_string(&ev.body).unwrap_or_default());
+            let sink = self.clone();
+            // Enqueue under the record lock, then publish in database order after commit.
+            self.app.state_db.enqueue(move |c| {
+                let tx = c.transaction()?;
+                tx.execute("INSERT INTO session_event (session_id, seq, ts, kind, json) VALUES (?1, ?2, ?3, ?4, ?5)", params![id, seq, ts, kind, json])?;
+                tx.execute("UPDATE session SET last_seq = max(last_seq, ?1), last_message = coalesce(?3, last_message) WHERE id = ?2", params![seq, id, preview])?;
+                tx.commit()?;
+                sink.publish(&ev);
                 Ok(())
             })
-            .await;
-        if let Err(e) = res {
+        };
+        if let Err(e) = stored.await {
             tracing::error!("store event: {e:#}");
         }
-        self.publish(&ev);
     }
 
     fn publish(&self, ev: &SessionEvent) {
@@ -1688,15 +1689,5 @@ pub fn shorten(s: &str, max: usize) -> String {
 
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn truncate_unicode_output_without_overlapping_ends() {
-        let text = "🦀".repeat(30);
-        let result = super::truncate_output(&text, 100);
-        assert!(result.starts_with("🦀"));
-        assert!(result.ends_with("🦀"));
-        assert!(result.contains("24 bytes omitted"));
-        assert_eq!(super::truncate_output("small", 100), "small");
-        assert!(super::truncate_output("🦀", 1).contains("4 bytes omitted"));
-    }
-}
+#[path = "sessions_tests.rs"]
+mod tests;

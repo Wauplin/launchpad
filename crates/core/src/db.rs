@@ -37,13 +37,24 @@ impl Db {
         R: Send + 'static,
         F: FnOnce(&mut Connection) -> Result<R> + Send + 'static,
     {
+        self.enqueue(f).await
+    }
+
+    /// Queues immediately, before the returned future is polled. Call while holding the lock
+    /// protecting a snapshot when database writes must follow the same mutation order.
+    pub fn enqueue<R, F>(&self, f: F) -> impl std::future::Future<Output = Result<R>> + use<R, F>
+    where
+        R: Send + 'static,
+        F: FnOnce(&mut Connection) -> Result<R> + Send + 'static,
+    {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        self.tx
-            .send(Box::new(move |conn| {
-                let _ = tx.send(f(conn));
-            }))
-            .map_err(|_| anyhow!("database thread stopped"))?;
-        rx.await.map_err(|_| anyhow!("database thread stopped"))?
+        let sent = self.tx.send(Box::new(move |conn| {
+            let _ = tx.send(f(conn));
+        }));
+        async move {
+            sent.map_err(|_| anyhow!("database thread stopped"))?;
+            rx.await.map_err(|_| anyhow!("database thread stopped"))?
+        }
     }
 }
 

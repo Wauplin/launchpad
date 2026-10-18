@@ -28,7 +28,6 @@ const queryClient = new QueryClient({
     queries: { refetchOnWindowFocus: false, retry: 1, staleTime: 30_000 },
   },
 });
-connectEvents(queryClient);
 void useComposer.getState().restore();
 // Notification clicks open their route in this window through the router.
 let navigateTo: ((url: string) => void) | null = null;
@@ -42,6 +41,8 @@ watchLayout();
 const entry: Promise<Entry> = isPhone ? import("@/mobile/entry").then((m) => m.entry) : import("@/app/desktop").then((m) => m.entry);
 // Browser tabs draw from the last saved lists while the daemon answers (lib/offlineCache.ts).
 const cache = isDesktopShell ? Promise.resolve() : restoreCache(queryClient).then(() => persistCache(queryClient));
+// Restore cached lists before the first socket resync invalidates them.
+void cache.then(() => connectEvents(queryClient));
 void Promise.all([entry, cache]).then(([pages]) => {
   const router = makeRouter(pages);
   navigateTo = (url) => router.history.push(url);

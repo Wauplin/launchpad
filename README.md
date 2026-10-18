@@ -149,7 +149,7 @@ Run the same checks locally:
 
 ```sh
 cargo +1.93.1 clippy --workspace --all-targets --locked -- -D warnings
-(cd web && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test:attachments && pnpm test:composer && pnpm test:markdown && pnpm build)
+(cd web && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test:attachments && pnpm test:composer && pnpm test:sessions && pnpm test:markdown && pnpm build)
 cargo +1.93.1 test --locked
 cargo +1.93.1 build --release --locked -p launchpad -p launchpad-desktop
 ```

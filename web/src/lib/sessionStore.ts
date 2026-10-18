@@ -7,12 +7,14 @@ import { create } from "zustand";
 import type { EarlierFacts } from "@/gen/EarlierFacts";
 import type { SessionEvent } from "@/gen/SessionEvent";
 import type { SessionEventPage } from "@/gen/SessionEventPage";
-import { api } from "./api";
+import { api } from "./api.ts";
 
 export type SessionLog = {
   events: SessionEvent[];
   lastSeq: number;
   loaded: boolean;
+  loading: boolean;
+  error: string | null;
   /** item_id → streamed assistant text not final yet. */
   deltas: Record<string, string>;
   /** item_id → live command output. */
@@ -21,7 +23,7 @@ export type SessionLog = {
   earlier: EarlierFacts | null;
 };
 
-export const emptyLog = (): SessionLog => ({ events: [], lastSeq: 0, loaded: false, deltas: {}, outputs: {}, earlier: null });
+export const emptyLog = (): SessionLog => ({ events: [], lastSeq: 0, loaded: false, loading: false, error: null, deltas: {}, outputs: {}, earlier: null });
 const empty = emptyLog;
 
 /** Events per page: the first page is the newest ones, then pages backward. */
@@ -36,36 +38,46 @@ type Store = {
 };
 
 const loading = new Set<string>();
+// A gap or reconnect during a fetch needs another pass after that response is applied.
+const dirty = new Set<string>();
 
 export const useSessionLogs = create<Store>((set, get) => ({
   logs: {},
   load: async (id) => {
-    if (loading.has(id)) return;
+    if (loading.has(id)) { dirty.add(id); return; }
     loading.add(id);
+    set((s) => ({ logs: { ...s.logs, [id]: { ...(s.logs[id] ?? empty()), loading: true, error: null } } }));
     try {
-      const current = get().logs[id];
-      if (!current?.loaded && !current?.lastSeq) {
-        const page = await api.get<SessionEventPage>(`/api/sessions/${id}/events/page?tail=${PAGE}`);
-        set((s) => {
-          const log = s.logs[id] ?? empty();
-          // Live events received meanwhile are newer than the page or already in it.
-          const events = [...page.events, ...log.events.filter((e) => e.seq > (page.events.at(-1)?.seq ?? 0))];
-          const lastSeq = events.length ? events[events.length - 1].seq : 0;
-          return { logs: { ...s.logs, [id]: settle({ ...log, events, lastSeq, loaded: true, earlier: page.facts }, events) } };
-        });
-        return;
-      }
-      const after = current.lastSeq;
-      const evs = await api.get<SessionEvent[]>(`/api/sessions/${id}/events?after=${after}`);
-      set((s) => {
-        const log = s.logs[id] ?? empty();
-        const fresh = evs.filter((e) => e.seq > log.lastSeq);
-        const events = [...log.events, ...fresh];
-        const lastSeq = events.length ? events[events.length - 1].seq : log.lastSeq;
-        return { logs: { ...s.logs, [id]: settle({ ...log, events, lastSeq, loaded: true }, fresh) } };
-      });
+      do {
+        dirty.delete(id);
+        const current = get().logs[id];
+        if (!current?.loaded) {
+          const page = await api.get<SessionEventPage>(`/api/sessions/${id}/events/page?tail=${PAGE}`);
+          set((s) => {
+            const log = s.logs[id] ?? empty();
+            // Live events received meanwhile are newer than the page or already in it.
+            const events = [...page.events, ...log.events.filter((e) => e.seq > (page.events.at(-1)?.seq ?? 0))];
+            const lastSeq = events.length ? events[events.length - 1].seq : 0;
+            return { logs: { ...s.logs, [id]: settle({ ...log, events, lastSeq, loaded: true, earlier: page.facts }, events) } };
+          });
+        } else {
+          const after = current.lastSeq;
+          const evs = await api.get<SessionEvent[]>(`/api/sessions/${id}/events?after=${after}`);
+          set((s) => {
+            const log = s.logs[id] ?? empty();
+            const fresh = evs.filter((e) => e.seq > log.lastSeq);
+            const events = [...log.events, ...fresh];
+            const lastSeq = events.length ? events[events.length - 1].seq : log.lastSeq;
+            return { logs: { ...s.logs, [id]: settle({ ...log, events, lastSeq, loaded: true }, fresh) } };
+          });
+        }
+      } while (dirty.has(id));
+    } catch (error) {
+      set((s) => ({ logs: { ...s.logs, [id]: { ...s.logs[id], error: error instanceof Error ? error.message : "Could not load session events." } } }));
     } finally {
       loading.delete(id);
+      dirty.delete(id);
+      set((s) => ({ logs: { ...s.logs, [id]: { ...s.logs[id], loading: false } } }));
     }
   },
   loadEarlier: async (id) => {
@@ -129,7 +141,7 @@ function settle(log: SessionLog, fresh: SessionEvent[]): SessionLog {
 }
 
 /** Reloads every session on screen (after a reconnect). */
-export function reloadSessionLogs() {
+export function reloadSessionLogs(onlyIncomplete = false) {
   const { logs, load } = useSessionLogs.getState();
-  Object.keys(logs).forEach((id) => void load(id));
+  Object.keys(logs).filter((id) => !onlyIncomplete || !logs[id].loaded || logs[id].error).forEach((id) => void load(id));
 }

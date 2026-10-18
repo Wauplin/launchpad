@@ -110,6 +110,7 @@ export function connectEvents(queryClient: QueryClient) {
       offered = null;
       // Missed events were replayed in order: nothing else to reload.
       if (ev.type === "resync") reloadAll();
+      else reloadSessionLogs(true);
       return;
     }
     // Only events (never control messages) advance the position.

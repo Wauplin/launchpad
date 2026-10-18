@@ -20,6 +20,7 @@ Status: Phase 0 done, Phases 1, 2, 2b, 3, 4, 5 and 6 built and awaiting daily-us
 - Regenerate the TypeScript types after changing a Rust type shared with the UI: `cargo run -p launchpad -- gen-types`.
 - Type-check the UI: `(cd web && pnpm typecheck)`. Clipboard regression checks: `(cd web && pnpm test:attachments)`. Terminal parser regressions: `(cd web && pnpm test:terminals)` (both Node 24, also run in CI).
 - Composer defaults regression checks: `(cd web && pnpm test:composer)` (Node 24, also run in CI).
+- Session log recovery regression checks: `(cd web && pnpm test:sessions)` (Node 24, also in CI).
 - Retry regression checks: `(cd web && pnpm test:operations)` (Node 24, also in CI). Immediate Launch and session input use UUID `Idempotency-Key` headers and durable `browser_operation` claims/results. Keep authentication before retry middleware; never re-execute an uncertain claim after a crash. See `docs/retry-operations.md`.
 - Tests: `cargo test` (the few unit tests in `crates/core`; the desktop crate is excluded by default).
 - Dev window: `cargo build -p launchpad-desktop && LAUNCHPAD_PROFILE=dev ./target/debug/launchpad-desktop [--open <route>] [--workspace <id or name>] [--new-window]`. Each dev process is its own window; the prod shell opens extra windows in its warm process.

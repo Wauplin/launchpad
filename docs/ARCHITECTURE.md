@@ -411,6 +411,8 @@ Normalized event kinds (stored in `session_event`, streamed over WebSocket):
 | `ask_user` | question and options from the agent, answered with `/answer` |
 | `status`, `rate_limit`, `error` | state changes, quota updates, failures |
 
+Session snapshots and stored events enqueue their database writes while holding the session record lock, preserving mutation order before awaiting completion. Only event transactions update `last_seq` and `last_message` on existing rows; the sequence update is monotonic and publication follows commit in database order. Browser log loads repeat catch-up when live events arrive during a fetch. Failed loads remain visible with Retry and retry on reconnect, including successful socket replay. Browser startup restores offline query data before opening the event socket, so the first resync invalidates every restored list.
+
 Raw harness output lines are also stored (`session_raw`, capped at 20,000 lines per session) so the normalizer can be improved and replayed on old sessions. Text deltas and live command output are streamed but not stored; the final message and the command result are.
 
 A Done session has no harness process after a daemon restart; sending it a message resumes it first. A session that was mid-turn becomes `interrupted`.
