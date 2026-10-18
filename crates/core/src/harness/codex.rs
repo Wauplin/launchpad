@@ -1031,10 +1031,7 @@ fn rate_limits(status: &crate::status::StatusHandle, rl: &Value) {
         }
     }
     status.update_harness(ID, |s| {
-        s.five_hour = five;
-        s.weekly = week;
-        s.quota_at = Some(now_ms());
-        s.quota_error = None;
+        crate::quota::update_reading(s, five, week);
     });
 }
 fn spawn_quota(app: &App, server: &CodexServer) {

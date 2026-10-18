@@ -76,7 +76,7 @@ pub fn read_image(hash: &str, mime: &str) -> Result<Vec<u8>> {
 }
 
 /// Deletes uploads older than two weeks that no draft, scheduled launch or cron still references.
-/// Launched sessions do not need them: images went to the harness and files were copied at launch.
+/// Never-started sessions still need their launch images when resumed. Other sessions sent images to the harness; files were copied at launch.
 pub async fn collect_garbage(app: &crate::App) -> Result<()> {
     let Ok(dir) = uploads_dir() else { return Ok(()) };
     let specs: Vec<String> = app.state_db.call(|c| {
@@ -87,6 +87,9 @@ pub async fn collect_garbage(app: &crate::App) -> Result<()> {
             let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
             out.extend(rows.filter_map(|r| r.ok()));
         }
+        let mut stmt = c.prepare("SELECT launch_spec_json FROM session WHERE harness_session_id IS NULL")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        out.extend(rows.filter_map(|r| r.ok()));
         Ok(out)
     }).await?;
     let Ok(mut entries) = tokio::fs::read_dir(dir).await else { return Ok(()) };

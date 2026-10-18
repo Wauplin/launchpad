@@ -264,8 +264,12 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
     Ok(())
 }
 
-async fn launch(app: &App, record: &CronAgent) -> Result<Session> {
-    let result = app.sessions.launch(app, record.spec.clone()).await;
+async fn launch(app: &App, record: &CronAgent, automatic: bool) -> Result<Session> {
+    let result = if automatic {
+        app.sessions.launch_automatic(app, record.spec.clone(), uuid::Uuid::new_v4().to_string()).await
+    } else {
+        app.sessions.launch(app, record.spec.clone()).await
+    };
     let outcome = match &result {
         Ok(_) => "Started".to_string(),
         Err(e) => format!("Launch failed: {e:#}"),
@@ -293,11 +297,13 @@ pub async fn run_now(app: &App, id: &str) -> Result<Session> {
         .context("this cron agent no longer exists")?;
     let app = app.clone();
     // Keep starting even if the browser disconnects while it waits for the response.
-    tokio::spawn(async move { launch(&app, &record).await }).await?
+    tokio::spawn(async move { launch(&app, &record, false).await }).await?
 }
 
 async fn tick(app: &App, record: CronAgent) -> Result<()> {
     let now = now_ms();
+    // Keep this occurrence due until the protected harness has a fresh reading.
+    if record.spec.harness.is_some_and(|h| !crate::quota::automatic_ready(app, h, &record.spec)) { return Ok(()); }
     let due = record.next_run_at;
     let (record, late) = modify(app, &record.id, move |r| {
         if r.paused || r.next_run_at != due {
@@ -331,7 +337,7 @@ async fn tick(app: &App, record: CronAgent) -> Result<()> {
         .await?;
         return Ok(());
     }
-    launch(app, &record).await.map(|_| ())
+    launch(app, &record, true).await.map(|_| ())
 }
 
 pub fn spawn(app: &App) {

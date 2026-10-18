@@ -295,7 +295,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       ? <button className="btn btn-sm btn-primary" title="Open the uncommitted files in the Changes view" onClick={() => showChanges(false)}>Review changes</button>
       : <button className="btn btn-sm btn-primary" title="Archive the session (it stays resumable)" onClick={archive}><Icon name="archive" size={12} />Archive</button>
   ) : resumable ? (
-    <button className="btn btn-sm btn-primary" title={s.status === "closed" ? "Re-attach this archived session without sending a message" : "Send “Continue the unfinished turn.”"} onClick={() => { void (s.status === "closed" ? act(s.id, "resume") : api.post(`/api/sessions/${s.id}/input`, { text: "Continue the unfinished turn." }).catch(toastError)); setView("trace"); }}>Resume</button>
+    <button className="btn btn-sm btn-primary" title={s.status === "closed" ? "Re-attach this archived session; send its original task if it never started" : "Continue the unfinished task"} onClick={() => { void (s.status === "closed" ? act(s.id, "resume") : api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }).catch(toastError)); setView("trace"); }}>Resume</button>
   ) : null;
   const archivePrimary = s.status === "waiting" && !s.open_question && !uncommitted;
 

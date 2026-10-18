@@ -66,6 +66,9 @@ impl std::fmt::Display for FollowUpBusy {
 }
 impl std::error::Error for FollowUpBusy {}
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InputMode { Manual, FollowUpManual, FollowUpAutomatic }
+
 #[derive(Clone)]
 pub struct Sessions {
     inner: Arc<Inner>,
@@ -494,16 +497,7 @@ impl Sessions {
                 context.push(ContextInfo { path: p.path, description: p.description, branch: cp.branch.clone(), editable: cp.editable, own_worktree: cp.editable && !in_checkout });
             }
         }
-        let mut rendered_spec = spec.clone();
-        if worktree_launch || matches!(
-            spec.target,
-            Target::Predraft { .. } | Target::ExistingPredraft { .. }
-        ) {
-            rendered_spec
-                .presets
-                .retain(|id| id != "draft-pr" && id != "worktree");
-        }
-        let mut prompt = render_prompt(&rendered_spec, &context, &config.presets);
+        let mut prompt = render_prompt(spec, &context, &config.presets);
         let mut traces = Vec::new();
         for trace in &spec.agent_traces {
             let source = self.get(&trace.session_id).context("context agent no longer exists")?;
@@ -540,6 +534,14 @@ impl Sessions {
     }
 
     pub async fn launch_with_id(&self, app: &App, spec: LaunchSpec, id: String) -> Result<Session> {
+        self.launch_inner(app, spec, id, false).await
+    }
+
+    pub(crate) async fn launch_automatic(&self, app: &App, spec: LaunchSpec, id: String) -> Result<Session> {
+        self.launch_inner(app, spec, id, true).await
+    }
+
+    async fn launch_inner(&self, app: &App, spec: LaunchSpec, id: String, automatic: bool) -> Result<Session> {
         let _action = self.inner.actions.lock().await;
         anyhow::ensure!(self.get(&id).is_none(), "a session with this id already exists");
         let _guard = self.allow_work().await;
@@ -743,7 +745,7 @@ impl Sessions {
         };
         setups.retain(|(p, _)| !p.worktree_setup.trim().is_empty());
         if setups.is_empty() {
-            self.start_new(app, &id, start, prompt, images).await;
+            self.start_new(app, &id, start, (prompt, images), automatic).await;
             return Ok(self.get(&id).unwrap());
         }
         // Setup can take minutes: it runs in the background, and the agent starts afterwards.
@@ -768,7 +770,7 @@ impl Sessions {
             let _guard = this.allow_work().await;
             this.inner.setups.lock().unwrap().remove(&id2);
             if !*cancelled.borrow() && this.get(&id2).is_some_and(|s| s.status == SessionStatus::Starting) {
-                this.start_new(&app2, &id2, start, prompt, images).await;
+                this.start_new(&app2, &id2, start, (prompt, images), automatic).await;
             }
         });
         self.inner.setups.lock().unwrap().insert(id.clone(), SetupTask { cancel, stopped: stop_wait });
@@ -777,12 +779,13 @@ impl Sessions {
     }
 
     /// Starts the harness of a new session and sends its first prompt, or holds it at exhausted quota.
-    async fn start_new(&self, app: &App, id: &str, start: StartSpec, prompt: String, images: Vec<ImageAttachment>) {
+    async fn start_new(&self, app: &App, id: &str, start: StartSpec, input: (String, Vec<ImageAttachment>), automatic: bool) {
+        let (prompt, images) = input;
         let Some(session) = self.get(id) else { return };
         let harness = session.harness;
         let sink = self.sink(app, id);
         let protected = crate::quota::protected(app, harness, &session.launch_spec);
-        if protected && !crate::quota::blockers(app, harness).is_empty() {
+        if protected && (!crate::quota::blockers(app, harness).is_empty() || (automatic && !crate::quota::available(&crate::quota::reading(app, harness), now_ms()))) {
             if let Err(e) = self.hold_input(app, id, &prompt, images).await {
                 sink.fail(&format!("{e:#}")).await;
             }
@@ -894,7 +897,7 @@ impl Sessions {
         let sink = self.sink(app, id);
         sink.emit(EventBody::UserMessage { text: text.into(), client_id, queued: true, images }).await;
         sink.set_status(SessionStatus::QuotaPaused).await;
-        sink.emit(EventBody::Notice { text: format!("{} included quota exhausted. Input held until a fresh quota reading confirms availability.", s.harness.display()) }).await;
+        sink.emit(EventBody::Notice { text: format!("{} input held until a fresh quota reading confirms included quota availability.", s.harness.display()) }).await;
         Ok(())
     }
 
@@ -902,6 +905,8 @@ impl Sessions {
     pub(crate) async fn check_quotas(&self, app: &App) -> Result<()> {
         let _action = self.inner.actions.lock().await;
         for s in self.list() {
+            // Setup has not sent a task yet; start_new checks quota after it finishes.
+            if self.setup_running(&s.id) { continue; }
             if s.live && s.quota_pause.is_none() && (s.status.is_running() || s.status.is_done()) {
                 crate::titles::generate(app, &s);
             }
@@ -1098,23 +1103,28 @@ impl Sessions {
     }
 
     pub async fn send(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>) -> Result<()> {
-        self.send_inner(app, id, text, images, false, None).await
+        self.send_inner(app, id, text, images, InputMode::Manual, None).await
     }
 
-    pub async fn send_follow_up(&self, app: &App, id: &str, text: &str) -> Result<()> {
-        self.send_inner(app, id, text, vec![], true, None).await
+    pub async fn send_follow_up(&self, app: &App, id: &str, text: &str, automatic: bool) -> Result<()> {
+        self.send_inner(app, id, text, vec![], if automatic { InputMode::FollowUpAutomatic } else { InputMode::FollowUpManual }, None).await
     }
 
     pub async fn send_with_id(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, client_id: String) -> Result<()> {
-        self.send_inner(app, id, text, images, false, Some(client_id)).await
+        self.send_inner(app, id, text, images, InputMode::Manual, Some(client_id)).await
     }
 
-    async fn send_inner(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, follow_up: bool, client_id: Option<String>) -> Result<()> {
+    async fn send_inner(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>) -> Result<()> {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
+        self.send_locked(app, id, text, images, mode, client_id).await
+    }
+
+    /// Caller holds the action and work locks.
+    async fn send_locked(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>) -> Result<()> {
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(!self.setup_running(id), "Wait for the worktree setup to finish; the agent starts afterwards.");
-        if follow_up && (s.status.is_running() || s.open_question || s.status == SessionStatus::InTerminal || s.quota_pause.is_some()) {
+        if mode != InputMode::Manual && (s.status.is_running() || s.open_question || s.status == SessionStatus::InTerminal || s.quota_pause.is_some()) {
             return Err(FollowUpBusy.into());
         }
         let capabilities = crate::harness::registration(s.harness)
@@ -1135,6 +1145,9 @@ impl Sessions {
         anyhow::ensure!(s.quota_pause.is_none(), "This session is quota paused. Use a Resume button or Stop first.");
         ensure_budget(&s)?;
         let protected = crate::quota::protected(app, s.harness, &s.launch_spec);
+        if mode == InputMode::FollowUpAutomatic && protected && !crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()) {
+            return Err(FollowUpBusy.into());
+        }
         if protected && !self.quota_blockers(app, &s).is_empty() {
             if s.status.is_running() || s.open_question { bail!("Included quota exhausted; wait for quota to reset before sending input or answering this question."); }
             self.hold_input(app, id, text, images).await?;
@@ -1179,6 +1192,8 @@ impl Sessions {
         let setup = self.inner.setups.lock().unwrap().remove(id);
         if let Some(task) = setup {
             task.stop().await;
+            self.inner.manual_quota_retries.lock().unwrap().remove(id);
+            self.update(app, id, |s| s.quota_pause = None).await?;
             let sink = self.sink(app, id);
             sink.emit(EventBody::Notice { text: "Worktree setup cancelled by you; the agent was not started.".into() }).await;
             sink.set_status(SessionStatus::Stopped).await;
@@ -1209,7 +1224,7 @@ impl Sessions {
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(s.quota_pause.is_none(), "The session is quota paused.");
-        anyhow::ensure!(!crate::quota::protected(app, s.harness, &s.launch_spec) || crate::quota::blockers(app, s.harness).is_empty(), "Included quota exhausted; wait for the quota pause.");
+        anyhow::ensure!(!crate::quota::protected(app, s.harness, &s.launch_spec) || self.quota_blockers(app, &s).is_empty(), "Included quota exhausted; wait for the quota pause.");
         ensure_budget(&s)?;
         let live = self.live(id).context("the session has no running process")?;
         let stopping = live.answer_stops_turn(request_id, &answers);
@@ -1261,12 +1276,14 @@ impl Sessions {
         Ok(())
     }
 
-    /// Resumes a closed or interrupted session in Launchpad, without sending anything.
+    /// Re-attaches an idle session, optionally continuing its unfinished turn.
+    /// A session without a native conversation receives its original task and launch images.
     /// With `close_terminal`, an integrated terminal still running the session's TUI is closed first.
-    pub async fn resume(&self, app: &App, id: &str, close_terminal: bool) -> Result<()> {
+    pub async fn resume(&self, app: &App, id: &str, close_terminal: bool, continue_turn: bool) -> Result<()> {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
+        anyhow::ensure!(!s.status.is_running() && !s.open_question && self.live(id).is_none_or(|l| l.ready_for_turn()), "Wait for the current turn, question and outstanding commands to finish.");
         anyhow::ensure!(s.quota_pause.is_none(), "Use Resume with paid usage to continue a quota-paused session.");
         anyhow::ensure!(!self.setup_running(id), "Wait for the worktree setup to finish.");
         crate::predrafts::check_session_work(app, &s.cwd).await?;
@@ -1278,6 +1295,17 @@ impl Sessions {
         }
         if s.status == SessionStatus::InTerminal && crate::terminals::tui_running(app, &s) {
             bail!("the session is still open in another terminal: close it there first");
+        }
+        if s.harness_session_id.is_none() {
+            let mut images = s.launch_spec.attachments.iter()
+                .filter(|a| crate::attachments::is_image(&a.data_url))
+                .map(|a| ImageAttachment { name: a.name.clone(), data_url: a.data_url.clone() })
+                .collect::<Vec<_>>();
+            crate::attachments::resolve_images(&mut images)?;
+            return self.send_locked(app, id, &s.prompt, images, InputMode::Manual, None).await;
+        }
+        if continue_turn {
+            return self.send_locked(app, id, "Continue the unfinished turn.", vec![], InputMode::Manual, None).await;
         }
         self.inner.quota_stops.lock().unwrap().remove(id);
         self.reattach(app, id).await?;

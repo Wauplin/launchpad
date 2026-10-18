@@ -71,7 +71,7 @@ async fn subfolder_guards_cover_activity_publication_feedback_and_recovery() {
     };
     assert!(app.sessions.preview(&app, &followup).await.unwrap_err().to_string().contains("publication has started"));
     assert!(app.sessions.launch_with_id(&app, followup, "followup".into()).await.unwrap_err().to_string().contains("publication has started"));
-    assert!(app.sessions.resume(&app, "agent", false).await.unwrap_err().to_string().contains("publication has started"));
+    assert!(app.sessions.resume(&app, "agent", false, false).await.unwrap_err().to_string().contains("publication has started"));
     // Reaches send's publication guard, rather than rejecting the linked subfolder session.
     assert!(feedback(&app, &p.id).await.unwrap_err().to_string().contains("publication has started"));
     check_session_work(&app, &format!("{}-other/subdir", p.root)).await.unwrap();

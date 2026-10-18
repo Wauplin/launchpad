@@ -887,10 +887,7 @@ pub fn rate_limit_event(status: &crate::status::StatusHandle, info: &Value) {
         return;
     }
     status.update_harness(ID, |s| {
-        s.five_hour = five;
-        s.weekly = week;
-        s.quota_at = Some(now_ms());
-        s.quota_error = None;
+        crate::quota::update_reading(s, five, week);
     });
 }
 
@@ -912,10 +909,7 @@ fn spawn_quota(app: &App) {
                 Ok((five, week)) => {
                     rate_limit_delay = 0;
                     a.status.update_harness(ID, |s| {
-                        s.five_hour = five;
-                        s.weekly = week;
-                        s.quota_at = Some(now_ms());
-                        s.quota_error = None;
+                        crate::quota::update_reading(s, five, week);
                     });
                 }
                 Err(e) => {
@@ -985,7 +979,7 @@ async fn claude_usage(client: &reqwest::Client) -> Result<QuotaPair> {
     if !code.is_success() {
         bail!("usage endpoint returned {code}");
     }
-    Ok(usage_windows(&res.json().await?))
+    usage_windows(&res.json().await?)
 }
 
 /// Asks Claude Code for its structured `/usage` data (`get_usage` control request). No model request is made;
@@ -1014,7 +1008,7 @@ async fn claude_code_usage(app: &App) -> Result<QuotaPair> {
             }
             let data = &r["response"];
             if data["rate_limits_available"] == false { bail!("plan rate limits are not available for this login"); }
-            return Ok(usage_windows(&data["rate_limits"]));
+            return usage_windows(&data["rate_limits"]);
         }
         bail!("no usage response")
     };
@@ -1025,7 +1019,7 @@ async fn claude_code_usage(app: &App) -> Result<QuotaPair> {
 }
 
 /// `five_hour` and `seven_day` of a usage response. `resets_at` is null while a window has not started.
-fn usage_windows(body: &Value) -> QuotaPair {
+fn usage_windows(body: &Value) -> Result<QuotaPair> {
     let win = |k: &str| -> Option<crate::status::QuotaWindow> {
         let w = &body[k];
         let resets_at = match &w["resets_at"] {
@@ -1034,7 +1028,10 @@ fn usage_windows(body: &Value) -> QuotaPair {
         };
         Some(crate::status::QuotaWindow { used_percent: w["utilization"].as_f64()?, resets_at })
     };
-    (win("five_hour"), win("seven_day"))
+    let five = win("five_hour").context("missing or invalid five_hour usage window")?;
+    let week = win("seven_day").context("missing or invalid seven_day usage window")?;
+    anyhow::ensure!([&five, &week].iter().all(|w| w.used_percent.is_finite() && w.used_percent >= 0.0), "invalid quota utilization");
+    Ok((Some(five), Some(week)))
 }
 
 /// Claude stores transcripts in `~/.claude/projects/<path with every non-alphanumeric character as ->`.
@@ -1052,6 +1049,26 @@ fn claude_transcripts_dir(cwd: &str) -> std::path::PathBuf {
 #[cfg(test)]
 mod permission_tests {
     use super::*;
+
+    #[test]
+    fn usage_readings_require_both_valid_windows() {
+        let valid = json!({"five_hour": {"utilization": 100, "resets_at": null}, "seven_day": {"utilization": 0, "resets_at": "2026-10-20T10:00:00Z"}});
+        let (five, week) = usage_windows(&valid).unwrap();
+        assert_eq!(five.unwrap().used_percent, 100.0);
+        assert!(week.unwrap().resets_at.is_some());
+        for invalid in [json!({}), json!({"five_hour": valid["five_hour"]}),
+            json!({"five_hour": valid["five_hour"], "seven_day": null})] {
+            assert!(usage_windows(&invalid).is_err());
+        }
+        for utilization in [json!(-1), json!("0")] {
+            let mut invalid = valid.clone();
+            invalid["five_hour"]["utilization"] = utilization;
+            assert!(usage_windows(&invalid).is_err());
+        }
+        let mut invalid = valid;
+        invalid["seven_day"]["resets_at"] = json!("invalid date");
+        assert!(usage_windows(&invalid).is_err());
+    }
     #[test]
     fn auto_permissions_use_the_native_classifier_without_bypass_flags() {
         assert_eq!(permission_args(PermissionMode::Auto), ["--permission-mode", "auto"]);

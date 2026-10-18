@@ -382,10 +382,10 @@ async fn close(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Val
 }
 
 #[derive(Deserialize, Default)]
-struct Resume { #[serde(default)] close_terminal: bool }
+struct Resume { #[serde(default)] close_terminal: bool, #[serde(default)] continue_turn: bool }
 async fn resume(State(s): State<Server>, Path(id): Path<String>, body: Option<Json<Resume>>) -> ApiResult<Value> {
-    let close_terminal = body.map(|b| b.0.close_terminal).unwrap_or_default();
-    s.app.sessions.resume(&s.app, &id, close_terminal).await.map_err(bad)?;
+    let body = body.map(|b| b.0).unwrap_or(Resume { close_terminal: false, continue_turn: false });
+    s.app.sessions.resume(&s.app, &id, body.close_terminal, body.continue_turn).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 

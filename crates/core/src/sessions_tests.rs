@@ -140,3 +140,20 @@ async fn concurrent_events_and_snapshots_remain_ordered_after_restart() {
         Ok(())
     }).await.unwrap();
 }
+
+#[test]
+fn session_lists_strip_held_images_without_changing_the_saved_input() {
+    let session: crate::model::Session = serde_json::from_value(serde_json::json!({
+        "id": "a", "harness": "codex", "cwd": "/tmp", "title": "task",
+        "status": "quota_paused", "status_since": 0, "live": false, "open_question": false,
+        "prompt": "task", "usage": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}, "started_at": 0, "last_seq": 0,
+        "launch_spec": {"attachments": [{"name": "shot.png", "data_url": "data:image/png;base64,AQ=="}]}, "seen_at": 0,
+        "quota_pause": {"phase": "paused", "blockers": [], "message": "task", "images": [{"name": "shot.png", "data_url": "data:image/png;base64,AQ=="}]}
+    })).unwrap();
+    let light = session.light();
+    assert!(light.launch_spec.attachments[0].data_url.is_empty());
+    let image = &light.quota_pause.unwrap().images[0];
+    assert_eq!(image.name, "shot.png");
+    assert!(image.data_url.is_empty());
+    assert!(!session.quota_pause.unwrap().images[0].data_url.is_empty());
+}

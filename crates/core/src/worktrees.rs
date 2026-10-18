@@ -912,7 +912,7 @@ async fn attempt(app: &App, id: &str) {
     };
     // The agent fixes conflicts itself, after the locks are released.
     if let Some((w, (Some(session), reason))) = outcome
-        && let Err(e) = app.sessions.send_follow_up(app, &session, &conflict_message(app, &w, &reason, &session)).await
+        && let Err(e) = app.sessions.send_follow_up(app, &session, &conflict_message(app, &w, &reason, &session), false).await
     {
         tracing::warn!("worktree conflict message {session}: {e:#}");
     }

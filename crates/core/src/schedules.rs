@@ -321,11 +321,11 @@ async fn finish(app: &App, mut record: ScheduledLaunch, error: Option<String>) -
     Ok(())
 }
 
-async fn run(app: &App, record: ScheduledLaunch) -> Result<Session> {
+async fn run(app: &App, record: ScheduledLaunch, automatic: bool) -> Result<Session> {
     // A stable session id makes crash recovery unambiguous, even before the harness attaches.
     let result = if let Some(id) = &record.resume_session_id {
         app.sessions
-            .send_follow_up(app, id, &record.spec.text)
+            .send_follow_up(app, id, &record.spec.text, automatic)
             .await
             .and_then(|()| {
                 app.sessions
@@ -336,9 +336,11 @@ async fn run(app: &App, record: ScheduledLaunch) -> Result<Session> {
         match app.sessions.get(&record.id) {
             Some(s) => Ok(s),
             None => {
-                app.sessions
-                    .launch_with_id(app, record.spec.clone(), record.id.clone())
-                    .await
+                if automatic {
+                    app.sessions.launch_automatic(app, record.spec.clone(), record.id.clone()).await
+                } else {
+                    app.sessions.launch_with_id(app, record.spec.clone(), record.id.clone()).await
+                }
             }
         }
     };
@@ -368,7 +370,7 @@ pub async fn start_now(app: &App, id: &str) -> Result<Session> {
     let record = claim(app, id, true).await?;
     let app = app.clone();
     // Keep starting even if the browser disconnects while it waits for the response.
-    tokio::spawn(async move { run(&app, record).await }).await?
+    tokio::spawn(async move { run(&app, record, false).await }).await?
 }
 
 fn ready(record: &ScheduledLaunch, now: i64, done: impl Fn(&str) -> bool) -> bool {
@@ -415,6 +417,12 @@ pub fn spawn(app: &App) {
                 }
             };
             for record in records {
+                let target = record.resume_session_id.as_ref().and_then(|id| app.sessions.get(id));
+                let (harness, spec) = target.as_ref()
+                    .map(|s| (Some(s.harness), &s.launch_spec))
+                    .unwrap_or((record.spec.harness, &record.spec));
+                if harness.is_some_and(|h| !crate::quota::automatic_ready(&app, h, spec)) { continue; }
+
                 if record.resume_session_id.as_ref().is_some_and(|id| {
                     app.sessions.get(id).is_some_and(|s| {
                         s.status.is_running()
@@ -432,7 +440,7 @@ pub fn spawn(app: &App) {
                         Ok(record) => {
                             let app = app.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = run(&app, record).await {
+                                if let Err(e) = run(&app, record, true).await {
                                     tracing::error!("delayed launch: {e:#}");
                                 }
                             });

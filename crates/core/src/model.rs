@@ -175,6 +175,9 @@ impl Session {
         for a in &mut s.launch_spec.attachments {
             if !a.data_url.starts_with("upload:") { a.data_url.clear(); }
         }
+        if let Some(pause) = &mut s.quota_pause {
+            for image in &mut pause.images { image.data_url.clear(); }
+        }
         s
     }
 
