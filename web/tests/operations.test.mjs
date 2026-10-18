@@ -77,3 +77,86 @@ test("uncertain responses retain the key; recorded failures permit an explicit n
     assert.notEqual(keys[1], keys[2]);
   } finally { globalThis.fetch = oldFetch; globalThis.localStorage = oldStorage; }
 });
+
+test("HTTP crypto fallback sends UUID keys, retries lost replies and matches secure fingerprints", async () => {
+  const { api } = await import("../src/lib/api.ts");
+  const nativeCrypto = globalThis.crypto;
+  const oldFetch = globalThis.fetch;
+  const oldStorage = globalThis.localStorage;
+  const saved = storage();
+  globalThis.localStorage = saved;
+  const path = "/api/sessions/a/input", body = { text: "HTTP message 🎉" };
+  const secure = await operationKey(path, body, saved);
+  const keys = [];
+  Object.defineProperty(globalThis, "crypto", { configurable: true, value: { getRandomValues: (a) => nativeCrypto.getRandomValues(a) } });
+  globalThis.fetch = async (_path, options) => {
+    keys.push(options.headers["Idempotency-Key"]);
+    if (keys.length === 2) throw new TypeError("lost reply");
+    return new Response('{}', { headers: { "Idempotency-Status": "completed" } });
+  };
+  try {
+    assert.equal((await operationKey(path, body, saved)).id, secure.id);
+    await api.post("/api/sessions", body);
+    await assert.rejects(api.post(path, body), /lost reply/);
+    await api.post(path, body);
+    assert.equal(keys[1], keys[2]);
+    assert.match(keys[0], /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.equal(saved.values.size, 0);
+  } finally {
+    Object.defineProperty(globalThis, "crypto", { configurable: true, value: nativeCrypto });
+    globalThis.fetch = oldFetch; globalThis.localStorage = oldStorage;
+  }
+});
+
+test("fallback SHA-256 agrees with native hashing across padding boundaries and attachment sizes", async () => {
+  const { sha256 } = await import("../src/lib/operationHash.ts");
+  const { createHash } = await import("node:crypto");
+  for (const size of [0, 3, 55, 56, 63, 64, 65, 119, 120, 128, 1024, 1024 * 1024]) {
+    const bytes = Uint8Array.from({ length: size }, (_, i) => i % 251);
+    assert.equal(sha256(bytes), createHash("sha256").update(bytes).digest("hex"), `size ${size}`);
+  }
+});
+
+test("expired attempts block fetch until explicit abandonment, then get a new ID", async () => {
+  const { OPERATION_RETRY_MS, abandonOperation } = await import("../src/lib/operations.ts");
+  const { api } = await import("../src/lib/api.ts");
+  const oldNow = Date.now, oldStorage = globalThis.localStorage, oldFetch = globalThis.fetch;
+  const saved = storage();
+  globalThis.localStorage = saved;
+  const path = "/api/sessions/a/input", body = { text: "yes" };
+  let now = oldNow();
+  Date.now = () => now;
+  let fetches = 0;
+  globalThis.fetch = async () => { fetches++; return new Response('{}', { headers: { "Idempotency-Status": "completed" } }); };
+  try {
+    const first = await operationKey(path, body, saved);
+    now += OPERATION_RETRY_MS - 1;
+    assert.equal((await operationKey(path, body, saved)).id, first.id);
+    now++;
+    await assert.rejects(api.post(path, body), /too old/);
+    assert.equal(fetches, 0);
+    assert.equal(saved.values.size, 1);
+    await abandonOperation(path, body, saved);
+    const next = await operationKey(path, body, saved);
+    assert.notEqual(next.id, first.id);
+    first.delivered(); // A late response must not erase the replacement operation.
+    assert.equal((await operationKey(path, body, saved)).id, next.id);
+    await api.post(path, body);
+    assert.equal(fetches, 1);
+  } finally { Date.now = oldNow; globalThis.localStorage = oldStorage; globalThis.fetch = oldFetch; }
+});
+
+test("legacy and malformed ledger entries need review and can be abandoned without generating an ID", async () => {
+  const { abandonOperation } = await import("../src/lib/operations.ts");
+  const saved = storage(), path = "/api/sessions", body = {};
+  await operationKey(path, body, saved);
+  const key = [...saved.values.keys()][0];
+  for (const value of ["old-uuid", "null", "{}", '{"id":"old","createdAt":1}']) {
+    saved.setItem(key, value);
+    await assert.rejects(operationKey(path, body, saved), /saved attempt/);
+    await abandonOperation(path, body, saved);
+    assert.equal(saved.values.size, 0);
+  }
+  await abandonOperation(path, body, saved);
+  assert.equal(saved.values.size, 0);
+});

@@ -144,6 +144,8 @@ Fixed on 2026-10-18: Publish and Discard take the session action lock before the
 
 ## 7. Retry-safe Launch and Send
 
+Fixed on 2026-10-19: HTTP-compatible SHA-256/UUID fallbacks preserve retry protection. Browser retry entries now have a 24-hour retry window; expired or undated entries require explicit abandonment after inspection rather than silently creating a potentially duplicate operation. Resume already uses its dedicated endpoint after the session lifecycle fixes. See [retry contract](retry-operations.md). The original findings below are retained as audit history.
+
 - **[High] Launch and Send fail on plain-HTTP remote origins** [C+X] — `web/src/lib/operations.ts:5`, `operations.ts:9`
   - Bug: `crypto.subtle` and `crypto.randomUUID` exist only in secure contexts. The default tailnet fallback (`http://100.x.y.z:7317`) is not secure, so every launch, reply and Resume from a phone throws before `fetch` (reproduced by Codex in Chrome).
   - Recommendation: Use a small JavaScript hash and a `getRandomValues` UUID when `crypto.subtle`/`randomUUID` are missing.
