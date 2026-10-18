@@ -86,8 +86,8 @@ struct Inner {
     manual_quota_retries: Mutex<HashMap<String, i64>>,
     /// Running turns interrupted at their cost limit, with the time of the last attempt.
     budget_interrupts: Mutex<HashMap<String, i64>>,
-    /// Sessions whose process must restart to use a new model or effort, once their turn ends.
-    model_restarts: Mutex<HashSet<String>>,
+    /// Sessions whose process must restart to apply model, effort or permission changes.
+    process_restarts: Mutex<HashSet<String>>,
     /// New sessions running their worktree setup command before the agent starts.
     setups: Mutex<HashMap<String, SetupTask>>,
     /// Serializes user actions and quota decisions; adapter events never take this lock.
@@ -138,7 +138,7 @@ impl Sessions {
                 quota_interrupts: Mutex::new(HashMap::new()),
                 manual_quota_retries: Mutex::new(HashMap::new()),
                 budget_interrupts: Mutex::new(HashMap::new()),
-                model_restarts: Mutex::new(HashSet::new()),
+                process_restarts: Mutex::new(HashSet::new()),
                 setups: Mutex::new(HashMap::new()),
                 actions: tokio::sync::Mutex::new(()),
                 work: tokio::sync::Mutex::new(()),
@@ -824,20 +824,23 @@ impl Sessions {
             .lock()
             .unwrap()
             .insert(id.clone(), (instance, live.clone()));
-        self.inner.model_restarts.lock().unwrap().remove(&id);
+        self.inner.process_restarts.lock().unwrap().remove(&id);
         self.update(app, &id, |s| s.live = true).await?;
         Ok(live)
     }
 
     /// Starts a process for a session that has none (resume).
-    /// An idle process waiting for a model or effort change is replaced.
+    /// An idle process waiting for model, effort or permission changes is replaced.
     async fn reattach(&self, app: &App, id: &str) -> Result<Arc<dyn LiveSession>> {
         let s = self.get(id).context("no such session")?;
         if let Some(l) = self.live(id) {
-            if !self.inner.model_restarts.lock().unwrap().contains(id) || s.status.is_running() || s.open_question || !l.ready_for_turn() {
+            if !self.inner.process_restarts.lock().unwrap().contains(id) || s.status.is_running() || s.open_question || !l.ready_for_turn() {
                 return Ok(l);
             }
             self.detach(id).await;
+            // A failed replacement (for example unsupported Auto review) must not leave a
+            // session claiming to have a live attachment.
+            self.update(app, id, |s| s.live = false).await?;
         }
         if s.launch_spec.harness.is_none() && crate::terminals::tui_running(app, &s) {
             bail!("This imported conversation is still running in another client. Finish it there first.");
@@ -1014,6 +1017,50 @@ impl Sessions {
         Ok(s)
     }
 
+    /// Reconfigure the same native conversation at an idle boundary, then continue an interrupted task.
+    pub async fn set_permissions(&self, app: &App, id: &str, mode: PermissionMode) -> Result<Session> {
+        let _action = self.inner.actions.lock().await;
+        let _guard = self.allow_work().await;
+        let s = self.get(id).context("no such session")?;
+        anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.permission_modes,
+            "This harness manages permissions in its native configuration.");
+        anyhow::ensure!(s.status != SessionStatus::InTerminal, "Re-attach the session before changing permissions.");
+        anyhow::ensure!(!self.setup_running(id), "Wait for worktree setup to finish before changing permissions.");
+        if s.launch_spec.permission_mode == mode { return Ok(s); }
+        crate::predrafts::check_session_work(app, &s.cwd).await?;
+        let sink = self.sink(app, id);
+        let mut continued = false;
+        if let Some(live) = self.live(id) {
+            continued = live.turn_active() || s.open_question;
+            anyhow::ensure!(continued || live.ready_for_turn(),
+                "Wait for background commands to finish before changing permissions.");
+            if continued {
+                // Treat this as an owner interruption: no failure/completion notification and no
+                // approval of the pending operation. The resumed agent reconsiders it itself.
+                self.inner.stop_requests.lock().unwrap().insert(id.to_string());
+                if let Err(e) = live.interrupt().await {
+                    self.inner.stop_requests.lock().unwrap().remove(id);
+                    return Err(e);
+                }
+                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    while !live.ready_for_turn() || self.get(id).is_some_and(|s| s.status.is_running()) {
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    }
+                }).await.context("The turn has not stopped or background commands are still running. Permissions are unchanged; wait for them to finish and try again.")?;
+            }
+        }
+        self.update(app, id, |s| s.launch_spec.permission_mode = mode).await?;
+        // Reuse model/effort replacement so every adapter applies its verified startup/resume
+        // settings, including native Auto support checks, without granting a waiting request.
+        self.inner.process_restarts.lock().unwrap().insert(id.to_string());
+        let label = match mode { PermissionMode::Yolo => "YOLO", PermissionMode::Approvals => "Ask for approval", PermissionMode::Auto => "Auto approval" };
+        sink.emit(EventBody::Notice { text: format!("Permissions changed to {label}.{}", if continued { " Resuming the same conversation; pending requests were cancelled." } else { " Applies when the session next runs." }) }).await;
+        if continued {
+            self.send_locked(app, id, "Continue the task from where you stopped. The owner changed this session's permission mode; reconsider any cancelled operation under the current native permissions.", vec![], InputMode::Manual, None).await.context("Permissions saved, but the session could not continue")?;
+        }
+        self.get(id).context("no such session")
+    }
+
     /// Changes model and effort through the live adapter, or resumes a replacement process once idle.
     pub async fn set_model(&self, app: &App, id: &str, model: Option<String>, effort: Option<String>) -> Result<Session> {
         let _action = self.inner.actions.lock().await;
@@ -1034,7 +1081,7 @@ impl Sessions {
             sink.emit(EventBody::Notice { text: format!("Model set to {label} from the next turn.") }).await;
             return Ok(s);
         }
-        self.inner.model_restarts.lock().unwrap().insert(id.to_string());
+        self.inner.process_restarts.lock().unwrap().insert(id.to_string());
         if s.status.is_running() || s.open_question || !live.ready_for_turn() {
             sink.emit(EventBody::Notice { text: format!("Model set to {label}; the agent restarts with it after the current turn.") }).await;
             return Ok(s);
@@ -1120,7 +1167,7 @@ impl Sessions {
         self.send_locked(app, id, text, images, mode, client_id).await
     }
 
-    /// Caller holds the action and work locks.
+    /// Caller holds the action and work locks, including during permission changes.
     async fn send_locked(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>) -> Result<()> {
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(!self.setup_running(id), "Wait for the worktree setup to finish; the agent starts afterwards.");

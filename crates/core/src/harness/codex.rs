@@ -31,6 +31,8 @@ pub struct CodexSession {
 struct State {
     turn_id: Option<String>,
     commands: HashSet<String>,
+    /// Commands blocked before execution: item ID → native approval request ID.
+    awaiting_approval: HashMap<String, Value>,
     /// Items started and not completed: id → (type, start time, last output time).
     open: HashMap<String, (String, i64, i64)>,
     /// Pending `item/tool/requestUserInput`: our request id → (JSON-RPC id, question ids).
@@ -56,6 +58,11 @@ impl State {
     fn end_turn(&mut self) -> Vec<String> {
         self.running = false;
         self.turn_id = None;
+        // Codex can end an interrupted turn without completing a command that never
+        // passed approval. These are not background processes. Accepted commands
+        // leave this map before the response is sent, even when they produce no output.
+        for id in self.awaiting_approval.keys() { self.commands.remove(id); }
+        self.awaiting_approval.clear();
         let mut ended = Vec::new();
         self.open.retain(|id, (kind, _, _)| {
             if self.commands.contains(id) { return true; }
@@ -63,6 +70,10 @@ impl State {
             false
         });
         ended
+    }
+
+    fn approval_accepted(&mut self, rpc_id: &Value) {
+        self.awaiting_approval.retain(|_, id| id != rpc_id);
     }
 }
 
@@ -274,6 +285,13 @@ impl LiveSession for CodexSession {
         let approval = self.state.lock().unwrap().approvals.get(request_id).cloned();
         if let Some(options) = approval {
             let response = approval_answer(&options, &answers)?;
+            if matches!(response["decision"].as_str(), Some("accept" | "acceptForSession" | "approved" | "approved_for_session")) {
+                // Child approval cards route through the parent, but execution state
+                // stays on the native child thread. Mark acceptance before writing.
+                for (_, state) in self.threads.lock().unwrap().values() {
+                    state.lock().unwrap().approval_accepted(&pending.0);
+                }
+            }
             self.server.respond(pending.0, response).await?;
             let mut state = self.state.lock().unwrap();
             state.requests.remove(request_id);
@@ -356,6 +374,9 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
                         .as_str()
                         .and_then(|t| router_threads.lock().unwrap().get(t).cloned());
                     if let Some((_, state)) = &entry {
+                        if method == "item/commandExecution/requestApproval" && let Some(item_id) = params["itemId"].as_str() {
+                            state.lock().unwrap().awaiting_approval.insert(item_id.to_string(), id.clone());
+                        }
                         let item = state.lock().unwrap().approval_items.get(params["itemId"].as_str().unwrap_or("")).cloned();
                         if let Some(item) = item { params["proposedChanges"] = item["changes"].clone(); }
                     }
@@ -692,6 +713,7 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             if !st.lock().unwrap().completed.insert(id.clone()) { return; }
             st.lock().unwrap().open.remove(&id);
             st.lock().unwrap().commands.remove(&id);
+            st.lock().unwrap().awaiting_approval.remove(&id);
             match t {
                 "agentMessage" => {
                     let text = item["text"].as_str().unwrap_or("").to_string();
@@ -1150,6 +1172,28 @@ mod tests {
         let mut ended = state.ended_requests(&json!("ended"));
         ended.sort_by_key(|id| id.as_i64());
         assert_eq!(ended, vec![json!(1), json!(2), json!(4)]);
+    }
+
+    #[test]
+    fn cancelled_unapproved_commands_do_not_become_phantom_background_work() {
+        use super::*;
+        let mut state = State::default();
+        for id in ["blocked", "silent-approved", "background"] {
+            state.commands.insert(id.into());
+            state.open.insert(id.into(), ("commandExecution".into(), 1, 2));
+        }
+        state.awaiting_approval.insert("blocked".into(), json!(1));
+        state.awaiting_approval.insert("silent-approved".into(), json!(2));
+        state.approval_accepted(&json!(2));
+        assert_eq!(state.end_turn(), vec!["blocked"]);
+        assert!(!state.commands.contains("blocked"));
+        assert!(!state.open.contains_key("blocked"));
+        assert!(state.commands.contains("silent-approved"));
+        assert!(state.commands.contains("background"));
+        assert!(state.awaiting_approval.is_empty());
+        // No output is required for an accepted command to remain in the busy guard.
+        assert!(child_busy(&state));
+        assert!(state.end_turn().is_empty());
     }
 
     #[test]

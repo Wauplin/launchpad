@@ -5,7 +5,7 @@ import { FollowUpAgent } from "./FollowUpAgent";
 import { HostLabel } from "@/components/HostLabel";
 import { hostOf, linkLabel, useHost } from "@/lib/hosts";
 import { useVariant } from "@/lib/variants";
-import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle } from "./SessionSummary";
+import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle, PermissionSwitch } from "./SessionSummary";
 import { SubagentsPanel, subagents } from "./SubagentsPanel";
 import { GitPanel } from "./GitPanel";
 import { useComposer } from "@/stores/composer";
@@ -330,6 +330,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
             <StatusBadge s={s} />
             <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{projectName(projects, s.project_id, s.cwd)} <Icon name="chev" size={12} /></button>
             <span className="ml-auto flex flex-wrap justify-end gap-1">{primary}</span>
+            <PermissionSwitch session={s} />
             <PaidUsageToggle session={s} badge />
             <CostLimit session={s} badge />
           </> : <>
@@ -339,6 +340,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
             {s.launch_spec.variant && <span title="Harness variant">{variantName ?? `${s.launch_spec.variant} (deleted variant)`}</span>}
             <HostLabel path={s.cwd} />
             <StatusBadge s={s} />
+            <PermissionSwitch session={s} />
             <PaidUsageToggle session={s} badge />
             <CostLimit session={s} badge />
             <span>{usageLine(s)}</span>

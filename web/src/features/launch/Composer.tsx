@@ -648,9 +648,9 @@ export function Composer() {
           {harness?.capabilities.permission_modes && <OptionRow label="Permissions">
             <div className="grid gap-1.5">
               <select className="field-input w-auto text-xs" aria-label="Permission mode" value={spec.permission_mode ?? "yolo"} onChange={(e) => set((s) => ({ ...s, permission_mode: e.target.value as LaunchSpec["permission_mode"] }))}>
-                <option value="yolo">YOLO · Full access</option>
+                <option value="yolo">YOLO</option>
                 <option value="approvals">Ask for approval</option>
-                <option value="auto">Auto approval · AI review</option>
+                <option value="auto">Auto approval</option>
               </select>
               <span className="text-[11.5px] text-ink-3">{spec.permission_mode === "auto" ? "A separate AI reviews actions that need permission. Human-only requests still appear in the session. Requires native CLI, model and account support." : spec.permission_mode === "approvals" ? "Uses native permission rules. Requested commands and changes wait for your approval in the session." : "Commands and file changes run without permission prompts."}</span>
             </div>

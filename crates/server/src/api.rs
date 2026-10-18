@@ -59,6 +59,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/resume-subscription", post(resume_subscription))
         .route("/api/sessions/{id}/paid-usage", post(set_paid_usage))
         .route("/api/sessions/{id}/model", post(set_model))
+        .route("/api/sessions/{id}/permissions", post(set_permissions))
         .route("/api/sessions/{id}/budget", post(set_budget))
         .route("/api/sessions/{id}/terminal", post(open_terminal))
         .route("/api/sessions/{id}/task-output", get(task_output))
@@ -409,6 +410,12 @@ async fn set_paid_usage(State(s): State<Server>, Path(id): Path<String>, Json(b)
 struct SessionBudget { budget_usd: Option<f64> }
 async fn set_budget(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<SessionBudget>) -> ApiResult<Session> {
     Ok(Json(s.app.sessions.set_budget(&s.app, &id, b.budget_usd).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct SessionPermissions { mode: launchpad_core::model::PermissionMode }
+async fn set_permissions(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<SessionPermissions>) -> ApiResult<Session> {
+    Ok(Json(s.app.sessions.set_permissions(&s.app, &id, b.mode).await.map_err(bad)?))
 }
 
 #[derive(Deserialize)]

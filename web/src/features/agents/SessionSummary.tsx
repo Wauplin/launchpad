@@ -133,7 +133,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   if (s.launch_spec.variant) metadata.push(["Harness", <VariantLabel session={s} />]);
   if (supportsCost) metadata.push(["Cost limit", <CostLimit session={s} />]);
   metadata.push(["Model", <span className="inline-flex flex-wrap items-center gap-2"><ModelSwitch session={s} />{contextShare}</span>]);
-  if (useHarnessInfo(s.harness)?.capabilities.permission_modes) metadata.push(["Permissions", s.launch_spec.permission_mode === "auto" ? "Auto approval · AI review" : s.launch_spec.permission_mode === "approvals" ? "Ask for approval" : "YOLO · Full access"]);
+  if (useHarnessInfo(s.harness)?.capabilities.permission_modes) metadata.push(["Permissions", <PermissionSwitch session={s} />]);
   metadata.push(["Paid usage", <PaidUsageToggle session={s} />]);
   metadata.push(["Folder", s.cwd]);
   if (git.data) metadata.push(["Branch", `${git.data.branch} · ${git.data.files.length ? `${git.data.files.length} uncommitted files` : "clean"}${git.data.unpushed_commits == null ? "" : git.data.unpushed_commits ? ` · ${git.data.unpushed_commits} commits absent from cached remote refs` : " · present in cached remote refs"}`]);
@@ -228,6 +228,25 @@ export function CostLimit({ session: s, badge = false }: { session: Session; bad
       </span>
     </div>}
   </Popover>;
+}
+
+export function PermissionSwitch({ session: s }: { session: Session }) {
+  const [busy, setBusy] = useState(false);
+  const supported = useHarnessInfo(s.harness)?.capabilities.permission_modes;
+  if (!supported) return null;
+  return <label className="inline-flex min-w-0 items-center gap-1" title="Changing permissions pauses the current turn and continues the same conversation. Pending approvals are cancelled and reconsidered by the agent.">
+    <span className="sr-only">Permissions</span>
+    <select className="field-input w-auto max-w-full text-xs" aria-label="Session permissions" value={s.launch_spec.permission_mode} disabled={busy || s.status === "in_terminal" || s.status === "starting"} onChange={async (e) => {
+      const mode = e.target.value;
+      setBusy(true);
+      try { await api.post(`/api/sessions/${s.id}/permissions`, { mode }); } catch (e) { toastError(e); } finally { setBusy(false); }
+    }}>
+      <option value="yolo">YOLO</option>
+      <option value="approvals">Ask for approval</option>
+      <option value="auto">Auto approval</option>
+    </select>
+    {busy && <span role="status">Switching…</span>}
+  </label>;
 }
 
 /** Model and supported effort choices come from the registered adapter. */
