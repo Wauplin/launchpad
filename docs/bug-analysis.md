@@ -1,277 +1,142 @@
-# Launchpad bug and vulnerability analysis (2026-10-17)
+# Launchpad bug and vulnerability analysis (updated 2026-10-19)
 
-Scope: the full codebase at `48a147f` (Rust daemon, React UI, Tauri shell). Two independent analyses were merged: this one (Claude) and an earlier Codex analysis of `30cb2bc`. Every Codex claim was re-checked against `48a147f` before it was merged; some severities were adjusted. Source tags: **[C]** this analysis, **[X]** Codex (verified), **[C+X]** found by both.
+Scope: the full codebase at `8101446` (Rust daemon, React UI, Tauri shell). This update replaces the first analysis of 2026-10-17 (commit `48a147f`). It does two things: it checks each of the 56 earlier findings against the 18 commits made since then, and it reviews those commits for new bugs. Source tags: **[New · commit]** a bug introduced by that commit, **[Remaining]** the part of an earlier finding that is still open, **[Older]** an older bug that was not in the first report.
 
 Severity levels: **Critical**, **High**, **Medium**, **Low**. No critical issue was confirmed. Bugs are grouped so that each group can be fixed in one change.
 
-Totals: 56 bugs in 12 groups: 0 critical, 6 high, 24 medium, 26 low.
+Totals: 27 bugs in 7 groups: 0 critical, 1 high, 8 medium, 18 low.
 
-## 1. SSH host relay boundary
+## Status of the 2026-10-17 findings
 
-Fixed on 2026-10-17: the relay rejects ambiguous/escaped route paths, authorizes the exact outgoing URL and disables redirects. Queued-result notices require an existing session on the sending host. Regression tests cover traversal variants, allowed CLI routes and session host isolation. Findings below describe the analyzed revision.
+50 of the 56 earlier findings are fixed and 6 are partially fixed; none is left untouched. The open parts of the 6 partial fixes are listed below with the **[Remaining]** tag: Codex archive cleanup, launch-time pre-draft subfolder checks, the symlink at the destination file name, apps on other ports of the Tailscale Serve host, the retry ledger within 24 hours, and per-tab draft backups. All six High findings of the first report are fixed: the relay allowlist bypass, the pre-draft deadlock, the pre-draft subfolder guards, merges that dropped merge commits, the quota pause during worktree setup, and Launch/Send on plain HTTP. The fallback SHA-256 was compared with Node `crypto` from 0 bytes to 3 MB, including non-ASCII input, and no new relay path bypass was found (percent-encoding, `;`, query strings, double slashes, case, `//host`). One small gap remains in the Sign out cleanup: `web/src/lib/attachments.ts:74` redirects on a 401 without clearing storage, but the socket probe normally detects the revocation first.
 
-- **[High] Relay allowlist can be bypassed with backslashes and `..`** [C] — `crates/core/src/hosts/relay.rs:10-23`, `relay.rs:26`
-  - Bug: `allowed()` checks the raw path split on `/`, but `Url::parse` then turns `\` into `/` and resolves `..`. A process on the host can send `PATCH /api/predrafts/..\projects\<id>` and the daemon calls `PATCH /api/projects/<id>` with the full bearer token (verified with the `url` crate). Setting `worktree_setup` this way runs a command on the daemon machine at the next launch.
-  - Recommendation: Normalize the URL first, reject paths that contain `\`, dot segments or encoded dots, and run `allowed()` on the exact path that is sent.
-  - Alternative: Replace the generic path relay with typed relay messages, one per allowed CLI call.
-- **[Low] Queued relay results write notices into any session** [C] — `crates/core/src/hosts/conn.rs:488-503`
-  - Bug: For queued CLI calls the daemon reads `session_id` from the request body and emits a notice into that session without checking that the session runs on this host.
-  - Recommendation: Emit the notice only when the session exists and its `cwd` is on the same host.
-  - Alternative: Record queued results in the host status instead of a session notice.
+## 1. Global locks held during slow or unbounded waits
 
-## 2. Worktree merge, discard and isolation
+Several fixes now hold the global session action lock (or the global operation lock) while they wait for a process, a network call or a turn. Stop, Send, Launch, Answer and the quota guard all need that lock, so one slow wait blocks every session and can let protected sessions keep using paid credits.
 
-Fix status (2026-10-17): all eight findings addressed; implementation and behavior are documented in [Managed agent worktrees](managed-worktrees-plan.md). The original findings below describe the audited code before these fixes.
+- **[High] Stop or Archive of an agent on an unreachable SSH host blocks every session action** [New · e575aee] — `crates/core/src/harness/claude.rs:249-251`, `crates/core/src/worktrees.rs:452-464`, `crates/core/src/hosts/conn.rs:216-251`, `crates/core/src/sessions.rs:1302-1314`
+  - Bug: Claude `stop` and worktree setup cancellation now wait with no limit for the process to exit after the kill. For a process on an SSH host, the signal is only queued while the host is unreachable, and the exit wait ends only when the connection returns or the host is removed. Archive, Stop during setup, discard, model restart and Open in terminal run this wait while they hold the global action lock. If the host stays offline (laptop closed, cancelled sandbox), every send, launch, stop and answer waits forever, and the quota guard cannot pause other protected sessions when included quota runs out.
+  - Recommendation: Bound the wait after the kill (for example 5 s), finish the wait in a background task, and keep the worktree out of cleanup until the exit arrives.
+  - Alternative: For processes on an Unreachable host, skip the wait and mark the worktree busy until the helper reports the exit or the process is lost.
+- **[Medium] Pre-draft Publish holds the action lock during push and GitHub calls** [New · 951999c] — `crates/core/src/predrafts.rs:550-552`, `predrafts.rs:615`, `predrafts.rs:642`
+  - Bug: To fix the deadlock, `publish` now takes the action lock first and keeps it through `git ls-remote`, `git push` and the GitHub requests, which have no timeout. A slow or stalled push blocks Stop for every session and blocks the quota guard. Before this commit, Publish did not take that lock.
+  - Recommendation: Hold the action lock only for the idle checks and the `pushed_head` claim, release it before the network calls (the stored `pushed_head` already freezes new turns), and take it again for the final cleanup.
+  - Alternative: Keep the order but add timeouts to `ls-remote`, `push` and the GitHub requests, and fail with a retryable error.
+- **[Medium] Cancelling worktree setup can hang forever when a child keeps the output pipe open** [New · e575aee] — `crates/core/src/worktrees.rs:448-464`, `crates/core/src/exec.rs`
+  - Bug: After killing the setup process group, `setup_output` waits for the output pipes to close, with no limit. A child started with `setsid` (or a daemonizing tool) escapes the group kill and keeps stdout open (confirmed with a small POSIX demo). Stop and Archive then wait forever under the action lock, and the 30-minute setup timeout hangs the same way, so the session stays in Starting. Before this commit, the timeout always ended the wait.
+  - Recommendation: Bound the wait after the kill (for example 5 s), then drop the pipes and return the error.
+  - Alternative: Read the pipes in separate tasks and wait for the process exit instead of pipe EOF.
+- **[Medium] Changing permissions during a turn stops the task, then fails after 20 s** [New · 4105fdd] — `crates/core/src/sessions.rs:1035-1050`
+  - Bug: When a turn is running, `set_permissions` skips the background-command check, interrupts the turn and waits up to 20 s for the process to be ready. Codex commands and Claude background tasks survive the interrupt, so the wait times out: the session ends Stopped, the mode is unchanged and no "Continue" message is sent. During the 20 s, the global action lock is held, so Stop, answers, launches and quota pausing are blocked for every session.
+  - Recommendation: Check for background work outside the current turn before interrupting, and release the action lock during the wait, then take it again and re-check the state.
+  - Alternative: When the wait times out, still save the new mode and apply it at the next restart, instead of reporting the change as failed after the turn was stopped.
+- **[Low] Manual GitHub posts block Launch and Send** [New · de26c31] — `crates/server/src/operations.rs:71`, `operations.rs:89-98`
+  - Bug: Comments, reviews and inbox replies now run under the single global operation lock that also protects Launch and session messages. A slow GitHub POST (up to the 30 s timeout) makes every Launch and every reply to an agent, from any device, wait behind it.
+  - Recommendation: Hold the global lock only around the claim and the completion records; retries with the same ID already see the stored claim.
+  - Alternative: Use one lock per operation ID instead of one global mutex.
 
-- **[High] Automatic rebase drops changes made in merge commits** [X] — `crates/core/src/worktrees.rs:874-876`
-  - Bug: `try_merge` runs a plain `git rebase <base>`, which linearizes history and drops merge commits. Changes that exist only in a merge commit (for example conflict resolutions) disappear, and Launchpad still reports a successful merge (reproduced by Codex).
-  - Recommendation: Refuse automatic rebase when the branch contains merge commits, or use `--rebase-merges` and compare the final tree before the fast-forward.
-  - Alternative: Merge the base into the branch instead of rebasing, then fast-forward.
-- **[Medium] Merges ignore running terminals** [X] — `crates/core/src/worktrees.rs:411-428`, `worktrees.rs:845`, `worktrees.rs:866`
-  - Bug: `try_merge` calls `idle_reason(…, false)`, which skips the terminal check, and the target checkout check only looks at agents. Rebase and fast-forward can change files while a terminal command (build, dev server) uses them.
-  - Recommendation: Wait while a command terminal is alive in the worktree, and show which terminal blocks the merge.
-  - Alternative: Warn in the merge notice instead of waiting, for shells that are idle at a prompt.
-- **[Medium] Worktree discard uses stale state and activity checks** [C+X] — `crates/core/src/worktrees.rs:587-618`
-  - Bug: `discard` reads the record and checks busy agents before it waits for terminals and takes `action_lock`/`worktree_lock`. A turn started meanwhile is killed and its folder is force-removed; a worktree promoted to a pre-draft meanwhile loses its folder and branch.
-  - Recommendation: Take `action_lock` then `worktree_lock` first, reload the record, and run state and busy checks under the locks.
-  - Alternative: Re-check state and activity after taking the locks and abort if anything changed.
-- **[Medium] A discarded editable context project falls back to the main checkout** [X] — `crates/core/src/sessions.rs:808-813`
-  - Bug: On reattach, an editable context project without an active worktree is added as `p.path`, so the resumed agent gets write access to the checkout it was told to avoid.
-  - Recommendation: Skip (or restore) editable context projects whose worktree is not active, and tell the agent.
-  - Alternative: Fail the resume with a visible error that names the discarded context worktree.
-- **[Medium] Projects in a repository subfolder cannot open their task worktrees in Code** [X] — `crates/core/src/code.rs:139-148`, `crates/core/src/terminals.rs:590-605`
-  - Bug: `code::open` and `check_cwd` accept only an exact project path or a worktree root whose main checkout equals the project path. For a project `repo/sub`, neither `<worktree>` nor `<worktree>/sub` matches.
-  - Recommendation: Accept `<worktree>/<subdir>` when the worktree's main checkout plus the same subdir equals a registered project.
-  - Alternative: Check against the `task_worktree` records instead of deriving the project from paths.
-- **[Low] Copied untracked files can be written through a directory symlink** [X] — `crates/core/src/worktrees.rs:301-318`
-  - Bug: `copy_files` checks that the source is a regular file but does not check that the destination parent stays inside the new worktree, so a symlinked parent directory redirects the copy (reproduced by Codex with a constructed repository).
-  - Recommendation: Canonicalize the destination parent and require it to be inside `dest` before copying.
-  - Alternative: Refuse to copy when any parent component of the destination is a symlink.
-- **[Low] Launch failures after worktree creation leave orphan worktrees and pre-drafts** [C] — `crates/core/src/sessions.rs:631-636`, `sessions.rs:648-684`
-  - Bug: `abandon()` runs only when worktree preparation fails. Later errors (missing upload, persist error) keep the worktree, its branch and an empty pre-draft.
-  - Recommendation: Wrap every step after worktree/pre-draft creation in one fallible block that calls `abandon` and archives the pre-draft.
-  - Alternative: Resolve attachments and other fallible inputs before creating worktrees.
-- **[Low] Hand-off silently deletes ignored files** [C] — `crates/core/src/worktrees.rs:636-650`, `worktrees.rs:686`
-  - Bug: The dirty check does not see ignored files, but `git worktree remove` deletes them (`.env`, local databases). Move back does not copy `.worktreeinclude` files again.
-  - Recommendation: List ignored files before hand-off and warn or refuse, and run `copy_included` on handback.
-  - Alternative: Say clearly in the hand-off confirmation that ignored files are lost.
+## 2. Agent process shutdown and harness protocol
 
-## 3. Pre-draft locking and guards
+- **[Medium] On macOS, agents keep running after a daemon restart** [New · e575aee] — `crates/core/src/exec.rs:221-222`, `crates/core/src/harness/claude.rs:105`, `packaging/install-macos.sh:31`
+  - Bug: Claude and worktree setup now start in their own process group on every Unix system. Linux still stops Claude through the parent-death signal, but macOS has none; before this change, launchd killed the daemon's whole process group when it stopped. Now a running Claude turn keeps working in the worktree while the session shows Interrupted, and Resume starts a second process on the same conversation and folder.
+  - Recommendation: On macOS, record the process groups of harness and setup processes, and kill them at daemon shutdown and at startup (stale groups from the previous run).
+  - Alternative: On macOS, use a separate process group only for worktree setup and keep harnesses in the daemon's group.
+- **[Medium] A failed Codex steer marks the session as Failed** [New · e575aee] — `crates/core/src/harness/codex.rs:216-224`, `crates/core/src/sessions.rs:1229-1232`
+  - Bug: Every `turn/steer` error now goes to `sink.fail`, which sets status Failed and sends a failure notification. If the owner types just as the turn ends, Codex rejects the steer, the message shows as sent but was never delivered, and the session becomes Failed. If the steer request times out, the session shows Failed while Codex is still working.
+  - Recommendation: When Codex reports that no turn is active, start a new turn (nothing was delivered). For other steer errors, return an error without `sink.fail` and show a notice that delivery is uncertain.
+  - Alternative: Return a dedicated "uncertain delivery" error that `send_locked` reports as a notice without changing the status.
+- **[Medium] Archive of a Codex session does not wait for its turn or commands** [Remaining] — `crates/core/src/harness/codex.rs:311-330`, `crates/core/src/sessions.rs:1293-1299`
+  - Bug: The Claude part of the earlier finding is fixed, but Codex `stop` still sends `turn/interrupt` and `thread/unsubscribe` and returns at once. Archive cleanup can then remove a clean worktree while an interrupted or background Codex command still writes into it.
+  - Recommendation: In Codex `stop`, wait (with a bound) for `turn/completed` and for running commands to finish before unsubscribing.
+  - Alternative: Keep the worktree out of cleanup until the thread reports no active turn and no running commands.
+- **[Low] A request cancelled by the harness leaves a running session shown as Done** [New · 612f64f] — `crates/core/src/harness/claude.rs:406`, `crates/core/src/harness/codex.rs:598`
+  - Bug: Showing an approval card sets the status to Waiting. When Claude cancels the request (`control_cancel_request`) or Codex resolves it (`serverRequest/resolved`) during the turn, the open question is cleared but the status is not set back to Working. The session shows Done while the agent works, the quota guard skips it, and the completed-turn notification is lost. It is not confirmed when Claude cancels a request without also ending the turn.
+  - Recommendation: After removing a cancelled request, set Working again when no question remains and the turn is still active, like `Sessions::answer`.
+  - Alternative: Keep Working for permission cards and let `open_question` drive Needs you.
+- **[Low] Summary shows requests from before a daemon restart as active cards** [New · 612f64f] — `web/src/features/agents/SessionSummary.tsx:121`, `SessionSummary.tsx:154`
+  - Bug: A daemon restart does not mark pending requests as ended. After Resume and a new request, "Needs your decision" shows the old card and the new one, both with live Allow/Deny buttons. Clicking the old card fails with "already answered", and the owner can click the wrong one.
+  - Recommendation: At startup, emit `AskAnswered` ("Request ended") for unanswered requests of sessions that were live.
+  - Alternative: Show only requests made after the last process start as actionable.
 
-Fixed on 2026-10-18: Publish and Discard take the session action lock before the work gate and pre-draft lock; cleanup closes sessions under the existing action lock. Guards, feedback, session-link recovery and follow-up launches include descendant folders on the same host. Isolated regression tests cover lock ordering, cleanup completion and subfolder guards. Findings below describe the analyzed revision.
+## 3. Worktrees, pre-drafts and merges
 
-- **[High] Deadlock between pre-draft Discard/Publish and every session action** [C+X] — `crates/core/src/predrafts.rs:475`, `predrafts.rs:489`, `predrafts.rs:506-521`, `crates/core/src/sessions.rs:1067-1068`, `sessions.rs:1187`
-  - Bug: `discard`/`publish` take `work` and then call `close_in` → `close`, which takes `actions`. Send, launch, resume and answer take `actions` then `work`. One concurrent send or cron launch blocks both mutexes forever, so every later action, including Stop, hangs until restart (reproduced by Codex).
-  - Recommendation: Take `actions` before `work` in discard/publish and use a close variant that assumes the caller holds `actions`.
-  - Alternative: Release `work` and `predraft_lock` before closing sessions, then re-check the pre-draft state.
-- **[High] Pre-draft guards miss sessions in a project subfolder** [C+X] — `crates/core/src/predrafts.rs:144-151`, `predrafts.rs:328-333`, `predrafts.rs:446`
-  - Bug: The guards compare `session.cwd == p.root` exactly. A session in `<worktree>/<subdir>` passes the idle check, so Publish can push while it commits; it can also send turns after publication started, and "Send notes to agent" always fails.
-  - Recommendation: Match by folder containment (`cwd == root` or `cwd` inside `root`) in all pre-draft checks.
-  - Alternative: Store the exact session folder in the pre-draft record and compare against it.
+- **[Low] Launch still matches pre-draft sessions by exact folder** [Remaining] — `crates/core/src/sessions.rs:450`, `sessions.rs:554`, `sessions.rs:613`
+  - Bug: The pre-draft guards now accept subfolders, but launch still compares `cwd == root`. For a project in a repository subfolder, a follow-up from the pre-draft session does not resolve to ExistingPredraft (no pre-draft instruction, and "Send notes to agent" still targets the old session), and the "already has an active agent" check misses a running session, so a second agent can start in the same worktree.
+  - Recommendation: Use `loc::within` for the pre-draft lookup in preview and launch, and for the active-agent check.
+  - Alternative: Reuse `predrafts::idle()` for the ExistingPredraft guard.
+- **[Low] Copied include files are still written through a symlink at the file name** [Remaining] — `crates/core/src/worktrees.rs:324`, `worktrees.rs:340`, `worktrees.rs:607`
+  - Bug: Parent folders are now checked, but `copy_files` skips a destination only when `exists` is true, and `exists` follows symlinks. A dangling symlink at the file name passes, and the copy writes through it. If an agent commits `.env` as a symlink to another path, Resume after cleanup copies the owner's ignored `.env` there.
+  - Recommendation: Use `symlink_metadata` and skip or refuse when anything exists at the destination, including a symlink.
+  - Alternative: Open the destination with `O_NOFOLLOW | O_EXCL`, also in the helper's copy operation.
+- **[Low] Automatic merge-conflict messages use the manual quota path** [New · 4894ec6] — `crates/core/src/worktrees.rs:913-917`, `crates/core/src/sessions.rs:1196-1212`
+  - Bug: The background merge retry sends conflict messages as manual follow-ups. With an unknown or stale quota reading they are sent anyway, although the project rules allow that only for manual work. A conflicting `launchpad work finish` can start a new turn while included quota may be exhausted.
+  - Recommendation: Send these messages with `automatic = true` and keep the conflict pending when the send is held.
+  - Alternative: Hold the conflict message with `hold_input` when the reading is not fresh.
 
-## 4. Agent process shutdown and harness protocol
+## 4. SSH hosts and remote access
 
-- **[Medium] Archive treats the agent as stopped before it exits** [X] — `crates/core/src/sessions.rs:1177-1183`, `crates/core/src/harness/claude.rs:205-215`
-  - Bug: `detach` removes the live handle and Claude `stop` only closes stdin and kills after 5 s. Archive cleanup can remove a clean worktree while the old process still writes into it.
-  - Recommendation: Make `stop` wait for the process exit (with the 5 s kill as a bound) before `close` continues.
-  - Alternative: Delay worktree cleanup until the harness reports its exit.
-- **[Medium] Stopping a worktree setup leaves its child processes running** [X] — `crates/core/src/worktrees.rs:383-400`, `crates/core/src/procs.rs:18-20`
-  - Bug: Abort or timeout kills only the `sh` process; children such as `npm install` keep writing after the session is Stopped and cleanup becomes possible (reproduced by Codex).
-  - Recommendation: Start the setup in its own process group and kill the group on abort or timeout.
-  - Alternative: Run setup through the helper or a PTY that already tracks the whole process tree.
-- **[Medium] Codex steering falls back to a new turn on every error** [X] — `crates/core/src/harness/codex.rs:166-180`
-  - Bug: Any `turn/steer` error, including a timeout whose delivery is unknown, starts a new turn with the same text. The message can be delivered twice.
-  - Recommendation: Start a new turn only when the error says the expected turn is no longer active.
-  - Alternative: Return an uncertain-delivery error and let the owner decide.
-- **[Medium] Interrupted questions stay pending in the adapters** [X] — `crates/core/src/harness/claude.rs:174-186`, `claude.rs:363`, `crates/core/src/harness/codex.rs:206-208`
-  - Bug: Interrupt clears the session's `open_question` flag, but the adapters keep the unanswered request, so `ready_for_turn()` stays false until the process is detached.
-  - Recommendation: Clear pending questions/requests in the adapter when the turn is interrupted or ends.
-  - Alternative: Detach and restart the process after interrupting a turn that had an open question.
+- **[Low] Relayed CLI calls are not limited to the sending host** [Older] — `crates/core/src/hosts/relay.rs:19-20`, `crates/server/src/api.rs:344-345`, `crates/server/src/predrafts.rs:33-39`
+  - Bug: The relay path check is now strict, but IDs in paths and bodies are not tied to the host. A process on an SSH host can list local pre-drafts to get their session IDs, read those sessions' traces, and rewrite the title, body or notes of a local pre-draft. The notes are later sent to a local agent, and the body is published by the owner.
+  - Recommendation: In `relay::call`, require that the session or pre-draft of each relayed request has its folder on the sending host.
+  - Alternative: Filter relayed pre-draft lists to the host's own records and reject trace and PATCH requests for records on another machine.
+- **[Low] Apps on other ports of the Serve host still receive the device cookie** [Remaining] — `crates/server/src/tailnet.rs:99-115`, `crates/server/src/auth.rs:603`
+  - Bug: Apps on the same Serve origin are now rejected, but cookies have no port scope. If the owner serves another app with `tailscale serve --https=8443`, the browser sends the Launchpad device cookie to it, and that app's backend can reuse it for full Launchpad access.
+  - Recommendation: During discovery and Update HTTPS URL, reject the host when another HTTPS port on the same DNS name proxies to something other than this daemon.
+  - Alternative: Warn in Settings → Devices and require explicit owner confirmation when other ports are served on the same host.
 
-## 5. Quota protection and session lifecycle
+## 5. Integrated terminals
 
-- **[High] Quota guard pauses sessions during worktree setup; the task prompt is lost and Stop is ignored** [C] — `crates/core/src/sessions.rs:729`, `sessions.rs:874`, `sessions.rs:997`, `sessions.rs:1129-1138`
-  - Bug: A Starting session that runs its setup counts as running, so the guard sets a quota pause with the generic "Continue the interrupted task" text. After quota returns, the agent starts without its real task. Stop during setup leaves the session QuotaPaused, and it continues automatically later.
-  - Recommendation: Skip sessions with `setup_running(id)` (or no harness conversation) in the guard, and clear `quota_pause` in the setup branch of `interrupt`.
-  - Alternative: Store the real initial prompt in the `QuotaPause` when the session never received it.
-- **[Medium] Resume of a never-started session starts the agent without its prompt** [C] — `crates/core/src/sessions.rs:199`, `sessions.rs:826`, `sessions.rs:1138`
-  - Bug: A session interrupted before its first send (restart or Stop during setup) has no `harness_session_id`. Resume starts a new conversation and sends only "Continue the unfinished turn.".
-  - Recommendation: When no prompt was delivered yet, send the stored `session.prompt` and launch images as the first turn.
-  - Alternative: Disable Resume for never-started sessions and offer "Launch again".
-- **[Medium] `resume()` marks a running session as Done** [C] — `crates/core/src/sessions.rs:1208-1235`
-  - Bug: `resume` has no running guard: it reuses the live process and calls `set_status(Waiting)`. A stale device or a double click sends a false Done notification and satisfies dependencies of scheduled launches.
-  - Recommendation: Refuse or no-op when the session is running, has an open question or its process is not ready for a turn.
-  - Alternative: Only set Waiting when the previous status was Closed, Stopped, Interrupted, Error or InTerminal.
-- **[Low] Scheduled and cron launches start without a known quota reading** [C] — `crates/core/src/lib.rs`, `crates/core/src/sessions.rs:750`
-  - Bug: At daemon startup an overdue scheduled launch runs before the first quota reading, using the "unknown reading" path that is only allowed for manual work.
-  - Recommendation: Keep automatic launches queued until a fresh reading exists for protected harnesses.
-  - Alternative: Start the scheduler only after the first quota reading or a timeout.
-- **[Low] `answer()` ignores the manual subscription-only retry baseline** [C] — `crates/core/src/sessions.rs:1166`
-  - Bug: `answer` uses the raw quota snapshot, so after "Retry with subscription only" a question cannot be answered until a new reading arrives.
-  - Recommendation: Use `self.quota_blockers(app, &s)` like `send`.
-  - Alternative: Clear the baseline when a question opens.
-- **[Low] A successful usage reading without windows clears exhaustion** [C] — `crates/core/src/harness/claude.rs:965-975`, `crates/core/src/quota.rs:18-31`
-  - Bug: If the usage response lacks `five_hour`/`seven_day`, both windows become `None`, `exhausted()` returns nothing, and held input can be sent although no window confirmed availability.
-  - Recommendation: Treat a response without both windows as an error and keep the previous windows.
-  - Alternative: Keep blockers until `available()` is true, not only until the windows disappear.
-- **[Low] `Session::light()` still broadcasts held image bytes** [C] — `crates/core/src/sessions.rs` (`light()`, `hold_input`)
-  - Bug: `quota_pause.images` keeps resolved data URLs (up to 40 MB). They go to every browser on each session bus update and in `GET /api/sessions`.
-  - Recommendation: Strip `data_url` from `quota_pause.images` in `light()`.
-  - Alternative: Store held images as `upload:` references.
-- **[Low] Presets with ID `worktree` or `draft-pr` are silently dropped** [C] — `crates/core/src/sessions.rs:486`
-  - Bug: `resolve` removes these preset IDs for worktree and pre-draft launches, which is the reserved-ID filtering that the project rules forbid.
-  - Recommendation: Remove the `retain` filter.
-  - Alternative: Show a warning in the prompt preview when a preset is skipped.
+- **[Low] Every terminal Close waits 5 s, and folder cleanups can fail** [New · 2582a97] — `crates/core/src/terminals.rs:59-62`, `terminals.rs:403-407`, `terminals.rs:313-324`, `crates/core/src/hosts/helper.rs:449-452`
+  - Bug: The new escalation always sleeps 5 s before SIGKILL, and the exit is reported only after it, so every closed tab stays open for 5 s. With a disowned background job holding the PTY, the exit lands at about 6 s, which is the `close_and_wait` deadline, so Close all and the project, promotion and pre-draft cleanups can fail with "a terminal did not exit".
+  - Recommendation: Poll the captured process groups every 100 ms, return as soon as they are gone, and send SIGKILL only to groups that still exist after 5 s.
+  - Alternative: Give `close_and_wait` a deadline longer than the kill delay plus the drain time (for example 8 s).
+- **[Low] Typing into an exited terminal shows an error and reconnects on every key** [New · 2582a97] — `crates/server/src/terminals.rs:218-223`, `crates/core/src/terminals.rs:271-273`, `web/src/features/terminals/TerminalView.tsx:222-233`
+  - Bug: Failed shells and harness TUIs keep their tab after exit. Each key press there now fails the write, shows an error toast, closes the socket and replays the whole screen. Before, the input was ignored.
+  - Recommendation: Close the viewer only when the input queue is full; ignore input for an exited terminal.
+  - Alternative: Disable xterm input after the `exit` control message.
+- **[Low] Large pastes are cut and leave bracketed paste open** [New · 2582a97] — `crates/core/src/terminals.rs:26-35`, `crates/server/src/terminals.rs:218-223`, `web/src/features/terminals/TerminalView.tsx:129-133`
+  - Bug: The browser sends a paste as 64 KiB frames, and the new input queue holds 4 frames. When the process reads slowly, a paste over about 320 KiB overflows the queue, the viewer is closed, the rest of the paste is lost and the end marker is never sent, so the shell or TUI stays in paste mode.
+  - Recommendation: Apply backpressure per viewer (stop reading that viewer's socket while its frame waits) instead of failing, without blocking pings and ACKs.
+  - Alternative: Refuse pastes above a limit (for example 256 KiB) in the browser with a visible message.
 
-## 6. Session event log ordering and trace loading
+## 6. Browser drafts, retries and GitHub diffs
 
-- **[Medium] Event numbers and session rows can be written out of order** [C] — `crates/core/src/sessions.rs:296`, `sessions.rs:1396-1407`
-  - Bug: `emit` takes `seq` under a lock but queues the DB write later, and `persist` writes a cloned snapshot. Writes can arrive reversed, so `last_seq` goes back; after a restart a seq is reused and the INSERT fails, and an old status can overwrite a newer one.
-  - Recommendation: Use `last_seq = max(last_seq, ?)`, remove `last_seq`/`last_message` from the `persist` upsert, and keep per-session write order.
-  - Alternative: Assign `seq` inside the DB actor and publish from the stored result.
-- **[Medium] Live events are dropped while a trace load is in flight** [C+X] — `web/src/lib/sessionStore.ts:43-52`, `sessionStore.ts:102-106`
-  - Bug: An out-of-order event calls `load(id)`, which returns at once when a load is running, so the event is discarded. The final message of a turn can be missing until reload (reproduced by Codex).
-  - Recommendation: Buffer events (or set a dirty flag) during a load and merge or reload after it finishes.
-  - Alternative: After each load, run one more `?after=` catch-up if events were dropped.
-- **[Medium] A failed first log fetch leaves the trace empty forever** [C] — `web/src/features/agents/SessionPane.tsx:202-207`, `web/src/lib/sessionStore.ts:42-69`
-  - Bug: The view creates an empty log and calls `load` once. On a network error nothing retries, and a `replayed` reconnect does not reload it.
-  - Recommendation: Mark the log as failed on error so the view retries, and show a Retry button.
-  - Alternative: Reload logs with `loaded === false` after `replayed`.
-- **[Medium] Offline cache restore can overwrite fresh data after resync** [C] — `web/src/main.tsx:31`, `main.tsx:44`, `web/src/lib/offlineCache.ts:36`
-  - Bug: The socket connects before IndexedDB is restored. If `resync` comes first, the restore writes the old snapshot, and `staleTime: Infinity` queries never refetch.
-  - Recommendation: Await `restoreCache` before `connectEvents`, or run `reloadAll` again after the restore when a resync already ran.
-  - Alternative: Invalidate restored keys right after the restore.
+- **[Medium] "Load newer" on a conflicted review draft keeps the old text, and the next edit overwrites the newer draft** [New · 12c31da] — `web/src/lib/reviewState.ts:64-68`, `reviewState.ts:173-183`
+  - Bug: Load newer clears the pending value and writes the server value into the query cache, but the cache already holds that same value, so the reference does not change and the text box keeps the local text. The banner disappears, and the next keystroke saves on top of the newer revision, which silently overwrites the other device's draft.
+  - Recommendation: In Load newer, set the shown value directly (for example with a per-key reload counter), instead of relying on a changed query reference.
+  - Alternative: Track the last applied revision separately and apply the cached value whenever pending is cleared and the revisions differ.
+- **[Low] Unsaved draft backups are lost when a tab closes** [Remaining] — `web/src/lib/reviewState.ts:20-23`, `web/src/stores/composer.ts:98-101`
+  - Bug: Failed saves are now kept and mirrored in localStorage, but under a per-tab key. If the owner closes the tab while offline, no other tab reads that backup, so the edit is lost. A duplicated tab copies the same tab ID, and one tab can erase the other's backup.
+  - Recommendation: Store one backup entry per draft key and let any tab retry it; create a new tab ID when sessionStorage was copied.
+  - Alternative: Keep one shared backup map in localStorage, merged per key with a revision.
+- **[Low] A save whose response was lost shows a false conflict** [New · 12c31da] — `web/src/lib/reviewState.ts:99-104`, `web/src/stores/composer.ts:110-142`
+  - Bug: After a reload or a network drop, the backup is replayed with its old base revision. If the first save had reached the daemon, the replay gets 409, and the owner sees "changed elsewhere" for their own edit; the composer pauses saves until they choose.
+  - Recommendation: On 409, fetch the stored value and accept it silently when it equals the pending value.
+  - Alternative: Send a write ID with each save and let the daemon answer success for a repeated ID.
+- **[Low] Two windows on the same workspace now mirror each other's selection and dock** [New · 12c31da] — `web/src/stores/layout.ts:39-43`, `layout.ts:64-65`
+  - Bug: The pin fix reloads the whole stored layout on every storage event, including the selected session and the terminal dock. Selecting a session or opening the dock in one window changes the other window too.
+  - Recommendation: Merge only pins and collapsed groups from storage; keep selection and dock per window.
+  - Alternative: Store shared and per-window layout fields under separate keys.
+- **[Low] Identical messages within 24 hours still replay an old uncertain send** [Remaining] — `web/src/lib/operations.ts:32-40`, `web/src/features/agents/GitPanel.tsx:106-113`
+  - Bug: The ledger key is still a hash of path and body. After a lost response, sending the same text again within 24 hours (for example "yes") reuses the operation ID, and the UI shows "Delivered" although nothing reached the agent. The Changes notes sender has no "start a new attempt" button, so after 24 hours the same notes cannot be sent until the text changes.
+  - Recommendation: Create the operation ID when the message is composed and keep it with the draft; add the abandon button to the Changes notes sender.
+  - Alternative: Clear a session's ledger entries when its reply box is emptied or a later message is delivered.
+- **[Low] One short local diff failure makes the API fallback permanent for that PR head** [New · de26c31] — `crates/core/src/items.rs:523-531`, `items.rs:617-622`
+  - Bug: The fallback diff is now cached under the project key with no expiry. One transient `git fetch` failure makes every later Files changed view of that head use the REST result, which misses patches for large files or PRs with many files.
+  - Recommendation: Cache fallback results only under the `api` key and keep retrying the local diff.
+  - Alternative: Store the fallback with a timestamp and retry the local diff after a few minutes.
 
-## 7. Retry-safe Launch and Send
+## 7. Harness variants
 
-Fixed on 2026-10-19: HTTP-compatible SHA-256/UUID fallbacks preserve retry protection. Browser retry entries now have a 24-hour retry window; expired or undated entries require explicit abandonment after inspection rather than silently creating a potentially duplicate operation. Resume already uses its dedicated endpoint after the session lifecycle fixes. See [retry contract](retry-operations.md). The original findings below are retained as audit history.
-
-- **[High] Launch and Send fail on plain-HTTP remote origins** [C+X] — `web/src/lib/operations.ts:5`, `operations.ts:9`
-  - Bug: `crypto.subtle` and `crypto.randomUUID` exist only in secure contexts. The default tailnet fallback (`http://100.x.y.z:7317`) is not secure, so every launch, reply and Resume from a phone throws before `fetch` (reproduced by Codex in Chrome).
-  - Recommendation: Use a small JavaScript hash and a `getRandomValues` UUID when `crypto.subtle`/`randomUUID` are missing.
-  - Alternative: Send without an `Idempotency-Key` on insecure origins and show that retries are not protected.
-- **[Medium] The retry ledger never expires** [C] — `web/src/lib/operations.ts:3-13`, `web/src/features/agents/SessionSummary.tsx:170`
-  - Bug: The key is a hash of path and body, kept until a "completed" response. After one lost response, a later identical message (for example "yes", or Resume's fixed text) reuses the old ID and is replayed or blocked by a 409, so nothing reaches the agent.
-  - Recommendation: Store a creation time and treat old entries as new operations; add an abandon path to Resume buttons.
-  - Alternative: Create a per-attempt nonce when the text is composed and keep it with the draft.
-
-## 8. Integrated terminals
-
-- **[Medium] Close can succeed while a foreground job survives** [X] — `crates/core/src/terminals.rs:237`, `terminals.rs:343`
-  - Bug: Close signals the shell's process group, but job control puts foreground commands in another group. If the shell exits first and the job ignores SIGHUP, the terminal is marked dead and the job keeps running (reproduced by Codex).
-  - Recommendation: Signal the PTY's foreground process group (`tcgetpgrp`) as well as the shell group, and escalate to SIGKILL for both.
-  - Alternative: Track and kill every process whose session ID equals the shell's.
-- **[Low] Blocked PTY input stalls the whole viewer connection** [C+X] — `crates/server/src/terminals.rs:211-215`
-  - Bug: The handler awaits each blocking PTY write in its select loop. A process that stops reading input stops output, ACKs, pings and revocation checks for that viewer.
-  - Recommendation: Send input to a per-terminal writer task through a bounded channel and keep the loop non-blocking.
-  - Alternative: Drop input with a notice when the PTY write does not complete within a short timeout.
-
-## 9. Front door, remote access and desktop shell
-
-- **[Medium] Apps that share the Tailscale Serve origin get full Launchpad access** [X] — `crates/server/src/tailnet.rs:99-126`
-  - Bug: Discovery accepts an HTTPS Serve origin where other applications are mounted on other paths. JavaScript served by such an app is same-origin, so it can use the paired cookie and drive Launchpad, including terminals.
-  - Recommendation: Accept only a Serve host whose handlers contain the Launchpad root route and nothing else.
-  - Alternative: Warn in Settings → Devices and require an explicit owner confirmation for shared origins.
-- **[Low] Desktop navigation guard uses a string prefix** [C+X] — `desktop/src-tauri/src/main.rs:247-248`
-  - Bug: `url.starts_with("http://127.0.0.1:7317")` also accepts `http://127.0.0.1:73170/` and `http://127.0.0.1:7317@evil.example/`, so such a link loads a foreign page inside the app window.
-  - Recommendation: Compare `url.origin()` with the daemon origin.
-  - Alternative: Parse host and port and compare them exactly.
-- **[Low] Desktop stays on its start screen when the daemon is healthy but pairing fails** [X] — `desktop/src-tauri/src/main.rs:328-342`
-  - Bug: With `warm == true` and `app_url` failing, the window loads the fallback page and no recovery thread runs, so no error is shown and nothing retries.
-  - Recommendation: Start the recovery thread (or show the error) whenever `app_url` fails, not only when the daemon was down.
-  - Alternative: Retry `app_url` a few times before loading the fallback page.
-- **[Low] Project worktree setup command is editable from remote browsers** [C] — `crates/core/src/projects.rs:223-225`, `crates/core/src/worktrees.rs:383-400`
-  - Bug: `PATCH /api/projects/{id}` stores `worktree_setup` with no remote check, although commands must be file-only in remote mode. It is also the target of the relay bypass in group 1.
-  - Recommendation: Reject `worktree_setup` changes when `auth.remote()` is true and show it read-only.
-  - Alternative: Move setup commands into `config.toml`.
-- **[Low] TOML error messages expose variant credentials** [X] — `crates/core/src/config.rs:246`, `config.rs:355`, `crates/server/src/routes.rs:40`
-  - Bug: TOML parse errors include the offending source line, and `GET /api/config` returns the error even in remote mode, where variant env values must be hidden (reproduced by Codex). Paired browsers can still read the file through a terminal, which limits the impact.
-  - Recommendation: Return only the line and column of config errors to browsers and log the full message on the host.
-  - Alternative: Redact values of `env` tables from the error text.
-- **[Low] Unauthenticated reverse-pairing start has one global rate limit** [C] — `crates/server/src/auth.rs:637-650`
-  - Bug: Any client that reaches the front door can use the 20/minute and 100 pending slots, so the owner cannot create a reverse-pairing code meanwhile.
-  - Recommendation: Rate-limit per source address and keep a smaller global limit.
-  - Alternative: Keep QR/link pairing as the documented fallback when reverse pairing is saturated.
-
-## 10. GitHub suggestions, inbox and diffs
-
-Fixed on 2026-10-19: all 12 findings addressed. Suggestions distinguish definite rejection/pre-send failures from uncertain delivery, use per-suggestion locks and normalize review heads. Manual comments/reviews and inbox replies use durable operation claims, with explicit inspection before abandoning uncertain attempts. Inbox subscription checks run outside the click lock, reuse unchanged subscription results and tolerate per-thread failures; detail prefetch runs only for changed threads. Diff parsing ignores metadata-like source lines inside hunks, local remote failures fall back to cached API patches, and browser diff keys include the base. Image links remain external; cached image bytes and MIME sidecars expire after 21 days (startup and daily cleanup). Regression checks use loopback fixtures and throwaway databases, without real GitHub mutations. See [retry contract](retry-operations.md). Findings below describe the analyzed revision.
-
-- **[Medium] Suggestions become "uncertain" after failures that sent nothing** [C] — `crates/core/src/suggestions.rs:241-262`
-  - Bug: Every error from `items::mutate` becomes `uncertain`, including the local rate-limit gate, a missing `gh` token, refused connections and 4xx answers. Edit/Post disappear and only Discard is left.
-  - Recommendation: Return to `draft` for errors before sending and for 4xx; keep `uncertain` only for timeouts, lost connections and 5xx.
-  - Alternative: Add a "Return to draft (I checked GitHub)" button.
-- **[Medium] Added source lines can change the parsed diff file name** [X] — `crates/core/src/items.rs:655-695`
-  - Bug: `parse_diff` reads `+++ `/`--- ` headers inside hunks. An added line `++ b/fake.txt` becomes `+++ b/fake.txt` and renames the file in the review list; `++ /dev/null` marks it removed (reproduced by Codex). A PR author can disguise which file changed.
-  - Recommendation: Track whether the parser is inside a hunk and only read headers between `diff --git` and the first `@@`.
-  - Alternative: Take file names only from the `diff --git` line and rename metadata.
-- **[Medium] Inbox poll refetches up to 15 item details over GraphQL every minute** [C] — `crates/core/src/inbox.rs:287-313`, `crates/core/src/items.rs:119-132`
-  - Bug: The prefetch runs on every poll, even after a 304, and every cache entry is older than its 60 s freshness. This uses about 18% of the hourly GraphQL budget while idle.
-  - Recommendation: Prefetch only threads whose `updated_at` changed.
-  - Alternative: Skip the prefetch when the notifications page returned 304.
-- **[Medium] Full inbox sync checks every subscription while holding the inbox lock** [C] — `crates/core/src/inbox.rs:176`, `inbox.rs:197`, `inbox.rs:236-253`
-  - Bug: Every 30 minutes all history threads get one sequential request under `self.lock`, so Done/Read clicks hang. One non-404 error (for example SAML 403) aborts the whole sync.
-  - Recommendation: Expire subscription cache entries only when `updated_at` changes, and skip per-thread errors.
-  - Alternative: Run the checks outside the lock and apply the results in one short locked step.
-- **[Medium] PR diff fails instead of using the API fallback** [C] — `crates/core/src/items.rs:512-519`
-  - Bug: The remote lookup is case-sensitive and its `?` is outside the fallback block. A case difference or an unreachable host makes Files changed fail with "missing mapped remote".
-  - Recommendation: Compare repository names case-insensitively and move the lookup inside the fallible block.
-  - Alternative: Pick the remote from `p.gh_repo`/`p.gh_upstream` directly.
-- **[Low] Manual GitHub posts can be duplicated after a lost reply** [X] — `crates/server/src/items.rs:58`, `crates/core/src/items.rs:247`, `crates/core/src/inbox.rs:514`
-  - Bug: Owner comments, reviews and inbox replies have no durable posting claim (unlike agent suggestions). If the response is lost, the draft stays and a retry posts the same text again.
-  - Recommendation: Reuse the suggestion posting claim (posting/uncertain states) for manual posts.
-  - Alternative: Before retrying, check the latest timeline for an identical comment by the owner.
-- **[Low] API-fallback diffs are not cached** [C] — `crates/core/src/items.rs:594-597`, `items.rs:625-635`
-  - Bug: When the local diff failed, the fallback result is not stored, so each file click repeats a failed fetch and all REST pages.
-  - Recommendation: Cache successful fallback results.
-  - Alternative: Return single patches from the in-memory summary result.
-- **[Low] PR diff cache keys ignore the base** [X] — `web/src/features/github/FilesChanged.tsx:284-303`
-  - Bug: The diff and patch queries use `staleTime: Infinity` with keys that contain the head but not the base, so a retargeted PR keeps showing the old file list.
-  - Recommendation: Add the base SHA (or base branch) to both query keys.
-  - Alternative: Invalidate `pr-diff` queries when the item detail reports a new base.
-- **[Low] Clicking an image in GitHub HTML opens the daemon `/img` URL** [C] — `crates/core/src/items.rs:466-477`, `web/src/features/github/lib.tsx:51-56`
-  - Bug: `proxy_images` also rewrites the `<a href>` around images, so the external browser opens `http://127.0.0.1:7317/img?...` without a cookie.
-  - Recommendation: Rewrite only `src` attributes.
-  - Alternative: Map `/img?url=` links back to the original URL in the click handler.
-- **[Low] Posting a suggestion holds the global pre-draft lock during network calls** [C] — `crates/core/src/suggestions.rs:179`, `suggestions.rs:230-255`
-  - Bug: GitHub posts run a full item refresh and the POST under `predraft_lock`, which blocks pre-draft launches and publication for tens of seconds.
-  - Recommendation: Use a per-suggestion lock for GitHub targets.
-  - Alternative: Claim `posting` under the lock, then release it before the network calls.
-- **[Low] Review suggestions with an uppercase `--head` are always stale** [C] — `crates/core/src/suggestions.rs:120-125`
-  - Bug: Uppercase hex is accepted but compared exactly with GitHub's lowercase head, so Post stays disabled.
-  - Recommendation: Lowercase `head` in `create`.
-  - Alternative: Reject uppercase input with a clear error.
-- **[Low] The proxied image cache grows without limit** [C] — `crates/core/src/items.rs:359-418`
-  - Bug: Every proxied GitHub image is stored in `<data_dir>/images` forever.
-  - Recommendation: Delete entries older than a few weeks at startup, like uploads.
-  - Alternative: Cap the folder size and remove the oldest files.
-
-## 11. Browser-side drafts, storage and settings
-
-- **[Medium] Failed draft saves silently drop the last edit** [C+X] — `web/src/lib/reviewState.ts:26-35`, `web/src/stores/composer.ts:92-108`
-  - Bug: A failed review-state PUT is only logged and its pending value is dropped; composer saves ignore every error except 409. Unsent replies and the composer draft can be lost on reload or on other devices.
-  - Recommendation: Keep failed values pending, retry on reconnect, and show a "not saved" state.
-  - Alternative: Mirror pending values in localStorage until the daemon confirms them.
-- **[Medium] Concurrent review-state saves can overwrite newer edits** [X] — `web/src/lib/reviewState.ts:26-35`, `crates/core/src/review_state.rs:50-70`
-  - Bug: Saves for one key are not serialized and have no revision check, and each response writes its own value into the query cache. A delayed older request can replace a newer reply or viewed-marker set.
-  - Recommendation: Serialize saves per key in the browser and add a revision (compare-and-set) on the daemon.
-  - Alternative: Ignore responses whose version is older than the latest pending version for that key.
-- **[Low] Message drafts and pins overwrite each other across windows** [C] — `web/src/stores/messages.ts:23-35`, `web/src/stores/layout.ts:35-53`
-  - Bug: Each window writes its whole persisted state, so an older window removes pins or unsent replies made in another one.
-  - Recommendation: Rehydrate on `storage` events or merge per key on write.
-  - Alternative: Store each draft and pin under its own key.
-- **[Low] Settings → General saves a stale full config** [C] — `web/src/features/settings/SettingsView.tsx:79-96`
-  - Bug: The page keeps its first config snapshot and saves all sections, reverting changes made elsewhere (for example `worktrees.keep`) or failing after the HTTPS origin was adopted.
-  - Recommendation: Send only the edited fields merged on top of the latest config.
-  - Alternative: Add a config revision and reject stale saves with 409.
-- **[Low] Browser data stays after Sign out or revocation** [C] — `web/src/features/settings/DevicesView.tsx:35`, `web/src/lib/api.ts:30`, `web/src/lib/offlineCache.ts:7-8`
-  - Bug: IndexedDB (prompts, messages, paths, inbox) and localStorage drafts stay readable after Sign out or a 401.
-  - Recommendation: Delete `launchpad-cache` and `launchpad-*` keys on Sign out and on 401.
-  - Alternative: Clear client storage when `/auth` loads without a valid credential.
-
-## 12. Dependencies
-
-- **[Low] Lockfile pins `source-map-js` 1.2.1** [X, advisory not verified] — `web/pnpm-lock.yaml:880`
-  - Bug: Codex reported an advisory for this build-time dependency (CPU/memory exhaustion on crafted source maps). The version is confirmed in the lockfile; the advisory could not be checked because the advisory database was not reachable. No runtime path in Launchpad is known.
-  - Recommendation: Run `pnpm audit` with network access and update the package if the advisory is confirmed.
-  - Alternative: Add a scheduled dependency audit to CI.
+- **[Medium] The session model switch breaks provider-variant sessions** [New · 8101446] — `web/src/features/agents/SessionSummary.tsx:253-281`, `crates/core/src/sessions.rs:1066-1093`
+  - Bug: Summary → Run always lists the base Claude models and efforts; only the composer and the variant editor use `models_url`. On a Hugging Face variant session, picking `opus` restarts Claude with `--model opus`, `${LAUNCHPAD_MODEL}` expands to `opus`, the provider rejects it and every following turn fails. The owner also cannot switch to another provider model.
+  - Recommendation: In the model switch, use the session's variant: show the `models_url` list and hide efforts, like the composer.
+  - Alternative: Reject model changes on the server when the model is not in the variant's list, or hide the switch for these sessions.
+- **[Low] A literal `${` in a variant value invalidates the whole config** [New · 8101446] — `crates/core/src/config.rs:219`, `crates/core/src/variants.rs:47-62`, `config.rs:258`
+  - Bug: Validation now rejects any `${…}` that is not a plain name, for example `${FOO:-bar}` or a password that contains `${`, which were valid before. At startup the daemon then falls back to the default config, so all variants and presets disappear until the file is fixed. There is no escape syntax for a literal `${`.
+  - Recommendation: Add an escape (for example `$${`) and document it next to the `${NAME}` help text.
+  - Alternative: Expand only the exact `${NAME}` form and leave other `${…}` text unchanged.
+- **[Low] `~/` in variant values uses the local home folder on SSH hosts** [Older] — `crates/core/src/variants.rs:38`, `crates/core/src/harness/claude.rs:808`, `crates/core/src/harness/codex.rs:895`
+  - Bug: `~/` is expanded with the daemon machine's home before the host check. The new account templates (`CLAUDE_CONFIG_DIR=~/.claude-work`, `CODEX_HOME=~/.codex-work`) depend on it, so on a host with a different home the harness gets a folder that does not exist there and starts without the expected sign-in.
+  - Recommendation: For host sessions, expand `~/` with the host's home folder, which the host connection already resolves.
+  - Alternative: Refuse `~/` values for host sessions with a clear message, like `${NAME}`.
