@@ -61,7 +61,6 @@ export function HarnessesView() {
   }, [q.data, drafts]);
   if (!drafts || !q.data) return <SettingsPage><div className="text-ink-3">Loading…</div></SettingsPage>;
   const saved = q.data.config;
-  const fileEnvironment = q.data.remote;
   const invalid = drafts.map(problem).find(Boolean) ?? null;
   const toVariants = (list: Draft[]): HarnessVariant[] => list.map(({ env, budget, saved: _, template: __, ...v }) => ({
     ...v,
@@ -99,7 +98,7 @@ export function HarnessesView() {
   };
   const templates = harnesses.flatMap((h) => h.variant_templates.map((t) => ({ h, t })));
   const templateItem = ({ h, t }: { h: HarnessDescriptor; t: VariantTemplate }, close?: () => void) => (
-    <MenuItem key={`${h.id}/${t.name}`} icon={<HarnessMark harness={h.id} size={14} />} label={`${h.name} · ${t.name}`} detail={fileEnvironment && t.env.length ? "Unavailable here: edit variant environments in config.toml on the host." : t.description} disabled={fileEnvironment && t.env.length > 0} onClick={() => (add(h, t), close?.())} />
+    <MenuItem key={`${h.id}/${t.name}`} icon={<HarnessMark harness={h.id} size={14} />} label={`${h.name} · ${t.name}`} detail={t.description} onClick={() => (add(h, t), close?.())} />
   );
 
   return (
@@ -128,14 +127,14 @@ export function HarnessesView() {
             <div className="grid gap-px rounded-lg border border-line p-[5px]">{templates.map((x) => templateItem(x))}</div>
           </div>
         )}
-        {drafts.map((d, i) => <VariantEditor key={i} fileEnvironment={fileEnvironment} draft={d} onChange={(f) => setAt(i, f)} onDelete={() => setDrafts((all) => all && all.filter((_, j) => j !== i))} />)}
+        {drafts.map((d, i) => <VariantEditor key={i} draft={d} onChange={(f) => setAt(i, f)} onDelete={() => setDrafts((all) => all && all.filter((_, j) => j !== i))} />)}
       </Card>
       <SaveBar dirty={dirty} invalid={invalid} onSave={() => void save()} onRevert={() => setDrafts(saved.variants.map(toDraft))} />
     </SettingsPage>
   );
 }
 
-function VariantEditor({ draft: d, onChange, onDelete, fileEnvironment }: { fileEnvironment: boolean; draft: Draft; onChange: (f: (d: Draft) => Draft) => void; onDelete: () => void }) {
+function VariantEditor({ draft: d, onChange, onDelete }: { draft: Draft; onChange: (f: (d: Draft) => Draft) => void; onDelete: () => void }) {
   const harnesses = useHarnesses();
   const harness = harnesses.find((h) => h.id === d.harness);
   const defaults = useHarnessDefaults(d.harness).data;
@@ -233,7 +232,6 @@ function VariantEditor({ draft: d, onChange, onDelete, fileEnvironment }: { file
       <div className={row}>
         <b className="pt-1 font-[650]">Environment</b>
         <span className="grid gap-1.5">
-          {fileEnvironment ? <span className="text-xs text-ink-3">Edit environment variables in config.toml on the host. Existing values are kept when saving here.</span> : <>
           {d.env.map(([k, v], j) => (
             <EnvRow key={j} name={k} value={v} doc={harness?.env_vars.find((x) => x.name === k.trim())}
               onName={(name) => onChange((x) => ({ ...x, env: x.env.map((p, n) => (n === j ? [name, p[1]] : p)) }))}
@@ -241,7 +239,6 @@ function VariantEditor({ draft: d, onChange, onDelete, fileEnvironment }: { file
               onRemove={() => onChange((x) => ({ ...x, env: x.env.filter((_, n) => n !== j) }))} />
           ))}
           <AddVariable harness={d.harness} docs={harness?.env_vars ?? []} used={d.env.map(([k]) => k.trim())} onAdd={(name) => onChange((x) => ({ ...x, env: [...x.env, [name, ""]] }))} />
-          </>}
           <span className="text-xs text-ink-3">Added to the harness process, its terminal TUI and title requests. Other variables come from your login shell. In values, a leading <code className="font-mono">~/</code> is your home folder, <code className="font-mono">{"${NAME}"}</code> reads a variable of your login shell (<code className="font-mono">{"${HF_TOKEN}"}</code> also reads the hf CLI login), and <code className="font-mono">{"${LAUNCHPAD_MODEL}"}</code> is the model of the session.</span>
         </span>
       </div>

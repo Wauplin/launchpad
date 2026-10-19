@@ -30,28 +30,19 @@ async fn status(State(s): State<Server>) -> Json<Status> {
 }
 
 fn browser_config(s: &Server) -> Config {
-    let mut config = s.app.config.get();
-    if s.auth.remote() {
-        for variant in &mut config.variants { variant.env.clear(); }
-    }
-    config
+    s.app.config.get()
 }
 async fn get_config(State(s): State<Server>) -> Json<Value> {
     Json(json!({"config": browser_config(&s), "error": s.app.config.error(), "remote": s.auth.remote()}))
 }
 
-async fn put_config(State(s): State<Server>, Json(mut config): Json<Config>) -> ApiResult<Value> {
+async fn put_config(State(s): State<Server>, Json(config): Json<Config>) -> ApiResult<Value> {
     let saved = s.app.config.get();
     if config.server != saved.server {
         return Err(crate::error::ApiError::bad_request("Edit [server] in config.toml and restart the daemon"));
     }
-    if s.auth.remote() {
-        if config.commands != saved.commands || config.variants.iter().any(|v| !v.env.is_empty()) {
-            return Err(crate::error::ApiError::bad_request("Edit [commands] and variant environments in config.toml on the host"));
-        }
-        for variant in &mut config.variants {
-            if let Some(old) = saved.variant(&variant.id) { variant.env = old.env.clone(); }
-        }
+    if s.auth.remote() && config.commands != saved.commands {
+        return Err(crate::error::ApiError::bad_request("Edit [commands] in config.toml on the host"));
     }
     config.validate().map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
     s.app.config.save(config)?;

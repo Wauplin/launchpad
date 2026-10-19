@@ -181,7 +181,7 @@ async fn front_door_protocol() {
         .await
         .unwrap();
     assert_eq!(response["remote"], true);
-    assert_eq!(response["config"]["variants"][0]["env"], json!({}));
+    assert_eq!(response["config"]["variants"][0]["env"]["EXAMPLE_KEY"], "private-value");
     let host_config = config;
     let mut config = response["config"].clone();
     config["zoom"] = json!(3);
@@ -201,6 +201,30 @@ async fn front_door_protocol() {
         host_config.get().variants[0].env["EXAMPLE_KEY"],
         "private-value"
     );
+    // Paired remote browsers can edit environments and create a complete template variant.
+    config["variants"][0]["env"]["EXAMPLE_KEY"] = json!("updated-value");
+    let template = core::harness::registration(core::model::HarnessKind::new("claude"))
+        .descriptor.variant_templates.iter().find(|t| t.name == "Hugging Face").unwrap();
+    let mut variant = config["variants"][0].clone();
+    variant["id"] = json!("hugging-face");
+    variant["name"] = json!(template.name);
+    variant["harness"] = json!("claude");
+    variant["env"] = json!(template.env.iter().copied().collect::<std::collections::BTreeMap<_, _>>());
+    variant["billing"] = json!(template.billing);
+    variant["models_url"] = json!(template.models_url);
+    variant["model"] = json!("test-model");
+    config["variants"].as_array_mut().unwrap().push(variant.clone());
+    let saved = put(&config).send().await.unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+    let saved: Value = saved.json().await.unwrap();
+    assert_eq!(saved["config"]["variants"][1], variant);
+    assert_eq!(host_config.get().variants[0].env["EXAMPLE_KEY"], "updated-value");
+    let reloaded: Value = get("/api/config").header("Cookie", cookie).send().await.unwrap().json().await.unwrap();
+    assert_eq!(reloaded["config"]["variants"], config["variants"]);
+    // The command and server configuration boundaries still apply.
+    let mut changed_server = config.clone();
+    changed_server["server"]["public_origin"] = json!("https://other.example");
+    assert_eq!(put(&changed_server).send().await.unwrap().status(), StatusCode::BAD_REQUEST);
     config["commands"]["browser"] = json!("changed-command");
     assert_eq!(
         put(&config).send().await.unwrap().status(),
