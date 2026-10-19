@@ -18,4 +18,9 @@ env: { [key in string]: string }, model: string | null, effort: string | null, b
 /**
  * Default cost limit (USD) for new sessions of this variant.
  */
-budget_usd: number | null, };
+budget_usd: number | null,
+/**
+ * OpenAI-compatible model list (`GET …/v1/models`) offered instead of the base harness models,
+ * for variants pointing the harness at another provider.
+ */
+models_url: string | null, };

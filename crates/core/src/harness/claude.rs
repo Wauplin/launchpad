@@ -738,6 +738,87 @@ pub fn defaults() -> (Option<String>, Option<String>) {
 }
 
 pub const ID: HarnessKind = HarnessKind::new("claude");
+
+const fn var(name: &'static str, group: &'static str, description: &'static str, default: Option<&'static str>, example: Option<&'static str>, secret: bool) -> super::EnvVarDoc {
+    super::EnvVarDoc { name, group, description, default, example, secret }
+}
+
+/// From https://code.claude.com/docs/en/env-vars and the model configuration page (October 2026).
+const ENV_VARS: &[super::EnvVarDoc] = &[
+    var("CLAUDE_CONFIG_DIR", "Account", "Configuration folder with its own sign-in, settings and history. Use one folder per account; sign in once with: CLAUDE_CONFIG_DIR=<folder> claude", Some("~/.claude"), None, false),
+    var("ANTHROPIC_API_KEY", "Account", "Anthropic Console API key, sent as X-Api-Key. Replaces the subscription sign-in and is billed per use.", None, Some("sk-ant-…"), true),
+    var("ANTHROPIC_AUTH_TOKEN", "Account", "Bearer token for a gateway or proxy (Authorization header). Takes precedence over ANTHROPIC_API_KEY.", None, Some("${HF_TOKEN}"), true),
+    var("CLAUDE_CODE_OAUTH_TOKEN", "Account", "Subscription token created with: claude setup-token", None, Some("sk-ant-oat01-…"), true),
+    var("ANTHROPIC_BASE_URL", "Endpoint", "API endpoint of a gateway or compatible provider. Claude Code appends /v1/messages.", Some("https://api.anthropic.com"), None, false),
+    var("ANTHROPIC_CUSTOM_HEADERS", "Endpoint", "Extra request headers, one Name: Value per line.", None, Some("X-HF-Bill-To: my-org"), false),
+    var("HTTPS_PROXY", "Endpoint", "HTTPS proxy for API requests.", None, Some("http://proxy.example.com:8080"), false),
+    var("NO_PROXY", "Endpoint", "Hosts that bypass the proxy.", None, Some("localhost,127.0.0.1"), false),
+    var("CLAUDE_CODE_USE_BEDROCK", "Cloud provider", "Use Amazon Bedrock, with the AWS credentials of the environment.", None, Some("1"), false),
+    var("AWS_REGION", "Cloud provider", "Bedrock region, when the AWS profile has none.", None, Some("us-east-1"), false),
+    var("AWS_PROFILE", "Cloud provider", "AWS profile used for Bedrock.", None, Some("default"), false),
+    var("AWS_BEARER_TOKEN_BEDROCK", "Cloud provider", "Bedrock API key.", None, None, true),
+    var("CLAUDE_CODE_USE_VERTEX", "Cloud provider", "Use Google Vertex AI, with the gcloud credentials of the environment.", None, Some("1"), false),
+    var("ANTHROPIC_VERTEX_PROJECT_ID", "Cloud provider", "Google Cloud project for Vertex AI.", None, Some("my-project"), false),
+    var("CLOUD_ML_REGION", "Cloud provider", "Vertex AI region.", None, Some("global"), false),
+    var("CLAUDE_CODE_USE_FOUNDRY", "Cloud provider", "Use Microsoft Foundry.", None, Some("1"), false),
+    var("ANTHROPIC_FOUNDRY_RESOURCE", "Cloud provider", "Foundry resource name.", None, Some("my-resource"), false),
+    var("ANTHROPIC_FOUNDRY_API_KEY", "Cloud provider", "Foundry API key.", None, None, true),
+    var("ANTHROPIC_MODEL", "Models", "Model of the session. The model chosen in Launchpad (--model) takes precedence.", None, Some("claude-sonnet-5-5"), false),
+    var("ANTHROPIC_DEFAULT_OPUS_MODEL", "Models", "Model used for the opus alias. ${LAUNCHPAD_MODEL} is the model chosen in Launchpad.", Some("latest Opus"), Some("${LAUNCHPAD_MODEL}"), false),
+    var("ANTHROPIC_DEFAULT_SONNET_MODEL", "Models", "Model used for the sonnet alias.", Some("latest Sonnet"), Some("${LAUNCHPAD_MODEL}"), false),
+    var("ANTHROPIC_DEFAULT_HAIKU_MODEL", "Models", "Model used for the haiku alias and for background tasks.", Some("latest Haiku"), Some("${LAUNCHPAD_MODEL}"), false),
+    var("ANTHROPIC_DEFAULT_FABLE_MODEL", "Models", "Model used for the fable alias.", Some("latest Fable"), Some("${LAUNCHPAD_MODEL}"), false),
+    var("CLAUDE_CODE_SUBAGENT_MODEL", "Models", "Default model of subagents.", Some("inherits the session model"), Some("${LAUNCHPAD_MODEL}"), false),
+    var("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "Models", "Context window assumed for model IDs Claude Code does not know.", Some("200000"), None, false),
+    var("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "Limits", "Maximum output tokens per response.", Some("32000 (model dependent)"), None, false),
+    var("MAX_THINKING_TOKENS", "Limits", "Fixed thinking budget; 0 disables thinking on most models.", None, Some("8000"), false),
+    var("API_TIMEOUT_MS", "Limits", "Timeout of one API request, in milliseconds.", Some("600000"), None, false),
+    var("CLAUDE_CODE_MAX_RETRIES", "Limits", "Retries of a failed API request.", Some("10"), None, false),
+    var("CLAUDE_CODE_DISABLE_THINKING", "Compatibility", "Omit the thinking parameter, for gateways that reject it.", None, Some("1"), false),
+    var("CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS", "Compatibility", "Remove beta headers and fields, for gateways that reject them.", None, Some("1"), false),
+    var("DISABLE_PROMPT_CACHING", "Compatibility", "Turn off prompt caching.", None, Some("1"), false),
+    var("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "Privacy", "Any value turns off auto-updates, telemetry, error reporting and feedback.", None, Some("1"), false),
+    var("DISABLE_TELEMETRY", "Privacy", "Any value, even 0, turns off telemetry.", None, Some("1"), false),
+    var("DISABLE_ERROR_REPORTING", "Privacy", "Any value, even 0, turns off error reporting.", None, Some("1"), false),
+];
+
+const VARIANT_TEMPLATES: &[super::VariantTemplate] = &[
+    super::VariantTemplate {
+        name: "Hugging Face",
+        description: "Open models (Kimi, GLM, Qwen, DeepSeek…) through Hugging Face Inference Providers, like the hf claude extension. Billed to your Hugging Face account.",
+        setup: Some("Launchpad reads HF_TOKEN, else the token saved by the hf CLI. Sign in once if needed:"),
+        setup_command: Some("hf auth login"),
+        env: &[
+            ("ANTHROPIC_BASE_URL", "https://router.huggingface.co"),
+            ("ANTHROPIC_AUTH_TOKEN", "${HF_TOKEN}"),
+            ("ANTHROPIC_DEFAULT_OPUS_MODEL", "${LAUNCHPAD_MODEL}"),
+            ("ANTHROPIC_DEFAULT_SONNET_MODEL", "${LAUNCHPAD_MODEL}"),
+            ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "${LAUNCHPAD_MODEL}"),
+            ("ANTHROPIC_DEFAULT_FABLE_MODEL", "${LAUNCHPAD_MODEL}"),
+            ("CLAUDE_CODE_SUBAGENT_MODEL", "${LAUNCHPAD_MODEL}"),
+        ],
+        billing: crate::config::Billing::PayAsYouGo,
+        models_url: Some("https://router.huggingface.co/v1/models"),
+    },
+    super::VariantTemplate {
+        name: "Another Claude account",
+        description: "A second subscription or organization, with its own sign-in in a separate configuration folder.",
+        setup: Some("Sign in once in a terminal, then type /login if Claude Code does not ask:"),
+        setup_command: Some("CLAUDE_CONFIG_DIR=~/.claude-work claude"),
+        env: &[("CLAUDE_CONFIG_DIR", "~/.claude-work")],
+        billing: crate::config::Billing::PayAsYouGo,
+        models_url: None,
+    },
+    super::VariantTemplate {
+        name: "Anthropic API key",
+        description: "Pay per use with a Console API key instead of the subscription.",
+        setup: Some("Create a key at https://console.anthropic.com/settings/keys and paste it below."),
+        setup_command: None,
+        env: &[("ANTHROPIC_API_KEY", "")],
+        billing: crate::config::Billing::PayAsYouGo,
+        models_url: None,
+    },
+];
 pub const REGISTRATION: super::Registration = super::Registration {
     descriptor: super::HarnessDescriptor {
         id: ID,
@@ -753,6 +834,8 @@ pub const REGISTRATION: super::Registration = super::Registration {
             quota: true,
             cost: true,
         },
+        env_vars: ENV_VARS,
+        variant_templates: VARIANT_TEMPLATES,
     },
     create: |_| Arc::new(Adapter),
     environment_marker: |key| {

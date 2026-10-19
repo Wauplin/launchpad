@@ -306,6 +306,7 @@ Owner-selected follow-up (2026-10-10): named local variants/settings and reporte
 
 - Built: Settings → Harnesses, stable variant IDs, local environment overrides, model/effort defaults and billing; composer selection, per-session USD limit editing and header progress; cost-gated input and best-effort interruption for Claude/OpenCode. Codex environments use isolated app-servers and have no USD limits. Prompt-based titles avoid auxiliary charges for PAYG and limited sessions. Pi and remote/SSH agents are excluded.
 - Checked in dev and Chrome: save/reload and stable IDs, composer limits, session progress, blocked input/answers, limit editing, config validation/permissions, restart persistence and settings layout across all five zoom positions at 1440 px and 800 px. Inspected recovered native variant smoke-check traces. Strict workspace Clippy, 16 existing Rust tests, UI typecheck/build and daemon/desktop builds pass. Acceptance and remaining daily-use limits are recorded in the scope document.
+- Variant editing aids (2026-10-19): adapter-declared variable catalogs for Claude Code and Codex (descriptions, defaults, examples, masked secrets), New variant ▾ templates (Claude Code · Hugging Face Inference Providers, another Claude/Codex account, Anthropic API key), `${NAME}`/`${LAUNCHPAD_MODEL}` references and provider model lists (`models_url`) in the composer. Checked with an isolated dev daemon and Chrome; awaiting daily use.
 
 Candidate ideas:
 

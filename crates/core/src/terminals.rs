@@ -511,7 +511,7 @@ impl Terminals {
         };
         let argv = tui_command(app, s, is_temp)?;
         // The TUI uses the same variant environment as the headless process (account, API key).
-        let mut env = crate::variants::env(app, s.harness, &s.launch_spec)?;
+        let mut env = crate::variants::env(app, s.harness, &s.launch_spec, s.model.as_deref(), crate::hosts::loc::host_of(&s.cwd))?;
         env.extend(app.harnesses.get(s.harness).terminal_env(is_temp).iter().map(|(k, v)| (k.to_string(), v.to_string())));
         let info = TerminalInfo {
             id: uuid::Uuid::new_v4().to_string(),

@@ -93,14 +93,19 @@ pub async fn check_all(app: &App) -> Vec<SignInCheck> {
     for r in REGISTRATIONS {
         checks.push(check(app, app.env.clone(), r.descriptor.id, None));
     }
+    let mut failed = vec![];
     for v in app.config.get().variants.into_iter().filter(|v| !v.env.is_empty()) {
-        let env: Vec<(String, String)> = v.env.iter().map(|(k, x)| {
-            let x = if x.starts_with("~/") { crate::paths::expand_home(x).to_string_lossy().into_owned() } else { x.clone() };
-            (k.clone(), x)
-        }).collect();
-        checks.push(check(app, app.env.with(&env), v.harness, Some((v.id.clone(), v.name.clone()))));
+        // The model only matters for model references; any value checks the sign-in.
+        match crate::variants::variant_env(app, &v, Some(v.model.as_deref().unwrap_or("default")), None) {
+            Ok(env) => checks.push(check(app, app.env.with(&env), v.harness, Some((v.id.clone(), v.name.clone())))),
+            Err(e) => failed.push(SignInCheck {
+                id: v.harness.as_str().into(), variant: Some(v.id.clone()), name: v.name.clone(), cli_found: true, signed_in: Some(false),
+                detail: Some(format!("{e:#}")), command: app.harnesses.get(v.harness).sign_in_command().into(),
+            }),
+        }
     }
     let mut out = futures_util::future::join_all(checks).await;
+    out.extend(failed);
     out.push(github(&app.env).await);
     out
 }

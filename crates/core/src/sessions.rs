@@ -562,13 +562,13 @@ impl Sessions {
         crate::attachments::validate(&spec.attachments)?;
         anyhow::ensure!(spec.attachments.iter().all(|f| !crate::attachments::is_image(&f.data_url)) || crate::harness::registration(harness).descriptor.capabilities.images, "This harness does not support images.");
         let variant = crate::variants::resolve(app, harness, &spec)?;
-        let env = crate::variants::env(app, harness, &spec)?;
         check_budget(harness, spec.budget_usd)?;
         let (model, effort) = (
             spec.model.clone().or_else(|| variant.as_ref().and_then(|v| v.model.clone())),
             spec.effort.clone().or_else(|| variant.as_ref().and_then(|v| v.effort.clone())),
         );
         let mut preview = self.resolve(app, &spec, true).await?;
+        let env = crate::variants::env(app, harness, &spec, model.as_deref(), preview.cwd.as_deref().and_then(crate::hosts::loc::host_of))?;
         if preview.prompt.trim().is_empty() {
             bail!("the prompt is empty");
         }
@@ -871,6 +871,7 @@ impl Sessions {
             bail!("the folder {} no longer exists", s.cwd);
         }
         let (host, cwd, add_dirs) = on_machine(&s.cwd, add_dirs)?;
+        let env = crate::variants::env(app, s.harness, &s.launch_spec, s.model.as_deref(), host.as_deref())?;
         let start = StartSpec {
             permission_mode: s.launch_spec.permission_mode,
             session_id: s.id.clone(),
@@ -882,7 +883,7 @@ impl Sessions {
             model: s.model.clone(),
             effort: s.effort.clone(),
             add_dirs,
-            env: crate::variants::env(app, s.harness, &s.launch_spec)?,
+            env,
         };
         let live = self.attach(app, s.harness, start, self.sink(app, id)).await?;
         Ok(live)

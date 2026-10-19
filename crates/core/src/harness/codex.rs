@@ -866,6 +866,38 @@ pub fn defaults() -> (Option<String>, Option<String>) {
 }
 
 pub const ID: HarnessKind = HarnessKind::new("codex");
+const fn var(name: &'static str, group: &'static str, description: &'static str, default: Option<&'static str>, example: Option<&'static str>, secret: bool) -> super::EnvVarDoc {
+    super::EnvVarDoc { name, group, description, default, example, secret }
+}
+
+/// From https://developers.openai.com/codex/config-reference and the Codex source (October 2026).
+/// Codex reads its provider, base URL and model from `config.toml`, not from the environment:
+/// a variant with another provider uses its own `CODEX_HOME`.
+const ENV_VARS: &[super::EnvVarDoc] = &[
+    var("CODEX_HOME", "Account", "Folder with config.toml, sign-in (auth.json), history and logs. Use one folder per account or provider; sign in once with: CODEX_HOME=<folder> codex login", Some("~/.codex"), None, false),
+    var("CODEX_SQLITE_HOME", "Account", "Folder of the SQLite state database.", Some("$CODEX_HOME"), None, false),
+    var("OPENAI_API_KEY", "Account", "Read only by providers configured with env_key = \"OPENAI_API_KEY\" in config.toml; for the built-in provider, run: codex login --with-api-key", None, Some("sk-…"), true),
+    var("OPENAI_ORGANIZATION", "Account", "OpenAI organization sent with API requests (OpenAI-Organization header).", None, Some("org-…"), false),
+    var("OPENAI_PROJECT", "Account", "OpenAI project sent with API requests (OpenAI-Project header).", None, Some("proj_…"), false),
+    var("CODEX_OSS_BASE_URL", "Endpoint", "Base URL of the local ollama or lmstudio provider, when config.toml selects one.", Some("http://localhost:11434/v1"), None, false),
+    var("CODEX_CA_CERTIFICATE", "Endpoint", "PEM file with extra CA certificates, for a corporate proxy.", Some("$SSL_CERT_FILE"), Some("/etc/ssl/certs/corp.pem"), false),
+    var("HTTPS_PROXY", "Endpoint", "HTTPS proxy for API requests.", None, Some("http://proxy.example.com:8080"), false),
+    var("NO_PROXY", "Endpoint", "Hosts that bypass the proxy.", None, Some("localhost,127.0.0.1"), false),
+    var("RUST_LOG", "Debugging", "Log filter of the Codex process, written under CODEX_HOME/log.", None, Some("codex_core=debug"), false),
+];
+
+const VARIANT_TEMPLATES: &[super::VariantTemplate] = &[
+    super::VariantTemplate {
+        name: "Another Codex account",
+        description: "A second ChatGPT account or an OpenAI API key, with its own sign-in in a separate CODEX_HOME. Put a custom model provider in its config.toml.",
+        setup: Some("Sign in once in a terminal (add --with-api-key to use an API key):"),
+        setup_command: Some("mkdir -p ~/.codex-work && CODEX_HOME=~/.codex-work codex login"),
+        env: &[("CODEX_HOME", "~/.codex-work")],
+        billing: crate::config::Billing::PayAsYouGo,
+        models_url: None,
+    },
+];
+
 pub const REGISTRATION: super::Registration = super::Registration {
     descriptor: super::HarnessDescriptor {
         id: ID,
@@ -881,6 +913,8 @@ pub const REGISTRATION: super::Registration = super::Registration {
             quota: true,
             cost: false,
         },
+        env_vars: ENV_VARS,
+        variant_templates: VARIANT_TEMPLATES,
     },
     create: |env| {
         Arc::new(Adapter {

@@ -20,6 +20,7 @@ async fn front_door_protocol() {
         effort: None,
         billing: Default::default(),
         budget_usd: None,
+        models_url: None,
     };
     variant
         .env

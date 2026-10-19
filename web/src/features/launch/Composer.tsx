@@ -27,7 +27,8 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
 import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/queries";
-import { parseUsd, usd, useVariants } from "@/lib/variants";
+import { parseUsd, usd, usesModelReference, useVariantModels, useVariants } from "@/lib/variants";
+import { ModelSearch } from "@/components/ModelSearch";
 import { useScope } from "@/lib/workspace";
 import { useZoomScale } from "@/lib/zoom";
 import { rememberProjectCompletion, rememberedRun, rememberSuccessfulSession, useComposer } from "@/stores/composer";
@@ -245,6 +246,8 @@ export function Composer() {
   const variants = useVariants();
   const variant = variants.find((v) => v.id === spec.variant) ?? null;
   const payg = variant?.billing === "pay_as_you_go";
+  // Variants pointing at another provider list that provider's models instead of the harness ones.
+  const providerModels = useVariantModels(variant?.models_url);
   const [budgetText, setBudgetText] = useState<string | null>(null);
   // Typed text is kept only while editing; reopening shows the draft's limit.
   useEffect(() => setBudgetText(null), [open]);
@@ -314,17 +317,23 @@ export function Composer() {
   // Keep every hook above this early return: hook order must not change when the draft opens or closes.
   if (!open) return null;
 
-  const refreshingModels = refreshModels.isPending;
+  const refreshingModels = refreshModels.isPending || providerModels.isFetching;
   const refreshModelList = () => {
-    if (spec.harness && !refreshingModels) refreshModels.mutate(spec.harness);
+    if (variant?.models_url) void providerModels.refetch().then((r) => (r.isError ? toastError(r.error) : toast(`${variant.name} models refreshed`)));
+    else if (spec.harness && !refreshingModels) refreshModels.mutate(spec.harness);
   };
   const set = (f: (s: LaunchSpec) => LaunchSpec) => update(f);
   const target = (spec.target.kind === "project" || spec.target.kind === "predraft") ? projects.find((p) => p.id === (spec.target as { project_id: string }).project_id) : existing ? projects.find((p) => p.id === existing.project_id) : source ? projects.find((p) => p.id === source.project_id) : null;
   const repo = target?.gh_repo ?? target?.gh_upstream ?? null;
   const inScope = (p: Project) => Number(!!scope.workspace && scope.hasProject(p.id));
   const sorted = [...projects.filter((p) => !p.is_temp)].sort((a, b) => inScope(b) - inScope(a) || Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
-  const model = defaults?.models.find((m) => m.id === (spec.model ?? variant?.model ?? defaults?.model));
-  const efforts = model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
+  const ownModels = !!variant?.models_url;
+  // The model used when none is chosen for this launch; a provider variant has only its own default.
+  const fallbackModel = variant?.model ?? (ownModels ? null : defaults?.model) ?? null;
+  const fallbackModelLabel = fallbackModel ?? (ownModels ? "none, choose one" : "harness default");
+  const model = (ownModels ? providerModels.data : defaults?.models)?.find((m) => m.id === (spec.model ?? fallbackModel));
+  const efforts = ownModels ? [] : model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
+  const modelMissing = !spec.model && !fallbackModel && !!variant && usesModelReference(Object.entries(variant.env));
   const scheduled = conditions.length > 0;
   const budgetInput = budgetText ?? (spec.budget_usd != null ? String(spec.budget_usd) : "");
   const budgetValid = parseUsd(budgetInput) !== undefined;
@@ -336,7 +345,7 @@ export function Composer() {
   const hostStatus = targetHost ? (hosts.find((h) => h.host.id === targetHost) ?? null) : null;
   const hostHarness = (id: string | null | undefined) => (id ? harnessOnHost(hostStatus, id) : null);
   const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Hosts` : hostHarness(spec.harness)?.ok === false ? hostHarness(spec.harness)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context projects must be on the same machine as the project" : null;
-  const blocker = hostBlocker ? hostBlocker : !spec.harness ? "Pick a harness in the options" : missingVariant ? "The harness variant no longer exists" : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const blocker = hostBlocker ? hostBlocker : !spec.harness ? "Pick a harness in the options" : missingVariant ? "The harness variant no longer exists" : modelMissing ? `Choose a model for ${variant!.name}` : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
@@ -430,7 +439,7 @@ export function Composer() {
   }
 
   const harnessOptions = [...harnesses.map((h) => ({ key: h.id, harness: h.id, variant: null as HarnessVariant | null, label: h.name })), ...variants.map((v) => ({ key: `variant:${v.id}`, harness: v.harness, variant: v, label: v.name }))];
-  const modelLabel = spec.model ?? variant?.model ?? defaults?.model ?? "default model";
+  const modelLabel = spec.model ?? fallbackModel ?? "default model";
   const effortLabel = spec.effort ?? variant?.effort ?? defaults?.effort ?? null;
   const worktreeMode = spec.target.kind === "project" && !!spec.worktree && gitTarget;
   const runIn = spec.target.kind === "session_folder" ? "previous agent’s folder" : spec.target.kind === "temp" ? "new folder" : spec.target.kind === "predraft" ? "pre-draft PR" : spec.target.kind === "existing_predraft" ? "existing pre-draft" : worktreeMode ? "new worktree" : spec.target.kind === "project" ? "checkout" : null;
@@ -666,7 +675,7 @@ export function Composer() {
                 <SelectButton onClick={toggle}>
                   {spec.model ?? (
                     <>
-                      Default <span className="text-ink-3">· {variant?.model ?? defaults?.model ?? "harness default"}</span>
+                      Default <span className="text-ink-3">· {fallbackModelLabel}</span>
                     </>
                   )}
                 </SelectButton>
@@ -675,11 +684,13 @@ export function Composer() {
               {(closeMenu) => (
                 <>
                   <MenuItem icon={<Icon name="refresh" size={13} className={refreshingModels ? "animate-spin" : ""} />} label={refreshingModels ? "Refreshing models…" : "Refresh models"} detail="Query the selected harness again" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} />
+                  {(!ownModels || fallbackModel) && <MenuItem label={`Default (${fallbackModelLabel})`} detail={variant?.model ? `Default of ${variant.name}` : "What the agent picks on its own"} active={!spec.model} onClick={() => (set((s) => ({ ...s, model: null })), closeMenu())} />}
+                  {ownModels ? <ModelSearch models={providerModels.data ?? []} loading={providerModels.isLoading} error={providerModels.error ? String(providerModels.error.message ?? providerModels.error) : null} active={spec.model} onPick={(id) => (set((s) => ({ ...s, model: id })), closeMenu())} /> : <>
                   {!defaults?.models.length && <div className="px-2 py-1 text-xs text-ink-3">No models loaded. Click Refresh models to retry.</div>}
-                  <MenuItem label={`Default (${variant?.model ?? defaults?.model ?? "harness default"})`} detail={variant?.model ? `Default of ${variant.name}` : "What the agent picks on its own"} active={!spec.model} onClick={() => (set((s) => ({ ...s, model: null })), closeMenu())} />
                   {(defaults?.models ?? []).map((m) => (
                     <MenuItem key={m.id} label={m.display_name || m.id} detail={`${m.id} · ${m.description}`} active={spec.model === m.id} onClick={() => (set((s) => ({ ...s, model: m.id })), closeMenu())} />
                   ))}
+                  </>}
                 </>
               )}
             </Popover>

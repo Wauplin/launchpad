@@ -8,7 +8,7 @@ The registration list in `crates/core/src/harness/mod.rs` is the only host list 
 2. Declare the module and add its `REGISTRATION` to `REGISTRATIONS` in `harness/mod.rs`.
 3. Run `cargo run -p launchpad -- gen-types` when changing shared metadata types. Registering an adapter alone does not change the shared types.
 
-A registration contains an ID (`HarnessKind::new("stable-id")`), display metadata, integration capabilities, an adapter factory and an inherited-environment-marker predicate. The ID is stored in sessions, launch specs and schedules. IDs must be unique; unknown IDs fail explicitly. Native conversation IDs remain opaque strings. Assets live beside the module, with their source/license recorded in `harness/icons/README.md`.
+A registration contains an ID (`HarnessKind::new("stable-id")`), display metadata, integration capabilities, documented environment variables (`env_vars`) and preset variants (`variant_templates`) for Settings → Harnesses, an adapter factory and an inherited-environment-marker predicate. The ID is stored in sessions, launch specs and schedules. IDs must be unique; unknown IDs fail explicitly. Native conversation IDs remain opaque strings. Assets live beside the module, with their source/license recorded in `harness/icons/README.md`.
 
 `Harness` is the adapter contract. Only startup and version discovery are required; defaults for optional hooks return empty discovery, no services/title request, or a clear unsupported error. Set capabilities only for hooks actually implemented. The factory can own a shared native process and routing state, as Codex does; it can also be stateless and create one process per session.
 

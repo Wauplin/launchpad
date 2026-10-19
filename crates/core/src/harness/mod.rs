@@ -42,6 +42,39 @@ pub struct HarnessDescriptor {
     pub color: &'static str,
     pub working_message: &'static str,
     pub capabilities: HarnessCapabilities,
+    /// Documented environment variables offered in the variant editor.
+    pub env_vars: &'static [EnvVarDoc],
+    /// Ready-made variants offered by Settings → Harnesses → New variant.
+    pub variant_templates: &'static [VariantTemplate],
+}
+
+/// One environment variable the harness CLI reads, as documented by its vendor.
+#[derive(Clone, Copy, Serialize, TS)]
+pub struct EnvVarDoc {
+    pub name: &'static str,
+    /// Heading in the variable picker, for example Account or Models.
+    pub group: &'static str,
+    pub description: &'static str,
+    /// Value the CLI uses when the variable is unset.
+    pub default: Option<&'static str>,
+    /// Example shown as a placeholder when there is no default.
+    pub example: Option<&'static str>,
+    /// Credential: hidden in the editor until shown.
+    pub secret: bool,
+}
+
+/// A preset variant. Values may use `${NAME}` references, resolved when a process starts.
+#[derive(Clone, Copy, Serialize, TS)]
+pub struct VariantTemplate {
+    pub name: &'static str,
+    pub description: &'static str,
+    /// Setup the owner does once, shown while the new variant is unsaved.
+    pub setup: Option<&'static str>,
+    /// Command for that setup, offered with a Copy button.
+    pub setup_command: Option<&'static str>,
+    pub env: &'static [(&'static str, &'static str)],
+    pub billing: crate::config::Billing,
+    pub models_url: Option<&'static str>,
 }
 
 pub fn permission_options() -> Vec<crate::model::QuestionOption> {

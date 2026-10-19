@@ -79,6 +79,10 @@ pub struct HarnessVariant {
     /// Default cost limit (USD) for new sessions of this variant.
     #[serde(default)]
     pub budget_usd: Option<f64>,
+    /// OpenAI-compatible model list (`GET …/v1/models`) offered instead of the base harness models,
+    /// for variants pointing the harness at another provider.
+    #[serde(default)]
+    pub models_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
@@ -212,6 +216,11 @@ impl Config {
                 );
                 anyhow::ensure!(!value.contains('\0'), "variant {:?}: {key} contains a null byte", v.id);
                 anyhow::ensure!(!key.starts_with("LAUNCHPAD_"), "variant {:?}: {key} is set by Launchpad", v.id);
+                crate::variants::references(value).with_context(|| format!("variant {:?}: {key}", v.id))?;
+            }
+            if let Some(url) = &v.models_url {
+                anyhow::ensure!(reqwest::Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https")),
+                    "variant {:?}: the model list must be an HTTP(S) URL", v.id);
             }
             if let Some(b) = v.budget_usd {
                 anyhow::ensure!(b.is_finite() && b > 0.0, "variant {:?}: the cost limit must be a positive amount", v.id);
