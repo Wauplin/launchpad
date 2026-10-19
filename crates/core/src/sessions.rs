@@ -69,6 +69,9 @@ impl std::error::Error for FollowUpBusy {}
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum InputMode { Manual, FollowUpManual, FollowUpAutomatic }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QuotaResume { Automatic, ResetFallback, Manual, Paid }
+
 #[derive(Clone)]
 pub struct Sessions {
     inner: Arc<Inner>,
@@ -82,7 +85,7 @@ struct Inner {
     quota_stops: Mutex<HashSet<String>>,
     title_requests: Mutex<HashSet<String>>,
     quota_interrupts: Mutex<HashMap<String, i64>>,
-    /// A manual subscription-only retry ignores the old quota snapshot until a newer reading arrives.
+    /// Subscription-only retries (manual or reset fallback) ignore the old snapshot until new evidence.
     manual_quota_retries: Mutex<HashMap<String, i64>>,
     /// Running turns interrupted at their cost limit, with the time of the last attempt.
     budget_interrupts: Mutex<HashMap<String, i64>>,
@@ -958,8 +961,12 @@ impl Sessions {
             if p.phase == QuotaPausePhase::Pausing {
                 self.update(app, &s.id, |s| { if let Some(p) = &mut s.quota_pause { p.phase = QuotaPausePhase::Paused; } }).await?;
             }
-            if !current.budget_reached() && crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()) {
-                match self.continue_quota(app, &s.id, false, false).await {
+            let reading = crate::quota::reading(app, s.harness);
+            let mode = if crate::quota::available(&reading, now_ms()) { Some(QuotaResume::Automatic) }
+                else if crate::quota::reset_fallback(&reading, &p, now_ms()) { Some(QuotaResume::ResetFallback) }
+                else { None };
+            if !current.budget_reached() && let Some(mode) = mode {
+                match self.continue_quota(app, &s.id, mode).await {
                     Ok(()) => {}
                     Err(e) => tracing::warn!("quota continuation {}: {e:#}", s.id),
                 }
@@ -970,12 +977,12 @@ impl Sessions {
 
     pub async fn resume_paid(&self, app: &App, id: &str) -> Result<()> {
         let _action = self.inner.actions.lock().await;
-        self.continue_quota(app, id, true, false).await
+        self.continue_quota(app, id, QuotaResume::Paid).await
     }
 
     pub async fn resume_subscription(&self, app: &App, id: &str) -> Result<()> {
         let _action = self.inner.actions.lock().await;
-        self.continue_quota(app, id, false, true).await
+        self.continue_quota(app, id, QuotaResume::Manual).await
     }
 
     fn quota_blockers(&self, app: &App, s: &Session) -> Vec<crate::model::QuotaBlock> {
@@ -1093,7 +1100,10 @@ impl Sessions {
         self.get(id).context("no such session")
     }
 
-    async fn continue_quota(&self, app: &App, id: &str, paid: bool, manual: bool) -> Result<()> {
+    async fn continue_quota(&self, app: &App, id: &str, mode: QuotaResume) -> Result<()> {
+        let paid = mode == QuotaResume::Paid;
+        let manual = mode == QuotaResume::Manual;
+        let fallback = mode == QuotaResume::ResetFallback;
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         let p = s.quota_pause.clone().context("The session is not quota paused")?;
@@ -1103,7 +1113,10 @@ impl Sessions {
             anyhow::ensure!(p.phase == QuotaPausePhase::Paused, "Wait for the interrupted turn to finish; a claimed continuation needs inspection before retrying.");
             anyhow::ensure!(!s.launch_spec.allow_paid_usage, "Paid usage is already allowed for this session.");
         } else if !paid {
-            anyhow::ensure!(p.phase == QuotaPausePhase::Paused && crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()), "Waiting for a fresh quota reading");
+            anyhow::ensure!(p.phase == QuotaPausePhase::Paused && {
+                let reading = crate::quota::reading(app, s.harness);
+                crate::quota::available(&reading, now_ms()) || (fallback && crate::quota::reset_fallback(&reading, &p, now_ms()))
+            }, "Waiting for a fresh quota reading");
         }
         // A published/deleted pre-draft must not be resumed by the guard.
         if let Err(e) = crate::predrafts::check_session_work(app, &s.cwd).await {
@@ -1114,7 +1127,9 @@ impl Sessions {
             if let Some(p) = &mut s.quota_pause { p.phase = QuotaPausePhase::Resuming; p.error = None; }
             if paid { s.launch_spec.allow_paid_usage = true; }
         }).await?;
-        if manual {
+        if manual || fallback {
+            // Ignore only the old snapshot until new evidence arrives. A fresh exhausted
+            // reading pauses again and cannot reuse the already passed reset fallback.
             let baseline = crate::quota::reading(app, s.harness).quota_at.unwrap_or(0);
             self.inner.manual_quota_retries.lock().unwrap().insert(id.to_string(), baseline);
         }
@@ -1126,7 +1141,7 @@ impl Sessions {
             if p.client_id.is_none() {
                 sink.emit(EventBody::UserMessage { text: p.message.clone(), client_id: client_id.clone(), queued: false, images: p.images.clone() }).await;
             }
-            sink.emit(EventBody::Notice { text: if paid { "Continuing with paid usage allowed" } else if manual { "Continuing with subscription-only protection despite an unconfirmed quota reading; paid credits may still be used if the included quota is exhausted." } else { "Quota available; continuing automatically" }.into() }).await;
+            sink.emit(EventBody::Notice { text: if paid { "Continuing with paid usage allowed" } else if fallback { "Last known 5-hour reset passed by one minute; retrying automatically with subscription-only protection while quota is unconfirmed. Paid credits may still be used if included quota is exhausted." } else if manual { "Continuing with subscription-only protection despite an unconfirmed quota reading; paid credits may still be used if the included quota is exhausted." } else { "Quota available; continuing automatically" }.into() }).await;
             sink.set_status(SessionStatus::Working).await;
             live.send(&p.message, &client_id, &p.images).await?;
             if p.client_id.is_some() { sink.emit(EventBody::MessageDelivered { client_id }).await; }
@@ -1135,7 +1150,7 @@ impl Sessions {
         match result {
             Ok(()) => {
                 let resumed = self.update(app, id, |s| s.quota_pause = None).await?;
-                if !paid && !manual && !self.is_watched(id) {
+                if !paid && !manual && !fallback && !self.is_watched(id) {
                     crate::notify::session(app, &resumed, crate::notify::SessionNotification::QuotaResumed);
                 }
                 Ok(())

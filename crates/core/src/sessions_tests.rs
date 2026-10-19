@@ -157,3 +157,66 @@ fn session_lists_strip_held_images_without_changing_the_saved_input() {
     assert!(image.data_url.is_empty());
     assert!(!session.quota_pause.unwrap().images[0].data_url.is_empty());
 }
+
+struct QuotaRetryHarness {
+    sends: std::sync::atomic::AtomicUsize,
+}
+#[async_trait::async_trait]
+impl super::LiveSession for QuotaRetryHarness {
+    async fn send(&self, text: &str, _: &str, images: &[crate::model::ImageAttachment]) -> anyhow::Result<()> {
+        assert_eq!(text, "held task");
+        assert!(images.is_empty());
+        self.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+    async fn interrupt(&self) -> anyhow::Result<()> { Ok(()) }
+    fn ready_for_turn(&self) -> bool { true }
+    fn turn_active(&self) -> bool { false }
+    async fn answer(&self, _: &str, _: Vec<String>) -> anyhow::Result<()> { Ok(()) }
+    async fn stop(&self) -> anyhow::Result<()> { Ok(()) }
+}
+
+#[tokio::test]
+async fn quota_reset_fallback_sends_once_and_restores_protection_on_new_evidence() {
+    use crate::{model::*, status::QuotaWindow};
+    let (_fixture, app) = fixture().await;
+    let reset = crate::util::now_ms() / 1000 - 61;
+    app.status.update_harness(crate::harness::codex::ID, |s| {
+        s.five_hour = Some(QuotaWindow { used_percent: 100.0, resets_at: Some(reset) });
+        s.weekly = Some(QuotaWindow { used_percent: 10.0, resets_at: None });
+        s.quota_at = Some((reset - 10) * 1000);
+        s.quota_error = Some("unknown".into());
+    });
+    app.sessions.update(&app, "test", |s| {
+        s.status = SessionStatus::QuotaPaused;
+        s.quota_pause = Some(QuotaPause {
+            phase: QuotaPausePhase::Paused,
+            blockers: crate::quota::blockers(&app, s.harness),
+            message: "held task".into(), images: vec![], client_id: Some("held".into()), error: None,
+        });
+    }).await.unwrap();
+    // The reset survives persistence/reload, even though status is only in memory.
+    app.sessions.load(&app).await.unwrap();
+    let live = std::sync::Arc::new(QuotaRetryHarness { sends: Default::default() });
+    app.sessions.inner.live.lock().unwrap().insert("test".into(), (0, live.clone()));
+    app.sessions.set_watched(1, Some((true, vec!["test".into()], None)));
+    app.sessions.update(&app, "test", |s| s.quota_pause.as_mut().unwrap().phase = QuotaPausePhase::Resuming).await.unwrap();
+    app.sessions.load(&app).await.unwrap();
+    app.sessions.check_quotas(&app).await.unwrap();
+    assert_eq!(live.sends.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(app.sessions.get("test").unwrap().quota_pause.unwrap().phase, QuotaPausePhase::NeedsAttention);
+    app.sessions.update(&app, "test", |s| s.quota_pause.as_mut().unwrap().phase = QuotaPausePhase::Paused).await.unwrap();
+    app.sessions.check_quotas(&app).await.unwrap();
+    let session = app.sessions.get("test").unwrap();
+    assert!(session.quota_pause.is_none());
+    assert!(!session.launch_spec.allow_paid_usage);
+    assert!(app.sessions.quota_blockers(&app, &session).is_empty());
+    app.sessions.check_quotas(&app).await.unwrap();
+    assert_eq!(live.sends.load(std::sync::atomic::Ordering::SeqCst), 1);
+    app.status.update_harness(crate::harness::codex::ID, |s| s.quota_at = Some(crate::util::now_ms()));
+    assert_eq!(app.sessions.quota_blockers(&app, &session).len(), 1);
+    app.sessions.check_quotas(&app).await.unwrap();
+    app.sessions.check_quotas(&app).await.unwrap();
+    assert!(app.sessions.get("test").unwrap().quota_pause.is_some());
+    assert_eq!(live.sends.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
