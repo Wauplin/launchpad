@@ -66,6 +66,7 @@ pub struct App {
     pub github: github::GitHub,
     pub inbox: inbox::Inbox,
     pub models: harness::ModelCache,
+    pub suggestion_locks: suggestions::Locks,
     pub predraft_lock: Arc<tokio::sync::Mutex<()>>,
     /// Serializes task worktree creation, merges and cleanup. Take the session action lock first.
     pub worktree_lock: Arc<tokio::sync::Mutex<()>>,
@@ -103,6 +104,7 @@ impl App {
             github,
             inbox: inbox::Inbox::new(),
             models: harness::ModelCache::default(),
+            suggestion_locks: suggestions::Locks::default(),
             predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
             worktree_lock: Arc::new(tokio::sync::Mutex::new(())),
             terminals: terminals::Terminals::default(),
@@ -116,6 +118,15 @@ impl App {
         {
             let app = app.clone();
             tokio::spawn(async move { if let Err(e) = attachments::collect_garbage(&app).await { tracing::warn!("upload cleanup: {e:#}"); } });
+        }
+        {
+            let dir = app.paths.data_dir.join("images");
+            tokio::spawn(async move {
+                loop {
+                    if let Err(e) = items::collect_images(&dir).await { tracing::warn!("image cleanup: {e:#}"); }
+                    tokio::time::sleep(std::time::Duration::from_secs(86400)).await;
+                }
+            });
         }
         crons::spawn(&app);
         status::spawn_monitors(&app);

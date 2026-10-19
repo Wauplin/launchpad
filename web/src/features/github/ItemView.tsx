@@ -5,7 +5,8 @@ import { useParams, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { toast } from "@/components/Toast";
+import { abandonOperation } from "@/lib/operations";
+import { toast, toastError } from "@/components/Toast";
 import { useInbox, useInboxAction } from "@/features/inbox/InboxView";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { replyKey, useReviewState } from "@/lib/reviewState";
@@ -542,6 +543,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   const reply = useReviewState(replyKey(repo, number), "");
   const draft = reply.value;
   const [event, setEvent] = useState("COMMENT");
+  const [failedPost, setFailedPost] = useState<{ path: string; body: unknown } | null>(null);
   const projects = useProjects().data ?? [];
   const project = projects.find(
     (p) =>
@@ -567,11 +569,13 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
     setError(null);
     try {
       await api.post(`${path}/${action}`, body);
+      setFailedPost(null);
       toast("GitHub action completed");
       void qc.invalidateQueries({ queryKey: ["repo-items", repo] });
       await refresh();
       return true;
     } catch (e) {
+      if (action === "comment" || action === "review") setFailedPost({ path: `${path}/${action}`, body });
       setError(String(e));
       return false;
     } finally {
@@ -703,6 +707,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
                 repo={repo}
                 number={number}
                 head={item.headRefOid!}
+                base={item.baseRefOid}
               />
             ) : tab === "threads" && isPr ? (
               <ReviewThreads item={item} />
@@ -714,6 +719,11 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
               ref={box}
               onFocus={() => setComposing(true)}
             >
+              {failedPost && <button className="btn btn-sm mb-2" disabled={busy} onClick={() => {
+                if (window.confirm("Check GitHub for this comment or review first. Start another attempt only if it was not posted; otherwise it could be duplicated.")) {
+                  void abandonOperation(failedPost.path, failedPost.body).then(() => { setFailedPost(null); setError(null); }).catch(toastError);
+                }
+              }}>I checked GitHub — start a new attempt</button>}
               <textarea
                 className={`field-input ${composing || draft.trim() ? "h-24 resize-y" : "h-[34px] resize-none overflow-hidden"}`}
                 rows={1}

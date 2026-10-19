@@ -33,10 +33,10 @@ export async function operationKey(path: string, body: unknown, storage: LedgerS
     // Legacy IDs have no known age. Treat them like expired entries, retaining
     // them until the owner explicitly abandons the uncertain operation.
     try { entry = JSON.parse(existing) as Entry; }
-    catch { throw new Error("This saved attempt has no retry date. Inspect Agents or the trace, then choose start a new attempt."); }
+    catch { throw new Error("This saved attempt has no retry date. Inspect the destination (GitHub for posts, Agents for launches and replies), then choose start a new attempt."); }
     if (!entry || typeof entry.id !== "string" || !Number.isFinite(entry.createdAt)
       || entry.createdAt > now || now - entry.createdAt >= OPERATION_RETRY_MS) {
-      throw new Error("This saved attempt is too old to retry automatically. Inspect Agents or the trace, then choose start a new attempt.");
+      throw new Error("This saved attempt is too old to retry automatically. Inspect the destination (GitHub for posts, Agents for launches and replies), then choose start a new attempt.");
     }
   } else {
     entry = { id: uuid(), createdAt: now };
@@ -48,7 +48,9 @@ export async function operationKey(path: string, body: unknown, storage: LedgerS
 }
 
 export function retryProtected(path: string): boolean {
-  return path === "/api/sessions" || /^\/api\/sessions\/[^/]+\/input$/.test(path);
+  return path === "/api/sessions" || /^\/api\/sessions\/[^/]+\/input$/.test(path)
+    || /^\/api\/items\/[^/]+\/[^/]+\/\d+\/(comment|review)$/.test(path)
+    || /^\/api\/inbox\/[^/]+\/reply$/.test(path);
 }
 
 /** Owner explicitly starts another attempt after inspecting an uncertain result. */

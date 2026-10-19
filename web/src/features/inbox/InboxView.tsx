@@ -15,6 +15,7 @@ import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
+import { abandonOperation } from "@/lib/operations";
 import { formatAge } from "@/lib/format";
 import { useProjects } from "@/lib/queries";
 import { isPhone, usePhone } from "@/lib/phone";
@@ -159,6 +160,11 @@ function PreviewPane({ t, projects, act, busy }: { t: Thread; projects: Project[
     </div>
     {supported && <div className="flex-none border-t border-line bg-chrome p-3">
       <textarea aria-label="Quick reply" className="field-input h-20 resize-y py-2" placeholder="Write a reply…" value={draft} disabled={reply.isPending} onChange={(e) => useView.setState((s) => ({ drafts: { ...s.drafts, [t.id]: e.target.value } }))} />
+      {reply.isError && <button className="btn btn-sm mt-2" onClick={() => {
+        if (window.confirm("Check GitHub for this reply first. Start another attempt only if it was not posted; otherwise it could be duplicated.")) {
+          void abandonOperation(`/api/inbox/${t.id}/reply`, { text: draft }).then(() => reply.reset()).catch(toastError);
+        }
+      }}>I checked GitHub — start a new attempt</button>}
       <div className="mt-2 flex items-center justify-between gap-2 text-xs text-ink-3"><span>Posts to GitHub when you click.</span><button className="btn btn-primary btn-sm" disabled={!draft.trim() || reply.isPending} onClick={() => reply.mutate()}>{reply.isPending ? "Posting…" : "Post reply"}</button></div>
     </div>}
   </section>;

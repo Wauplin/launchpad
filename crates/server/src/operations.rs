@@ -33,9 +33,15 @@ pub async fn guard(State(s): State<Operations>, req: Request, next: Next) -> Res
     }
 }
 
+fn publication_path(path: &str) -> bool {
+    let parts: Vec<_> = path.split('/').collect();
+    matches!(parts.as_slice(), ["", "api", "items", _, _, _, "comment" | "review"] | ["", "api", "inbox", _, "reply"])
+}
+
 async fn run(s: &Operations, req: Request, next: Next) -> Result<Response, ApiError> {
     let path = req.uri().path().to_owned();
-    let protected = path == "/api/sessions"
+    let publication = publication_path(&path);
+    let protected = publication || path == "/api/sessions"
         || path
             .strip_prefix("/api/sessions/")
             .is_some_and(|p| p.split('/').count() == 2 && p.ends_with("/input"));
@@ -43,6 +49,7 @@ async fn run(s: &Operations, req: Request, next: Next) -> Result<Response, ApiEr
         return Ok(next.run(req).await);
     }
     let Some(id) = req.headers().get("Idempotency-Key") else {
+        if publication { return Err(ApiError::bad_request("GitHub posts require an Idempotency-Key")); }
         return Ok(next.run(req).await);
     };
     let id = id
@@ -79,12 +86,16 @@ async fn run(s: &Operations, req: Request, next: Next) -> Result<Response, ApiEr
             "This operation id was already used for a different request.",
         )),
         Claim::Uncertain => Err(ApiError::conflict(
-            "Delivery is uncertain after an interrupted request. Inspect the session list or trace before starting another operation; this request will not be repeated.",
+            "Delivery is uncertain after an interrupted request. Inspect the destination (GitHub for posts, Agents for launches and replies) before starting another attempt; this request will not be repeated.",
         )),
         Claim::New => {
             let response = next
                 .run(Request::from_parts(parts, Body::from(bytes)))
                 .await;
+            if publication && response.headers().get("GitHub-Delivery").is_some_and(|v| v == "uncertain") {
+                // Leave the durable claim unresolved; neither this process nor a restart may repost it.
+                return Ok(response);
+            }
             let (mut parts, body) = response.into_parts();
             let bytes = to_bytes(body, LIMIT).await?;
             let text = String::from_utf8(bytes.to_vec())?;
@@ -106,6 +117,51 @@ mod tests {
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
+
+    #[tokio::test]
+    async fn manual_publications_replay_success_and_never_repeat_uncertain_posts() {
+        let path = std::env::temp_dir().join(format!("lp-posts-{}.db", uuid::Uuid::new_v4()));
+        let count = Arc::new(AtomicUsize::new(0));
+        for route in ["/api/items/o/r/1/comment", "/api/items/o/r/1/review", "/api/inbox/thread/reply"] {
+            let id = uuid::Uuid::new_v4().to_string();
+            let uncertain = uuid::Uuid::new_v4().to_string();
+            let baseline = count.load(Ordering::SeqCst);
+            for restart in [false, true] {
+                let db = launchpad_core::db::open_state(&path).unwrap();
+                let calls = count.clone();
+                let handler = move |body: String| {
+                    let calls = calls.clone();
+                    async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        if body == "uncertain" {
+                            let mut e = ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "check GitHub");
+                            e.delivery_uncertain = true;
+                            e.into_response()
+                        } else { axum::Json(serde_json::json!({"posted":true})).into_response() }
+                    }
+                };
+                let router = Router::new().route(route, post(handler))
+                    .layer(axum::middleware::from_fn_with_state(Operations::new(db), guard));
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let url = format!("http://{}{route}", listener.local_addr().unwrap());
+                let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+                let client = reqwest::Client::new();
+                assert_eq!(client.post(&url).body("ok").send().await.unwrap().status(), 400);
+                for _ in 0..2 {
+                    let response = client.post(&url).header("Idempotency-Key", &id).body("ok").send().await.unwrap();
+                    assert_eq!(response.status(), 200);
+                    assert_eq!(response.headers()["Idempotency-Status"], "completed");
+                }
+                let response = client.post(&url).header("Idempotency-Key", &uncertain).body("uncertain").send().await.unwrap();
+                assert_eq!(response.status(), if restart { 409 } else { 500 });
+                assert!(!response.headers().contains_key("Idempotency-Status"));
+                assert_eq!(client.post(&url).header("Idempotency-Key", &uncertain).body("uncertain").send().await.unwrap().status(), 409);
+                assert_eq!(count.load(Ordering::SeqCst), baseline + 2);
+                server.abort();
+            }
+        }
+        for suffix in ["", "-wal", "-shm"] { let _ = std::fs::remove_file(format!("{}{suffix}", path.display())); }
+    }
 
     #[tokio::test]
     async fn lost_replies_concurrent_retries_and_restart_do_not_repeat_work() {

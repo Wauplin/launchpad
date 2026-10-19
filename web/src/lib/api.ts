@@ -31,7 +31,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     throw new ApiError(res.status, data?.error ?? res.statusText, completed);
   }
   // Older daemons do not advertise durable acceptance; never silently disable retry protection.
-  if (operation && !completed) throw new Error("The daemon needs an update before Launch and Send can be safely retried. Inspect the session list or trace before trying again.");
+  if (operation && !completed) throw new Error("The daemon needs an update before this action can be safely retried. Inspect the destination before trying again.");
   return data as T;
 }
 

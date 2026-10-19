@@ -32,3 +32,13 @@ Commands: `cargo test --locked`, `cargo +1.93.1 clippy --workspace --all-targets
 Resume now uses the dedicated `/resume` endpoint rather than a fixed-text input, so it does not use this ledger. Its previous stale-input retry problem no longer applies.
 
 Scope excludes scheduled/cron creation, answers, Stop, WebSocket replay, terminal reconnection, general reply-draft persistence, mobile layout, authentication and Web Push. The browser retry ledger is per origin; changing origin or clearing browser storage loses pending IDs. Real phone/network and harness acceptance remain daily-use checks. The desktop daemon and notification behavior are unchanged.
+
+## GitHub publication protection (report group 10, 2026-10-19)
+
+Manual `POST /api/items/{owner}/{repo}/{number}/comment`, `/review` and `/api/inbox/{id}/reply` require a UUID `Idempotency-Key` and use the same durable claims and browser fingerprint ledger. Missing keys are rejected before publication. Completed posts replay the stored response after a lost browser reply or restart. Definite pre-send errors and 4xx rejections are recorded failures, allowing a subsequent deliberate click to retry. An ambiguous transport failure, 5xx, timeout or unreadable success body leaves the claim unresolved and the browser ID intact. Subsequent requests with that ID return 409 without contacting GitHub. API errors carry `GitHub-Delivery: uncertain` to preserve this distinction through the middleware. Authentication still runs first.
+
+The comment/review and inbox reply controls offer “I checked GitHub — start a new attempt” after a failed submission, with a confirmation explaining the duplicate risk. This removes only the browser ID; the daemon never expires unresolved claims into new posts. Changed payloads are separate operations. Protection remains per browser origin and fingerprint; clearing storage, changing origin or replacing a pending attempt after checking GitHub requires owner judgment. Agent suggestions retain their own durable posting state and per-suggestion locks.
+
+Loopback-only regression checks cover all three publication routes, missing keys, replayed successes, uncertain failures, and reopening the ledger. Browser checks cover retention of publication IDs. No real GitHub posts are made during these tests.
+
+Validation for group 10: all 82 Rust tests, all 11 browser operation tests on Node 24.14.1, UI typecheck/build, strict pinned-toolchain workspace Clippy (all targets, including desktop), and `git diff --check` passed. Live GitHub publication and device acceptance remain daily-use checks.

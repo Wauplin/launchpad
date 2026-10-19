@@ -67,6 +67,7 @@ pub struct InboxSnapshot {
 #[derive(Clone)]
 pub struct Inbox {
     lock: Arc<Mutex<()>>,
+    sync_lock: Arc<Mutex<()>>,
     status: Arc<RwLock<SyncStatus>>,
     full_at: Arc<Mutex<i64>>,
     next_poll: Arc<Mutex<i64>>,
@@ -80,6 +81,7 @@ impl Inbox {
     pub fn new() -> Self {
         Self {
             lock: Arc::new(Mutex::new(())),
+            sync_lock: Arc::new(Mutex::new(())),
             status: Arc::new(RwLock::new(SyncStatus::default())),
             full_at: Arc::new(Mutex::new(0)),
             next_poll: Arc::new(Mutex::new(0)),
@@ -173,7 +175,7 @@ impl Inbox {
             .await
     }
     pub async fn sync(&self, app: &App) -> Result<()> {
-        let _lock = self.lock.lock().await;
+        let _sync = self.sync_lock.lock().await;
         let now = now_ms();
         // Even failed polls and manual refreshes obey the minimum polling interval.
         if now < *self.next_poll.lock().await { return Ok(()); }
@@ -235,28 +237,48 @@ impl Inbox {
         let mut active = Vec::new();
         for t in incoming {
             let cached=subscriptions.get(&t.id);
-            let hidden=if cached.is_some_and(|(at,checked,_)| at==&t.updated_at && now-checked < 30*60_000) {
+            let hidden=if cached.is_some_and(|(at,_,_)| at==&t.updated_at) {
                 cached.unwrap().2
             } else {
-                let sub=app.github.subscription(&t.id).await?;
+                let sub=match app.github.subscription(&t.id).await {
+                    Ok(sub) => sub,
+                    Err(e) => {
+                        tracing::debug!("subscription unavailable for {}: {e:#}", t.id);
+                        if !cached.is_some_and(|(_, _, hidden)| *hidden) { active.push(t); }
+                        continue;
+                    }
+                };
                 let subscribed=sub.as_ref().and_then(|s|s["subscribed"].as_bool());
                 let ignored=sub.as_ref().and_then(|s|s["ignored"].as_bool());
                 let hidden=ignored==Some(true) || subscribed==Some(false);
                 let id=t.id.clone(); let at=t.updated_at.clone();
                 app.cache_db.call(move |c| {
-                    c.execute("INSERT OR REPLACE INTO inbox_subscription VALUES (?1,?2,?3,?4,?5)",rusqlite::params![id,subscribed,ignored,at,now_ms()])?;
+                    c.execute("INSERT INTO inbox_subscription VALUES (?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET subscribed=excluded.subscribed,ignored=excluded.ignored,updated_at=excluded.updated_at,checked_at=excluded.checked_at WHERE inbox_subscription.checked_at < ?6",rusqlite::params![id,subscribed,ignored,at,now_ms(),now])?;
                     Ok(())
                 }).await?;
                 hidden
             };
             if !hidden {active.push(t);}
         }
-        let incoming=active;
+        // Network inspection is outside the click lock. Recheck subscription changes
+        // made by an owner while it was in flight before applying the snapshot.
+        let _lock = self.lock.lock().await;
+        let hidden: HashMap<String, String> = app.cache_db.call(|c| {
+            let mut q = c.prepare("SELECT id,updated_at FROM inbox_subscription WHERE COALESCE(ignored,0)=1 OR COALESCE(subscribed,1)=0")?;
+            Ok(q.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_,_>>()?)
+        }).await?;
+        let incoming: Vec<_> = active.into_iter().filter(|t| hidden.get(&t.id) != Some(&t.updated_at)).collect();
         let unread_ids:Vec<_>=incoming.iter().filter(|t|t.unread).map(|t|t.id.clone()).collect();
         app.state_db.call(move |c| {let tx=c.transaction()?;for id in unread_ids {
             tx.execute("INSERT OR IGNORE INTO inbox_active VALUES (?1)",[id])?;
         }tx.commit()?;Ok(())}).await?;
-        let old = self.list(app).await?.threads;
+        // Compare against the mirror, including locally Done threads; UI overrides
+        // must not turn unchanged history into a new enrichment request each poll.
+        let old: Vec<Thread> = app.cache_db.call(|c| {
+            let mut q = c.prepare("SELECT json FROM inbox_thread")?;
+            q.query_map([], |r| r.get::<_, String>(0))?
+                .map(|r| Ok(serde_json::from_str(&r?)?)).collect()
+        }).await?;
         let old_map: HashMap<_, _> = old.iter().map(|t| (&t.id, t)).collect();
         let changed_threads: Vec<_> = incoming
             .iter()
@@ -283,6 +305,7 @@ impl Inbox {
             *self.full_at.lock().await = now;
         }
         changed(app);
+        drop(_lock);
         // Summary enrichment also fills the preview cache; prioritize likely next clicks.
         let top: Vec<_> = self
             .list(app)
@@ -292,10 +315,10 @@ impl Inbox {
             .filter(|t| t.unread)
             .take(15)
             .collect();
+        let detail_top: Vec<_> = top.iter().filter(|t| changed_threads.iter().any(|c| c.id == t.id && c.updated_at == t.updated_at)).cloned().collect();
         let mut enrich = changed_threads;
         enrich.sort_by_key(|t| (!t.unread, std::cmp::Reverse(t.updated_at.clone())));
         let mut ids: HashSet<_> = enrich.iter().map(|t| t.id.clone()).collect();
-        let detail_top = top.clone();
         for t in top {
             if self.preview(app, &t.id).await?.is_none() && ids.insert(t.id.clone()) {
                 enrich.push(t);
@@ -329,7 +352,7 @@ impl Inbox {
                 body_html: String::new(), comments: vec![], fetched_at: now_ms(),
             };
             app.cache_db.call(move |c| {
-                c.execute("UPDATE inbox_thread SET json=?2 WHERE id=?1", rusqlite::params![t.id,serde_json::to_string(&t)?])?;
+                c.execute("UPDATE inbox_thread SET json=?2 WHERE id=?1 AND updated_at=?3", rusqlite::params![t.id,serde_json::to_string(&t)?,t.updated_at])?;
                 c.execute("INSERT OR REPLACE INTO inbox_preview VALUES (?1,?2,?3)",rusqlite::params![p.id,p.fetched_at,serde_json::to_string(&p)?])?;
                 Ok(())
             }).await?;
@@ -482,6 +505,13 @@ impl Inbox {
                         false,
                     )
                     .await?;
+                let id = t.id.clone();
+                let at = t.updated_at.clone();
+                app.cache_db.call(move |c| {
+                    c.execute("INSERT OR REPLACE INTO inbox_subscription VALUES (?1,NULL,1,?2,?3)", rusqlite::params![id,at,now_ms()])?;
+                    c.execute("DELETE FROM inbox_thread WHERE id=?1", [id])?;
+                    Ok(())
+                }).await?;
             }
             if action != "unread" {
                 let method = if action == "read" {

@@ -274,15 +274,17 @@ export function FilesChanged({
   repo,
   number,
   head,
+  base,
   local,
 }: {
   repo: string;
   number: number;
   head: string;
+  base?: string;
   local?: { id: string; root: string };
 }) {
   const q = useQuery({
-    queryKey: local ? ["predrafts", local.id, "diff", head] : ["pr-diff", repo, number, head],
+    queryKey: local ? ["predrafts", local.id, "diff", head] : ["pr-diff", repo, number, base, head],
     queryFn: () => local ? api.get<Diff>(`/api/predrafts/${local.id}`) : api.post<Diff>(`${itemPath(repo, number)}/diff`),
     staleTime: Infinity,
   });
@@ -298,7 +300,7 @@ export function FilesChanged({
   // PR file lists come without patches: load the selected file's patch on demand.
   const lazy = !!listed && listed.patch === undefined && !!listed.has_patch && !local;
   const patch = useQuery({
-    queryKey: ["pr-diff-file", repo, number, head, listed?.filename],
+    queryKey: ["pr-diff-file", repo, number, q.data?.base, q.data?.head, q.data?.project_id, listed?.filename],
     queryFn: () => api.get<DiffFile>(`${itemPath(repo, number)}/diff/file?${new URLSearchParams({ base: q.data!.base, head: q.data!.head, project: q.data!.project_id ?? "api", path: listed!.filename })}`),
     enabled: lazy,
     staleTime: Infinity,

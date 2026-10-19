@@ -533,7 +533,7 @@ async fn inbox_reply(
     Path(id): Path<String>,
     Json(b): Json<Input>,
 ) -> ApiResult<Value> {
-    s.app.inbox.reply(&s.app, &id, &b.text).await.map_err(bad)?;
+    s.app.inbox.reply(&s.app, &id, &b.text).await?;
     Ok(Json(json!({"ok":true})))
 }
 

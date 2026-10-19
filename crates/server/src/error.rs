@@ -6,11 +6,12 @@ use axum::response::{IntoResponse, Response};
 pub struct ApiError {
     pub status: StatusCode,
     pub message: String,
+    pub delivery_uncertain: bool,
 }
 
 impl ApiError {
     pub fn new(status: StatusCode, message: impl Into<String>) -> ApiError {
-        ApiError { status, message: message.into() }
+        ApiError { status, message: message.into(), delivery_uncertain: false }
     }
     pub fn bad_request(message: impl Into<String>) -> ApiError {
         ApiError::new(StatusCode::BAD_REQUEST, message)
@@ -27,13 +28,19 @@ impl<E: Into<anyhow::Error>> From<E> for ApiError {
     fn from(e: E) -> ApiError {
         let e = e.into();
         tracing::warn!("api error: {e:#}");
-        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))
+        let mut error = ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
+        error.delivery_uncertain = launchpad_core::github::delivery_uncertain(&e);
+        error
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.status, axum::Json(serde_json::json!({ "error": self.message }))).into_response()
+        let mut response = (self.status, axum::Json(serde_json::json!({ "error": self.message }))).into_response();
+        if self.delivery_uncertain {
+            response.headers_mut().insert("GitHub-Delivery", axum::http::HeaderValue::from_static("uncertain"));
+        }
+        response
     }
 }
 

@@ -21,6 +21,7 @@ pub struct GitHub {
     db: crate::db::Db,
     pub limits: Arc<RwLock<std::collections::HashMap<String, RateLimit>>>,
     http: reqwest::Client,
+    api_origin: String,
     token: Arc<RwLock<Option<String>>>,
     /// Recent items per repository, for `#` suggestions: (fetched_at, items).
     recent: Arc<RwLock<RecentItems>>,
@@ -55,6 +56,24 @@ pub struct GhResponse {
     pub has_next: bool,
 }
 
+/// The request may have reached GitHub; retrying a publication could duplicate it.
+#[derive(Debug)]
+pub struct DeliveryUncertain;
+impl std::fmt::Display for DeliveryUncertain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("GitHub delivery is uncertain; inspect GitHub before starting another attempt")
+    }
+}
+impl std::error::Error for DeliveryUncertain {}
+
+pub fn delivery_uncertain(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<DeliveryUncertain>().is_some()
+}
+fn send_error(e: reqwest::Error) -> anyhow::Error {
+    if e.is_connect() || e.is_builder() { e.into() }
+    else { anyhow::Error::new(e).context(DeliveryUncertain) }
+}
+
 impl GitHub {
     pub fn new(env: UserEnv, db: crate::db::Db) -> GitHub {
         GitHub {
@@ -62,9 +81,18 @@ impl GitHub {
             db,
             limits: Arc::new(RwLock::new(Default::default())),
             http: crate::status::http_client(),
+            api_origin: "https://api.github.com".into(),
             token: Arc::new(RwLock::new(None)),
             recent: Arc::new(RwLock::new(Default::default())),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_origin(mut self, origin: String) -> Self {
+        assert!(origin.starts_with("http://127.0.0.1:"));
+        self.api_origin = origin;
+        self.token = Arc::new(RwLock::new(Some("throwaway-test-token".into())));
+        self
     }
 
     async fn token(&self, refresh: bool) -> Result<String> {
@@ -121,7 +149,7 @@ impl GitHub {
             let token = self.token(attempt > 0).await?;
             let mut req = self
                 .http
-                .request(method.clone(), format!("https://api.github.com{path}"))
+                .request(method.clone(), format!("{}{path}", self.api_origin))
                 .bearer_auth(&token)
                 .header("Accept", "application/vnd.github+json")
                 .header("User-Agent", "launchpad")
@@ -140,7 +168,7 @@ impl GitHub {
                     req = req.header("If-None-Match", e);
                 }
             }
-            let res = req.send().await?;
+            let res = req.send().await.map_err(send_error)?;
             if res.status() == reqwest::StatusCode::UNAUTHORIZED && attempt == 0 {
                 continue;
             }
@@ -183,13 +211,17 @@ impl GitHub {
             }
             if !res.status().is_success() {
                 let status = res.status();
-                return Err(res.error_for_status().unwrap_err()).with_context(|| format!("GitHub {path}: {status}"));
+                let error = anyhow::Error::new(res.error_for_status().unwrap_err())
+                    .context(format!("GitHub {path}: {status}"));
+                return Err(if status.is_server_error() || status == reqwest::StatusCode::REQUEST_TIMEOUT {
+                    error.context(DeliveryUncertain)
+                } else { error });
             }
-            let bytes = res.bytes().await?;
+            let bytes = res.bytes().await.context(DeliveryUncertain)?;
             let value = if bytes.is_empty() {
                 Value::Null
             } else {
-                serde_json::from_slice(&bytes)?
+                serde_json::from_slice(&bytes).context(DeliveryUncertain)?
             };
             if method == reqwest::Method::GET {
                 let key = path.to_string();
@@ -427,3 +459,7 @@ mod tests {
         assert!(parse_link("https://example.com/a/b/issues/1").is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "github_publication_tests.rs"]
+pub(crate) mod publication_tests;

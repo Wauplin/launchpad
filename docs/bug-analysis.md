@@ -195,6 +195,8 @@ Fixed on 2026-10-19: HTTP-compatible SHA-256/UUID fallbacks preserve retry prote
 
 ## 10. GitHub suggestions, inbox and diffs
 
+Fixed on 2026-10-19: all 12 findings addressed. Suggestions distinguish definite rejection/pre-send failures from uncertain delivery, use per-suggestion locks and normalize review heads. Manual comments/reviews and inbox replies use durable operation claims, with explicit inspection before abandoning uncertain attempts. Inbox subscription checks run outside the click lock, reuse unchanged subscription results and tolerate per-thread failures; detail prefetch runs only for changed threads. Diff parsing ignores metadata-like source lines inside hunks, local remote failures fall back to cached API patches, and browser diff keys include the base. Image links remain external; cached image bytes and MIME sidecars expire after 21 days (startup and daily cleanup). Regression checks use loopback fixtures and throwaway databases, without real GitHub mutations. See [retry contract](retry-operations.md). Findings below describe the analyzed revision.
+
 - **[Medium] Suggestions become "uncertain" after failures that sent nothing** [C] — `crates/core/src/suggestions.rs:241-262`
   - Bug: Every error from `items::mutate` becomes `uncertain`, including the local rate-limit gate, a missing `gh` token, refused connections and 4xx answers. Edit/Post disappear and only Discard is left.
   - Recommendation: Return to `draft` for errors before sending and for 4xx; keep `uncertain` only for timeouts, lost connections and 5xx.

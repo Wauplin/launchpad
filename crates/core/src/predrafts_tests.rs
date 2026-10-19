@@ -26,7 +26,7 @@ async fn fixture() -> (Fixture, App, Predraft) {
         github: crate::github::GitHub::new(env.clone(), cache_db.clone()), cache_db,
         harnesses: crate::harness::Registry::new(&env), env, status, bus, hosts,
         sessions: crate::sessions::Sessions::new(), inbox: crate::inbox::Inbox::new(),
-        models: Default::default(), predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
+        models: Default::default(), suggestion_locks: Default::default(), predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
         worktree_lock: Arc::new(tokio::sync::Mutex::new(())), terminals: Default::default(),
     };
     let p = Predraft {
@@ -123,3 +123,6 @@ fn folder_containment_respects_components_and_hosts() {
     #[cfg(windows)]
     assert!(within(r"C:\repo\worktree\sub", r"C:\repo\worktree"));
 }
+
+#[path = "group10_tests.rs"]
+mod group10;

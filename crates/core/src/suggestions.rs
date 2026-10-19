@@ -5,6 +5,21 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use ts_rs::TS;
 
+/// Only operations on the same suggestion serialize; GitHub never holds the pre-draft gate.
+type LockMap = std::collections::HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>;
+#[derive(Clone, Default)]
+pub struct Locks(std::sync::Arc<std::sync::Mutex<LockMap>>);
+impl Locks {
+    fn get(&self, id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.0.lock().unwrap();
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(id).and_then(std::sync::Weak::upgrade) { return lock; }
+        let lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+        locks.insert(id.to_string(), std::sync::Arc::downgrade(&lock));
+        lock
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SuggestionTarget {
@@ -140,7 +155,7 @@ pub async fn create(app: &App, q: Create) -> Result<Suggestion> {
         kind: q.kind,
         body: q.body,
         event: q.event,
-        head: q.head,
+        head: q.head.map(|h| h.to_ascii_lowercase()),
         author,
         session_id: q.session_id,
         created_at: crate::util::now_ms(),
@@ -151,7 +166,8 @@ pub async fn create(app: &App, q: Create) -> Result<Suggestion> {
     Ok(s)
 }
 pub async fn edit(app: &App, id: &str, q: Edit) -> Result<Suggestion> {
-    let _guard = app.predraft_lock.lock().await;
+    let lock = app.suggestion_locks.get(id);
+    let _guard = lock.lock().await;
     let mut s = get(app, id).await?;
     ensure!(s.status == "draft", "only unposted drafts can be edited");
     validate(&q.body, &q.event, &s.kind)?;
@@ -161,7 +177,8 @@ pub async fn edit(app: &App, id: &str, q: Edit) -> Result<Suggestion> {
     Ok(s)
 }
 pub async fn discard(app: &App, id: &str) -> Result<()> {
-    let _guard = app.predraft_lock.lock().await;
+    let lock = app.suggestion_locks.get(id);
+    let _guard = lock.lock().await;
     let s = get(app, id).await?;
     ensure!(s.status != "posted", "suggestion is already posted");
     let id = id.to_string();
@@ -176,7 +193,8 @@ pub async fn discard(app: &App, id: &str) -> Result<()> {
     Ok(())
 }
 pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
-    let _guard = app.predraft_lock.lock().await;
+    let lock = app.suggestion_locks.get(id);
+    let _guard = lock.lock().await;
     let mut s = get(app, id).await?;
     ensure!(
         s.status == "draft",
@@ -184,6 +202,7 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
     );
     match &s.target {
         SuggestionTarget::Predraft { id } => {
+            let _predraft = app.predraft_lock.lock().await;
             let mut p = predrafts::get(app, id).await?;
             ensure!(
                 !p.archived && p.published_url.is_none() && p.pushed_head.is_none(),
@@ -256,9 +275,14 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
             match result {
                 Ok(v) => s.url = v["html_url"].as_str().map(str::to_string),
                 Err(e) => {
-                    s.status = "uncertain".into();
+                    let uncertain = crate::github::delivery_uncertain(&e);
+                    s.status = if uncertain { "uncertain" } else { "draft" }.into();
                     save(app, &s).await?;
-                    return Err(e.context("Posting did not complete locally. Check GitHub before creating another draft; this suggestion will not be retried automatically."));
+                    return Err(e.context(if uncertain {
+                        "Posting did not complete locally. Check GitHub before creating another draft; this suggestion will not be retried automatically."
+                    } else {
+                        "GitHub did not accept the post. This suggestion remains editable and can be posted again."
+                    }));
                 }
             }
         }

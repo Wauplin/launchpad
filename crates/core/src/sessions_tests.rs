@@ -78,7 +78,7 @@ async fn fixture() -> (Fixture, crate::App) {
         github: crate::github::GitHub::new(env.clone(), cache_db.clone()), cache_db,
         harnesses: crate::harness::Registry::new(&env), env, status, bus, hosts,
         sessions: super::Sessions::new(), inbox: crate::inbox::Inbox::new(),
-        models: Default::default(), predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
+        models: Default::default(), suggestion_locks: Default::default(), predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
         worktree_lock: Arc::new(tokio::sync::Mutex::new(())), terminals: Default::default(),
     };
     app.state_db.call(|c| {

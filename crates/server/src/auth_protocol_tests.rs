@@ -45,6 +45,7 @@ async fn front_door_protocol() {
         sessions: core::sessions::Sessions::new(),
         inbox: core::inbox::Inbox::new(),
         models: Default::default(),
+        suggestion_locks: Default::default(),
         predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
         worktree_lock: Arc::new(tokio::sync::Mutex::new(())),
         terminals: Default::default(),

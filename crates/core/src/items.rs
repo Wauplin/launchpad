@@ -416,6 +416,27 @@ pub async fn image(app: &App, url: &str) -> Result<(Vec<u8>, String)> {
     tokio::fs::write(path.with_extension("mime"), &mime).await?;
     Ok((bytes, mime))
 }
+fn rewrite_image_src(html: &str, url: &str, local: &str) -> String {
+    html.replace(&format!("src=\"{}\"", url.replace('&', "&amp;")), &format!("src=\"{local}\""))
+        .replace(&format!("src=\"{url}\""), &format!("src=\"{local}\""))
+}
+
+/// Bound disk retention for public image bytes and MIME sidecars, including orphan files.
+pub async fn collect_images(dir: &std::path::Path) -> Result<()> {
+    let mut entries = match tokio::fs::read_dir(dir).await {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
+    while let Some(entry) = entries.next_entry().await? {
+        let meta = entry.metadata().await?;
+        if meta.is_file() && meta.modified()?.elapsed().unwrap_or_default().as_secs() > 21 * 86400 {
+            tokio::fs::remove_file(entry.path()).await?;
+        }
+    }
+    Ok(())
+}
+
 async fn proxy_images(app: &App, value: &mut Value) {
     // HTML attributes are replaced before browser sanitization. Failed images keep their URL.
     fn urls(v: &Value, out: &mut Vec<String>) {
@@ -471,9 +492,11 @@ async fn proxy_images(app: &App, value: &mut Value) {
                         if let Some(s) = v.as_str() {
                             let mut s = s.to_string();
                             for (url, local) in replacements {
-                                s = s
-                                    .replace(&url.replace('&', "&amp;"), local)
-                                    .replace(url, local);
+                                if k == "avatarUrl" {
+                                    if &s == url { s = local.clone(); }
+                                } else {
+                                    s = rewrite_image_src(&s, url, local);
+                                }
                             }
                             *v = json!(s);
                         }
@@ -511,16 +534,16 @@ pub async fn diff(app: &App, repo: &str, n: u64) -> Result<Value> {
     let mut local_error = None;
     if let Some(p) = registered {
         let root = std::path::Path::new(&p.path);
-        let remote = crate::git::remotes(root)
-            .await
-            .into_iter()
-            .find(|(_, url)| crate::git::github_repo(url).as_deref() == Some(repo))
-            .map(|(name, _)| name)
-            .context("missing mapped remote")?;
-        let head = format!("+refs/pull/{n}/head:refs/launchpad/pr/{n}");
-        let base = d["baseRefOid"].as_str().context("missing base")?;
-        let sha = d["headRefOid"].as_str().context("missing head")?;
         let result = async {
+            let remote = crate::git::remotes(root)
+                .await
+                .into_iter()
+                .find(|(_, url)| crate::git::github_repo(url).is_some_and(|r| r.eq_ignore_ascii_case(repo)))
+                .map(|(name, _)| name)
+                .context("missing mapped remote")?;
+            let head = format!("+refs/pull/{n}/head:refs/launchpad/pr/{n}");
+            let base = d["baseRefOid"].as_str().context("missing base")?;
+            let sha = d["headRefOid"].as_str().context("missing head")?;
             crate::procs::output(
                 &app.env,
                 "git",
@@ -592,8 +615,10 @@ pub async fn diff(app: &App, repo: &str, n: u64) -> Result<Value> {
         );
     }
     let v = json!({"files":files,"project_id":project,"head":d["headRefOid"],"base":d["baseRefOid"],"fallback":project.is_none(),"local_error":local_error});
-    if local_error.is_none() {
-        store(app, key, &v).await?;
+    store(app, key, &v).await?;
+    // File requests identify API fallback results by this project key.
+    if project.is_none() {
+        store(app, format!("diff:{repo}:{}:{}:api", d["baseRefOid"], d["headRefOid"]), &v).await?;
     }
     Ok(v)
 }
@@ -655,8 +680,10 @@ fn line_stats(patch: &str) -> (usize, usize) {
 pub(crate) fn parse_diff(patch: &str) -> Vec<Value> {
     let mut out = vec![];
     let mut file: Option<Value> = None;
+    let mut in_hunk = false;
     for line in patch.lines() {
         if line.starts_with("diff --git ") {
+            in_hunk = false;
             if let Some(f) = file.take() {
                 out.push(f);
             }
@@ -667,6 +694,14 @@ pub(crate) fn parse_diff(patch: &str) -> Vec<Value> {
                 .unwrap_or_default();
             file = Some(json!({"filename":path,"status":"modified","patch":""}));
         } else if let Some(f) = &mut file {
+            in_hunk |= line.starts_with("@@");
+            if in_hunk {
+                if let Value::String(patch) = &mut f["patch"] {
+                    patch.push_str(line);
+                    patch.push('\n');
+                }
+                continue;
+            }
             if let Some(path) = line.strip_prefix("+++ ") {
                 // Git terminates unquoted headers containing spaces with a tab separator.
                 let path = unquote(path.strip_suffix('\t').unwrap_or(path));
@@ -699,12 +734,6 @@ pub(crate) fn parse_diff(patch: &str) -> Vec<Value> {
             {
                 f["filename"] = json!(path);
             }
-            if (line.starts_with("@@") || f["patch"].as_str().is_some_and(|s| !s.is_empty()))
-                && let Value::String(patch) = &mut f["patch"]
-            {
-                patch.push_str(line);
-                patch.push('\n');
-            }
         }
     }
     if let Some(f) = file {
@@ -719,6 +748,41 @@ fn unquote(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn source_lines_cannot_spoof_diff_headers() {
+        let files = parse_diff("diff --git a/real b/real\n--- a/real\n+++ b/real\n@@ -1,2 +1,4 @@\n--- a/fake\n+++ b/fake\n+++ /dev/null\n+added\n@@ -9 +11 @@\n+++ b/another\n");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0]["filename"], "real");
+        assert_eq!(files[0]["status"], "modified");
+        assert!(files[0]["patch"].as_str().unwrap().contains("+++ /dev/null"));
+        assert_eq!(line_stats(files[0]["patch"].as_str().unwrap()), (4, 1));
+    }
+
+    #[test]
+    fn image_links_stay_external() {
+        let html = "<a href=\"https://example/image?a=1&amp;b=2\"><img src=\"https://example/image?a=1&amp;b=2\"></a>";
+        assert_eq!(rewrite_image_src(html, "https://example/image?a=1&b=2", "/img?url=test"),
+            "<a href=\"https://example/image?a=1&amp;b=2\"><img src=\"/img?url=test\"></a>");
+    }
+
+    #[tokio::test]
+    async fn image_retention_removes_old_bytes_and_sidecars_only() {
+        let dir = std::env::temp_dir().join(format!("lp-images-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["old", "old.mime", "fresh", "orphan.mime"] {
+            let file = std::fs::File::create(dir.join(name)).unwrap();
+            if name != "fresh" {
+                file.set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(22 * 86400))).unwrap();
+            }
+        }
+        collect_images(&dir).await.unwrap();
+        assert!(dir.join("fresh").exists());
+        assert!(!dir.join("old").exists());
+        assert!(!dir.join("old.mime").exists());
+        assert!(!dir.join("orphan.mime").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn diff_paths_and_empty_changes() {
         let files = parse_diff(
