@@ -6,6 +6,7 @@
 // daemon pings every 25 s; a socket silent for 60 s is replaced. Returning to the page, coming back
 // online or restoring it from the back/forward cache checks the socket at once instead of waiting.
 
+import { api } from "./api";
 import { rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Session } from "@/gen/Session";
@@ -106,6 +107,7 @@ export function connectEvents(queryClient: QueryClient) {
       return;
     }
     if (ev.type === "replayed" || ev.type === "resync") {
+      window.dispatchEvent(new Event("launchpad-reconnected"));
       if (offered) position = offered;
       offered = null;
       // Missed events were replayed in order: nothing else to reload.
@@ -188,6 +190,8 @@ export function connectEvents(queryClient: QueryClient) {
     ws.onclose = () => {
       if (socket !== ws) return;
       socket = null;
+      // Revocation closes the socket; an authenticated probe triggers storage cleanup on 401.
+      void api.get("/api/status").catch(() => {});
       setConnected(false);
       retry = Math.min(retry + 1, 10);
       timer = setTimeout(open, Math.min(250 * 2 ** retry, 5000));

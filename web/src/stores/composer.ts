@@ -3,6 +3,8 @@
 // revision they start from, the daemon rejects stale ones (409), and `drafts/changed` events reload idle
 // windows. A window that is being edited shows a conflict notice instead of losing either version.
 
+import { storageAllowed } from "../lib/clientStorage.ts";
+import { useSaveStatus } from "../lib/saveStatus.ts";
 import { create } from "zustand";
 import type { AgentTraceRef } from "@/gen/AgentTraceRef";
 import type { ContextProject } from "@/gen/ContextProject";
@@ -91,56 +93,94 @@ const EDITING_MS = 5_000;
 /** Saves run one after another, so each one starts from the revision the previous one returned. */
 let saving: Promise<unknown> = Promise.resolve();
 
-function put(workspace: string | null, body: { spec: LaunchSpec; open: boolean; minimized: boolean; conditions: LaunchDelay[] }, force = false) {
+type DraftBody = { spec: LaunchSpec; open: boolean; minimized: boolean; conditions: LaunchDelay[] };
+type Unsent = { workspace: string | null; body: DraftBody; revision: number; force: boolean; conflict?: boolean };
+const pendingKey = `launchpad-composer-pending:${sessionStorage.getItem("launchpad-composer-client") ?? clientId}`;
+sessionStorage.setItem("launchpad-composer-client", pendingKey.split(":").at(-1)!);
+const unsent = new Map<string | null, Unsent>();
+try { for (const entry of JSON.parse(localStorage.getItem(pendingKey) ?? "[]") as Unsent[]) unsent.set(entry.workspace, entry); } catch { /* Unreadable backup. */ }
+function backupDrafts() {
+  if (!storageAllowed()) return;
+  try {
+    if (unsent.size) localStorage.setItem(pendingKey, JSON.stringify([...unsent.values()].map((entry) => ({ ...entry, force: false }))));
+    else localStorage.removeItem(pendingKey);
+    useSaveStatus.getState().set("composer-storage");
+  } catch { useSaveStatus.getState().set("composer-storage", "Local draft backup unavailable. Keep this window open until saved."); }
+}
+function retryDraft(workspace: string | null) {
   const run = async () => {
-    const st = useComposer.getState();
-    const same = () => (useWorkspace.getState().current ?? null) === workspace;
-    // A conflict waits for the owner's choice. After a workspace switch (flush), the store still holds the
-    // previous workspace's revision until the next one is loaded.
-    if (!force && same() && st.conflict) return;
-    try {
-      const res = await api.put<{ revision: number }>(draftPath(workspace), { ...body, base_revision: st.revision, force, client: clientId });
-      if (same()) useComposer.setState({ revision: res.revision, conflict: false });
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 409 && same()) conflicted();
+    while (storageAllowed()) {
+      const entry = unsent.get(workspace);
+      if (!entry || entry.conflict) return;
+      const same = () => (useWorkspace.getState().current ?? null) === workspace;
+      try {
+        const res = await api.put<{ revision: number }>(draftPath(workspace), { ...entry.body, base_revision: entry.revision, force: entry.force, client: clientId });
+        if (same()) useComposer.setState({ revision: res.revision, conflict: false });
+        if (unsent.get(workspace) === entry) unsent.delete(workspace);
+        else { const next = unsent.get(workspace)!; next.revision = res.revision; next.force = false; }
+        backupDrafts();
+        useSaveStatus.getState().set(`composer:${workspace}`);
+      } catch (e) {
+        if (!storageAllowed()) return;
+        const latest = unsent.get(workspace)!;
+        // A forced save may already have succeeded. Any retry must compare revisions again.
+        latest.force = false;
+        if (e instanceof ApiError && e.status === 409) {
+          latest.conflict = true;
+          if (same()) useComposer.setState({ conflict: true });
+          useSaveStatus.getState().set(`composer:${workspace}`, "Composer draft changed elsewhere. Open its workspace to Load the newer draft or Keep mine.");
+        } else useSaveStatus.getState().set(`composer:${workspace}`, "Composer draft not saved to server. Kept on this device; retrying.");
+        backupDrafts();
+        return;
+      }
     }
   };
   saving = saving.then(run, run);
   return saving;
 }
-
-/** Shows the conflict notice, or loads the newer draft when this window has no active draft to protect. */
-function conflicted() {
-  const st = useComposer.getState();
-  if (st.open) useComposer.setState({ conflict: true });
-  else void st.loadNewer();
+function put(workspace: string | null, body: DraftBody, force = false) {
+  const previous = unsent.get(workspace);
+  unsent.set(workspace, { workspace, body, revision: previous?.revision ?? useComposer.getState().revision, force, conflict: !force && previous?.conflict });
+  backupDrafts();
+  return retryDraft(workspace);
 }
 
 function save(spec: LaunchSpec, open: boolean, conditions: LaunchDelay[]) {
   clearTimeout(saveTimer);
   lastLocalEdit = Date.now();
-  // Each workspace has its own draft; the address is taken now, before a workspace switch.
   const workspace = useWorkspace.getState().current ?? null;
-  const minimized = useComposer.getState().minimized;
-  saveTimer = setTimeout(() => { saveTimer = undefined; void put(workspace, { spec, open, minimized, conditions }); }, 400);
+  const st = useComposer.getState();
+  const previous = unsent.get(workspace);
+  unsent.set(workspace, { workspace, body: { spec, open, minimized: st.minimized, conditions }, revision: previous?.revision ?? st.revision, force: false, conflict: st.conflict });
+  backupDrafts();
+  saveTimer = setTimeout(() => { saveTimer = undefined; void retryDraft(workspace); }, 400);
 }
 
-/** A switch saves the pending draft of the previous workspace at once, then loads the next one. */
-function flush(spec: LaunchSpec, open: boolean, minimized: boolean, conditions: LaunchDelay[], workspace: string | null) {
-  const pending = saveTimer !== undefined;
+function flush(workspace: string | null) {
   clearTimeout(saveTimer);
   saveTimer = undefined;
-  // Nothing unsaved: do not write (and broadcast) the same draft again. A conflicted draft stays unsaved.
-  if (!pending || useComposer.getState().conflict) return saving;
-  return put(workspace, { spec, open, minimized, conditions });
+  return retryDraft(workspace);
 }
+const retryAll = () => { for (const workspace of unsent.keys()) void retryDraft(workspace); };
+window.addEventListener("online", retryAll);
+window.addEventListener("launchpad-reconnected", retryAll);
+window.addEventListener("pagehide", retryAll);
+setInterval(retryAll, 10_000);
 
-async function loadDraft() {
+async function loadDraft(discardLocal = false) {
   const workspace = useWorkspace.getState().current ?? null;
-  const d = await api.get<SavedDraft>(draftPath(workspace));
+  let d: SavedDraft;
+  const pending = unsent.get(workspace);
+  if (pending && !discardLocal) {
+    useComposer.setState({ ...pending.body, revision: pending.revision, conflict: !!pending.conflict });
+    void retryDraft(workspace);
+    return;
+  }
+  d = await api.get<SavedDraft>(draftPath(workspace));
   if ((useWorkspace.getState().current ?? null) !== workspace) return;
   clearTimeout(saveTimer);
   saveTimer = undefined;
+  if (discardLocal) { unsent.delete(workspace); backupDrafts(); useSaveStatus.getState().set(`composer:${workspace}`); }
   const revision = d?.revision ?? 0;
   if (d?.spec) useComposer.setState({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, minimized: !!d.open && !!d.minimized, conditions: d.conditions ?? (d.delay ? [d.delay] : []), revision, conflict: false });
   else {
@@ -266,16 +306,15 @@ export const useComposer = create<Composer>((set, get) => ({
       const [sessions, projects] = await Promise.all([api.get<Session[]>("/api/sessions"), api.get<Project[]>("/api/projects")]);
       rememberProjectDefaults(projects);
       for (const session of sessions) rememberSuccessfulSession(session);
-      await loadDraft();
-    } finally {
-      set({ loaded: true });
-    }
+    } catch { /* Defaults can refresh later; recover local drafts even while offline. */ }
+    try { await loadDraft(); }
+    finally { set({ loaded: true }); }
   },
   revision: 0,
   conflict: false,
   loadNewer: async () => {
     await saving;
-    await loadDraft().catch(() => {});
+    await loadDraft(true).catch(() => {});
   },
   keepMine: () => {
     const { spec, open, minimized, conditions } = get();
@@ -288,7 +327,7 @@ export const useComposer = create<Composer>((set, get) => ({
     if (ev.client === clientId || !get().loaded) return;
     if ((ev.workspace ?? null) !== (useWorkspace.getState().current ?? null) || ev.revision <= get().revision) return;
     // Being edited here (unsaved change, recent typing or an open conflict): ask; otherwise follow the other window.
-    const editing = saveTimer !== undefined || Date.now() - lastLocalEdit < EDITING_MS || !!get().conflict;
+    const editing = unsent.has(ev.workspace ?? null) || saveTimer !== undefined || Date.now() - lastLocalEdit < EDITING_MS || !!get().conflict;
     if (editing && get().open) set({ conflict: true });
     else void get().loadNewer();
   },
@@ -296,6 +335,6 @@ export const useComposer = create<Composer>((set, get) => ({
 
 useWorkspace.subscribe((s, prev) => {
   if (s.current === prev.current) return;
-  const { spec, open, minimized, conditions, loaded } = useComposer.getState();
-  void (loaded ? flush(spec, open, minimized, conditions, prev.current) : Promise.resolve()).then(() => useComposer.getState().restore());
+  const { loaded } = useComposer.getState();
+  void (loaded ? flush(prev.current) : Promise.resolve()).then(() => useComposer.getState().restore());
 });

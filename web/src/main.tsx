@@ -1,3 +1,4 @@
+import { SaveStatus } from "@/components/SaveStatus";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
@@ -49,7 +50,7 @@ void Promise.all([entry, cache]).then(([pages]) => {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <HarnessProvider><RouterProvider router={router} /></HarnessProvider>
+        <SaveStatus /><HarnessProvider><RouterProvider router={router} /></HarnessProvider>
       </QueryClientProvider>
     </StrictMode>,
   );

@@ -1,3 +1,4 @@
+import { signOut, storageAllowed } from "./clientStorage.ts";
 import { operationKey, retryProtected } from "./operations.ts";
 
 // Fetch wrapper for the daemon API. The session cookie is sent automatically (same origin).
@@ -13,6 +14,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  if (!storageAllowed()) throw new ApiError(401, "Signed out");
   const operation = method === "POST" && retryProtected(path) ? await operationKey(path, body) : null;
   const res = await fetch(path, {
     method,
@@ -27,7 +29,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   const completed = res.headers.get("Idempotency-Status") === "completed";
   if (completed) operation?.delivered();
   if (!res.ok) {
-    if (res.status === 401) location.replace("/auth");
+    if (res.status === 401) await signOut();
     throw new ApiError(res.status, data?.error ?? res.statusText, completed);
   }
   // Older daemons do not advertise durable acceptance; never silently disable retry protection.

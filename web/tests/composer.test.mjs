@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+globalThis.setInterval = () => 0;
 const storage = () => ({ getItem: () => null, setItem: () => {} });
 globalThis.location = { search: "" };
 globalThis.window = { addEventListener: () => {} };
@@ -8,7 +9,7 @@ globalThis.sessionStorage = storage();
 globalThis.localStorage = storage();
 const { emptySpec, rememberProjectDefaults, rememberProjectCompletion, useComposer } = await import("../src/stores/composer.ts");
 const { api } = await import("../src/lib/api.ts");
-api.put = async () => {};
+api.put = async () => ({ revision: 1 });
 const draft = () => useComposer.getState();
 const merge = () => draft().spec.worktree?.merge_when_done;
 
@@ -35,6 +36,7 @@ test("new drafts and project switches use separate defaults; context additions p
 test("restored drafts keep their choice, and newly enabled worktrees use the project default", async () => {
   const saved = { ...emptySpec(), target: { kind: "project", project_id: "merge" } };
   api.get = async (path) => path === "/api/projects" ? [{ id: "merge", merge_when_done: true }] : path === "/api/sessions" ? [] : { spec: saved, open: true };
+  await draft().loadNewer();
   await draft().restore();
   assert.equal(merge(), false);
   draft().start();

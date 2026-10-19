@@ -15,7 +15,7 @@ use crate::error::{ApiError, ApiResult};
 
 pub fn router() -> Router<Server> {
     Router::new()
-        .route("/api/review-state", get(read).put(write).delete(remove).layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024)))
+        .route("/api/review-state", get(read).put(write).layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024)))
         .route("/api/review-state/import", post(import).layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)))
 }
 
@@ -27,11 +27,7 @@ struct KeyQuery {
 #[derive(Deserialize)]
 struct Write {
     value: Value,
-    origin: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct Remove {
+    base_revision: i64,
     origin: Option<String>,
 }
 
@@ -49,14 +45,9 @@ async fn read(State(s): State<Server>, Query(q): Query<KeyQuery>) -> ApiResult<V
 }
 
 async fn write(State(s): State<Server>, Query(q): Query<KeyQuery>, Json(b): Json<Write>) -> ApiResult<Value> {
-    let updated_at = review_state::put(&s.app, &q.key, b.value, b.origin).await.map_err(bad)?;
+    let updated_at = review_state::put(&s.app, &q.key, b.value, b.origin, b.base_revision).await.map_err(bad)?
+        .ok_or_else(|| ApiError::conflict("Review draft changed elsewhere; choose which version to keep"))?;
     Ok(Json(json!({"ok": true, "updated_at": updated_at})))
-}
-
-async fn remove(State(s): State<Server>, Query(q): Query<KeyQuery>, b: Option<Json<Remove>>) -> ApiResult<Value> {
-    let origin = b.and_then(|Json(b)| b.origin);
-    review_state::put(&s.app, &q.key, Value::Null, origin).await.map_err(bad)?;
-    Ok(Json(json!({"ok": true})))
 }
 
 /// Imports values kept in a browser's local storage before review state moved to the daemon.

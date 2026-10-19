@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { externalLinkProps, isDesktopShell } from "@/lib/platform";
+import { signOut } from "@/lib/clientStorage";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { toast, toastError } from "@/components/Toast";
@@ -32,7 +33,7 @@ export function DevicesView() {
     setBusy(device.id);
     try {
       await api.delete(`/api/devices/${device.id}`);
-      if (device.current) { location.replace("/auth"); return; }
+      if (device.current) { await signOut(); return; }
       await qc.invalidateQueries({ queryKey: ["devices"] });
     } catch (error) { toastError(error); }
     finally { setBusy(null); }

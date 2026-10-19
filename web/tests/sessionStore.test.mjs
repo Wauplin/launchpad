@@ -99,7 +99,7 @@ test("delayed offline restore cannot replace fresh daemon data; restored data ca
     const restoring = restoreCache(qc);
     const request = await opened.promise;
     qc.setQueryData(["sessions"], ["fresh"]);
-    request.result = { transaction: () => ({ objectStore: () => ({ get: () => {
+    request.result = { close: () => {}, transaction: () => ({ objectStore: () => ({ get: () => {
       const read = { result: snapshot };
       queueMicrotask(() => read.onsuccess());
       return read;

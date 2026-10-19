@@ -62,6 +62,9 @@ jobs:
       - name: Composer defaults regressions
         working-directory: web
         run: pnpm test:composer
+      - name: Draft persistence regressions
+        working-directory: web
+        run: pnpm test:drafts
       - name: Agent Markdown commit regressions
         working-directory: web
         run: pnpm test:markdown

@@ -5,7 +5,9 @@
 
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { ApiError, api } from "./api";
+import { storageAllowed } from "./clientStorage";
+import { useSaveStatus } from "./saveStatus";
 import { onEvent } from "./ws";
 
 type Stored = { key: string; value: unknown; updated_at: number | null };
@@ -14,46 +16,80 @@ type Stored = { key: string; value: unknown; updated_at: number | null };
 const ORIGIN = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 const DEBOUNCE_MS = 400;
 
-/** Unsent writes per key; a newer edit replaces the older one. */
-type Pending = { timer: ReturnType<typeof setTimeout> | null; value: unknown; version: number; flush: () => void };
+type Pending = { value: unknown; base: number; conflict?: boolean };
+const backupKey = `launchpad-review-pending:${sessionStorage.getItem("launchpad-review-client") ?? ORIGIN}`;
+sessionStorage.setItem("launchpad-review-client", backupKey.split(":").at(-1)!);
 const pending = new Map<string, Pending>();
-let version = 0;
+try { for (const [key, entry] of Object.entries(JSON.parse(localStorage.getItem(backupKey) ?? "{}"))) pending.set(key, entry as Pending); } catch { /* Unreadable backup. */ }
+const running = new Set<string>();
+const timers = new Map<string, ReturnType<typeof setTimeout>>();
 let setupDone = false;
 
 const url = (key: string) => `/api/review-state?key=${encodeURIComponent(key)}`;
 const queryKey = (key: string) => ["review-state", key];
-
-function send(qc: QueryClient, key: string, value: unknown, isEmpty: boolean) {
-  const v = ++version;
-  const entry = pending.get(key);
-  if (entry?.timer) clearTimeout(entry.timer);
-  pending.set(key, { timer: null, value, version: v, flush: () => {} });
-  return api.put(url(key), { value: isEmpty ? null : value, origin: ORIGIN })
-    .then(() => qc.setQueryData<Stored>(queryKey(key), { key, value: isEmpty ? null : value, updated_at: Date.now() }))
-    .catch((e) => console.warn(`review state ${key}: ${e}`))
-    .finally(() => { if (pending.get(key)?.version === v) pending.delete(key); });
+function backup() {
+  if (!storageAllowed()) return;
+  try {
+    if (pending.size) localStorage.setItem(backupKey, JSON.stringify(Object.fromEntries(pending)));
+    else localStorage.removeItem(backupKey);
+    useSaveStatus.getState().set("review-storage");
+  } catch { useSaveStatus.getState().set("review-storage", "Local draft backup unavailable. Keep this window open until saved."); }
 }
 
-function schedule(qc: QueryClient, key: string, value: unknown, isEmpty: boolean) {
-  const entry = pending.get(key);
-  if (entry?.timer) clearTimeout(entry.timer);
-  const v = ++version;
-  const timer = setTimeout(() => { if (pending.get(key)?.version === v) void send(qc, key, value, isEmpty); }, DEBOUNCE_MS);
-  pending.set(key, { timer, value, version: v, flush: () => void send(qc, key, value, isEmpty) });
+export async function flushReviewState(qc: QueryClient, key: string) {
+  if (running.has(key) || !storageAllowed()) return;
+  clearTimeout(timers.get(key));
+  timers.delete(key);
+  running.add(key);
+  try {
+    while (pending.has(key)) {
+      const entry = pending.get(key)!;
+      if (entry.conflict) break;
+      try {
+        const res = await api.put<{ updated_at: number }>(url(key), { value: entry.value, origin: ORIGIN, base_revision: entry.base });
+        const latest = pending.get(key);
+        if (latest === entry) {
+          // Install only the newest acknowledged value, never an older in-flight edit.
+          qc.setQueryData<Stored>(queryKey(key), { key, value: entry.value, updated_at: res.updated_at });
+          pending.delete(key);
+          useSaveStatus.getState().set(key);
+        } else if (latest) latest.base = res.updated_at;
+        backup();
+      } catch (e) {
+        if (!storageAllowed()) break;
+        const latest = pending.get(key)!;
+        if (e instanceof ApiError && e.status === 409) {
+          latest.conflict = true;
+          useSaveStatus.getState().set(key, "Review draft changed elsewhere. Choose which version to keep.", [
+            { label: "Load newer", run: async () => {
+              const saved = await api.get<Stored>(url(key));
+              pending.delete(key); backup(); useSaveStatus.getState().set(key);
+              qc.setQueryData(queryKey(key), saved);
+            } },
+            { label: "Keep mine", run: async () => {
+              const saved = await api.get<Stored>(url(key));
+              const current = pending.get(key);
+              if (current) { current.base = saved.updated_at ?? 0; current.conflict = false; backup(); await flushReviewState(qc, key); }
+            } },
+          ]);
+        } else useSaveStatus.getState().set(key, "Review draft not saved to server. Kept on this device; retrying.");
+        backup();
+        break;
+      }
+    }
+  } finally { running.delete(key); }
 }
-
-function flush(key: string) {
-  const e = pending.get(key);
-  if (e?.timer) { clearTimeout(e.timer); e.timer = null; e.flush(); }
+export function scheduleReviewState(qc: QueryClient, key: string, value: unknown, isEmpty: boolean) {
+  const previous = pending.get(key);
+  pending.set(key, { value: isEmpty ? null : value, base: previous?.base ?? qc.getQueryData<Stored>(queryKey(key))?.updated_at ?? 0, conflict: previous?.conflict });
+  backup();
+  clearTimeout(timers.get(key));
+  timers.set(key, setTimeout(() => void flushReviewState(qc, key), DEBOUNCE_MS));
 }
-
-function flushAll() {
-  [...pending.keys()].forEach(flush);
-}
-
 function setup(qc: QueryClient) {
   if (setupDone) return;
   setupDone = true;
+  const flushAll = () => { for (const key of pending.keys()) void flushReviewState(qc, key); };
   onEvent((ev) => {
     if (ev.topic !== "review-state") return;
     const p = ev.payload as { key: string | null; origin: string | null };
@@ -61,6 +97,12 @@ function setup(qc: QueryClient) {
     void qc.invalidateQueries({ queryKey: p.key ? queryKey(p.key) : ["review-state"] });
   });
   window.addEventListener("pagehide", flushAll);
+  window.addEventListener("online", flushAll);
+  window.addEventListener("launchpad-reconnected", flushAll);
+  setInterval(flushAll, 10_000);
+  // Replay recovered conflicts as conditional saves so their resolution controls reappear.
+  for (const entry of pending.values()) entry.conflict = false;
+  flushAll();
   void importLegacy();
 }
 
@@ -140,19 +182,20 @@ export function useReviewState<T>(key: string, empty: T) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q.data, key]);
   // Send an unsent edit right away when the view closes.
-  useEffect(() => () => flush(key), [key]);
+  useEffect(() => () => { void flushReviewState(qc, key); }, [key]);
   const set = useCallback((next: T | ((old: T) => T)) => {
     const v = typeof next === "function" ? (next as (old: T) => T)(current.current) : next;
     if (JSON.stringify(v) === JSON.stringify(current.current)) return;
     current.current = v;
     setLocal(v);
-    schedule(qc, key, v, JSON.stringify(v) === emptyJson);
+    scheduleReviewState(qc, key, v, JSON.stringify(v) === emptyJson);
   }, [qc, key, emptyJson]);
   /** Deletes the stored value now, for example after the draft was posted. */
   const clear = useCallback(() => {
     current.current = JSON.parse(emptyJson) as T;
     setLocal(current.current);
-    return send(qc, key, null, true);
+    scheduleReviewState(qc, key, null, true);
+    return flushReviewState(qc, key);
   }, [qc, key, emptyJson]);
   return { value, set, clear, loaded: q.isSuccess || q.isError, remote };
 }

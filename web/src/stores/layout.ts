@@ -36,11 +36,11 @@ export const useLayout = create<LayoutStore>()(
   persist(
     (set, get) => ({
       ...defaults,
-      togglePin: (id) => set({ pinned: get().pinned.includes(id) ? get().pinned.filter((p) => p !== id) : [...get().pinned, id] }),
-      toggleGroup: (group) => set({ collapsedGroups: { ...get().collapsedGroups, [group]: !isCollapsed(get().collapsedGroups, group) } }),
-      show: (selectedSession) => set({ selectedSession }),
-      clearSession: (id) => { if (get().selectedSession === id) set({ selectedSession: null }); },
-      setDock: (dock) => set({ dock: { ...get().dock, ...dock } }),
+      togglePin: (id) => { refresh(); set({ pinned: get().pinned.includes(id) ? get().pinned.filter((p) => p !== id) : [...get().pinned, id] }); },
+      toggleGroup: (group) => { refresh(); set({ collapsedGroups: { ...get().collapsedGroups, [group]: !isCollapsed(get().collapsedGroups, group) } }); },
+      show: (selectedSession) => { refresh(); set({ selectedSession }); },
+      clearSession: (id) => { refresh(); if (get().selectedSession === id) set({ selectedSession: null }); },
+      setDock: (dock) => { refresh(); set({ dock: { ...get().dock, ...dock } }); },
     }),
     {
       name: storageKey(useWorkspace.getState().current),
@@ -60,3 +60,6 @@ useWorkspace.subscribe((s, prev) => {
   if (localStorage.getItem(name)) void useLayout.persist.rehydrate();
   else useLayout.setState(defaults);
 });
+
+function refresh() { void useLayout.persist.rehydrate(); }
+window.addEventListener("storage", (ev) => { if (ev.key === storageKey(useWorkspace.getState().current)) refresh(); });

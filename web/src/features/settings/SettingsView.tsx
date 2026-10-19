@@ -76,24 +76,30 @@ function Row({ title, hint, children }: { title: string; hint: string; children:
 export function SettingsView() {
   const q = useConfig();
   const qc = useQueryClient();
+  const [baseline, setBaseline] = useState<Config | null>(null);
   const [draft, setDraft] = useState<Config | null>(null);
   const { zoom, setZoom } = useZoom();
   useEffect(() => {
-    if (q.data && !draft) setDraft(q.data.config);
+    if (q.data && !draft) { setDraft(q.data.config); setBaseline(q.data.config); }
   }, [q.data, draft]);
   useEffect(() => {
     if (location.hash === "#presets") document.getElementById("presets")?.scrollIntoView();
   }, [draft]);
   if (!draft || !q.data) return <SettingsPage><div className="text-ink-3">Loading…</div></SettingsPage>;
   const saved = q.data.config;
-  // Variants are edited on their own page: always keep the saved ones.
-  const merged = { ...draft, variants: saved.variants };
-  const dirty = JSON.stringify(merged) !== JSON.stringify(saved);
+  const patch: Partial<Pick<Config, "projects_root" | "remove_published_worktree" | "presets">> = {};
+  if (baseline) {
+    if (draft.projects_root !== baseline.projects_root) patch.projects_root = draft.projects_root;
+    if (draft.remove_published_worktree !== baseline.remove_published_worktree) patch.remove_published_worktree = draft.remove_published_worktree;
+    if (JSON.stringify(draft.presets) !== JSON.stringify(baseline.presets)) patch.presets = draft.presets;
+  }
+  const dirty = Object.keys(patch).length > 0;
   const save = async () => {
     try {
-      const res = await api.put<ConfigResponse>("/api/config", merged);
+      const res = await api.patch<ConfigResponse>("/api/config", patch);
       qc.setQueryData(["config"], res);
       setDraft(res.config);
+      setBaseline(res.config);
       toast("Settings saved");
     } catch (e) {
       toastError(e);
@@ -172,7 +178,7 @@ export function SettingsView() {
         ))}
         <div className="text-[11.5px] text-ink-3">Every saved preset is available in the composer and adds its text to the prompt. The order here is the order used in prompts. Saved to config.toml, which you can also edit by hand.</div>
       </Card>
-      <SaveBar dirty={dirty} onSave={() => void save()} onRevert={() => setDraft(saved)} />
+      <SaveBar dirty={dirty} onSave={() => void save()} onRevert={() => { setDraft(saved); setBaseline(saved); }} />
     </SettingsPage>
   );
 }

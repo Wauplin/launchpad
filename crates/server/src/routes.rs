@@ -14,7 +14,7 @@ pub fn router() -> Router<Server> {
     Router::new()
         .route("/api/health", get(health))
         .route("/api/status", get(status))
-        .route("/api/config", get(get_config).put(put_config))
+        .route("/api/config", get(get_config).put(put_config).patch(patch_general_config))
         .route("/api/log", post(log))
 }
 
@@ -53,6 +53,24 @@ async fn put_config(State(s): State<Server>, Json(mut config): Json<Config>) -> 
             if let Some(old) = saved.variant(&variant.id) { variant.env = old.env.clone(); }
         }
     }
+    config.validate().map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
+    s.app.config.save(config)?;
+    Ok(Json(json!({"config": browser_config(&s), "error": null, "remote": s.auth.remote()})))
+}
+
+// General settings only send fields the owner edited; merge against the current host config.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GeneralPatch {
+    projects_root: Option<String>,
+    remove_published_worktree: Option<bool>,
+    presets: Option<Vec<launchpad_core::config::Preset>>,
+}
+async fn patch_general_config(State(s): State<Server>, Json(patch): Json<GeneralPatch>) -> ApiResult<Value> {
+    let mut config = s.app.config.get();
+    if let Some(value) = patch.projects_root { config.projects_root = value; }
+    if let Some(value) = patch.remove_published_worktree { config.remove_published_worktree = value; }
+    if let Some(value) = patch.presets { config.presets = value; }
     config.validate().map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
     s.app.config.save(config)?;
     Ok(Json(json!({"config": browser_config(&s), "error": null, "remote": s.auth.remote()})))

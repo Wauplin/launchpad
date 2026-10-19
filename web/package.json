@@ -13,7 +13,8 @@
     "test:attachments": "node --experimental-strip-types --test tests/attachments.test.mjs",
     "test:terminals": "node --experimental-strip-types --test tests/terminals.test.mjs",
     "test:code": "node --experimental-strip-types --test tests/codeSafety.test.mjs",
-    "test:markdown": "node --experimental-strip-types --test tests/commitLinks.test.mjs"
+    "test:markdown": "node --experimental-strip-types --test tests/commitLinks.test.mjs",
+    "test:drafts": "node --experimental-strip-types --test tests/draftPersistence.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.0",
@@ -41,5 +42,10 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "source-map-js": "^1.2.2"
+    }
   }
 }

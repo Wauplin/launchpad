@@ -24,8 +24,9 @@ export const useMessageDrafts = create<Drafts>()(
   persist(
     (set, get) => ({
       drafts: {},
-      set: (id, text) => set({ drafts: withText(get().drafts, id, text) }),
+      set: (id, text) => { void useMessageDrafts.persist.rehydrate(); set({ drafts: withText(get().drafts, id, text) }); },
       append: (id, text) => {
+        void useMessageDrafts.persist.rehydrate();
         const cur = get().drafts[id] ?? "";
         set({ drafts: withText(get().drafts, id, cur && !/\s$/.test(cur) ? `${cur} ${text}` : `${cur}${text}`) });
       },
@@ -33,3 +34,5 @@ export const useMessageDrafts = create<Drafts>()(
     { name: "launchpad-message-drafts", partialize: (s) => ({ drafts: s.drafts }) },
   ),
 );
+
+window.addEventListener("storage", (ev) => { if (ev.key === "launchpad-message-drafts") void useMessageDrafts.persist.rehydrate(); });
