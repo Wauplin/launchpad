@@ -423,8 +423,9 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
             let removed = st.lock().unwrap().questions.remove(request_id).is_some();
             if removed {
                 sink.emit(EventBody::AskAnswered { request_id: request_id.into(), answers: vec!["Request ended".into()] }).await;
-                let open = !st.lock().unwrap().questions.is_empty();
+                let (open, active) = { let state = st.lock().unwrap(); (!state.questions.is_empty(), state.turn_running) };
                 sink.set_open_question(open).await;
+                if !open && active { sink.set_status(SessionStatus::Working).await; }
             }
         }
         "control_request" => {

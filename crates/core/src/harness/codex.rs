@@ -30,6 +30,8 @@ pub struct CodexSession {
 #[derive(Default)]
 struct State {
     turn_id: Option<String>,
+    /// Updated after turn/completed has finished applying its status and decision events.
+    settled_turn: Option<String>,
     commands: HashSet<String>,
     /// Commands retained from ended turns cannot be stopped by interrupting the current turn.
     background_commands: HashSet<String>,
@@ -193,6 +195,13 @@ impl CodexSession {
         threads.iter().filter(|(_, (s, _))| Some(s.id.as_str()) == root).filter_map(|(id, (_, state))| state.lock().unwrap().turn_id.clone().map(|turn| (id.clone(), turn))).collect()
     }
 }
+fn steer_turn_ended(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<rpc::RpcError>().is_some_and(|e| {
+        e.0["code"].as_i64() == Some(-32600)
+            && e.0["message"].as_str().is_some_and(|m| m.to_ascii_lowercase().starts_with("no active turn"))
+    })
+}
+
 fn child_busy(state: &State) -> bool { state.running || state.turn_id.is_some() || !state.commands.is_empty() }
 async fn settle_parent(threads: &Threads, owner: &Sink) {
     let state = {
@@ -218,14 +227,33 @@ impl LiveSession for CodexSession {
         input.extend(images.iter().map(|i| json!({"type": "image", "url": i.data_url})));
         let turn = self.state.lock().unwrap().turn_id.clone();
         if let Some(turn_id) = turn {
-            // Typing while the agent works steers the running turn.
-            // A failed/expired RPC may already have delivered the message. Never retry it
-            // as a fresh turn; return the error so the owner can inspect the trace.
-            self.server.request(
+            match self.server.request(
                 "turn/steer",
                 json!({"threadId": self.thread_id, "expectedTurnId": turn_id, "input": input, "clientUserMessageId": client_id}),
-            ).await.context("Codex steering failed; delivery may be uncertain. Inspect the turn before sending again")?;
-            return Ok(());
+            ).await {
+                Ok(_) => return Ok(()),
+                // The server explicitly rejected delivery because the turn ended between
+                // reading our state and handling the request. It is safe to start a turn.
+                Err(e) if steer_turn_ended(&e) => {
+                    // Drain the old completion before turn/start writes the next turn ID.
+                    // Otherwise a delayed old completion can clear the new turn's state.
+                    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                        while self.state.lock().unwrap().settled_turn.as_deref() != Some(&turn_id) {
+                            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                        }
+                    }).await.map_err(|_| crate::sessions::InputDeliveryError::Rejected(
+                        "the Codex turn ended, but its completion has not reached the trace; wait for the trace to catch up before sending again"
+                    ))?;
+                    if !self.ready_for_turn() {
+                        return Err(crate::sessions::InputDeliveryError::Rejected(
+                            "the turn ended but background work is still running; wait for it to finish before sending again"
+                        ).into());
+                    }
+                    let root = self.threads.lock().unwrap().get(&self.thread_id).cloned();
+                    if let Some((sink, _)) = root { sink.set_status(SessionStatus::Working).await; }
+                },
+                Err(e) => return Err(crate::sessions::InputDeliveryError::Uncertain(e).into()),
+            }
         }
         let mut params = json!({"threadId": self.thread_id, "input": input, "clientUserMessageId": client_id});
         let (model, effort) = self.model.lock().unwrap().clone();
@@ -320,24 +348,27 @@ impl LiveSession for CodexSession {
     }
 
     async fn stop(&self) -> Result<()> {
-        for (thread, turn) in self.active_turns() {
-            let _ = self.server.request("turn/interrupt", json!({"threadId":thread,"turnId":turn})).await;
-        }
-        let root = self.threads.lock().unwrap().get(&self.thread_id).cloned();
-        if let Some((sink, state)) = root { cancel_requests(&sink, &state).await; }
-        let children: Vec<String> = {
+        // Keep router state and the live attachment until both turns and commands have ended.
+        // Unsubscribing alone is not evidence that Codex has stopped writing into the folder.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            for (thread, turn) in self.active_turns() {
+                self.server.request("turn/interrupt", json!({"threadId":thread,"turnId":turn})).await?;
+            }
+            let root = self.threads.lock().unwrap().get(&self.thread_id).cloned();
+            let Some((sink, state)) = root else { return Ok(()); };
+            cancel_requests(&sink, &state).await;
+            while !self.ready_for_turn() {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            let ids: Vec<String> = self.threads.lock().unwrap().iter()
+                .filter(|(_, (owner, _))| owner.id == sink.id).map(|(id, _)| id.clone()).collect();
+            for id in &ids {
+                self.server.request("thread/unsubscribe", json!({"threadId":id})).await?;
+            }
             let mut threads = self.threads.lock().unwrap();
-            let ids = threads.iter().filter(|(_, (sink, _))| sink.id == threads.get(&self.thread_id).map(|(s, _)| s.id.as_str()).unwrap_or("") && sink.agent_id.is_some()).map(|(id, _)| id.clone()).collect::<Vec<_>>();
-            for id in &ids { threads.remove(id); }
-            threads.remove(&self.thread_id);
-            ids
-        };
-        for id in children { let _ = self.server.request("thread/unsubscribe", json!({"threadId":id})).await; }
-        let _ = self
-            .server
-            .request("thread/unsubscribe", json!({"threadId": self.thread_id}))
-            .await;
-        Ok(())
+            for id in ids { threads.remove(&id); }
+            Ok::<(), anyhow::Error>(())
+        }).await.context("Codex is still stopping; its folder is kept until the turn and background commands finish. Try again after they exit")?
     }
 }
 
@@ -374,7 +405,12 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
                         .await;
                     if method == "serverRequest/resolved" {
                         let root = router_threads.lock().unwrap().values().find(|(root, _)| root.id == entry.0.id && root.agent_id.is_none()).cloned();
-                        if let Some((sink, state)) = root { resolve_request(&sink, &state, &params["requestId"]).await; }
+                        if let Some((sink, state)) = root {
+                            resolve_request(&sink, &state, &params["requestId"]).await;
+                            let open = !state.lock().unwrap().requests.is_empty();
+                            let active = router_threads.lock().unwrap().values().any(|(owner, state)| owner.id == sink.id && state.lock().unwrap().turn_id.is_some());
+                            if !open && active { sink.set_status(SessionStatus::Working).await; }
+                        }
                     }
                     discover_children(&server, &router_threads, &entry.0, &params["item"]).await;
                     notification(&entry.0, &entry.1, &method, &params, &router_threads).await;
@@ -837,6 +873,7 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             sink.set_status(if turn["status"] == "failed" { SessionStatus::Error }
                 else if sink.stop_requested() { SessionStatus::Stopped }
                 else if interrupted { SessionStatus::Interrupted } else if background { SessionStatus::Background } else { SessionStatus::Waiting }).await;
+            st.lock().unwrap().settled_turn = turn["id"].as_str().map(str::to_string);
         }
         "error" => {
             if let Some(m) = p["error"]["message"].as_str() {
@@ -1172,6 +1209,18 @@ fn project_trust_override(cwd: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_explicit_no_active_turn_rejections_allow_a_new_turn() {
+        let ended: anyhow::Error = super::rpc::RpcError(serde_json::json!({"code": -32600, "message": "no active turn to steer"})).into();
+        assert!(super::steer_turn_ended(&ended));
+        for error in [
+            anyhow::anyhow!("codex turn/steer: timeout"),
+            anyhow::anyhow!("no active turn to steer"),
+            super::rpc::RpcError(serde_json::json!({"code": -32600, "message": "expected active turn id differs"})).into(),
+            super::rpc::RpcError(serde_json::json!({"code": -32603, "message": "no active turn to steer"})).into(),
+        ] { assert!(!super::steer_turn_ended(&error)); }
+    }
+
     #[test]
     fn auto_review_keeps_a_sandbox_and_requires_a_confirmed_native_reviewer() {
         use super::*;

@@ -42,6 +42,22 @@ pub trait LiveSession: Send + Sync {
     fn set_model(&self, _model: Option<&str>, _effort: Option<&str>) -> bool { false }
 }
 
+/// Input delivery errors do not prove that the live turn itself failed.
+#[derive(Debug)]
+pub(crate) enum InputDeliveryError {
+    Uncertain(anyhow::Error),
+    Rejected(&'static str),
+}
+impl std::fmt::Display for InputDeliveryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Uncertain(error) => write!(f, "Message delivery is uncertain; inspect the trace before sending again: {error:#}"),
+            Self::Rejected(reason) => write!(f, "Message was not sent: {reason}"),
+        }
+    }
+}
+impl std::error::Error for InputDeliveryError {}
+
 /// Everything an adapter needs to start or resume a session.
 pub struct StartSpec {
     pub permission_mode: PermissionMode,
@@ -57,6 +73,18 @@ pub struct StartSpec {
     pub add_dirs: Vec<String>,
     /// Variant environment overrides; adapters add them to every native process of the session.
     pub env: Vec<(String, String)>,
+}
+
+fn unanswered_requests(events: &[EventBody]) -> Vec<String> {
+    let mut pending = std::collections::BTreeSet::new();
+    for event in events {
+        match event {
+            EventBody::AskUser { request_id, .. } => { pending.insert(request_id.clone()); }
+            EventBody::AskAnswered { request_id, .. } => { pending.remove(request_id); }
+            _ => {}
+        }
+    }
+    pending.into_iter().collect()
 }
 
 const RAW_LINES_CAP: i64 = 20_000;
@@ -232,6 +260,24 @@ impl Sessions {
         }
         for s in interrupted {
             Self::persist(&app.state_db, &s).await?;
+        }
+        // Read only decision events, not transcripts or attachment bytes, during startup.
+        let mut decisions = app.state_db.call(|c| {
+            let mut st = c.prepare("SELECT session_id, json FROM session_event WHERE kind IN ('ask_user', 'ask_answered') ORDER BY session_id, seq")?;
+            let mut by_session: HashMap<String, Vec<EventBody>> = HashMap::new();
+            for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+                let (id, json) = row?;
+                by_session.entry(id).or_default().push(serde_json::from_str(&json)?);
+            }
+            Ok(by_session)
+        }).await?;
+        for s in self.list() {
+            let pending = unanswered_requests(&decisions.remove(&s.id).unwrap_or_default());
+            let sink = self.sink(app, &s.id);
+            for request_id in pending {
+                sink.emit(EventBody::AskAnswered { request_id, answers: vec!["Request ended".into()] }).await;
+            }
+            if s.open_question { sink.set_open_question(false).await; }
         }
         self.publish_counts(app);
         Ok(())
@@ -1305,7 +1351,11 @@ impl Sessions {
             sink.set_status(SessionStatus::Working).await;
         }
         if let Err(e) = live.send(text, &client_id, &images).await {
-            sink.fail(&format!("{e:#}")).await;
+            if e.is::<InputDeliveryError>() {
+                sink.emit(EventBody::Notice { text: format!("{e:#}") }).await;
+            } else {
+                sink.fail(&format!("{e:#}")).await;
+            }
             return Err(e);
         }
         Ok(())
@@ -1370,13 +1420,21 @@ impl Sessions {
 
     pub(crate) async fn detach(&self, app: &App, id: &str) -> Result<()> {
         self.ensure_shutdown_finished(id)?;
-        let live = self.inner.live.lock().unwrap().remove(id);
-        if let Some((_, live)) = live {
+        let live = self.inner.live.lock().unwrap().get(id).cloned();
+        if let Some((instance, live)) = live {
             let (this, app, session_id) = (self.clone(), app.clone(), id.to_string());
             self.wait_for_shutdown(id, async move {
+                // A failed Codex stop must retain the attachment and its busy state even
+                // after the background shutdown marker clears. Never forget live commands.
                 live.stop().await?;
-                // Detached adapters cannot settle their record via process_exited. Settle it
-                // here as well when the caller timed out, before releasing folder ownership.
+                {
+                    let mut attached = this.inner.live.lock().unwrap();
+                    if attached.get(&session_id).is_some_and(|(current, _)| *current == instance) {
+                        attached.remove(&session_id);
+                    }
+                }
+                // Settle the record before releasing folder ownership, including when
+                // the caller timed out and this shutdown continued in the background.
                 this.update(&app, &session_id, |s| { s.live = false; s.open_question = false; }).await?;
                 if this.get(&session_id).is_some_and(|s| s.status.is_running()) {
                     this.sink(&app, &session_id).set_status(SessionStatus::Stopped).await;
@@ -1400,6 +1458,9 @@ impl Sessions {
         self.inner.manual_quota_retries.lock().unwrap().remove(id);
         self.inner.quota_stops.lock().unwrap().remove(id);
         self.update(app, id, |s| s.quota_pause = None).await?;
+        // Keep the live attachment during shutdown, but native completion of Archive is silent.
+        self.inner.budget_interrupts.lock().unwrap().remove(id);
+        self.inner.stop_requests.lock().unwrap().insert(id.to_string());
         self.detach(app, id).await?;
         let sink = self.sink(app, id);
         sink.set_status(SessionStatus::Closed).await;
@@ -1856,3 +1917,23 @@ pub fn shorten(s: &str, max: usize) -> String {
 #[cfg(test)]
 #[path = "sessions_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod recovery_tests {
+    use super::*;
+
+    #[test]
+    fn startup_retires_only_unanswered_root_decisions() {
+        let ask = |id: &str| EventBody::AskUser { request_id: id.into(), questions: vec![] };
+        let events = vec![
+            ask("answered"), ask("pending"),
+            EventBody::AskAnswered { request_id: "answered".into(), answers: vec!["Allow once".into()] },
+            EventBody::AskAnswered { request_id: "unknown".into(), answers: vec![] },
+            EventBody::SubagentEvent { agent_id: "child".into(), body: Box::new(ask("child-only")) },
+        ];
+        assert_eq!(unanswered_requests(&events), vec!["pending"]);
+        let mut recovered = events;
+        recovered.push(EventBody::AskAnswered { request_id: "pending".into(), answers: vec!["Request ended".into()] });
+        assert!(unanswered_requests(&recovered).is_empty());
+    }
+}

@@ -32,6 +32,15 @@ pub enum Incoming {
     Exited { lost: bool },
 }
 
+/// A server rejection is distinct from a transport error or timeout: only an explicit
+/// no-active-turn rejection proves that steering did not deliver input.
+#[derive(Debug)]
+pub(super) struct RpcError(pub Value);
+impl std::fmt::Display for RpcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "codex: {}", self.0) }
+}
+impl std::error::Error for RpcError {}
+
 struct Proc {
     stdin: tokio::sync::Mutex<crate::exec::Stdin>,
     pending: Mutex<HashMap<i64, oneshot::Sender<Result<Value>>>>,
@@ -146,7 +155,7 @@ impl CodexServer {
                         let waiter = reader_proc.pending.lock().unwrap().remove(&id);
                         if let Some(tx) = waiter {
                             let res = match msg.get("error") {
-                                Some(err) => Err(anyhow!("codex: {}", err)),
+                                Some(err) => Err(RpcError(err.clone()).into()),
                                 None => Ok(msg.get("result").cloned().unwrap_or(Value::Null)),
                             };
                             let _ = tx.send(res);

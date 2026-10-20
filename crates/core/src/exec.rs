@@ -303,12 +303,25 @@ impl Cmd {
         match self.host()? {
             None => {
                 let mut child = self.local().spawn()?;
+                #[cfg(target_os = "macos")]
+                let group_guard = if self.process_tree {
+                    match MacGroupGuard::start(child.id().expect("spawned process has a PID")) {
+                        Ok(guard) => Some(guard),
+                        Err(e) => {
+                            if let Some(pid) = child.id() { kill_tree(pid, true); }
+                            let _ = child.wait().await;
+                            return Err(e);
+                        }
+                    }
+                } else { None };
                 Ok(Proc {
                     stdin: child.stdin.take().map(|w| Box::new(w) as Stdin),
                     stdout: child.stdout.take().map(|r| Box::new(r) as Reader),
                     stderr: child.stderr.take().map(|r| Box::new(r) as Reader),
                     tree_pid: if self.process_tree { child.id() } else { None },
                     inner: Inner::Local(child),
+                    #[cfg(target_os = "macos")]
+                    group_guard,
                 })
             }
             Some(host) => {
@@ -333,6 +346,46 @@ pub struct Proc {
     pub stderr: Option<Reader>,
     inner: Inner,
     tree_pid: Option<u32>,
+    #[cfg(target_os = "macos")]
+    group_guard: Option<MacGroupGuard>,
+}
+
+/// macOS has no parent-death signal. A separate, small watchdog owns only this group's
+/// lifetime: EOF on its private stdin kills the group, including after daemon SIGKILL.
+/// It shares no agent pipes and runs outside launchd's daemon group so it can finish cleanup.
+#[cfg(target_os = "macos")]
+struct MacGroupGuard {
+    input: Option<tokio::process::ChildStdin>,
+    child: Option<tokio::process::Child>,
+}
+
+#[cfg(target_os = "macos")]
+impl MacGroupGuard {
+    fn start(pid: u32) -> std::io::Result<Self> {
+        let mut child = tokio::process::Command::new("/bin/sh")
+            .args(["-c", "read -r line; /bin/kill -KILL -- -\"$1\"", "launchpad-group-guard", &pid.to_string()])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .process_group(0)
+            .spawn()?;
+        Ok(Self { input: child.stdin.take(), child: Some(child) })
+    }
+
+    async fn finish(&mut self) {
+        self.input.take();
+        if let Some(mut child) = self.child.take() { let _ = child.wait().await; }
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for MacGroupGuard {
+    fn drop(&mut self) {
+        self.input.take();
+        if let Some(mut child) = self.child.take() {
+            tokio::spawn(async move { let _ = child.wait().await; });
+        }
+    }
 }
 
 /// Stops a process from another task (Stop of a harness).
@@ -392,6 +445,8 @@ impl Proc {
             stderr: stderr.then(|| Box::new(ChanReader::new(err)) as Reader),
             inner: Inner::Remote { conn, p, kill_on_drop },
             tree_pid: None,
+            #[cfg(target_os = "macos")]
+            group_guard: None,
         }
     }
 
@@ -415,6 +470,8 @@ impl Proc {
                 let status = c.wait().await?;
                 // A shell can exit while detached descendants still write into its folder.
                 if let Some(pid) = self.tree_pid.take() { kill_tree(pid, true); }
+                #[cfg(target_os = "macos")]
+                if let Some(mut guard) = self.group_guard.take() { guard.finish().await; }
                 Ok(status.into())
             },
             Inner::Remote { conn, p, .. } => conn.wait(p).await,

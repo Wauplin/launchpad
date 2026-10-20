@@ -95,7 +95,7 @@ It is a single-user tool with light and dark themes selected independently in ea
 ### 4.3 Lifecycle consequences
 
 - Closing the window does not affect running agents or sync.
-- Restarting the daemon kills agent processes (they are children in the service cgroup). Their sessions are marked `interrupted` and can be resumed in one click (`claude --resume`, Codex `thread/resume`). Only the turn in progress is lost. A later phase removes this limitation (see [9.8](#98-surviving-daemon-restarts-later)).
+- Restarting the daemon kills agent processes (they are children in the service cgroup). On macOS, cancellable processes in separate groups have a private stdin watchdog outside the daemon group: daemon exit closes the pipe and kills that process group, including setup descendants. This also covers abrupt exits without relying on startup PID records. Their sessions are marked `interrupted` and can be resumed in one click (`claude --resume`, Codex `thread/resume`). Only the turn in progress is lost. A later phase removes this limitation (see [9.8](#98-surviving-daemon-restarts-later)).
 - Dev and prod profiles: `LAUNCHPAD_PROFILE=dev` uses port 7318, `~/.local/share/launchpad-dev` and `~/.config/launchpad-dev`. Agents launched from the prod instance can work on the Launchpad codebase, run the dev instance and restart it without killing themselves.
 
 ## 5. Repository layout and testing
@@ -415,7 +415,7 @@ Session snapshots and stored events enqueue their database writes while holding 
 
 Raw harness output lines are also stored (`session_raw`, capped at 20,000 lines per session) so the normalizer can be improved and replayed on old sessions. Text deltas and live command output are streamed but not stored; the final message and the command result are.
 
-A Done session has no harness process after a daemon restart; sending it a message resumes it first. A session that was mid-turn becomes `interrupted`.
+A Done session has no harness process after a daemon restart; sending it a message resumes it first. A session that was mid-turn becomes `interrupted`. Startup retires unanswered persisted decision cards with `AskAnswered` (Request ended) and clears the open-question flag, including sessions that were Waiting for an approval. A native request cancelled during an active turn restores Working when no question remains.
 
 ### 9.1.1 Agent selection
 
@@ -481,7 +481,7 @@ trait Harness: Send + Sync {
 }
 ```
 
-`start` handles both a new conversation and native resume through `StartSpec.resume` and its opaque native ID. `LiveSession` owns send (including images and delivery ID), interrupt, structured answer, stop, and the `turn_active`/`ready_for_turn` predicates. Adapters normalize into `Sink`; the host owns persistence, launch orchestration, scheduling, quota holds and publication guards. Done requires a completed turn and outstanding tools must remain busy. Tool-call events update metadata by item ID when a protocol fills it in after the initial pending event; they do not create duplicate trace cards. Native Codex RPC state and its thread router belong to its adapter, without process-wide session maps. Claude and Codex quota parsing, polling, updates, terminal flags and auxiliary title requests also belong to their adapters.
+`start` handles both a new conversation and native resume through `StartSpec.resume` and its opaque native ID. `LiveSession` owns send (including images and delivery ID), interrupt, structured answer, stop, and the `turn_active`/`ready_for_turn` predicates. Adapters normalize into `Sink`; the host owns persistence, launch orchestration, scheduling, quota holds and publication guards. Done requires a completed turn and outstanding tools must remain busy. Tool-call events update metadata by item ID when a protocol fills it in after the initial pending event; they do not create duplicate trace cards. Native Codex RPC state and its thread router belong to its adapter, without process-wide session maps. A rejected steer starts a new turn only for an explicit no-active-turn server response, after the previous completion settles; other delivery failures produce a notice and an error without failing the live turn or retrying input. Codex detach waits up to five seconds for turns and background commands to finish before unsubscribing. A failed or timed-out detach retains its live attachment and blocks archive cleanup, folder handoff and replacement processes until a later attempt succeeds. Claude and Codex quota parsing, polling, updates, terminal flags and auxiliary title requests also belong to their adapters.
 
 To add a harness, implement one module (with private helpers/assets if needed), then add its module declaration and registration in `harness/mod.rs`. No core, server or React identity dispatch is required. An ACP harness can reuse `harness::acp::start(command, spec, sink)` and only describe its executable, discovery and capabilities. [The adapter author guide](HARNESS_ADAPTERS.md) gives the integration checklist.
 
