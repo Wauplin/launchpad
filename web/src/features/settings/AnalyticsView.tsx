@@ -6,6 +6,7 @@ import { useStatus } from "@/lib/queries";
 import { useHarnesses } from "@/components/HarnessMark";
 import { usePhone } from "@/lib/phone";
 import { useConnection } from "@/app/Connection";
+import { AgentActivity } from "./AgentActivity";
 import { Card, SettingsPage } from "./SettingsView";
 
 const dayKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
@@ -51,6 +52,7 @@ export function AnalyticsView() {
   };
 
   return <SettingsPage>
+    <AgentActivity month={month} selected={selected} onSelect={setSelected} onMove={move} onToday={() => { const today = new Date(); setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); setSelected(dayKey(today)); }} />
     <Card title="Analytics · Weekly quota resets">
       <p className="text-sm text-ink-2">Observed resets come from drops in weekly usage, including early resets. Expected dates are the providers’ latest predictions and can change.</p>
       <details className="text-xs text-ink-3"><summary className="cursor-pointer py-2">How resets are recorded · {Intl.DateTimeFormat().resolvedOptions().timeZone}</summary><p>History starts when this version runs. Calendar dates use your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). A reset is placed on the day it was detected; the details show the interval between readings. Corrections to reported usage can also appear as drops. Resets with no observed usage drop cannot be detected.</p></details>

@@ -33,6 +33,7 @@ pub mod signin;
 pub mod status;
 pub mod quota;
 pub mod quota_history;
+pub mod analytics;
 pub mod review_state;
 pub mod suggestions;
 pub mod terminals;
@@ -169,6 +170,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     config::Config::export_all(&cfg)?;
     status::Status::export_all(&cfg)?;
     quota_history::WeeklyReset::export_all(&cfg)?;
+    analytics::AgentRun::export_all(&cfg)?;
     signin::SignInCheck::export_all(&cfg)?;
     model::Session::export_all(&cfg)?;
     model::SessionEvent::export_all(&cfg)?;

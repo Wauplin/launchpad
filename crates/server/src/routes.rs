@@ -15,6 +15,7 @@ pub fn router() -> Router<Server> {
         .route("/api/health", get(health))
         .route("/api/status", get(status))
         .route("/api/quota-history", get(quota_history))
+        .route("/api/analytics/runs", get(agent_runs))
         .route("/api/config", get(get_config).put(put_config).patch(patch_general_config))
         .route("/api/log", post(log))
 }
@@ -92,4 +93,11 @@ async fn quota_history(State(s): State<Server>, axum::extract::Query(range): axu
         return Err(crate::error::ApiError::bad_request("Select a calendar month"));
     }
     Ok(Json(launchpad_core::quota_history::list(&s.app.state_db, range.from, range.until).await?))
+}
+
+async fn agent_runs(State(s): State<Server>, axum::extract::Query(range): axum::extract::Query<HistoryRange>) -> ApiResult<Vec<launchpad_core::analytics::AgentRun>> {
+    if range.from < 0 || range.until <= range.from || range.until.saturating_sub(range.from) > 32 * 86_400_000 {
+        return Err(crate::error::ApiError::bad_request("Select a calendar month"));
+    }
+    Ok(Json(launchpad_core::analytics::runs(&s.app.state_db, range.from, range.until).await?))
 }
