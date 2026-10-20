@@ -32,6 +32,7 @@ pub mod shellenv;
 pub mod signin;
 pub mod status;
 pub mod quota;
+pub mod quota_history;
 pub mod review_state;
 pub mod suggestions;
 pub mod terminals;
@@ -86,7 +87,7 @@ impl App {
         let state_db = db::open_state(&paths.state_db())?;
         let cache_db = db::open_cache(&paths.cache_db())?;
         let env = shellenv::UserEnv::resolve().await;
-        let status = status::StatusHandle::new(bus.clone());
+        let status = status::StatusHandle::with_quota_history(bus.clone(), state_db.clone());
         let harnesses = harness::Registry::new(&env);
         let github = github::GitHub::new(env.clone(), cache_db.clone());
         let web_push = push::Push::new(paths.clone());
@@ -167,6 +168,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     suggestions::Suggestion::export_all(&cfg)?;
     config::Config::export_all(&cfg)?;
     status::Status::export_all(&cfg)?;
+    quota_history::WeeklyReset::export_all(&cfg)?;
     signin::SignInCheck::export_all(&cfg)?;
     model::Session::export_all(&cfg)?;
     model::SessionEvent::export_all(&cfg)?;

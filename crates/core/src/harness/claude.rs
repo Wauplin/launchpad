@@ -969,9 +969,7 @@ pub fn rate_limit_event(status: &crate::status::StatusHandle, info: &Value) {
     if five.is_none() && week.is_none() {
         return;
     }
-    status.update_harness(ID, |s| {
-        crate::quota::update_reading(s, five, week);
-    });
+    status.update_quota(ID, five, week);
 }
 
 fn spawn_quota(app: &App) {
@@ -991,9 +989,7 @@ fn spawn_quota(app: &App) {
             match result {
                 Ok((five, week)) => {
                     rate_limit_delay = 0;
-                    a.status.update_harness(ID, |s| {
-                        crate::quota::update_reading(s, five, week);
-                    });
+                    a.status.update_quota(ID, five, week);
                 }
                 Err(e) => {
                     tracing::info!("claude usage: {e:#}");

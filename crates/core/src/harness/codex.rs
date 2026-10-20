@@ -1086,9 +1086,7 @@ fn rate_limits(status: &crate::status::StatusHandle, rl: &Value) {
             _ => week = Some(q),
         }
     }
-    status.update_harness(ID, |s| {
-        crate::quota::update_reading(s, five, week);
-    });
+    status.update_quota(ID, five, week);
 }
 fn spawn_quota(app: &App, server: &CodexServer) {
     let a = app.clone();

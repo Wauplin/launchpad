@@ -137,6 +137,18 @@ const STATE_MIGRATIONS: &[&str] = &[
         id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
         created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL
     );",
+    // 6: weekly quota baselines and observed usage drops, independent of reset predictions.
+    "CREATE TABLE quota_weekly_reading (
+        harness TEXT PRIMARY KEY, observed_at INTEGER NOT NULL,
+        used_percent REAL NOT NULL, resets_at INTEGER
+    );
+    CREATE TABLE quota_weekly_reset (
+        harness TEXT NOT NULL, observed_at INTEGER NOT NULL, previous_at INTEGER NOT NULL,
+        previous_percent REAL NOT NULL, used_percent REAL NOT NULL,
+        PRIMARY KEY (harness, observed_at)
+    );
+    CREATE INDEX quota_weekly_reset_time ON quota_weekly_reset (observed_at);",
+
 ];
 
 pub fn open_state(path: &Path) -> Result<Db> {

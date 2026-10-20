@@ -14,6 +14,7 @@ pub fn router() -> Router<Server> {
     Router::new()
         .route("/api/health", get(health))
         .route("/api/status", get(status))
+        .route("/api/quota-history", get(quota_history))
         .route("/api/config", get(get_config).put(put_config).patch(patch_general_config))
         .route("/api/log", post(log))
 }
@@ -81,4 +82,14 @@ async fn log(Json(line): Json<LogLine>) -> Json<Value> {
         _ => tracing::info!(target: "ui", "{}", line.message),
     }
     Json(json!({"ok": true}))
+}
+
+#[derive(Deserialize)]
+struct HistoryRange { from: i64, until: i64 }
+
+async fn quota_history(State(s): State<Server>, axum::extract::Query(range): axum::extract::Query<HistoryRange>) -> ApiResult<Vec<launchpad_core::quota_history::WeeklyReset>> {
+    if range.from < 0 || range.until <= range.from || range.until.saturating_sub(range.from) > 32 * 86_400_000 {
+        return Err(crate::error::ApiError::bad_request("Select a calendar month"));
+    }
+    Ok(Json(launchpad_core::quota_history::list(&s.app.state_db, range.from, range.until).await?))
 }

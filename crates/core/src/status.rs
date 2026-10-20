@@ -62,11 +62,39 @@ pub struct SessionCounts {
 pub struct StatusHandle {
     inner: Arc<RwLock<Status>>,
     bus: Bus,
+    quota_db: Option<crate::db::Db>,
 }
 
 impl StatusHandle {
     pub fn new(bus: Bus) -> StatusHandle {
-        StatusHandle { inner: Arc::new(RwLock::new(Status::default())), bus }
+        StatusHandle { inner: Arc::new(RwLock::new(Status::default())), bus, quota_db: None }
+    }
+
+    pub fn with_quota_history(bus: Bus, db: crate::db::Db) -> Self {
+        Self { quota_db: Some(db), ..Self::new(bus) }
+    }
+
+    /// Serialize accepted readings into the DB queue while holding the status lock, so native
+    /// notifications and polling cannot persist snapshots out of order.
+    pub fn update_quota(&self, id: crate::model::HarnessKind, five: Option<QuotaWindow>, week: Option<QuotaWindow>) {
+        let mut pending = None;
+        self.update(|status| {
+            let s = status.harnesses.entry(id.as_str().into()).or_default();
+            crate::quota::update_reading(s, five, week);
+            if s.quota_error.is_none()
+                && let (Some(db), Some(week), Some(at)) = (&self.quota_db, &s.weekly, s.quota_at)
+            {
+                let week = week.clone();
+                pending = Some(db.enqueue(move |conn| crate::quota_history::record(conn, id.as_str(), at, &week)));
+            }
+        });
+        if let Some(pending) = pending {
+            tokio::spawn(async move {
+                if let Err(error) = pending.await {
+                    tracing::warn!(%error, "persist weekly quota reading");
+                }
+            });
+        }
     }
 
     pub fn get(&self) -> Status {

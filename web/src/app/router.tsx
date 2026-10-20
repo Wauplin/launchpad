@@ -42,6 +42,7 @@ const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/settings", component: lazyRouteComponent(() => import("@/features/settings/SettingsView"), "SettingsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/workspaces", component: lazyRouteComponent(() => import("@/features/workspaces/Workspaces"), "WorkspacesView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/harnesses", component: lazyRouteComponent(() => import("@/features/settings/HarnessesView"), "HarnessesView") }),
+  createRoute({ getParentRoute: () => root, path: "/settings/analytics", component: lazyRouteComponent(() => import("@/features/settings/AnalyticsView"), "AnalyticsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/worktrees", component: lazyRouteComponent(() => import("@/features/settings/WorktreesView"), "WorktreesView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/hosts", component: lazyRouteComponent(() => import("@/features/settings/HostsView"), "HostsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/devices", component: lazyRouteComponent(() => import("@/features/settings/DevicesView"), "DevicesView") }),
