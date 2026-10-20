@@ -66,8 +66,11 @@ async fn fixture() -> (Fixture, crate::App) {
         config_dir: root.join("config"), data_dir: root.join("data"), port: 0,
     });
     paths.ensure_dirs().unwrap();
+    // Tests exercise real session transitions, but must not send desktop or push notifications.
+    std::fs::write(paths.config_file(), "[agents]\nnotify = false\n").unwrap();
     let bus = crate::events::Bus::new();
     let config = crate::config::ConfigHandle::load(&paths, bus.clone()).unwrap();
+    assert!(!config.get().agents.notify, "session tests must not send notifications");
     let state_db = crate::db::open_state(&paths.state_db()).unwrap();
     let cache_db = crate::db::open_cache(&paths.cache_db()).unwrap();
     let env = crate::shellenv::UserEnv::resolve().await;
