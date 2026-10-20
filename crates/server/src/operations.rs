@@ -9,18 +9,29 @@ use axum::{
 };
 use launchpad_core::operations::{self, Claim};
 
+type LockMap = std::collections::HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>;
+
 #[derive(Clone)]
 pub struct Operations {
     pub db: launchpad_core::db::Db,
-    pub lock: std::sync::Arc<tokio::sync::Mutex<()>>,
+    locks: std::sync::Arc<std::sync::Mutex<LockMap>>,
 }
 
 impl Operations {
     pub fn new(db: launchpad_core::db::Db) -> Self {
         Self {
             db,
-            lock: Default::default(),
+            locks: Default::default(),
         }
+    }
+
+    fn operation_lock(&self, id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.locks.lock().unwrap();
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(id).and_then(std::sync::Weak::upgrade) { return lock; }
+        let lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+        locks.insert(id.to_string(), std::sync::Arc::downgrade(&lock));
+        lock
     }
 }
 
@@ -67,8 +78,9 @@ async fn run(s: &Operations, req: Request, next: Next) -> Result<Response, ApiEr
     let bytes = to_bytes(body, LIMIT)
         .await
         .map_err(|_| ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "request too large"))?;
-    // Serialize concurrent retries until the first response is durably recorded.
-    let _lock = s.lock.lock().await;
+    // Only retries of this ID wait for its response; unrelated agent input and posts proceed.
+    let lock = s.operation_lock(&id);
+    let _lock = lock.lock().await;
     match operations::claim(&s.db, &id, &path, &bytes).await? {
         Claim::Completed { status, body } => Ok((
             StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
@@ -176,6 +188,11 @@ mod tests {
         for restart in [false, true] {
             let db = launchpad_core::db::open_state(&path).unwrap();
             let state = Operations::new(db.clone());
+            let slow_post = state.operation_lock("slow-post");
+            let held = slow_post.lock().await;
+            assert!(state.operation_lock("slow-post").try_lock().is_err());
+            assert!(state.operation_lock(&id).try_lock().is_ok());
+            drop(held);
             let count2 = count.clone();
             let inputs2 = inputs.clone();
             let router = Router::new()

@@ -547,6 +547,9 @@ pub async fn discard(app: &App, id: &str) -> Result<Predraft> {
     Ok(p)
 }
 pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
+    // Serialize retries of this publication without holding any global gate during network I/O.
+    let publication = app.suggestion_locks.get(&format!("predraft-publish:{id}"));
+    let _publication = publication.lock().await;
     let _action = app.sessions.action_lock().await;
     let _work = app.sessions.allow_work().await;
     let _lock = app.predraft_lock.lock().await;
@@ -603,38 +606,35 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
         "worktree is on a different branch"
     );
     if let Some(remote) = &p.remote_branch {
-        ensure!(
-            remote == &q.remote_branch,
-            "retry with the same remote branch"
-        );
-    } else {
-        let exists = git(
-            app,
-            &p.root,
-            &[
-                "ls-remote",
-                "--heads",
-                "origin",
-                &format!("refs/heads/{}", q.remote_branch),
-            ],
-        )
-        .await?;
-        ensure!(
-            exists.is_empty(),
-            "remote branch already exists; choose a new name"
-        );
-        p.remote_branch = Some(q.remote_branch.clone());
-        save(app, &p).await?;
+        ensure!(remote == &q.remote_branch, "retry with the same remote branch");
     }
-    // Record the reviewed head before push: an uncertain response is safely retried without force.
+    // Freeze new turns before releasing the action/work gates, even during ls-remote.
     if let Some(pushed) = &p.pushed_head {
-        ensure!(
-            pushed == &head,
-            "publication already started for a different head"
-        );
+        ensure!(pushed == &head, "publication already started for a different head");
     }
     p.pushed_head = Some(head.clone());
     save(app, &p).await?;
+    drop(_lock);
+    drop(_work);
+    drop(_action);
+    if p.remote_branch.is_none() {
+        let available: Result<()> = async {
+            let exists = git(app, &p.root, &["ls-remote", "--heads", "origin", &format!("refs/heads/{}", q.remote_branch)]).await?;
+            ensure!(exists.is_empty(), "remote branch already exists; choose a new name");
+            Ok(())
+        }.await;
+        let _lock = app.predraft_lock.lock().await;
+        // Preserve concurrent edits. Nothing was pushed if this read-only check failed,
+        // so release the claim and allow edits/discard or a different remote branch.
+        p = get(app, id).await?;
+        if let Err(e) = available {
+            p.pushed_head = None;
+            save(app, &p).await?;
+            return Err(e);
+        }
+        p.remote_branch = Some(q.remote_branch.clone());
+        save(app, &p).await?;
+    }
     git(
         app,
         &p.root,
@@ -685,6 +685,10 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
     } else {
         app.github.request(Method::POST, &format!("/repos/{repo}/pulls"), Some(json!({"title":p.title,"body":p.body,"head":q.remote_branch,"base":p.base_branch,"draft":q.draft})), false).await?.value
     };
+    let _action = app.sessions.action_lock().await;
+    let _work = app.sessions.allow_work().await;
+    let _lock = app.predraft_lock.lock().await;
+    p = get(app, id).await?;
     p.published_url = Some(
         pr["html_url"]
             .as_str()

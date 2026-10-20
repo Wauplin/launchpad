@@ -29,6 +29,8 @@ pub trait LiveSession: Send + Sync {
     /// Safe to begin another turn, including commands that outlive interruption.
     fn ready_for_turn(&self) -> bool;
     fn turn_active(&self) -> bool;
+    /// Work that interruption cannot end, even during an active turn.
+    fn has_background_work(&self) -> bool { false }
     fn has_open_questions(&self) -> bool { false }
     /// This explicit choice cancels the current turn (a silent owner Stop).
     fn answer_stops_turn(&self, _request_id: &str, _answers: &[String]) -> bool { false }
@@ -93,6 +95,8 @@ struct Inner {
     process_restarts: Mutex<HashSet<String>>,
     /// New sessions running their worktree setup command before the agent starts.
     setups: Mutex<HashMap<String, SetupTask>>,
+    /// Detached shutdowns still own their folders until exit is confirmed.
+    shutdowns: Mutex<HashMap<String, usize>>,
     /// Serializes user actions and quota decisions; adapter events never take this lock.
     actions: tokio::sync::Mutex<()>,
     /// Serializes new work with pre-draft publication and cleanup.
@@ -105,7 +109,7 @@ struct Inner {
     watched: Mutex<HashMap<u64, Presence>>,
 }
 
-/// Cancellation is acknowledged only after the setup process tree has exited.
+/// Acknowledge setup cancellation; unconfirmed process exits stay tracked in shutdowns.
 struct SetupTask {
     cancel: tokio::sync::watch::Sender<bool>,
     stopped: tokio::sync::oneshot::Receiver<()>,
@@ -143,6 +147,7 @@ impl Sessions {
                 budget_interrupts: Mutex::new(HashMap::new()),
                 process_restarts: Mutex::new(HashSet::new()),
                 setups: Mutex::new(HashMap::new()),
+                shutdowns: Mutex::new(HashMap::new()),
                 actions: tokio::sync::Mutex::new(()),
                 work: tokio::sync::Mutex::new(()),
                 live: Mutex::new(HashMap::new()),
@@ -248,10 +253,40 @@ impl Sessions {
 
     /// Stops an idle process before its folder moves or disappears; sending a message resumes it.
     /// The caller holds the action lock.
-    pub(crate) async fn release(&self, app: &App, id: &str) {
-        if self.live(id).is_none() { return; }
-        self.detach(id).await;
-        let _ = self.update(app, id, |s| s.live = false).await;
+    pub(crate) async fn release(&self, app: &App, id: &str) -> Result<()> {
+        self.ensure_shutdown_finished(id)?;
+        if self.live(id).is_none() { return Ok(()); }
+        self.detach(app, id).await?;
+        self.update(app, id, |s| s.live = false).await?;
+        Ok(())
+    }
+
+    fn ensure_shutdown_finished(&self, id: &str) -> Result<()> {
+        anyhow::ensure!(!self.inner.shutdowns.lock().unwrap().contains_key(id), "The previous process is still stopping. Wait for its exit or for the SSH host to reconnect.");
+        Ok(())
+    }
+
+    /// Keep ownership in a background task when a host cannot acknowledge shutdown promptly.
+    pub(crate) async fn wait_for_shutdown<F>(&self, id: &str, wait: F) -> Result<()>
+    where F: std::future::Future<Output = Result<()>> + Send + 'static {
+        self.wait_for_shutdown_timeout(id, wait, std::time::Duration::from_secs(5)).await
+    }
+
+    async fn wait_for_shutdown_timeout<F>(&self, id: &str, wait: F, timeout: std::time::Duration) -> Result<()>
+    where F: std::future::Future<Output = Result<()>> + Send + 'static {
+        *self.inner.shutdowns.lock().unwrap().entry(id.into()).or_default() += 1;
+        let (this, id) = (self.clone(), id.to_string());
+        let task = tokio::spawn(async move {
+            let result = wait.await;
+            let mut shutdowns = this.inner.shutdowns.lock().unwrap();
+            if let Some(count) = shutdowns.get_mut(&id) {
+                *count -= 1;
+                if *count == 0 { shutdowns.remove(&id); }
+            }
+            result
+        });
+        tokio::time::timeout(timeout, task).await
+            .context("The process is still stopping in the background; its folder remains busy until exit is confirmed")??
     }
 
     pub fn list(&self) -> Vec<Session> {
@@ -764,15 +799,24 @@ impl Sessions {
                 if let Err(e) = crate::worktrees::run_setup(&app2, project, folder, &sink, &mut cancelled).await {
                     if *cancelled.borrow() { break; }
                     sink.emit(EventBody::Notice { text: format!("Worktree setup failed: {e:#}") }).await;
+                    if this.ensure_shutdown_finished(&id2).is_err() { break; }
                     prompt.push_str(&format!("\n\nNote: the worktree setup command of {} (`{}`) failed in `{folder}`:\n{e:#}\nFix the environment yourself if the task needs it.", project.name, project.worktree_setup.trim()));
                 }
             }
-            // Stop/Archive hold actions while waiting for this acknowledgement.
+            if *cancelled.borrow() && this.get(&id2).is_some_and(|s| s.status == SessionStatus::Starting) {
+                sink.set_status(SessionStatus::Stopped).await;
+            }
+            // Acknowledge before taking actions: Stop/Archive may still be waiting there.
             let _ = stopped.send(());
             let _action = this.inner.actions.lock().await;
             let _guard = this.allow_work().await;
             this.inner.setups.lock().unwrap().remove(&id2);
             if !*cancelled.borrow() && this.get(&id2).is_some_and(|s| s.status == SessionStatus::Starting) {
+                if let Err(e) = this.ensure_shutdown_finished(&id2) {
+                    sink.emit(EventBody::Notice { text: e.to_string() }).await;
+                    sink.set_status(SessionStatus::Stopped).await;
+                    return;
+                }
                 this.start_new(&app2, &id2, start, (prompt, images), automatic).await;
             }
         });
@@ -835,12 +879,13 @@ impl Sessions {
     /// Starts a process for a session that has none (resume).
     /// An idle process waiting for model, effort or permission changes is replaced.
     async fn reattach(&self, app: &App, id: &str) -> Result<Arc<dyn LiveSession>> {
+        self.ensure_shutdown_finished(id)?;
         let s = self.get(id).context("no such session")?;
         if let Some(l) = self.live(id) {
             if !self.inner.process_restarts.lock().unwrap().contains(id) || s.status.is_running() || s.open_question || !l.ready_for_turn() {
                 return Ok(l);
             }
-            self.detach(id).await;
+            self.detach(app, id).await?;
             // A failed replacement (for example unsupported Auto review) must not leave a
             // session claiming to have a live attachment.
             self.update(app, id, |s| s.live = false).await?;
@@ -1029,6 +1074,7 @@ impl Sessions {
     pub async fn set_permissions(&self, app: &App, id: &str, mode: PermissionMode) -> Result<Session> {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
+        self.ensure_shutdown_finished(id)?;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.permission_modes,
             "This harness manages permissions in its native configuration.");
@@ -1036,10 +1082,9 @@ impl Sessions {
         anyhow::ensure!(!self.setup_running(id), "Wait for worktree setup to finish before changing permissions.");
         if s.launch_spec.permission_mode == mode { return Ok(s); }
         crate::predrafts::check_session_work(app, &s.cwd).await?;
-        let sink = self.sink(app, id);
-        let mut continued = false;
         if let Some(live) = self.live(id) {
-            continued = live.turn_active() || s.open_question;
+            let continued = live.turn_active() || s.open_question;
+            anyhow::ensure!(!live.has_background_work(), "Wait for background commands to finish before changing permissions.");
             anyhow::ensure!(continued || live.ready_for_turn(),
                 "Wait for background commands to finish before changing permissions.");
             if continued {
@@ -1050,13 +1095,30 @@ impl Sessions {
                     self.inner.stop_requests.lock().unwrap().remove(id);
                     return Err(e);
                 }
+                drop(_guard);
+                drop(_action);
                 tokio::time::timeout(std::time::Duration::from_secs(20), async {
                     while !live.ready_for_turn() || self.get(id).is_some_and(|s| s.status.is_running()) {
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                     }
                 }).await.context("The turn has not stopped or background commands are still running. Permissions are unchanged; wait for them to finish and try again.")?;
+                let _action = self.inner.actions.lock().await;
+                let _guard = self.allow_work().await;
+                let current = self.get(id).context("no such session")?;
+                anyhow::ensure!(self.live(id).is_some_and(|now| Arc::ptr_eq(&now, &live))
+                    && current.status == SessionStatus::Stopped && current.quota_pause.is_none()
+                    && current.launch_spec.permission_mode == s.launch_spec.permission_mode
+                    && live.ready_for_turn(), "The session changed while stopping; permissions are unchanged. Try again.");
+                crate::predrafts::check_session_work(app, &current.cwd).await?;
+                return self.apply_permissions(app, id, mode, true).await;
             }
         }
+        self.apply_permissions(app, id, mode, false).await
+    }
+
+    /// Caller holds action and work locks and has validated the native attachment.
+    async fn apply_permissions(&self, app: &App, id: &str, mode: PermissionMode, continued: bool) -> Result<Session> {
+        let sink = self.sink(app, id);
         self.update(app, id, |s| s.launch_spec.permission_mode = mode).await?;
         // Reuse model/effort replacement so every adapter applies its verified startup/resume
         // settings, including native Auto support checks, without granting a waiting request.
@@ -1185,6 +1247,7 @@ impl Sessions {
 
     /// Caller holds the action and work locks, including during permission changes.
     async fn send_locked(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>) -> Result<()> {
+        self.ensure_shutdown_finished(id)?;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(!self.setup_running(id), "Wait for the worktree setup to finish; the agent starts afterwards.");
         if mode != InputMode::Manual && (s.status.is_running() || s.open_question || s.status == SessionStatus::InTerminal || s.quota_pause.is_some()) {
@@ -1254,7 +1317,7 @@ impl Sessions {
         self.inner.budget_interrupts.lock().unwrap().remove(id);
         let setup = self.inner.setups.lock().unwrap().remove(id);
         if let Some(task) = setup {
-            task.stop().await;
+            self.wait_for_shutdown(id, async move { task.stop().await; Ok(()) }).await?;
             self.inner.manual_quota_retries.lock().unwrap().remove(id);
             self.update(app, id, |s| s.quota_pause = None).await?;
             let sink = self.sink(app, id);
@@ -1305,12 +1368,23 @@ impl Sessions {
         Ok(())
     }
 
-    pub(crate) async fn detach(&self, id: &str) {
+    pub(crate) async fn detach(&self, app: &App, id: &str) -> Result<()> {
+        self.ensure_shutdown_finished(id)?;
         let live = self.inner.live.lock().unwrap().remove(id);
-        if let Some((_, l)) = live
-            && let Err(e) = l.stop().await {
-            tracing::warn!("stop {id}: {e:#}");
+        if let Some((_, live)) = live {
+            let (this, app, session_id) = (self.clone(), app.clone(), id.to_string());
+            self.wait_for_shutdown(id, async move {
+                live.stop().await?;
+                // Detached adapters cannot settle their record via process_exited. Settle it
+                // here as well when the caller timed out, before releasing folder ownership.
+                this.update(&app, &session_id, |s| { s.live = false; s.open_question = false; }).await?;
+                if this.get(&session_id).is_some_and(|s| s.status.is_running()) {
+                    this.sink(&app, &session_id).set_status(SessionStatus::Stopped).await;
+                }
+                Ok(())
+            }).await?;
         }
+        Ok(())
     }
 
     /// Stops the process. The conversation stays resumable.
@@ -1322,11 +1396,11 @@ impl Sessions {
     /// Caller holds the session action lock (for atomic worktree discard).
     pub(crate) async fn close_locked(&self, app: &App, id: &str) -> Result<()> {
         let setup = self.inner.setups.lock().unwrap().remove(id);
-        if let Some(task) = setup { task.stop().await; }
+        if let Some(task) = setup { self.wait_for_shutdown(id, async move { task.stop().await; Ok(()) }).await?; }
         self.inner.manual_quota_retries.lock().unwrap().remove(id);
         self.inner.quota_stops.lock().unwrap().remove(id);
         self.update(app, id, |s| s.quota_pause = None).await?;
-        self.detach(id).await;
+        self.detach(app, id).await?;
         let sink = self.sink(app, id);
         sink.set_status(SessionStatus::Closed).await;
         self.update(app, id, |s| {
@@ -1404,7 +1478,7 @@ impl Sessions {
             bail!("the session has no conversation yet");
         }
         self.inner.quota_stops.lock().unwrap().remove(id);
-        self.detach(id).await;
+        self.detach(app, id).await?;
         self.update(app, id, |s| {
             s.live = false;
             s.open_question = false;
@@ -1448,11 +1522,11 @@ impl Sessions {
     }
 
     pub fn is_busy(&self, s: &Session) -> bool {
-        s.status.is_running() || self.live(&s.id).is_some_and(|l| !l.ready_for_turn())
+        self.setup_running(&s.id) || self.inner.shutdowns.lock().unwrap().contains_key(&s.id) || s.status.is_running() || self.live(&s.id).is_some_and(|l| !l.ready_for_turn())
     }
 
     pub fn running_in(&self, path: &str) -> bool {
-        self.list().iter().any(|s| (s.cwd == path || s.cwd.starts_with(&format!("{path}/"))) && (s.live || s.status.is_running()))
+        self.list().iter().any(|s| (s.cwd == path || s.cwd.starts_with(&format!("{path}/"))) && (s.live || self.is_busy(s)))
     }
 
     /// Called by adapters when their process ends.

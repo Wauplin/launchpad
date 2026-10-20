@@ -141,12 +141,22 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     let writer = session.clone();
     tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            out_sink.raw("out", &line).await;
-            let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
-            handle(&out_sink, &st, &writer, &msg).await;
-        }
-        let status = child.wait().await;
+        let read = async {
+            while let Ok(Some(line)) = lines.next_line().await {
+                out_sink.raw("out", &line).await;
+                let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
+                handle(&out_sink, &st, &writer, &msg).await;
+            }
+        };
+        tokio::pin!(read);
+        let status = tokio::select! {
+            _ = &mut read => child.wait().await,
+            status = child.wait() => {
+                // Preserve final protocol events, but do not let an escaped pipe owner block exit.
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(1), &mut read).await;
+                status
+            }
+        };
         // Wake stop before emitting events: cleanup waits for this process, not event handling.
         let _ = exited.send(true);
         let stopping = st.lock().unwrap().stopping;
@@ -196,6 +206,11 @@ impl LiveSession for ClaudeSession {
     }
 
     fn turn_active(&self) -> bool { let state = self.state.lock().unwrap(); state.turn_running || agents_busy(&state) }
+
+    fn has_background_work(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        !state.background.is_empty() || state.children.values().any(|child| !child.lock().unwrap().background.is_empty())
+    }
 
     fn ready_for_turn(&self) -> bool {
         let s = self.state.lock().unwrap();

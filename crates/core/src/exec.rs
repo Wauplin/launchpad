@@ -455,8 +455,19 @@ impl Proc {
                 let _ = r.read_to_end(&mut err).await;
             }
         };
-        tokio::join!(read_out, read_err);
-        let status = self.wait().await?;
+        let status = {
+            let read = async { tokio::join!(read_out, read_err); };
+            tokio::pin!(read);
+            tokio::select! {
+                _ = &mut read => self.wait().await?,
+                status = self.wait() => {
+                    // A detached descendant can retain the pipes after the owned process exits.
+                    // Drain available output, then drop the readers instead of waiting for EOF forever.
+                    let _ = tokio::time::timeout(std::time::Duration::from_secs(1), &mut read).await;
+                    status?
+                }
+            }
+        };
         Ok(Output { status, stdout: out, stderr: err })
     }
 }

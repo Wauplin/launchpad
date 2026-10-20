@@ -31,6 +31,8 @@ pub struct CodexSession {
 struct State {
     turn_id: Option<String>,
     commands: HashSet<String>,
+    /// Commands retained from ended turns cannot be stopped by interrupting the current turn.
+    background_commands: HashSet<String>,
     /// Commands blocked before execution: item ID → native approval request ID.
     awaiting_approval: HashMap<String, Value>,
     /// Items started and not completed: id → (type, start time, last output time).
@@ -63,6 +65,7 @@ impl State {
         // leave this map before the response is sent, even when they produce no output.
         for id in self.awaiting_approval.keys() { self.commands.remove(id); }
         self.awaiting_approval.clear();
+        self.background_commands.clone_from(&self.commands);
         let mut ended = Vec::new();
         self.open.retain(|id, (kind, _, _)| {
             if self.commands.contains(id) { return true; }
@@ -244,6 +247,14 @@ impl LiveSession for CodexSession {
     fn set_model(&self, model: Option<&str>, effort: Option<&str>) -> bool {
         *self.model.lock().unwrap() = (model.map(str::to_string), effort.map(str::to_string));
         true
+    }
+
+    fn has_background_work(&self) -> bool {
+        if !self.state.lock().unwrap().background_commands.is_empty() { return true; }
+        let threads = self.threads.lock().unwrap();
+        let root = threads.get(&self.thread_id).map(|(sink, _)| sink.id.as_str());
+        threads.values().any(|(sink, state)| sink.agent_id.is_some() && Some(sink.id.as_str()) == root
+            && !state.lock().unwrap().background_commands.is_empty())
     }
 
     fn ready_for_turn(&self) -> bool {
@@ -713,6 +724,7 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             if !st.lock().unwrap().completed.insert(id.clone()) { return; }
             st.lock().unwrap().open.remove(&id);
             st.lock().unwrap().commands.remove(&id);
+            st.lock().unwrap().background_commands.remove(&id);
             st.lock().unwrap().awaiting_approval.remove(&id);
             match t {
                 "agentMessage" => {
@@ -1222,6 +1234,8 @@ mod tests {
         assert!(!state.open.contains_key("blocked"));
         assert!(state.commands.contains("silent-approved"));
         assert!(state.commands.contains("background"));
+        assert!(state.background_commands.contains("background"));
+        assert!(!state.background_commands.contains("blocked"));
         assert!(state.awaiting_approval.is_empty());
         // No output is required for an accepted command to remain in the busy guard.
         assert!(child_busy(&state));

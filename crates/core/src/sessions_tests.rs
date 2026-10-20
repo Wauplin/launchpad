@@ -220,3 +220,28 @@ async fn quota_reset_fallback_sends_once_and_restores_protection_on_new_evidence
     assert!(app.sessions.get("test").unwrap().quota_pause.is_some());
     assert_eq!(live.sends.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn timed_out_shutdowns_retain_ownership_until_all_waits_finish() {
+    let sessions = super::Sessions::new();
+    let mut finishes = Vec::new();
+    for _ in 0..2 {
+        let (finish, wait) = tokio::sync::oneshot::channel::<()>();
+        finishes.push(finish);
+        let action = sessions.action_lock().await;
+        let result = sessions.wait_for_shutdown_timeout("task", async move { wait.await?; Ok(()) }, std::time::Duration::from_millis(1)).await;
+        assert!(result.is_err());
+        drop(action);
+        assert!(sessions.inner.actions.try_lock().is_ok());
+        assert!(sessions.ensure_shutdown_finished("task").is_err());
+    }
+    finishes.pop().unwrap().send(()).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while sessions.inner.shutdowns.lock().unwrap().get("task") == Some(&2) { tokio::task::yield_now().await; }
+    }).await.unwrap();
+    assert!(sessions.ensure_shutdown_finished("task").is_err());
+    finishes.pop().unwrap().send(()).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while sessions.ensure_shutdown_finished("task").is_err() { tokio::task::yield_now().await; }
+    }).await.unwrap();
+}

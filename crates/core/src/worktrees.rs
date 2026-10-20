@@ -441,25 +441,28 @@ pub async fn run_setup(app: &App, project: &Project, folder: &str, sink: &crate:
         c
     };
     cmd.process_tree().stdin(crate::exec::Io::Null).stdout(crate::exec::Io::Piped).stderr(crate::exec::Io::Piped).env("LAUNCHPAD_WORKTREE", folder).env("LAUNCHPAD_SOURCE_CHECKOUT", &project.path);
-    let out = setup_output(&mut cmd, cancelled, Duration::from_secs(30 * 60)).await?;
+    let out = setup_output(&mut cmd, cancelled, Duration::from_secs(30 * 60), Some((app.sessions.clone(), sink.id.clone()))).await?;
     finish_setup(sink, command, started, out).await
 }
 
-async fn setup_output(cmd: &mut crate::exec::Cmd, cancelled: &mut tokio::sync::watch::Receiver<bool>, timeout: Duration) -> Result<crate::exec::Output> {
+async fn setup_output(cmd: &mut crate::exec::Cmd, cancelled: &mut tokio::sync::watch::Receiver<bool>, timeout: Duration, owner: Option<(crate::sessions::Sessions, String)>) -> Result<crate::exec::Output> {
     anyhow::ensure!(!*cancelled.borrow(), "setup cancelled");
     let child = cmd.spawn().await?;
     let killer = child.killer();
-    let output = child.wait_with_output();
-    tokio::pin!(output);
+    let mut output = tokio::spawn(child.wait_with_output());
     let reason = tokio::select! {
-        out = &mut output => return Ok(out?),
+        out = &mut output => return Ok(out??),
         _ = cancelled.wait_for(|cancel| *cancel) => "setup cancelled",
         _ = tokio::time::sleep(timeout) => "setup did not finish within 30 minutes",
     };
     // Keep ownership until exit is confirmed, including SSH helper-owned processes. Dropping a
     // remote Exec request cannot cancel it; setup deliberately uses Spawn instead.
     killer.kill().await;
-    let _ = output.await;
+    if let Some((sessions, id)) = owner {
+        sessions.wait_for_shutdown(&id, async move { output.await??; Ok(()) }).await.with_context(|| reason)?;
+    } else {
+        let _ = tokio::time::timeout(Duration::from_secs(5), output).await;
+    }
     bail!("{reason}")
 }
 
@@ -626,7 +629,7 @@ async fn remove_clean(app: &App, w: &mut TaskWorktree) -> Result<()> {
         let branch = git(app, &w.root, &["branch", "--show-current"]).await?;
         ensure!(branch == w.branch, "the worktree is on another branch ({branch})");
         for id in w.sessions.clone() {
-            app.sessions.release(app, &id).await;
+            app.sessions.release(app, &id).await?;
         }
         git(app, &w.repo, &["worktree", "remove", &w.root]).await?;
     }
@@ -683,7 +686,7 @@ pub async fn discard(app: &App, id: &str) -> Result<TaskWorktree> {
     }
     if !w.primary {
         for sid in w.sessions.clone() {
-            app.sessions.release(app, &sid).await;
+            app.sessions.release(app, &sid).await?;
         }
     }
     if crate::hostfs::exists(&w.root).await {
@@ -722,7 +725,7 @@ pub async fn handoff(app: &App, id: &str) -> Result<TaskWorktree> {
         b => b,
     };
     for sid in w.sessions.clone() {
-        app.sessions.release(app, &sid).await;
+        app.sessions.release(app, &sid).await?;
     }
     app.terminals.close_in(&w.root).await?;
     git(app, &w.repo, &["worktree", "remove", &w.root]).await?;
@@ -758,7 +761,7 @@ pub async fn handback(app: &App, id: &str) -> Result<TaskWorktree> {
     let previous = w.handoff_from.clone().context("previous checkout unknown")?;
     let is_branch = git(app, &w.repo, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{previous}")]).await.is_ok();
     for sid in w.sessions.clone() {
-        app.sessions.release(app, &sid).await;
+        app.sessions.release(app, &sid).await?;
     }
     if is_branch {
         git(app, &w.repo, &["switch", "--no-overwrite-ignore", &previous]).await?;
@@ -1067,7 +1070,9 @@ mod setup_tests {
         let pid_file = std::env::temp_dir().join(format!("launchpad-setup-{}", uuid::Uuid::new_v4()));
         let env = crate::shellenv::UserEnv::resolve().await;
         let mut cmd = crate::procs::child_command(&env, "sh", None);
-        let script = if mode == "complete" {
+        let script = if mode == "escaped" {
+            r#"setsid sh -c 'echo $$ > "$1"; while :; do sleep 1; done' child "$1" & wait"#
+        } else if mode == "complete" {
             r#"sh -c 'trap "" TERM; echo $$ > "$1"; while :; do sleep 1; done' child "$1" >/dev/null 2>&1 & while ! test -s "$1"; do sleep 0.01; done"#
         } else {
             r#"sh -c 'trap "" TERM; echo $$ > "$1"; while :; do sleep 1; done' child "$1" & wait"#
@@ -1077,7 +1082,7 @@ mod setup_tests {
         let (cancel, mut cancelled) = tokio::sync::watch::channel(false);
         let timeout = mode == "timeout";
         let task = tokio::spawn(async move {
-            setup_output(&mut cmd, &mut cancelled, if timeout { Duration::from_millis(500) } else { Duration::from_secs(5) }).await
+            setup_output(&mut cmd, &mut cancelled, if timeout { Duration::from_millis(500) } else { Duration::from_secs(5) }, None).await
         });
         let pid = tokio::time::timeout(Duration::from_secs(3), async {
             loop {
@@ -1086,8 +1091,11 @@ mod setup_tests {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         }).await.expect("setup descendant started");
-        if mode == "cancel" { cancel.send(true).unwrap(); }
-        let result = tokio::time::timeout(Duration::from_secs(3), task).await.unwrap().unwrap();
+        if matches!(mode, "cancel" | "escaped") { cancel.send(true).unwrap(); }
+        let result = tokio::time::timeout(Duration::from_secs(3), task).await;
+        // This descendant deliberately escaped our group; close it even if the assertion fails.
+        if mode == "escaped" { unsafe { libc::kill(-(pid as i32), libc::SIGKILL); } }
+        let result = result.unwrap().unwrap();
         if mode == "complete" {
             assert!(result.unwrap().status.success());
         } else {
@@ -1103,6 +1111,9 @@ mod setup_tests {
         }).await.expect("setup descendant stopped before cleanup");
         let _ = tokio::fs::remove_file(pid_file).await;
     }
+
+    #[tokio::test]
+    async fn setup_cancellation_does_not_wait_for_escaped_pipe_owners() { check_setup_shutdown("escaped").await; }
 
     #[tokio::test]
     async fn setup_cancellation_stops_descendants() { check_setup_shutdown("cancel").await; }
