@@ -9,15 +9,23 @@ pub struct AgentRun {
     pub started_at: i64,
     pub harness: String,
     pub variant: Option<String>,
+    pub input_tokens: u64,
+    pub cached_tokens: u64,
+    pub output_tokens: u64,
 }
 
 /// Count each saved session once, including archived sessions. Group into local days in the UI.
 pub async fn runs(db: &crate::db::Db, from: i64, until: i64) -> Result<Vec<AgentRun>> {
     db.call(move |conn| {
-        let mut stmt = conn.prepare("SELECT started_at, harness, json_extract(launch_spec_json, '$.variant') FROM session WHERE started_at >= ?1 AND started_at < ?2 ORDER BY started_at, id")?;
-        Ok(stmt.query_map(rusqlite::params![from, until], |row| Ok(AgentRun {
-            started_at: row.get(0)?, harness: row.get(1)?, variant: row.get(2)?,
-        }))?.collect::<rusqlite::Result<Vec<_>>>()?)
+        let mut stmt = conn.prepare("SELECT started_at, harness, json_extract(launch_spec_json, '$.variant'), usage_json FROM session WHERE started_at >= ?1 AND started_at < ?2 ORDER BY started_at, id")?;
+        Ok(stmt.query_map(rusqlite::params![from, until], |row| {
+            let stored: Option<String> = row.get(3)?;
+            let usage = stored.and_then(|s| serde_json::from_str::<crate::model::Usage>(&s).ok()).unwrap_or_default();
+            Ok(AgentRun {
+                started_at: row.get(0)?, harness: row.get(1)?, variant: row.get(2)?,
+                input_tokens: usage.input_tokens, cached_tokens: usage.cached_tokens, output_tokens: usage.output_tokens,
+            })
+        })?.collect::<rusqlite::Result<Vec<_>>>()?)
     }).await
 }
 
@@ -39,12 +47,18 @@ mod tests {
             ] {
                 conn.execute("INSERT INTO session (id, harness, cwd, title, status, launch_spec_json, prompt, started_at) VALUES (?1, ?2, '.', '', ?3, ?4, '', ?5)", rusqlite::params![id, harness, status, spec, at])?;
             }
+            let usage = crate::model::Usage { input_tokens: 120, cached_tokens: 80, output_tokens: 30, ..Default::default() };
+            conn.execute("UPDATE session SET usage_json = ?1 WHERE id = 'archived'", [serde_json::to_string(&usage)?])?;
+            conn.execute("UPDATE session SET usage_json = 'invalid' WHERE id = 'other'", [])?;
             Ok(())
         }).await?;
         let rows = runs(&db, 10, 30).await?;
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].started_at, 10);
         assert!(rows[0].variant.is_none());
+        assert_eq!(rows[0].input_tokens + rows[0].cached_tokens + rows[0].output_tokens, 0);
+        assert_eq!((rows[1].input_tokens, rows[1].cached_tokens, rows[1].output_tokens), (120, 80, 30));
+        assert_eq!(rows[2].input_tokens + rows[2].cached_tokens + rows[2].output_tokens, 0);
         assert_eq!(rows[1].variant.as_deref(), Some("fast"));
         assert_eq!(rows[1].harness, "codex");
         assert_eq!(rows[2].harness, "claude");

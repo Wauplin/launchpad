@@ -6,6 +6,8 @@ import { api } from "@/lib/api";
 import { useConfig } from "@/lib/queries";
 import { Card } from "./SettingsView";
 
+const compact = (value: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+const tokenCount = (run: AgentRun) => run.input_tokens + run.cached_tokens + run.output_tokens;
 const dayKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 const palette = ["#258b83", "#c97a48", "#7e76c5", "#4c93bb", "#bd6387", "#929443", "#b57158", "#63997b"];
 const seriesKey = (run: AgentRun) => JSON.stringify([run.harness, run.variant]);
@@ -27,6 +29,8 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
     queryFn: () => api.get<AgentRun[]>(`/api/analytics/runs?from=${from}&until=${until}`),
     refetchInterval: 30_000,
   });
+  const [metric, setMetric] = useState<"agents" | "tokens">("agents");
+  const format = (value: number) => metric === "tokens" ? compact(value) : value.toLocaleString();
   const [page, setPage] = useState(0);
   const runs = query.data ?? [];
   const series = new Map<string, { key: string; label: string; color: string; total: number }>();
@@ -41,13 +45,18 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
       const variant = config.data?.config.variants.find((v) => v.harness === run.harness && v.id === run.variant)?.name ?? run.variant ?? "Default";
       series.set(key, { key, label: `${harness} · ${variant}`, color: colorFor(key), total: 0 });
     }
-    series.get(key)!.total++;
-    day.total++;
-    day.counts.set(key, (day.counts.get(key) ?? 0) + 1);
+    const amount = metric === "tokens" ? tokenCount(run) : 1;
+    series.get(key)!.total += amount;
+    day.total += amount;
+    day.counts.set(key, (day.counts.get(key) ?? 0) + amount);
   }
   const groups = [...series.values()].sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
+  const total = groups.reduce((sum, group) => sum + group.total, 0);
+  const tokens = runs.reduce((sum, run) => ({ input: sum.input + run.input_tokens, cached: sum.cached + run.cached_tokens, output: sum.output + run.output_tokens }), { input: 0, cached: 0, output: 0 });
+  const stats: [number, string][] = metric === "tokens"
+    ? [[total, "total tokens"], [tokens.input, "input tokens"], [tokens.cached, "cached input"], [tokens.output, "output tokens"]]
+    : [[runs.length, "agents started"], [days.filter((day) => day.total > 0).length, "active days"], [Math.max(0, ...days.map((day) => day.total)), "busiest day"]];
   const peak = Math.max(1, ...days.map((day) => day.total));
-  const activeDays = days.filter((day) => day.total > 0).length;
   const selectedDay = days.find((day) => dayKey(day.date) === selected);
   const shownPage = Math.min(page, Math.max(0, Math.ceil(groups.length / 6) - 1));
   const dateLabel = (date: Date) => date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -56,7 +65,7 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 className="font-semibold">Your daily rhythm</h2>
-        <p className="text-sm text-ink-3">Agents started, split by harness and variant.</p>
+        <p className="text-sm text-ink-3">Session starts and token usage, split by harness and variant.</p>
       </div>
       <div className="flex items-center gap-1">
         <button className="btn" aria-label="Agent activity: previous month" onClick={() => onMove(-1)}>←</button>
@@ -65,24 +74,27 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
       </div>
     </div>
     <p className="text-sm font-semibold text-teal-ink" aria-live="polite">{month.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</p>
+    <div className="flex w-fit gap-1 rounded-lg border border-line bg-chrome p-1" role="group" aria-label="Activity metric">
+      {(["agents", "tokens"] as const).map((value) => <button key={value} className={`btn ${metric === value ? "bg-select! border-teal! font-semibold text-teal-ink" : ""}`} aria-pressed={metric === value} onClick={() => { setMetric(value); setPage(0); }}>{value === "agents" ? "Agents" : "Tokens"}</button>)}
+    </div>
     {query.isError && <p role="alert" className="text-sm text-danger">Could not load agent activity. <button className="btn" onClick={() => void query.refetch()}>Retry</button></p>}
     {query.isPending ? <div className="rounded-lg bg-chrome p-8 text-center text-sm text-ink-3">Loading agent activity…</div> : !query.isError && <>
-      <div className="grid grid-cols-3 gap-2 rounded-lg border border-line bg-chrome p-3 sm:p-4">
-        {[[runs.length, "agents started"], [activeDays, "active days"], [runs.length ? peak : 0, "busiest day"]].map(([value, label]) => <div key={label} className="min-w-0 border-line px-1 not-first:border-l sm:px-3">
-          <div className="text-2xl font-semibold tabular-nums tracking-tight sm:text-3xl">{value}</div>
+      <div className={`grid gap-2 rounded-lg border border-line bg-chrome p-3 sm:p-4 ${metric === "tokens" ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
+        {stats.map(([value, label]) => <div key={label} className={`min-w-0 border-line px-1 sm:px-3 ${metric === "tokens" ? "even:border-l sm:not-first:border-l" : "not-first:border-l"}`}>
+          <div className="text-2xl font-semibold tabular-nums tracking-tight sm:text-3xl" title={value.toLocaleString()}>{format(value)}</div>
           <div className="text-[11px] text-ink-3 sm:text-xs">{label}</div>
         </div>)}
       </div>
       <div className="rounded-lg border border-line px-2 pb-2 pt-4 sm:px-4">
-        <div className="mb-2 flex justify-between text-[10px] text-ink-3"><span>DAILY STARTS</span><span>Peak · {runs.length ? peak : 0}</span></div>
+        <div className="mb-2 flex justify-between text-[10px] text-ink-3"><span>{metric === "tokens" ? "TOKENS BY SESSION START DATE" : "DAILY STARTS"}</span><span>Peak · {format(total ? peak : 0)}</span></div>
         <div className="relative">
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex flex-col justify-between pb-6">
             {[0, 1, 2].map((line) => <div key={line} className="border-t border-dashed border-line" />)}
           </div>
-          <div className="relative grid h-44 gap-px sm:h-52 sm:gap-1" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }} role="group" aria-label="Daily agent starts. Select a day for its harness and variant breakdown.">
+          <div className="relative grid h-44 gap-px sm:h-52 sm:gap-1" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }} role="group" aria-label={`${metric === "tokens" ? "Session tokens by start date" : "Daily agent starts"}. Select a day for its harness and variant breakdown.`}>
             {days.map((day, index) => {
               const key = dayKey(day.date);
-              const description = `${dateLabel(day.date)}: ${day.total} agents${groups.filter((group) => day.counts.has(group.key)).map((group) => `, ${group.label}: ${day.counts.get(group.key)}`).join("")}`;
+              const description = `${dateLabel(day.date)}: ${day.total.toLocaleString()} ${metric}${groups.filter((group) => day.counts.has(group.key)).map((group) => `, ${group.label}: ${day.counts.get(group.key)}`).join("")}`;
               return <button key={key} aria-label={description} aria-pressed={selected === key} title={description} onClick={() => onSelect(key)}
                 className={`group flex min-w-0 flex-col justify-end rounded-t pt-1 outline-offset-2 focus-visible:outline-2 focus-visible:outline-teal-ink ${selected === key ? "bg-select" : "hover:bg-chrome"}`}>
                 <span className="flex min-h-0 w-full flex-1 flex-col justify-end px-px">
@@ -101,10 +113,10 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
         </div>
         <p className="mt-2 text-xs text-ink-3">Select a bar to explore that day.</p>
       </div>
-      {!runs.length && <p className="py-3 text-center text-sm text-ink-3">No agents started this month. Activity will appear here after a launch.</p>}
+      {!total && <p className="py-3 text-center text-sm text-ink-3">{metric === "tokens" ? "No reported tokens for sessions started this month." : "No agents started this month. Activity will appear here after a launch."}</p>}
       {groups.length > 0 && <div className="rounded-lg border border-line bg-chrome p-3 sm:p-4">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-1" aria-live="polite">
-          <h3 className="text-sm font-semibold">{selectedDay ? dateLabel(selectedDay.date) : "Select a day"} <span className="font-normal text-ink-3">· {selectedDay?.total ?? 0} agents</span></h3>
+          <h3 className="text-sm font-semibold">{selectedDay ? dateLabel(selectedDay.date) : "Select a day"} <span className="font-normal text-ink-3">· {format(selectedDay?.total ?? 0)} {metric}</span></h3>
           <span className="text-[11px] text-ink-3">Day / Month</span>
         </div>
         <div className="grid gap-3">
@@ -114,7 +126,7 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
               <div className="mb-1 flex items-center gap-2 text-xs">
                 <span aria-hidden="true" className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: group.color }} />
                 <span className="min-w-0 flex-1 break-words">{group.label}</span>
-                <span className="flex-none tabular-nums"><b>{count}</b><span className="text-ink-3"> / {group.total}</span></span>
+                <span className="flex-none tabular-nums" title={`${count.toLocaleString()} / ${group.total.toLocaleString()} ${metric}`}><b>{format(count)}</b><span className="text-ink-3"> / {format(group.total)}</span></span>
               </div>
               <div className="h-1 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full" style={{ width: `${count / Math.max(1, selectedDay?.total ?? 0) * 100}%`, background: group.color }} /></div>
             </div>;
@@ -126,6 +138,7 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
         </div>}
       </div>}
     </>}
-    <p className="text-xs leading-relaxed text-ink-3">One count per saved session on its start date, including archived sessions. Follow-up turns and resumes don’t add counts. All workspaces · your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Historical variants use their saved ID if no longer configured.</p>
+    {metric === "tokens" && <p className="rounded-lg border border-line bg-chrome p-3 text-xs leading-relaxed text-ink-2">Session token totals (input + cached input + output) are grouped by start date, including later follow-ups. Daily consumption history is unavailable; missing usage counts as zero.</p>}
+    <p className="text-xs leading-relaxed text-ink-3">{metric === "agents" && "One count per saved session on its start date, including archived sessions. Follow-up turns and resumes don’t add counts. "}All workspaces · your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Historical variants use their saved ID if no longer configured.</p>
   </Card>;
 }
