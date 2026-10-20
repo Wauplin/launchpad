@@ -15,7 +15,7 @@ const timestamp = (ms: number) => new Date(ms).toLocaleString();
 export function AnalyticsView() {
   const harnesses = useHarnesses().filter((h) => h.capabilities.quota);
   const names: Record<string, string> = Object.fromEntries(harnesses.map((h) => [h.id, h.name]));
-  const colors: Record<string, string> = Object.fromEntries(harnesses.map((h, index) => [h.id, index % 2 ? "text-clay" : "text-teal-ink"]));
+  const colors: Record<string, string> = Object.fromEntries(harnesses.map((h) => [h.id, h.color]));
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selected, setSelected] = useState(() => dayKey(new Date()));
   const from = month.getTime();
@@ -58,7 +58,7 @@ export function AnalyticsView() {
       <details className="text-xs text-ink-3"><summary className="cursor-pointer py-2">How resets are recorded · {Intl.DateTimeFormat().resolvedOptions().timeZone}</summary><p>History starts when this version runs. Calendar dates use your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). A reset is placed on the day it was detected; the details show the interval between readings. Corrections to reported usage can also appear as drops. Resets with no observed usage drop cannot be detected.</p></details>
       <div className="grid gap-2 sm:grid-cols-2">
         {expected.map(({ id, name, reading, at, fresh }) => <div key={id} className="min-w-0 rounded border border-line p-3 text-sm">
-          <b className={colors[id]}>{name}</b>
+          <b style={{ color: colors[id] }}>{name}</b>
           <p className="break-words">{at ? `Expected: ${timestamp(at)}` : "Next reset unknown"}</p>
           <p className="text-xs text-ink-3">{!online ? "Offline · " : reading?.quota_error ? "Reading unavailable · " : !fresh ? "No fresh reading · " : ""}{at && at <= now ? "Prediction elapsed; awaiting a new reading · " : ""}{reading?.quota_at ? `Last read ${timestamp(reading.quota_at)}` : "Waiting for quota monitoring"}</p>
         </div>)}
@@ -88,9 +88,9 @@ export function AnalyticsView() {
             <span className={`mb-1 block text-xs ${key === dayKey(new Date()) ? "font-bold underline" : ""}`}>{day}</span>
             {Object.keys(names).map((id) => {
               const count = observed.filter((event) => event.harness === id).length;
-              return count > 0 && <span key={id} className={`block break-words font-semibold ${colors[id]}`}>{label(id)} ✓{count > 1 ? ` ×${count}` : ""}</span>;
+              return count > 0 && <span key={id} className="block break-words font-semibold" style={{ color: colors[id] }}>{label(id)} ✓{count > 1 ? ` ×${count}` : ""}</span>;
             })}
-            {predicted.map((item) => <span key={item.id} className={`block break-words ${colors[item.id]}`}>{label(item.id)} ◇{!item.fresh || item.at! <= now ? "?" : ""}</span>)}
+            {predicted.map((item) => <span key={item.id} className="block break-words" style={{ color: colors[item.id] }}>{label(item.id)} ◇{!item.fresh || item.at! <= now ? "?" : ""}</span>)}
           </button>;
         })}
       </div>
@@ -99,7 +99,7 @@ export function AnalyticsView() {
       <div className="grid gap-2 rounded border border-line p-3 text-sm" aria-live="polite">
         <h3 className="font-semibold">Selected day</h3>
         {selectedEvents.slice(-10).map((event) => <p key={`${event.harness}-${event.observed_at}`} className="break-words">
-          <b className={colors[event.harness]}>{names[event.harness] ?? event.harness}</b>: observed {timestamp(event.observed_at)} ({event.previous_percent.toFixed(1)}% → {event.used_percent.toFixed(1)}%). Reset detected between {timestamp(event.previous_at)} and {timestamp(event.observed_at)}.
+          <b style={{ color: colors[event.harness] }}>{names[event.harness] ?? event.harness}</b>: observed {timestamp(event.observed_at)} ({event.previous_percent.toFixed(1)}% → {event.used_percent.toFixed(1)}%). Reset detected between {timestamp(event.previous_at)} and {timestamp(event.observed_at)}.
         </p>)}
         {selectedEvents.length > 10 && <p>Showing the latest 10 of {selectedEvents.length} drops this day.</p>}
         {selectedExpected.map((item) => <p key={item.id}>{item.name}: expected {timestamp(item.at!)}{!item.fresh ? " (stale reading)" : ""}.</p>)}

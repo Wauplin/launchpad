@@ -9,13 +9,10 @@ import { Card } from "./SettingsView";
 const compact = (value: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
 const tokenCount = (run: AgentRun) => run.input_tokens + run.cached_tokens + run.output_tokens;
 const dayKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-const palette = ["#258b83", "#c97a48", "#7e76c5", "#4c93bb", "#bd6387", "#929443", "#b57158", "#63997b"];
 const seriesKey = (run: AgentRun) => JSON.stringify([run.harness, run.variant]);
-const colorFor = (key: string) => {
-  let hash = 0;
-  for (const char of key) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return palette[hash % palette.length];
-};
+// Keep variants in their harness's color family, with the default using its exact quota color.
+const variantColor = (base: string, index: number) => index === 0 ? base
+  : `color-mix(in srgb, ${base}, ${index % 2 ? "white" : "black"} ${Math.min(65, Math.ceil(index / 2) * 18)}%)`;
 
 export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
   month: Date; selected: string; onSelect: (day: string) => void; onMove: (delta: number) => void; onToday: () => void;
@@ -37,13 +34,24 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
   const days = Array.from({ length: new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate() }, (_, i) => ({
     date: new Date(month.getFullYear(), month.getMonth(), i + 1), total: 0, counts: new Map<string, number>(),
   }));
+  const variants = new Map<string, (string | null)[]>();
+  for (const harness of harnesses) {
+    variants.set(harness.id, [null, ...(config.data?.config.variants.filter((v) => v.harness === harness.id).map((v) => v.id) ?? [])]);
+  }
+  for (const run of runs) {
+    const ids = variants.get(run.harness) ?? [];
+    if (!ids.includes(run.variant)) ids.push(run.variant);
+    variants.set(run.harness, ids);
+  }
+  for (const ids of variants.values()) ids.sort((a, b) => a === b ? 0 : a === null ? -1 : b === null ? 1 : a.localeCompare(b));
   for (const run of runs) {
     const day = days[new Date(run.started_at).getDate() - 1];
     const key = seriesKey(run);
     if (!series.has(key)) {
-      const harness = harnesses.find((h) => h.id === run.harness)?.name ?? run.harness;
+      const info = harnesses.find((h) => h.id === run.harness);
+      const harness = info?.name ?? run.harness;
       const variant = config.data?.config.variants.find((v) => v.harness === run.harness && v.id === run.variant)?.name ?? run.variant ?? "Default";
-      series.set(key, { key, label: `${harness} · ${variant}`, color: colorFor(key), total: 0 });
+      series.set(key, { key, label: `${harness} · ${variant}`, color: variantColor(info?.color ?? "#4b5563", variants.get(run.harness)!.indexOf(run.variant)), total: 0 });
     }
     const amount = metric === "tokens" ? tokenCount(run) : 1;
     series.get(key)!.total += amount;
@@ -111,32 +119,25 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
             })}
           </div>
         </div>
-        <p className="mt-2 text-xs text-ink-3">Select a bar to explore that day.</p>
+        <div className="mt-3 border-t border-line pt-3">
+          <p className="mb-2 text-xs text-ink-3" aria-live="polite">{selectedDay ? `${dateLabel(selectedDay.date)} · ${format(selectedDay.total)} ${metric}` : "Select a bar to see that day’s counts."}</p>
+          <div className="flex flex-wrap gap-x-5 gap-y-2" aria-label="Chart legend">
+            {groups.slice(shownPage * 6, shownPage * 6 + 6).map((group) => {
+              const count = selectedDay?.counts.get(group.key) ?? 0;
+              return <span key={group.key} className="inline-flex min-w-0 items-center gap-2 text-xs" title={`${group.label}: ${count.toLocaleString()} ${metric} on ${selectedDay ? dateLabel(selectedDay.date) : "the selected day"}; ${group.total.toLocaleString()} this month`}>
+                <span aria-hidden="true" className="h-2.5 w-2.5 flex-none rounded-sm" style={{ background: group.color }} />
+                <span className="min-w-0 break-words">{group.label}</span>
+                <b className="tabular-nums">{format(count)}</b>
+              </span>;
+            })}
+          </div>
+          {groups.length > 6 && <div className="mt-3 flex items-center justify-between gap-2 text-xs text-ink-3">
+            <span>{shownPage * 6 + 1}–{Math.min(groups.length, shownPage * 6 + 6)} of {groups.length} variants</span>
+            <div className="flex gap-1"><button className="btn" disabled={shownPage === 0} onClick={() => setPage(shownPage - 1)}>Previous</button><button className="btn" disabled={(shownPage + 1) * 6 >= groups.length} onClick={() => setPage(shownPage + 1)}>Next</button></div>
+          </div>}
+        </div>
       </div>
       {!total && <p className="py-3 text-center text-sm text-ink-3">{metric === "tokens" ? "No reported tokens for sessions started this month." : "No agents started this month. Activity will appear here after a launch."}</p>}
-      {groups.length > 0 && <div className="rounded-lg border border-line bg-chrome p-3 sm:p-4">
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-1" aria-live="polite">
-          <h3 className="text-sm font-semibold">{selectedDay ? dateLabel(selectedDay.date) : "Select a day"} <span className="font-normal text-ink-3">· {format(selectedDay?.total ?? 0)} {metric}</span></h3>
-          <span className="text-[11px] text-ink-3">Day / Month</span>
-        </div>
-        <div className="grid gap-3">
-          {groups.slice(shownPage * 6, shownPage * 6 + 6).map((group) => {
-            const count = selectedDay?.counts.get(group.key) ?? 0;
-            return <div key={group.key} className="min-w-0">
-              <div className="mb-1 flex items-center gap-2 text-xs">
-                <span aria-hidden="true" className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: group.color }} />
-                <span className="min-w-0 flex-1 break-words">{group.label}</span>
-                <span className="flex-none tabular-nums" title={`${count.toLocaleString()} / ${group.total.toLocaleString()} ${metric}`}><b>{format(count)}</b><span className="text-ink-3"> / {format(group.total)}</span></span>
-              </div>
-              <div className="h-1 overflow-hidden rounded-full bg-line"><div className="h-full rounded-full" style={{ width: `${count / Math.max(1, selectedDay?.total ?? 0) * 100}%`, background: group.color }} /></div>
-            </div>;
-          })}
-        </div>
-        {groups.length > 6 && <div className="mt-3 flex items-center justify-between gap-2 text-xs text-ink-3">
-          <span>{shownPage * 6 + 1}–{Math.min(groups.length, shownPage * 6 + 6)} of {groups.length} variants</span>
-          <div className="flex gap-1"><button className="btn" disabled={shownPage === 0} onClick={() => setPage(shownPage - 1)}>Previous</button><button className="btn" disabled={(shownPage + 1) * 6 >= groups.length} onClick={() => setPage(shownPage + 1)}>Next</button></div>
-        </div>}
-      </div>}
     </>}
     {metric === "tokens" && <p className="rounded-lg border border-line bg-chrome p-3 text-xs leading-relaxed text-ink-2">Session token totals (input + cached input + output) are grouped by start date, including later follow-ups. Daily consumption history is unavailable; missing usage counts as zero.</p>}
     <p className="text-xs leading-relaxed text-ink-3">{metric === "agents" && "One count per saved session on its start date, including archived sessions. Follow-up turns and resumes don’t add counts. "}All workspaces · your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Historical variants use their saved ID if no longer configured.</p>

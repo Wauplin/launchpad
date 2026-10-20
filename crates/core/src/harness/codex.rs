@@ -952,7 +952,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
         id: ID,
         name: "Codex",
         icon_svg: include_str!("icons/codex.svg"),
-        color: "#566477",
+        color: "#3b82f6",
         working_message: "Message Codex. It steers the running turn.",
         capabilities: super::HarnessCapabilities {
             permission_modes: true,
