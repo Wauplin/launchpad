@@ -38,7 +38,7 @@ pub fn router() -> Router<Server> {
         .route("/api/launch/draft", get(get_draft).put(put_draft).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/harnesses", get(harnesses))
         .route("/api/harness/{kind}/defaults", get(defaults).post(refresh_defaults))
-        .route("/api/variants/models", post(variant_models))
+        .route("/api/profiles/models", post(profile_models))
         .route("/api/sessions", get(list_sessions).post(launch).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/sessions/{id}", get(get_session))
         .route("/api/sessions/{id}/rename", post(rename_session))
@@ -273,9 +273,9 @@ struct ModelsUrl {
     url: String,
 }
 
-/// Models of a variant's OpenAI-compatible list; works for unsaved variants too.
-async fn variant_models(Json(b): Json<ModelsUrl>) -> ApiResult<Vec<launchpad_core::model::ModelInfo>> {
-    Ok(Json(launchpad_core::variants::models(&b.url).await?))
+/// Models of a profile's OpenAI-compatible list; works for unsaved profiles too.
+async fn profile_models(Json(b): Json<ModelsUrl>) -> ApiResult<Vec<launchpad_core::model::ModelInfo>> {
+    Ok(Json(launchpad_core::profiles::models(&b.url).await?))
 }
 
 // ---------------------------------------------------------------- sessions

@@ -11,7 +11,7 @@ async fn front_door_protocol() {
     let config = core::config::ConfigHandle::load(&fixture.0, bus.clone()).unwrap();
     let mut settings = config.get();
     settings.server.public_origin = Some("https://launchpad.example".into());
-    let mut variant = core::config::HarnessVariant {
+    let mut profile = core::config::Profile {
         id: "test".into(),
         name: "Test".into(),
         harness: core::model::HarnessKind::new("codex"),
@@ -23,10 +23,10 @@ async fn front_door_protocol() {
         models_url: None,
         spend_limits: vec![],
     };
-    variant
+    profile
         .env
         .insert("EXAMPLE_KEY".into(), "private-value".into());
-    settings.variants.push(variant);
+    settings.profiles.push(profile);
     config.save(settings).unwrap();
     let state_db = core::db::open_state(&fixture.0.state_db()).unwrap();
     let cache_db = core::db::open_cache(&fixture.0.cache_db()).unwrap();
@@ -182,7 +182,7 @@ async fn front_door_protocol() {
         .await
         .unwrap();
     assert_eq!(response["remote"], true);
-    assert_eq!(response["config"]["variants"][0]["env"]["EXAMPLE_KEY"], "private-value");
+    assert_eq!(response["config"]["profiles"][0]["env"]["EXAMPLE_KEY"], "private-value");
     let host_config = config;
     let mut config = response["config"].clone();
     config["zoom"] = json!(3);
@@ -199,29 +199,29 @@ async fn front_door_protocol() {
     let saved: Value = saved.json().await.unwrap();
     assert_eq!(saved["remote"], true);
     assert_eq!(
-        host_config.get().variants[0].env["EXAMPLE_KEY"],
+        host_config.get().profiles[0].env["EXAMPLE_KEY"],
         "private-value"
     );
-    // Paired remote browsers can edit environments and create a complete template variant.
-    config["variants"][0]["env"]["EXAMPLE_KEY"] = json!("updated-value");
+    // Paired remote browsers can edit environments and create a complete template profile.
+    config["profiles"][0]["env"]["EXAMPLE_KEY"] = json!("updated-value");
     let template = core::harness::registration(core::model::HarnessKind::new("claude"))
-        .descriptor.variant_templates.iter().find(|t| t.name == "Hugging Face").unwrap();
-    let mut variant = config["variants"][0].clone();
-    variant["id"] = json!("hugging-face");
-    variant["name"] = json!(template.name);
-    variant["harness"] = json!("claude");
-    variant["env"] = json!(template.env.iter().copied().collect::<std::collections::BTreeMap<_, _>>());
-    variant["billing"] = json!(template.billing);
-    variant["models_url"] = json!(template.models_url);
-    variant["model"] = json!("test-model");
-    config["variants"].as_array_mut().unwrap().push(variant.clone());
+        .descriptor.profile_templates.iter().find(|t| t.name == "Hugging Face").unwrap();
+    let mut profile = config["profiles"][0].clone();
+    profile["id"] = json!("hugging-face");
+    profile["name"] = json!(template.name);
+    profile["harness"] = json!("claude");
+    profile["env"] = json!(template.env.iter().copied().collect::<std::collections::BTreeMap<_, _>>());
+    profile["billing"] = json!(template.billing);
+    profile["models_url"] = json!(template.models_url);
+    profile["model"] = json!("test-model");
+    config["profiles"].as_array_mut().unwrap().push(profile.clone());
     let saved = put(&config).send().await.unwrap();
     assert_eq!(saved.status(), StatusCode::OK);
     let saved: Value = saved.json().await.unwrap();
-    assert_eq!(saved["config"]["variants"][1], variant);
-    assert_eq!(host_config.get().variants[0].env["EXAMPLE_KEY"], "updated-value");
+    assert_eq!(saved["config"]["profiles"][1], profile);
+    assert_eq!(host_config.get().profiles[0].env["EXAMPLE_KEY"], "updated-value");
     let reloaded: Value = get("/api/config").header("Cookie", cookie).send().await.unwrap().json().await.unwrap();
-    assert_eq!(reloaded["config"]["variants"], config["variants"]);
+    assert_eq!(reloaded["config"]["profiles"], config["profiles"]);
     // The command and server configuration boundaries still apply.
     let mut changed_server = config.clone();
     changed_server["server"]["public_origin"] = json!("https://other.example");

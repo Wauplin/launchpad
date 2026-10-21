@@ -1,4 +1,4 @@
-//! Read-only sign-in checks for Settings → Harnesses, so a server shows which logins still need an SSH session.
+//! Read-only sign-in checks for Settings → Profiles, so a server shows which logins still need an SSH session.
 //!
 //! Each adapter runs its own status command (never a login or a token refresh). Results keep only a short,
 //! non-secret description; command output that could contain a credential is not returned.
@@ -20,8 +20,8 @@ pub struct SignIn {
 pub struct SignInCheck {
     /// Harness ID, or `github`.
     pub id: String,
-    /// Variant ID when the check used a variant environment.
-    pub variant: Option<String>,
+    /// Profile ID when the check used a profile environment.
+    pub profile: Option<String>,
     pub name: String,
     pub cli_found: bool,
     pub signed_in: Option<bool>,
@@ -58,22 +58,22 @@ pub fn strip_ansi(text: &str) -> String {
     out
 }
 
-async fn check(app: &App, env: UserEnv, id: crate::model::HarnessKind, variant: Option<(String, String)>) -> SignInCheck {
+async fn check(app: &App, env: UserEnv, id: crate::model::HarnessKind, profile: Option<(String, String)>) -> SignInCheck {
     let registration = crate::harness::registration(id);
     let adapter = app.harnesses.get(id);
     let program = adapter.sign_in_program();
     let cli_found = env.which(program).is_some_and(|p| p.is_file());
     let result = if cli_found { adapter.sign_in(&env).await } else { SignIn { signed_in: None, detail: None } };
-    let (variant, name) = match variant {
+    let (profile, name) = match profile {
         Some((vid, vname)) => (Some(vid), vname),
         None => (None, registration.descriptor.name.to_string()),
     };
-    SignInCheck { id: id.as_str().into(), variant, name, cli_found, signed_in: result.signed_in, detail: result.detail, command: adapter.sign_in_command().into() }
+    SignInCheck { id: id.as_str().into(), profile, name, cli_found, signed_in: result.signed_in, detail: result.detail, command: adapter.sign_in_command().into() }
 }
 
 async fn github(env: &UserEnv) -> SignInCheck {
     let cli_found = env.which("gh").is_some_and(|p| p.is_file());
-    let mut c = SignInCheck { id: "github".into(), variant: None, name: "GitHub CLI".into(), cli_found, signed_in: None, detail: None, command: "gh auth login".into() };
+    let mut c = SignInCheck { id: "github".into(), profile: None, name: "GitHub CLI".into(), cli_found, signed_in: None, detail: None, command: "gh auth login".into() };
     if !cli_found { return c; }
     // `gh auth status` masks the token; only the account line is kept.
     match status_output(env, "gh", &["auth", "status", "--hostname", "github.com"]).await {
@@ -87,19 +87,19 @@ async fn github(env: &UserEnv) -> SignInCheck {
     c
 }
 
-/// Every registered harness, each variant with its own environment, and the GitHub CLI.
+/// Every registered harness, each profile with its own environment, and the GitHub CLI.
 pub async fn check_all(app: &App) -> Vec<SignInCheck> {
     let mut checks = Vec::new();
     for r in REGISTRATIONS {
         checks.push(check(app, app.env.clone(), r.descriptor.id, None));
     }
     let mut failed = vec![];
-    for v in app.config.get().variants.into_iter().filter(|v| !v.env.is_empty()) {
+    for v in app.config.get().profiles.into_iter().filter(|v| !v.env.is_empty()) {
         // The model only matters for model references; any value checks the sign-in.
-        match crate::variants::variant_env(app, &v, Some(v.model.as_deref().unwrap_or("default")), None) {
+        match crate::profiles::profile_env(app, &v, Some(v.model.as_deref().unwrap_or("default")), None) {
             Ok(env) => checks.push(check(app, app.env.with(&env), v.harness, Some((v.id.clone(), v.name.clone())))),
             Err(e) => failed.push(SignInCheck {
-                id: v.harness.as_str().into(), variant: Some(v.id.clone()), name: v.name.clone(), cli_found: true, signed_in: Some(false),
+                id: v.harness.as_str().into(), profile: Some(v.id.clone()), name: v.name.clone(), cli_found: true, signed_in: Some(false),
                 detail: Some(format!("{e:#}")), command: app.harnesses.get(v.harness).sign_in_command().into(),
             }),
         }

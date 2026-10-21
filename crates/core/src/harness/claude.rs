@@ -799,8 +799,8 @@ const ENV_VARS: &[super::EnvVarDoc] = &[
     var("DISABLE_ERROR_REPORTING", "Privacy", "Any value, even 0, turns off error reporting.", None, Some("1"), false),
 ];
 
-const VARIANT_TEMPLATES: &[super::VariantTemplate] = &[
-    super::VariantTemplate {
+const PROFILE_TEMPLATES: &[super::ProfileTemplate] = &[
+    super::ProfileTemplate {
         name: "Hugging Face",
         description: "Open models (Kimi, GLM, Qwen, DeepSeek…) through Hugging Face Inference Providers, like the hf claude extension. Billed to your Hugging Face account.",
         setup: Some("Launchpad reads HF_TOKEN, else the token saved by the hf CLI. Sign in once if needed:"),
@@ -817,7 +817,7 @@ const VARIANT_TEMPLATES: &[super::VariantTemplate] = &[
         billing: crate::config::Billing::PayAsYouGo,
         models_url: Some("https://router.huggingface.co/v1/models"),
     },
-    super::VariantTemplate {
+    super::ProfileTemplate {
         name: "Another Claude account",
         description: "A second subscription or organization, with its own sign-in in a separate configuration folder.",
         setup: Some("Sign in once in a terminal, then type /login if Claude Code does not ask:"),
@@ -826,7 +826,7 @@ const VARIANT_TEMPLATES: &[super::VariantTemplate] = &[
         billing: crate::config::Billing::PayAsYouGo,
         models_url: None,
     },
-    super::VariantTemplate {
+    super::ProfileTemplate {
         name: "Anthropic API key",
         description: "Pay per use with a Console API key instead of the subscription.",
         setup: Some("Create a key at https://console.anthropic.com/settings/keys and paste it below."),
@@ -852,7 +852,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
             cost: true,
         },
         env_vars: ENV_VARS,
-        variant_templates: VARIANT_TEMPLATES,
+        profile_templates: PROFILE_TEMPLATES,
     },
     create: |_| Arc::new(Adapter),
     environment_marker: |key| {

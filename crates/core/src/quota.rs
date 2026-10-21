@@ -83,11 +83,11 @@ pub fn reset_fallback(s: &HarnessStatus, pause: &crate::model::QuotaPause, now: 
     !weekly_blocked
 }
 
-/// Subscription protection applies: a monitored harness, paid usage not allowed, and not a pay-as-you-go variant.
+/// Subscription protection applies: a monitored harness, paid usage not allowed, and not a pay-as-you-go profile.
 pub fn protected(app: &App, harness: HarnessKind, spec: &LaunchSpec) -> bool {
     crate::harness::registration(harness).descriptor.capabilities.quota
         && !spec.allow_paid_usage
-        && !crate::variants::pay_as_you_go(app, spec)
+        && !crate::profiles::pay_as_you_go(app, spec)
 }
 
 /// Automatic work requires confirmed capacity; manual starts may use best-effort protection.

@@ -35,7 +35,7 @@ export function SettingsPage({ children }: { children: React.ReactNode }) {
         <nav className="phone-tabs flex flex-wrap gap-1.5" aria-label="Settings pages">
           <Link to="/settings" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }} activeOptions={{ exact: true }}>General</Link>
           <Link to="/settings/workspaces" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Workspaces</Link>
-          <Link to="/settings/harnesses" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Harnesses</Link>
+          <Link to="/settings/profiles" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Profiles</Link>
           <Link to="/settings/analytics" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Analytics</Link>
           <Link to="/settings/hosts" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Hosts</Link>
           <Link to="/settings/devices" className="btn" activeProps={{ className: phone ? "" : "bg-select!" }}>Devices</Link>

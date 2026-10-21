@@ -25,7 +25,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
             cost: true,
         },
         env_vars: &[],
-        variant_templates: &[],
+        profile_templates: &[],
     },
     create: |_| Arc::new(Adapter),
     environment_marker: |_key| false,

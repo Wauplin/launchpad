@@ -1,4 +1,4 @@
-// Searchable model list for variants with their own provider (`models_url`), inside a Popover.
+// Searchable model list for profiles with their own provider (`models_url`), inside a Popover.
 
 import { useState } from "react";
 import type { ModelInfo } from "@/gen/ModelInfo";

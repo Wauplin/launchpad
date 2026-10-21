@@ -367,8 +367,9 @@ pub struct LaunchSpec {
     /// Permit additional paid usage after included subscription quotas are exhausted.
     pub allow_paid_usage: bool,
     pub harness: Option<HarnessKind>,
-    /// A named variant of `harness` from `config.toml` (environment, defaults, billing).
-    pub variant: Option<String>,
+    /// A named profile of `harness` from `config.toml` (environment, defaults, billing).
+    #[serde(alias = "variant")]
+    pub profile: Option<String>,
     /// Stop new turns once the harness-reported cumulative cost reaches this many USD.
     pub budget_usd: Option<f64>,
     pub target: Target,

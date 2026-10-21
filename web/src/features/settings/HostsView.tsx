@@ -182,7 +182,7 @@ export function HostsView() {
         <p className="text-[12.5px] text-ink-2">Machines reached with ssh. Agents, worktrees, terminals, Changes and the code viewer of a project run on its host; this daemon keeps the agent list, quotas, schedules and GitHub. A turn continues on the host when this computer sleeps, and its output catches up when the connection returns. Scheduled launches and crons wait while this computer sleeps.</p>
         <div className="grid gap-1 rounded-md border border-line p-3 text-[12.5px]">
           <div className="flex items-center gap-2"><Icon name="folder" size={14} /><b className="font-[650]">This computer</b><span className="text-ink-3">{status?.host}</span><span className="ml-auto text-xs font-semibold text-gh-open">Ready</span></div>
-          <div className="text-xs text-ink-2">{local} project{local === 1 ? "" : "s"} · {harnesses.map((h) => h.name).join(", ")} as configured in Settings → Harnesses</div>
+          <div className="text-xs text-ink-2">{local} project{local === 1 ? "" : "s"} · {harnesses.map((h) => h.name).join(", ")} as configured in Settings → Profiles</div>
         </div>
         {adding && <AddHost onDone={() => setAdding(false)} />}
         {hosts.map((h) => <HostCard key={h.host.id} h={h} />)}

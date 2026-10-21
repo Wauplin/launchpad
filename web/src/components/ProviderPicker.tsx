@@ -1,5 +1,5 @@
 // Inference provider of a router model (Hugging Face `org/model:provider`), with reported prices.
-// The provider is a suffix of the model ID, so launch specs and variants store only the model.
+// The provider is a suffix of the model ID, so launch specs and profiles store only the model.
 
 import type { ModelInfo } from "@/gen/ModelInfo";
 import type { ModelProvider } from "@/gen/ModelProvider";

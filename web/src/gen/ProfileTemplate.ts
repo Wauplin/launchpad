@@ -2,13 +2,13 @@
 import type { Billing } from "./Billing";
 
 /**
- * A preset variant. Values may use `${NAME}` references, resolved when a process starts.
+ * A preset profile. Values may use `${NAME}` references, resolved when a process starts.
  */
-export type VariantTemplate = { name: string, description: string,
+export type ProfileTemplate = { name: string, description: string, 
 /**
- * Setup the owner does once, shown while the new variant is unsaved.
+ * Setup the owner does once, shown while the new profile is unsaved.
  */
-setup: string | null,
+setup: string | null, 
 /**
  * Command for that setup, offered with a Copy button.
  */

@@ -55,7 +55,7 @@ impl UserEnv {
         self.host.as_deref()
     }
 
-    /// This environment with variant overrides.
+    /// This environment with profile overrides.
     pub fn with(&self, overrides: &[(String, String)]) -> UserEnv {
         let mut vars = (*self.vars).clone();
         vars.extend(overrides.iter().cloned());

@@ -9,9 +9,9 @@ import { Card } from "./SettingsView";
 const compact = (value: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
 const tokenCount = (run: AgentRun) => run.input_tokens + run.cached_tokens + run.output_tokens;
 const dayKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-const seriesKey = (run: AgentRun) => JSON.stringify([run.harness, run.variant]);
-// Keep variants in their harness's color family, with the default using its exact quota color.
-const variantColor = (base: string, index: number) => index === 0 ? base
+const seriesKey = (run: AgentRun) => JSON.stringify([run.harness, run.profile]);
+// Keep profiles in their harness's color family, with the default using its exact quota color.
+const profileColor = (base: string, index: number) => index === 0 ? base
   : `color-mix(in srgb, ${base}, ${index % 2 ? "white" : "black"} ${Math.min(65, Math.ceil(index / 2) * 18)}%)`;
 
 export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
@@ -34,24 +34,24 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
   const days = Array.from({ length: new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate() }, (_, i) => ({
     date: new Date(month.getFullYear(), month.getMonth(), i + 1), total: 0, counts: new Map<string, number>(),
   }));
-  const variants = new Map<string, (string | null)[]>();
+  const profiles = new Map<string, (string | null)[]>();
   for (const harness of harnesses) {
-    variants.set(harness.id, [null, ...(config.data?.config.variants.filter((v) => v.harness === harness.id).map((v) => v.id) ?? [])]);
+    profiles.set(harness.id, [null, ...(config.data?.config.profiles.filter((v) => v.harness === harness.id).map((v) => v.id) ?? [])]);
   }
   for (const run of runs) {
-    const ids = variants.get(run.harness) ?? [];
-    if (!ids.includes(run.variant)) ids.push(run.variant);
-    variants.set(run.harness, ids);
+    const ids = profiles.get(run.harness) ?? [];
+    if (!ids.includes(run.profile)) ids.push(run.profile);
+    profiles.set(run.harness, ids);
   }
-  for (const ids of variants.values()) ids.sort((a, b) => a === b ? 0 : a === null ? -1 : b === null ? 1 : a.localeCompare(b));
+  for (const ids of profiles.values()) ids.sort((a, b) => a === b ? 0 : a === null ? -1 : b === null ? 1 : a.localeCompare(b));
   for (const run of runs) {
     const day = days[new Date(run.started_at).getDate() - 1];
     const key = seriesKey(run);
     if (!series.has(key)) {
       const info = harnesses.find((h) => h.id === run.harness);
       const harness = info?.name ?? run.harness;
-      const variant = config.data?.config.variants.find((v) => v.harness === run.harness && v.id === run.variant)?.name ?? run.variant ?? "Default";
-      series.set(key, { key, label: `${harness} · ${variant}`, color: variantColor(info?.color ?? "#4b5563", variants.get(run.harness)!.indexOf(run.variant)), total: 0 });
+      const profile = config.data?.config.profiles.find((v) => v.harness === run.harness && v.id === run.profile)?.name ?? run.profile ?? "Default";
+      series.set(key, { key, label: `${harness} · ${profile}`, color: profileColor(info?.color ?? "#4b5563", profiles.get(run.harness)!.indexOf(run.profile)), total: 0 });
     }
     const amount = metric === "tokens" ? tokenCount(run) : 1;
     series.get(key)!.total += amount;
@@ -73,7 +73,7 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 className="font-semibold">Your daily rhythm</h2>
-        <p className="text-sm text-ink-3">Session starts and token usage, split by harness and variant.</p>
+        <p className="text-sm text-ink-3">Session starts and token usage, split by harness and profile.</p>
       </div>
       <div className="flex items-center gap-1">
         <button className="btn" aria-label="Agent activity: previous month" onClick={() => onMove(-1)}>←</button>
@@ -99,7 +99,7 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex flex-col justify-between pb-6">
             {[0, 1, 2].map((line) => <div key={line} className="border-t border-dashed border-line" />)}
           </div>
-          <div className="relative grid h-44 gap-px sm:h-52 sm:gap-1" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }} role="group" aria-label={`${metric === "tokens" ? "Session tokens by start date" : "Daily agent starts"}. Select a day for its harness and variant breakdown.`}>
+          <div className="relative grid h-44 gap-px sm:h-52 sm:gap-1" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }} role="group" aria-label={`${metric === "tokens" ? "Session tokens by start date" : "Daily agent starts"}. Select a day for its harness and profile breakdown.`}>
             {days.map((day, index) => {
               const key = dayKey(day.date);
               const description = `${dateLabel(day.date)}: ${day.total.toLocaleString()} ${metric}${groups.filter((group) => day.counts.has(group.key)).map((group) => `, ${group.label}: ${day.counts.get(group.key)}`).join("")}`;
@@ -132,7 +132,7 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
             })}
           </div>
           {groups.length > 6 && <div className="mt-3 flex items-center justify-between gap-2 text-xs text-ink-3">
-            <span>{shownPage * 6 + 1}–{Math.min(groups.length, shownPage * 6 + 6)} of {groups.length} variants</span>
+            <span>{shownPage * 6 + 1}–{Math.min(groups.length, shownPage * 6 + 6)} of {groups.length} profiles</span>
             <div className="flex gap-1"><button className="btn" disabled={shownPage === 0} onClick={() => setPage(shownPage - 1)}>Previous</button><button className="btn" disabled={(shownPage + 1) * 6 >= groups.length} onClick={() => setPage(shownPage + 1)}>Next</button></div>
           </div>}
         </div>
@@ -140,6 +140,6 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
       {!total && <p className="py-3 text-center text-sm text-ink-3">{metric === "tokens" ? "No reported tokens for sessions started this month." : "No agents started this month. Activity will appear here after a launch."}</p>}
     </>}
     {metric === "tokens" && <p className="rounded-lg border border-line bg-chrome p-3 text-xs leading-relaxed text-ink-2">Session token totals (input + cached input + output) are grouped by start date, including later follow-ups. Daily consumption history is unavailable; missing usage counts as zero.</p>}
-    <p className="text-xs leading-relaxed text-ink-3">{metric === "agents" && "One count per saved session on its start date, including archived sessions. Follow-up turns and resumes don’t add counts. "}All workspaces · your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Historical variants use their saved ID if no longer configured.</p>
+    <p className="text-xs leading-relaxed text-ink-3">{metric === "agents" && "One count per saved session on its start date, including archived sessions. Follow-up turns and resumes don’t add counts. "}All workspaces · your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Historical profiles use their saved ID if no longer configured.</p>
   </Card>;
 }

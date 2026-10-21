@@ -28,7 +28,8 @@ pub struct Config {
     pub worktrees: Worktrees,
     pub presets: Vec<Preset>,
     /// Named harness settings, selectable in the composer beside the base harnesses.
-    pub variants: Vec<HarnessVariant>,
+    #[serde(alias = "variants")]
+    pub profiles: Vec<Profile>,
 }
 
 /// Network front door. File edits require restart; pairing can apply verified HTTPS live.
@@ -61,7 +62,7 @@ impl ServerConfig {
 
 /// A registered harness with its own environment, defaults and billing mode.
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
-pub struct HarnessVariant {
+pub struct Profile {
     /// Stable ID stored in launch specs: lowercase letters, digits and dashes.
     pub id: String,
     pub name: String,
@@ -76,14 +77,14 @@ pub struct HarnessVariant {
     pub effort: Option<String>,
     #[serde(default)]
     pub billing: Billing,
-    /// Default cost limit (USD) for new sessions of this variant.
+    /// Default cost limit (USD) for new sessions of this profile.
     #[serde(default)]
     pub budget_usd: Option<f64>,
     /// OpenAI-compatible model list (`GET …/v1/models`) offered instead of the base harness models,
-    /// for variants pointing the harness at another provider.
+    /// for profiles pointing the harness at another provider.
     #[serde(default)]
     pub models_url: Option<String>,
-    /// Rolling spending limits of a pay-as-you-go variant, summed over all its sessions.
+    /// Rolling spending limits of a pay-as-you-go profile, summed over all its sessions.
     #[serde(default)]
     pub spend_limits: Vec<SpendLimit>,
 }
@@ -154,7 +155,7 @@ impl Default for Config {
             github: GitHub::default(),
             agents: Agents::default(),
             worktrees: Worktrees::default(),
-            variants: vec![],
+            profiles: vec![],
             presets: vec![],
         }
     }
@@ -212,47 +213,47 @@ impl Config {
         self.server.bind.parse::<std::net::IpAddr>().context("server.bind must be an IP address")?;
         self.server.origin()?;
         let mut ids = std::collections::HashSet::new();
-        for v in &self.variants {
+        for v in &self.profiles {
             anyhow::ensure!(
                 !v.id.is_empty() && v.id.len() <= 40 && v.id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
-                "variant ID {:?}: use 1 to 40 lowercase letters, digits or dashes", v.id
+                "profile ID {:?}: use 1 to 40 lowercase letters, digits or dashes", v.id
             );
-            anyhow::ensure!(ids.insert(v.id.as_str()), "variant ID {:?} is used twice", v.id);
-            anyhow::ensure!(!v.name.trim().is_empty() && v.name.chars().count() <= 40, "variant {:?}: use a name of 1 to 40 characters", v.id);
+            anyhow::ensure!(ids.insert(v.id.as_str()), "profile ID {:?} is used twice", v.id);
+            anyhow::ensure!(!v.name.trim().is_empty() && v.name.chars().count() <= 40, "profile {:?}: use a name of 1 to 40 characters", v.id);
             for (key, value) in &v.env {
                 anyhow::ensure!(
                     !key.is_empty() && !key.starts_with(|c: char| c.is_ascii_digit()) && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
-                    "variant {:?}: invalid environment variable name {key:?}", v.id
+                    "profile {:?}: invalid environment variable name {key:?}", v.id
                 );
-                anyhow::ensure!(!value.contains('\0'), "variant {:?}: {key} contains a null byte", v.id);
-                anyhow::ensure!(!key.starts_with("LAUNCHPAD_"), "variant {:?}: {key} is set by Launchpad", v.id);
-                crate::variants::references(value).with_context(|| format!("variant {:?}: {key}", v.id))?;
+                anyhow::ensure!(!value.contains('\0'), "profile {:?}: {key} contains a null byte", v.id);
+                anyhow::ensure!(!key.starts_with("LAUNCHPAD_"), "profile {:?}: {key} is set by Launchpad", v.id);
+                crate::profiles::references(value).with_context(|| format!("profile {:?}: {key}", v.id))?;
             }
             if let Some(url) = &v.models_url {
                 anyhow::ensure!(reqwest::Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https")),
-                    "variant {:?}: the model list must be an HTTP(S) URL", v.id);
+                    "profile {:?}: the model list must be an HTTP(S) URL", v.id);
             }
             if let Some(b) = v.budget_usd {
-                anyhow::ensure!(b.is_finite() && b > 0.0, "variant {:?}: the cost limit must be a positive amount", v.id);
+                anyhow::ensure!(b.is_finite() && b > 0.0, "profile {:?}: the cost limit must be a positive amount", v.id);
                 anyhow::ensure!(crate::harness::registration(v.harness).descriptor.capabilities.cost,
-                    "variant {:?}: {} does not report costs, so a cost limit cannot apply", v.id, v.harness.display());
+                    "profile {:?}: {} does not report costs, so a cost limit cannot apply", v.id, v.harness.display());
             }
             if !v.spend_limits.is_empty() {
-                anyhow::ensure!(v.billing == Billing::PayAsYouGo, "variant {:?}: spending limits apply only to pay-as-you-go billing", v.id);
+                anyhow::ensure!(v.billing == Billing::PayAsYouGo, "profile {:?}: spending limits apply only to pay-as-you-go billing", v.id);
                 anyhow::ensure!(crate::harness::registration(v.harness).descriptor.capabilities.cost,
-                    "variant {:?}: {} does not report costs, so a spending limit cannot apply", v.id, v.harness.display());
-                anyhow::ensure!(v.spend_limits.len() <= 4, "variant {:?}: use at most 4 spending limits", v.id);
+                    "profile {:?}: {} does not report costs, so a spending limit cannot apply", v.id, v.harness.display());
+                anyhow::ensure!(v.spend_limits.len() <= 4, "profile {:?}: use at most 4 spending limits", v.id);
                 for l in &v.spend_limits {
-                    anyhow::ensure!(l.usd.is_finite() && l.usd > 0.0, "variant {:?}: a spending limit must be a positive amount", v.id);
-                    anyhow::ensure!((1..=crate::spend::MAX_HOURS).contains(&l.hours), "variant {:?}: a spending limit window must be 1 hour to 31 days", v.id);
+                    anyhow::ensure!(l.usd.is_finite() && l.usd > 0.0, "profile {:?}: a spending limit must be a positive amount", v.id);
+                    anyhow::ensure!((1..=crate::spend::MAX_HOURS).contains(&l.hours), "profile {:?}: a spending limit window must be 1 hour to 31 days", v.id);
                 }
             }
         }
         Ok(())
     }
 
-    pub fn variant(&self, id: &str) -> Option<&HarnessVariant> {
-        self.variants.iter().find(|v| v.id == id)
+    pub fn profile(&self, id: &str) -> Option<&Profile> {
+        self.profiles.iter().find(|v| v.id == id)
     }
 }
 
@@ -302,7 +303,7 @@ impl ConfigHandle {
         config.validate()?;
         let text = toml::to_string_pretty(&config)?;
         let tmp = self.path.with_extension("toml.tmp");
-        // Restrict the temporary file before writing variant credentials.
+        // Restrict the temporary file before writing profile credentials.
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create(true).truncate(true);
         #[cfg(unix)]
@@ -311,7 +312,7 @@ impl ConfigHandle {
             options.mode(0o600);
         }
         let mut file = options.open(&tmp)?;
-        // Variant environments can hold API keys.
+        // Profile environments can hold API keys.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -379,7 +380,7 @@ impl ConfigHandle {
     }
 }
 
-// TOML diagnostics include source lines, which may contain variant credentials.
+// TOML diagnostics include source lines, which may contain profile credentials.
 // Keep full diagnostics in host logs only, including for config bus events.
 fn browser_error(error: &anyhow::Error) -> String {
     if let Some(parse) = error.downcast_ref::<toml::de::Error>() {
@@ -403,7 +404,7 @@ mod tests {
 
     #[test]
     fn config_parse_errors_never_expose_source_in_browser_diagnostics() {
-        let error = toml::from_str::<Config>("[variants.env]\nSECRET = 'private-value' broken").unwrap_err();
+        let error = toml::from_str::<Config>("[profiles.env]\nSECRET = 'private-value' broken").unwrap_err();
         assert!(error.to_string().contains("private-value"));
         let error = anyhow::Error::new(error).context("parse config.toml");
         let safe = browser_error(&error);

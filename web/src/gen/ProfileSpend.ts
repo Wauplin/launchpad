@@ -3,6 +3,6 @@ import type { HarnessKind } from "./HarnessKind";
 import type { SpendWindow } from "./SpendWindow";
 
 /**
- * Spending of one variant, published in the status for the status bar.
+ * Spending of one profile, published in the status for the status bar.
  */
-export type VariantSpend = { variant: string, name: string, harness: HarnessKind, windows: Array<SpendWindow>, };
+export type ProfileSpend = { profile: string, name: string, harness: HarnessKind, windows: Array<SpendWindow>, };

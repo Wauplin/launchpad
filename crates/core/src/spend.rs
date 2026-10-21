@@ -1,7 +1,7 @@
-//! Rolling spending limits of pay-as-you-go variants (`spend_limits`), from reported session costs.
+//! Rolling spending limits of pay-as-you-go profiles (`spend_limits`), from reported session costs.
 //!
-//! Every increase of a session's reported USD cost is recorded in `variant_cost` with its time.
-//! A limit such as "$50 per 5 hours" sums the reported cost of the variant over the last 5 hours;
+//! Every increase of a session's reported USD cost is recorded in `profile_cost` with its time.
+//! A limit such as "$50 per 5 hours" sums the reported cost of the profile over the last 5 hours;
 //! at or above it, new input is refused and running turns are interrupted best effort, like the
 //! per-session cost limit. Costs reported late or never (Codex) cannot be enforced.
 use anyhow::Result;
@@ -16,15 +16,15 @@ pub const MAX_HOURS: u32 = 31 * 24;
 
 #[derive(Clone, Debug)]
 pub struct Entry {
-    pub variant: String,
+    pub profile: String,
     pub at: i64,
     pub usd: f64,
 }
 
-/// Spending of one variant, published in the status for the status bar.
+/// Spending of one profile, published in the status for the status bar.
 #[derive(Clone, Debug, Serialize, TS, PartialEq)]
-pub struct VariantSpend {
-    pub variant: String,
+pub struct ProfileSpend {
+    pub profile: String,
     pub name: String,
     pub harness: crate::model::HarnessKind,
     pub windows: Vec<SpendWindow>,
@@ -59,27 +59,27 @@ pub fn label(hours: u32) -> String {
 pub(crate) async fn load(app: &App) -> Result<Vec<Entry>> {
     let since = now_ms() - i64::from(MAX_HOURS) * 3_600_000;
     app.state_db.call(move |conn| {
-        conn.execute("DELETE FROM variant_cost WHERE at < ?1", [since])?;
-        let mut stmt = conn.prepare("SELECT variant, at, usd FROM variant_cost ORDER BY at")?;
-        Ok(stmt.query_map([], |r| Ok(Entry { variant: r.get(0)?, at: r.get(1)?, usd: r.get(2)? }))?.collect::<rusqlite::Result<Vec<_>>>()?)
+        conn.execute("DELETE FROM profile_cost WHERE at < ?1", [since])?;
+        let mut stmt = conn.prepare("SELECT profile, at, usd FROM profile_cost ORDER BY at")?;
+        Ok(stmt.query_map([], |r| Ok(Entry { profile: r.get(0)?, at: r.get(1)?, usd: r.get(2)? }))?.collect::<rusqlite::Result<Vec<_>>>()?)
     }).await
 }
 
-pub(crate) async fn record(app: &App, variant: &str, usd: f64) {
+pub(crate) async fn record(app: &App, profile: &str, usd: f64) {
     if !(usd.is_finite() && usd > 0.0) { return; }
-    let entry = Entry { variant: variant.to_string(), at: now_ms(), usd };
+    let entry = Entry { profile: profile.to_string(), at: now_ms(), usd };
     app.sessions.spend_entries(|entries| entries.push(entry.clone()));
     let result = app.state_db.call(move |conn| {
-        conn.execute("INSERT INTO variant_cost (variant, at, usd) VALUES (?1, ?2, ?3)", params![entry.variant, entry.at, entry.usd])?;
+        conn.execute("INSERT INTO profile_cost (profile, at, usd) VALUES (?1, ?2, ?3)", params![entry.profile, entry.at, entry.usd])?;
         Ok(())
     }).await;
-    if let Err(e) = result { tracing::warn!("record variant cost: {e:#}"); }
+    if let Err(e) = result { tracing::warn!("record profile cost: {e:#}"); }
     publish(app);
 }
 
-fn window(entries: &[Entry], variant: &str, limit: &SpendLimit, now: i64) -> SpendWindow {
+fn window(entries: &[Entry], profile: &str, limit: &SpendLimit, now: i64) -> SpendWindow {
     let span = i64::from(limit.hours) * 3_600_000;
-    let inside: Vec<&Entry> = entries.iter().filter(|e| e.variant == variant && e.at > now - span).collect();
+    let inside: Vec<&Entry> = entries.iter().filter(|e| e.profile == profile && e.at > now - span).collect();
     let used: f64 = inside.iter().map(|e| e.usd).sum();
     // Entries are in time order: room returns once enough of the oldest ones leave the window.
     let mut available_at = None;
@@ -96,13 +96,13 @@ fn window(entries: &[Entry], variant: &str, limit: &SpendLimit, now: i64) -> Spe
     SpendWindow { hours: limit.hours, limit_usd: limit.usd, used_usd: (used * 100.0).round() / 100.0, available_at }
 }
 
-/// Every variant with spending limits, in configuration order.
-pub fn current(app: &App) -> Vec<VariantSpend> {
+/// Every profile with spending limits, in configuration order.
+pub fn current(app: &App) -> Vec<ProfileSpend> {
     let config = app.config.get();
     let now = now_ms();
     app.sessions.spend_entries(|entries| {
-        config.variants.iter().filter(|v| !v.spend_limits.is_empty()).map(|v| VariantSpend {
-            variant: v.id.clone(),
+        config.profiles.iter().filter(|v| !v.spend_limits.is_empty()).map(|v| ProfileSpend {
+            profile: v.id.clone(),
             name: v.name.clone(),
             harness: v.harness,
             windows: v.spend_limits.iter().map(|l| window(entries, &v.id, l, now)).collect(),
@@ -110,24 +110,24 @@ pub fn current(app: &App) -> Vec<VariantSpend> {
     })
 }
 
-/// Reached windows of the variant of a spec; empty when it has none or is not pay as you go.
+/// Reached windows of the profile of a spec; empty when it has none or is not pay as you go.
 pub fn reached(app: &App, spec: &LaunchSpec) -> Vec<SpendWindow> {
-    if !crate::variants::pay_as_you_go(app, spec) { return vec![]; }
-    let Some(id) = spec.variant.as_deref() else { return vec![] };
-    current(app).into_iter().find(|v| v.variant == id).map(|v| v.windows.into_iter().filter(SpendWindow::reached).collect()).unwrap_or_default()
+    if !crate::profiles::pay_as_you_go(app, spec) { return vec![]; }
+    let Some(id) = spec.profile.as_deref() else { return vec![] };
+    current(app).into_iter().find(|v| v.profile == id).map(|v| v.windows.into_iter().filter(SpendWindow::reached).collect()).unwrap_or_default()
 }
 
-/// Refuses new input of a pay-as-you-go variant at one of its spending limits.
+/// Refuses new input of a pay-as-you-go profile at one of its spending limits.
 pub fn ensure(app: &App, spec: &LaunchSpec) -> Result<()> {
     let reached = reached(app, spec);
     let Some(w) = reached.first() else { return Ok(()) };
-    let name = spec.variant.as_deref().and_then(|id| app.config.get().variant(id).map(|v| v.name.clone())).unwrap_or_default();
+    let name = spec.profile.as_deref().and_then(|id| app.config.get().profile(id).map(|v| v.name.clone())).unwrap_or_default();
     anyhow::bail!("{}", message(&name, w))
 }
 
 pub fn message(name: &str, w: &SpendWindow) -> String {
     let again = w.available_at.map(|t| format!(" Room returns around {}.", crate::util::local_time(t))).unwrap_or_default();
-    format!("{name} spending limit reached: ${:.2} reported in the last {} of ${:.2}.{again} Raise the limit in Settings → Harnesses to continue now.", w.used_usd, w.label(), w.limit_usd)
+    format!("{name} spending limit reached: ${:.2} reported in the last {} of ${:.2}.{again} Raise the limit in Settings → Profiles to continue now.", w.used_usd, w.label(), w.limit_usd)
 }
 
 /// Publishes the spending windows when they changed (costs leave rolling windows over time).

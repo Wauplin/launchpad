@@ -42,10 +42,10 @@ pub struct HarnessDescriptor {
     pub color: &'static str,
     pub working_message: &'static str,
     pub capabilities: HarnessCapabilities,
-    /// Documented environment variables offered in the variant editor.
+    /// Documented environment variables offered in the profile editor.
     pub env_vars: &'static [EnvVarDoc],
-    /// Ready-made variants offered by Settings → Harnesses → New variant.
-    pub variant_templates: &'static [VariantTemplate],
+    /// Ready-made profiles offered by Settings → Profiles → New profile.
+    pub profile_templates: &'static [ProfileTemplate],
 }
 
 /// One environment variable the harness CLI reads, as documented by its vendor.
@@ -63,12 +63,12 @@ pub struct EnvVarDoc {
     pub secret: bool,
 }
 
-/// A preset variant. Values may use `${NAME}` references, resolved when a process starts.
+/// A preset profile. Values may use `${NAME}` references, resolved when a process starts.
 #[derive(Clone, Copy, Serialize, TS)]
-pub struct VariantTemplate {
+pub struct ProfileTemplate {
     pub name: &'static str,
     pub description: &'static str,
-    /// Setup the owner does once, shown while the new variant is unsaved.
+    /// Setup the owner does once, shown while the new profile is unsaved.
     pub setup: Option<&'static str>,
     /// Command for that setup, offered with a Copy button.
     pub setup_command: Option<&'static str>,

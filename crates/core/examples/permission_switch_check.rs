@@ -32,9 +32,9 @@ async fn main() -> Result<()> {
     let mut settings = config.get();
     settings.agents.notify = false;
     settings.projects_root = root.join("projects").to_string_lossy().into();
-    // A variant has its own on-demand Codex event router, so the fixture needs no
+    // A profile has its own on-demand Codex event router, so the fixture needs no
     // global services (quota monitors, CLI updates or GitHub synchronization).
-    settings.variants.push(core::config::HarnessVariant {
+    settings.profiles.push(core::config::Profile {
         id: "permission-check".into(), name: "Permission check".into(),
         harness: HarnessKind::parse("codex").unwrap(),
         env: [("PERMISSION_CHECK_FIXTURE".into(), "1".into())].into(),
@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
             let folder = root.join(name);
             std::fs::create_dir_all(&folder)?;
             let project = core::projects::register(&app, &folder, false).await?;
-            let spec = LaunchSpec { harness: Some(HarnessKind::parse(name).unwrap()), variant: (name == "codex").then(|| "permission-check".into()), permission_mode: PermissionMode::Approvals,
+            let spec = LaunchSpec { harness: Some(HarnessKind::parse(name).unwrap()), profile: (name == "codex").then(|| "permission-check".into()), permission_mode: PermissionMode::Approvals,
                 target: Target::Project { project_id: project.id },
                 text: "Run a shell command to write the text success into a file called permission-check.txt in the current directory. Use the shell, not an edit tool. Then reply done. Do not do anything else.".into(), ..Default::default() };
             let session = app.sessions.launch(&app, spec).await?;

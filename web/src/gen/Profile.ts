@@ -6,26 +6,26 @@ import type { SpendLimit } from "./SpendLimit";
 /**
  * A registered harness with its own environment, defaults and billing mode.
  */
-export type HarnessVariant = {
+export type Profile = { 
 /**
  * Stable ID stored in launch specs: lowercase letters, digits and dashes.
  */
-id: string, name: string, harness: HarnessKind,
+id: string, name: string, harness: HarnessKind, 
 /**
  * Added to the user environment of the harness process, its terminal TUI and title requests.
  * A leading `~/` in a value is expanded.
  */
-env: { [key in string]: string }, model: string | null, effort: string | null, billing: Billing,
+env: { [key in string]: string }, model: string | null, effort: string | null, billing: Billing, 
 /**
- * Default cost limit (USD) for new sessions of this variant.
+ * Default cost limit (USD) for new sessions of this profile.
  */
-budget_usd: number | null,
+budget_usd: number | null, 
 /**
  * OpenAI-compatible model list (`GET …/v1/models`) offered instead of the base harness models,
- * for variants pointing the harness at another provider.
+ * for profiles pointing the harness at another provider.
  */
-models_url: string | null,
+models_url: string | null, 
 /**
- * Rolling spending limits of a pay-as-you-go variant, summed over all its sessions.
+ * Rolling spending limits of a pay-as-you-go profile, summed over all its sessions.
  */
 spend_limits: Array<SpendLimit>, };

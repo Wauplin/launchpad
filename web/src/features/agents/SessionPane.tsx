@@ -4,7 +4,7 @@
 import { FollowUpAgent } from "./FollowUpAgent";
 import { HostLabel } from "@/components/HostLabel";
 import { hostOf, linkLabel, useHost } from "@/lib/hosts";
-import { useVariant } from "@/lib/variants";
+import { useProfile } from "@/lib/profiles";
 import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle, PermissionSwitch } from "./SessionSummary";
 import { SubagentsPanel, subagents } from "./SubagentsPanel";
 import { GitPanel } from "./GitPanel";
@@ -199,7 +199,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const processesOpen = current === "processes";
   const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => p.root === s?.cwd || p.id === localStorage.getItem(`launchpad.session-predraft.${sessionId}`));
   const projects = useProjects().data;
-  const variantName = useVariant(s?.launch_spec.variant)?.name;
+  const profileName = useProfile(s?.launch_spec.profile)?.name;
   const navigate = useNavigate();
   const codeLinks = useCodeLinks(s);
   const log = useSessionLogs((st) => st.logs[sessionId]);
@@ -343,7 +343,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
             {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Pre-draft PR</button>}
             <span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span>
             <WorktreeChip session={s} />
-            {s.launch_spec.variant && <span title="Harness variant">{variantName ?? `${s.launch_spec.variant} (deleted variant)`}</span>}
+            {s.launch_spec.profile && <span title="Harness profile">{profileName ?? `${s.launch_spec.profile} (deleted profile)`}</span>}
             <HostLabel path={s.cwd} />
             <StatusBadge s={s} />
             <PermissionSwitch session={s} />
@@ -390,7 +390,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       </div>
       {phone && detailsOpen && <Sheet title="Session details" onClose={() => setDetailsOpen(false)}>
         <div className="session-detail-sheet grid gap-4 p-4 text-sm">
-          <div className="flex items-start gap-2"><HarnessMark harness={s.harness} size={20} /><div className="min-w-0"><b className="break-words">{s.title}</b><p className="mt-1 text-ink-3">{projectName(projects, s.project_id, s.cwd)} · {s.launch_spec.variant ? variantName ?? `${s.launch_spec.variant} (deleted variant)` : name}</p></div></div>
+          <div className="flex items-start gap-2"><HarnessMark harness={s.harness} size={20} /><div className="min-w-0"><b className="break-words">{s.title}</b><p className="mt-1 text-ink-3">{projectName(projects, s.project_id, s.cwd)} · {s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : name}</p></div></div>
           <dl className="grid gap-2 text-ink-2">
             {usageLine(s) && <div><dt className="text-xs text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
             <div><dt className="text-xs text-ink-3">Started</dt><dd>{new Date(s.started_at).toLocaleString()}</dd></div>

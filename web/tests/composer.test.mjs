@@ -63,7 +63,7 @@ test("scheduled dependencies accept completed archives without making archived a
   }
 });
 
-test("permission defaults are YOLO and remain independent for each harness and variant", async () => {
+test("permission defaults are YOLO and remain independent for each harness and profile", async () => {
   const { rememberedRun } = await import("../src/stores/composer.ts");
   assert.equal(emptySpec().permission_mode, "yolo");
   useComposer.setState({ spec: { ...emptySpec(), harness: "claude" }, open: true });
@@ -75,7 +75,7 @@ test("permission defaults are YOLO and remain independent for each harness and v
   assert.equal(draft().spec.permission_mode, "approvals");
   draft().discard();
   assert.equal(draft().spec.permission_mode, "approvals");
-  draft().rememberLaunch({ ...emptySpec(), harness: "codex", variant: "review", permission_mode: "approvals" }, 100);
+  draft().rememberLaunch({ ...emptySpec(), harness: "codex", profile: "review", permission_mode: "approvals" }, 100);
   assert.equal(rememberedRun("codex", "review").permission_mode, "approvals");
   assert.equal(rememberedRun("codex", null).permission_mode, "yolo");
   // A more recent launch from another device supersedes an older browser selection.
@@ -83,15 +83,15 @@ test("permission defaults are YOLO and remain independent for each harness and v
   assert.equal(rememberedRun("claude", null).permission_mode, "yolo");
 });
 
-test("AI auto approval is remembered per variant and survives new drafts", async () => {
+test("AI auto approval is remembered per profile and survives new drafts", async () => {
   const { rememberedRun } = await import("../src/stores/composer.ts");
-  useComposer.setState({ spec: { ...emptySpec(), harness: "codex", variant: "ai-review" }, open: true });
+  useComposer.setState({ spec: { ...emptySpec(), harness: "codex", profile: "ai-review" }, open: true });
   draft().update((s) => ({ ...s, permission_mode: "auto" }));
   assert.equal(rememberedRun("codex", "ai-review").permission_mode, "auto");
   assert.equal(rememberedRun("codex", null).permission_mode, "yolo");
   draft().discard();
   assert.equal(draft().spec.permission_mode, "auto");
-  draft().rememberLaunch({ ...emptySpec(), harness: "claude", variant: "ai-review", permission_mode: "auto" }, Date.now() + 10);
+  draft().rememberLaunch({ ...emptySpec(), harness: "claude", profile: "ai-review", permission_mode: "auto" }, Date.now() + 10);
   draft().start();
   assert.equal(draft().spec.permission_mode, "auto");
 });

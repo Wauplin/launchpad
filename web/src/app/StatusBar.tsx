@@ -3,8 +3,8 @@ import { Fragment, useEffect, useState } from "react";
 import type { HarnessStatus } from "@/gen/HarnessStatus";
 import type { QuotaWindow } from "@/gen/QuotaWindow";
 import type { Status } from "@/gen/Status";
-import type { VariantSpend } from "@/gen/VariantSpend";
-import { spendLabel, spendPercent, windowLabel } from "@/lib/variants";
+import type { ProfileSpend } from "@/gen/ProfileSpend";
+import { spendLabel, spendPercent, windowLabel } from "@/lib/profiles";
 import { HarnessMark, useHarnessInfo, useHarnesses, type Harness } from "@/components/HarnessMark";
 import { formatAge, formatReset, resetLabel } from "@/lib/format";
 import { onConnectionChange } from "@/lib/ws";
@@ -60,8 +60,8 @@ function Pair({ harness, s }: { harness: Harness; s: HarnessStatus }) {
   );
 }
 
-/** Rolling spending limits of a pay-as-you-go variant, shown like subscription quota meters. */
-function SpendPair({ v }: { v: VariantSpend }) {
+/** Rolling spending limits of a pay-as-you-go profile, shown like subscription quota meters. */
+function SpendPair({ v }: { v: ProfileSpend }) {
   return (
     <Popover up width={300} trigger={({ open, toggle }) => (
       <button type="button" className="inline-flex h-[22px] items-center gap-1.5 rounded px-1 hover:bg-select focus-visible:outline-2 focus-visible:outline-teal" aria-label={`${v.name} spending limits`} aria-expanded={open} onClick={toggle}
@@ -76,8 +76,8 @@ function SpendPair({ v }: { v: VariantSpend }) {
         <div className="grid gap-1 p-1.5 text-[12px] whitespace-normal">
           <span className="inline-flex items-center gap-1.5 font-semibold"><HarnessMark harness={v.harness} size={14} />{v.name} <span className="font-normal text-ink-3">· pay as you go</span></span>
           {v.windows.map((w, i) => <span key={i} className={w.used_usd >= w.limit_usd ? "text-gh-closed" : "text-ink-2"}>{windowLabel(w.hours)}: {spendLabel(w)}</span>)}
-          <span className="text-ink-3">Rolling windows over the cost reported by the harness for all sessions of this variant.</span>
-          <Link to="/settings/harnesses" className="text-teal-ink hover:underline">Edit limits in Settings → Harnesses</Link>
+          <span className="text-ink-3">Rolling windows over the cost reported by the harness for all sessions of this profile.</span>
+          <Link to="/settings/profiles" className="text-teal-ink hover:underline">Edit limits in Settings → Profiles</Link>
         </div>
       )}
     </Popover>
@@ -152,7 +152,7 @@ export function StatusBar() {
       {data ? (
         <>
           {quota.map((h, i) => <Fragment key={h.id}>{i > 0 && <span className="h-3.5 w-px bg-line" />}<Details harness={h.id} data={data} limits={limits} /></Fragment>)}
-          {data.spend.map((v, i) => <Fragment key={v.variant}>{(i > 0 || quota.length > 0) && <span className="h-3.5 w-px bg-line" />}<SpendPair v={v} /></Fragment>)}
+          {data.spend.map((v, i) => <Fragment key={v.profile}>{(i > 0 || quota.length > 0) && <span className="h-3.5 w-px bg-line" />}<SpendPair v={v} /></Fragment>)}
           {harnesses.map((h) => <Warnings key={h.id} harness={h.id} s={data.harnesses[h.id] ?? emptyStatus} />)}
           {low.map(([k, v]) => <span key={k} className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={`Resets ${formatReset(v.reset_at)}`}>GitHub {k} {v.remaining} calls left</span>)}
           <span className="ml-auto inline-flex items-center gap-2.5">

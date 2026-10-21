@@ -75,7 +75,7 @@ pub struct StartSpec {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub add_dirs: Vec<String>,
-    /// Variant environment overrides; adapters add them to every native process of the session.
+    /// Profile environment overrides; adapters add them to every native process of the session.
     pub env: Vec<(String, String)>,
 }
 
@@ -123,7 +123,7 @@ struct Inner {
     manual_quota_retries: Mutex<HashMap<String, i64>>,
     /// Running turns interrupted at their cost limit, with the time of the last attempt.
     budget_interrupts: Mutex<HashMap<String, i64>>,
-    /// Reported cost increases of variant sessions, in time order (see `spend.rs`).
+    /// Reported cost increases of profile sessions, in time order (see `spend.rs`).
     spend: Mutex<Vec<crate::spend::Entry>>,
     /// Sessions whose process must restart to apply model, effort or permission changes.
     process_restarts: Mutex<HashSet<String>>,
@@ -658,15 +658,15 @@ impl Sessions {
         }
         crate::attachments::validate(&spec.attachments)?;
         anyhow::ensure!(spec.attachments.iter().all(|f| !crate::attachments::is_image(&f.data_url)) || crate::harness::registration(harness).descriptor.capabilities.images, "This harness does not support images.");
-        let variant = crate::variants::resolve(app, harness, &spec)?;
+        let profile = crate::profiles::resolve(app, harness, &spec)?;
         check_budget(harness, spec.budget_usd)?;
         crate::spend::ensure(app, &spec)?;
         let (model, effort) = (
-            spec.model.clone().or_else(|| variant.as_ref().and_then(|v| v.model.clone())),
-            spec.effort.clone().or_else(|| variant.as_ref().and_then(|v| v.effort.clone())),
+            spec.model.clone().or_else(|| profile.as_ref().and_then(|v| v.model.clone())),
+            spec.effort.clone().or_else(|| profile.as_ref().and_then(|v| v.effort.clone())),
         );
         let mut preview = self.resolve(app, &spec, true).await?;
-        let env = crate::variants::env(app, harness, &spec, model.as_deref(), preview.cwd.as_deref().and_then(crate::hosts::loc::host_of))?;
+        let env = crate::profiles::env(app, harness, &spec, model.as_deref(), preview.cwd.as_deref().and_then(crate::hosts::loc::host_of))?;
         if preview.prompt.trim().is_empty() {
             bail!("the prompt is empty");
         }
@@ -979,7 +979,7 @@ impl Sessions {
             bail!("the folder {} no longer exists", s.cwd);
         }
         let (host, cwd, add_dirs) = on_machine(&s.cwd, add_dirs)?;
-        let env = crate::variants::env(app, s.harness, &s.launch_spec, s.model.as_deref(), host.as_deref())?;
+        let env = crate::profiles::env(app, s.harness, &s.launch_spec, s.model.as_deref(), host.as_deref())?;
         let start = StartSpec {
             permission_mode: s.launch_spec.permission_mode,
             session_id: s.id.clone(),
@@ -1107,8 +1107,8 @@ impl Sessions {
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.quota,
             "This integration does not monitor subscription quotas; native provider billing settings apply.");
-        anyhow::ensure!(!crate::variants::pay_as_you_go(app, &s.launch_spec),
-            "This pay-as-you-go variant has no subscription quota protection; use its cost limit instead.");
+        anyhow::ensure!(!crate::profiles::pay_as_you_go(app, &s.launch_spec),
+            "This pay-as-you-go profile has no subscription quota protection; use its cost limit instead.");
         if s.launch_spec.allow_paid_usage == allow { return Ok(s); }
         self.inner.manual_quota_retries.lock().unwrap().remove(id);
         let s = self.update(app, id, |s| s.launch_spec.allow_paid_usage = allow).await?;
@@ -1869,22 +1869,22 @@ impl Sink {
         if self.agent_id.is_some() { return; }
         let mut crossed = false;
         let mut added = 0.0;
-        let mut variant = None;
+        let mut profile = None;
         let _ = self.sessions.update(&self.app, &self.id, |s| {
             let before = s.budget_reached();
             let cost = s.usage.cost_usd.unwrap_or(0.0);
             f(&mut s.usage);
             crossed = !before && s.budget_reached();
             added = s.usage.cost_usd.unwrap_or(0.0) - cost;
-            variant = s.launch_spec.variant.clone();
+            profile = s.launch_spec.profile.clone();
         }).await;
-        if let Some(v) = variant.filter(|_| added > 0.0) {
+        if let Some(v) = profile.filter(|_| added > 0.0) {
             let spec = self.sessions.get(&self.id).map(|s| s.launch_spec).unwrap_or_default();
             let before = crate::spend::reached(&self.app, &spec).len();
             crate::spend::record(&self.app, &v, added).await;
             let reached = crate::spend::reached(&self.app, &spec);
             if reached.len() > before {
-                let name = self.app.config.get().variant(&v).map(|v| v.name.clone()).unwrap_or_default();
+                let name = self.app.config.get().profile(&v).map(|v| v.name.clone()).unwrap_or_default();
                 self.emit(EventBody::Notice { text: format!("{} A running turn is stopped and no new turn starts.", crate::spend::message(&name, &reached[0])) }).await;
             }
         }

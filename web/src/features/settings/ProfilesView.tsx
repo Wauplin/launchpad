@@ -1,4 +1,4 @@
-// Settings → Harnesses: named variants of the registered harnesses, saved in config.toml.
+// Settings → Profiles: named profiles of the registered harnesses, saved in config.toml.
 // Variable descriptions, defaults and templates come from the adapters (`GET /api/harnesses`).
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -6,9 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import type { EnvVarDoc } from "@/gen/EnvVarDoc";
 import type { HarnessDescriptor } from "@/gen/HarnessDescriptor";
 import type { HarnessKind } from "@/gen/HarnessKind";
-import type { HarnessVariant } from "@/gen/HarnessVariant";
+import type { Profile } from "@/gen/Profile";
 import type { SpendLimit } from "@/gen/SpendLimit";
-import type { VariantTemplate } from "@/gen/VariantTemplate";
+import type { ProfileTemplate } from "@/gen/ProfileTemplate";
 import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { ModelSearch } from "@/components/ModelSearch";
@@ -18,12 +18,12 @@ import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { useConfig, useHarnessDefaults, useStatus, type ConfigResponse } from "@/lib/queries";
-import { parseUsd, usesModelReference, useVariantModels } from "@/lib/variants";
+import { parseUsd, usesModelReference, useProfileModels } from "@/lib/profiles";
 import { Card, SaveBar, SettingsPage } from "./SettingsView";
 import { SignInCard } from "./SignInCard";
 
-/** Editable form of a variant: environment rows keep their order and allow empty names while typing. */
-type Draft = Omit<HarnessVariant, "env" | "budget_usd" | "spend_limits"> & { env: [string, string][]; budget: string; limits: LimitDraft[]; saved: boolean; template: VariantTemplate | null };
+/** Editable form of a profile: environment rows keep their order and allow empty names while typing. */
+type Draft = Omit<Profile, "env" | "budget_usd" | "spend_limits"> & { env: [string, string][]; budget: string; limits: LimitDraft[]; saved: boolean; template: ProfileTemplate | null };
 
 /** A rolling spending limit while typing: amount, window length and unit. */
 type LimitDraft = { usd: string; count: string; unit: Unit };
@@ -43,13 +43,13 @@ function parseLimit(l: LimitDraft): SpendLimit | undefined {
   return usd && Number.isInteger(count) && hours >= 1 && hours <= 744 ? { usd, hours } : undefined;
 }
 
-const toDraft = (v: HarnessVariant): Draft => ({ ...v, env: Object.entries(v.env).map(([k, x]) => [k, x ?? ""]), budget: v.budget_usd == null ? "" : String(v.budget_usd), limits: v.spend_limits.map(toLimitDraft), saved: true, template: null });
+const toDraft = (v: Profile): Draft => ({ ...v, env: Object.entries(v.env).map(([k, x]) => [k, x ?? ""]), budget: v.budget_usd == null ? "" : String(v.budget_usd), limits: v.spend_limits.map(toLimitDraft), saved: true, template: null });
 
-/** Key order does not matter in the comparison with the saved variants. */
-const canonical = (v: HarnessVariant) => [v.id, v.name, v.harness, Object.entries(v.env).sort(), v.model, v.effort, v.billing, v.budget_usd, v.models_url, v.spend_limits.map((l) => [l.usd, l.hours])];
+/** Key order does not matter in the comparison with the saved profiles. */
+const canonical = (v: Profile) => [v.id, v.name, v.harness, Object.entries(v.env).sort(), v.model, v.effort, v.billing, v.budget_usd, v.models_url, v.spend_limits.map((l) => [l.usd, l.hours])];
 
 function slug(name: string, taken: string[]) {
-  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "variant";
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "profile";
   let id = base;
   for (let i = 2; taken.includes(id); i++) id = `${base}-${i}`;
   return id;
@@ -60,8 +60,8 @@ const lowerHalf = (e: React.MouseEvent) => e.currentTarget.getBoundingClientRect
 
 /** The first reason a draft cannot be saved. */
 function problem(d: Draft): string | null {
-  const label = d.name.trim() || "each variant";
-  if (!d.name.trim()) return "Each variant needs a name.";
+  const label = d.name.trim() || "each profile";
+  if (!d.name.trim()) return "Each profile needs a name.";
   if (parseUsd(d.budget) === undefined) return `Fix the cost limit of ${label}.`;
   if (d.limits.some((l) => !parseLimit(l))) return `Fix the spending limits of ${label}: a positive amount per 1 hour to 31 days.`;
   if (d.env.some(([k]) => !k.trim())) return `Name every environment variable of ${label}.`;
@@ -72,29 +72,29 @@ function problem(d: Draft): string | null {
   return null;
 }
 
-export function HarnessesView() {
+export function ProfilesView() {
   const q = useConfig();
   const qc = useQueryClient();
   const harnesses = useHarnesses();
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
   useEffect(() => {
-    if (q.data && !drafts) setDrafts(q.data.config.variants.map(toDraft));
+    if (q.data && !drafts) setDrafts(q.data.config.profiles.map(toDraft));
   }, [q.data, drafts]);
   if (!drafts || !q.data) return <SettingsPage><div className="text-ink-3">Loading…</div></SettingsPage>;
   const saved = q.data.config;
   const invalid = drafts.map(problem).find(Boolean) ?? null;
-  const toVariants = (list: Draft[]): HarnessVariant[] => list.map(({ env, budget, limits, saved: _, template: __, ...v }) => ({
+  const toProfiles = (list: Draft[]): Profile[] => list.map(({ env, budget, limits, saved: _, template: __, ...v }) => ({
     ...v,
     name: v.name.trim(),
     env: Object.fromEntries(env.map(([k, x]) => [k.trim(), x])),
     budget_usd: harnesses.find((h) => h.id === v.harness)?.capabilities.cost ? (parseUsd(budget) ?? null) : null,
     models_url: v.models_url?.trim() || null,
-    // Limits apply only to pay-as-you-go variants of harnesses that report costs.
+    // Limits apply only to pay-as-you-go profiles of harnesses that report costs.
     spend_limits: v.billing === "pay_as_you_go" && harnesses.find((h) => h.id === v.harness)?.capabilities.cost ? limits.map(parseLimit).filter((l): l is SpendLimit => !!l) : [],
   }));
-  const dirty = JSON.stringify(toVariants(drafts).map(canonical)) !== JSON.stringify(saved.variants.map(canonical));
+  const dirty = JSON.stringify(toProfiles(drafts).map(canonical)) !== JSON.stringify(saved.profiles.map(canonical));
   const save = async () => {
-    // New variants get a stable ID from their name; saved IDs never change.
+    // New profiles get a stable ID from their name; saved IDs never change.
     const taken = drafts.filter((d) => d.id).map((d) => d.id);
     const list = drafts.map((d) => {
       if (d.id) return d;
@@ -103,24 +103,24 @@ export function HarnessesView() {
       return { ...d, id };
     });
     try {
-      const res = await api.put<ConfigResponse>("/api/config", { ...saved, variants: toVariants(list) });
+      const res = await api.put<ConfigResponse>("/api/config", { ...saved, profiles: toProfiles(list) });
       qc.setQueryData(["config"], res);
-      setDrafts(res.config.variants.map(toDraft));
-      toast("Harness variants saved");
+      setDrafts(res.config.profiles.map(toDraft));
+      toast("Harness profiles saved");
     } catch (e) {
       toastError(e);
     }
   };
   const setAt = (i: number, f: (d: Draft) => Draft) => setDrafts((all) => all && all.map((d, j) => (j === i ? f(d) : d)));
-  const add = (h: HarnessDescriptor, t: VariantTemplate | null) => {
+  const add = (h: HarnessDescriptor, t: ProfileTemplate | null) => {
     const taken = drafts.map((d) => d.name.trim());
     let name = t?.name ?? "";
     for (let i = 2; name && taken.includes(name); i++) name = `${t!.name} ${i}`;
     const billing = t?.billing ?? (h.capabilities.quota ? "subscription" : "pay_as_you_go");
     setDrafts((all) => all && [...all, { id: "", name, harness: h.id, env: t ? t.env.map(([k, v]) => [k, v]) : [], model: null, effort: null, billing, budget: "", limits: [], models_url: t?.models_url ?? null, saved: false, template: t }]);
   };
-  const templates = harnesses.flatMap((h) => h.variant_templates.map((t) => ({ h, t })));
-  const templateItem = ({ h, t }: { h: HarnessDescriptor; t: VariantTemplate }, close?: () => void) => (
+  const templates = harnesses.flatMap((h) => h.profile_templates.map((t) => ({ h, t })));
+  const templateItem = ({ h, t }: { h: HarnessDescriptor; t: ProfileTemplate }, close?: () => void) => (
     <MenuItem key={`${h.id}/${t.name}`} icon={<HarnessMark harness={h.id} size={14} />} label={`${h.name} · ${t.name}`} detail={t.description} onClick={() => (add(h, t), close?.())} />
   );
 
@@ -129,40 +129,40 @@ export function HarnessesView() {
       <SignInCard />
       {q.data.error && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">config.toml has an error, the previous settings are in use: {q.data.error}</div>}
       <Card
-        title="Harness variants"
+        title="Harness profiles"
         end={
-          <Popover align="right" width={380} trigger={({ toggle }) => <button className="btn btn-sm" onClick={toggle}><Icon name="plus" size={12} />New variant<Icon name="chev" size={11} /></button>}>
+          <Popover align="right" width={380} trigger={({ toggle }) => <button className="btn btn-sm" onClick={toggle}><Icon name="plus" size={12} />New profile<Icon name="chev" size={11} /></button>}>
             {(close) => (
               <>
                 <div className="px-2 pt-1 pb-0.5 text-[11px] font-semibold text-ink-3 uppercase">Templates</div>
                 {templates.map((x) => templateItem(x, close))}
                 <div className="px-2 pt-2 pb-0.5 text-[11px] font-semibold text-ink-3 uppercase">Blank</div>
-                {harnesses.map((h) => <MenuItem key={h.id} icon={<HarnessMark harness={h.id} size={14} />} label={`${h.name} · blank variant`} detail="Choose the environment variables yourself" onClick={() => (add(h, null), close())} />)}
+                {harnesses.map((h) => <MenuItem key={h.id} icon={<HarnessMark harness={h.id} size={14} />} label={`${h.name} · blank profile`} detail="Choose the environment variables yourself" onClick={() => (add(h, null), close())} />)}
               </>
             )}
           </Popover>
         }
       >
-        <p className="text-[12.5px] text-ink-2">A variant runs a registered harness with its own environment variables, default model and effort, and billing mode. It appears beside the harnesses in the composer. Use it for another account, an API key or another model provider. Values are saved in config.toml (readable only by you); sessions store the variant ID, so deleting or renaming the ID prevents resuming them.</p>
+        <p className="text-[12.5px] text-ink-2">A profile runs a registered harness with its own environment variables, default model and effort, and billing mode. It appears beside the harnesses in the composer. Use it for another account, an API key or another model provider. Values are saved in config.toml (readable only by you); sessions store the profile ID, so deleting or renaming the ID prevents resuming them.</p>
         {drafts.length === 0 && (
           <div className="grid gap-1.5">
-            <div className="text-xs text-ink-3">No variant yet. Start from a template:</div>
+            <div className="text-xs text-ink-3">No profile yet. Start from a template:</div>
             <div className="grid gap-px rounded-lg border border-line p-[5px]">{templates.map((x) => templateItem(x))}</div>
           </div>
         )}
-        {drafts.map((d, i) => <VariantEditor key={i} draft={d} onChange={(f) => setAt(i, f)} onDelete={() => setDrafts((all) => all && all.filter((_, j) => j !== i))} />)}
+        {drafts.map((d, i) => <ProfileEditor key={i} draft={d} onChange={(f) => setAt(i, f)} onDelete={() => setDrafts((all) => all && all.filter((_, j) => j !== i))} />)}
       </Card>
-      <SaveBar dirty={dirty} invalid={invalid} onSave={() => void save()} onRevert={() => setDrafts(saved.variants.map(toDraft))} />
+      <SaveBar dirty={dirty} invalid={invalid} onSave={() => void save()} onRevert={() => setDrafts(saved.profiles.map(toDraft))} />
     </SettingsPage>
   );
 }
 
-function VariantEditor({ draft: d, onChange, onDelete }: { draft: Draft; onChange: (f: (d: Draft) => Draft) => void; onDelete: () => void }) {
+function ProfileEditor({ draft: d, onChange, onDelete }: { draft: Draft; onChange: (f: (d: Draft) => Draft) => void; onDelete: () => void }) {
   const harnesses = useHarnesses();
   const harness = harnesses.find((h) => h.id === d.harness);
   const defaults = useHarnessDefaults(d.harness).data;
   const ownModels = !!d.models_url?.trim();
-  const providerModels = useVariantModels(ownModels ? d.models_url!.trim() : null);
+  const providerModels = useProfileModels(ownModels ? d.models_url!.trim() : null);
   const model = defaults?.models.find((m) => m.id === (d.model ?? defaults?.model));
   const efforts = ownModels ? [] : model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
   const budgetValid = parseUsd(d.budget) !== undefined;
@@ -170,7 +170,7 @@ function VariantEditor({ draft: d, onChange, onDelete }: { draft: Draft; onChang
   const row = "grid grid-cols-1 @min-[480px]:grid-cols-[130px_1fr] items-start gap-3 text-[12.5px]";
   const ref = useRef<HTMLDivElement>(null);
   const [modelUp, setModelUp] = useState(false);
-  // A new variant is added at the end of the list: bring it into view.
+  // A new profile is added at the end of the list: bring it into view.
   useEffect(() => {
     if (!d.saved) ref.current?.scrollIntoView({ block: "start", behavior: "smooth" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -180,9 +180,9 @@ function VariantEditor({ draft: d, onChange, onDelete }: { draft: Draft; onChang
     <div ref={ref} className="@container grid scroll-mt-4 gap-2.5 rounded-lg border border-line p-3">
       <div className="flex flex-wrap items-center gap-2">
         {harness && <HarnessMark harness={d.harness} size={16} />}
-        <input className={`field-input h-[30px] min-w-0 flex-1 basis-[180px] font-semibold ${d.name.trim() ? "" : "border-attn-line!"}`} aria-label="Variant name" placeholder="Name shown in the composer, for example Claude · work" value={d.name} onChange={(e) => onChange((x) => ({ ...x, name: e.target.value }))} />
+        <input className={`field-input h-[30px] min-w-0 flex-1 basis-[180px] font-semibold ${d.name.trim() ? "" : "border-attn-line!"}`} aria-label="Profile name" placeholder="Name shown in the composer, for example Claude · work" value={d.name} onChange={(e) => onChange((x) => ({ ...x, name: e.target.value }))} />
         <span className="text-xs text-ink-3">{d.saved ? <>ID <code className="font-mono">{d.id}</code></> : "ID set on save"}</span>
-        <button className="iconbtn" title="Delete variant" onClick={onDelete}><Icon name="trash" size={14} /></button>
+        <button className="iconbtn" title="Delete profile" onClick={onDelete}><Icon name="trash" size={14} /></button>
       </div>
       {d.template && !d.saved && (
         <div className="grid gap-1.5 rounded-md bg-chrome px-3 py-2 text-xs text-ink-2">
@@ -200,7 +200,7 @@ function VariantEditor({ draft: d, onChange, onDelete }: { draft: Draft; onChang
       <div className={row}>
         <b className="pt-1 font-[650]">Harness</b>
         <span className="flex flex-wrap gap-1.5">
-          {harnesses.map((h) => <button key={h.id} disabled={d.saved} title={d.saved ? "Saved sessions depend on the base harness; create another variant to change it" : undefined} className={`btn btn-sm ${d.harness === h.id ? "bg-select! font-semibold" : ""}`} onClick={() => setHarness(h)}><HarnessMark harness={h.id} size={14} />{h.name}</button>)}
+          {harnesses.map((h) => <button key={h.id} disabled={d.saved} title={d.saved ? "Saved sessions depend on the base harness; create another profile to change it" : undefined} className={`btn btn-sm ${d.harness === h.id ? "bg-select! font-semibold" : ""}`} onClick={() => setHarness(h)}><HarnessMark harness={h.id} size={14} />{h.name}</button>)}
         </span>
       </div>
       <div className={row}>
@@ -257,7 +257,7 @@ function VariantEditor({ draft: d, onChange, onDelete }: { draft: Draft; onChang
         <b className="pt-1 font-[650]">Model list</b>
         <span className="grid gap-1">
           <input className="field-input h-[28px] min-w-0 font-mono text-xs" aria-label="Model list URL" placeholder="Optional: https://…/v1/models" value={d.models_url ?? ""} onChange={(e) => onChange((x) => ({ ...x, models_url: e.target.value || null }))} />
-          <span className="text-xs text-ink-3">An OpenAI-compatible model list whose models replace the {harness?.name ?? "harness"} models in the composer, for a variant that uses another provider.{providerModels.data ? ` ${providerModels.data.length} models with tool use.` : ""}</span>
+          <span className="text-xs text-ink-3">An OpenAI-compatible model list whose models replace the {harness?.name ?? "harness"} models in the composer, for a profile that uses another provider.{providerModels.data ? ` ${providerModels.data.length} models with tool use.` : ""}</span>
         </span>
       </div>
       <div className={row}>
@@ -322,9 +322,9 @@ function AddVariable({ harness, docs, used, onAdd }: { harness: HarnessKind; doc
   );
 }
 
-/** Rolling limits over all sessions of the variant, with the spending reported in each window now. */
+/** Rolling limits over all sessions of the profile, with the spending reported in each window now. */
 function SpendLimits({ draft: d, onChange }: { draft: Draft; onChange: (limits: LimitDraft[]) => void }) {
-  const spend = useStatus().data?.spend.find((v) => v.variant === d.id && d.saved);
+  const spend = useStatus().data?.spend.find((v) => v.profile === d.id && d.saved);
   const set = (j: number, f: (l: LimitDraft) => LimitDraft) => onChange(d.limits.map((l, n) => (n === j ? f(l) : l)));
   return (
     <span className="grid gap-1.5">
@@ -348,7 +348,7 @@ function SpendLimits({ draft: d, onChange }: { draft: Draft; onChange: (limits: 
         );
       })}
       {d.limits.length < 4 && <button className="btn btn-sm w-fit" onClick={() => onChange([...d.limits, d.limits.length ? { usd: "200", count: "1", unit: "weeks" } : { usd: "50", count: "5", unit: "hours" }])}><Icon name="plus" size={12} />Add limit</button>}
-      <span className="text-xs text-ink-3">Rolling windows over the reported cost of all sessions of this variant, shown in the status bar. At a limit, new turns are refused and running turns stop (best effort) until older costs leave the window or you raise the limit. Costs are those reported by the harness, so the provider bill may differ.</span>
+      <span className="text-xs text-ink-3">Rolling windows over the reported cost of all sessions of this profile, shown in the status bar. At a limit, new turns are refused and running turns stop (best effort) until older costs leave the window or you raise the limit. Costs are those reported by the harness, so the provider bill may differ.</span>
     </span>
   );
 }

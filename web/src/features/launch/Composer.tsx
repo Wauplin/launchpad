@@ -15,7 +15,7 @@ import type { AgentTraceRef } from "@/gen/AgentTraceRef";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { HarnessKind } from "@/gen/HarnessKind";
-import type { HarnessVariant } from "@/gen/HarnessVariant";
+import type { Profile } from "@/gen/Profile";
 import { attachmentSrc, isImageAttachment, pastedImages, readAttachments } from "@/lib/attachments";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
@@ -27,7 +27,7 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
 import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/queries";
-import { parseUsd, usd, usesModelReference, useVariantModels, useVariants } from "@/lib/variants";
+import { parseUsd, usd, usesModelReference, useProfileModels, useProfiles } from "@/lib/profiles";
 import { ModelSearch } from "@/components/ModelSearch";
 import { findModel, pickModel, ProviderPicker } from "@/components/ProviderPicker";
 import { useScope } from "@/lib/workspace";
@@ -244,11 +244,11 @@ export function Composer() {
   useEffect(() => setPillSlot(document.getElementById("draft-pill-slot")), []);
   const defaults = useHarnessDefaults(spec.harness).data;
   const harness = useHarnessInfo(spec.harness);
-  const variants = useVariants();
-  const variant = variants.find((v) => v.id === spec.variant) ?? null;
-  const payg = variant?.billing === "pay_as_you_go";
-  // Variants pointing at another provider list that provider's models instead of the harness ones.
-  const providerModels = useVariantModels(variant?.models_url);
+  const profiles = useProfiles();
+  const profile = profiles.find((v) => v.id === spec.profile) ?? null;
+  const payg = profile?.billing === "pay_as_you_go";
+  // Profiles pointing at another provider list that provider's models instead of the harness ones.
+  const providerModels = useProfileModels(profile?.models_url);
   const [budgetText, setBudgetText] = useState<string | null>(null);
   // Typed text is kept only while editing; reopening shows the draft's limit.
   useEffect(() => setBudgetText(null), [open]);
@@ -320,7 +320,7 @@ export function Composer() {
 
   const refreshingModels = refreshModels.isPending || providerModels.isFetching;
   const refreshModelList = () => {
-    if (variant?.models_url) void providerModels.refetch().then((r) => (r.isError ? toastError(r.error) : toast(`${variant.name} models refreshed`)));
+    if (profile?.models_url) void providerModels.refetch().then((r) => (r.isError ? toastError(r.error) : toast(`${profile.name} models refreshed`)));
     else if (spec.harness && !refreshingModels) refreshModels.mutate(spec.harness);
   };
   const set = (f: (s: LaunchSpec) => LaunchSpec) => update(f);
@@ -328,17 +328,17 @@ export function Composer() {
   const repo = target?.gh_repo ?? target?.gh_upstream ?? null;
   const inScope = (p: Project) => Number(!!scope.workspace && scope.hasProject(p.id));
   const sorted = [...projects.filter((p) => !p.is_temp)].sort((a, b) => inScope(b) - inScope(a) || Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
-  const ownModels = !!variant?.models_url;
-  // The model used when none is chosen for this launch; a provider variant has only its own default.
-  const fallbackModel = variant?.model ?? (ownModels ? null : defaults?.model) ?? null;
+  const ownModels = !!profile?.models_url;
+  // The model used when none is chosen for this launch; a provider profile has only its own default.
+  const fallbackModel = profile?.model ?? (ownModels ? null : defaults?.model) ?? null;
   const fallbackModelLabel = fallbackModel ?? (ownModels ? "none, choose one" : "harness default");
   const model = ownModels ? findModel(providerModels.data, spec.model ?? fallbackModel) : defaults?.models.find((m) => m.id === (spec.model ?? fallbackModel));
   const efforts = ownModels ? [] : model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
-  const modelMissing = !spec.model && !fallbackModel && !!variant && usesModelReference(Object.entries(variant.env));
+  const modelMissing = !spec.model && !fallbackModel && !!profile && usesModelReference(Object.entries(profile.env));
   const scheduled = conditions.length > 0;
   const budgetInput = budgetText ?? (spec.budget_usd != null ? String(spec.budget_usd) : "");
   const budgetValid = parseUsd(budgetInput) !== undefined;
-  const missingVariant = !!spec.variant && !variant;
+  const missingProfile = !!spec.profile && !profile;
   // The daemon renders and checks the prompt at launch; Launch does not wait for a preview.
   const hasPrompt = !!spec.text.trim() || items > 0 || spec.presets.length > 0;
   // The host follows from the project: harnesses missing or signed out there cannot launch.
@@ -346,7 +346,7 @@ export function Composer() {
   const hostStatus = targetHost ? (hosts.find((h) => h.host.id === targetHost) ?? null) : null;
   const hostHarness = (id: string | null | undefined) => (id ? harnessOnHost(hostStatus, id) : null);
   const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Hosts` : hostHarness(spec.harness)?.ok === false ? hostHarness(spec.harness)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context projects must be on the same machine as the project" : null;
-  const blocker = hostBlocker ? hostBlocker : !spec.harness ? "Pick a harness in the options" : missingVariant ? "The harness variant no longer exists" : modelMissing ? `Choose a model for ${variant!.name}` : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const blocker = hostBlocker ? hostBlocker : !spec.harness ? "Pick a harness in the options" : missingProfile ? "The harness profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
@@ -439,13 +439,13 @@ export function Composer() {
     );
   }
 
-  const harnessOptions = [...harnesses.map((h) => ({ key: h.id, harness: h.id, variant: null as HarnessVariant | null, label: h.name })), ...variants.map((v) => ({ key: `variant:${v.id}`, harness: v.harness, variant: v, label: v.name }))];
+  const harnessOptions = [...harnesses.map((h) => ({ key: h.id, harness: h.id, profile: null as Profile | null, label: h.name })), ...profiles.map((v) => ({ key: `profile:${v.id}`, harness: v.harness, profile: v, label: v.name }))];
   const modelLabel = spec.model ?? fallbackModel ?? "default model";
-  const effortLabel = spec.effort ?? variant?.effort ?? defaults?.effort ?? null;
+  const effortLabel = spec.effort ?? profile?.effort ?? defaults?.effort ?? null;
   const worktreeMode = spec.target.kind === "project" && !!spec.worktree && gitTarget;
   const runIn = spec.target.kind === "session_folder" ? "previous agent’s folder" : spec.target.kind === "temp" ? "new folder" : spec.target.kind === "predraft" ? "pre-draft PR" : spec.target.kind === "existing_predraft" ? "existing pre-draft" : worktreeMode ? "new worktree" : spec.target.kind === "project" ? "checkout" : null;
   const baseLabel = spec.worktree?.base ?? targetBranches.data?.current ?? "current branch";
-  const billingText = payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${variant!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
+  const billingText = payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${profile!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
   const presetLabels = (config?.presets ?? []).filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
 
   return (
@@ -608,7 +608,7 @@ export function Composer() {
           />
         </div>
 
-        {missingVariant && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">The harness variant {spec.variant} no longer exists. Pick a harness or variant in the options.</div>}
+        {missingProfile && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">The harness profile {spec.profile} no longer exists. Pick a harness or profile in the options.</div>}
 
         <button
           className={`flex w-full flex-wrap items-center gap-1 rounded-lg border px-2 py-1.5 text-left ${showOptions ? "border-line bg-chrome" : "border-line bg-paper hover:border-line"}`}
@@ -616,7 +616,7 @@ export function Composer() {
           title={showOptions ? "Hide the options" : "Show the options"}
           onClick={() => setShowOptions((v) => !v)}
         >
-          <Token warn={!spec.harness || missingVariant}>{spec.harness && <HarnessMark harness={spec.harness} size={13} />}{variant?.name ?? (spec.harness ? harnessName(spec.harness) : "No harness")}</Token>
+          <Token warn={!spec.harness || missingProfile}>{spec.harness && <HarnessMark harness={spec.harness} size={13} />}{profile?.name ?? (spec.harness ? harnessName(spec.harness) : "No harness")}</Token>
           <Token>{modelLabel}</Token>
           {!!efforts.length && effortLabel && <Token>{effortLabel}</Token>}
           {harness?.capabilities.permission_modes && <Token>{spec.permission_mode === "auto" ? "Auto approval" : spec.permission_mode === "approvals" ? "Ask for approval" : "YOLO"}</Token>}
@@ -637,16 +637,16 @@ export function Composer() {
               {harnessOptions.map((o) => (
                 <button
                   key={o.key}
-                  title={hostHarness(o.harness)?.ok === false ? hostHarness(o.harness)!.reason : o.variant ? `${harnessName(o.harness)} variant${o.variant.billing === "pay_as_you_go" ? " · pay as you go" : ""}` : undefined}
+                  title={hostHarness(o.harness)?.ok === false ? hostHarness(o.harness)!.reason : o.profile ? `${harnessName(o.harness)} profile${o.profile.billing === "pay_as_you_go" ? " · pay as you go" : ""}` : undefined}
                   disabled={hostHarness(o.harness)?.ok === false}
                   onClick={() => { setBudgetText(null); set((s) => {
-                    const same = s.harness === o.harness && (s.variant ?? null) === (o.variant?.id ?? null);
+                    const same = s.harness === o.harness && (s.profile ?? null) === (o.profile?.id ?? null);
                     const cost = harnesses.find((h) => h.id === o.harness)?.capabilities.cost;
-                    const run = same ? { model: s.model, effort: s.effort, permission_mode: s.permission_mode } : rememberedRun(o.harness, o.variant?.id ?? null);
-                    return { ...s, harness: o.harness, variant: o.variant?.id ?? null, ...run, budget_usd: same ? s.budget_usd : cost ? (o.variant?.budget_usd ?? null) : null };
+                    const run = same ? { model: s.model, effort: s.effort, permission_mode: s.permission_mode } : rememberedRun(o.harness, o.profile?.id ?? null);
+                    return { ...s, harness: o.harness, profile: o.profile?.id ?? null, ...run, budget_usd: same ? s.budget_usd : cost ? (o.profile?.budget_usd ?? null) : null };
                   }); }}
                   className={`inline-flex h-[26px] shrink-0 items-center disabled:cursor-not-allowed disabled:opacity-45 gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[12.5px] ${
-                    spec.harness === o.harness && (spec.variant ?? null) === (o.variant?.id ?? null) ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"
+                    spec.harness === o.harness && (spec.profile ?? null) === (o.profile?.id ?? null) ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"
                   }`}
                 >
                   <HarnessMark harness={o.harness} size={15} />
@@ -685,7 +685,7 @@ export function Composer() {
               {(closeMenu) => (
                 <>
                   <MenuItem icon={<Icon name="refresh" size={13} className={refreshingModels ? "animate-spin" : ""} />} label={refreshingModels ? "Refreshing models…" : "Refresh models"} detail="Query the selected harness again" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} />
-                  {(!ownModels || fallbackModel) && <MenuItem label={`Default (${fallbackModelLabel})`} detail={variant?.model ? `Default of ${variant.name}` : "What the agent picks on its own"} active={!spec.model} onClick={() => (set((s) => ({ ...s, model: null })), closeMenu())} />}
+                  {(!ownModels || fallbackModel) && <MenuItem label={`Default (${fallbackModelLabel})`} detail={profile?.model ? `Default of ${profile.name}` : "What the agent picks on its own"} active={!spec.model} onClick={() => (set((s) => ({ ...s, model: null })), closeMenu())} />}
                   {ownModels ? <ModelSearch models={providerModels.data ?? []} loading={providerModels.isLoading} error={providerModels.error ? String(providerModels.error.message ?? providerModels.error) : null} active={spec.model} onPick={(id) => (set((s) => ({ ...s, model: pickModel(providerModels.data, s.model ?? fallbackModel, id) })), closeMenu())} /> : <>
                   {!defaults?.models.length && <div className="px-2 py-1 text-xs text-ink-3">No models loaded. Click Refresh models to retry.</div>}
                   {(defaults?.models ?? []).map((m) => (
@@ -706,7 +706,7 @@ export function Composer() {
                 <SelectButton onClick={toggle}>
                   {spec.effort ?? (
                     <>
-                      Default <span className="text-ink-3">· {variant?.effort ?? defaults?.effort ?? "harness default"}</span>
+                      Default <span className="text-ink-3">· {profile?.effort ?? defaults?.effort ?? "harness default"}</span>
                     </>
                   )}
                 </SelectButton>
@@ -714,7 +714,7 @@ export function Composer() {
             >
               {(closeMenu) => (
                 <>
-                  <MenuItem label={`Default (${variant?.effort ?? defaults?.effort ?? "harness default"})`} active={!spec.effort} onClick={() => (set((s) => ({ ...s, effort: null })), closeMenu())} />
+                  <MenuItem label={`Default (${profile?.effort ?? defaults?.effort ?? "harness default"})`} active={!spec.effort} onClick={() => (set((s) => ({ ...s, effort: null })), closeMenu())} />
                   {efforts.map((e) => (
                     <MenuItem key={e} label={e} active={spec.effort === e} onClick={() => (set((s) => ({ ...s, effort: e })), closeMenu())} />
                   ))}

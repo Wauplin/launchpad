@@ -1,7 +1,7 @@
-// Named harness variants come from config.toml; sessions store only the variant ID.
+// Named harness profiles come from config.toml; sessions store only the profile ID.
 
 import { useQuery } from "@tanstack/react-query";
-import type { HarnessVariant } from "@/gen/HarnessVariant";
+import type { Profile } from "@/gen/Profile";
 import type { ModelInfo } from "@/gen/ModelInfo";
 import type { Session } from "@/gen/Session";
 import type { SpendWindow } from "@/gen/SpendWindow";
@@ -9,18 +9,18 @@ import { formatReset } from "./format";
 import { api } from "./api";
 import { useConfig } from "./queries";
 
-const none: HarnessVariant[] = [];
-export const useVariants = () => useConfig().data?.config.variants ?? none;
+const none: Profile[] = [];
+export const useProfiles = () => useConfig().data?.config.profiles ?? none;
 
-export function useVariant(id: string | null | undefined) {
-  return useVariants().find((v) => v.id === id) ?? null;
+export function useProfile(id: string | null | undefined) {
+  return useProfiles().find((v) => v.id === id) ?? null;
 }
 
-/** Models of a variant's OpenAI-compatible list (`models_url`), fetched by the daemon. */
-export const useVariantModels = (url: string | null | undefined) =>
+/** Models of a profile's OpenAI-compatible list (`models_url`), fetched by the daemon. */
+export const useProfileModels = (url: string | null | undefined) =>
   useQuery({
-    queryKey: ["variant-models", url],
-    queryFn: () => api.post<ModelInfo[]>("/api/variants/models", { url }),
+    queryKey: ["profile-models", url],
+    queryFn: () => api.post<ModelInfo[]>("/api/profiles/models", { url }),
     enabled: !!url,
     staleTime: 30 * 60_000,
     retry: false,

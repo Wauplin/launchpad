@@ -5,7 +5,7 @@ import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import type { QuotaWindow } from "@/gen/QuotaWindow";
 import { formatAge, resetLabel } from "@/lib/format";
 import { useStatus } from "@/lib/queries";
-import { spendLabel, spendPercent, windowLabel } from "@/lib/variants";
+import { spendLabel, spendPercent, windowLabel } from "@/lib/profiles";
 import { Sheet } from "./Sheet";
 
 function WindowUsage({ label, quota, color }: { label: string; quota: QuotaWindow | null; color: string }) {
@@ -54,7 +54,7 @@ function StatusDetails() {
       {data.spend.length > 0 && <h2 className="font-semibold">Pay-as-you-go spending limits</h2>}
       {data.spend.map((v) => {
         const color = allHarnesses.find((h) => h.id === v.harness)?.color ?? "var(--color-teal)";
-        return <section key={v.variant} aria-label={`${v.name} spending`} className="grid gap-3 rounded-lg border border-line p-3">
+        return <section key={v.profile} aria-label={`${v.name} spending`} className="grid gap-3 rounded-lg border border-line p-3">
           <h3 className="flex items-center gap-2 font-semibold"><HarnessMark harness={v.harness} size={18} />{v.name}</h3>
           {v.windows.map((w, i) => <div key={i} className="grid gap-1.5">
             <div className="flex flex-wrap justify-between gap-x-3 gap-y-1"><span>{windowLabel(w.hours)}</span><span className="font-semibold tabular-nums">{Math.round(spendPercent(w))}% used</span></div>

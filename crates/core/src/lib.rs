@@ -40,7 +40,7 @@ pub mod suggestions;
 pub mod terminals;
 mod titles;
 pub mod util;
-pub mod variants;
+pub mod profiles;
 pub mod session_git;
 pub mod workspace;
 pub mod worktrees;

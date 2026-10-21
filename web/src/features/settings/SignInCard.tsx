@@ -1,4 +1,4 @@
-// Settings → Harnesses → Sign-in: whether each harness CLI (and its variants) and the GitHub CLI are installed
+// Settings → Profiles → Sign-in: whether each harness CLI (and its profiles) and the GitHub CLI are installed
 // and signed in on the daemon host, with the command to run there once (over SSH on a server).
 
 import { useQuery } from "@tanstack/react-query";
@@ -35,11 +35,11 @@ export function SignInCard() {
           const s = state(c);
           const ok = c.cli_found && c.signed_in === true;
           return (
-            <div key={`${c.id}/${c.variant ?? ""}`} className="grid gap-1 border-b border-line-2 px-3 py-2 text-[12.5px] last:border-0">
+            <div key={`${c.id}/${c.profile ?? ""}`} className="grid gap-1 border-b border-line-2 px-3 py-2 text-[12.5px] last:border-0">
               <div className="flex flex-wrap items-center gap-2">
                 {c.id === "github" ? <Icon name="pr" size={14} /> : <HarnessMark harness={c.id} size={14} />}
                 <b className="font-[650]">{c.name}</b>
-                {c.variant && <span className="text-xs text-ink-3">variant</span>}
+                {c.profile && <span className="text-xs text-ink-3">profile</span>}
                 <span className={`ml-auto text-xs font-semibold ${s.tone}`}>{s.label}</span>
               </div>
               {c.detail && <div className="truncate text-xs text-ink-3" title={c.detail}>{c.detail}</div>}
@@ -54,7 +54,7 @@ export function SignInCard() {
           );
         })}
       </div>
-      <p className="text-xs text-ink-3">Variants with their own environment are checked with it. Git push also needs credentials on the daemon host (SSH keys or <code className="font-mono">gh auth setup-git</code>).</p>
+      <p className="text-xs text-ink-3">Profiles with their own environment are checked with it. Git push also needs credentials on the daemon host (SSH keys or <code className="font-mono">gh auth setup-git</code>).</p>
     </Card>
   );
 }

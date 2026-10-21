@@ -1,4 +1,4 @@
-//! Host setup helpers used from a browser: sign-in checks (Settings → Harnesses) and Clone from GitHub.
+//! Host setup helpers used from a browser: sign-in checks (Settings → Profiles) and Clone from GitHub.
 use crate::{Server, error::{ApiError, ApiResult}};
 use axum::{Json, Router, extract::State, routing::get};
 use launchpad_core::{model::Project, project_clone, signin, workspace};

@@ -993,7 +993,7 @@ const fn var(name: &'static str, group: &'static str, description: &'static str,
 
 /// From https://developers.openai.com/codex/config-reference and the Codex source (October 2026).
 /// Codex reads its provider, base URL and model from `config.toml`, not from the environment:
-/// a variant with another provider uses its own `CODEX_HOME`.
+/// a profile with another provider uses its own `CODEX_HOME`.
 const ENV_VARS: &[super::EnvVarDoc] = &[
     var("CODEX_HOME", "Account", "Folder with config.toml, sign-in (auth.json), history and logs. Use one folder per account or provider; sign in once with: CODEX_HOME=<folder> codex login", Some("~/.codex"), None, false),
     var("CODEX_SQLITE_HOME", "Account", "Folder of the SQLite state database.", Some("$CODEX_HOME"), None, false),
@@ -1007,8 +1007,8 @@ const ENV_VARS: &[super::EnvVarDoc] = &[
     var("RUST_LOG", "Debugging", "Log filter of the Codex process, written under CODEX_HOME/log.", None, Some("codex_core=debug"), false),
 ];
 
-const VARIANT_TEMPLATES: &[super::VariantTemplate] = &[
-    super::VariantTemplate {
+const PROFILE_TEMPLATES: &[super::ProfileTemplate] = &[
+    super::ProfileTemplate {
         name: "Another Codex account",
         description: "A second ChatGPT account or an OpenAI API key, with its own sign-in in a separate CODEX_HOME. Put a custom model provider in its config.toml.",
         setup: Some("Sign in once in a terminal (add --with-api-key to use an API key):"),
@@ -1035,13 +1035,13 @@ pub const REGISTRATION: super::Registration = super::Registration {
             cost: false,
         },
         env_vars: ENV_VARS,
-        variant_templates: VARIANT_TEMPLATES,
+        profile_templates: PROFILE_TEMPLATES,
     },
     create: |env| {
         Arc::new(Adapter {
             env: env.clone(),
             server: CodexServer::new(env.clone()),
-            variant_servers: Mutex::default(),
+            profile_servers: Mutex::default(),
             threads: Arc::default(),
         })
     },
@@ -1051,15 +1051,15 @@ pub const REGISTRATION: super::Registration = super::Registration {
             || key == "CODEX_SANDBOX_NETWORK_DISABLED"
     },
 };
-/// A host (None: this computer) and variant environment.
-type VariantEnv = (Option<String>, Vec<(String, String)>);
+/// A host (None: this computer) and profile environment.
+type ProfileEnv = (Option<String>, Vec<(String, String)>);
 pub struct Adapter {
     env: crate::shellenv::UserEnv,
     /// The shared app-server, also used for quotas and models.
     server: CodexServer,
-    /// One app-server per host and distinct variant environment (`CODEX_HOME`, API keys), started on first
+    /// One app-server per host and distinct profile environment (`CODEX_HOME`, API keys), started on first
     /// use, with its own thread routes: an app-server exit only ends its own threads.
-    variant_servers: Mutex<HashMap<VariantEnv, (CodexServer, Threads)>>,
+    profile_servers: Mutex<HashMap<ProfileEnv, (CodexServer, Threads)>>,
     threads: Threads,
 }
 #[async_trait]
@@ -1089,7 +1089,7 @@ impl super::Harness for Adapter {
             return start(&self.server, &self.threads, spec, sink).await;
         }
         let (server, threads) = {
-            let mut servers = self.variant_servers.lock().unwrap();
+            let mut servers = self.profile_servers.lock().unwrap();
             servers.entry((spec.host.clone(), spec.env.clone())).or_insert_with(|| {
                 let server = CodexServer::new(self.env.on(spec.host.as_deref()).with(&spec.env));
                 let threads = Threads::default();

@@ -19,7 +19,7 @@ import { copyText } from "@/lib/clipboard";
 import { formatAge } from "@/lib/format";
 import { useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { conditionsSummary, DelaySelector } from "@/features/launch/DelaySelector";
-import { budgetReached, parseUsd, usd, useVariant } from "@/lib/variants";
+import { budgetReached, parseUsd, usd, useProfile } from "@/lib/profiles";
 import { compact, statusInfo, STYLES } from "./SessionBits";
 import type { Row } from "./rows";
 import type { Suggestion } from "@/gen/Suggestion";
@@ -130,7 +130,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   if (s.usage.cost_usd != null) metadata.push(["Reported cost", `$${s.usage.cost_usd.toFixed(2)}${tokens ? ` · ${compact(tokens)} tokens` : ""}`]);
   else if (tokens) metadata.push(["Tokens", compact(tokens)]);
   const contextShare = s.usage.context_tokens != null && s.usage.context_window ? `${Math.round(100 * s.usage.context_tokens / s.usage.context_window)}% context` : null;
-  if (s.launch_spec.variant) metadata.push(["Harness", <VariantLabel session={s} />]);
+  if (s.launch_spec.profile) metadata.push(["Harness", <ProfileLabel session={s} />]);
   if (supportsCost) metadata.push(["Cost limit", <CostLimit session={s} />]);
   metadata.push(["Model", <span className="inline-flex flex-wrap items-center gap-2"><ModelSwitch session={s} />{contextShare}</span>]);
   if (useHarnessInfo(s.harness)?.capabilities.permission_modes) metadata.push(["Permissions", <PermissionSwitch session={s} />]);
@@ -172,7 +172,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
 export function PaidUsageToggle({ session: s, badge = false }: { session: Session; badge?: boolean }) {
   const supportsQuota = useHarnessInfo(s.harness)?.capabilities.quota ?? false;
   const supportsCost = useHarnessInfo(s.harness)?.capabilities.cost ?? false;
-  const variant = useVariant(s.launch_spec.variant);
+  const profile = useProfile(s.launch_spec.profile);
   const [busy, setBusy] = useState(false);
   const allow = s.launch_spec.allow_paid_usage;
   const set = async (value: boolean) => {
@@ -180,19 +180,19 @@ export function PaidUsageToggle({ session: s, badge = false }: { session: Sessio
     try { await api.post(`/api/sessions/${s.id}/paid-usage`, { allow: value }); } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   const off = <button className="btn btn-sm" disabled={busy} title="Pause this session at included quota limits again" onClick={() => void set(false)}>Use subscription only</button>;
-  if (variant?.billing === "pay_as_you_go") return badge ? null : <span>Pay as you go: subscription quotas are not monitored for {variant.name}. {supportsCost ? "Use the cost limit." : "This harness does not report USD costs, so no cost limit is available."}</span>;
+  if (profile?.billing === "pay_as_you_go") return badge ? null : <span>Pay as you go: subscription quotas are not monitored for {profile.name}. {supportsCost ? "Use the cost limit." : "This harness does not report USD costs, so no cost limit is available."}</span>;
   if (!supportsQuota) return badge ? null : <span>Native provider billing settings apply. Subscription quotas are not monitored by Launchpad.</span>;
   if (badge) return allow ? <span className="inline-flex items-center gap-1.5 rounded bg-attn-soft px-1.5 py-0.5 font-semibold text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]">Paid usage on{off}</span> : null;
   return <span className="inline-flex flex-wrap items-center gap-2">{allow ? <><b className="text-attn">Allowed: additional credits may be used after included quota runs out</b>{off}</> : <>Subscription only: quota protection enabled (best effort)<button className="btn btn-sm" disabled={busy} title="Allow additional credits after included quota runs out. A quota-paused session still waits for Resume." onClick={() => void set(true)}>Allow paid usage</button></>}</span>;
 }
 
-/** The base harness and variant name; a deleted variant is shown as such, since resuming it fails. */
-export function VariantLabel({ session: s }: { session: Session }) {
-  const variant = useVariant(s.launch_spec.variant);
+/** The base harness and profile name; a deleted profile is shown as such, since resuming it fails. */
+export function ProfileLabel({ session: s }: { session: Session }) {
+  const profile = useProfile(s.launch_spec.profile);
   const name = useHarnessName()(s.harness);
-  if (!s.launch_spec.variant) return null;
-  if (!variant) return <span className="text-attn">{name} · variant {s.launch_spec.variant} no longer exists; add it again in Settings → Harnesses to resume</span>;
-  return <span>{name} · {variant.name}{variant.billing === "pay_as_you_go" ? " · pay as you go" : ""}</span>;
+  if (!s.launch_spec.profile) return null;
+  if (!profile) return <span className="text-attn">{name} · profile {s.launch_spec.profile} no longer exists; add it again in Settings → Profiles to resume</span>;
+  return <span>{name} · {profile.name}{profile.billing === "pay_as_you_go" ? " · pay as you go" : ""}</span>;
 }
 
 /** The session cost limit with an editor. `badge` renders a compact header button, only when a limit is set. */

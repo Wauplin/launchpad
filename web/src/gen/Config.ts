@@ -2,8 +2,8 @@
 import type { Agents } from "./Agents";
 import type { Commands } from "./Commands";
 import type { GitHub } from "./GitHub";
-import type { HarnessVariant } from "./HarnessVariant";
 import type { Preset } from "./Preset";
+import type { Profile } from "./Profile";
 import type { ServerConfig } from "./ServerConfig";
 import type { Worktrees } from "./Worktrees";
 
@@ -19,4 +19,4 @@ remove_published_worktree: boolean, server: ServerConfig, commands: Commands, gi
 /**
  * Named harness settings, selectable in the composer beside the base harnesses.
  */
-variants: Array<HarnessVariant>, };
+profiles: Array<Profile>, };

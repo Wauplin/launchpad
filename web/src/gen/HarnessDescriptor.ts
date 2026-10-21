@@ -2,14 +2,14 @@
 import type { EnvVarDoc } from "./EnvVarDoc";
 import type { HarnessCapabilities } from "./HarnessCapabilities";
 import type { HarnessKind } from "./HarnessKind";
-import type { VariantTemplate } from "./VariantTemplate";
+import type { ProfileTemplate } from "./ProfileTemplate";
 
-export type HarnessDescriptor = { id: HarnessKind, name: string, icon_svg: string, color: string, working_message: string, capabilities: HarnessCapabilities,
+export type HarnessDescriptor = { id: HarnessKind, name: string, icon_svg: string, color: string, working_message: string, capabilities: HarnessCapabilities, 
 /**
- * Documented environment variables offered in the variant editor.
+ * Documented environment variables offered in the profile editor.
  */
-env_vars: Array<EnvVarDoc>,
+env_vars: Array<EnvVarDoc>, 
 /**
- * Ready-made variants offered by Settings → Harnesses → New variant.
+ * Ready-made profiles offered by Settings → Profiles → New profile.
  */
-variant_templates: Array<VariantTemplate>, };
+profile_templates: Array<ProfileTemplate>, };

@@ -12,35 +12,35 @@ import type { WorktreeOptions } from "./WorktreeOptions";
 /**
  * What to launch (ARCHITECTURE.md, section 9.7).
  */
-export type LaunchSpec = { permission_mode: PermissionMode,
+export type LaunchSpec = { permission_mode: PermissionMode, 
 /**
  * Permit additional paid usage after included subscription quotas are exhausted.
  */
-allow_paid_usage: boolean, harness: HarnessKind | null,
+allow_paid_usage: boolean, harness: HarnessKind | null, 
 /**
- * A named variant of `harness` from `config.toml` (environment, defaults, billing).
+ * A named profile of `harness` from `config.toml` (environment, defaults, billing).
  */
-variant: string | null,
+profile: string | null, 
 /**
  * Stop new turns once the harness-reported cumulative cost reaches this many USD.
  */
-budget_usd: number | null, target: Target,
+budget_usd: number | null, target: Target, 
 /**
  * A new Launchpad-owned Git worktree for a project target. None: run in the project checkout.
  */
-worktree: WorktreeOptions | null, text: string,
+worktree: WorktreeOptions | null, text: string, 
 /**
  * Uploaded images and files, retained with drafts and scheduled launches.
  */
-attachments: Array<FileAttachment>, presets: Array<string>, context_projects: Array<ContextProject>, github_refs: Array<GitHubRef>,
+attachments: Array<FileAttachment>, presets: Array<string>, context_projects: Array<ContextProject>, github_refs: Array<GitHubRef>, 
 /**
  * Files and line ranges added from the code viewer.
  */
-files: Array<FileRef>,
+files: Array<FileRef>, 
 /**
  * Stored trace through a fixed sequence number, selected as launch context.
  */
-agent_traces: Array<AgentTraceRef>, model: string | null, effort: string | null,
+agent_traces: Array<AgentTraceRef>, model: string | null, effort: string | null, 
 /**
  * The workspace of the window that launched it: the target project joins that workspace.
  */

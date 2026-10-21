@@ -43,7 +43,7 @@ fn capacity(app: &App, session: &Session) -> bool {
 async fn title(app: &App, session: &Session) -> Result<Option<String>> {
     // Auxiliary title costs do not appear in the session usage. Keep the prompt title
     // for PAYG or cost-limited sessions rather than starting an unaccounted request.
-    if session.launch_spec.budget_usd.is_some() || crate::variants::pay_as_you_go(app, &session.launch_spec) {
+    if session.launch_spec.budget_usd.is_some() || crate::profiles::pay_as_you_go(app, &session.launch_spec) {
         return Ok(Some(session.title.clone()));
     }
     if !capacity(app, session) { return Ok(None); }
@@ -57,7 +57,7 @@ async fn title(app: &App, session: &Session) -> Result<Option<String>> {
     let Some(mut cmd) = adapter.title_command(app, session, &cwd) else {
         return Ok(Some(session.title.clone()));
     };
-    cmd.envs(crate::variants::env(app, session.harness, &session.launch_spec, session.model.as_deref(), None)?);
+    cmd.envs(crate::profiles::env(app, session.harness, &session.launch_spec, session.model.as_deref(), None)?);
     cmd.arg(prompt).stdin(crate::exec::Io::Null);
     cmd.kill_on_drop(true);
     let output = cmd.output();

@@ -1,49 +1,49 @@
-//! Named harness variants (`[[variants]]` in `config.toml`): environment, launch defaults and billing.
+//! Named harness profiles (`[[profiles]]` in `config.toml`): environment, launch defaults and billing.
 //!
-//! Launch specs store only the variant ID; its settings are read again whenever a process starts,
+//! Launch specs store only the profile ID; its settings are read again whenever a process starts,
 //! so environment values (API keys) are never copied into `state.db`.
 use crate::{
     App,
-    config::{Billing, HarnessVariant},
+    config::{Billing, Profile},
     model::{HarnessKind, LaunchSpec, ModelInfo, ModelProvider},
 };
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
-/// The variant of a spec, checked against the harness. A missing variant is an error, never a fallback.
-pub fn resolve(app: &App, harness: HarnessKind, spec: &LaunchSpec) -> Result<Option<HarnessVariant>> {
-    let Some(id) = &spec.variant else { return Ok(None) };
-    let Some(v) = app.config.get().variant(id).cloned() else {
-        bail!("the harness variant {id:?} no longer exists in Settings → Harnesses");
+/// The profile of a spec, checked against the harness. A missing profile is an error, never a fallback.
+pub fn resolve(app: &App, harness: HarnessKind, spec: &LaunchSpec) -> Result<Option<Profile>> {
+    let Some(id) = &spec.profile else { return Ok(None) };
+    let Some(v) = app.config.get().profile(id).cloned() else {
+        bail!("the harness profile {id:?} no longer exists in Settings → Profiles");
     };
     if v.harness != harness {
-        bail!("the harness variant {:?} is based on {}, not {}", v.name, v.harness.display(), harness.display());
+        bail!("the harness profile {:?} is based on {}, not {}", v.name, v.harness.display(), harness.display());
     }
     Ok(Some(v))
 }
 
 /// Environment overrides for processes of this spec, with `~/` and `${NAME}` references expanded.
-/// `model` is the session's current model (the variant default applies when it is None) and `host`
+/// `model` is the session's current model (the profile default applies when it is None) and `host`
 /// the SSH host of the session folder.
 pub fn env(app: &App, harness: HarnessKind, spec: &LaunchSpec, model: Option<&str>, host: Option<&str>) -> Result<Vec<(String, String)>> {
     let Some(v) = resolve(app, harness, spec)? else { return Ok(vec![]) };
-    variant_env(app, &v, model.or(v.model.as_deref()), host)
+    profile_env(app, &v, model.or(v.model.as_deref()), host)
 }
 
-/// The environment of a variant, with `~/` and `${NAME}` references expanded.
-pub fn variant_env(app: &App, v: &HarnessVariant, model: Option<&str>, host: Option<&str>) -> Result<Vec<(String, String)>> {
+/// The environment of a profile, with `~/` and `${NAME}` references expanded.
+pub fn profile_env(app: &App, v: &Profile, model: Option<&str>, host: Option<&str>) -> Result<Vec<(String, String)>> {
     v.env
         .iter()
         .map(|(key, value)| {
             let value = if value.starts_with("~/") { crate::paths::expand_home(value).to_string_lossy().into_owned() } else { value.clone() };
             let value = expand(&value, |name| lookup(app, host, model, name))
-                .with_context(|| format!("{key} of the harness variant {:?}", v.name))?;
+                .with_context(|| format!("{key} of the harness profile {:?}", v.name))?;
             Ok((key.clone(), value))
         })
         .collect()
 }
 
-/// Names referenced as `${NAME}` in a variant value; malformed references are errors.
+/// Names referenced as `${NAME}` in a profile value; malformed references are errors.
 pub fn references(value: &str) -> Result<Vec<&str>> {
     let mut names = vec![];
     let mut rest = value;
@@ -80,10 +80,10 @@ fn expand(value: &str, mut lookup: impl FnMut(&str) -> Result<String>) -> Result
 /// SSH hosts, so local credentials are not copied there implicitly.
 fn lookup(app: &App, host: Option<&str>, model: Option<&str>, name: &str) -> Result<String> {
     if name == "LAUNCHPAD_MODEL" {
-        return model.map(str::to_string).context("${LAUNCHPAD_MODEL} needs a model: choose one in the composer or a default model for the variant");
+        return model.map(str::to_string).context("${LAUNCHPAD_MODEL} needs a model: choose one in the composer or a default model for the profile");
     }
     if let Some(host) = host {
-        bail!("${{{name}}} is resolved only for agents on this computer; enter the value itself to use this variant on {host}");
+        bail!("${{{name}}} is resolved only for agents on this computer; enter the value itself to use this profile on {host}");
     }
     if let Some(v) = app.env.get(name).filter(|v| !v.is_empty()) {
         return Ok(v.to_string());
@@ -154,9 +154,9 @@ pub async fn models(url: &str) -> Result<Vec<ModelInfo>> {
 
 /// Billed per use: subscription quota protection does not apply.
 pub fn pay_as_you_go(app: &App, spec: &LaunchSpec) -> bool {
-    spec.variant
+    spec.profile
         .as_deref()
-        .and_then(|id| app.config.get().variant(id).map(|v| v.billing == Billing::PayAsYouGo))
+        .and_then(|id| app.config.get().profile(id).map(|v| v.billing == Billing::PayAsYouGo))
         .unwrap_or(false)
 }
 

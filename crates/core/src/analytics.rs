@@ -8,7 +8,7 @@ pub struct AgentRun {
     #[ts(type = "number")]
     pub started_at: i64,
     pub harness: String,
-    pub variant: Option<String>,
+    pub profile: Option<String>,
     pub input_tokens: u64,
     pub cached_tokens: u64,
     pub output_tokens: u64,
@@ -17,12 +17,12 @@ pub struct AgentRun {
 /// Count each saved session once, including archived sessions. Group into local days in the UI.
 pub async fn runs(db: &crate::db::Db, from: i64, until: i64) -> Result<Vec<AgentRun>> {
     db.call(move |conn| {
-        let mut stmt = conn.prepare("SELECT started_at, harness, json_extract(launch_spec_json, '$.variant'), usage_json FROM session WHERE started_at >= ?1 AND started_at < ?2 ORDER BY started_at, id")?;
+        let mut stmt = conn.prepare("SELECT started_at, harness, coalesce(json_extract(launch_spec_json, '$.profile'), json_extract(launch_spec_json, '$.variant')), usage_json FROM session WHERE started_at >= ?1 AND started_at < ?2 ORDER BY started_at, id")?;
         Ok(stmt.query_map(rusqlite::params![from, until], |row| {
             let stored: Option<String> = row.get(3)?;
             let usage = stored.and_then(|s| serde_json::from_str::<crate::model::Usage>(&s).ok()).unwrap_or_default();
             Ok(AgentRun {
-                started_at: row.get(0)?, harness: row.get(1)?, variant: row.get(2)?,
+                started_at: row.get(0)?, harness: row.get(1)?, profile: row.get(2)?,
                 input_tokens: usage.input_tokens, cached_tokens: usage.cached_tokens, output_tokens: usage.output_tokens,
             })
         })?.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -41,8 +41,8 @@ mod tests {
         db.call(|conn| {
             for (id, harness, spec, status, at) in [
                 ("old", "codex", "{}", "done", 10),
-                ("archived", "codex", r#"{"variant":"fast"}"#, "closed", 20),
-                ("other", "claude", r#"{"variant":"fast"}"#, "running", 20),
+                ("archived", "codex", r#"{"profile":"fast"}"#, "closed", 20),
+                ("other", "claude", r#"{"profile":"fast"}"#, "running", 20),
                 ("end", "opencode", "{}", "done", 30),
             ] {
                 conn.execute("INSERT INTO session (id, harness, cwd, title, status, launch_spec_json, prompt, started_at) VALUES (?1, ?2, '.', '', ?3, ?4, '', ?5)", rusqlite::params![id, harness, status, spec, at])?;
@@ -55,11 +55,11 @@ mod tests {
         let rows = runs(&db, 10, 30).await?;
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].started_at, 10);
-        assert!(rows[0].variant.is_none());
+        assert!(rows[0].profile.is_none());
         assert_eq!(rows[0].input_tokens + rows[0].cached_tokens + rows[0].output_tokens, 0);
         assert_eq!((rows[1].input_tokens, rows[1].cached_tokens, rows[1].output_tokens), (120, 80, 30));
         assert_eq!(rows[2].input_tokens + rows[2].cached_tokens + rows[2].output_tokens, 0);
-        assert_eq!(rows[1].variant.as_deref(), Some("fast"));
+        assert_eq!(rows[1].profile.as_deref(), Some("fast"));
         assert_eq!(rows[1].harness, "codex");
         assert_eq!(rows[2].harness, "claude");
         assert!(runs(&db, 21, 30).await?.is_empty());
