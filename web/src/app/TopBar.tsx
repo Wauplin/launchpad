@@ -9,6 +9,7 @@ import { useProjects } from "@/lib/queries";
 import { WorkspaceSwitcher } from "@/features/workspaces/Switcher";
 
 import { NotificationsPrompt } from "./NotificationsPrompt";
+import { TerminalButton } from "./TerminalButton";
 
 const sep = <span className="text-ink-3">/</span>;
 
@@ -66,6 +67,7 @@ export function TopBar() {
         {/* The minimized composer renders its draft pill here (portal). */}
         <span id="draft-pill-slot" className="flex min-w-0 items-center" />
         <NotificationsPrompt />
+        <TerminalButton />
         <LaunchButton ctx={project ? { projectId: project.id } : undefined} />
       </span>
     </header>
