@@ -265,9 +265,8 @@ export function AgentsView() {
 
   const needle = filter.trim().toLocaleLowerCase();
   const filtered = sessions.filter((s) => (!pinsOnly || pinned.includes(s.id)) && (!needle || [s.title, s.cwd, s.prompt, s.last_message ?? "", projectName(projects, s.project_id, s.cwd)].some((t) => t.toLocaleLowerCase().includes(needle)) || (debounced === filter.trim() && matches.data?.includes(s.id))));
-  const pinFirst = (a: Session, b: Session) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id));
-  const order = (a: Session, b: Session) => pinFirst(a, b) || b.started_at - a.started_at;
-  const newest = (a: Session, b: Session) => pinFirst(a, b) || b.status_since - a.status_since;
+  const order = (a: Session, b: Session) => b.started_at - a.started_at;
+  const newest = (a: Session, b: Session) => b.status_since - a.status_since;
   const filteredCrons = pinsOnly ? [] : crons.filter((c) => !needle || `${c.title} ${c.spec.text} ${c.schedule}`.toLocaleLowerCase().includes(needle));
   const filteredSchedules = pinsOnly ? [] : schedules.filter((s) => !needle || `${s.title} ${s.spec.text}`.toLocaleLowerCase().includes(needle));
   // Needs you: open questions, then unseen Done (newest first), then unseen Failed and Interrupted.
