@@ -4,6 +4,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
+/// A harness-owned background command. IDs are native, never arbitrary OS PIDs.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct SessionProcess {
+    pub thread_id: String,
+    pub process_id: String,
+    pub command: String,
+    pub cwd: String,
+    pub output: String,
+}
+
 /// A registered harness ID. Adding an adapter does not change this type or its wire format.
 #[derive(Clone, Copy, Debug, Serialize, TS, PartialEq, Eq, Hash)]
 #[ts(type = "string")]

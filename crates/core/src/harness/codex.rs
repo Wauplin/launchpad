@@ -35,6 +35,8 @@ struct State {
     commands: HashSet<String>,
     /// Commands retained from ended turns cannot be stopped by interrupting the current turn.
     background_commands: HashSet<String>,
+    /// Bounded recent output, only for outstanding commands.
+    command_output: HashMap<String, String>,
     /// Commands blocked before execution: item ID → native approval request ID.
     awaiting_approval: HashMap<String, Value>,
     /// Items started and not completed: id → (type, start time, last output time).
@@ -50,6 +52,15 @@ struct State {
 }
 
 impl State {
+    fn append_command_output(&mut self, id: &str, delta: &str) {
+        if !self.commands.contains(id) { return; }
+        let output = self.command_output.entry(id.into()).or_default();
+        output.push_str(delta);
+        if output.len() > 30_000 {
+            *output = output[output.ceil_char_boundary(output.len() - 30_000)..].to_string();
+        }
+    }
+
     /// Some native requests omit turnId. Those still expire with the current turn.
     fn ended_requests(&self, turn: &Value) -> Vec<Value> {
         self.requests.iter().filter(|(key, _)| {
@@ -66,6 +77,7 @@ impl State {
         // passed approval. These are not background processes. Accepted commands
         // leave this map before the response is sent, even when they produce no output.
         for id in self.awaiting_approval.keys() { self.commands.remove(id); }
+        self.command_output.retain(|id, _| self.commands.contains(id));
         self.awaiting_approval.clear();
         self.background_commands.clone_from(&self.commands);
         let mut ended = Vec::new();
@@ -189,6 +201,13 @@ async fn start(
 }
 
 impl CodexSession {
+    fn owned_threads(&self) -> Vec<(String, ThreadSession)> {
+        let threads = self.threads.lock().unwrap();
+        let root = threads.get(&self.thread_id).map(|(s, _)| s.id.as_str());
+        threads.iter().filter(|(_, (s, _))| Some(s.id.as_str()) == root)
+            .map(|(id, entry)| (id.clone(), entry.clone())).collect()
+    }
+
     fn active_turns(&self) -> Vec<(String, String)> {
         let threads = self.threads.lock().unwrap();
         let root = threads.get(&self.thread_id).map(|(s, _)| s.id.as_str());
@@ -285,6 +304,42 @@ impl LiveSession for CodexSession {
             && !state.lock().unwrap().background_commands.is_empty())
     }
 
+    async fn processes(&self) -> Result<Vec<SessionProcess>> {
+        let mut out = Vec::new();
+        for (thread, (_, state)) in self.owned_threads() {
+            if state.lock().unwrap().commands.is_empty() { continue; }
+            let mut cursor = Value::Null;
+            loop {
+                let page = self.server.request("thread/backgroundTerminals/list",
+                    json!({"threadId": thread, "cursor": cursor, "limit": 100})).await
+                    .context("Could not list background commands. Update Codex if this method is unsupported; Archive can also stop the session's background commands")?;
+                for process in page["data"].as_array().context("invalid Codex background command list")? {
+                    out.push(SessionProcess {
+                        thread_id: thread.clone(),
+                        process_id: process["processId"].as_str().context("missing process ID")?.into(),
+                        command: process["command"].as_str().unwrap_or("").into(),
+                        cwd: process["cwd"].as_str().unwrap_or("").into(),
+                        output: state.lock().unwrap().command_output.get(process["itemId"].as_str().unwrap_or("")).cloned().unwrap_or_default(),
+                    });
+                }
+                cursor = page["nextCursor"].clone();
+                if cursor.is_null() { break; }
+            }
+        }
+        Ok(out)
+    }
+
+    async fn terminate_process(&self, thread: &str, process: &str) -> Result<()> {
+        anyhow::ensure!(self.owned_threads().iter().any(|(id, _)| id == thread), "This thread does not belong to the session");
+        // Native IDs are scoped to the verified thread. Never signal an OS PID supplied by a browser.
+        let result = self.server.request("thread/backgroundTerminals/terminate",
+            json!({"threadId": thread, "processId": process})).await?;
+        anyhow::ensure!(result["terminated"] == true,
+            "Codex did not confirm stopping this command. It may have already exited; refresh Processes before trying again.");
+        // Completion notifications, not the RPC acknowledgement, release the folder guard.
+        Ok(())
+    }
+
     fn ready_for_turn(&self) -> bool {
         let s = self.state.lock().unwrap();
         if s.turn_id.is_some() || !s.commands.is_empty() || !s.requests.is_empty() { return false; }
@@ -296,7 +351,14 @@ impl LiveSession for CodexSession {
 
     async fn interrupt(&self) -> Result<()> {
         let turns = self.active_turns();
-        anyhow::ensure!(!turns.is_empty(), "The turn has ended. A background command is still running; ask the agent to close it, or close the process directly. Codex turn interruption cannot stop background commands.");
+        if turns.is_empty() {
+            for (thread, (_, state)) in self.owned_threads() {
+                if !state.lock().unwrap().commands.is_empty() {
+                    self.server.request("thread/backgroundTerminals/clean", json!({"threadId": thread})).await?;
+                }
+            }
+            return Ok(());
+        }
         let mut interrupted = false;
         let mut error = None;
         for (thread, turn) in turns {
@@ -357,6 +419,13 @@ impl LiveSession for CodexSession {
             let root = self.threads.lock().unwrap().get(&self.thread_id).cloned();
             let Some((sink, state)) = root else { return Ok(()); };
             cancel_requests(&sink, &state).await;
+            // Archive/handoff must stop commands left behind by an ended or failed turn.
+            // Interrupt alone does not terminate these; never restart the shared server.
+            for (thread, (_, state)) in self.owned_threads() {
+                if !state.lock().unwrap().commands.is_empty() {
+                    self.server.request("thread/backgroundTerminals/clean", json!({"threadId": thread})).await?;
+                }
+            }
             while !self.ready_for_turn() {
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
@@ -748,6 +817,7 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             if let Some(e) = st.lock().unwrap().open.get_mut(&id) {
                 e.2 = now_ms();
             }
+            st.lock().unwrap().append_command_output(&id, p["delta"].as_str().unwrap_or(""));
             // Output is not a new turn: a background command stays Background.
             sink.emit(EventBody::ToolOutput { item_id: id, text: p["delta"].as_str().unwrap_or("").into() }).await;
         }
@@ -761,6 +831,7 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
             st.lock().unwrap().open.remove(&id);
             st.lock().unwrap().commands.remove(&id);
             st.lock().unwrap().background_commands.remove(&id);
+            st.lock().unwrap().command_output.remove(&id);
             st.lock().unwrap().awaiting_approval.remove(&id);
             match t {
                 "agentMessage" => {
@@ -1209,6 +1280,21 @@ fn project_trust_override(cwd: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn process_output_is_bounded_and_survives_a_failed_turn() {
+        let mut state = super::State::default();
+        state.commands.insert("server".into());
+        state.append_command_output("server", &"é".repeat(20_001));
+        state.append_command_output("server", "latest output");
+        state.append_command_output("unknown", "late output after completion");
+        assert!(state.command_output["server"].len() <= 30_000);
+        assert!(state.command_output["server"].ends_with("latest output"));
+        assert!(!state.command_output.contains_key("unknown"));
+        state.end_turn();
+        assert!(state.command_output["server"].ends_with("latest output"));
+        assert!(state.background_commands.contains("server"));
+    }
+
     #[test]
     fn only_explicit_no_active_turn_rejections_allow_a_new_turn() {
         let ended: anyhow::Error = super::rpc::RpcError(serde_json::json!({"code": -32600, "message": "no active turn to steer"})).into();

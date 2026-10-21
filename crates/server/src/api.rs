@@ -53,6 +53,8 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/trace", get(trace))
         .route("/api/sessions/{id}/input", post(input).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/sessions/{id}/interrupt", post(interrupt))
+        .route("/api/sessions/{id}/processes", get(session_processes))
+        .route("/api/sessions/{id}/processes/stop", post(stop_session_process))
         .route("/api/sessions/{id}/answer", post(answer))
         .route("/api/sessions/{id}/close", post(close))
         .route("/api/sessions/{id}/resume", post(resume))
@@ -374,6 +376,18 @@ async fn input(State(s): State<Server>, Path(id): Path<String>, headers: axum::h
 
 async fn interrupt(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
     s.app.sessions.interrupt(&s.app, &id).await.map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+async fn session_processes(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Vec<SessionProcess>> {
+    Ok(Json(s.app.sessions.processes(&id).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct StopSessionProcess { thread_id: String, process_id: String }
+
+async fn stop_session_process(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<StopSessionProcess>) -> ApiResult<Value> {
+    s.app.sessions.terminate_process(&s.app, &id, &b.thread_id, &b.process_id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 

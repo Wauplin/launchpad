@@ -8,6 +8,8 @@ import { useVariant } from "@/lib/variants";
 import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle, PermissionSwitch } from "./SessionSummary";
 import { SubagentsPanel, subagents } from "./SubagentsPanel";
 import { GitPanel } from "./GitPanel";
+import { ProcessesPanel } from "./ProcessesPanel";
+import type { SessionProcess } from "@/gen/SessionProcess";
 import { useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { useQuery } from "@tanstack/react-query";
@@ -167,7 +169,7 @@ function SessionWorktreeDetails({ session }: { session: Session }) {
   return <>{list.map((info) => <WorktreeCard key={info.worktree.id} info={info} session={session} />)}</>;
 }
 
-type View = "summary" | "trace" | "changes" | "subagents";
+type View = "summary" | "trace" | "changes" | "subagents" | "processes";
 
 export function SessionPane({ sessionId, onClear, initialView }: { sessionId: string; onClear: () => void; initialView?: "changes" }) {
   const phone = usePhone();
@@ -183,14 +185,18 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [dragging, setDragging] = useState(false);
   const s = useSession(sessionId);
+  const processes = useQuery({ queryKey: ["session-processes", sessionId], queryFn: () => api.get<SessionProcess[]>(`/api/sessions/${sessionId}/processes`), enabled: !!s?.live, refetchInterval: s?.live ? 3000 : false, retry: false });
+  const runningProcesses = s?.live ? processes.data ?? [] : [];
+  const hasProcesses = runningProcesses.length > 0;
   const [gitMain, setGitMain] = useState(false);
   const [view, setView] = useState<View | null>(initialView ?? null);
   useEffect(() => { if (s && view === null) setView(isRunning(s) ? "trace" : "summary"); else if (s && isRunning(s) && view === "summary") setView("trace"); }, [s, view]);
   const git = useQuery({ queryKey: ["session-git", sessionId], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${sessionId}/git`), refetchInterval: 5000 });
   const isGit = !!git.data;
-  const current: View = view === "changes" && !isGit ? "summary" : view ?? "summary";
+  const current: View = view === "processes" && !hasProcesses ? "trace" : view === "changes" && !isGit ? "summary" : view ?? "summary";
   const summary = !s || current === "summary" && !isRunning(s);
   const changesOpen = current === "changes";
+  const processesOpen = current === "processes";
   const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => p.root === s?.cwd || p.id === localStorage.getItem(`launchpad.session-predraft.${sessionId}`));
   const projects = useProjects().data;
   const variantName = useVariant(s?.launch_spec.variant)?.name;
@@ -222,7 +228,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
-  const traceOpen = !summary && !changesOpen && !childrenOpen;
+  const traceOpen = !summary && !changesOpen && !childrenOpen && !processesOpen;
   const v = useVirtualizer({ enabled: traceOpen, count: trace.length, getScrollElement: () => scrollRef.current, estimateSize: () => 48, overscan: 6, useFlushSync: false });
   const total = v.getTotalSize();
   useLayoutEffect(() => {
@@ -351,6 +357,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
           <div className="session-views mr-1 inline-flex max-w-full flex-wrap gap-0.5 rounded border border-line p-0.5" role="group" aria-label="Session view">
             <button className={`btn btn-sm ${summary && !phone ? "bg-select!" : ""}`} aria-pressed={summary} disabled={running} onClick={() => setView("summary")}>Summary</button>
             <button className={`btn btn-sm ${traceOpen && !phone ? "bg-select!" : ""}`} aria-pressed={traceOpen} onClick={() => setView("trace")}>Trace</button>
+            {hasProcesses && <button className={`btn btn-sm ${processesOpen && !phone ? "bg-select!" : ""}`} aria-pressed={processesOpen} onClick={() => setView("processes")}>Processes · {runningProcesses.length}</button>}
             {children.length > 0 && <button className={`btn btn-sm ${childrenOpen && !phone ? "bg-select!" : ""}`} aria-pressed={childrenOpen} onClick={() => setView("subagents")}><Icon name="agents" size={12} />Subagents · {children.filter((a) => a.status === "running").length || children.length}{children.some((a) => a.status === "running") ? " running" : ""}</button>}
             {isGit && <button className={`btn btn-sm ${changesOpen && !phone ? "bg-select!" : ""}`} aria-pressed={changesOpen} title="Git changes of the session folder" onClick={() => showChanges(onlyMain)}>Changes{changed ? ` · ${git.data!.files.length || mainChanges}` : ""}</button>}
           </div>
@@ -399,11 +406,14 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         <button className="btn btn-sm" disabled={log.loading} onClick={() => void load(sessionId)}>{log.loading ? "Loading…" : "Retry"}</button>
       </div>}
       <HostBand cwd={s.cwd} running={running} />
+      {s.live && processes.isError && <div role="alert" className="px-3 py-2 text-xs text-danger">{String(processes.error)} <button className="btn btn-sm" onClick={() => void processes.refetch()}>Retry</button></div>}
+      {hasProcesses && !processesOpen && !running && <div className="flex items-center gap-2 px-3 py-2 text-xs text-ink-3">Background commands are still running.<button className="btn btn-sm" onClick={() => setView("processes")}>View processes</button></div>}
+      {processesOpen && <ProcessesPanel sessionId={s.id} processes={runningProcesses} refresh={() => processes.refetch()} />}
       {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} canMessage={s.status !== "in_terminal" && s.status !== "quota_paused" && !(running && !harness?.capabilities.messages_while_running)} />}
       <CodeLinksContext.Provider value={codeLinks}>
       <ShellCodeContext.Provider value={s.cwd}>
       {childrenOpen && log && <SubagentsPanel key={s.id} log={log} agents={children} sessionId={s.id} live={s.live} back={() => setView("trace")} />}
-      {!changesOpen && !childrenOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">{log.error ? "Session events unavailable." : "Loading…"}</div> : <SessionSummary key={s.id} session={s} rows={rows} earlier={log?.earlier ?? null} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
+      {!changesOpen && !childrenOpen && !processesOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">{log.error ? "Session events unavailable." : "Loading…"}</div> : <SessionSummary key={s.id} session={s} rows={rows} earlier={log?.earlier ?? null} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
       {traceOpen && !running && <><StateBand session={s}>
         <button className="btn btn-sm" disabled={!rows.some((r) => r.t === "assistant")} onClick={() => { atBottom.current = false; const i = trace.findLastIndex((r) => r.t === "assistant"); if (i >= 0) v.scrollToIndex(i, { align: "start" }); }}>Final message</button>
         <button className="btn btn-sm" onClick={() => setView("summary")}>Summary</button>

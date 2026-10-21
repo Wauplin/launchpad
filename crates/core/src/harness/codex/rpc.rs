@@ -87,7 +87,7 @@ impl CodexServer {
                 &p,
                 id,
                 "initialize",
-                json!({"clientInfo": {"name": "launchpad", "title": "Launchpad", "version": env!("CARGO_PKG_VERSION")}}),
+                json!({"clientInfo": {"name": "launchpad", "title": "Launchpad", "version": env!("CARGO_PKG_VERSION")}, "capabilities": {"experimentalApi": true}}),
             )
             .await
             .context("codex app-server initialize")?;

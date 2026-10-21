@@ -31,6 +31,10 @@ pub trait LiveSession: Send + Sync {
     fn turn_active(&self) -> bool;
     /// Work that interruption cannot end, even during an active turn.
     fn has_background_work(&self) -> bool { false }
+    async fn processes(&self) -> Result<Vec<SessionProcess>> { Ok(vec![]) }
+    async fn terminate_process(&self, _thread: &str, _process: &str) -> Result<()> {
+        bail!("This harness does not support stopping individual background commands")
+    }
     fn has_open_questions(&self) -> bool { false }
     /// This explicit choice cancels the current turn (a silent owner Stop).
     fn answer_stops_turn(&self, _request_id: &str, _answers: &[String]) -> bool { false }
@@ -1358,6 +1362,27 @@ impl Sessions {
             }
             return Err(e);
         }
+        Ok(())
+    }
+
+    pub async fn processes(&self, id: &str) -> Result<Vec<SessionProcess>> {
+        anyhow::ensure!(self.get(id).is_some(), "no such session");
+        match self.live(id) {
+            Some(live) => live.processes().await,
+            None => Ok(vec![]),
+        }
+    }
+
+    pub async fn terminate_process(&self, app: &App, id: &str, thread: &str, process: &str) -> Result<()> {
+        let live = {
+            let _action = self.inner.actions.lock().await;
+            self.live(id).context("the session has no running process")?
+        };
+        // A host/RPC wait must not hold the global action lock. The attachment keeps
+        // ownership until command completion even if this request times out.
+        tokio::time::timeout(std::time::Duration::from_secs(5), live.terminate_process(thread, process)).await
+            .context("Stop is not confirmed yet. Check Processes and Trace before trying again")??;
+        self.sink(app, id).emit(EventBody::Notice { text: format!("Stop requested by you for background command {process}.") }).await;
         Ok(())
     }
 
