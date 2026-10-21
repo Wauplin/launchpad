@@ -7,8 +7,7 @@ import { useWorkspace } from "./workspace";
 /** All workspaces keep the original key. */
 const storageKey = (workspace: string | null) => (workspace ? `launchpad.layout.${workspace}` : "launchpad.layout");
 
-export type DockSize = "small" | "medium" | "large";
-export type Dock = { open: boolean; size: DockSize; active: string | null };
+export type Dock = { open: boolean; height: number; active: string | null };
 
 export type AgentGroup = "Needs you" | "Cron" | "Done" | "Running" | "Quota paused" | "Stopped" | "Interrupted" | "Failed" | "In terminal" | "Scheduled" | "Archived";
 
@@ -29,7 +28,7 @@ type LayoutStore = {
 const collapsedByDefault: AgentGroup[] = ["Cron", "Scheduled"];
 export const isCollapsed = (groups: Partial<Record<AgentGroup, boolean>>, group: AgentGroup) => groups[group] ?? collapsedByDefault.includes(group);
 
-const defaultDock: Dock = { open: false, size: "medium", active: null };
+const defaultDock: Dock = { open: false, height: 320, active: null };
 const defaults = { pinned: [], collapsedGroups: {}, selectedSession: null, dock: defaultDock };
 
 export const useLayout = create<LayoutStore>()(
@@ -46,7 +45,10 @@ export const useLayout = create<LayoutStore>()(
       name: storageKey(useWorkspace.getState().current),
       merge: (persisted, current) => {
         const { pinned, collapsedGroups, selectedSession, dock } = { ...defaults, ...(persisted as Partial<LayoutStore>) };
-        return { ...current, pinned, collapsedGroups, selectedSession, dock: { ...defaultDock, ...dock } };
+        // Preserve the old S/M/L preference when loading a layout saved before free resizing.
+        const legacy = dock as Dock & { size?: string };
+        const height = Number.isFinite(dock.height) ? dock.height : ({ small: 200, medium: 320, large: 500 }[legacy.size ?? ""] ?? defaultDock.height);
+        return { ...current, pinned, collapsedGroups, selectedSession, dock: { open: dock.open, active: dock.active, height } };
       },
     },
   ),

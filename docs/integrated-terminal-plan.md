@@ -87,7 +87,7 @@ The project rules require a defined scope before any Phase 7 work, so here it is
 - A tab for each terminal shows its title (project · branch, or the session title), its status (running, or "exited 0") and a Close button.
 - Buttons: New terminal (opens in the current context, active workspace terminal folder or first workspace project) and Hide. Copy/Paste/Clear buttons were replaced by normal terminal shortcuts on 2026-10-12.
 - Hide keeps the processes running.
-- Small, medium and large height buttons instead of a drag handle.
+- A draggable top edge resizes the dock continuously; height is saved per workspace. This replaces the original small, medium and large buttons (2026-10-21).
 - A Terminal button in the status bar shows the count. Visibility, height and the active tab are saved in the layout store.
 - Tabs are filtered by the current workspace through the terminal's project, using `useScope()`. No new ownership field.
 
