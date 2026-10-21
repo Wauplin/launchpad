@@ -28,7 +28,6 @@ pub struct Config {
     pub worktrees: Worktrees,
     pub presets: Vec<Preset>,
     /// Named harness settings, selectable in the composer beside the base harnesses.
-    #[serde(alias = "variants")]
     pub profiles: Vec<Profile>,
 }
 

@@ -19,17 +19,6 @@ fn revision(draft: &Value) -> u64 {
     draft["revision"].as_u64().unwrap_or(0)
 }
 
-/// Drafts saved before harness variants were renamed profiles keep a `variant` key. Sent back with the
-/// `profile` the composer sets, it is a duplicate field of `LaunchSpec`, which rejects the launch.
-fn upgrade(draft: &mut Value) {
-    if let Some(spec) = draft.get_mut("spec").and_then(Value::as_object_mut)
-        && let Some(old) = spec.remove("variant")
-        && spec.get("profile").is_none_or(Value::is_null)
-    {
-        spec.insert("profile".into(), old);
-    }
-}
-
 /// The stored draft (with its `revision`), or null.
 pub async fn get(app: &App, workspace: Option<&str>) -> Result<Value> {
     let key = key(workspace);
@@ -37,9 +26,7 @@ pub async fn get(app: &App, workspace: Option<&str>) -> Result<Value> {
         .state_db
         .call(move |c| Ok(c.query_row("SELECT spec_json FROM launch_draft WHERE id = ?1", [key], |r| r.get(0)).optional()?))
         .await?;
-    let mut draft = spec.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or(Value::Null);
-    upgrade(&mut draft);
-    Ok(draft)
+    Ok(spec.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or(Value::Null))
 }
 
 /// The result of a save: the new revision, or the newer stored revision the save did not start from.

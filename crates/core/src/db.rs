@@ -165,11 +165,6 @@ pub fn open_state(path: &Path) -> Result<Db> {
         tx.commit()?;
         tracing::info!("state.db: applied migration {}", i + 1);
     }
-    // Harness variants were renamed profiles: keep their recorded costs.
-    let old_costs: i64 = conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'variant_cost'", [], |r| r.get(0))?;
-    if old_costs > 0 {
-        conn.execute_batch("ALTER TABLE variant_cost RENAME TO profile_cost; ALTER TABLE profile_cost RENAME COLUMN variant TO profile;")?;
-    }
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS scheduled_launch (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS draft_comment (id TEXT PRIMARY KEY, json TEXT NOT NULL);

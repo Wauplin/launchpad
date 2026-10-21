@@ -368,7 +368,6 @@ pub struct LaunchSpec {
     pub allow_paid_usage: bool,
     pub harness: Option<HarnessKind>,
     /// A named profile of `harness` from `config.toml` (environment, defaults, billing).
-    #[serde(alias = "variant")]
     pub profile: Option<String>,
     /// Stop new turns once the harness-reported cumulative cost reaches this many USD.
     pub budget_usd: Option<f64>,
