@@ -54,8 +54,8 @@ export function AnalyticsView() {
   return <SettingsPage>
     <AgentActivity month={month} selected={selected} onSelect={setSelected} onMove={move} onToday={() => { const today = new Date(); setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); setSelected(dayKey(today)); }} />
     <Card title="Analytics · Weekly quota resets">
-      <p className="text-sm text-ink-2">Observed resets come from drops in weekly usage, including early resets. Expected dates are the providers’ latest predictions and can change.</p>
-      <details className="text-xs text-ink-3"><summary className="cursor-pointer py-2">How resets are recorded · {Intl.DateTimeFormat().resolvedOptions().timeZone}</summary><p>History starts when this version runs. Calendar dates use your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). A reset is placed on the day it was detected; the details show the interval between readings. Corrections to reported usage can also appear as drops. Resets with no observed usage drop cannot be detected.</p></details>
+      <p className="text-sm text-ink-2">Observed resets come from large drops in weekly usage, including early resets. Expected dates are the providers’ latest predictions and can change.</p>
+      <details className="text-xs text-ink-3"><summary className="cursor-pointer py-2">How resets are recorded · {Intl.DateTimeFormat().resolvedOptions().timeZone}</summary><p>History starts when this version runs. Calendar dates use your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). A reset is placed on the day it was detected; the details show the interval between readings. A drop of at least 10 points, or usage ending near 0 after it was used, counts as a reset; smaller corrections to reported usage are ignored. Resets with no observed usage drop cannot be detected.</p></details>
       <div className="grid gap-2 sm:grid-cols-2">
         {expected.map(({ id, name, reading, at, fresh }) => <div key={id} className="min-w-0 rounded border border-line p-3 text-sm">
           <b style={{ color: colors[id] }}>{name}</b>
@@ -94,14 +94,14 @@ export function AnalyticsView() {
           </button>;
         })}
       </div>
-      <p className="text-xs text-ink-3">✓ Observed usage drop · ◇ Expected reset · ? Stale or elapsed prediction{phone && harnesses.map((h) => ` · ${label(h.id)}: ${h.name}`).join("")}</p>
+      <p className="text-xs text-ink-3">✓ Observed reset · ◇ Expected reset · ? Stale or elapsed prediction{phone && harnesses.map((h) => ` · ${label(h.id)}: ${h.name}`).join("")}</p>
       {!history.isPending && !history.isError && events.length === 0 && <p className="text-sm text-ink-3">No observed resets recorded this month.</p>}
       <div className="grid gap-2 rounded border border-line p-3 text-sm" aria-live="polite">
         <h3 className="font-semibold">Selected day</h3>
         {selectedEvents.slice(-10).map((event) => <p key={`${event.harness}-${event.observed_at}`} className="break-words">
           <b style={{ color: colors[event.harness] }}>{names[event.harness] ?? event.harness}</b>: observed {timestamp(event.observed_at)} ({event.previous_percent.toFixed(1)}% → {event.used_percent.toFixed(1)}%). Reset detected between {timestamp(event.previous_at)} and {timestamp(event.observed_at)}.
         </p>)}
-        {selectedEvents.length > 10 && <p>Showing the latest 10 of {selectedEvents.length} drops this day.</p>}
+        {selectedEvents.length > 10 && <p>Showing the latest 10 of {selectedEvents.length} resets this day.</p>}
         {selectedExpected.map((item) => <p key={item.id}>{item.name}: expected {timestamp(item.at!)}{!item.fresh ? " (stale reading)" : ""}.</p>)}
         {!selectedEvents.length && !selectedExpected.length && <p className="text-ink-3">No resets to show for this day.</p>}
       </div>

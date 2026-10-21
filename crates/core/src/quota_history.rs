@@ -1,4 +1,4 @@
-//! Observed weekly usage drops. Predicted timestamps never create historical resets.
+//! Observed weekly quota resets. Predicted timestamps never create historical resets.
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
@@ -19,6 +19,17 @@ pub struct WeeklyReset {
     pub used_percent: f64,
 }
 
+/// Provider readings move by a point or two from rounding and usage corrections. A weekly reset
+/// drops usage by a wide margin, or ends a used window at (near) zero.
+const RESET_MIN_DROP: f64 = 10.0;
+const RESET_NEAR_ZERO: f64 = 1.0;
+const RESET_MIN_PREVIOUS: f64 = 5.0;
+
+fn is_weekly_reset(previous_percent: f64, used_percent: f64) -> bool {
+    previous_percent - used_percent >= RESET_MIN_DROP
+        || (used_percent <= RESET_NEAR_ZERO && previous_percent >= RESET_MIN_PREVIOUS)
+}
+
 pub(crate) fn record(conn: &mut Connection, harness: &str, at: i64, week: &QuotaWindow) -> Result<()> {
     if !week.used_percent.is_finite() || !(0.0..=100.0).contains(&week.used_percent) {
         return Ok(());
@@ -30,7 +41,7 @@ pub(crate) fn record(conn: &mut Connection, harness: &str, at: i64, week: &Quota
     ).optional()?;
     if let Some((previous_at, used)) = previous {
         if at <= previous_at { return Ok(()); }
-        if week.used_percent < used {
+        if is_weekly_reset(used, week.used_percent) {
             tx.execute("INSERT INTO quota_weekly_reset (harness, observed_at, previous_at, previous_percent, used_percent) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![harness, at, previous_at, used, week.used_percent])?;
         }
@@ -58,7 +69,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn records_drops_not_predictions_and_survives_reopen() -> Result<()> {
+    async fn records_resets_not_noise_or_predictions_and_survives_reopen() -> Result<()> {
         struct Scratch(std::path::PathBuf);
         impl Drop for Scratch {
             fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
@@ -67,25 +78,27 @@ mod tests {
         std::fs::create_dir_all(&dir.0)?;
         let path = dir.0.join("state.db");
         let db = crate::db::open_state(&path)?;
-        for (at, used, reset) in [(1, 60.0, Some(100)), (2, 65.0, Some(90)), (3, 65.0, Some(200)), (4, 70.0, Some(200))] {
+        // Predictions alone never record, and one-point decreases are reading noise.
+        for (at, used, reset) in [(1, 60.0, Some(100)), (2, 65.0, Some(90)), (3, 65.0, Some(200)), (4, 70.0, Some(200)), (5, 69.0, Some(200)), (6, 68.0, Some(200))] {
             db.call(move |c| record(c, "codex", at, &QuotaWindow { used_percent: used, resets_at: reset })).await?;
         }
         assert!(list(&db, 0, 10).await?.is_empty());
         drop(db);
         let db = crate::db::open_state(&path)?;
-        for (h, at, used, reset) in [("codex", 5, 2.0, Some(200)), ("codex", 6, 2.0, Some(200)), ("claude", 7, 50.0, None), ("claude", 8, 0.0, None)] {
+        for (h, at, used, reset) in [("codex", 7, 2.0, Some(200)), ("codex", 8, 2.0, Some(200)), ("claude", 9, 50.0, None), ("claude", 10, 49.0, None), ("claude", 11, 0.0, None)] {
             db.call(move |c| record(c, h, at, &QuotaWindow { used_percent: used, resets_at: reset })).await?;
         }
-        let events = list(&db, 0, 10).await?;
+        let events = list(&db, 0, 20).await?;
         assert_eq!(events.len(), 2);
-        assert_eq!((events[0].previous_at, events[0].observed_at), (4, 5));
+        assert_eq!((events[0].previous_at, events[0].observed_at), (6, 7));
         assert_eq!(events[1].harness, "claude");
+        assert_eq!((events[1].previous_at, events[1].observed_at), (10, 11));
         assert_eq!(list(&db, 5, 8).await?.len(), 1);
         // Ignore out-of-order and malformed readings instead of moving the baseline back.
         db.call(|c| {
             record(c, "codex", 4, &QuotaWindow { used_percent: 80.0, resets_at: None })?;
-            record(c, "codex", 9, &QuotaWindow { used_percent: f64::NAN, resets_at: None })?;
-            record(c, "codex", 10, &QuotaWindow { used_percent: 3.0, resets_at: None })
+            record(c, "codex", 12, &QuotaWindow { used_percent: f64::NAN, resets_at: None })?;
+            record(c, "codex", 13, &QuotaWindow { used_percent: 3.0, resets_at: None })
         }).await?;
         assert_eq!(list(&db, 0, 20).await?.len(), 2);
         Ok(())

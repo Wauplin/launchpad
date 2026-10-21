@@ -148,6 +148,10 @@ const STATE_MIGRATIONS: &[&str] = &[
         PRIMARY KEY (harness, observed_at)
     );
     CREATE INDEX quota_weekly_reset_time ON quota_weekly_reset (observed_at);",
+    // 7: a weekly reset needs a large usage drop; remove earlier one-point reading noise.
+    "DELETE FROM quota_weekly_reset
+        WHERE previous_percent - used_percent < 10.0
+          AND NOT (used_percent <= 1.0 AND previous_percent >= 5.0);",
 
 ];
 
