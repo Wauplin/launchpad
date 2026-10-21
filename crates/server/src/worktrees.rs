@@ -60,6 +60,7 @@ async fn action(State(s): State<Server>, Path((id, a)): Path<(String, String)>) 
     let app = &s.app;
     let w = match a.as_str() {
         "merge" => worktrees::request_merge(app, &id, false).await,
+        "force-merge" => worktrees::force_merge(app, &id).await,
         "cancel-merge" => worktrees::cancel_merge(app, &id).await,
         "fix" => worktrees::fix_with_agent(app, &id).await.and(worktrees::get(app, &id).await),
         "handoff" => worktrees::handoff(app, &id).await,

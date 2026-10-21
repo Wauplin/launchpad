@@ -69,6 +69,12 @@ pub struct MergeRequest {
     pub reason: String,
     /// Requested by the agent with `launchpad work finish`: conflicts go back to it.
     pub by_agent: bool,
+    /// Owner explicitly allowed open terminals for this request. Other merge guards still apply.
+    #[serde(default)]
+    pub ignore_terminals: bool,
+    /// The last attempt stopped at an open-terminal guard.
+    #[serde(default)]
+    pub terminal_blocked: bool,
     /// Conflict messages already sent to the agent for this request.
     pub agent_retries: u32,
     #[ts(type = "number")]
@@ -478,7 +484,7 @@ async fn finish_setup(sink: &crate::sessions::Sink, command: &str, started: std:
 }
 
 /// Sessions of a record are idle enough for Git operations on its folder.
-fn idle_reason(app: &App, w: &TaskWorktree, strict: bool) -> Option<String> {
+fn idle_agent_reason(app: &App, w: &TaskWorktree, strict: bool) -> Option<String> {
     for id in &w.sessions {
         let Some(s) = app.sessions.get(id) else { continue };
         if app.sessions.is_busy(&s) || app.sessions.setup_running(id) {
@@ -490,6 +496,13 @@ fn idle_reason(app: &App, w: &TaskWorktree, strict: bool) -> Option<String> {
         if strict && s.open_question {
             return Some("an agent of this worktree waits for an answer".into());
         }
+    }
+    None
+}
+
+fn idle_reason(app: &App, w: &TaskWorktree, strict: bool) -> Option<String> {
+    if let Some(reason) = idle_agent_reason(app, w, strict) {
+        return Some(reason);
     }
     if !app.terminals.alive_in(if w.state == WorktreeState::HandedOff { &w.repo } else { &w.root }).is_empty() {
         return Some("a terminal is open in this worktree".into());
@@ -802,7 +815,7 @@ pub async fn request_merge(app: &App, id: &str, by_agent: bool) -> Result<TaskWo
         let base = w.base_branch.clone().context("this worktree started from a detached checkout: there is no branch to merge into")?;
         ensure!(crate::hostfs::is_dir(&w.root).await, "the worktree folder is missing");
         let retries = w.merge.as_ref().filter(|m| m.by_agent && by_agent).map(|m| m.agent_retries).unwrap_or(0);
-        w.merge = Some(MergeRequest { phase: MergePhase::Waiting, reason: format!("Waiting to merge into {base}"), by_agent, agent_retries: retries, requested_at: now_ms() });
+        w.merge = Some(MergeRequest { phase: MergePhase::Waiting, reason: format!("Waiting to merge into {base}"), by_agent, ignore_terminals: false, terminal_blocked: false, agent_retries: retries, requested_at: now_ms() });
         save(app, &w).await?;
         w
     };
@@ -817,6 +830,23 @@ pub async fn request_merge(app: &App, id: &str, by_agent: bool) -> Result<TaskWo
         });
     }
     Ok(w)
+}
+
+/// Owner override for an existing terminal-blocked request. Never changes agent or Git guards.
+pub async fn force_merge(app: &App, id: &str) -> Result<TaskWorktree> {
+    {
+        let _lock = app.worktree_lock.lock().await;
+        let mut w = get(app, id).await?;
+        ensure!(w.state == WorktreeState::Active, "only an active worktree can be merged");
+        let m = w.merge.as_mut().context("no pending merge")?;
+        ensure!(m.phase == MergePhase::Waiting && m.terminal_blocked, "the merge is not waiting on an open terminal");
+        m.ignore_terminals = true;
+        m.terminal_blocked = false;
+        m.reason = "Waiting to merge; open terminals allowed by owner".into();
+        save(app, &w).await?;
+    }
+    attempt(app, id).await;
+    get(app, id).await
 }
 
 /// `launchpad work finish`: requests the merge of every worktree of the session.
@@ -879,17 +909,22 @@ async fn attempt(app: &App, id: &str) {
         let _action = app.sessions.action_lock().await;
         let _lock = app.worktree_lock.lock().await;
         let Ok(mut w) = get(app, id).await else { return };
-        let Some(m) = w.merge.clone() else { return };
+        let Some(mut m) = w.merge.clone() else { return };
         if m.phase != MergePhase::Waiting {
             return;
         }
         let result = try_merge(app, &w).await;
+        m.terminal_blocked = false;
         let result = match result {
             Ok(Step::Merged(head)) => {
                 let into = w.base_branch.clone().unwrap_or_default();
                 w.merge = None;
                 w.merged = Some(Merged { into: into.clone(), head: head.clone(), at: now_ms() });
                 notice(app, &w, &format!("Launchpad merged {} into {into} ({}).", w.branch, &head[..12.min(head.len())])).await;
+                None
+            }
+            Ok(Step::TerminalWait(reason)) => {
+                w.merge = Some(MergeRequest { reason, terminal_blocked: true, ..m });
                 None
             }
             Ok(Step::Wait(reason)) => {
@@ -924,13 +959,18 @@ async fn attempt(app: &App, id: &str) {
 enum Step {
     Merged(String),
     Wait(String),
+    TerminalWait(String),
     Conflict(String),
 }
 
 async fn try_merge(app: &App, w: &TaskWorktree) -> Result<Step> {
     let base = w.base_branch.clone().context("no base branch")?;
-    if let Some(reason) = idle_reason(app, w, false) {
+    if let Some(reason) = idle_agent_reason(app, w, false) {
         return Ok(Step::Wait(format!("Waiting: {reason}")));
+    }
+    let ignore_terminals = w.merge.as_ref().is_some_and(|m| m.ignore_terminals);
+    if !ignore_terminals && !app.terminals.alive_in(&w.root).is_empty() {
+        return Ok(Step::TerminalWait("Waiting: a terminal is open in this worktree".into()));
     }
     ensure!(crate::hostfs::is_dir(&w.root).await, "the worktree folder is missing");
     let dirty = dirty_files(app, &w.root).await?;
@@ -953,8 +993,8 @@ async fn try_merge(app: &App, w: &TaskWorktree) -> Result<Step> {
     if app.sessions.list().iter().any(|s| !w.sessions.contains(&s.id) && crate::terminals::inside(&s.cwd, &target) && !crate::terminals::inside(&s.cwd, &w.root) && app.sessions.is_busy(s)) {
         return Ok(Step::Wait(format!("Waiting: an agent is running in {target}.")));
     }
-    if !app.terminals.alive_in(&target).is_empty() {
-        return Ok(Step::Wait(format!("Waiting: a terminal is open in {target}.")));
+    if !ignore_terminals && !app.terminals.alive_in(&target).is_empty() {
+        return Ok(Step::TerminalWait(format!("Waiting: a terminal is open in {target}.")));
     }
     let head = git(app, &w.root, &["rev-parse", "HEAD"]).await?;
     let base_head = git(app, &w.root, &["rev-parse", &format!("refs/heads/{base}")]).await?;

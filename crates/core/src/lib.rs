@@ -202,3 +202,6 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     hosts::sshconfig::SshConfigHost::export_all(&cfg)?;
     Ok(())
 }
+
+#[cfg(all(test, unix))]
+mod worktree_merge_tests;
