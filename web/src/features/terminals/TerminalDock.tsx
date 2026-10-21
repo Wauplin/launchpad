@@ -13,14 +13,13 @@ import { api } from "@/lib/api";
 import { useProjects, useSessions } from "@/lib/queries";
 import { useZoomScale } from "@/lib/zoom";
 import { useScope } from "@/lib/workspace";
-import { useLayout, type DockSize } from "@/stores/layout";
+import { useLayout } from "@/stores/layout";
+import { TerminalPanel } from "./TerminalPanel";
 import { terminalStatus, useOpenTerminal, useScopedTerminals, useTerminals } from "./lib";
 
 // xterm (and its CSS) loads with the first terminal shown, not with the app. A lazy component keeps
 // one identity once resolved, so mounted views are never remounted by it.
 const TerminalView = lazy(() => import("./TerminalView").then((m) => ({ default: m.TerminalView })));
-
-const HEIGHTS: Record<DockSize, number> = { small: 200, medium: 320, large: 500 };
 
 /** The folder of what is on screen: code viewer root, project, pre-draft or selected session. */
 function useCurrentFolder(fallback: TerminalInfo | undefined): string | null {
@@ -92,7 +91,7 @@ export function TerminalDock({ fill }: { fill?: boolean } = {}) {
   const close = (t: TerminalInfo) =>
     void (t.alive ? api.post(`/api/terminals/${t.id}/close`) : api.delete(`/api/terminals/${t.id}`).then(() => qc.setQueryData<TerminalInfo[]>(["terminals"], (old) => old?.filter((o) => o.id !== t.id)))).catch(toastError);
   return (
-    <section className={`flex flex-col border-t border-line bg-paper ${phone ? "min-h-0 flex-1" : "flex-none"}`} style={{ height: phone ? undefined : HEIGHTS[dock.size], display: dock.open ? undefined : "none" }} aria-label="Terminals">
+    <TerminalPanel phone={phone} open={!!dock.open} height={dock.height} scale={scale} onHeight={(height) => setDock({ height })}>
       <div className="flex min-h-[34px] flex-none flex-wrap items-center gap-1 border-b border-line-2 bg-chrome px-2 py-1 text-[12px]">
         <div className="flex min-w-0 flex-1 flex-wrap gap-1" role="tablist">
           {terminals.map((t) => (
@@ -112,14 +111,7 @@ export function TerminalDock({ fill }: { fill?: boolean } = {}) {
           {terminals.length === 0 && <span className="py-0.5 text-ink-3">No terminal open in this workspace.</span>}
         </div>
         <button className="btn btn-sm" disabled={!folder} title={folder ? `Open a shell in ${folder}${isDesktopShell ? " (Ctrl+T / Cmd+T)" : ""}` : "Open a project, a session or the code viewer first"} onClick={() => folder && void open.shell(folder)}>New terminal</button>
-        {!phone && <><span className="inline-flex gap-0.5 rounded border border-line p-0.5" aria-label="Dock height">
-          {(["small", "medium", "large"] as const).map((size) => (
-            <button key={size} className={`btn btn-sm ${dock.size === size ? "bg-select!" : ""}`} aria-pressed={dock.size === size} onClick={() => setDock({ size })}>
-              {size === "small" ? "S" : size === "medium" ? "M" : "L"}
-            </button>
-          ))}
-        </span>
-        <button className="btn btn-sm" title="Hide the dock; terminals keep running" onClick={() => setDock({ open: false })}>Hide</button></>}
+        {!phone && <button className="btn btn-sm" title="Hide the dock; terminals keep running" onClick={() => setDock({ open: false })}>Hide</button>}
       </div>
       {[...visited.current].map((id) => (
         <Suspense key={id} fallback={dock.open && id === active?.id ? <div className="grid flex-1 place-items-center text-ink-3" role="status">Loading terminal…</div> : null}>
@@ -127,7 +119,7 @@ export function TerminalDock({ fill }: { fill?: boolean } = {}) {
         </Suspense>
       ))}
       {!active && <div className="grid flex-1 place-items-center text-ink-3">Open a terminal from a project, a worktree, a session, a pre-draft or the code viewer.</div>}
-    </section>
+    </TerminalPanel>
   );
 }
 
