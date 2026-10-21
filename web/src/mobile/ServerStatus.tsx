@@ -5,6 +5,7 @@ import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import type { QuotaWindow } from "@/gen/QuotaWindow";
 import { formatAge, resetLabel } from "@/lib/format";
 import { useStatus } from "@/lib/queries";
+import { spendLabel, spendPercent, windowLabel } from "@/lib/variants";
 import { Sheet } from "./Sheet";
 
 function WindowUsage({ label, quota, color }: { label: string; quota: QuotaWindow | null; color: string }) {
@@ -25,7 +26,8 @@ function WindowUsage({ label, quota, color }: { label: string; quota: QuotaWindo
 /** Quotas are global to the daemon, independent of the selected workspace. */
 function StatusDetails() {
   const { data, error } = useStatus();
-  const harnesses = useHarnesses().filter((h) => h.capabilities.quota);
+  const allHarnesses = useHarnesses();
+  const harnesses = allHarnesses.filter((h) => h.capabilities.quota);
   const { online } = useConnection();
   const [, tick] = useState(0);
   useEffect(() => {
@@ -47,6 +49,20 @@ function StatusDetails() {
           <WindowUsage label="Weekly" quota={s?.weekly ?? null} color={h.color} />
           <p className={`text-[12px] ${stale ? "font-semibold text-attn" : "text-ink-3"}`}>{s?.quota_at != null ? `${stale ? "Stale reading · " : ""}read ${formatAge(s.quota_at)} ago` : "Quota not read yet."}</p>
           {s?.quota_error && <p className="break-words text-[12px] text-gh-closed">Quota reading unavailable: {s.quota_error}</p>}
+        </section>;
+      })}
+      {data.spend.length > 0 && <h2 className="font-semibold">Pay-as-you-go spending limits</h2>}
+      {data.spend.map((v) => {
+        const color = allHarnesses.find((h) => h.id === v.harness)?.color ?? "var(--color-teal)";
+        return <section key={v.variant} aria-label={`${v.name} spending`} className="grid gap-3 rounded-lg border border-line p-3">
+          <h3 className="flex items-center gap-2 font-semibold"><HarnessMark harness={v.harness} size={18} />{v.name}</h3>
+          {v.windows.map((w, i) => <div key={i} className="grid gap-1.5">
+            <div className="flex flex-wrap justify-between gap-x-3 gap-y-1"><span>{windowLabel(w.hours)}</span><span className="font-semibold tabular-nums">{Math.round(spendPercent(w))}% used</span></div>
+            <div role="meter" aria-label={`${windowLabel(w.hours)} spending`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={spendPercent(w)} className="h-2 overflow-hidden rounded-full bg-meter">
+              <div className="h-full rounded-full" style={{ width: `${spendPercent(w)}%`, backgroundColor: spendPercent(w) >= 90 ? "var(--color-gh-closed)" : color }} />
+            </div>
+            <span className="text-[12px] text-ink-3">{spendLabel(w)}</span>
+          </div>)}
         </section>;
       })}
       <p className="break-words text-[12px] text-ink-3">Launchpad <span className="font-mono">{data.commit.slice(0, 12)}</span> · {data.profile} profile</p>

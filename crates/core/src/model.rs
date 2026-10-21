@@ -491,6 +491,25 @@ pub struct ModelInfo {
     pub display_name: String,
     pub description: String,
     pub efforts: Vec<String>,
+    /// Inference providers serving the model (Hugging Face router lists), selected with an
+    /// `id:provider` suffix. Empty for harness model lists.
+    #[serde(default)]
+    pub providers: Vec<ModelProvider>,
+}
+
+/// One provider of a router model, with its reported prices in USD per million tokens.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct ModelProvider {
+    pub name: String,
+    #[ts(type = "number | null")]
+    pub context_length: Option<u64>,
+    pub input_usd: Option<f64>,
+    /// Cached input (cache read), when the provider reports it.
+    pub cached_input_usd: Option<f64>,
+    pub output_usd: Option<f64>,
+    /// Output tokens per second, as measured by the router.
+    pub throughput: Option<f64>,
+    pub first_token_ms: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

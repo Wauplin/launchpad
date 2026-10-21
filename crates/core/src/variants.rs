@@ -5,7 +5,7 @@
 use crate::{
     App,
     config::{Billing, HarnessVariant},
-    model::{HarnessKind, LaunchSpec, ModelInfo},
+    model::{HarnessKind, LaunchSpec, ModelInfo, ModelProvider},
 };
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
@@ -118,21 +118,34 @@ pub async fn models(url: &str) -> Result<Vec<ModelInfo>> {
         .filter_map(|m| {
             let id = m["id"].as_str()?.to_string();
             let Some(providers) = m["providers"].as_array() else {
-                return Some(ModelInfo { id, display_name: String::new(), description: String::new(), efforts: vec![] });
+                return Some(ModelInfo { id, display_name: String::new(), description: String::new(), efforts: vec![], providers: vec![] });
             };
             let usable: Vec<&Value> = providers.iter().filter(|p| p["status"].as_str().is_none_or(|s| s == "live") && p["supports_tools"].as_bool() != Some(false)).collect();
             if usable.is_empty() {
                 return None;
             }
-            let names: Vec<&str> = usable.iter().filter_map(|p| p["provider"].as_str()).collect();
+            let providers: Vec<ModelProvider> = usable.iter().filter_map(|p| {
+                let pricing = &p["pricing"];
+                let price = |keys: &[&str]| keys.iter().find_map(|k| pricing[*k].as_f64()).filter(|v| v.is_finite() && *v >= 0.0);
+                Some(ModelProvider {
+                    name: p["provider"].as_str()?.to_string(),
+                    context_length: p["context_length"].as_u64(),
+                    input_usd: price(&["input"]),
+                    cached_input_usd: price(&["cached_input", "input_cache_read", "cache_read", "cached"]),
+                    output_usd: price(&["output"]),
+                    throughput: p["throughput"].as_f64(),
+                    first_token_ms: p["first_token_latency_ms"].as_f64(),
+                })
+            }).collect();
+            let names: Vec<&str> = providers.iter().map(|p| p.name.as_str()).collect();
             // `auto` routing may pick any provider, so the smallest window is the safe one.
-            let context = usable.iter().filter_map(|p| p["context_length"].as_u64()).min();
-            let providers = format!("{} provider{}: {}", names.len(), if names.len() == 1 { "" } else { "s" }, names.join(", "));
+            let context = providers.iter().filter_map(|p| p.context_length).min();
+            let summary = format!("{} provider{}: {}", names.len(), if names.len() == 1 { "" } else { "s" }, names.join(", "));
             let description = match context {
-                Some(c) => format!("{}K context · {providers}", c / 1000),
-                None => providers,
+                Some(c) => format!("{}K context · {summary}", c / 1000),
+                None => summary,
             };
-            Some(ModelInfo { id, display_name: String::new(), description, efforts: vec![] })
+            Some(ModelInfo { id, display_name: String::new(), description, efforts: vec![], providers })
         })
         .collect();
     anyhow::ensure!(!models.is_empty(), "the list has no usable models");

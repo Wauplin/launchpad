@@ -29,6 +29,7 @@ import { api, ApiError } from "@/lib/api";
 import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/queries";
 import { parseUsd, usd, usesModelReference, useVariantModels, useVariants } from "@/lib/variants";
 import { ModelSearch } from "@/components/ModelSearch";
+import { findModel, pickModel, ProviderPicker } from "@/components/ProviderPicker";
 import { useScope } from "@/lib/workspace";
 import { useZoomScale } from "@/lib/zoom";
 import { rememberProjectCompletion, rememberedRun, rememberSuccessfulSession, useComposer } from "@/stores/composer";
@@ -331,7 +332,7 @@ export function Composer() {
   // The model used when none is chosen for this launch; a provider variant has only its own default.
   const fallbackModel = variant?.model ?? (ownModels ? null : defaults?.model) ?? null;
   const fallbackModelLabel = fallbackModel ?? (ownModels ? "none, choose one" : "harness default");
-  const model = (ownModels ? providerModels.data : defaults?.models)?.find((m) => m.id === (spec.model ?? fallbackModel));
+  const model = ownModels ? findModel(providerModels.data, spec.model ?? fallbackModel) : defaults?.models.find((m) => m.id === (spec.model ?? fallbackModel));
   const efforts = ownModels ? [] : model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
   const modelMissing = !spec.model && !fallbackModel && !!variant && usesModelReference(Object.entries(variant.env));
   const scheduled = conditions.length > 0;
@@ -685,7 +686,7 @@ export function Composer() {
                 <>
                   <MenuItem icon={<Icon name="refresh" size={13} className={refreshingModels ? "animate-spin" : ""} />} label={refreshingModels ? "Refreshing models…" : "Refresh models"} detail="Query the selected harness again" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} />
                   {(!ownModels || fallbackModel) && <MenuItem label={`Default (${fallbackModelLabel})`} detail={variant?.model ? `Default of ${variant.name}` : "What the agent picks on its own"} active={!spec.model} onClick={() => (set((s) => ({ ...s, model: null })), closeMenu())} />}
-                  {ownModels ? <ModelSearch models={providerModels.data ?? []} loading={providerModels.isLoading} error={providerModels.error ? String(providerModels.error.message ?? providerModels.error) : null} active={spec.model} onPick={(id) => (set((s) => ({ ...s, model: id })), closeMenu())} /> : <>
+                  {ownModels ? <ModelSearch models={providerModels.data ?? []} loading={providerModels.isLoading} error={providerModels.error ? String(providerModels.error.message ?? providerModels.error) : null} active={spec.model} onPick={(id) => (set((s) => ({ ...s, model: pickModel(providerModels.data, s.model ?? fallbackModel, id) })), closeMenu())} /> : <>
                   {!defaults?.models.length && <div className="px-2 py-1 text-xs text-ink-3">No models loaded. Click Refresh models to retry.</div>}
                   {(defaults?.models ?? []).map((m) => (
                     <MenuItem key={m.id} label={m.display_name || m.id} detail={`${m.id} · ${m.description}`} active={spec.model === m.id} onClick={() => (set((s) => ({ ...s, model: m.id })), closeMenu())} />
@@ -695,6 +696,9 @@ export function Composer() {
               )}
             </Popover>
           </OptionRow>
+          {ownModels && !!findModel(providerModels.data, spec.model ?? fallbackModel)?.providers.length && <OptionRow label="Provider">
+            <ProviderPicker models={providerModels.data} model={spec.model ?? fallbackModel} onChange={(id) => set((s) => ({ ...s, model: id }))} />
+          </OptionRow>}
           {!!efforts.length && <OptionRow label="Effort">
             <Popover
               width={220}

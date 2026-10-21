@@ -83,6 +83,16 @@ pub struct HarnessVariant {
     /// for variants pointing the harness at another provider.
     #[serde(default)]
     pub models_url: Option<String>,
+    /// Rolling spending limits of a pay-as-you-go variant, summed over all its sessions.
+    #[serde(default)]
+    pub spend_limits: Vec<SpendLimit>,
+}
+
+/// At most `usd` of reported cost in any `hours`-long rolling window.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct SpendLimit {
+    pub usd: f64,
+    pub hours: u32,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
@@ -226,6 +236,16 @@ impl Config {
                 anyhow::ensure!(b.is_finite() && b > 0.0, "variant {:?}: the cost limit must be a positive amount", v.id);
                 anyhow::ensure!(crate::harness::registration(v.harness).descriptor.capabilities.cost,
                     "variant {:?}: {} does not report costs, so a cost limit cannot apply", v.id, v.harness.display());
+            }
+            if !v.spend_limits.is_empty() {
+                anyhow::ensure!(v.billing == Billing::PayAsYouGo, "variant {:?}: spending limits apply only to pay-as-you-go billing", v.id);
+                anyhow::ensure!(crate::harness::registration(v.harness).descriptor.capabilities.cost,
+                    "variant {:?}: {} does not report costs, so a spending limit cannot apply", v.id, v.harness.display());
+                anyhow::ensure!(v.spend_limits.len() <= 4, "variant {:?}: use at most 4 spending limits", v.id);
+                for l in &v.spend_limits {
+                    anyhow::ensure!(l.usd.is_finite() && l.usd > 0.0, "variant {:?}: a spending limit must be a positive amount", v.id);
+                    anyhow::ensure!((1..=crate::spend::MAX_HOURS).contains(&l.hours), "variant {:?}: a spending limit window must be 1 hour to 31 days", v.id);
+                }
             }
         }
         Ok(())

@@ -9,3 +9,9 @@ pub fn local_month_day() -> (u32, u32) {
     let now = chrono::Local::now();
     (now.month(), now.day())
 }
+
+/// A Unix time in seconds as local "Oct 21 14:05", for messages.
+pub fn local_time(secs: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local.timestamp_opt(secs, 0).single().map(|t| t.format("%b %-d %H:%M").to_string()).unwrap_or_default()
+}

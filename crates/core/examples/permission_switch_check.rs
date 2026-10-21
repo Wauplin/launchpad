@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
         id: "permission-check".into(), name: "Permission check".into(),
         harness: HarnessKind::parse("codex").unwrap(),
         env: [("PERMISSION_CHECK_FIXTURE".into(), "1".into())].into(),
-        model: None, effort: None, billing: Default::default(), budget_usd: None, models_url: None,
+        model: None, effort: None, billing: Default::default(), budget_usd: None, models_url: None, spend_limits: vec![],
     });
     config.save(settings)?;
     let state_db = core::db::open_state(&paths.state_db())?;

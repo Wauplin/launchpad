@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { HarnessVariant } from "@/gen/HarnessVariant";
 import type { ModelInfo } from "@/gen/ModelInfo";
 import type { Session } from "@/gen/Session";
+import type { SpendWindow } from "@/gen/SpendWindow";
+import { formatReset } from "./format";
 import { api } from "./api";
 import { useConfig } from "./queries";
 
@@ -38,3 +40,14 @@ export function parseUsd(text: string): number | null | undefined {
   const n = Number(t);
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
+
+/** "5 hours", "1 week", "3 days", like the daemon's notices. */
+export function windowLabel(hours: number) {
+  const [n, unit] = hours % 168 === 0 ? [hours / 168, "week"] : hours % 24 === 0 ? [hours / 24, "day"] : [hours, "hour"];
+  return `${n} ${unit}${n === 1 ? "" : "s"}`;
+}
+
+export const spendPercent = (w: SpendWindow) => (w.limit_usd > 0 ? Math.min(100, (w.used_usd / w.limit_usd) * 100) : 0);
+
+/** "$12.30 of $50.00 · room again Mon 09:00". */
+export const spendLabel = (w: SpendWindow) => `${usd(w.used_usd)} of ${usd(w.limit_usd)}${w.available_at !== null ? ` · limit reached, room again ${formatReset(w.available_at)}` : ""}`;

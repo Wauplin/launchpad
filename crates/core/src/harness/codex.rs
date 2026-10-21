@@ -973,6 +973,7 @@ async fn models(server: &CodexServer) -> Result<Vec<ModelInfo>> {
                     .as_array()
                     .map(|a| a.iter().filter_map(|e| e["reasoningEffort"].as_str().map(str::to_string)).collect())
                     .unwrap_or_default(),
+                providers: vec![],
             })
         })
         .collect())

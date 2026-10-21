@@ -26,6 +26,8 @@ pub struct Status {
     pub utc_offset_minutes: i32,
     /// SSH hosts and their connection state.
     pub hosts: Vec<crate::hosts::HostStatus>,
+    /// Rolling spending limits of pay-as-you-go variants.
+    pub spend: Vec<crate::spend::VariantSpend>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, TS)]

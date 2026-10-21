@@ -2,6 +2,7 @@
 import type { HarnessStatus } from "./HarnessStatus";
 import type { HostStatus } from "./HostStatus";
 import type { SessionCounts } from "./SessionCounts";
+import type { VariantSpend } from "./VariantSpend";
 
 export type Status = { profile: string, commit: string,
 /**
@@ -19,4 +20,8 @@ utc_offset_minutes: number,
 /**
  * SSH hosts and their connection state.
  */
-hosts: Array<HostStatus>, };
+hosts: Array<HostStatus>,
+/**
+ * Rolling spending limits of pay-as-you-go variants.
+ */
+spend: Array<VariantSpend>, };

@@ -30,6 +30,7 @@ pub mod session_pages;
 pub mod sessions;
 pub mod shellenv;
 pub mod signin;
+pub mod spend;
 pub mod status;
 pub mod quota;
 pub mod quota_history;

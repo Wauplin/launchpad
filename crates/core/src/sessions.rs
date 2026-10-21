@@ -123,6 +123,8 @@ struct Inner {
     manual_quota_retries: Mutex<HashMap<String, i64>>,
     /// Running turns interrupted at their cost limit, with the time of the last attempt.
     budget_interrupts: Mutex<HashMap<String, i64>>,
+    /// Reported cost increases of variant sessions, in time order (see `spend.rs`).
+    spend: Mutex<Vec<crate::spend::Entry>>,
     /// Sessions whose process must restart to apply model, effort or permission changes.
     process_restarts: Mutex<HashSet<String>>,
     /// New sessions running their worktree setup command before the agent starts.
@@ -177,6 +179,7 @@ impl Sessions {
                 quota_interrupts: Mutex::new(HashMap::new()),
                 manual_quota_retries: Mutex::new(HashMap::new()),
                 budget_interrupts: Mutex::new(HashMap::new()),
+                spend: Mutex::new(Vec::new()),
                 process_restarts: Mutex::new(HashSet::new()),
                 setups: Mutex::new(HashMap::new()),
                 shutdowns: Mutex::new(HashMap::new()),
@@ -192,7 +195,13 @@ impl Sessions {
 
     /// Loads sessions from `state.db`. Sessions that were mid-turn when the daemon stopped become
     /// `interrupted`; done ones stay done without a process (sending a message resumes them).
+    pub(crate) fn spend_entries<R>(&self, f: impl FnOnce(&mut Vec<crate::spend::Entry>) -> R) -> R {
+        f(&mut self.inner.spend.lock().unwrap())
+    }
+
     pub async fn load(&self, app: &App) -> Result<()> {
+        let spend = crate::spend::load(app).await?;
+        self.spend_entries(|entries| *entries = spend);
         let rows: Vec<Session> = app
             .state_db
             .call(|c| {
@@ -651,6 +660,7 @@ impl Sessions {
         anyhow::ensure!(spec.attachments.iter().all(|f| !crate::attachments::is_image(&f.data_url)) || crate::harness::registration(harness).descriptor.capabilities.images, "This harness does not support images.");
         let variant = crate::variants::resolve(app, harness, &spec)?;
         check_budget(harness, spec.budget_usd)?;
+        crate::spend::ensure(app, &spec)?;
         let (model, effort) = (
             spec.model.clone().or_else(|| variant.as_ref().and_then(|v| v.model.clone())),
             spec.effort.clone().or_else(|| variant.as_ref().and_then(|v| v.effort.clone())),
@@ -1006,13 +1016,14 @@ impl Sessions {
     /// Runs under the action lock, preventing user Stop and an automatic continuation from racing.
     pub(crate) async fn check_quotas(&self, app: &App) -> Result<()> {
         let _action = self.inner.actions.lock().await;
+        crate::spend::publish(app);
         for s in self.list() {
             // Setup has not sent a task yet; start_new checks quota after it finishes.
             if self.setup_running(&s.id) { continue; }
             if s.live && s.quota_pause.is_none() && (s.status.is_running() || s.status.is_done()) {
                 crate::titles::generate(app, &s);
             }
-            if s.budget_reached() && s.status.is_running() && !s.open_question
+            if (s.budget_reached() || !crate::spend::reached(app, &s.launch_spec).is_empty()) && s.status.is_running() && !s.open_question
                 && let Some(live) = self.live(&s.id).filter(|l| l.turn_active())
                 && self.inner.budget_interrupts.lock().unwrap().get(&s.id).is_none_or(|at| now_ms() - at >= 10_000) {
                 // Ends as Stopped, with an automatic-stop notification; the trace also records the reached limit.
@@ -1060,7 +1071,7 @@ impl Sessions {
             let mode = if crate::quota::available(&reading, now_ms()) { Some(QuotaResume::Automatic) }
                 else if crate::quota::reset_fallback(&reading, &p, now_ms()) { Some(QuotaResume::ResetFallback) }
                 else { None };
-            if !current.budget_reached() && let Some(mode) = mode {
+            if !current.budget_reached() && crate::spend::reached(app, &current.launch_spec).is_empty() && let Some(mode) = mode {
                 match self.continue_quota(app, &s.id, mode).await {
                     Ok(()) => {}
                     Err(e) => tracing::warn!("quota continuation {}: {e:#}", s.id),
@@ -1219,7 +1230,7 @@ impl Sessions {
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         let p = s.quota_pause.clone().context("The session is not quota paused")?;
-        ensure_budget(&s)?;
+        ensure_budget(app, &s)?;
         anyhow::ensure!(!s.open_question && self.live(id).is_none_or(|l| l.ready_for_turn()), "Wait for the interrupted turn and outstanding commands to finish.");
         if manual {
             anyhow::ensure!(p.phase == QuotaPausePhase::Paused, "Wait for the interrupted turn to finish; a claimed continuation needs inspection before retrying.");
@@ -1319,7 +1330,7 @@ impl Sessions {
             bail!("the session is open in a terminal: re-attach it first");
         }
         anyhow::ensure!(s.quota_pause.is_none(), "This session is quota paused. Use a Resume button or Stop first.");
-        ensure_budget(&s)?;
+        ensure_budget(app, &s)?;
         let protected = crate::quota::protected(app, s.harness, &s.launch_spec);
         if mode == InputMode::FollowUpAutomatic && protected && !crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()) {
             return Err(FollowUpBusy.into());
@@ -1426,7 +1437,7 @@ impl Sessions {
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(s.quota_pause.is_none(), "The session is quota paused.");
         anyhow::ensure!(!crate::quota::protected(app, s.harness, &s.launch_spec) || self.quota_blockers(app, &s).is_empty(), "Included quota exhausted; wait for the quota pause.");
-        ensure_budget(&s)?;
+        ensure_budget(app, &s)?;
         let live = self.live(id).context("the session has no running process")?;
         let stopping = live.answer_stops_turn(request_id, &answers);
         if stopping { self.inner.stop_requests.lock().unwrap().insert(id.into()); }
@@ -1660,10 +1671,10 @@ fn check_budget(harness: HarnessKind, budget_usd: Option<f64>) -> Result<()> {
     Ok(())
 }
 
-fn ensure_budget(s: &Session) -> Result<()> {
+fn ensure_budget(app: &App, s: &Session) -> Result<()> {
     anyhow::ensure!(!s.budget_reached(), "Cost limit reached: ${:.2} reported of ${:.2}. Raise or remove the limit to continue.",
         s.usage.cost_usd.unwrap_or(0.0), s.launch_spec.budget_usd.unwrap_or(0.0));
-    Ok(())
+    crate::spend::ensure(app, &s.launch_spec)
 }
 
 #[derive(Clone, Debug, serde::Serialize, ts_rs::TS)]
@@ -1857,11 +1868,26 @@ impl Sink {
     pub async fn update_usage(&self, f: impl FnOnce(&mut Usage)) {
         if self.agent_id.is_some() { return; }
         let mut crossed = false;
+        let mut added = 0.0;
+        let mut variant = None;
         let _ = self.sessions.update(&self.app, &self.id, |s| {
             let before = s.budget_reached();
+            let cost = s.usage.cost_usd.unwrap_or(0.0);
             f(&mut s.usage);
             crossed = !before && s.budget_reached();
+            added = s.usage.cost_usd.unwrap_or(0.0) - cost;
+            variant = s.launch_spec.variant.clone();
         }).await;
+        if let Some(v) = variant.filter(|_| added > 0.0) {
+            let spec = self.sessions.get(&self.id).map(|s| s.launch_spec).unwrap_or_default();
+            let before = crate::spend::reached(&self.app, &spec).len();
+            crate::spend::record(&self.app, &v, added).await;
+            let reached = crate::spend::reached(&self.app, &spec);
+            if reached.len() > before {
+                let name = self.app.config.get().variant(&v).map(|v| v.name.clone()).unwrap_or_default();
+                self.emit(EventBody::Notice { text: format!("{} A running turn is stopped and no new turn starts.", crate::spend::message(&name, &reached[0])) }).await;
+            }
+        }
         if crossed && let Some(s) = self.sessions.get(&self.id) {
             self.emit(EventBody::Notice { text: format!(
                 "Cost limit reached: ${:.2} reported of ${:.2}. A running turn is stopped and no new turn starts until you raise or remove the limit.",

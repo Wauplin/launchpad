@@ -740,6 +740,7 @@ pub async fn models(app: &App) -> Result<Vec<ModelInfo>> {
                 display_name: m["displayName"].as_str().unwrap_or("").to_string(),
                 description: m["description"].as_str().unwrap_or("").to_string(),
                 efforts: m["supportedEffortLevels"].as_array().map(|a| a.iter().filter_map(|e| e.as_str().map(str::to_string)).collect()).unwrap_or_default(),
+                providers: vec![],
             })
         })
         .filter(|m| m.id != "default")

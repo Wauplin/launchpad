@@ -176,6 +176,7 @@ CREATE TABLE IF NOT EXISTS browser_operation (id TEXT PRIMARY KEY, path TEXT NOT
 CREATE TABLE IF NOT EXISTS review_state (key TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS browser_device (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS host (id TEXT PRIMARY KEY, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS variant_cost (variant TEXT NOT NULL, at INTEGER NOT NULL, usd REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_id TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, titles INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these

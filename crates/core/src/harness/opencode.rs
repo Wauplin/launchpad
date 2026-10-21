@@ -91,6 +91,7 @@ impl super::Harness for Adapter {
                 display_name: id.into(),
                 description: String::new(),
                 efforts: vec![],
+                providers: vec![],
             })
             .collect())
     }
