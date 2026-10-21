@@ -5,7 +5,7 @@ import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import type { QuotaWindow } from "@/gen/QuotaWindow";
 import { formatAge, resetLabel } from "@/lib/format";
 import { useStatus } from "@/lib/queries";
-import { spendLabel, spendPercent, windowLabel } from "@/lib/profiles";
+import { spendLabel, spendPercent, useQuotas, windowLabel } from "@/lib/profiles";
 import { Sheet } from "./Sheet";
 
 function WindowUsage({ label, quota, color }: { label: string; quota: QuotaWindow | null; color: string }) {
@@ -27,7 +27,7 @@ function WindowUsage({ label, quota, color }: { label: string; quota: QuotaWindo
 function StatusDetails() {
   const { data, error } = useStatus();
   const allHarnesses = useHarnesses();
-  const harnesses = allHarnesses.filter((h) => h.capabilities.quota);
+  const quotas = useQuotas();
   const { online } = useConnection();
   const [, tick] = useState(0);
   useEffect(() => {
@@ -39,16 +39,19 @@ function StatusDetails() {
     {!online && <p className="text-attn">Offline · showing the last received quota readings.</p>}
     {!data ? <p className="text-ink-3">{error ? "Server status is unavailable. Waiting to reconnect…" : "Loading quota status…"}</p> : <>
       <h2 className="font-semibold">Subscription quotas</h2>
-      {harnesses.length === 0 && <p className="text-ink-3">No harness reports subscription quotas.</p>}
-      {harnesses.map((h) => {
-        const s = data.harnesses[h.id];
-        const stale = s?.quota_at != null && Date.now() - s.quota_at > 15 * 60_000;
-        return <section key={h.id} aria-label={`${h.name} quota`} className="grid gap-3 rounded-lg border border-line p-3">
-          <h3 className="flex items-center gap-2 font-semibold"><HarnessMark harness={h.id} size={18} />{h.name}</h3>
-          <WindowUsage label="5 hours" quota={s?.five_hour ?? null} color={h.color} />
-          <WindowUsage label="Weekly" quota={s?.weekly ?? null} color={h.color} />
-          <p className={`text-[12px] ${stale ? "font-semibold text-attn" : "text-ink-3"}`}>{s?.quota_at != null ? `${stale ? "Stale reading · " : ""}read ${formatAge(s.quota_at)} ago` : "Quota not read yet."}</p>
-          {s?.quota_error && <p className="break-words text-[12px] text-gh-closed">Quota reading unavailable: {s.quota_error}</p>}
+      {quotas.length === 0 && <p className="text-ink-3">No subscription profile is monitored.</p>}
+      {quotas.map((e) => {
+        const s = e.q;
+        const h = allHarnesses.find((x) => x.id === e.harness);
+        const name = e.names.length ? e.names.join(" · ") : (h?.name ?? e.harness);
+        const color = h?.color ?? "var(--color-teal)";
+        const stale = s.quota_at != null && Date.now() - s.quota_at > 15 * 60_000;
+        return <section key={e.key} aria-label={`${name} quota`} className="grid gap-3 rounded-lg border border-line p-3">
+          <h3 className="flex items-center gap-2 font-semibold"><HarnessMark harness={e.harness} size={18} />{name}</h3>
+          <WindowUsage label="5 hours" quota={s.five_hour} color={color} />
+          <WindowUsage label="Weekly" quota={s.weekly} color={color} />
+          <p className={`text-[12px] ${stale ? "font-semibold text-attn" : "text-ink-3"}`}>{s.quota_at != null ? `${stale ? "Stale reading · " : ""}read ${formatAge(s.quota_at)} ago` : "Quota not read yet."}</p>
+          {s.quota_error && <p className="break-words text-[12px] text-gh-closed">Quota reading unavailable: {s.quota_error}</p>}
         </section>;
       })}
       {data.spend.length > 0 && <h2 className="font-semibold">Pay-as-you-go spending limits</h2>}

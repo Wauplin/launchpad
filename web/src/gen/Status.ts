@@ -2,13 +2,18 @@
 import type { HarnessStatus } from "./HarnessStatus";
 import type { HostStatus } from "./HostStatus";
 import type { ProfileSpend } from "./ProfileSpend";
+import type { QuotaStatus } from "./QuotaStatus";
 import type { SessionCounts } from "./SessionCounts";
 
 export type Status = { env: string, commit: string, 
 /**
  * Host name of the machine the daemon runs on (shown to browsers on other devices).
  */
-host: string, harnesses: { [key in string]: HarnessStatus }, sessions: SessionCounts, 
+host: string, harnesses: { [key in string]: HarnessStatus }, 
+/**
+ * Included quota of each monitored subscription login, keyed by `profiles::account`.
+ */
+quotas: { [key in string]: QuotaStatus }, sessions: SessionCounts, 
 /**
  * IANA name of the daemon host time zone (crons use it), when the host exposes one.
  */

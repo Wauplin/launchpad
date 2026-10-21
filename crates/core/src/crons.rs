@@ -9,7 +9,6 @@ use crate::{
     App,
     model::{LaunchSpec, Session, Target},
     schedules::QuotaKind,
-    status::HarnessStatus,
     util::now_ms,
 };
 
@@ -101,7 +100,7 @@ fn validate_conditions(conditions: &[CronCondition]) -> Result<()> {
 /// Why the conditions block a run, or None when it may start.
 fn blocked(
     conditions: &[CronCondition],
-    quota: &HarnessStatus,
+    quota: &crate::status::QuotaStatus,
     now: i64,
     previous_running: bool,
 ) -> Option<String> {
@@ -318,7 +317,7 @@ async fn tick(app: &App, record: CronAgent) -> Result<()> {
         .spec
         .harness
         .context("cron has no registered harness")?;
-    let quota = crate::quota::reading(app, harness);
+    let quota = crate::quota::reading_for(app, harness, &record.spec);
     let previous_running = record
         .runs
         .last()

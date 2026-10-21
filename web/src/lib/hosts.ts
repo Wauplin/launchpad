@@ -2,6 +2,7 @@
 // daemon stores in project paths, session folders and terminals. Host state comes with `Status.hosts`.
 
 import type { HostStatus } from "@/gen/HostStatus";
+import type { Profile } from "@/gen/Profile";
 import { useStatus } from "./queries";
 
 const LOCATION = /^([a-z0-9][a-z0-9._-]{1,62}):(\/.*)$/;
@@ -52,5 +53,16 @@ export function harnessOnHost(h: HostStatus | null, harness: string): { ok: bool
   if (!c) return null;
   if (c.found === false) return { ok: false, reason: `Not installed on ${h.host.id}` };
   if (c.signed_in === false) return { ok: false, reason: `Not signed in on ${h.host.id}` };
+  return { ok: true, reason: "" };
+}
+
+/** Whether a profile can run on a host: its own check when it has an environment, else its harness check. */
+export function profileOnHost(h: HostStatus | null, profile: Profile): { ok: boolean; reason: string } | null {
+  if (!h) return null;
+  if (Object.keys(profile.env).length === 0) return harnessOnHost(h, profile.harness);
+  const c = h.checks.find((x) => x.id === `profile:${profile.id}`);
+  if (!c) return harnessOnHost(h, profile.harness);
+  if (c.found === false) return { ok: false, reason: `${profile.name}: not installed on ${h.host.id}` };
+  if (c.signed_in === false) return { ok: false, reason: `${profile.name}: not signed in on ${h.host.id}` };
   return { ok: true, reason: "" };
 }

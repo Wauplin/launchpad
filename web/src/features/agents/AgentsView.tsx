@@ -27,7 +27,7 @@ import { useMarkSeen, useWindowFocused } from "./useSeen";
 import { formatAge, formatReset, resetLabel } from "@/lib/format";
 import { toastError } from "@/components/Toast";
 import { useHarnesses } from "@/components/HarnessMark";
-import { useStatus } from "@/lib/queries";
+import { useQuotas } from "@/lib/profiles";
 import { usePhone } from "@/lib/phone";
 
 /** Statuses whose badge tells more than the group heading. */
@@ -137,8 +137,8 @@ function HomeRow({ s, project, onOpen }: { s: Session; project: string; onOpen: 
 
 /** The pane when no session is selected: what waits, what runs, what comes next, and the quotas. */
 function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedule }: { sessions: Session[]; crons: CronAgent[]; schedules: ScheduledLaunch[]; name: (s: Session) => string; onOpen: (id: string) => void; onCron: (id: string) => void; onSchedule: (id: string) => void }) {
-  const status = useStatus().data;
-  const harnesses = useHarnesses().filter((h) => h.capabilities.quota);
+  const quotas = useQuotas();
+  const harnesses = useHarnesses();
   const needs = sessions.filter(needsYou).sort((a, b) => b.status_since - a.status_since);
   const running = sessions.filter(isRunning).sort((a, b) => b.status_since - a.status_since);
   const quotaPaused = sessions.filter(isQuotaPaused).sort((a, b) => b.status_since - a.status_since);
@@ -180,10 +180,11 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedu
           </button>) : <span className="px-2 text-ink-3">Nothing scheduled.</span>}
           {upcoming.length > 5 && <span className="px-2 text-ink-3">{upcoming.length - 5} more in the list on the left</span>}
         </HomeSection>
-        {harnesses.length > 0 && <HomeSection title="Quota">
-          {harnesses.map((h) => {
-            const q = status?.harnesses[h.id];
-            return <div key={h.id} className="flex flex-wrap items-center gap-2 px-2"><HarnessMark harness={h.id} size={14} /><span className="font-medium">{h.name}</span><span className="ml-auto min-w-0 flex-1 basis-[260px] text-right text-ink-3">5 h {pct(q?.five_hour ?? null)}{q?.five_hour && ` · ${resetLabel(q.five_hour.resets_at)}`} · week {pct(q?.weekly ?? null)}{q?.weekly && ` · ${resetLabel(q.weekly.resets_at)}`}</span></div>;
+        {quotas.length > 0 && <HomeSection title="Quota">
+          {quotas.map((e) => {
+            const q = e.q;
+            const label = e.names.length ? e.names.join(" · ") : (harnesses.find((h) => h.id === e.harness)?.name ?? e.harness);
+            return <div key={e.key} className="flex flex-wrap items-center gap-2 px-2"><HarnessMark harness={e.harness} size={14} /><span className="font-medium">{label}</span><span className="ml-auto min-w-0 flex-1 basis-[260px] text-right text-ink-3">5 h {pct(q?.five_hour ?? null)}{q?.five_hour && ` · ${resetLabel(q.five_hour.resets_at)}`} · week {pct(q?.weekly ?? null)}{q?.weekly && ` · ${resetLabel(q.weekly.resets_at)}`}</span></div>;
           })}
         </HomeSection>}
       </div>

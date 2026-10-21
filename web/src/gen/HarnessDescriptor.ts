@@ -6,6 +6,11 @@ import type { ProfileTemplate } from "./ProfileTemplate";
 
 export type HarnessDescriptor = { id: HarnessKind, name: string, icon_svg: string, color: string, working_message: string, capabilities: HarnessCapabilities, 
 /**
+ * Variables that select the subscription login (a configuration folder): profiles with different values
+ * are different accounts, each with its own quota monitor.
+ */
+account_env: Array<string>, 
+/**
  * Documented environment variables offered in the profile editor.
  */
 env_vars: Array<EnvVarDoc>, 

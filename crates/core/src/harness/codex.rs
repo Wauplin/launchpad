@@ -1009,11 +1009,32 @@ const ENV_VARS: &[super::EnvVarDoc] = &[
 
 const PROFILE_TEMPLATES: &[super::ProfileTemplate] = &[
     super::ProfileTemplate {
-        name: "Another Codex account",
-        description: "A second ChatGPT account or an OpenAI API key, with its own sign-in in a separate CODEX_HOME. Put a custom model provider in its config.toml.",
-        setup: Some("Sign in once in a terminal (add --with-api-key to use an API key):"),
-        setup_command: Some("mkdir -p ~/.codex-work && CODEX_HOME=~/.codex-work codex login"),
+        kind: super::ProfileKind::Subscription,
+        name: "ChatGPT subscription",
+        description: "Your ChatGPT Plus or Pro login (codex login), protected by its 5-hour and weekly quota.",
+        setup: None,
+        setup_command: None,
+        env: &[],
+        billing: crate::config::Billing::Subscription,
+        models_url: None,
+    },
+    super::ProfileTemplate {
+        kind: super::ProfileKind::Subscription,
+        name: "Another ChatGPT account",
+        description: "A second ChatGPT account, with its own sign-in in a separate CODEX_HOME and its own quota meters.",
+        setup: Some("Save the profile, then sign in once from Works on."),
+        setup_command: None,
         env: &[("CODEX_HOME", "~/.codex-work")],
+        billing: crate::config::Billing::Subscription,
+        models_url: None,
+    },
+    super::ProfileTemplate {
+        kind: super::ProfileKind::ApiKey,
+        name: "OpenAI API key",
+        description: "Pay per use with an OpenAI API key, stored by Codex in a separate CODEX_HOME. Put a custom model provider in its config.toml to use another provider.",
+        setup: Some("Run this once in a terminal, paste the key, then press Enter and Ctrl+D:"),
+        setup_command: Some("mkdir -p ~/.codex-api && CODEX_HOME=~/.codex-api codex login --with-api-key"),
+        env: &[("CODEX_HOME", "~/.codex-api")],
         billing: crate::config::Billing::PayAsYouGo,
         models_url: None,
     },
@@ -1034,6 +1055,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
             quota: true,
             cost: false,
         },
+        account_env: &["CODEX_HOME"],
         env_vars: ENV_VARS,
         profile_templates: PROFILE_TEMPLATES,
     },
@@ -1042,6 +1064,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
             env: env.clone(),
             server: CodexServer::new(env.clone()),
             profile_servers: Mutex::default(),
+            quota_servers: Mutex::default(),
             threads: Arc::default(),
         })
     },
@@ -1060,6 +1083,8 @@ pub struct Adapter {
     /// One app-server per host and distinct profile environment (`CODEX_HOME`, API keys), started on first
     /// use, with its own thread routes: an app-server exit only ends its own threads.
     profile_servers: Mutex<HashMap<ProfileEnv, (CodexServer, Threads)>>,
+    /// App-servers that only read the quota of another account (`CODEX_HOME`), by account key.
+    quota_servers: Mutex<HashMap<String, CodexServer>>,
     threads: Threads,
 }
 #[async_trait]
@@ -1123,8 +1148,16 @@ impl super::Harness for Adapter {
     }
     fn spawn_services(&self, app: &App) {
         spawn_router(app, &self.server, &self.threads);
-        spawn_quota(app, &self.server);
         spawn_updates(app);
+    }
+    fn spawn_quota(&self, app: &App, account: crate::quota::QuotaAccount) -> Option<tokio::task::JoinHandle<()>> {
+        // The default login uses the shared app-server; another account gets its own, kept for reuse.
+        let server = if account.env.is_empty() {
+            self.server.clone()
+        } else {
+            self.quota_servers.lock().unwrap().entry(account.key.clone()).or_insert_with(|| CodexServer::new(self.env.with(&account.env))).clone()
+        };
+        Some(spawn_quota(app, server, account.key))
     }
     fn terminal_resume_markers(&self) -> &'static [&'static str] {
         &["resume"]
@@ -1184,7 +1217,7 @@ impl super::Harness for Adapter {
     }
 }
 /// Quota from a Codex `rateLimits` object.
-fn rate_limits(status: &crate::status::StatusHandle, rl: &Value) {
+fn rate_limits(status: &crate::status::StatusHandle, account: &str, rl: &Value) {
     let mut five = None;
     let mut week = None;
     for key in ["primary", "secondary"] {
@@ -1207,42 +1240,38 @@ fn rate_limits(status: &crate::status::StatusHandle, rl: &Value) {
             _ => week = Some(q),
         }
     }
-    status.update_quota(ID, five, week);
+    status.update_quota(account, five, week);
 }
-fn spawn_quota(app: &App, server: &CodexServer) {
+/// Reads the rate limits of one login through an app-server running with its `CODEX_HOME`, and listens to
+/// the updates it pushes in between.
+fn spawn_quota(app: &App, server: CodexServer, account: String) -> tokio::task::JoinHandle<()> {
     let a = app.clone();
-    let notifications = server.clone();
     tokio::spawn(async move {
-        let mut rx = notifications.subscribe();
-        loop {
-            match rx.recv().await {
-                Ok(Incoming::Notification { method, params })
-                    if method == "account/rateLimits/updated" =>
-                {
-                    rate_limits(&a.status, &params["rateLimits"]);
-                }
-                Ok(_) => {}
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                Err(_) => break,
-            }
-        }
-    });
-
-    let a = app.clone();
-    let server = server.clone();
-    tokio::spawn(async move {
+        let mut rx = server.subscribe();
         loop {
             match server.request("account/rateLimits/read", Value::Null).await {
-                Ok(res) => rate_limits(&a.status, &res["rateLimits"]),
+                Ok(res) => rate_limits(&a.status, &account, &res["rateLimits"]),
                 Err(e) => {
-                    tracing::info!("codex rate limits: {e:#}");
-                    a.status
-                        .update_harness(ID, |s| s.quota_error = Some(format!("{e:#}")));
+                    tracing::info!("codex rate limits ({account}): {e:#}");
+                    a.status.quota_error(&account, format!("{e:#}"));
                 }
             }
-            crate::status::wait_poll(&a, crate::harness::codex::ID, 120, 30).await;
+            let wait = crate::status::wait_poll(&a, &account, 120, 30);
+            tokio::pin!(wait);
+            loop {
+                tokio::select! {
+                    _ = &mut wait => break,
+                    msg = rx.recv() => match msg {
+                        Ok(Incoming::Notification { method, params }) if method == "account/rateLimits/updated" => {
+                            rate_limits(&a.status, &account, &params["rateLimits"]);
+                        }
+                        Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(_) => { (&mut wait).await; break; }
+                    },
+                }
+            }
         }
-    });
+    })
 }
 fn spawn_updates(app: &App) {
     let app = app.clone();

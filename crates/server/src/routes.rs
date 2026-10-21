@@ -47,7 +47,12 @@ async fn put_config(State(s): State<Server>, Json(config): Json<Config>) -> ApiR
         return Err(crate::error::ApiError::bad_request("Edit [commands] in config.toml on the host"));
     }
     config.validate().map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
+    let profiles_changed = config.profiles != saved.profiles;
     s.app.config.save(config)?;
+    if profiles_changed {
+        // Host checks include each profile with its own environment.
+        launchpad_core::hosts::preflight::recheck_all(&s.app);
+    }
     Ok(Json(json!({"config": browser_config(&s), "error": null, "remote": s.auth.remote()})))
 }
 

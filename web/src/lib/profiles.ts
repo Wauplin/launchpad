@@ -1,13 +1,17 @@
 // Named harness profiles come from config.toml; sessions store only the profile ID.
 
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+import type { HarnessKind } from "@/gen/HarnessKind";
+import type { QuotaStatus } from "@/gen/QuotaStatus";
+import type { Status } from "@/gen/Status";
 import type { Profile } from "@/gen/Profile";
 import type { ModelInfo } from "@/gen/ModelInfo";
 import type { Session } from "@/gen/Session";
 import type { SpendWindow } from "@/gen/SpendWindow";
 import { formatReset } from "./format";
 import { api } from "./api";
-import { useConfig } from "./queries";
+import { useConfig, useStatus } from "./queries";
 
 const none: Profile[] = [];
 export const useProfiles = () => useConfig().data?.config.profiles ?? none;
@@ -51,3 +55,36 @@ export const spendPercent = (w: SpendWindow) => (w.limit_usd > 0 ? Math.min(100,
 
 /** "$12.30 of $50.00 · room again Mon 09:00". */
 export const spendLabel = (w: SpendWindow) => `${usd(w.used_usd)} of ${usd(w.limit_usd)}${w.available_at !== null ? ` · limit reached, room again ${formatReset(w.available_at)}` : ""}`;
+
+/** A monitored subscription login and the names of the profiles that use it. */
+export type QuotaEntry = { key: string; harness: HarnessKind; names: string[]; q: QuotaStatus };
+
+/** Subscription logins with their quota readings, in profile configuration order. */
+export function useQuotas(): QuotaEntry[] {
+  const quotas = useStatus().data?.quotas;
+  const profiles = useProfiles();
+  return useMemo(() => {
+    const order = (e: QuotaEntry) => {
+      const i = profiles.findIndex((p) => e.q.profiles.includes(p.id));
+      return i < 0 ? profiles.length : i;
+    };
+    return Object.entries(quotas ?? {})
+      .flatMap(([key, q]) => (q ? [{ key, harness: q.harness as HarnessKind, names: q.profiles.map((id) => profiles.find((p) => p.id === id)?.name ?? id), q }] : []))
+      .sort((a, b) => order(a) - order(b));
+  }, [quotas, profiles]);
+}
+
+/** The reading of the login that protects work of this harness and profile: the profile's account, else the default login. */
+export function quotaFor(status: Status | undefined, harness: string, profile: string | null | undefined): QuotaStatus | null {
+  const quotas = status?.quotas ?? {};
+  if (profile) {
+    const q = Object.values(quotas).find((x) => x?.profiles.includes(profile));
+    if (q) return q;
+    // A profile of another account that is not monitored (yet) has no reading.
+    return null;
+  }
+  return quotas[harness] ?? null;
+}
+
+/** A reading older than 15 minutes, or with an error, does not confirm the quota. */
+export const quotaStale = (q: QuotaStatus | null | undefined) => !q || !!q.quota_error || q.quota_at === null || Date.now() - q.quota_at > 15 * 60_000;

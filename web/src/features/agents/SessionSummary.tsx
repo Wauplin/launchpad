@@ -19,7 +19,7 @@ import { copyText } from "@/lib/clipboard";
 import { formatAge } from "@/lib/format";
 import { useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { conditionsSummary, DelaySelector } from "@/features/launch/DelaySelector";
-import { budgetReached, parseUsd, usd, useProfile } from "@/lib/profiles";
+import { budgetReached, parseUsd, quotaFor, usd, useProfile } from "@/lib/profiles";
 import { compact, statusInfo, STYLES } from "./SessionBits";
 import type { Row } from "./rows";
 import type { Suggestion } from "@/gen/Suggestion";
@@ -163,7 +163,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
       {(unfinished || s.status === "closed") && <NextStep source="Session" text={s.status === "closed" ? "This archived session is still resumable." : "The last turn did not finish successfully."} button="Resume" disabled={busy} onClick={() => void run(async () => { if (unfinished) await api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }); else await api.post(`/api/sessions/${s.id}/resume`); showTrace(); })} />}
       {refs.map((r, i) => <NextStep key={i} source="GitHub" text={r.title ?? `Linked ${r.kind}${r.number ? ` #${r.number}` : ""}.`} button={`Open ${r.number ? `#${r.number}` : r.kind}`} onClick={() => { if (r.number && r.repo.includes("/")) { const [owner, repo] = r.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(r.number) } }); } else openExternal(r.url); }} />)}
       {!scheduling && <p className="pt-2 text-xs text-ink-3">{followUp ? "A follow-up is already scheduled for this session." : s.status === "quota_paused" ? null : <button className="text-teal-ink hover:underline" onClick={() => setScheduling(true)}>Schedule follow-up</button>}</p>}
-      {scheduling && <div className="grid gap-3 border-t border-line py-3"><b className="text-xs">Schedule follow-up · same session, new message</b><textarea className="field-input min-h-20" aria-label="Follow-up message" placeholder="Message to send later…" value={message} onChange={(e) => setMessage(e.target.value)} /><DelaySelector conditions={conditions} harness={s.harness} onChange={setConditions} onValidityChange={setValid} /><p className="text-xs text-ink-3">If this session is running, in a terminal or awaiting an answer at that time, the follow-up stays queued until it is ready.</p><div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !message.trim() || !conditions.length || !valid} onClick={() => void run(async () => { await api.post(`/api/sessions/${s.id}/follow-up`, { message, conditions }); setScheduling(false); setMessage(""); })}>Schedule</button><button className="btn btn-sm" onClick={() => setScheduling(false)}>Cancel</button></div></div>}
+      {scheduling && <div className="grid gap-3 border-t border-line py-3"><b className="text-xs">Schedule follow-up · same session, new message</b><textarea className="field-input min-h-20" aria-label="Follow-up message" placeholder="Message to send later…" value={message} onChange={(e) => setMessage(e.target.value)} /><DelaySelector conditions={conditions} harness={s.harness} profile={s.launch_spec.profile} onChange={setConditions} onValidityChange={setValid} /><p className="text-xs text-ink-3">If this session is running, in a terminal or awaiting an answer at that time, the follow-up stays queued until it is ready.</p><div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !message.trim() || !conditions.length || !valid} onClick={() => void run(async () => { await api.post(`/api/sessions/${s.id}/follow-up`, { message, conditions }); setScheduling(false); setMessage(""); })}>Schedule</button><button className="btn btn-sm" onClick={() => setScheduling(false)}>Cancel</button></div></div>}
     </Section>
   </div>;
 }
@@ -283,7 +283,7 @@ export function ModelSwitch({ session: s }: { session: Session }) {
 
 export function QuotaBand({ session: s }: { session: Session }) {
   const [busy, setBusy] = useState(false);
-  const quota = useStatus().data?.harnesses[s.harness];
+  const quota = quotaFor(useStatus().data, s.harness, s.launch_spec.profile);
   const p = s.quota_pause;
   if (!p) return null;
   const act = async (action: string) => {

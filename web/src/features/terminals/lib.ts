@@ -36,6 +36,8 @@ export function useOpenTerminal() {
     () => ({
       shell: (cwd: string, command?: string, language?: string) => api.post<TerminalInfo>("/api/terminals", { cwd, command, language }).then(reveal).catch(toastError),
       tui: (sessionId: string) => api.post<TerminalInfo>(`/api/sessions/${sessionId}/terminal`).then(reveal).catch(toastError),
+      /** The sign-in (or install) command of a profile, with its environment, in the home folder of this computer or a host. */
+      profileSetup: (profileId: string, host: string | null, install = false) => api.post<TerminalInfo>(`/api/profiles/${profileId}/setup`, { host, install }).then(reveal).catch(toastError),
     }),
     [reveal],
   );

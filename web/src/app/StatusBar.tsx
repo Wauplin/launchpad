@@ -1,10 +1,11 @@
 import { useInbox } from "@/features/inbox/data";
 import { Fragment, useEffect, useState } from "react";
 import type { HarnessStatus } from "@/gen/HarnessStatus";
+import type { QuotaStatus } from "@/gen/QuotaStatus";
 import type { QuotaWindow } from "@/gen/QuotaWindow";
 import type { Status } from "@/gen/Status";
 import type { ProfileSpend } from "@/gen/ProfileSpend";
-import { spendLabel, spendPercent, windowLabel } from "@/lib/profiles";
+import { spendLabel, spendPercent, useQuotas, windowLabel, type QuotaEntry } from "@/lib/profiles";
 import { HarnessMark, useHarnessInfo, useHarnesses, type Harness } from "@/components/HarnessMark";
 import { formatAge, formatReset, resetLabel } from "@/lib/format";
 import { onConnectionChange } from "@/lib/ws";
@@ -45,14 +46,19 @@ function Meter({ value, harness }: { value: number; harness: Harness }) {
   );
 }
 
-function Pair({ harness, s }: { harness: Harness; s: HarnessStatus }) {
-  const info = useHarnessInfo(harness);
-  const name = info?.name ?? harness;
+/** The name of a login: its profiles, else the harness (sessions launched without a profile). */
+export function useQuotaName(e: QuotaEntry) {
+  const info = useHarnessInfo(e.harness);
+  return e.names.length ? e.names.join(" · ") : (info?.name ?? e.harness);
+}
+
+function Pair({ harness, name, s, labeled }: { harness: Harness; name: string; s: QuotaStatus; labeled: boolean }) {
   const w = (label: string, q: QuotaWindow | null) => (q ? `${label}: ${Math.round(q.used_percent)}% used, ${q.resets_at === null ? "not started" : `resets ${new Date(q.resets_at * 1000).toLocaleString()}`}` : `${label}: unknown`);
   const pct = (q: QuotaWindow | null) => (q ? `${Math.round(q.used_percent)}%` : "?");
   return (
     <span className="inline-flex items-center gap-1.5" title={[name, w("5 hours", s.five_hour), w("Week", s.weekly), s.quota_error].filter(Boolean).join("\n")}>
       <HarnessMark harness={harness} size={14} />
+      {labeled && <span className="max-w-[90px] truncate text-ink-3">{name}</span>}
       <Meter value={s.five_hour?.used_percent ?? 0} harness={harness} />
       <Meter value={s.weekly?.used_percent ?? 0} harness={harness} />
       <span className="text-ink-3">{pct(s.five_hour)} · {pct(s.weekly)}</span>
@@ -88,39 +94,63 @@ function SpendPair({ v }: { v: ProfileSpend }) {
 function Warnings({ harness, s }: { harness: Harness; s: HarnessStatus }) {
   const info = useHarnessInfo(harness);
   const name = info?.name ?? harness;
-  const stale = info?.capabilities.quota && s.quota_at !== null && Date.now() - s.quota_at > 15 * 60_000;
   return (
     <>
       {s.updating_to && <span className="rounded bg-teal-soft px-1.5 font-semibold text-teal-ink" title={`Updating to ${s.updating_to} in the background`}>{name} updating</span>}
       {!s.version && <span className="rounded bg-attn-soft px-1.5 font-semibold text-gh-closed" title={s.version_error ?? undefined}>{name} not found</span>}
-      {stale && s.quota_at && <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={s.quota_error ?? undefined}>{name} quota reading {formatAge(s.quota_at)} old</span>}
     </>
   );
 }
 
-const emptyStatus: HarnessStatus = { version: null, version_error: null, updating_to: null, five_hour: null, weekly: null, quota_at: null, quota_error: null };
+function StaleQuota({ e }: { e: QuotaEntry }) {
+  const name = useQuotaName(e);
+  const s = e.q;
+  if (s.quota_at === null || Date.now() - s.quota_at <= 15 * 60_000) return null;
+  return <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={s.quota_error ?? undefined}>{name} quota reading {formatAge(s.quota_at)} old</span>;
+}
 
-function Details({ harness, data, limits }: { harness: Harness; data: Status; limits: Record<string, { remaining: number; reset_at: number }> }) {
-  const harnesses = useHarnesses();
-  const info = useHarnessInfo(harness);
+const emptyStatus: HarnessStatus = { version: null, version_error: null, updating_to: null };
+
+function QuotaLine({ e }: { e: QuotaEntry }) {
+  const name = useQuotaName(e);
+  const s = e.q;
   return (
-    <Popover up width={320} trigger={({ open, toggle }) => (
-      <button type="button" className="inline-flex h-[22px] items-center rounded px-1 hover:bg-select focus-visible:outline-2 focus-visible:outline-teal" aria-label={`${info?.name ?? harness} status details`} aria-expanded={open} onClick={toggle}>
-        <Pair harness={harness} s={data.harnesses[harness] ?? emptyStatus} />
-      </button>
+    <div className="grid gap-0.5">
+      <span className="inline-flex items-center gap-1.5 font-semibold"><HarnessMark harness={e.harness} size={14} />{name}</span>
+      <span className="text-ink-3">5h {s.five_hour ? `${Math.round(s.five_hour.used_percent)}% · ${resetLabel(s.five_hour.resets_at)}` : "unknown"} · week {s.weekly ? `${Math.round(s.weekly.used_percent)}% · ${resetLabel(s.weekly.resets_at)}` : "unknown"}{s.quota_at && ` · read ${formatAge(s.quota_at)} ago`}</span>
+      {s.quota_error && <span className="text-gh-closed">{s.quota_error}</span>}
+    </div>
+  );
+}
+
+function QuotaButton({ entry, labeled, open, toggle }: { entry: QuotaEntry; labeled: boolean; open: boolean; toggle: () => void }) {
+  const name = useQuotaName(entry);
+  return (
+    <button type="button" className="inline-flex h-[22px] items-center rounded px-1 hover:bg-select focus-visible:outline-2 focus-visible:outline-teal" aria-label={`${name} status details`} aria-expanded={open} onClick={toggle}>
+      <Pair harness={entry.harness} name={name} s={entry.q} labeled={labeled} />
+    </button>
+  );
+}
+
+/** Opened by a quota meter pair, or by a Status button when no subscription profile is monitored. */
+function Details({ entry, labeled, data, limits }: { entry: QuotaEntry | null; labeled: boolean; data: Status; limits: Record<string, { remaining: number; reset_at: number }> }) {
+  const harnesses = useHarnesses();
+  const quotas = useQuotas();
+  return (
+    <Popover up width={320} trigger={({ open, toggle }) => entry ? <QuotaButton entry={entry} labeled={labeled} open={open} toggle={toggle} /> : (
+      <button type="button" className="inline-flex h-[22px] items-center rounded px-1 text-ink-3 hover:bg-select focus-visible:outline-2 focus-visible:outline-teal" aria-expanded={open} onClick={toggle}>Status</button>
     )}>
       {() => (
         <div className="grid gap-1.5 p-1.5 text-[12px] whitespace-normal">
-          {harnesses.map((h) => {
-            const s = data.harnesses[h.id] ?? emptyStatus;
-            return (
-              <div key={h.id} className="grid gap-0.5">
-                <span className="inline-flex items-center gap-1.5 font-semibold"><HarnessMark harness={h.id} size={14} />{h.name} <span className="font-normal text-ink-2">{s.version ?? "not found"}</span>{s.updating_to && <span className="font-normal text-teal-ink">↑ {s.updating_to}</span>}</span>
-                {h.capabilities.quota && <span className="text-ink-3">5h {s.five_hour ? `${Math.round(s.five_hour.used_percent)}% · ${resetLabel(s.five_hour.resets_at)}` : "unknown"} · week {s.weekly ? `${Math.round(s.weekly.used_percent)}% · ${resetLabel(s.weekly.resets_at)}` : "unknown"}{s.quota_at && ` · read ${formatAge(s.quota_at)} ago`}</span>}
-                {(s.version_error || s.quota_error) && <span className="text-gh-closed">{s.version_error ?? s.quota_error}</span>}
-              </div>
-            );
-          })}
+          {quotas.map((e) => <QuotaLine key={e.key} e={e} />)}
+          <div className="grid gap-0.5 border-t border-line pt-1.5">
+            {harnesses.map((h) => {
+              const s = data.harnesses[h.id] ?? emptyStatus;
+              return (
+                <span key={h.id} className="inline-flex flex-wrap items-center gap-1.5"><HarnessMark harness={h.id} size={14} />{h.name} <span className="text-ink-2">{s.version ?? "not found"}</span>{s.updating_to && <span className="text-teal-ink">↑ {s.updating_to}</span>}{s.version_error && <span className="text-gh-closed">{s.version_error}</span>}</span>
+              );
+            })}
+          </div>
           <div className="border-t border-line pt-1.5">
             {Object.entries(limits).map(([k, v]) => <div key={k}>GitHub {k}: {v.remaining} calls left, resets {formatReset(v.reset_at)}</div>)}
             {Object.keys(limits).length === 0 && <div className="text-ink-3">GitHub rate limits not read yet.</div>}
@@ -145,15 +175,19 @@ export function StatusBar() {
     const t = setInterval(() => tick((n) => n + 1), 30_000);
     return () => clearInterval(t);
   }, []);
-  const quota = harnesses.filter((h) => h.capabilities.quota);
+  const quota = useQuotas();
+  // With two logins of one harness, each meter pair names its profiles.
+  const labeled = (e: QuotaEntry) => quota.filter((x) => x.harness === e.harness).length > 1;
 
   return (
     <footer className="flex min-h-[30px] flex-none items-center gap-x-2.5 border-t border-line bg-chrome px-3 py-1 text-[11.5px] whitespace-nowrap text-ink-2 tabular-nums">
       {data ? (
         <>
-          {quota.map((h, i) => <Fragment key={h.id}>{i > 0 && <span className="h-3.5 w-px bg-line" />}<Details harness={h.id} data={data} limits={limits} /></Fragment>)}
-          {data.spend.map((v, i) => <Fragment key={v.profile}>{(i > 0 || quota.length > 0) && <span className="h-3.5 w-px bg-line" />}<SpendPair v={v} /></Fragment>)}
+          {quota.length === 0 && <Details entry={null} labeled={false} data={data} limits={limits} />}
+          {quota.map((e, i) => <Fragment key={e.key}>{i > 0 && <span className="h-3.5 w-px bg-line" />}<Details entry={e} labeled={labeled(e)} data={data} limits={limits} /></Fragment>)}
+          {data.spend.map((v) => <Fragment key={v.profile}><span className="h-3.5 w-px bg-line" /><SpendPair v={v} /></Fragment>)}
           {harnesses.map((h) => <Warnings key={h.id} harness={h.id} s={data.harnesses[h.id] ?? emptyStatus} />)}
+          {quota.map((e) => <StaleQuota key={e.key} e={e} />)}
           {low.map(([k, v]) => <span key={k} className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={`Resets ${formatReset(v.reset_at)}`}>GitHub {k} {v.remaining} calls left</span>)}
           <span className="ml-auto inline-flex items-center gap-2.5">
             <Hosts />

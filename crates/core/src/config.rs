@@ -87,6 +87,10 @@ pub struct Profile {
     /// Rolling spending limits of a pay-as-you-go profile, summed over all its sessions.
     #[serde(default)]
     pub spend_limits: Vec<SpendLimit>,
+    /// On SSH hosts, resolve `${NAME}` references on this computer and send the values with the process
+    /// start. Otherwise the host resolves them from its own login shell. Literal values are always sent.
+    #[serde(default)]
+    pub send_credentials: bool,
 }
 
 /// At most `usd` of reported cost in any `hours`-long rolling window.
@@ -238,6 +242,8 @@ impl Config {
                 anyhow::ensure!(crate::harness::registration(v.harness).descriptor.capabilities.cost,
                     "profile {:?}: {} does not report costs, so a cost limit cannot apply", v.id, v.harness.display());
             }
+            anyhow::ensure!(v.billing == Billing::PayAsYouGo || crate::harness::registration(v.harness).descriptor.capabilities.quota,
+                "profile {:?}: {} has no monitored subscription, so use pay as you go", v.id, v.harness.display());
             if !v.spend_limits.is_empty() {
                 anyhow::ensure!(v.billing == Billing::PayAsYouGo, "profile {:?}: spending limits apply only to pay-as-you-go billing", v.id);
                 anyhow::ensure!(crate::harness::registration(v.harness).descriptor.capabilities.cost,

@@ -28,4 +28,9 @@ models_url: string | null,
 /**
  * Rolling spending limits of a pay-as-you-go profile, summed over all its sessions.
  */
-spend_limits: Array<SpendLimit>, };
+spend_limits: Array<SpendLimit>, 
+/**
+ * On SSH hosts, resolve `${NAME}` references on this computer and send the values with the process
+ * start. Otherwise the host resolves them from its own login shell. Literal values are always sent.
+ */
+send_credentials: boolean, };

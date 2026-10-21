@@ -30,6 +30,7 @@ use crate::Server;
 pub fn router() -> Router<Server> {
     Router::new()
         .route("/api/terminals", get(list).post(open))
+        .route("/api/profiles/{id}/setup", post(profile_setup))
         .route("/api/terminals/close-all", post(close_all))
         .route("/api/terminals/{id}", axum::routing::delete(remove))
         .route("/api/terminals/{id}/close", post(close))
@@ -53,6 +54,19 @@ struct Open {
 
 async fn open(State(s): State<Server>, Json(b): Json<Open>) -> ApiResult<TerminalInfo> {
     Ok(Json(s.app.terminals.open_shell(&s.app, &b.cwd, b.command.as_deref(), b.language.as_deref()).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct ProfileSetup {
+    /// SSH host, or none for this computer.
+    host: Option<String>,
+    /// Run the install command instead of the sign-in command.
+    #[serde(default)]
+    install: bool,
+}
+
+async fn profile_setup(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<ProfileSetup>) -> ApiResult<TerminalInfo> {
+    Ok(Json(s.app.terminals.open_profile_setup(&s.app, &id, b.host.as_deref(), b.install).await.map_err(bad)?))
 }
 
 async fn close(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {

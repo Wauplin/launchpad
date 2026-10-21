@@ -892,13 +892,13 @@ impl Sessions {
         let harness = session.harness;
         let sink = self.sink(app, id);
         let protected = crate::quota::protected(app, harness, &session.launch_spec);
-        if protected && (!crate::quota::blockers(app, harness).is_empty() || (automatic && !crate::quota::available(&crate::quota::reading(app, harness), now_ms()))) {
+        if protected && (!crate::quota::blockers(app, harness, &session.launch_spec).is_empty() || (automatic && !crate::quota::available(&crate::quota::reading_for(app, harness, &session.launch_spec), now_ms()))) {
             if let Err(e) = self.hold_input(app, id, &prompt, images).await {
                 sink.fail(&format!("{e:#}")).await;
             }
             return;
         }
-        if protected && !crate::quota::available(&crate::quota::reading(app, harness), now_ms()) {
+        if protected && !crate::quota::available(&crate::quota::reading_for(app, harness, &session.launch_spec), now_ms()) {
             sink.emit(EventBody::Notice { text: "Quota reading unavailable or stale. Starting with best-effort protection; additional spending cannot be ruled out until quota is known.".into() }).await;
         }
         match self.attach(app, harness, start, sink.clone()).await {
@@ -1003,7 +1003,7 @@ impl Sessions {
         let s = self.get(id).context("no such session")?;
         let client_id = uuid::Uuid::new_v4().to_string();
         self.update(app, id, |s| s.quota_pause = Some(QuotaPause {
-            phase: QuotaPausePhase::Paused, blockers: crate::quota::blockers(app, s.harness),
+            phase: QuotaPausePhase::Paused, blockers: crate::quota::blockers(app, s.harness, &s.launch_spec),
             message: text.into(), images: images.clone(), client_id: Some(client_id.clone()), error: None,
         })).await?;
         let sink = self.sink(app, id);
@@ -1067,7 +1067,7 @@ impl Sessions {
             if p.phase == QuotaPausePhase::Pausing {
                 self.update(app, &s.id, |s| { if let Some(p) = &mut s.quota_pause { p.phase = QuotaPausePhase::Paused; } }).await?;
             }
-            let reading = crate::quota::reading(app, s.harness);
+            let reading = crate::quota::reading_for(app, s.harness, &s.launch_spec);
             let mode = if crate::quota::available(&reading, now_ms()) { Some(QuotaResume::Automatic) }
                 else if crate::quota::reset_fallback(&reading, &p, now_ms()) { Some(QuotaResume::ResetFallback) }
                 else { None };
@@ -1092,7 +1092,7 @@ impl Sessions {
     }
 
     fn quota_blockers(&self, app: &App, s: &Session) -> Vec<crate::model::QuotaBlock> {
-        let reading = crate::quota::reading(app, s.harness);
+        let reading = crate::quota::reading_for(app, s.harness, &s.launch_spec);
         let mut retries = self.inner.manual_quota_retries.lock().unwrap();
         if let Some(&baseline) = retries.get(&s.id) {
             if reading.quota_at.unwrap_or(0) <= baseline { return vec![]; }
@@ -1237,7 +1237,7 @@ impl Sessions {
             anyhow::ensure!(!s.launch_spec.allow_paid_usage, "Paid usage is already allowed for this session.");
         } else if !paid {
             anyhow::ensure!(p.phase == QuotaPausePhase::Paused && {
-                let reading = crate::quota::reading(app, s.harness);
+                let reading = crate::quota::reading_for(app, s.harness, &s.launch_spec);
                 crate::quota::available(&reading, now_ms()) || (fallback && crate::quota::reset_fallback(&reading, &p, now_ms()))
             }, "Waiting for a fresh quota reading");
         }
@@ -1253,7 +1253,7 @@ impl Sessions {
         if manual || fallback {
             // Ignore only the old snapshot until new evidence arrives. A fresh exhausted
             // reading pauses again and cannot reuse the already passed reset fallback.
-            let baseline = crate::quota::reading(app, s.harness).quota_at.unwrap_or(0);
+            let baseline = crate::quota::reading_for(app, s.harness, &s.launch_spec).quota_at.unwrap_or(0);
             self.inner.manual_quota_retries.lock().unwrap().insert(id.to_string(), baseline);
         }
         // Preserve the claim until the send has returned. Recovery never retries a claimed send.
@@ -1332,7 +1332,7 @@ impl Sessions {
         anyhow::ensure!(s.quota_pause.is_none(), "This session is quota paused. Use a Resume button or Stop first.");
         ensure_budget(app, &s)?;
         let protected = crate::quota::protected(app, s.harness, &s.launch_spec);
-        if mode == InputMode::FollowUpAutomatic && protected && !crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()) {
+        if mode == InputMode::FollowUpAutomatic && protected && !crate::quota::available(&crate::quota::reading_for(app, s.harness, &s.launch_spec), now_ms()) {
             return Err(FollowUpBusy.into());
         }
         if protected && !self.quota_blockers(app, &s).is_empty() {
@@ -1346,7 +1346,7 @@ impl Sessions {
                 || self.live(id).is_none_or(|l| l.ready_for_turn()),
             "Wait for outstanding commands to finish before starting another turn."
         );
-        if protected && !crate::quota::available(&crate::quota::reading(app, s.harness), now_ms()) {
+        if protected && !crate::quota::available(&crate::quota::reading_for(app, s.harness, &s.launch_spec), now_ms()) {
             self.sink(app, id).emit(EventBody::Notice { text: "Quota reading unavailable or stale; continuing with best-effort protection.".into() }).await;
         }
         let resumed = self.live(id).is_none();
@@ -1907,6 +1907,14 @@ impl Sink {
 
     pub fn app(&self) -> &App {
         &self.app
+    }
+
+    /// The subscription login of the session (`profiles::account`), for quota readings its process reports.
+    /// None on an SSH host, whose login may be another account than the one monitored here.
+    pub fn quota_account(&self) -> Option<String> {
+        let s = self.sessions.get(&self.id)?;
+        if crate::hosts::loc::host_of(&s.cwd).is_some() { return None; }
+        Some(crate::profiles::account(&self.app, s.harness, &s.launch_spec))
     }
 }
 

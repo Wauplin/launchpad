@@ -307,8 +307,10 @@ mod unix {
     fn command(h: &Helper, argv: &[String], cwd: Option<&str>, env: &[(String, String)]) -> Result<tokio::process::Command> {
         let login = h.env();
         let argv = resolve(&login, argv)?;
+        // Profile values may reference variables of this host's login shell.
+        let env = crate::profiles::host_values(&login, env)?;
         let mut cmd = tokio::process::Command::new(&argv[0]);
-        cmd.args(&argv[1..]).env_clear().envs(login.vars().iter()).env(HELPER_ENV, &h.dir).envs(env.iter().cloned());
+        cmd.args(&argv[1..]).env_clear().envs(login.vars().iter()).env(HELPER_ENV, &h.dir).envs(env);
         if let Some(cwd) = cwd {
             cmd.current_dir(cwd);
         }
@@ -395,6 +397,7 @@ mod unix {
             Some((rows, cols)) => {
                 let env_now = h.env();
                 let argv = resolve(&env_now, &argv)?;
+                let env = crate::profiles::host_values(&env_now, &env)?;
                 let size = portable_pty::PtySize { rows: rows.max(2), cols: cols.max(2), pixel_width: 0, pixel_height: 0 };
                 let pair = portable_pty::native_pty_system().openpty(size)?;
                 let mut cmd = portable_pty::CommandBuilder::from_argv(argv.iter().map(Into::into).collect());

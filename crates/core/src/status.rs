@@ -19,6 +19,8 @@ pub struct Status {
     /// Host name of the machine the daemon runs on (shown to browsers on other devices).
     pub host: String,
     pub harnesses: std::collections::HashMap<String, HarnessStatus>,
+    /// Included quota of each monitored subscription login, keyed by `profiles::account`.
+    pub quotas: std::collections::HashMap<String, QuotaStatus>,
     pub sessions: SessionCounts,
     /// IANA name of the daemon host time zone (crons use it), when the host exposes one.
     pub time_zone: Option<String>,
@@ -36,6 +38,14 @@ pub struct HarnessStatus {
     pub version_error: Option<String>,
     /// Version being installed by an adapter background update.
     pub updating_to: Option<String>,
+}
+
+/// The included quota of one subscription login (a harness, and the account variables of its profiles).
+#[derive(Clone, Debug, Default, Serialize, TS)]
+pub struct QuotaStatus {
+    pub harness: String,
+    /// Subscription profiles using this login, in configuration order.
+    pub profiles: Vec<String>,
     pub five_hour: Option<QuotaWindow>,
     pub weekly: Option<QuotaWindow>,
     /// When the quota was last read (Unix milliseconds).
@@ -78,16 +88,18 @@ impl StatusHandle {
 
     /// Serialize accepted readings into the DB queue while holding the status lock, so native
     /// notifications and polling cannot persist snapshots out of order.
-    pub fn update_quota(&self, id: crate::model::HarnessKind, five: Option<QuotaWindow>, week: Option<QuotaWindow>) {
+    pub fn update_quota(&self, account: &str, five: Option<QuotaWindow>, week: Option<QuotaWindow>) {
         let mut pending = None;
+        let id = account.to_string();
         self.update(|status| {
-            let s = status.harnesses.entry(id.as_str().into()).or_default();
+            // A reading for a login that is no longer monitored is dropped.
+            let Some(s) = status.quotas.get_mut(&id) else { return };
             crate::quota::update_reading(s, five, week);
             if s.quota_error.is_none()
                 && let (Some(db), Some(week), Some(at)) = (&self.quota_db, &s.weekly, s.quota_at)
             {
                 let week = week.clone();
-                pending = Some(db.enqueue(move |conn| crate::quota_history::record(conn, id.as_str(), at, &week)));
+                pending = Some(db.enqueue(move |conn| crate::quota_history::record(conn, &id, at, &week)));
             }
         });
         if let Some(pending) = pending {
@@ -111,6 +123,10 @@ impl StatusHandle {
             serde_json::to_value(&*s).unwrap_or(Value::Null)
         };
         self.bus.publish("status", "changed", payload);
+    }
+
+    pub fn quota_error(&self, account: &str, error: String) {
+        self.update(|s| if let Some(q) = s.quotas.get_mut(account) { q.quota_error = Some(error) });
     }
 
     pub fn update_harness(
@@ -218,14 +234,14 @@ pub fn http_client() -> reqwest::Client {
 
 pub(crate) async fn wait_poll(
     app: &App,
-    harness: crate::model::HarnessKind,
+    account: &str,
     idle: u64,
     active: u64,
 ) {
     let start = std::time::Instant::now();
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let delay = if crate::quota::monitoring(app, harness) { active } else { idle };
+        let delay = if crate::quota::monitoring(app, account) { active } else { idle };
         if start.elapsed().as_secs() >= delay { return; }
     }
 }

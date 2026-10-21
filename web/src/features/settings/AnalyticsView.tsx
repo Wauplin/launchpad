@@ -4,6 +4,7 @@ import type { WeeklyReset } from "@/gen/WeeklyReset";
 import { api } from "@/lib/api";
 import { useStatus } from "@/lib/queries";
 import { useHarnesses } from "@/components/HarnessMark";
+import { useQuotas } from "@/lib/profiles";
 import { usePhone } from "@/lib/phone";
 import { useConnection } from "@/app/Connection";
 import { AgentActivity } from "./AgentActivity";
@@ -13,9 +14,12 @@ const dayKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.
 const timestamp = (ms: number) => new Date(ms).toLocaleString();
 
 export function AnalyticsView() {
-  const harnesses = useHarnesses().filter((h) => h.capabilities.quota);
-  const names: Record<string, string> = Object.fromEntries(harnesses.map((h) => [h.id, h.name]));
-  const colors: Record<string, string> = Object.fromEntries(harnesses.map((h) => [h.id, h.color]));
+  // One entry per monitored subscription login (`Status.quotas`); history keeps the login key.
+  const harnesses = useHarnesses();
+  const quotas = useQuotas();
+  const harnessOf = (key: string) => harnesses.find((h) => h.id === key.split(" ")[0]);
+  const names: Record<string, string> = Object.fromEntries(quotas.map((e) => [e.key, e.names.length ? e.names.join(" · ") : (harnessOf(e.key)?.name ?? e.key)]));
+  const colors = new Proxy({} as Record<string, string>, { get: (_, key: string) => harnessOf(key)?.color });
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selected, setSelected] = useState(() => dayKey(new Date()));
   const from = month.getTime();
@@ -35,7 +39,7 @@ export function AnalyticsView() {
     return () => clearInterval(timer);
   }, []);
   const expected = Object.entries(names).map(([id, name]) => {
-    const reading = status.data?.harnesses[id];
+    const reading = status.data?.quotas[id];
     const at = reading?.weekly?.resets_at;
     const fresh = !!reading?.quota_at && now - reading.quota_at <= 15 * 60_000 && !reading.quota_error && !status.isError && online;
     return { id, name, reading, at: at ? at * 1000 : null, fresh };
@@ -99,7 +103,7 @@ export function AnalyticsView() {
       <div className="grid gap-2 rounded border border-line p-3 text-sm" aria-live="polite">
         <h3 className="font-semibold">Selected day</h3>
         {selectedEvents.slice(-10).map((event) => <p key={`${event.harness}-${event.observed_at}`} className="break-words">
-          <b style={{ color: colors[event.harness] }}>{names[event.harness] ?? event.harness}</b>: observed {timestamp(event.observed_at)} ({event.previous_percent.toFixed(1)}% → {event.used_percent.toFixed(1)}%). Reset detected between {timestamp(event.previous_at)} and {timestamp(event.observed_at)}.
+          <b style={{ color: colors[event.harness] }}>{names[event.harness] ?? harnessOf(event.harness)?.name ?? event.harness}</b>: observed {timestamp(event.observed_at)} ({event.previous_percent.toFixed(1)}% → {event.used_percent.toFixed(1)}%). Reset detected between {timestamp(event.previous_at)} and {timestamp(event.observed_at)}.
         </p>)}
         {selectedEvents.length > 10 && <p>Showing the latest 10 of {selectedEvents.length} resets this day.</p>}
         {selectedExpected.map((item) => <p key={item.id}>{item.name}: expected {timestamp(item.at!)}{!item.fresh ? " (stale reading)" : ""}.</p>)}

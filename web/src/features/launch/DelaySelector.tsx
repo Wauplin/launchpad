@@ -5,6 +5,7 @@ import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import { useStatus } from "@/lib/queries";
+import { quotaFor } from "@/lib/profiles";
 import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import { useSchedules, useSessions } from "@/lib/queries";
 import { dependencyDone } from "@/lib/sessionStatus";
@@ -112,18 +113,21 @@ function AgentPicker({ ids, onChange }: { ids: string[]; onChange: (ids: string[
   </div>;
 }
 
-function quotaReset(delay: LaunchDelay, status: ReturnType<typeof useStatus>["data"]): { reset: number | null; error: string | null } {
+/** The reset of the launch's own login when the condition names its harness, else of that harness's default login. */
+function quotaReset(delay: LaunchDelay, status: ReturnType<typeof useStatus>["data"], run: Run): { reset: number | null; error: string | null } {
   if (delay.kind !== "quota") return { reset: null, error: null };
-  const h = status?.harnesses[delay.harness];
+  const h = quotaFor(status, delay.harness, delay.harness === run.harness ? run.profile : null);
   const q = h?.[delay.window];
   const reset = q?.resets_at ? q.resets_at * 1000 : null;
   if (!h || h.quota_error || !h.quota_at || Date.now() - h.quota_at > 15 * 60000 || !reset || reset <= Date.now()) return { reset, error: "Quota reset is unavailable. Wait for a fresh quota reading, or choose a time." };
   return { reset, error: null };
 }
 
-function ConditionEditor({ delay, onChange, onRemove }: { delay: LaunchDelay; onChange: (delay: LaunchDelay) => void; onRemove: () => void }) {
+type Run = { harness: HarnessKind | null; profile: string | null };
+
+function ConditionEditor({ delay, run, onChange, onRemove }: { delay: LaunchDelay; run: Run; onChange: (delay: LaunchDelay) => void; onRemove: () => void }) {
   const quotaHarnesses = useHarnesses().filter((h) => h.capabilities.quota);
-  const quota = quotaReset(delay, useStatus().data);
+  const quota = quotaReset(delay, useStatus().data, run);
   const error = conditionError(delay) ?? quota.error;
   const reset = quota.reset;
   const tz = useServerTimeZone();
@@ -149,19 +153,20 @@ function ConditionEditor({ delay, onChange, onRemove }: { delay: LaunchDelay; on
   </div>;
 }
 
-export function DelaySelector({ conditions, harness, onChange, onValidityChange }: { conditions: LaunchDelay[]; harness: HarnessKind | null; onChange: (conditions: LaunchDelay[]) => void; onValidityChange: (valid: boolean) => void }) {
+export function DelaySelector({ conditions, harness, profile, onChange, onValidityChange }: { conditions: LaunchDelay[]; harness: HarnessKind | null; profile: string | null; onChange: (conditions: LaunchDelay[]) => void; onValidityChange: (valid: boolean) => void }) {
   const quotaHarnesses = useHarnesses().filter((h) => h.capabilities.quota);
   const quotaHarness = quotaHarnesses.find((h) => h.id === harness)?.id ?? quotaHarnesses[0]?.id ?? null;
   const status = useStatus().data;
   const [, tick] = useState(0);
   useEffect(() => { const timer = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(timer); }, []);
-  const valid = !conditionsError(conditions) && conditions.every((c) => !quotaReset(c, status).error);
+  const run = { harness, profile };
+  const valid = !conditionsError(conditions) && conditions.every((c) => !quotaReset(c, status, run).error);
   useEffect(() => { onValidityChange(valid); }, [valid, onValidityChange]);
   const hasAgents = conditions.some((c) => c.kind === "agents");
   return <div className="grid gap-1.5">
     <label className="text-[11.5px] font-[650] text-ink-2" htmlFor="launch-start">Start</label>
     <p className="text-xs text-ink-3">{!conditions.length ? "Now, when you click Launch. Add conditions to schedule it." : conditions.length === 1 ? "When this condition is met." : "When all of these conditions are met."}</p>
-    {conditions.map((c, i) => <ConditionEditor key={i} delay={c} onChange={(next) => onChange(conditions.map((x, j) => j === i ? next : x))} onRemove={() => onChange(conditions.filter((_, j) => j !== i))} />)}
+    {conditions.map((c, i) => <ConditionEditor key={i} delay={c} run={run} onChange={(next) => onChange(conditions.map((x, j) => j === i ? next : x))} onRemove={() => onChange(conditions.filter((_, j) => j !== i))} />)}
     <select id="launch-start" className="field-input h-8" value="" onChange={(e) => { const c = newCondition(e.target.value, e.target.value === "quota" ? quotaHarness : harness); if (c) onChange([...conditions, c]); }}>
       <option value="">{conditions.length ? "Add another condition…" : "Add a start condition…"}</option>
       {KINDS.map((k) => <option key={k.kind} value={k.kind} disabled={k.kind === "agents" && hasAgents}>{k.label}…</option>)}

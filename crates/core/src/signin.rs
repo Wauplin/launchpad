@@ -87,25 +87,22 @@ async fn github(env: &UserEnv) -> SignInCheck {
     c
 }
 
-/// Every registered harness, each profile with its own environment, and the GitHub CLI.
+/// Every registered harness (its default login), each profile with its own environment, and the GitHub CLI.
 pub async fn check_all(app: &App) -> Vec<SignInCheck> {
-    let mut checks = Vec::new();
-    for r in REGISTRATIONS {
-        checks.push(check(app, app.env.clone(), r.descriptor.id, None));
-    }
-    let mut failed = vec![];
-    for v in app.config.get().profiles.into_iter().filter(|v| !v.env.is_empty()) {
+    let defaults = futures_util::future::join_all(REGISTRATIONS.iter().map(|r| check(app, app.env.clone(), r.descriptor.id, None)));
+    let profiles = futures_util::future::join_all(app.config.get().profiles.into_iter().filter(|v| !v.env.is_empty()).map(|v| async move {
+        let command = crate::profiles::sign_in_command(app, &v);
         // The model only matters for model references; any value checks the sign-in.
         match crate::profiles::profile_env(app, &v, Some(v.model.as_deref().unwrap_or("default")), None) {
-            Ok(env) => checks.push(check(app, app.env.with(&env), v.harness, Some((v.id.clone(), v.name.clone())))),
-            Err(e) => failed.push(SignInCheck {
+            Ok(env) => SignInCheck { command, ..check(app, app.env.with(&env), v.harness, Some((v.id.clone(), v.name.clone()))).await },
+            Err(e) => SignInCheck {
                 id: v.harness.as_str().into(), profile: Some(v.id.clone()), name: v.name.clone(), cli_found: true, signed_in: Some(false),
-                detail: Some(format!("{e:#}")), command: app.harnesses.get(v.harness).sign_in_command().into(),
-            }),
+                detail: Some(format!("{e:#}")), command,
+            },
         }
-    }
-    let mut out = futures_util::future::join_all(checks).await;
-    out.extend(failed);
-    out.push(github(&app.env).await);
+    }));
+    let (mut out, profiles, github) = futures_util::join!(defaults, profiles, github(&app.env));
+    out.extend(profiles);
+    out.push(github);
     out
 }

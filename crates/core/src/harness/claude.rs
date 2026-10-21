@@ -417,7 +417,7 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
                 else if interrupted { SessionStatus::Interrupted }
                 else if background { SessionStatus::Background } else { SessionStatus::Waiting }).await;
         }
-        "rate_limit_event" => rate_limit_event(&sink.app().status, &msg["rate_limit_info"]),
+        "rate_limit_event" => if let Some(account) = sink.quota_account() { rate_limit_event(&sink.app().status, &account, &msg["rate_limit_info"]) },
         "control_cancel_request" => {
             let request_id = msg["request_id"].as_str().unwrap_or("");
             let removed = st.lock().unwrap().questions.remove(request_id).is_some();
@@ -801,6 +801,27 @@ const ENV_VARS: &[super::EnvVarDoc] = &[
 
 const PROFILE_TEMPLATES: &[super::ProfileTemplate] = &[
     super::ProfileTemplate {
+        kind: super::ProfileKind::Subscription,
+        name: "Subscription",
+        description: "Your Claude Pro or Max login (claude auth login), protected by its 5-hour and weekly quota.",
+        setup: None,
+        setup_command: None,
+        env: &[],
+        billing: crate::config::Billing::Subscription,
+        models_url: None,
+    },
+    super::ProfileTemplate {
+        kind: super::ProfileKind::Subscription,
+        name: "Another account",
+        description: "A second subscription or organization, with its own sign-in in a separate configuration folder and its own quota meters.",
+        setup: Some("Save the profile, then sign in once from Works on."),
+        setup_command: None,
+        env: &[("CLAUDE_CONFIG_DIR", "~/.claude-work")],
+        billing: crate::config::Billing::Subscription,
+        models_url: None,
+    },
+    super::ProfileTemplate {
+        kind: super::ProfileKind::Provider,
         name: "Hugging Face",
         description: "Open models (Kimi, GLM, Qwen, DeepSeek…) through Hugging Face Inference Providers, like the hf claude extension. Billed to your Hugging Face account.",
         setup: Some("Launchpad reads HF_TOKEN, else the token saved by the hf CLI. Sign in once if needed:"),
@@ -818,16 +839,8 @@ const PROFILE_TEMPLATES: &[super::ProfileTemplate] = &[
         models_url: Some("https://router.huggingface.co/v1/models"),
     },
     super::ProfileTemplate {
-        name: "Another Claude account",
-        description: "A second subscription or organization, with its own sign-in in a separate configuration folder.",
-        setup: Some("Sign in once in a terminal, then type /login if Claude Code does not ask:"),
-        setup_command: Some("CLAUDE_CONFIG_DIR=~/.claude-work claude"),
-        env: &[("CLAUDE_CONFIG_DIR", "~/.claude-work")],
-        billing: crate::config::Billing::PayAsYouGo,
-        models_url: None,
-    },
-    super::ProfileTemplate {
-        name: "Anthropic API key",
+        kind: super::ProfileKind::ApiKey,
+        name: "API key",
         description: "Pay per use with a Console API key instead of the subscription.",
         setup: Some("Create a key at https://console.anthropic.com/settings/keys and paste it below."),
         setup_command: None,
@@ -851,6 +864,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
             quota: true,
             cost: true,
         },
+        account_env: &["CLAUDE_CONFIG_DIR"],
         env_vars: ENV_VARS,
         profile_templates: PROFILE_TEMPLATES,
     },
@@ -915,8 +929,8 @@ impl super::Harness for Adapter {
                 .into(),
         )
     }
-    fn spawn_services(&self, app: &App) {
-        spawn_quota(app);
+    fn spawn_quota(&self, app: &App, account: crate::quota::QuotaAccount) -> Option<tokio::task::JoinHandle<()>> {
+        Some(spawn_quota(app, account))
     }
     fn project_moved(&self, old_s: &str, new_s: &str) {
         let (old_t, new_t) = (
@@ -973,7 +987,7 @@ impl super::Harness for Adapter {
     }
 }
 /// Quota from a Claude `rate_limit_event` (fractions and Unix seconds).
-pub fn rate_limit_event(status: &crate::status::StatusHandle, info: &Value) {
+pub fn rate_limit_event(status: &crate::status::StatusHandle, account: &str, info: &Value) {
     let windows = &info["unifiedWindows"];
     let win = |k: &str| -> Option<crate::status::QuotaWindow> {
         let w = &windows[k];
@@ -986,32 +1000,34 @@ pub fn rate_limit_event(status: &crate::status::StatusHandle, info: &Value) {
     if five.is_none() && week.is_none() {
         return;
     }
-    status.update_quota(ID, five, week);
+    status.update_quota(account, five, week);
 }
 
-fn spawn_quota(app: &App) {
+/// Polls the usage of one login: `CLAUDE_CONFIG_DIR` selects its configuration folder (default `~/.claude`).
+fn spawn_quota(app: &App, account: crate::quota::QuotaAccount) -> tokio::task::JoinHandle<()> {
     let a = app.clone();
     tokio::spawn(async move {
         let client = crate::status::http_client();
+        let config_dir = account.env.iter().find(|(k, _)| k == "CLAUDE_CONFIG_DIR").map(|(_, v)| std::path::PathBuf::from(v))
+            .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".claude"));
         let mut rate_limit_delay = 0;
         loop {
-            let mut result = claude_usage(&client).await;
+            let mut result = claude_usage(&client, &config_dir).await;
             // Expired, missing (macOS Keychain) or rejected tokens: Claude Code reads usage itself and refreshes its own token.
             if let Err(e) = &result
                 && e.downcast_ref::<UsageRateLimited>().is_none()
             {
-                tracing::info!("claude usage endpoint: {e:#}; asking Claude Code");
-                result = claude_code_usage(&a).await.map_err(|cc| anyhow::anyhow!("{e:#}; Claude Code: {cc:#}"));
+                tracing::info!("claude usage endpoint ({}): {e:#}; asking Claude Code", account.key);
+                result = claude_code_usage(&a, &account.env).await.map_err(|cc| anyhow::anyhow!("{e:#}; Claude Code: {cc:#}"));
             }
             match result {
                 Ok((five, week)) => {
                     rate_limit_delay = 0;
-                    a.status.update_quota(ID, five, week);
+                    a.status.update_quota(&account.key, five, week);
                 }
                 Err(e) => {
-                    tracing::info!("claude usage: {e:#}");
-                    a.status
-                        .update_harness(ID, |s| s.quota_error = Some(format!("{e:#}")));
+                    tracing::info!("claude usage ({}): {e:#}", account.key);
+                    a.status.quota_error(&account.key, format!("{e:#}"));
                     if let Some(limit) = e.downcast_ref::<UsageRateLimited>() {
                         rate_limit_delay = if rate_limit_delay == 0 { 300 } else { (rate_limit_delay * 2).min(1800) };
                         tokio::time::sleep(std::time::Duration::from_secs(rate_limit_delay.max(limit.retry_after))).await;
@@ -1020,9 +1036,9 @@ fn spawn_quota(app: &App) {
                     rate_limit_delay = 0;
                 }
             }
-            crate::status::wait_poll(&a, ID, 300, 180).await;
+            crate::status::wait_poll(&a, &account.key, 300, 180).await;
         }
-    });
+    })
 }
 
 #[derive(Debug)]
@@ -1043,10 +1059,8 @@ impl std::error::Error for UsageRateLimited {}
 type QuotaPair = (Option<crate::status::QuotaWindow>, Option<crate::status::QuotaWindow>);
 
 /// Reads `/api/oauth/usage`. Skips the call when the access token has expired: Claude Code refreshes it.
-async fn claude_usage(client: &reqwest::Client) -> Result<QuotaPair> {
-    let path = dirs::home_dir()
-        .unwrap_or_default()
-        .join(".claude/.credentials.json");
+async fn claude_usage(client: &reqwest::Client, config_dir: &std::path::Path) -> Result<QuotaPair> {
+    let path = config_dir.join(".credentials.json");
     let creds: Value =
         serde_json::from_str(&std::fs::read_to_string(&path).context("read Claude credentials")?)?;
     let oauth = &creds["claudeAiOauth"];
@@ -1080,9 +1094,9 @@ async fn claude_usage(client: &reqwest::Client) -> Result<QuotaPair> {
 
 /// Asks Claude Code for its structured `/usage` data (`get_usage` control request). No model request is made;
 /// Claude Code authenticates and refreshes its own OAuth token, which Launchpad never does.
-async fn claude_code_usage(app: &App) -> Result<QuotaPair> {
+async fn claude_code_usage(app: &App, env: &[(String, String)]) -> Result<QuotaPair> {
     let home = dirs::home_dir();
-    let mut child = crate::procs::child_command(&app.env, "claude", home.as_deref())
+    let mut child = crate::procs::child_command(&app.env.with(env), "claude", home.as_deref())
         .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--strict-mcp-config"])
         .stdin(crate::exec::Io::Piped)
         .stdout(crate::exec::Io::Piped)

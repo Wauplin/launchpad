@@ -37,7 +37,7 @@ pub fn generate(app: &App, session: &Session) {
 fn capacity(app: &App, session: &Session) -> bool {
     !session.budget_reached()
         && (!crate::quota::protected(app, session.harness, &session.launch_spec)
-        || crate::quota::available(&crate::quota::reading(app, session.harness), crate::util::now_ms()))
+        || crate::quota::available(&crate::quota::reading_for(app, session.harness, &session.launch_spec), crate::util::now_ms()))
 }
 
 async fn title(app: &App, session: &Session) -> Result<Option<String>> {

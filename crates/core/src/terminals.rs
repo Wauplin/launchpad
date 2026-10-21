@@ -503,6 +503,41 @@ impl Terminals {
         self.spawn(app, info, argv, vec![]).await
     }
 
+    /// Runs the install or sign-in command of a profile's harness in a visible terminal in the home folder of
+    /// this computer or an SSH host, with the profile environment (its own login folder or key). The command
+    /// comes from the adapter; nothing typed in a browser is run. Account folders are created first.
+    pub async fn open_profile_setup(&self, app: &App, profile_id: &str, host: Option<&str>, install: bool) -> Result<TerminalInfo> {
+        let p = app.config.get().profile(profile_id).cloned().with_context(|| format!("no profile {profile_id}"))?;
+        let adapter = app.harnesses.get(p.harness);
+        let home = match host {
+            Some(h) => crate::hosts::loc::join(Some(h), &app.hosts.home(h).with_context(|| format!("{h} is not connected"))?),
+            None => dirs::home_dir().context("no home folder")?.to_string_lossy().into_owned(),
+        };
+        let mut command = if install {
+            adapter.install_command().context("this harness has no install command")?.to_string()
+        } else {
+            adapter.sign_in_command().to_string()
+        };
+        let env = if install { vec![] } else { crate::profiles::profile_env(app, &p, Some(p.model.as_deref().unwrap_or("default")), host)? };
+        let folders: Vec<&str> = crate::harness::registration(p.harness).descriptor.account_env.iter().copied().filter(|n| env.iter().any(|(k, _)| k == n)).collect();
+        if !install && !folders.is_empty() && (host.is_some() || cfg!(unix)) {
+            command = format!("{} && {command}", folders.iter().map(|n| format!("mkdir -p \"${n}\"")).collect::<Vec<_>>().join(" && "));
+        }
+        let info = TerminalInfo {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: TerminalKind::Command,
+            title: format!("{} · {}", if install { "Install" } else { "Sign in" }, p.name),
+            cwd: home,
+            project_id: None,
+            session_id: None,
+            alive: true,
+            exit_code: None,
+            created_at: now_ms(),
+        };
+        let argv = command_shell(app, &command, "shell", host.is_some())?;
+        self.spawn(app, info, argv, env).await
+    }
+
     /// Opens the harness TUI of a session. The caller detaches the headless harness first.
     pub(crate) async fn open_tui(&self, app: &App, s: &Session) -> Result<TerminalInfo> {
         let is_temp = match &s.project_id {

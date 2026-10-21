@@ -1,5 +1,5 @@
 import { isDesktopShell } from "@/lib/platform";
-import { harnessOnHost, hostOf, useHosts } from "@/lib/hosts";
+import { hostOf, profileOnHost, useHosts } from "@/lib/hosts";
 import { isPhone } from "@/lib/phone";
 import { useStatus } from "@/lib/queries";
 // Composer drawer (sketch S2): stays on the right while you navigate, so context can be added from
@@ -8,7 +8,7 @@ import { useStatus } from "@/lib/queries";
 
 import { abandonOperation } from "@/lib/operations";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AgentTraceRef } from "@/gen/AgentTraceRef";
@@ -247,6 +247,13 @@ export function Composer() {
   const profiles = useProfiles();
   const profile = profiles.find((v) => v.id === spec.profile) ?? null;
   const payg = profile?.billing === "pay_as_you_go";
+  // Switching profiles restores the latest run settings of that profile; the cost limit follows its default.
+  const withProfile = (s: LaunchSpec, o: Profile): LaunchSpec => {
+    const same = s.harness === o.harness && s.profile === o.id;
+    const cost = harnesses.find((h) => h.id === o.harness)?.capabilities.cost;
+    const run = same ? { model: s.model, effort: s.effort, permission_mode: s.permission_mode } : rememberedRun(o.harness, o.id);
+    return { ...s, harness: o.harness, profile: o.id, ...run, budget_usd: same ? s.budget_usd : cost ? (o.budget_usd ?? null) : null };
+  };
   // Profiles pointing at another provider list that provider's models instead of the harness ones.
   const providerModels = useProfileModels(profile?.models_url);
   const [budgetText, setBudgetText] = useState<string | null>(null);
@@ -316,6 +323,13 @@ export function Composer() {
   const recentSessions = (sessions ?? []).filter(scope.hasSession);
   const hosts = useHosts();
   // Keep every hook above this early return: hook order must not change when the draft opens or closes.
+  // A draft without a profile (older drafts, the first launch) takes the first profile of its harness, else the first one.
+  useEffect(() => {
+    if (!open || spec.profile || !profiles.length) return;
+    const pick = profiles.find((p) => p.harness === spec.harness) ?? profiles[0];
+    update((s) => (s.profile ? s : withProfile(s, pick)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, spec.profile, profiles]);
   if (!open) return null;
 
   const refreshingModels = refreshModels.isPending || providerModels.isFetching;
@@ -344,9 +358,9 @@ export function Composer() {
   // The host follows from the project: harnesses missing or signed out there cannot launch.
   const targetHost = hostOf(target?.path);
   const hostStatus = targetHost ? (hosts.find((h) => h.host.id === targetHost) ?? null) : null;
-  const hostHarness = (id: string | null | undefined) => (id ? harnessOnHost(hostStatus, id) : null);
-  const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Hosts` : hostHarness(spec.harness)?.ok === false ? hostHarness(spec.harness)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context projects must be on the same machine as the project" : null;
-  const blocker = hostBlocker ? hostBlocker : !spec.harness ? "Pick a harness in the options" : missingProfile ? "The harness profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const hostProfile = (p: Profile | null) => (p ? profileOnHost(hostStatus, p) : null);
+  const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Hosts` : hostProfile(profile)?.ok === false ? hostProfile(profile)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context projects must be on the same machine as the project" : null;
+  const blocker = hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
@@ -439,7 +453,6 @@ export function Composer() {
     );
   }
 
-  const harnessOptions = [...harnesses.map((h) => ({ key: h.id, harness: h.id, profile: null as Profile | null, label: h.name })), ...profiles.map((v) => ({ key: `profile:${v.id}`, harness: v.harness, profile: v, label: v.name }))];
   const modelLabel = spec.model ?? fallbackModel ?? "default model";
   const effortLabel = spec.effort ?? profile?.effort ?? defaults?.effort ?? null;
   const worktreeMode = spec.target.kind === "project" && !!spec.worktree && gitTarget;
@@ -608,7 +621,8 @@ export function Composer() {
           />
         </div>
 
-        {missingProfile && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">The harness profile {spec.profile} no longer exists. Pick a harness or profile in the options.</div>}
+        {missingProfile && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">The profile {spec.profile} no longer exists. Pick another profile in the options.</div>}
+        {!profiles.length && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">No profile yet. A profile says which harness runs the agent and what pays for it. <Link to="/settings/profiles" className="font-semibold underline">Add one in Settings → Profiles</Link>.</div>}
 
         <button
           className={`flex w-full flex-wrap items-center gap-1 rounded-lg border px-2 py-1.5 text-left ${showOptions ? "border-line bg-chrome" : "border-line bg-paper hover:border-line"}`}
@@ -616,7 +630,7 @@ export function Composer() {
           title={showOptions ? "Hide the options" : "Show the options"}
           onClick={() => setShowOptions((v) => !v)}
         >
-          <Token warn={!spec.harness || missingProfile}>{spec.harness && <HarnessMark harness={spec.harness} size={13} />}{profile?.name ?? (spec.harness ? harnessName(spec.harness) : "No harness")}</Token>
+          <Token warn={!profile}>{spec.harness && <HarnessMark harness={spec.harness} size={13} />}{profile?.name ?? "No profile"}</Token>
           <Token>{modelLabel}</Token>
           {!!efforts.length && effortLabel && <Token>{effortLabel}</Token>}
           {harness?.capabilities.permission_modes && <Token>{spec.permission_mode === "auto" ? "Auto approval" : spec.permission_mode === "approvals" ? "Ask for approval" : "YOLO"}</Token>}
@@ -632,27 +646,25 @@ export function Composer() {
         </button>
 
         {showOptions && <div className="grid gap-3 rounded-lg border border-line bg-chrome p-2.5">
-          <OptionRow label="Harness">
-            <span className="inline-flex flex-wrap gap-0.5 rounded-lg bg-sunk p-0.5">
-              {harnessOptions.map((o) => (
-                <button
-                  key={o.key}
-                  title={hostHarness(o.harness)?.ok === false ? hostHarness(o.harness)!.reason : o.profile ? `${harnessName(o.harness)} profile${o.profile.billing === "pay_as_you_go" ? " · pay as you go" : ""}` : undefined}
-                  disabled={hostHarness(o.harness)?.ok === false}
-                  onClick={() => { setBudgetText(null); set((s) => {
-                    const same = s.harness === o.harness && (s.profile ?? null) === (o.profile?.id ?? null);
-                    const cost = harnesses.find((h) => h.id === o.harness)?.capabilities.cost;
-                    const run = same ? { model: s.model, effort: s.effort, permission_mode: s.permission_mode } : rememberedRun(o.harness, o.profile?.id ?? null);
-                    return { ...s, harness: o.harness, profile: o.profile?.id ?? null, ...run, budget_usd: same ? s.budget_usd : cost ? (o.profile?.budget_usd ?? null) : null };
-                  }); }}
-                  className={`inline-flex h-[26px] shrink-0 items-center disabled:cursor-not-allowed disabled:opacity-45 gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[12.5px] ${
-                    spec.harness === o.harness && (spec.profile ?? null) === (o.profile?.id ?? null) ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"
-                  }`}
-                >
-                  <HarnessMark harness={o.harness} size={15} />
-                  {o.label}
-                </button>
-              ))}
+          <OptionRow label="Profile">
+            <span className="grid gap-1">
+              <span className="inline-flex flex-wrap gap-0.5 rounded-lg bg-sunk p-0.5">
+                {profiles.map((o) => (
+                  <button
+                    key={o.id}
+                    title={hostProfile(o)?.ok === false ? hostProfile(o)!.reason : `${harnessName(o.harness)} · ${o.billing === "pay_as_you_go" ? "pay as you go" : "subscription"}`}
+                    disabled={hostProfile(o)?.ok === false}
+                    onClick={() => { setBudgetText(null); set((s) => withProfile(s, o)); }}
+                    className={`inline-flex h-[26px] shrink-0 items-center disabled:cursor-not-allowed disabled:opacity-45 gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[12.5px] ${
+                      spec.profile === o.id ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"
+                    }`}
+                  >
+                    <HarnessMark harness={o.harness} size={15} />
+                    {o.name}
+                  </button>
+                ))}
+              </span>
+              <Link to="/settings/profiles" className="w-fit text-[11.5px] text-teal-ink hover:underline">Manage profiles</Link>
             </span>
           </OptionRow>
           {harness?.capabilities.permission_modes && <OptionRow label="Permissions">
@@ -754,7 +766,7 @@ export function Composer() {
             </label>
           </OptionRow>}
           <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); }} onValidityChange={setCronValid} />
-          {!cron && <DelaySelector conditions={conditions} harness={spec.harness} onChange={setConditions} onValidityChange={setDelayValid} />}
+          {!cron && <DelaySelector conditions={conditions} harness={spec.harness} profile={spec.profile} onChange={setConditions} onValidityChange={setDelayValid} />}
         </div>}
 
         <Popover width={400} trigger={({ toggle }) => <button className="btn btn-sm w-fit" onClick={toggle}><Icon name="eye" size={12} />Preview prompt</button>}>

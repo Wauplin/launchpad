@@ -10,7 +10,7 @@ use crate::shellenv::UserEnv;
 
 #[derive(Clone, Debug, Serialize, TS)]
 pub struct Check {
-    /// `ssh`, `system`, `helper`, `git`, `gh` or a harness ID.
+    /// `ssh`, `system`, `helper`, `git`, `gh`, a harness ID, or `profile:<id>` for a profile with its own environment.
     pub id: String,
     pub name: String,
     /// None: a warning or unknown.
@@ -88,6 +88,7 @@ pub async fn run(app: &App, id: &str) -> anyhow::Result<Vec<Check>> {
         .ok()
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_else(|| vec![None; programs.len()]);
+    let mut installed = std::collections::HashSet::new();
     for (r, path) in crate::harness::REGISTRATIONS.iter().zip(found) {
         let adapter = app.harnesses.get(r.descriptor.id);
         let name = r.descriptor.name;
@@ -100,6 +101,7 @@ pub async fn run(app: &App, id: &str) -> anyhow::Result<Vec<Check>> {
             });
             continue;
         };
+        installed.insert(r.descriptor.id);
         let version = first_line(&env, adapter.sign_in_program(), &["--version"]).await.unwrap_or_default();
         let (remote, local) = tokio::join!(adapter.sign_in(&env), adapter.sign_in(&app.env));
         let account = match (&remote.detail, &local.detail, remote.signed_in, local.signed_in) {
@@ -119,8 +121,63 @@ pub async fn run(app: &App, id: &str) -> anyhow::Result<Vec<Check>> {
             ..check(hid, name, remote.signed_in.filter(|s| *s), detail)
         });
     }
+    // Profiles with their own environment (another account, an API key) are checked with it, as they run here.
+    for p in app.config.get().profiles.into_iter().filter(|p| !p.env.is_empty()) {
+        let adapter = app.harnesses.get(p.harness);
+        let key = format!("profile:{}", p.id);
+        if !installed.contains(&p.harness) {
+            checks.push(Check { command: adapter.install_command().map(str::to_string), found: Some(false), ..check(&key, &p.name, Some(false), format!("{} is not installed", p.harness.display())) });
+            continue;
+        }
+        let model = Some(p.model.as_deref().unwrap_or("default"));
+        let (remote_env, local_env) = (crate::profiles::profile_env(app, &p, model, Some(id)), crate::profiles::profile_env(app, &p, model, None));
+        let remote_env = match remote_env {
+            Ok(e) => e,
+            Err(e) => {
+                checks.push(Check { found: Some(true), signed_in: Some(false), ..check(&key, &p.name, Some(false), format!("{e:#}")) });
+                continue;
+            }
+        };
+        let local = async {
+            match &local_env {
+                Ok(e) => Some(adapter.sign_in(&app.env.with(e)).await),
+                Err(_) => None,
+            }
+        };
+        let host_env = env.with(&remote_env);
+        let (remote, local) = tokio::join!(adapter.sign_in(&host_env), local);
+        let subscription = p.billing == crate::config::Billing::Subscription;
+        let account = match (&remote.detail, local.as_ref().and_then(|l| l.detail.as_ref()), remote.signed_in, local.as_ref().and_then(|l| l.signed_in)) {
+            (Some(r), Some(l), Some(true), Some(true)) if r == l => " · same account as this computer".to_string(),
+            (_, _, Some(true), _) if subscription => " · possibly another account: quota meters show this computer's login".to_string(),
+            _ => String::new(),
+        };
+        let detail = match remote.signed_in {
+            Some(true) => format!("signed in{}{account}", remote.detail.as_deref().map(|d| format!(" ({d})")).unwrap_or_default()),
+            Some(false) => "not signed in".to_string(),
+            None => format!("sign-in unknown{}", remote.detail.map(|d| format!(": {d}")).unwrap_or_default()),
+        };
+        checks.push(Check {
+            command: (remote.signed_in != Some(true)).then(|| crate::profiles::sign_in_command(app, &p)),
+            found: Some(true),
+            signed_in: remote.signed_in,
+            ..check(&key, &p.name, remote.signed_in.filter(|s| *s), detail)
+        });
+    }
     hosts.set_checks(id, checks.clone());
     Ok(checks)
+}
+
+/// Checks every connected host again in the background (profiles changed).
+pub fn recheck_all(app: &App) {
+    let app = app.clone();
+    tokio::spawn(async move {
+        for h in app.hosts.snapshot().into_iter().filter(|h| h.state == crate::hosts::LinkState::Connected) {
+            if let Err(e) = run(&app, &h.host.id).await {
+                tracing::info!("host {} checks: {e:#}", h.host.id);
+            }
+        }
+    });
 }
 
 /// Checks each host again after it (re)connects, so the composer knows which harnesses it can run.

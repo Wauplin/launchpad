@@ -42,6 +42,9 @@ pub struct HarnessDescriptor {
     pub color: &'static str,
     pub working_message: &'static str,
     pub capabilities: HarnessCapabilities,
+    /// Variables that select the subscription login (a configuration folder): profiles with different values
+    /// are different accounts, each with its own quota monitor.
+    pub account_env: &'static [&'static str],
     /// Documented environment variables offered in the profile editor.
     pub env_vars: &'static [EnvVarDoc],
     /// Ready-made profiles offered by Settings → Profiles → New profile.
@@ -63,9 +66,22 @@ pub struct EnvVarDoc {
     pub secret: bool,
 }
 
+/// How a profile pays for its work: the first choice when adding one.
+#[derive(Clone, Copy, Serialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileKind {
+    /// A subscription login (the default one, or another account in its own folder).
+    Subscription,
+    /// An API key of the harness vendor, billed per use.
+    ApiKey,
+    /// Another model provider (a router or an OpenAI-compatible endpoint), billed per use.
+    Provider,
+}
+
 /// A preset profile. Values may use `${NAME}` references, resolved when a process starts.
 #[derive(Clone, Copy, Serialize, TS)]
 pub struct ProfileTemplate {
+    pub kind: ProfileKind,
     pub name: &'static str,
     pub description: &'static str,
     /// Setup the owner does once, shown while the new profile is unsaved.
@@ -128,6 +144,12 @@ pub trait Harness: Send + Sync {
         crate::signin::SignIn { signed_in: None, detail: None }
     }
     fn spawn_services(&self, _app: &App) {}
+    /// Polls the included quota of one subscription login (see `quota::QuotaAccount`) and publishes it with
+    /// `StatusHandle::update_quota`. Called once per account while a profile uses it; the task is aborted
+    /// when no profile uses it anymore.
+    fn spawn_quota(&self, _app: &App, _account: crate::quota::QuotaAccount) -> Option<tokio::task::JoinHandle<()>> {
+        None
+    }
     fn terminal_command(&self, _session: &Session, _is_temp: bool) -> Result<Vec<String>> {
         bail!("terminal handoff is not supported")
     }

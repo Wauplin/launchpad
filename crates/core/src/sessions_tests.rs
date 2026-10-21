@@ -184,7 +184,8 @@ async fn quota_reset_fallback_sends_once_and_restores_protection_on_new_evidence
     use crate::{model::*, status::QuotaWindow};
     let (_fixture, app) = fixture().await;
     let reset = crate::util::now_ms() / 1000 - 61;
-    app.status.update_harness(crate::harness::codex::ID, |s| {
+    app.status.update(|st| {
+        let s = st.quotas.entry("codex".into()).or_default();
         s.five_hour = Some(QuotaWindow { used_percent: 100.0, resets_at: Some(reset) });
         s.weekly = Some(QuotaWindow { used_percent: 10.0, resets_at: None });
         s.quota_at = Some((reset - 10) * 1000);
@@ -194,7 +195,7 @@ async fn quota_reset_fallback_sends_once_and_restores_protection_on_new_evidence
         s.status = SessionStatus::QuotaPaused;
         s.quota_pause = Some(QuotaPause {
             phase: QuotaPausePhase::Paused,
-            blockers: crate::quota::blockers(&app, s.harness),
+            blockers: crate::quota::blockers(&app, s.harness, &s.launch_spec),
             message: "held task".into(), images: vec![], client_id: Some("held".into()), error: None,
         });
     }).await.unwrap();
@@ -216,7 +217,7 @@ async fn quota_reset_fallback_sends_once_and_restores_protection_on_new_evidence
     assert!(app.sessions.quota_blockers(&app, &session).is_empty());
     app.sessions.check_quotas(&app).await.unwrap();
     assert_eq!(live.sends.load(std::sync::atomic::Ordering::SeqCst), 1);
-    app.status.update_harness(crate::harness::codex::ID, |s| s.quota_at = Some(crate::util::now_ms()));
+    app.status.update(|st| st.quotas.entry("codex".into()).or_default().quota_at = Some(crate::util::now_ms()));
     assert_eq!(app.sessions.quota_blockers(&app, &session).len(), 1);
     app.sessions.check_quotas(&app).await.unwrap();
     app.sessions.check_quotas(&app).await.unwrap();

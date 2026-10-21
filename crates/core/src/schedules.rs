@@ -181,7 +181,7 @@ async fn create_target(
                         .quota,
                     "This harness has no monitored subscription quota"
                 );
-                let h = crate::quota::reading(app, *harness);
+                let h = if spec.harness == Some(*harness) { crate::quota::reading_for(app, *harness, &spec) } else { crate::quota::reading(app, harness.as_str()) };
                 if h.quota_error.is_some() || h.quota_at.is_none_or(|at| now - at > 15 * 60_000) {
                     bail!("quota reset is unavailable; wait for a fresh quota reading");
                 }

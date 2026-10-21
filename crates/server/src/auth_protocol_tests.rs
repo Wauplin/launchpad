@@ -22,6 +22,7 @@ async fn front_door_protocol() {
         budget_usd: None,
         models_url: None,
         spend_limits: vec![],
+        send_credentials: false,
     };
     profile
         .env
