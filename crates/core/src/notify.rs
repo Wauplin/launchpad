@@ -61,7 +61,7 @@ pub(crate) fn session(app: &App, s: &Session, event: SessionNotification) {
     let route = format!("/agents?session={}", s.id);
     let desktop = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(format!("launchpad-desktop{}", std::env::consts::EXE_SUFFIX)))).filter(|p| p.exists());
     let env = app.env.clone();
-    let profile = app.paths.profile;
+    let app_env = app.paths.app_env;
     std::thread::spawn(move || {
         let handle = notify_rust::Notification::new()
             .appname("Launchpad")
@@ -79,8 +79,8 @@ pub(crate) fn session(app: &App, s: &Session, event: SessionNotification) {
                     let exe = desktop.clone().map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|| "launchpad-desktop".into());
                     let mut cmd = std::process::Command::new(exe);
                     cmd.args(["--open", &route]).env_clear().envs(env.vars().iter());
-                    if profile == crate::paths::Profile::Dev {
-                        cmd.env("LAUNCHPAD_PROFILE", "dev");
+                    if app_env == crate::paths::AppEnv::Dev {
+                        cmd.env("LAUNCHPAD_ENV", "dev");
                     }
                     let _ = cmd.spawn();
                 }

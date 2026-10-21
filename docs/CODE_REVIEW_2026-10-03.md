@@ -389,9 +389,9 @@ A second reproduction used real git diff with core.quotepath=false on space name
 
 ### R34 — Medium — The manual installer does not reserve production and can inspect the wrong profile
 
-**Evidence:** Source-confirmed. packaging/install.sh:38 probes production health, then runs the installed launchpad status without forcing LAUNCHPAD_PROFILE=prod. It checks again before copying/restarting but does not acquire the update-install-lock reservation. The UI updater does explicitly reserve production.
+**Evidence:** Source-confirmed. packaging/install.sh:38 probes production health, then runs the installed launchpad status without forcing LAUNCHPAD_ENV=prod. It checks again before copying/restarting but does not acquire the update-install-lock reservation. The UI updater does explicitly reserve production.
 
-**Failure:** Running the installer from a shell with LAUNCHPAD_PROFILE=dev can query dev sessions while deciding whether restarting prod is safe. Even in prod, a new session can start between the final status check and replacement. This violates the script's stated idle installation policy; after this revert, restarting production also stops daemon-owned agents, making the missed reservation especially consequential.
+**Failure:** Running the installer from a shell with LAUNCHPAD_ENV=dev can query dev sessions while deciding whether restarting prod is safe. Even in prod, a new session can start between the final status check and replacement. This violates the script's stated idle installation policy; after this revert, restarting production also stops daemon-owned agents, making the missed reservation especially consequential.
 
 **Recommendation:** Force the production profile for all production inspection and use the same reservation mechanism in both installation paths. Preserve the explicit --force escape hatch and release a reservation on failure.
 

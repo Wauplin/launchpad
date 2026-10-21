@@ -4,23 +4,23 @@ import type { HostStatus } from "./HostStatus";
 import type { SessionCounts } from "./SessionCounts";
 import type { VariantSpend } from "./VariantSpend";
 
-export type Status = { profile: string, commit: string,
+export type Status = { env: string, commit: string, 
 /**
  * Host name of the machine the daemon runs on (shown to browsers on other devices).
  */
-host: string, harnesses: { [key in string]: HarnessStatus }, sessions: SessionCounts,
+host: string, harnesses: { [key in string]: HarnessStatus }, sessions: SessionCounts, 
 /**
  * IANA name of the daemon host time zone (crons use it), when the host exposes one.
  */
-time_zone: string | null,
+time_zone: string | null, 
 /**
  * Current UTC offset of the daemon host, in minutes east of UTC.
  */
-utc_offset_minutes: number,
+utc_offset_minutes: number, 
 /**
  * SSH hosts and their connection state.
  */
-hosts: Array<HostStatus>,
+hosts: Array<HostStatus>, 
 /**
  * Rolling spending limits of pay-as-you-go variants.
  */

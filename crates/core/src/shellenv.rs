@@ -32,9 +32,9 @@ impl UserEnv {
         // Variables set by a parent Claude Code or Codex session must not leak into new sessions:
         // with them, Claude turns transcript saving off ("inherited CLAUDE_CODE_CHILD_SESSION marker").
         vars.retain(|k, _| !is_harness_marker(k));
-        // Launchpad's own profile must not leak either: an agent running `launchpad` commands
+        // Launchpad's own environment name must not leak either: an agent running `launchpad` commands
         // talks to the instance that started it, which the agent sets explicitly when needed.
-        vars.remove("LAUNCHPAD_PROFILE");
+        vars.remove("LAUNCHPAD_ENV");
         UserEnv { vars: Arc::new(vars), host: None }
     }
 

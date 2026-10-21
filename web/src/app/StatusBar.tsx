@@ -125,7 +125,7 @@ function Details({ harness, data, limits }: { harness: Harness; data: Status; li
             {Object.entries(limits).map(([k, v]) => <div key={k}>GitHub {k}: {v.remaining} calls left, resets {formatReset(v.reset_at)}</div>)}
             {Object.keys(limits).length === 0 && <div className="text-ink-3">GitHub rate limits not read yet.</div>}
           </div>
-          <div className="border-t border-line pt-1.5">Launchpad <span className="font-mono">{data.commit.slice(0, 12)}</span> · {data.profile} profile</div>
+          <div className="border-t border-line pt-1.5">Launchpad <span className="font-mono">{data.commit.slice(0, 12)}</span> · {data.env} environment</div>
         </div>
       )}
     </Popover>
@@ -158,9 +158,9 @@ export function StatusBar() {
           <span className="ml-auto inline-flex items-center gap-2.5">
             <Hosts />
             {isDesktopShell ? !online && <span className="font-semibold text-gh-closed">Daemon disconnected, reconnecting…</span> : <HostChip />}
-            {data.profile === "dev" && <span className="font-mono text-ink-3" title={`Running commit: ${data.commit}`}>{data.commit.slice(0, 7)}</span>}
+            {data.env === "dev" && <span className="font-mono text-ink-3" title={`Running commit: ${data.commit}`}>{data.commit.slice(0, 7)}</span>}
             <TerminalButton />
-            {data.profile === "dev" && <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn">dev</span>}
+            {data.env === "dev" && <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn">dev</span>}
           </span>
         </>
       ) : (

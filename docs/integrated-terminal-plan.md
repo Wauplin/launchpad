@@ -44,7 +44,7 @@ The project rules require a defined scope before any Phase 7 work, so here it is
 
 **Environment:**
 
-- Use the login-shell environment the daemon already loads (`app.env`), plus `TERM=xterm-256color`, `COLORTERM=truecolor` and `LAUNCHPAD_PROFILE`.
+- Use the login-shell environment the daemon already loads (`app.env`), plus `TERM=xterm-256color`, `COLORTERM=truecolor` and `LAUNCHPAD_ENV`.
 - The shell is `$SHELL -l` on Linux and macOS. On Windows it is `pwsh.exe`, or `powershell.exe` if `pwsh` is not installed.
 
 **Harness TUIs:**

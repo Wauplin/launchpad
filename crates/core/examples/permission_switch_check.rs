@@ -25,7 +25,7 @@ async fn wait(app: &core::App, id: &str, question: bool) -> Result<Session> {
 async fn main() -> Result<()> {
     let root = std::env::temp_dir().join(format!("lp-permissions-{}", uuid::Uuid::new_v4()));
     let _cleanup = Scratch(root.clone());
-    let paths = core::paths::Paths { profile: core::paths::Profile::Dev, config_dir: root.join("config"), data_dir: root.join("data"), port: 17349 };
+    let paths = core::paths::Paths { app_env: core::paths::AppEnv::Dev, config_dir: root.join("config"), data_dir: root.join("data"), port: 17349 };
     paths.ensure_dirs()?;
     let bus = core::events::Bus::new();
     let config = core::config::ConfigHandle::load(&paths, bus.clone())?;

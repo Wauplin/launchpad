@@ -199,7 +199,7 @@ pub fn dir(app: &crate::App, host: Option<&str>, id: &str) -> PathBuf {
     match host {
         Some(h) => {
             let home = app.hosts.home(h).unwrap_or_else(|| "/nonexistent".into());
-            PathBuf::from(crate::hosts::loc::join(Some(h), &format!("{}/.local/share/launchpad-host/{}/attachments/{id}", home.trim_end_matches('/'), app.paths.profile.name())))
+            PathBuf::from(crate::hosts::loc::join(Some(h), &format!("{}/.local/share/launchpad-host/{}/attachments/{id}", home.trim_end_matches('/'), app.paths.app_env.name())))
         }
         None => app.paths.data_dir.join("attachments").join(id),
     }

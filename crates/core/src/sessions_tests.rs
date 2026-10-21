@@ -62,7 +62,7 @@ async fn fixture() -> (Fixture, crate::App) {
     use std::sync::Arc;
     let root = std::env::temp_dir().join(format!("launchpad-session-events-{}", uuid::Uuid::new_v4()));
     let paths = Arc::new(crate::paths::Paths {
-        profile: crate::paths::Profile::Dev,
+        app_env: crate::paths::AppEnv::Dev,
         config_dir: root.join("config"), data_dir: root.join("data"), port: 0,
     });
     paths.ensure_dirs().unwrap();

@@ -14,7 +14,7 @@ use crate::events::Bus;
 
 #[derive(Clone, Debug, Default, Serialize, TS)]
 pub struct Status {
-    pub profile: String,
+    pub env: String,
     pub commit: String,
     /// Host name of the machine the daemon runs on (shown to browsers on other devices).
     pub host: String,
@@ -124,7 +124,7 @@ impl StatusHandle {
 
 pub fn spawn_monitors(app: &App) {
     app.status.update(|s| {
-        s.profile = app.paths.profile.name().to_string();
+        s.env = app.paths.app_env.name().to_string();
         s.commit = crate::COMMIT.to_string();
         s.time_zone = host_time_zone();
         s.host = host_name();

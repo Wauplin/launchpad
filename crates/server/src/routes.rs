@@ -24,7 +24,7 @@ async fn health(State(s): State<Server>, access: Option<axum::Extension<crate::a
     if access.is_none() {
         return Json(json!({"ok": true}));
     }
-    Json(json!({"ok": true, "profile": s.app.paths.profile.name(), "pid": std::process::id()}))
+    Json(json!({"ok": true, "env": s.app.paths.app_env.name(), "pid": std::process::id()}))
 }
 
 async fn status(State(s): State<Server>) -> Json<Status> {

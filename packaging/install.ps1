@@ -1,6 +1,6 @@
 param([switch]$Prebuilt, [string]$BinDir = (Join-Path $HOME '.local/bin'))
 $ErrorActionPreference = 'Stop'
-$env:LAUNCHPAD_PROFILE = 'prod'
+$env:LAUNCHPAD_ENV = 'prod'
 Set-Location (Join-Path $PSScriptRoot '..')
 function Check { if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE" } }
 if (-not $Prebuilt) {

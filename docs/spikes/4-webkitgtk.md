@@ -15,7 +15,7 @@ The hidden page `/dev/perf` (`web/src/features/dev/PerfView.tsx`) builds synthet
 `/dev/perf?auto=1` runs the three tests one after the other. Each test scrolls from top to bottom in `requestAnimationFrame` (40 px per frame for the diff, 30 px for the session, for at most 20 s), records the time between frames, and writes the results to the daemon log. Memory is the `VmRSS` of the `WebKitWebProcess`, sampled every second. "Under load" means 8 busy loops (`while :; do :; done`) in another session, like an agent build under the daemon. Commands:
 
 ```sh
-LAUNCHPAD_PROFILE=dev ./target/release/launchpad-desktop --open "/dev/perf?auto=1"
+LAUNCHPAD_ENV=dev ./target/release/launchpad-desktop --open "/dev/perf?auto=1"
 google-chrome --user-data-dir=/tmp/chrome-perf --app="http://127.0.0.1:7318/auth?t=$(cat ~/.local/share/launchpad-dev/token)&next=%2Fdev%2Fperf%3Fauto%3D1"
 journalctl --user -u launchpad | grep perf:      # or the dev daemon output
 ```

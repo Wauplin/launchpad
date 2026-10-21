@@ -306,7 +306,7 @@ impl Conn {
     async fn connect(self: &Arc<Self>, host: &Host) -> Result<()> {
         let bin = super::install::ensure(&self.hosts, host).await?;
         let mut cmd = super::ssh_command(&self.hosts, host);
-        cmd.arg(format!("{} host-helper bridge --profile {}", super::shell_quote_home(&bin), self.hosts.profile))
+        cmd.arg(format!("{} host-helper bridge --env {}", super::shell_quote_home(&bin), self.hosts.app_env))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -336,7 +336,7 @@ impl Conn {
             let s = p.streams.lock().unwrap();
             Known { key: p.key.clone(), out: s[0].got, err: s[1].got }
         }).collect();
-        let hello = ToHelper::Hello { boot: self.hosts.boot.clone(), host: self.id.clone(), profile: self.hosts.profile.clone(), known };
+        let hello = ToHelper::Hello { boot: self.hosts.boot.clone(), host: self.id.clone(), env: self.hosts.app_env.clone(), known };
         stdin.write_all((serde_json::to_string(&hello)? + "\n").as_bytes()).await?;
         stdin.flush().await?;
         let mut lines = BufReader::with_capacity(1 << 20, stdout).lines();

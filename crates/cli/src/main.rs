@@ -1,6 +1,6 @@
 //! `launchpad`: the daemon and the agent-facing commands.
 //!
-//! The profile comes from `LAUNCHPAD_PROFILE` (`prod` by default, `dev` for development).
+//! The environment comes from `LAUNCHPAD_ENV` (`prod` by default, `dev` for development).
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -17,7 +17,7 @@ impl Client {
         let helper = std::env::var_os(launchpad_core::hosts::helper::HELPER_ENV).map(std::path::PathBuf::from).or_else(|| {
             let exe = std::env::current_exe().ok()?;
             let bin = dirs_home()?.join(launchpad_core::hosts::helper::BIN_DIR);
-            exe.starts_with(&bin).then(|| launchpad_core::hosts::helper::dir(paths.profile.name()))
+            exe.starts_with(&bin).then(|| launchpad_core::hosts::helper::dir(paths.app_env.name()))
         });
         Ok(match helper {
             Some(dir) => Client::Helper(dir),
@@ -117,12 +117,12 @@ enum HostHelper {
     /// Run the helper server (detached; owns harness and terminal processes).
     Serve {
         #[arg(long, default_value = "prod")]
-        profile: String,
+        env: String,
     },
     /// Pipe stdio to the helper server, starting it when needed.
     Bridge {
         #[arg(long, default_value = "prod")]
-        profile: String,
+        env: String,
     },
     /// Print the helper build.
     Version,
@@ -282,11 +282,11 @@ async fn main() -> Result<()> {
         }
         Command::HostHelper { command } => {
             match command {
-                HostHelper::Serve { profile } => {
+                HostHelper::Serve { env } => {
                     init_tracing();
-                    launchpad_core::hosts::helper::serve(&profile).await
+                    launchpad_core::hosts::helper::serve(&env).await
                 }
-                HostHelper::Bridge { profile } => launchpad_core::hosts::helper::bridge(&profile).await,
+                HostHelper::Bridge { env } => launchpad_core::hosts::helper::bridge(&env).await,
                 HostHelper::Version => {
                     println!("{}", launchpad_core::hosts::build_id());
                     Ok(())
@@ -295,7 +295,7 @@ async fn main() -> Result<()> {
         }
         Command::Daemon => {
             init_tracing();
-            tracing::info!("profile {}, data in {}", paths.profile.name(), paths.data_dir.display());
+            tracing::info!("env {}, data in {}", paths.app_env.name(), paths.data_dir.display());
             let app = launchpad_core::App::start(paths).await?;
             launchpad_server::serve(app).await
         }

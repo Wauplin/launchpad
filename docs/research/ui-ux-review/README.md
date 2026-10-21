@@ -23,7 +23,7 @@ Create the Space with `hf repos create Wauplin/launchpad-ui-ux-review --type spa
 
 ## Verification
 
-The current app UI passed `pnpm build` (including TypeScript checking). The dev daemon was compiled and run without restarting production. A real-time Chrome walkthrough inspected Agents, an idle session, the launch drawer at 1440, 1280 and 800 px with the dev profile's 120% zoom, and Settings. The measured sidebar/drawer widths were 240/528 physical pixels; Agents' list adds 336, leaving 336 px for session content at 1440 and 176 px at 1280. At 800 px the main container itself shrinks to 32 px while the fixed agent list overflows it. This confirms the space-pressure finding; no product resize fix was implemented.
+The current app UI passed `pnpm build` (including TypeScript checking). The dev daemon was compiled and run without restarting production. A real-time Chrome walkthrough inspected Agents, an idle session, the launch drawer at 1440, 1280 and 800 px with the dev environment's 120% zoom, and Settings. The measured sidebar/drawer widths were 240/528 physical pixels; Agents' list adds 336, leaving 336 px for session content at 1440 and 176 px at 1280. At 800 px the main container itself shrinks to 32 px while the fixed agent list overflows it. This confirms the space-pressure finding; no product resize fix was implemented.
 
 The report passed browser checks at 1440, 800 and 390 px: 28 findings, combined search/area filtering, filter reset, all five sketch selections, recovery-state switching, demo feedback, no horizontal document overflow at 800/390 px and no JavaScript page errors. Print media exposes all five sketches. Desktop and sketch screenshots were visually inspected; verification captures stay outside the published folder.
 

@@ -29,17 +29,17 @@ use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 mod clipboard;
 
 #[derive(Clone)]
-struct Profile {
+struct AppEnv {
     dev: bool,
     port: u16,
     data_dir: PathBuf,
 }
 
-impl Profile {
-    fn from_env() -> Profile {
-        let dev = std::env::var("LAUNCHPAD_PROFILE").as_deref() == Ok("dev");
+impl AppEnv {
+    fn from_env() -> AppEnv {
+        let dev = std::env::var("LAUNCHPAD_ENV").as_deref() == Ok("dev");
         let home = dirs::home_dir().unwrap_or_default();
-        Profile {
+        AppEnv {
             dev,
             port: if dev { 7318 } else { 7317 },
             data_dir: home.join(".local/share").join(if dev { "launchpad-dev" } else { "launchpad" }),
@@ -81,7 +81,7 @@ fn wait_healthy(port: u16, timeout: Duration) -> bool {
 }
 
 /// Starts the daemon: through systemd for prod, as a detached process otherwise.
-fn start_daemon(p: &Profile) -> Result<(), String> {
+fn start_daemon(p: &AppEnv) -> Result<(), String> {
     if !p.dev && cfg!(target_os = "linux") {
         let ok = std::process::Command::new("systemctl")
             .args(["--user", "start", "launchpad.service"])
@@ -122,7 +122,7 @@ fn start_daemon(p: &Profile) -> Result<(), String> {
 }
 
 /// The sign-in address, which redirects to `route` with the shell start time for the startup log.
-fn app_url(p: &Profile, route: &str, t0: u128) -> Result<url::Url, String> {
+fn app_url(p: &AppEnv, route: &str, t0: u128) -> Result<url::Url, String> {
     let token = std::fs::read_to_string(p.data_dir.join("token")).map_err(|e| format!("cannot read the token: {e}"))?;
     use std::io::{Read, Write};
     let mut socket = std::net::TcpStream::connect(("127.0.0.1", p.port)).map_err(|e| format!("cannot connect to daemon: {e}"))?;
@@ -146,13 +146,13 @@ fn app_url(p: &Profile, route: &str, t0: u128) -> Result<url::Url, String> {
 
 /// Only a local daemon document may bootstrap a new desktop device cookie.
 #[tauri::command]
-async fn reconnect_local(window: WebviewWindow, profile: tauri::State<'_, Profile>) -> Result<(), String> {
+async fn reconnect_local(window: WebviewWindow, app_env: tauri::State<'_, AppEnv>) -> Result<(), String> {
     let current = window.url().map_err(|e| e.to_string())?;
-    if current.origin().ascii_serialization() != profile.origin() {
+    if current.origin().ascii_serialization() != app_env.origin() {
         return Err("Reconnect is only available for the local Launchpad window".into());
     }
-    let profile = profile.inner().clone();
-    let mut url = tauri::async_runtime::spawn_blocking(move || app_url(&profile, "/", now_ms()))
+    let app_env = app_env.inner().clone();
+    let mut url = tauri::async_runtime::spawn_blocking(move || app_url(&app_env, "/", now_ms()))
         .await.map_err(|e| e.to_string())??;
     // A new fragment on /auth would only change the hash, leaving the sign-in script asleep.
     // The sign-in page clears this query along with the fragment before exchanging the code.
@@ -226,8 +226,8 @@ fn same_origin(url: &tauri::Url, origin: &str) -> bool {
 }
 
 /// Builds a window on `url`. The main window hides on close when it stays warm; others close.
-fn build_window(app: &tauri::AppHandle, profile: &Profile, label: &str, url: WebviewUrl, visible: bool, keep_warm: bool) -> tauri::Result<WebviewWindow> {
-    let origin = profile.origin();
+fn build_window(app: &tauri::AppHandle, app_env: &AppEnv, label: &str, url: WebviewUrl, visible: bool, keep_warm: bool) -> tauri::Result<WebviewWindow> {
+    let origin = app_env.origin();
     // Marks the desktop shell, so the UI opens links and windows through the daemon (not as browser tabs).
     let builder = WebviewWindowBuilder::new(app, label, url)
         .initialization_script(format!("if (location.origin === {}) {{ window.__launchpadDesktop = true; window.__launchpadReconnect = () => window.__TAURI_INTERNALS__.invoke('reconnect_local'); }}", serde_json_string(&origin)));
@@ -238,7 +238,7 @@ fn build_window(app: &tauri::AppHandle, profile: &Profile, label: &str, url: Web
     ));
     let window = builder
         .enable_clipboard_access()
-        .title(if profile.dev { "Launchpad (dev)" } else { "Launchpad" })
+        .title(if app_env.dev { "Launchpad (dev)" } else { "Launchpad" })
         .inner_size(1440.0, 920.0)
         .min_inner_size(960.0, 600.0)
         .disable_drag_drop_handler()
@@ -276,13 +276,13 @@ fn build_window(app: &tauri::AppHandle, profile: &Profile, label: &str, url: Web
 }
 
 /// One more window in the warm process (`--new-window`), signed in like the first one.
-fn new_window(app: &tauri::AppHandle, profile: &Profile, argv: &[String]) {
+fn new_window(app: &tauri::AppHandle, app_env: &AppEnv, argv: &[String]) {
     let route = open_route(argv).unwrap_or_else(|| "/".into());
-    match app_url(profile, &route, now_ms()) {
+    match app_url(app_env, &route, now_ms()) {
         Ok(url) => {
             // The smallest free number, so window-state reuses sizes instead of growing per window.
             let label = (2..).map(|n| format!("window-{n}")).find(|l| app.get_webview_window(l).is_none()).unwrap();
-            if let Ok(w) = build_window(app, profile, &label, WebviewUrl::External(url), true, true) {
+            if let Ok(w) = build_window(app, app_env, &label, WebviewUrl::External(url), true, true) {
                 let _ = w.set_focus();
             }
         }
@@ -292,22 +292,22 @@ fn new_window(app: &tauri::AppHandle, profile: &Profile, argv: &[String]) {
 
 fn main() {
     let t0: u128 = std::env::var("LP_T_LAUNCH").ok().and_then(|v| v.parse().ok()).unwrap_or_else(now_ms);
-    let profile = Profile::from_env();
+    let app_env = AppEnv::from_env();
     let args: Vec<String> = std::env::args().collect();
     let route = open_route(&args).unwrap_or_else(|| "/".into());
 
     let quit = has_flag(&args, "--quit");
     let hidden = has_flag(&args, "--hidden");
-    let keep_warm = !profile.dev;
+    let keep_warm = !app_env.dev;
 
-    let mut builder = tauri::Builder::default().manage(profile.clone());
+    let mut builder = tauri::Builder::default().manage(app_env.clone());
     #[cfg(target_os = "linux")]
     { builder = builder.invoke_handler(tauri::generate_handler![clipboard::read_clipboard_image, reconnect_local]); }
     #[cfg(not(target_os = "linux"))]
     { builder = builder.invoke_handler(tauri::generate_handler![reconnect_local]); }
     if keep_warm {
         // Dev windows are not single-instance, so a dev window can run next to the prod one.
-        let p = profile.clone();
+        let p = app_env.clone();
         builder = builder.plugin(tauri_plugin_single_instance::init(move |app, argv, _cwd| {
             if has_flag(&argv, "--quit") {
                 app.exit(0);
@@ -331,13 +331,13 @@ fn main() {
         )
         .setup(move |app| {
             if quit { app.handle().exit(0); return Ok(()); }
-            let warm = healthy(profile.port);
-            let first = if warm { app_url(&profile, &route, t0).ok() } else { None };
+            let warm = healthy(app_env.port);
+            let first = if warm { app_url(&app_env, &route, t0).ok() } else { None };
             let recover = first.is_none();
             let first_url = first.map(WebviewUrl::External).unwrap_or_else(|| WebviewUrl::App("index.html".into()));
-            let window = build_window(app.handle(), &profile, "main", first_url, !hidden, keep_warm)?;
+            let window = build_window(app.handle(), &app_env, "main", first_url, !hidden, keep_warm)?;
             if recover {
-                std::thread::spawn(move || match (if warm { Ok(()) } else { start_daemon(&profile) }).and_then(|_| app_url(&profile, &route, t0)) {
+                std::thread::spawn(move || match (if warm { Ok(()) } else { start_daemon(&app_env) }).and_then(|_| app_url(&app_env, &route, t0)) {
                     Ok(url) => {
                         let _ = window.navigate(url);
                     }

@@ -35,7 +35,7 @@ pub struct Known {
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum ToHelper {
     /// First message. Processes of another daemon boot are stopped: restarting the daemon ends its turns.
-    Hello { boot: String, host: String, profile: String, known: Vec<Known> },
+    Hello { boot: String, host: String, env: String, known: Vec<Known> },
     Req { id: u64, op: Op },
     /// Input bytes starting at absolute offset `off`; bytes the helper already wrote are skipped.
     Input { key: String, off: u64, data: B64 },

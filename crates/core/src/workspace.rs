@@ -128,7 +128,7 @@ pub fn open_window(app: &App, id: Option<&str>) -> Result<()> {
         .context("launchpad-desktop is not installed")?;
     let mut cmd = tokio::process::Command::new(&exe);
     cmd.env_clear().envs(app.env.vars().iter());
-    cmd.arg("--new-window").env("LAUNCHPAD_PROFILE", app.paths.profile.name());
+    cmd.arg("--new-window").env("LAUNCHPAD_ENV", app.paths.app_env.name());
     if let Some(id) = id {
         cmd.args(["--workspace", id]);
     }

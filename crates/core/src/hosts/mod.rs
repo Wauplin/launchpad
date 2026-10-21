@@ -78,7 +78,7 @@ type Prompt = (HostPrompt, tokio::sync::oneshot::Sender<Option<String>>);
 
 pub struct Inner {
     pub(crate) boot: String,
-    pub(crate) profile: String,
+    pub(crate) app_env: String,
     paths: Arc<crate::paths::Paths>,
     env: crate::shellenv::UserEnv,
     db: crate::db::Db,
@@ -168,7 +168,7 @@ pub(crate) fn ssh_command(hosts: &Hosts, host: &Host) -> tokio::process::Command
     }
     if let Ok(exe) = std::env::current_exe() {
         cmd.env("SSH_ASKPASS", exe).env("SSH_ASKPASS_REQUIRE", "force").env("LAUNCHPAD_ASKPASS", &host.id);
-        cmd.env("LAUNCHPAD_PROFILE", &hosts.profile).env("LAUNCHPAD_PORT", hosts.paths.port.to_string());
+        cmd.env("LAUNCHPAD_ENV", &hosts.app_env).env("LAUNCHPAD_PORT", hosts.paths.port.to_string());
         if hosts.env.get("DISPLAY").is_none() {
             cmd.env("DISPLAY", "launchpad");
         }
@@ -210,7 +210,7 @@ impl Hosts {
             .await?;
         let hosts = Hosts(Arc::new(Inner {
             boot: uuid::Uuid::new_v4().to_string(),
-            profile: paths.profile.name().to_string(),
+            app_env: paths.app_env.name().to_string(),
             paths,
             env,
             db,

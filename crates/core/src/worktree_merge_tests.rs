@@ -1,10 +1,10 @@
 //! Real repositories and PTYs, with isolated state and no background monitors.
 use crate::worktrees::*;
-use crate::{App, paths::{Paths, Profile}};
+use crate::{App, paths::{Paths, AppEnv}};
 use std::sync::Arc;
 
 async fn fixture(root: &std::path::Path) -> App {
-    let paths = Arc::new(Paths { profile: Profile::Dev, config_dir: root.join("config"), data_dir: root.join("data"), port: 0 });
+    let paths = Arc::new(Paths { app_env: AppEnv::Dev, config_dir: root.join("config"), data_dir: root.join("data"), port: 0 });
     paths.ensure_dirs().unwrap();
     let bus = crate::events::Bus::new();
     let config = crate::config::ConfigHandle::load(&paths, bus.clone()).unwrap();

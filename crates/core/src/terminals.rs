@@ -354,7 +354,7 @@ impl Terminals {
         }
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
-        cmd.env("LAUNCHPAD_PROFILE", app.paths.profile.name());
+        cmd.env("LAUNCHPAD_ENV", app.paths.app_env.name());
         for (k, v) in env {
             cmd.env(k, v);
         }
@@ -417,7 +417,7 @@ impl Terminals {
     /// A PTY on an SSH host: the helper owns it, so it survives a lost connection and the output resumes.
     async fn spawn_remote(&self, app: &App, mut info: TerminalInfo, host: &str, argv: Vec<String>, env: Vec<(String, String)>) -> Result<TerminalInfo> {
         let conn = crate::hosts::conn(host)?;
-        let mut vars = vec![("TERM".to_string(), "xterm-256color".to_string()), ("COLORTERM".into(), "truecolor".into()), ("LAUNCHPAD_PROFILE".into(), app.paths.profile.name().into())];
+        let mut vars = vec![("TERM".to_string(), "xterm-256color".to_string()), ("COLORTERM".into(), "truecolor".into()), ("LAUNCHPAD_ENV".into(), app.paths.app_env.name().into())];
         vars.extend(env.into_iter().map(|(k, v)| (k, crate::hosts::loc::localize_arg(host, &v))));
         let argv: Vec<String> = argv.iter().map(|a| crate::hosts::loc::localize_arg(host, a)).collect();
         let cwd = crate::hosts::loc::native(&info.cwd).to_string();

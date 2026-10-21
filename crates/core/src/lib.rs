@@ -149,7 +149,7 @@ impl App {
     /// The `launchpad` invocation given to agents: this daemon's CLI, or the helper's on an SSH host.
     pub fn cli_command_on(&self, host: Option<&str>) -> String {
         match host {
-            Some(_) => format!("LAUNCHPAD_PROFILE={} \"$HOME/{}/launchpad\"", self.paths.profile.name(), hosts::helper::BIN_DIR),
+            Some(_) => format!("LAUNCHPAD_ENV={} \"$HOME/{}/launchpad\"", self.paths.app_env.name(), hosts::helper::BIN_DIR),
             None => self.paths.cli_command(),
         }
     }

@@ -1,6 +1,6 @@
 //! One WebSocket per window. The daemon pushes every bus event as `{bus, seq, topic, type, payload}`.
 //!
-//! The socket opens with `hello` (`profile`, `build`, `boot`, `bus`: the last delivery number). A window
+//! The socket opens with `hello` (`env`, `build`, `boot`, `bus`: the last delivery number). A window
 //! that reconnects passes `?boot=<id>&since=<last delivery number it received>`: when the bus still holds
 //! every event after it, the daemon sends them, then `{"type": "replayed"}`. Otherwise (first connection,
 //! another daemon run, events dropped from the ring) it sends `{"type": "resync"}` and the window reloads
@@ -45,7 +45,7 @@ async fn serve_socket(s: &Server, socket: WebSocket, window: u64, mut access: Ac
     let since = resume.since.filter(|_| resume.boot.as_deref() == Some(bus.boot()));
     let replay = bus.subscribe(since);
     let mut events = replay.rx;
-    let hello = serde_json::json!({"type": "hello", "profile": s.app.paths.profile.name(), "build": crate::ui::build_id(), "boot": bus.boot(), "bus": replay.last});
+    let hello = serde_json::json!({"type": "hello", "env": s.app.paths.app_env.name(), "build": crate::ui::build_id(), "boot": bus.boot(), "bus": replay.last});
     if tx.send(Message::Text(hello.to_string().into())).await.is_err() {
         return;
     }

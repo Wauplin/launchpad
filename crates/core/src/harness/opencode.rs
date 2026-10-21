@@ -70,7 +70,7 @@ impl super::Harness for Adapter {
         let mut command = crate::procs::child_command(&app.env.on(spec.host.as_deref()), "opencode", Some(&spec.cwd));
         command
             .arg("acp")
-            .env("LAUNCHPAD_PROFILE", app.paths.profile.name())
+            .env("LAUNCHPAD_ENV", app.paths.app_env.name())
             .env("LAUNCHPAD_SESSION_ID", &spec.session_id)
             .envs(spec.env.iter().cloned());
         sink.raw("cmd", "opencode acp").await;

@@ -65,7 +65,7 @@ function StatusDetails() {
           </div>)}
         </section>;
       })}
-      <p className="break-words text-[12px] text-ink-3">Launchpad <span className="font-mono">{data.commit.slice(0, 12)}</span> · {data.profile} profile</p>
+      <p className="break-words text-[12px] text-ink-3">Launchpad <span className="font-mono">{data.commit.slice(0, 12)}</span> · {data.env} environment</p>
     </>}
   </div>;
 }

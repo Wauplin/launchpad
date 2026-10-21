@@ -6,7 +6,7 @@ use base64::Engine;
 pub async fn read_clipboard_image(window: tauri::WebviewWindow) -> Result<Option<String>, String> {
     // The UI is served by the daemon; never expose the clipboard to another origin.
     let url = window.url().map_err(|e| e.to_string())?;
-    let port = if std::env::var("LAUNCHPAD_PROFILE").as_deref() == Ok("dev") { 7318 } else { 7317 };
+    let port = if std::env::var("LAUNCHPAD_ENV").as_deref() == Ok("dev") { 7318 } else { 7317 };
     if url.scheme() != "http" || url.host_str() != Some("127.0.0.1") || url.port() != Some(port) {
         return Err("Clipboard access is only available to the local Launchpad UI.".into());
     }

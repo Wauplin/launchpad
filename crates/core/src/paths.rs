@@ -1,4 +1,4 @@
-//! Profiles (prod and dev) and the files and ports they use.
+//! Environments (prod and dev) and the files and ports they use.
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -7,58 +7,58 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Profile {
+pub enum AppEnv {
     Prod,
     Dev,
 }
 
-impl Profile {
-    /// Reads `LAUNCHPAD_PROFILE` (`dev` or `prod`, default `prod`).
-    pub fn from_env() -> Profile {
-        match std::env::var("LAUNCHPAD_PROFILE").as_deref() {
-            Ok("dev") => Profile::Dev,
-            _ => Profile::Prod,
+impl AppEnv {
+    /// Reads `LAUNCHPAD_ENV` (`dev` or `prod`, default `prod`).
+    pub fn from_env() -> AppEnv {
+        match std::env::var("LAUNCHPAD_ENV").as_deref() {
+            Ok("dev") => AppEnv::Dev,
+            _ => AppEnv::Prod,
         }
     }
 
     pub fn name(self) -> &'static str {
         match self {
-            Profile::Prod => "prod",
-            Profile::Dev => "dev",
+            AppEnv::Prod => "prod",
+            AppEnv::Dev => "dev",
         }
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct Paths {
-    pub profile: Profile,
+    pub app_env: AppEnv,
     pub config_dir: PathBuf,
     pub data_dir: PathBuf,
     pub port: u16,
 }
 
 impl Paths {
-    pub fn for_profile(profile: Profile) -> Paths {
+    pub fn for_app_env(app_env: AppEnv) -> Paths {
         let home = dirs::home_dir().expect("no home directory");
-        let suffix = match profile {
-            Profile::Prod => "launchpad",
-            Profile::Dev => "launchpad-dev",
+        let suffix = match app_env {
+            AppEnv::Prod => "launchpad",
+            AppEnv::Dev => "launchpad-dev",
         };
         Paths {
-            profile,
+            app_env,
             config_dir: home.join(".config").join(suffix),
             data_dir: home.join(".local/share").join(suffix),
             // `LAUNCHPAD_PORT` lets isolated checks (with their own `HOME`) run next to the dev daemon.
-            port: std::env::var("LAUNCHPAD_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(match profile {
-                Profile::Prod => 7317,
-                Profile::Dev => 7318,
+            port: std::env::var("LAUNCHPAD_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(match app_env {
+                AppEnv::Prod => 7317,
+                AppEnv::Dev => 7318,
             }),
         }
     }
 
-    /// `LAUNCHPAD_PORT` overrides the profile's port (isolated test daemons).
+    /// `LAUNCHPAD_PORT` overrides the environment's port (isolated test daemons).
     pub fn from_env() -> Paths {
-        let mut paths = Paths::for_profile(Profile::from_env());
+        let mut paths = Paths::for_app_env(AppEnv::from_env());
         if let Some(port) = std::env::var("LAUNCHPAD_PORT").ok().and_then(|p| p.parse().ok()) {
             paths.port = port;
         }
@@ -84,23 +84,23 @@ impl Paths {
         self.data_dir.join("token")
     }
 
-    /// Cookie name, per profile: cookies are not isolated by port, so prod and dev need different names.
+    /// Cookie name, per environment: cookies are not isolated by port, so prod and dev need different names.
     pub fn cookie_name(&self) -> &'static str {
-        match self.profile {
-            Profile::Prod => "lp_session",
-            Profile::Dev => "lp_dev_session",
+        match self.app_env {
+            AppEnv::Prod => "lp_session",
+            AppEnv::Dev => "lp_dev_session",
         }
     }
 
-    /// Shell invocation included in agent prompts, with this daemon's profile and exact CLI.
+    /// Shell invocation included in agent prompts, with this daemon's environment and exact CLI.
     pub fn cli_command(&self) -> String {
         let cli = std::env::current_exe().unwrap_or_else(|_| "launchpad".into());
         let cli = cli.to_string_lossy();
         let cli = cli.trim_end_matches(" (deleted)");
         if cfg!(windows) {
-            format!("$env:LAUNCHPAD_PROFILE = '{}'; & '{}'", self.profile.name(), cli.replace('\'', "''"))
+            format!("$env:LAUNCHPAD_ENV = '{}'; & '{}'", self.app_env.name(), cli.replace('\'', "''"))
         } else {
-            format!("LAUNCHPAD_PROFILE={} '{}'", self.profile.name(), cli.replace('\'', "'\\''"))
+            format!("LAUNCHPAD_ENV={} '{}'", self.app_env.name(), cli.replace('\'', "'\\''"))
         }
     }
 

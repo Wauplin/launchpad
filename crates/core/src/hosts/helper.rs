@@ -26,9 +26,9 @@ const CLI_WAIT: Duration = Duration::from_secs(30 * 60);
 /// Processes are stopped and buffered results discarded when no daemon connected for this long.
 const ABANDONED: Duration = Duration::from_secs(30 * 24 * 3600);
 
-/// `~/.local/share/launchpad-host/<profile>`: sockets, log and attachments of one daemon profile.
-pub fn dir(profile: &str) -> PathBuf {
-    dirs::home_dir().unwrap_or_default().join(".local/share/launchpad-host").join(profile)
+/// `~/.local/share/launchpad-host/<env>`: sockets, log and attachments of one daemon env.
+pub fn dir(env: &str) -> PathBuf {
+    dirs::home_dir().unwrap_or_default().join(".local/share/launchpad-host").join(env)
 }
 
 /// Folder of the uploaded helper binaries (`launchpad-<commit>`).
@@ -42,11 +42,11 @@ pub const HELPER_ENV: &str = "LAUNCHPAD_HOST_HELPER";
 pub use unix::{bridge, cli_request, serve};
 
 #[cfg(not(unix))]
-pub async fn serve(_profile: &str) -> Result<()> {
+pub async fn serve(_env: &str) -> Result<()> {
     bail!("the Launchpad host helper runs on Linux and macOS hosts")
 }
 #[cfg(not(unix))]
-pub async fn bridge(_profile: &str) -> Result<()> {
+pub async fn bridge(_env: &str) -> Result<()> {
     bail!("the Launchpad host helper runs on Linux and macOS hosts")
 }
 #[cfg(not(unix))]
@@ -573,7 +573,7 @@ mod unix {
     async fn client(h: Arc<Helper>, reader: BufReader<tokio::net::unix::OwnedReadHalf>, mut writer: tokio::net::unix::OwnedWriteHalf) -> Result<()> {
         let mut lines = reader.lines();
         let first = lines.next_line().await?.context("no hello")?;
-        let ToHelper::Hello { boot, host, profile: _, known } = serde_json::from_str(&first)? else { bail!("expected hello") };
+        let ToHelper::Hello { boot, host, env: _, known } = serde_json::from_str(&first)? else { bail!("expected hello") };
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
         let generation = {
             let mut c = h.client.lock().unwrap();
@@ -720,8 +720,8 @@ mod unix {
         Ok(Some(f))
     }
 
-    pub async fn serve(profile: &str) -> Result<()> {
-        let dir = dir(profile);
+    pub async fn serve(env: &str) -> Result<()> {
+        let dir = dir(env);
         std::fs::create_dir_all(&dir)?;
         {
             use std::os::unix::fs::PermissionsExt;
@@ -868,12 +868,12 @@ mod unix {
         }
     }
 
-    fn start_server(profile: &str) -> Result<()> {
-        let dir = dir(profile);
+    fn start_server(env: &str) -> Result<()> {
+        let dir = dir(env);
         std::fs::create_dir_all(&dir)?;
         let log = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("helper.log"))?;
         let mut cmd = std::process::Command::new(std::env::current_exe()?);
-        cmd.args(["host-helper", "serve", "--profile", profile]).stdin(std::process::Stdio::null()).stdout(log.try_clone()?).stderr(log);
+        cmd.args(["host-helper", "serve", "--env", env]).stdin(std::process::Stdio::null()).stdout(log.try_clone()?).stderr(log);
         // Detached from the SSH session: a lost connection does not end the helper or its processes.
         unsafe {
             use std::os::unix::process::CommandExt;
@@ -886,27 +886,27 @@ mod unix {
         Ok(())
     }
 
-    async fn connect(profile: &str) -> Result<UnixStream> {
-        let sock = dir(profile).join("helper.sock");
+    async fn connect(env: &str) -> Result<UnixStream> {
+        let sock = dir(env).join("helper.sock");
         let mut started = false;
         for _ in 0..100 {
             if let Ok(s) = UnixStream::connect(&sock).await {
                 return Ok(s);
             }
             if !started {
-                start_server(profile)?;
+                start_server(env)?;
                 started = true;
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        bail!("the host helper did not start; see {}", dir(profile).join("helper.log").display())
+        bail!("the host helper did not start; see {}", dir(env).join("helper.log").display())
     }
 
     /// Pipes stdio (the SSH channel) to the helper server, starting or replacing it first.
-    pub async fn bridge(profile: &str) -> Result<()> {
+    pub async fn bridge(env: &str) -> Result<()> {
         let mut replaced = false;
         let stream = loop {
-            let stream = connect(profile).await?;
+            let stream = connect(env).await?;
             let (r, mut w) = stream.into_split();
             let hello = serde_json::to_string(&BridgeHello::Bridge { version: super::super::build_id().into() })? + "\n";
             w.write_all(hello.as_bytes()).await?;
@@ -919,7 +919,7 @@ mod unix {
                     let stop = serde_json::to_string(&BridgeHello::Shutdown)? + "\n";
                     w.write_all(stop.as_bytes()).await?;
                     replaced = true;
-                    let lock_path = dir(profile);
+                    let lock_path = dir(env);
                     for _ in 0..100 {
                         tokio::time::sleep(Duration::from_millis(100)).await;
                         if lock(&lock_path)?.is_some() {

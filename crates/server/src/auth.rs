@@ -16,7 +16,7 @@ use axum::{
 use launchpad_core::{
     config::ServerConfig,
     db::Db,
-    paths::{Paths, Profile},
+    paths::{Paths, AppEnv},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -145,7 +145,7 @@ impl Auth {
         let authority = origin.split_once("://").unwrap().1.to_string();
         hosts.push(authority);
         origins.push(origin.clone());
-        if paths.profile == Profile::Dev {
+        if paths.app_env == AppEnv::Dev {
             origins.extend([
                 "http://localhost:5173".into(),
                 "http://127.0.0.1:5173".into(),
@@ -449,7 +449,7 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
         || matches!(path, "/auth" | "/auth/reverse/start" | "/auth/reverse/poll")
         || public
     {
-        // Health answers everyone, but only signed-in clients learn the profile and process id.
+        // Health answers everyone, but only signed-in clients learn the environment and process id.
         if let Some(access) = s.auth.authenticate(req.headers()) {
             req.extensions_mut().insert(access);
         }
@@ -959,7 +959,7 @@ mod tests {
             let root =
                 std::env::temp_dir().join(format!("launchpad-auth-{}", uuid::Uuid::new_v4()));
             let paths = Paths {
-                profile: Profile::Dev,
+                app_env: AppEnv::Dev,
                 config_dir: root.join("config"),
                 data_dir: root.join("data"),
                 port: 7318,

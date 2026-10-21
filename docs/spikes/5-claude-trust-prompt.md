@@ -50,4 +50,4 @@ Enter to confirm · Esc to cancel
 
 ## Other finding: environment variables leak into child sessions
 
-The spike ran inside a Claude Code session, and the TUI showed `⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker`. A daemon started from an agent (for example the dev profile started by an agent working on Launchpad) passes `CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_PID` and `CLAUDE_EFFORT` to every harness it starts. The adapters remove these variables before spawning `claude` or `codex` (except the ones Launchpad sets on purpose, such as `CLAUDE_CODE_SANDBOXED`).
+The spike ran inside a Claude Code session, and the TUI showed `⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker`. A daemon started from an agent (for example the dev environment started by an agent working on Launchpad) passes `CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_PID` and `CLAUDE_EFFORT` to every harness it starts. The adapters remove these variables before spawning `claude` or `codex` (except the ones Launchpad sets on purpose, such as `CLAUDE_CODE_SANDBOXED`).

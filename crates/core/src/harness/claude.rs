@@ -104,7 +104,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     let mut cmd = crate::procs::child_command(&app.env.on(spec.host.as_deref()), "claude", Some(&spec.cwd));
     cmd.process_tree().args(&args)
         .envs(spec.env.iter().cloned())
-        .env("LAUNCHPAD_PROFILE", app.paths.profile.name())
+        .env("LAUNCHPAD_ENV", app.paths.app_env.name())
         .env("LAUNCHPAD_SESSION_ID", &spec.session_id)
         .stdin(crate::exec::Io::Piped)
         .stdout(crate::exec::Io::Piped)
