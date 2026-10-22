@@ -137,7 +137,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   metadata.push(["Model", <span className="inline-flex flex-wrap items-center gap-2"><ModelSwitch session={s} />{contextShare}</span>]);
   if (useHarnessInfo(s.harness)?.capabilities.permission_modes) metadata.push(["Permissions", <PermissionSwitch session={s} />]);
   metadata.push(["Paid usage", <PaidUsageToggle session={s} />]);
-  metadata.push(s.launch_spec.target.kind === "browser" ? ["Browser access", "Explicitly shared pages, read only"] : ["Folder", s.cwd]);
+  metadata.push(s.launch_spec.target.kind === "browser" ? ["Browser access", "Explicitly shared pages; Work access controlled in the Chrome panel"] : ["Folder", s.cwd]);
   if (git.data) metadata.push(["Branch", `${git.data.branch} · ${git.data.files.length ? `${git.data.files.length} uncommitted files` : "clean"}${git.data.unpushed_commits == null ? "" : git.data.unpushed_commits ? ` · ${git.data.unpushed_commits} commits absent from cached remote refs` : " · present in cached remote refs"}`]);
   if (changes) metadata.push(["Changes", `${changes.files} tracked files compared with main${changes.additions == null ? "" : ` · +${changes.additions} −${changes.deletions}`}`]);
   const context = [...s.launch_spec.github_refs.map((r) => `${r.repo}${r.number ? ` #${r.number}` : ""} · ${r.kind}`), ...s.launch_spec.context_projects.map((r) => `${projects.find((p) => p.id === r.project_id)?.name ?? r.project_id}${r.branch ? ` (${r.branch})` : ""}`), ...s.launch_spec.files.map((r) => `${r.path}${r.start_line ? `:${r.start_line}${r.end_line ? `–${r.end_line}` : ""}` : ""}`), ...s.launch_spec.presets];

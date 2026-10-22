@@ -100,7 +100,7 @@ impl super::Harness for Adapter {
             permission.insert("launchpad_browser_*".into(), serde_json::json!("allow"));
             let mut servers = serde_json::Map::new();
             if let Some(existing) = current["mcp"].as_object() { for key in existing.keys() { servers.insert(key.clone(), serde_json::json!({"enabled":false})); } }
-            command.env("OPENCODE_CONFIG_CONTENT", serde_json::json!({"permission":permission,"mcp":servers}).to_string());
+            command.env("OPENCODE_CONFIG_CONTENT", serde_json::json!({"permission":permission,"mcp":servers,"experimental":{"mcp_timeout":720000}}).to_string());
             serde_json::json!([{"name":"launchpad_browser","command":mcp["command"],"args":mcp["args"],
                 "env":mcp["env"].as_object().unwrap().iter().map(|(k,v)| serde_json::json!({"name":k,"value":v})).collect::<Vec<_>>()}])
         } else { serde_json::json!([]) };

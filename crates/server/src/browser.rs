@@ -8,6 +8,10 @@ pub fn router() -> Router<Server> {
         .route("/api/browser/grants", get(list).post(create))
         .route("/api/browser/grants/{id}", axum::routing::delete(revoke))
         .route("/api/browser/replies/{id}", post(reply))
+        .route("/api/browser/reviews", get(reviews))
+        .route("/api/browser/dispatch/{id}", post(authorize))
+        .route("/api/browser/reviews/{id}", post(decide))
+        .route("/api/browser/grants/{id}/control", post(control))
         .route("/api/browser/sessions/{id}/grants/{grant}", post(attach))
         .route("/api/browser/sessions/{id}/call", post(call))
 }
@@ -39,5 +43,26 @@ async fn call(State(s): State<Server>, Path(id): Path<String>, Json(body): Json<
 
 async fn attach(State(s): State<Server>, Path((id, grant)): Path<(String, String)>) -> ApiResult<Value> {
     browser::attach(&s.app, &id, &grant).await.map_err(|e| ApiError::bad_request(e.to_string()))?;
+    Ok(Json(json!({"ok":true})))
+}
+
+async fn reviews(State(s): State<Server>, Extension(access): Extension<Access>) -> ApiResult<Value> {
+    let device = access.device.ok_or_else(|| ApiError::bad_request("Owner browser required"))?;
+    Ok(Json(json!(s.app.browser.reviews(&device))))
+}
+async fn decide(State(s): State<Server>, Extension(access): Extension<Access>, Path(id): Path<String>, Json(body): Json<Value>) -> ApiResult<Value> {
+    let device = access.device.ok_or_else(|| ApiError::bad_request("Owner browser required"))?;
+    s.app.browser.decide(&device, &id, body["allow"] == true).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    Ok(Json(json!({"ok":true})))
+}
+async fn control(State(s): State<Server>, Extension(access): Extension<Access>, Path(id): Path<String>, Json(body): Json<Value>) -> ApiResult<Value> {
+    let device = access.device.ok_or_else(|| ApiError::bad_request("Owner browser required"))?;
+    browser::control(&s.app, &device, &id, body["action"].as_str().unwrap_or("")).await.map_err(|e| ApiError::bad_request(e.to_string()))?;
+    Ok(Json(json!({"ok":true})))
+}
+
+async fn authorize(State(s): State<Server>, Extension(access): Extension<Access>, Path(id): Path<String>) -> ApiResult<Value> {
+    let device = access.device.ok_or_else(|| ApiError::bad_request("Owner browser required"))?;
+    s.app.browser.authorize(&s.app, &device, &id).await.map_err(|e| ApiError::bad_request(e.to_string()))?;
     Ok(Json(json!({"ok":true})))
 }

@@ -438,7 +438,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       {small && launchLabel === "Launch" ? "Launch draft" : launchLabel}
     </button>
   );
-  const where = browserOnly ? "Browser · read only" : spec.target.kind === "temp" ? "temporary folder" : (target?.name ?? "no project");
+  const where = browserOnly ? "Browser · explicit page grants" : spec.target.kind === "temp" ? "temporary folder" : (target?.name ?? "no project");
 
   if (minimized) {
     if (!pillSlot) return null;
@@ -513,7 +513,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {unsupportedImages && <div className="mt-1 text-xs text-danger">This harness does not support attached images. Remove them or choose another harness.</div>}
         </div>
 
-        {browserOnly ? <div className="rounded-lg border border-line bg-chrome px-3 py-2 text-xs">Browser · read only · scratch folder, no worktree<div className="mt-1 text-ink-3">{harness?.browser_isolation}</div></div> : <div className="grid grid-cols-2 gap-2.5">
+        {browserOnly ? <div className="rounded-lg border border-line bg-chrome px-3 py-2 text-xs">Browser · explicit page grants · scratch folder, no worktree<div className="mt-1 text-ink-3">{harness?.browser_isolation}</div></div> : <div className="grid grid-cols-2 gap-2.5">
           <Field label="Project">
             <Popover
               width={300}

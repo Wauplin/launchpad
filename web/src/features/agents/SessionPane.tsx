@@ -334,14 +334,14 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
           {phone ? <>
             <HostLabel path={s.cwd} />
             <StatusBadge s={s} />
-            <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{s.launch_spec.target.kind === "browser" ? "Browser · read only" : projectName(projects, s.project_id, s.cwd)} <Icon name="chev" size={12} /></button>
+            <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{s.launch_spec.target.kind === "browser" ? "Browser · explicit page grants" : projectName(projects, s.project_id, s.cwd)} <Icon name="chev" size={12} /></button>
             <span className="ml-auto flex flex-wrap justify-end gap-1">{primary}</span>
             <PermissionSwitch session={s} />
             <PaidUsageToggle session={s} badge />
             <CostLimit session={s} badge />
           </> : <>
             {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Pre-draft PR</button>}
-            <span className="truncate">{s.launch_spec.target.kind === "browser" ? "Browser · read only" : projectName(projects, s.project_id, s.cwd)}</span>
+            <span className="truncate">{s.launch_spec.target.kind === "browser" ? "Browser · explicit page grants" : projectName(projects, s.project_id, s.cwd)}</span>
             <WorktreeChip session={s} />
             {s.launch_spec.profile && <span title="Harness profile">{profileName ?? `${s.launch_spec.profile} (deleted profile)`}</span>}
             <HostLabel path={s.cwd} />
@@ -390,7 +390,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       </div>
       {phone && detailsOpen && <Sheet title="Session details" onClose={() => setDetailsOpen(false)}>
         <div className="session-detail-sheet grid gap-4 p-4 text-sm">
-          <div className="flex items-start gap-2"><HarnessMark harness={s.harness} size={20} /><div className="min-w-0"><b className="break-words">{s.title}</b><p className="mt-1 text-ink-3">{s.launch_spec.target.kind === "browser" ? "Browser · read only" : projectName(projects, s.project_id, s.cwd)} · {s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : name}</p></div></div>
+          <div className="flex items-start gap-2"><HarnessMark harness={s.harness} size={20} /><div className="min-w-0"><b className="break-words">{s.title}</b><p className="mt-1 text-ink-3">{s.launch_spec.target.kind === "browser" ? "Browser · explicit page grants" : projectName(projects, s.project_id, s.cwd)} · {s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : name}</p></div></div>
           <dl className="grid gap-2 text-ink-2">
             {usageLine(s) && <div><dt className="text-xs text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
             <div><dt className="text-xs text-ink-3">Started</dt><dd>{new Date(s.started_at).toLocaleString()}</dd></div>
@@ -406,7 +406,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         <button className="btn btn-sm" disabled={log.loading} onClick={() => void load(sessionId)}>{log.loading ? "Loading…" : "Retry"}</button>
       </div>}
       <HostBand cwd={s.cwd} running={running} />
-      {s.launch_spec.target.kind === "browser" && <div className="border-b border-line bg-teal-soft px-3 py-1 text-xs text-teal-ink">Browser · read only</div>}
+      {s.launch_spec.target.kind === "browser" && <div className="border-b border-line bg-teal-soft px-3 py-1 text-xs text-teal-ink">Browser · explicit page grants</div>}
       {s.live && processes.isError && <div role="alert" className="px-3 py-2 text-xs text-danger">{String(processes.error)} <button className="btn btn-sm" onClick={() => void processes.refetch()}>Retry</button></div>}
       {hasProcesses && !processesOpen && !running && <div className="flex items-center gap-2 px-3 py-2 text-xs text-ink-3">Background commands are still running.<button className="btn btn-sm" onClick={() => setView("processes")}>View processes</button></div>}
       {processesOpen && <ProcessesPanel sessionId={s.id} processes={runningProcesses} refresh={() => processes.refetch()} />}

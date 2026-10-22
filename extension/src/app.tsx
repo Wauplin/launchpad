@@ -18,7 +18,7 @@ import { useComposer } from "@/stores/composer";
 import type { Target } from "@/gen/Target";
 
 type Page = { tab: number; document: string; url: string; title: string };
-type Grant = { id: string; session: string | null; page: Page; device: string; touched: number };
+type Grant = { id: string; session: string | null; page: Page; device: string; touched: number; work: boolean; paused: boolean; uncertain: boolean };
 
 function newDraft(text = "") {
   useComposer.getState().start();
@@ -32,6 +32,9 @@ function PanelRoot() {
   const sessions = useSessions().data ?? [];
   const current = !open ? sessions.find((s) => s.id === selected) : null;
   const query = useQuery({ queryKey: ["browser-grants"], queryFn: () => api.get<Grant[]>("/api/browser/grants"), refetchInterval: 5000 });
+  const reviews = useQuery({ queryKey: ["browser-reviews"], queryFn: () => api.get<{ id: string; session: string; details: { tool: string; args: Record<string, unknown>; target: { url?: string; targets?: { ref: string; label: string; value: string }[] }; page: Page } }[]>("/api/browser/reviews"), refetchInterval: 1000 });
+  const reviewId = reviews.data?.[0]?.id;
+  useEffect(() => { if (reviewId) document.getElementById(`browser-review-${reviewId}`)?.scrollIntoView({ block: "nearest" }); }, [reviewId]);
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState<{ title: string; url: string; id: number } | null>(null);
   const [connection, setConnection] = useState(true);
@@ -40,6 +43,13 @@ function PanelRoot() {
   const grantIds = target?.kind === "browser" ? target.grants : [];
   const grants = (query.data ?? []).filter((g) => grantIds.includes(g.id) || !!current && g.session === current.id);
 
+  useEffect(() => {
+    const changed = (message: { type: string }) => {
+      if (message.type === "browser-changed") void client.invalidateQueries({ queryKey: ["browser-grants"] });
+    };
+    chrome.runtime.onMessage.addListener(changed);
+    return () => chrome.runtime.onMessage.removeListener(changed);
+  }, [client]);
   useEffect(() => {
     const refresh = async () => {
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -61,6 +71,20 @@ function PanelRoot() {
     return () => clearInterval(timer);
   }, []);
 
+  async function control(g: Grant, action: string) {
+    try {
+      await api.post(`/api/browser/grants/${g.id}/control`, { action });
+      await chrome.runtime.sendMessage({ type: "release", tab: g.page.tab });
+      await client.invalidateQueries({ queryKey: ["browser-grants"] });
+    } catch (error) { toastError(error); }
+  }
+  async function decide(id: string, allow: boolean, url?: string) {
+    try {
+      if (allow && url && !await chrome.permissions.request({ origins: [`${new URL(url).origin}/*`] })) throw new Error("Destination site permission declined");
+      await api.post(`/api/browser/reviews/${id}`, { allow });
+      await client.invalidateQueries({ queryKey: ["browser-reviews"] });
+    } catch (error) { toastError(error); }
+  }
   async function addPage(tabId?: number, selection = false) {
     if (busy) return;
     setBusy(true);
@@ -101,10 +125,25 @@ function PanelRoot() {
   return <div className="flex h-dvh min-w-0 flex-col bg-paper text-ink">
     <header className="flex items-center gap-2 border-b border-line p-2"><b className="flex-1">Launchpad</b><button className="btn btn-sm" onClick={() => newDraft()}>New agent</button><button className="btn btn-sm" onClick={() => void chrome.tabs.create({ url: daemonUrl("/agents") })}>Open Launchpad ↗</button></header>
     {!connection && <p className="m-2 text-xs text-danger" role="status">Launchpad is offline. Reconnecting; your conversation stays on the daemon.</p>}
-    <section className="grid gap-2 border-b border-line p-2 text-xs">
+    <section className="grid max-h-[55dvh] shrink-0 gap-2 overflow-y-auto border-b border-line p-2 text-xs">
       <div className="min-w-0 truncate" title={page?.url}><b>Current page:</b> {page?.title ?? "Choose a tab"}</div>
       <div className="flex gap-2"><button className="btn btn-sm" disabled={busy} onClick={() => void addPage()}>{busy ? "Adding…" : "+ Add this page"}</button><button className="btn btn-sm" disabled={busy} onClick={() => { newDraft("Summarize this page. Read the article with the browser tools and cite its URL."); void addPage(); }}>Summarize page</button></div>
-      {grants.map((g) => <div key={g.id} className="flex min-w-0 items-center gap-2 rounded-md bg-teal-soft p-2 text-teal-ink"><span className="min-w-0 flex-1 truncate" title={g.page.url}>Read this page · {g.page.title} {g.touched < Date.now() - 1_800_000 ? "(expired)" : ""}</span><button aria-label={`Remove page access to ${g.page.title}`} onClick={() => { void api.delete(`/api/browser/grants/${g.id}`).then(() => client.invalidateQueries({ queryKey: ["browser-grants"] })).catch(toastError); if (open) update((s) => ({ ...s, target: s.target.kind === "browser" ? { ...s.target, grants: s.target.grants.filter((id) => id !== g.id) } : s.target })); }}>×</button></div>)}
+      {grants.map((g) => <div key={g.id} className="grid gap-2 rounded-md bg-teal-soft p-2 text-teal-ink">
+        <div className="flex min-w-0 items-center gap-2"><span className="min-w-0 flex-1 truncate" title={g.page.url}>{g.work ? g.paused ? "Paused" : "Work in this tab" : "Read this page"} · {g.page.title} {g.touched < Date.now() - 1_800_000 ? "(expired)" : ""}</span><button aria-label={`Remove page access to ${g.page.title}`} onClick={() => { void api.delete(`/api/browser/grants/${g.id}`).then(() => client.invalidateQueries({ queryKey: ["browser-grants"] })).catch(toastError); if (open) update((s) => ({ ...s, target: s.target.kind === "browser" ? { ...s.target, grants: s.target.grants.filter((id) => id !== g.id) } : s.target })); }}>×</button></div>
+        {g.uncertain && <p role="alert" className="text-danger">Action outcome uncertain. Inspect this page before Continue. Do not repeat Submit or another consequential action.</p>}
+        <div className="flex flex-wrap gap-2">{!g.work ? <><button className="btn btn-sm" onClick={() => void control(g, "work")}>Allow Work in this tab</button><button className="btn btn-sm" title="Revoke another session's control of this tab and give it to this session" onClick={() => void control(g, "take-tab")}>Take tab from another session</button></> : <><button className="btn btn-sm" onClick={() => void control(g, "pause")}>Pause</button><button className="btn btn-sm" onClick={() => void control(g, "take-over")}>Take over</button><button className="btn btn-sm" title="I inspected the page and accept the outcome of any uncertain action; allow future actions" onClick={() => void control(g, "continue")}>Continue after inspection</button><button className="btn btn-sm" onClick={() => { void api.delete(`/api/browser/grants/${g.id}`).then(() => client.invalidateQueries({ queryKey: ["browser-grants"] })).catch(toastError); }}>Stop access</button></>}</div>
+      </div>)}
+      {grants.some((g) => g.work) && <p className="text-ink-3">Work permits site changes. Forms can autosave on typing or blur. Confirmation detection is a heuristic and can miss consequential actions. After a disconnect, inspect the page before Continue; never repeat an uncertain Submit.</p>}
+      {(reviews.data ?? []).map((r) => <div key={r.id} id={`browser-review-${r.id}`} className="grid gap-2 rounded-md border border-line bg-paper p-2" role="region" aria-label="Browser action review">
+        <b>{r.details.tool === "browser_handover" ? "Take over, then Continue" : r.details.tool === "browser_propose_form" ? "Review proposed form" : "Confirm browser action"}</b>
+        <span className="break-all">{sessions.find((s) => s.id === r.session)?.title ?? `Session ${r.session.slice(0, 8)}`} · {r.details.page.title} · {({ browser_click: "Click", browser_type: "Type", browser_select: "Select", browser_press: "Press key", browser_propose_form: "Apply fields", browser_handover: "Owner handover", browser_navigate: "Navigate", browser_open_tab: "Open tab" } as Record<string, string>)[r.details.tool] ?? "Work in tab"}</span>
+        {r.details.args.key != null && <span>Key: {String(r.details.args.key)}</span>}
+        {r.details.target.url && <span className="break-all">Allow on {new URL(r.details.target.url).origin}? {r.details.target.url}</span>}
+        {r.details.target.targets?.map((t) => <div key={t.ref} className="break-all"><b>{t.label || t.ref}</b>{t.value && <pre className="whitespace-pre-wrap">{t.value}</pre>}</div>)}
+        {r.details.tool === "browser_propose_form" && <p>Apply permits typing and site changes, including autosave. Nothing is typed before Apply.</p>}
+        {r.details.tool === "browser_handover" && <p>The debugger is detached. Complete sign-in, 2FA, CAPTCHA, upload or payment yourself, then Continue. A new site needs a fresh page grant.</p>}
+        <div className="flex gap-2"><button className="btn btn-primary btn-sm" onClick={() => void decide(r.id, true, r.details.target.url)}>{r.details.tool === "browser_handover" ? "Continue" : r.details.tool === "browser_propose_form" ? "Apply" : "Allow once"}</button><button className="btn btn-sm" onClick={() => void decide(r.id, false)}>Decline</button></div>
+      </div>)}
       {!grants.length && <p className="text-ink-3">No page shared. Adding a page grants this draft read access; switching tabs never changes it. Follow-ups need their own grant.</p>}
     </section>
     <main className="relative flex min-h-0 flex-1 flex-col"><Outlet /><Composer embedded /></main>

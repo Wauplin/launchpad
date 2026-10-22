@@ -68,7 +68,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
           {informative(s) ? <StatusBadge s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{formatAge(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
         </span>
         <span className={`col-span-2 line-clamp-2 text-[11.5px] leading-[1.3] text-ink-3 ${dim ? "" : canMarkUnread ? "pr-14" : "pr-7"}`} title={line ? `${project} · ${line}` : project}>
-          <HostLabel path={s.cwd} className="mr-1 align-[1px]" /><span className="text-ink-2">{s.launch_spec.target.kind === "browser" ? "Browser · read only" : project}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
+          <HostLabel path={s.cwd} className="mr-1 align-[1px]" /><span className="text-ink-2">{s.launch_spec.target.kind === "browser" ? "Browser · explicit page grants" : project}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
         </span>
       </button>
       {canMarkUnread && <button

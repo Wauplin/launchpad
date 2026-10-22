@@ -118,7 +118,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
         .stdin(crate::exec::Io::Piped)
         .stdout(crate::exec::Io::Piped)
         .stderr(crate::exec::Io::Piped);
-    if spec.browser { cmd.env("MCP_TOOL_TIMEOUT", "30000"); }
+    if spec.browser { cmd.env("MCP_TOOL_TIMEOUT", "720000"); }
     let mut child = cmd.spawn().await.context("start claude")?;
     sink.raw("cmd", &format!("claude {}", args.join(" "))).await;
     sink.set_harness_id(&harness_id).await;

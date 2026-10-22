@@ -166,7 +166,8 @@ pub fn open_state(path: &Path) -> Result<Db> {
         tracing::info!("state.db: applied migration {}", i + 1);
     }
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS browser_grant (id TEXT PRIMARY KEY, json TEXT NOT NULL);
+        "CREATE TABLE IF NOT EXISTS browser_action (id TEXT PRIMARY KEY, grant_id TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS browser_grant (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS scheduled_launch (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS draft_comment (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS predraft (id TEXT PRIMARY KEY, json TEXT NOT NULL);

@@ -2,7 +2,7 @@
 import "./styles.css";
 
 const root = document.getElementById("root")!;
-root.innerHTML = `<main class="m-4 grid gap-4"><h1 class="text-xl font-bold">Launchpad</h1><p>Ask your agents about a page you choose. Read-only access, using your Launchpad profiles.</p><button class="btn btn-primary" id="local">Connect to Launchpad on this computer</button><details><summary>Connect to another computer</summary><form id="remote" class="mt-3 grid gap-3"><label>Launchpad URL<input id="origin" class="field-input mt-1 w-full" type="url" required placeholder="https://your-machine.ts.net"></label><button class="btn" type="submit">Show pairing code</button></form></details><p id="code" class="text-2xl font-bold tracking-widest" aria-live="polite"></p><p id="status" role="status"></p></main>`;
+root.innerHTML = `<main class="m-4 grid gap-4"><h1 class="text-xl font-bold">Launchpad</h1><p>Ask your agents about a page you choose. Read access by default; explicitly allow Work to click and type, using your Launchpad profiles.</p><button class="btn btn-primary" id="local">Connect to Launchpad on this computer</button><details><summary>Connect to another computer</summary><form id="remote" class="mt-3 grid gap-3"><label>Launchpad URL<input id="origin" class="field-input mt-1 w-full" type="url" required placeholder="https://your-machine.ts.net"></label><button class="btn" type="submit">Show pairing code</button></form></details><p id="code" class="text-2xl font-bold tracking-widest" aria-live="polite"></p><p id="status" role="status"></p></main>`;
 const status = document.getElementById("status")!;
 const local = document.getElementById("local") as HTMLButtonElement;
 let polling = 0;

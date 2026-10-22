@@ -150,7 +150,7 @@ async fn start(
         apps.insert("_default".into(), json!({"enabled":false}));
         config.insert("apps".into(), json!(apps));
         let mut mcp = crate::browser::mcp_config(app, &spec);
-        // These four tools are read-only; the broker still requires an explicit document grant on every read.
+        // The broker enforces independent owner grants and consequential-action review for every tool.
         mcp["default_tools_approval_mode"] = json!("approve");
         mcp["enabled"] = json!(true);
         servers.insert("launchpad_browser".into(), mcp);
