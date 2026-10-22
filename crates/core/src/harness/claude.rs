@@ -63,8 +63,10 @@ struct State {
     stopping: bool,
     turn_running: bool,
     cwd: String,
-    /// Cost reported by earlier processes of this session.
-    cost_base: f64,
+    /// Cost this process has reported so far. `total_cost_usd` counts from its own start, so only
+    /// the increase is added to the saved session total (which other writers, such as the title
+    /// request, may also have raised).
+    cost_reported: f64,
     permission_mode: PermissionMode,
     auto_unavailable_notified: bool,
 }
@@ -115,9 +117,8 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     let stdin = child.stdin.take().unwrap();
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
-    // `total_cost_usd` counts from the start of each process: add what earlier processes reported.
-    let cost_base = app.sessions.get(&spec.session_id).and_then(|s| s.usage.cost_usd).unwrap_or(0.0);
-    let state = Arc::new(Mutex::new(State { cwd: spec.cwd.to_string_lossy().to_string(), cost_base, permission_mode: spec.permission_mode, ..Default::default() }));
+    // `total_cost_usd` counts from the start of each process: add only its increase to the saved total.
+    let state = Arc::new(Mutex::new(State { cwd: spec.cwd.to_string_lossy().to_string(), permission_mode: spec.permission_mode, ..Default::default() }));
     let (exited, exit_wait) = tokio::sync::watch::channel(false);
     let session = Arc::new(ClaudeSession { sink: sink.clone(), stdin: tokio::sync::Mutex::new(Some(stdin)), state: state.clone(), killer: child.killer(), exited: exit_wait });
 
@@ -391,7 +392,14 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
             let interrupted = msg["subtype"] == "error_during_execution";
             sink.emit(EventBody::TurnEnd { duration_ms: msg["duration_ms"].as_i64(), interrupted, error: error.clone() }).await;
             let u = &msg["usage"];
-            let cost_base = st.lock().unwrap().cost_base;
+            // Only the increase since this process last reported is new spending.
+            let reported = msg["total_cost_usd"].as_f64();
+            let cost_delta = reported.map(|c| {
+                let mut st = st.lock().unwrap();
+                let delta = c - st.cost_reported;
+                st.cost_reported = c;
+                delta
+            });
             let window = msg["modelUsage"].as_object().and_then(|m| m.values().filter_map(|v| v["contextWindow"].as_u64()).max());
             if let Some(w) = window {
                 st.lock().unwrap().context_window = Some(w);
@@ -400,8 +408,8 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
                 us.input_tokens += u["input_tokens"].as_u64().unwrap_or(0) + u["cache_creation_input_tokens"].as_u64().unwrap_or(0);
                 us.cached_tokens += u["cache_read_input_tokens"].as_u64().unwrap_or(0);
                 us.output_tokens += u["output_tokens"].as_u64().unwrap_or(0);
-                if let Some(c) = msg["total_cost_usd"].as_f64() {
-                    us.cost_usd = Some(cost_base + c);
+                if let Some(c) = cost_delta.filter(|c| *c > 0.0) {
+                    us.cost_usd = Some(us.cost_usd.unwrap_or(0.0) + c);
                 }
                 if window.is_some() {
                     us.context_window = window;
@@ -980,10 +988,16 @@ impl super::Harness for Adapter {
             "",
             "--no-session-persistence",
             "--output-format",
-            "text",
+            "json",
             "--strict-mcp-config",
         ]);
         Some(cmd)
+    }
+    fn title_response(&self, stdout: String) -> Result<super::TitleReply> {
+        let value: Value = serde_json::from_str(stdout.trim()).context("unreadable title response")?;
+        anyhow::ensure!(value["is_error"].as_bool() != Some(true), "title generator failed: {}", value["result"].as_str().unwrap_or("unknown error"));
+        let title = value["result"].as_str().context("no generated title")?.to_string();
+        Ok(super::TitleReply { title, cost_usd: value["total_cost_usd"].as_f64().filter(|c| c.is_finite() && *c >= 0.0) })
     }
 }
 /// Quota from a Claude `rate_limit_event` (fractions and Unix seconds).

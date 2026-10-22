@@ -1206,14 +1206,16 @@ impl super::Harness for Adapter {
         }
         Some(cmd)
     }
-    fn title_response(&self, stdout: String) -> Result<String> {
-        stdout
+    fn title_response(&self, stdout: String) -> Result<super::TitleReply> {
+        let title = stdout
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
             .filter(|e| e["type"] == "item.completed" && e["item"]["type"] == "agent_message")
             .filter_map(|e| e["item"]["text"].as_str().map(str::to_string))
             .next_back()
-            .context("no generated title")
+            .context("no generated title")?;
+        // Codex does not report USD costs.
+        Ok(super::TitleReply { title, cost_usd: None })
     }
 }
 /// Quota from a Codex `rateLimits` object.

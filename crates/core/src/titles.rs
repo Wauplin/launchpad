@@ -10,25 +10,29 @@ pub fn generate(app: &App, session: &Session) {
     let app = app.clone();
     let session = session.clone();
     tokio::spawn(async move {
-        let result = title(&app, &session).await;
-        let result = if result.is_err() && !capacity(&app, &session) { Ok(None) } else { result };
-        // A quota cancellation keeps naming pending for the next eligible resume.
-        if !matches!(result, Ok(None)) {
-            let title = match result {
-                Ok(title) => title,
-                Err(e) => {
-                    tracing::info!("session title unavailable; keeping prompt title: {e:#}");
-                    None
-                }
-            };
+        let result = match title(&app, &session).await {
+            // A quota cancellation keeps naming pending for the next eligible resume.
+            Err(e) if !capacity(&app, &session) => Ok(None),
+            other => other,
+        };
+        if let Ok(Some(reply)) = result {
+            // The naming request costs money too: add what it reported to the session usage, so a
+            // per-session limit and its profile's spending ledger see it.
+            if let Some(cost) = reply.cost_usd.filter(|c| *c > 0.0) {
+                app.sessions.sink(&app, &session.id).update_usage(|us| {
+                    us.cost_usd = Some(us.cost_usd.unwrap_or(0.0) + cost);
+                }).await;
+            }
             if let Err(e) = app.sessions.update(&app, &session.id, |s| {
                 if s.title_pending && s.title == session.title {
-                    if let Some(title) = title { s.title = title; }
+                    if let Some(title) = reply.title { s.title = title; }
                     s.title_pending = false;
                 }
             }).await {
                 tracing::warn!("save session title: {e:#}");
             }
+        } else if let Err(e) = result {
+            tracing::info!("session title unavailable; keeping prompt title: {e:#}");
         }
         app.sessions.finish_title_request(&session.id);
     });
@@ -40,12 +44,7 @@ fn capacity(app: &App, session: &Session) -> bool {
         || crate::quota::available(&crate::quota::reading_for(app, session.harness, &session.launch_spec), crate::util::now_ms()))
 }
 
-async fn title(app: &App, session: &Session) -> Result<Option<String>> {
-    // Auxiliary title costs do not appear in the session usage. Keep the prompt title
-    // for PAYG or cost-limited sessions rather than starting an unaccounted request.
-    if session.launch_spec.budget_usd.is_some() || crate::profiles::pay_as_you_go(app, &session.launch_spec) {
-        return Ok(Some(session.title.clone()));
-    }
+async fn title(app: &App, session: &Session) -> Result<Option<Named>> {
     if !capacity(app, session) { return Ok(None); }
     let protected = crate::quota::protected(app, session.harness, &session.launch_spec);
     let text: String = session.prompt.chars().take(6000).collect();
@@ -55,7 +54,7 @@ async fn title(app: &App, session: &Session) -> Result<Option<String>> {
     std::fs::create_dir_all(&cwd)?;
     let adapter = app.harnesses.get(session.harness);
     let Some(mut cmd) = adapter.title_command(app, session, &cwd) else {
-        return Ok(Some(session.title.clone()));
+        return Ok(Some(Named { title: Some(session.title.clone()), cost_usd: None }));
     };
     cmd.envs(crate::profiles::env(app, session.harness, &session.launch_spec, session.model.as_deref(), None)?);
     cmd.arg(prompt).stdin(crate::exec::Io::Null);
@@ -75,8 +74,14 @@ async fn title(app: &App, session: &Session) -> Result<Option<String>> {
     };
     anyhow::ensure!(output.status.success(), "title generator failed ({})", output.status);
     let stdout = String::from_utf8(output.stdout)?;
-    let response = adapter.title_response(stdout)?;
-    let title = response.trim().trim_matches('"').trim();
+    let reply = adapter.title_response(stdout)?;
+    let title = reply.title.trim().trim_matches('"').trim();
     anyhow::ensure!(!title.is_empty() && !title.contains('\n') && title.chars().count() <= 100, "invalid generated title");
-    Ok(Some(title.to_string()))
+    Ok(Some(Named { title: Some(title.to_string()), cost_usd: reply.cost_usd }))
+}
+
+/// A naming attempt: the title to save (None keeps the prompt title) and the cost it reported.
+struct Named {
+    title: Option<String>,
+    cost_usd: Option<f64>,
 }

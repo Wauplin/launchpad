@@ -163,9 +163,19 @@ pub trait Harness: Send + Sync {
     fn title_command(&self, _app: &App, _session: &Session, _cwd: &Path) -> Option<crate::exec::Cmd> {
         None
     }
-    fn title_response(&self, stdout: String) -> Result<String> {
-        Ok(stdout)
+    fn title_response(&self, stdout: String) -> Result<TitleReply> {
+        Ok(TitleReply { title: stdout, ..Default::default() })
     }
+}
+
+/// A generated title, with the USD cost the harness reported for the auxiliary request.
+///
+/// The cost is added to the session usage (and its profile's spending ledger) so naming a
+/// pay-as-you-go or cost-limited session stays accounted for.
+#[derive(Clone, Debug, Default)]
+pub struct TitleReply {
+    pub title: String,
+    pub cost_usd: Option<f64>,
 }
 
 #[derive(Clone)]
