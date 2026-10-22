@@ -218,10 +218,11 @@ function OptionRow({ label, end, children }: { label: string; end?: React.ReactN
   );
 }
 
-export function Composer() {
+export function Composer({ embedded = false }: { embedded?: boolean }) {
   const harnessName = useHarnessName();
   const harnesses = useHarnesses();
   const { open, minimized, setMinimized, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, conditions, setConditions, conflict, loadNewer, keepMine } = useComposer();
+  const browserOnly = spec.target.kind === "browser";
   const projects = useProjects().data ?? [];
   const completionDefault = useMutation({
     mutationFn: ({ projectId, merge }: { projectId: string; merge: boolean }) => api.patch<Project>(`/api/projects/${projectId}`, { merge_when_done: merge }),
@@ -361,7 +362,7 @@ export function Composer() {
   const hostStatus = targetHost ? (hosts.find((h) => h.host.id === targetHost) ?? null) : null;
   const hostProfile = (p: Profile | null) => (p ? profileOnHost(hostStatus, p) : null);
   const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Hosts` : hostProfile(profile)?.ok === false ? hostProfile(profile)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context projects must be on the same machine as the project" : null;
-  const blocker = hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const blocker = hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
@@ -416,7 +417,7 @@ export function Composer() {
       setUnconfirmedLaunch(null);
       if (s.status !== "error") useComposer.getState().rememberLaunch(spec, s.started_at);
       discard();
-      const where = projects.find((p) => p.id === s.project_id)?.name ?? s.cwd.split("/").pop();
+      const where = s.launch_spec.target.kind === "browser" ? "a browser session" : projects.find((p) => p.id === s.project_id)?.name ?? s.cwd.split("/").pop();
       const openIt = () => {
         showSession(s.id);
         void navigate({ to: "/agents", search: { session: s.id } });
@@ -437,7 +438,7 @@ export function Composer() {
       {small && launchLabel === "Launch" ? "Launch draft" : launchLabel}
     </button>
   );
-  const where = spec.target.kind === "temp" ? "temporary folder" : (target?.name ?? "no project");
+  const where = browserOnly ? "Browser · read only" : spec.target.kind === "temp" ? "temporary folder" : (target?.name ?? "no project");
 
   if (minimized) {
     if (!pillSlot) return null;
@@ -463,10 +464,10 @@ export function Composer() {
   const presetLabels = (config?.presets ?? []).filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
 
   return (
-    <aside onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${isPhone ? "fixed! inset-0 z-50 w-full! pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" : ""} ${overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
+    <aside onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${!embedded && isPhone ? "fixed! inset-0 z-50 w-full! pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" : ""} ${embedded ? "absolute inset-0 z-40 w-full!" : overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
       <div className="flex items-center gap-1.5 border-b border-line px-3.5 py-2.5">
         <span className="flex-1 whitespace-nowrap text-sm font-bold">New agent</span>
-        <button className="btn btn-sm btn-ghost" title="Minimize to a draft pill; + Add buttons keep adding context" onClick={() => setMinimized(true)}>Minimize</button>
+        {!embedded && <button className="btn btn-sm btn-ghost" title="Minimize to a draft pill; + Add buttons keep adding context" onClick={() => setMinimized(true)}>Minimize</button>}
         <button className="iconbtn" title="Close (the draft is kept)" onClick={close}>
           <Icon name="x" size={14} />
         </button>
@@ -512,7 +513,7 @@ export function Composer() {
           {unsupportedImages && <div className="mt-1 text-xs text-danger">This harness does not support attached images. Remove them or choose another harness.</div>}
         </div>
 
-        <div className="grid grid-cols-2 gap-2.5">
+        {browserOnly ? <div className="rounded-lg border border-line bg-chrome px-3 py-2 text-xs">Browser · read only · scratch folder, no worktree<div className="mt-1 text-ink-3">{harness?.browser_isolation}</div></div> : <div className="grid grid-cols-2 gap-2.5">
           <Field label="Project">
             <Popover
               width={300}
@@ -547,7 +548,7 @@ export function Composer() {
             {target && spec.target.kind === "project" && !worktreeMode && <div className="mt-1 text-xs text-ink-3">{gitTarget ? <TargetCheckout projectId={target.id} /> : "Runs in the project folder"}</div>}
             {worktreeMode && <div className="mt-1 text-xs text-ink-3" title="Launchpad creates a new branch and folder before the agent starts; your checkout is not modified.">Your checkout stays untouched</div>}
           </Field>
-        </div>
+        </div>}
 
         {worktreeMode && target && <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-line-2 bg-chrome px-2.5 py-1.5 text-xs text-ink-2">
           <span className="inline-flex items-center gap-1">From<Branch projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="current branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { include_changes: false, merge_when_done: false }), base } }))} /></span>
@@ -612,7 +613,7 @@ export function Composer() {
             </span>
           ))}
           <AddContextMenu
-            projects={sorted.filter((p) => p.id !== target?.id && !spec.context_projects.some((c) => c.project_id === p.id))}
+            projects={(browserOnly ? [] : sorted).filter((p) => p.id !== target?.id && !spec.context_projects.some((c) => c.project_id === p.id))}
             recent={recentContexts}
             sessions={recentSessions}
             selectedTraces={spec.agent_traces ?? []}
@@ -768,8 +769,8 @@ export function Composer() {
               Allow paid usage after included quota runs out
             </label>
           </OptionRow>}
-          <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); }} onValidityChange={setCronValid} />
-          {!cron && <DelaySelector conditions={conditions} harness={spec.harness} profile={spec.profile} onChange={setConditions} onValidityChange={setDelayValid} />}
+          {!browserOnly && <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); }} onValidityChange={setCronValid} />}
+          {!browserOnly && !cron && <DelaySelector conditions={conditions} harness={spec.harness} profile={spec.profile} onChange={setConditions} onValidityChange={setDelayValid} />}
         </div>}
 
         <Popover width={400} trigger={({ toggle }) => <button className="btn btn-sm w-fit" onClick={toggle}><Icon name="eye" size={12} />Preview prompt</button>}>

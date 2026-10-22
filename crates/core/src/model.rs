@@ -411,6 +411,8 @@ pub enum Target {
     SessionFolder {
         session_id: String,
     },
+    /// A read-only browser session; grants are created by an explicit owner click.
+    Browser { source_session_id: Option<String>, grants: Vec<String> },
     /// A new temporary folder in the projects root.
     Temp,
 }

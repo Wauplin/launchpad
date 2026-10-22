@@ -11,6 +11,7 @@ use std::sync::Arc;
 pub const ID: HarnessKind = HarnessKind::new("opencode");
 pub const REGISTRATION: super::Registration = super::Registration {
     descriptor: super::HarnessDescriptor {
+        browser_isolation: "Native tools restricted by OpenCode permissions; not an OS sandbox",
         cost_model_prefixes: &[],
         id: ID,
         name: "OpenCode",
@@ -84,8 +85,28 @@ impl super::Harness for Adapter {
             .env("LAUNCHPAD_ENV", app.paths.app_env.name())
             .env("LAUNCHPAD_SESSION_ID", &spec.session_id)
             .envs(spec.env.iter().cloned());
+        let mcp_servers = if spec.browser {
+            let mcp = crate::browser::mcp_config(app, &spec);
+            // Native config is merged. Explicitly disable every existing server and permission key,
+            // rather than assuming an empty object erases the owner's configuration.
+            let env = app.env.on(spec.host.as_deref()).with(&spec.env);
+            let raw = crate::procs::output(&env, "opencode", &["debug", "config"], Some(&spec.cwd)).await?;
+            let current: serde_json::Value = serde_json::from_str(&raw)?;
+            let mut permission = serde_json::Map::new();
+            permission.insert("*".into(), serde_json::json!("deny"));
+            if let Some(existing) = current["permission"].as_object() {
+                for key in existing.keys().filter(|k| !k.starts_with("launchpad_browser")) { permission.insert(key.clone(), serde_json::json!("deny")); }
+            }
+            permission.insert("launchpad_browser_*".into(), serde_json::json!("allow"));
+            let mut servers = serde_json::Map::new();
+            if let Some(existing) = current["mcp"].as_object() { for key in existing.keys() { servers.insert(key.clone(), serde_json::json!({"enabled":false})); } }
+            command.env("OPENCODE_CONFIG_CONTENT", serde_json::json!({"permission":permission,"mcp":servers}).to_string());
+            serde_json::json!([{"name":"launchpad_browser","command":mcp["command"],"args":mcp["args"],
+                "env":mcp["env"].as_object().unwrap().iter().map(|(k,v)| serde_json::json!({"name":k,"value":v})).collect::<Vec<_>>()}])
+        } else { serde_json::json!([]) };
         sink.raw("cmd", "opencode acp").await;
         super::acp::start(command, spec, sink, super::acp::Extensions {
+            mcp_servers,
             capabilities: serde_json::json!({"_meta":{"opencode/child-session-updates":true}}),
             child_update,
             tool_child: |tool| tool["rawInput"]["subagent_type"].is_string(),

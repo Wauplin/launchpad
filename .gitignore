@@ -6,3 +6,7 @@
 
 # Agent worktrees have their own Git state.
 /.claude/worktrees/
+
+/extension/node_modules
+/extension/dist
+/extension/tsconfig.tsbuildinfo

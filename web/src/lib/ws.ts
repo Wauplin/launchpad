@@ -6,6 +6,7 @@
 // daemon pings every 25 s; a socket silent for 60 s is replaced. Returning to the page, coming back
 // online or restoring it from the back/forward cache checks the socket at once instead of waiting.
 
+import { daemonSocket, isExtension } from "./connection.ts";
 import { api } from "./api";
 import { rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import type { QueryClient } from "@tanstack/react-query";
@@ -167,39 +168,55 @@ export function connectEvents(queryClient: QueryClient) {
     listeners.forEach((fn) => fn(ev as BusEvent));
   };
 
-  const open = () => {
-    clearTimeout(timer);
-    timer = undefined;
-    const query = position ? `?boot=${encodeURIComponent(position.boot)}&since=${position.bus}` : "";
-    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws${query}`);
-    socket = ws;
-    offered = null;
-    openedAt = heardAt = Date.now();
-    ws.onopen = () => {
-      if (socket !== ws) return;
-      retry = 0;
-      heardAt = Date.now();
-      setConnected(true);
-      writePresence();
-    };
-    ws.onmessage = (msg) => {
-      if (socket !== ws) return;
-      heardAt = lastMessage = Date.now();
-      handle(JSON.parse(msg.data));
-    };
-    ws.onclose = () => {
-      if (socket !== ws) return;
-      socket = null;
-      // Revocation closes the socket; an authenticated probe triggers storage cleanup on 401.
-      void api.get("/api/status").catch(() => {});
+  let opening = false;
+  let generation = 0;
+  const open = async (): Promise<void> => {
+    if (opening) return;
+    opening = true;
+    const attempt = ++generation;
+    try {
+      clearTimeout(timer);
+      timer = undefined;
+      const query = position ? `?boot=${encodeURIComponent(position.boot)}&since=${position.bus}` : "";
+      const ticket = isExtension ? await api.post<{ ticket: string }>("/api/devices/socket-ticket") : null;
+      if (attempt !== generation) return;
+      const ws = new WebSocket(daemonSocket(`/ws${query}${ticket ? `${query ? "&" : "?"}ticket=${encodeURIComponent(ticket.ticket)}` : ""}`));
+      socket = ws;
+      offered = null;
+      openedAt = heardAt = Date.now();
+      ws.onopen = () => {
+        if (socket !== ws) return;
+        retry = 0;
+        heardAt = Date.now();
+        setConnected(true);
+        writePresence();
+      };
+      ws.onmessage = (msg) => {
+        if (socket !== ws) return;
+        heardAt = lastMessage = Date.now();
+        handle(JSON.parse(msg.data));
+      };
+      ws.onclose = () => {
+        if (socket !== ws) return;
+        socket = null;
+        // Revocation closes the socket; an authenticated probe triggers storage cleanup on 401.
+        void api.get("/api/status").catch(() => {});
+        setConnected(false);
+        retry = Math.min(retry + 1, 10);
+        timer = setTimeout(open, Math.min(250 * 2 ** retry, 5000));
+      };
+    } catch {
       setConnected(false);
-      retry = Math.min(retry + 1, 10);
-      timer = setTimeout(open, Math.min(250 * 2 ** retry, 5000));
-    };
+      timer = setTimeout(open, 3000);
+    } finally {
+      opening = false;
+      if (attempt !== generation) void open();
+    }
   };
 
   /** Drops the current socket without waiting for its close handshake (a dead network may never finish it). */
   const restart = () => {
+    generation++;
     const old = socket;
     socket = null;
     if (old) {

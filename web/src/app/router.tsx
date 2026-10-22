@@ -1,4 +1,4 @@
-import { createRootRoute, createRoute, createRouter, lazyRouteComponent, redirect, type RouteComponent } from "@tanstack/react-router";
+import { createRootRoute, createRoute, createRouter, lazyRouteComponent, redirect, type RouteComponent, type RouterHistory } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { validateCodeSearch } from "@/features/code/store";
 import { isPhone } from "@/lib/phone";
@@ -9,7 +9,7 @@ export type Entry = { Root: () => ReactNode; AgentsView: RouteComponent; InboxVi
 // Both shells (desktop `Shell`, phone `MobileShell`) share these routes. The desktop entry bundles Inbox
 // and Agents with its shell; every other page is a separate chunk loaded on first visit (or on hover/focus
 // of a link, `defaultPreload: "intent"`), so the first paint downloads less.
-export function makeRouter({ Root, AgentsView, InboxView }: Entry) {
+export function makeRouter({ Root, AgentsView, InboxView }: Entry, history?: RouterHistory) {
 const root = createRootRoute({ component: Root });
 
 const routeTree = root.addChildren([
@@ -59,7 +59,7 @@ function PagePending() {
   return <div className="grid h-full place-items-center text-ink-3" role="status">Loading…</div>;
 }
 
-return createRouter({ routeTree, defaultPreload: "intent", defaultPendingComponent: PagePending });
+return createRouter({ history, routeTree, defaultPreload: "intent", defaultPendingComponent: PagePending });
 }
 
 declare module "@tanstack/react-router" {

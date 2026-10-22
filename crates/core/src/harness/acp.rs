@@ -202,6 +202,7 @@ pub struct ChildUpdate {
     pub error: Option<String>,
 }
 pub struct Extensions {
+    pub mcp_servers: Value,
     pub capabilities: Value,
     pub child_update: fn(&Value) -> Option<ChildUpdate>,
     pub tool_child: fn(&Value) -> bool,
@@ -296,7 +297,7 @@ pub async fn start(command: crate::exec::Cmd, spec: StartSpec, sink: Sink, exten
         let init = connection.request("initialize", json!({"protocolVersion":1,"clientCapabilities":extensions.capabilities,"clientInfo":{"name":"launchpad","version":env!("CARGO_PKG_VERSION")}}), true).await?;
         anyhow::ensure!(init["protocolVersion"] == 1, "ACP protocol version 1 is required");
         state.lock().unwrap().images = init["agentCapabilities"]["promptCapabilities"]["image"] == true;
-        let mut params = json!({"cwd":spec.cwd.to_string_lossy(),"mcpServers":[]});
+        let mut params = json!({"cwd":spec.cwd.to_string_lossy(),"mcpServers":extensions.mcp_servers});
         let response = if spec.resume {
             let id = spec.harness_session_id.as_deref().context("no ACP session to resume")?;
             params["sessionId"] = json!(id);

@@ -42,6 +42,8 @@ pub struct HarnessDescriptor {
     pub color: &'static str,
     pub working_message: &'static str,
     pub capabilities: HarnessCapabilities,
+    /// Browser-only isolation, shown in the extension without harness identity checks.
+    pub browser_isolation: &'static str,
     /// Model prefixes with native pricing; empty means no model restriction.
     pub cost_model_prefixes: &'static [&'static str],
     /// Variables that select the subscription login (a configuration folder): profiles with different values

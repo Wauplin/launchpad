@@ -3,6 +3,7 @@
 // revision they start from, the daemon rejects stale ones (409), and `drafts/changed` events reload idle
 // windows. A window that is being edited shows a conflict notice instead of losing either version.
 
+import { isExtension } from "../lib/connection.ts";
 import { storageAllowed } from "../lib/clientStorage.ts";
 import { useSaveStatus } from "../lib/saveStatus.ts";
 import { create } from "zustand";
@@ -84,7 +85,8 @@ type SavedDraft = { spec?: LaunchSpec; open?: boolean; minimized?: boolean; cond
 
 /** Identifies this window in `drafts/changed` events, so it ignores its own saves. */
 const clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-const draftPath = (workspace: string | null) => `/api/launch/draft${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`;
+const draftScope = (workspace: string | null) => isExtension ? `chrome-extension:${localStorage.getItem("launchpad-extension-device") ?? "unpaired"}:${workspace ?? "default"}` : workspace;
+const draftPath = (workspace: string | null) => `/api/launch/draft${draftScope(workspace) ? `?workspace=${encodeURIComponent(draftScope(workspace)!)}` : ""}`;
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 /** When this window last changed its draft: a newer remote draft does not replace it during editing. */
@@ -268,7 +270,7 @@ export const useComposer = create<Composer>((set, get) => ({
   followUpFrom: (session) => {
     const spec: LaunchSpec = {
       ...emptySpec(), ...lastLaunch, permission_mode: rememberedRun(lastLaunch.harness, lastLaunch.profile).permission_mode,
-      target: { kind: "session_folder", session_id: session.id },
+      target: session.launch_spec.target.kind === "browser" ? { kind: "browser", source_session_id: session.id, grants: [] } : { kind: "session_folder", session_id: session.id },
       worktree: null,
       agent_traces: session.last_seq > 0 ? [{ session_id: session.id, through_seq: session.last_seq }] : [],
     };
@@ -325,9 +327,9 @@ export const useComposer = create<Composer>((set, get) => ({
   },
   remoteChanged: (ev) => {
     if (ev.client === clientId || !get().loaded) return;
-    if ((ev.workspace ?? null) !== (useWorkspace.getState().current ?? null) || ev.revision <= get().revision) return;
+    if ((ev.workspace ?? null) !== draftScope(useWorkspace.getState().current ?? null) || ev.revision <= get().revision) return;
     // Being edited here (unsaved change, recent typing or an open conflict): ask; otherwise follow the other window.
-    const editing = unsent.has(ev.workspace ?? null) || saveTimer !== undefined || Date.now() - lastLocalEdit < EDITING_MS || !!get().conflict;
+    const editing = unsent.has(useWorkspace.getState().current ?? null) || saveTimer !== undefined || Date.now() - lastLocalEdit < EDITING_MS || !!get().conflict;
     if (editing && get().open) set({ conflict: true });
     else void get().loadNewer();
   },

@@ -1,3 +1,4 @@
+import { daemonUrl } from "./connection.ts";
 import { signOut, storageAllowed } from "./clientStorage.ts";
 import { operationKey, retryProtected } from "./operations.ts";
 
@@ -16,7 +17,8 @@ export class ApiError extends Error {
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   if (!storageAllowed()) throw new ApiError(401, "Signed out");
   const operation = method === "POST" && retryProtected(path) ? await operationKey(path, body) : null;
-  const res = await fetch(path, {
+  const res = await fetch(daemonUrl(path), {
+    credentials: "include",
     method,
     signal,
     headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...(operation ? { "Idempotency-Key": operation.id } : {}) },

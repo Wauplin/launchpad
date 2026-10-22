@@ -47,6 +47,7 @@ async fn main() -> Result<()> {
     let status = core::status::StatusHandle::new(bus.clone());
     let hosts = core::hosts::Hosts::start(Arc::new(paths.clone()), env.clone(), state_db.clone(), status.clone()).await?;
     let app = core::App {
+        browser: Default::default(),
         paths: Arc::new(paths.clone()), config, state_db, cache_db: cache_db.clone(), status, hosts,
         harnesses: core::harness::Registry::new(&env), github: core::github::GitHub::new(env.clone(), cache_db), env, bus,
         sessions: core::sessions::Sessions::new(), inbox: core::inbox::Inbox::new(), models: Default::default(),

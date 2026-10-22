@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Launchpad",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "description": "Ask your Launchpad agents about pages you explicitly share.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtWXlK9TLyNG9yLugVTP3laaaAjrih2iVeUxMtQt1gCQ5AM0QLnbWR9ACu5SslTd6wGI2Y517IXA5vvdqBOz7TPihisqcO1hUusEIppGQRW9rY6CC5Zs+Tk5GzUsX8JSmlHP3uBFLgbGXB6lTxkKKENPWhosvqcP/UZkzUcpTQT3R5U7wcIjjePqufnC1TnVVfDeQSmV1D6gIuDiRID/NxILOgBq7QHOyVJuKGOirP0Yphv4mXPkUNqxP4kgFcE0ljT03kKTGE8H6yQp+OQTDohuJzhzGBBL0HqQ+uuhDvL3lINItk5fyxnKFCQaOpc1PD+mUiOQotucE6v70ee/qAwIDAQAB",
+  "permissions": [
+    "sidePanel",
+    "activeTab",
+    "scripting",
+    "storage",
+    "contextMenus",
+    "nativeMessaging",
+    "alarms",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Open Launchpad"
+  },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'"
+  }
+}

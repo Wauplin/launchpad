@@ -35,6 +35,7 @@ async fn front_door_protocol() {
     let status = core::status::StatusHandle::new(bus.clone());
     let hosts = core::hosts::Hosts::start(Arc::new(fixture.0.clone()), env.clone(), state_db.clone(), status.clone()).await.unwrap();
     let app = core::App {
+        browser: Default::default(),
         paths: Arc::new(fixture.0.clone()),
         config: config.clone(),
         state_db: state_db.clone(),

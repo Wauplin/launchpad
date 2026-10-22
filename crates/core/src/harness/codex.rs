@@ -121,13 +121,43 @@ fn ensure_auto_reviewer(mode: PermissionMode, response: &Value) -> Result<()> {
 }
 
 async fn start(
+    app: &App,
     server: &CodexServer,
     threads: &Threads,
     spec: StartSpec,
     sink: Sink,
 ) -> Result<Arc<dyn LiveSession>> {
     let cwd = spec.cwd.to_string_lossy().to_string();
-    let (approval, reviewer, sandbox) = permission_settings(spec.permission_mode);
+    let (approval, reviewer, sandbox) = if spec.browser { ("never", "user", "read-only") } else { permission_settings(spec.permission_mode) };
+    let browser_config = if spec.browser {
+        let current = server.request("config/read", json!({"includeLayers":false})).await.context("Read Codex MCP configuration for browser isolation")?;
+        let mut config = serde_json::Map::new();
+        // config/read serializes unset numeric options as empty strings; it is not a config file.
+        // Keep only the transport when disabling a server, never round-trip its optional fields.
+        let mut servers = serde_json::Map::new();
+        if let Some(existing) = current["config"]["mcp_servers"].as_object() {
+            for (name, server) in existing {
+                let mut disabled = json!({"enabled":false});
+                for key in ["command", "url"] { if let Some(value) = server[key].as_str().filter(|v| !v.is_empty()) { disabled[key] = json!(value); } }
+                servers.insert(name.clone(), disabled);
+            }
+        }
+        let mut plugins = serde_json::Map::new();
+        if let Some(existing) = current["config"]["plugins"].as_object() { for name in existing.keys() { plugins.insert(name.clone(), json!({"enabled":false})); } }
+        config.insert("plugins".into(), json!(plugins));
+        let mut apps = serde_json::Map::new();
+        if let Some(existing) = current["config"]["apps"].as_object() { for name in existing.keys() { apps.insert(name.clone(), json!({"enabled":false})); } }
+        apps.insert("_default".into(), json!({"enabled":false}));
+        config.insert("apps".into(), json!(apps));
+        let mut mcp = crate::browser::mcp_config(app, &spec);
+        // These four tools are read-only; the broker still requires an explicit document grant on every read.
+        mcp["default_tools_approval_mode"] = json!("approve");
+        mcp["enabled"] = json!(true);
+        servers.insert("launchpad_browser".into(), mcp);
+        config.insert("mcp_servers".into(), json!(servers));
+        config.insert("web_search".into(), json!("disabled"));
+        Some(Value::Object(config))
+    } else { None };
     let thread_id = if spec.resume {
         let id = spec
             .harness_session_id
@@ -138,6 +168,7 @@ async fn start(
                 "thread/resume",
                 {
                     let mut params = json!({"threadId": id, "cwd": cwd, "excludeTurns": true, "approvalPolicy": approval, "approvalsReviewer": reviewer, "sandbox": sandbox});
+                    if let Some(config) = &browser_config { params["config"] = config.clone(); }
                     if let Some(m) = &spec.model {
                         params["model"] = json!(m);
                     }
@@ -146,10 +177,11 @@ async fn start(
             )
             .await
             .context("thread/resume")?;
-        ensure_auto_reviewer(spec.permission_mode, &res)?;
+        if !spec.browser { ensure_auto_reviewer(spec.permission_mode, &res)?; }
         id
     } else {
         let mut params = json!({"cwd": cwd, "approvalPolicy": approval, "approvalsReviewer": reviewer, "sandbox": sandbox});
+        if let Some(config) = &browser_config { params["config"] = config.clone(); }
         if let Some(m) = &spec.model {
             params["model"] = json!(m);
         }
@@ -157,7 +189,7 @@ async fn start(
             .request("thread/start", params)
             .await
             .context("thread/start")?;
-        ensure_auto_reviewer(spec.permission_mode, &res)?;
+        if !spec.browser { ensure_auto_reviewer(spec.permission_mode, &res)?; }
         let id = res["thread"]["id"]
             .as_str()
             .context("no thread id")?
@@ -1042,6 +1074,7 @@ const PROFILE_TEMPLATES: &[super::ProfileTemplate] = &[
 
 pub const REGISTRATION: super::Registration = super::Registration {
     descriptor: super::HarnessDescriptor {
+        browser_isolation: "Read-only sandbox; native shell tools may remain available",
         cost_model_prefixes: &[],
         id: ID,
         name: "Codex",
@@ -1112,7 +1145,7 @@ impl super::Harness for Adapter {
     }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
         if spec.env.is_empty() && spec.host.is_none() {
-            return start(&self.server, &self.threads, spec, sink).await;
+            return start(app, &self.server, &self.threads, spec, sink).await;
         }
         let (server, threads) = {
             let mut servers = self.profile_servers.lock().unwrap();
@@ -1123,7 +1156,7 @@ impl super::Harness for Adapter {
                 (server, threads)
             }).clone()
         };
-        start(&server, &threads, spec, sink).await
+        start(app, &server, &threads, spec, sink).await
     }
     async fn models(&self, _app: &App) -> Result<Vec<ModelInfo>> {
         models(&self.server).await

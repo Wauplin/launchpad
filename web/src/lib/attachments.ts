@@ -1,3 +1,4 @@
+import { daemonUrl } from "./connection.ts";
 import type { FileAttachment } from "@/gen/FileAttachment";
 import type { ClipboardEvent } from "react";
 
@@ -69,7 +70,7 @@ async function normalizeImage(file: File): Promise<File> {
 
 /** Uploads one file to the daemon once; drafts and launches then carry the short reference. */
 async function upload(file: File): Promise<string> {
-  const res = await fetch("/api/uploads", { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
+  const res = await fetch(daemonUrl("/api/uploads"), { credentials: "include", method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
   const data = await res.json().catch(() => null);
   if (res.status === 401) location.replace("/auth");
   if (!res.ok || typeof data?.data_url !== "string") throw new Error(data?.error ?? `Upload failed (${res.status}).`);
@@ -79,7 +80,7 @@ async function upload(file: File): Promise<string> {
 /** Image source for an attachment: a data URL, or the daemon URL of an uploaded image. */
 export function attachmentSrc(dataUrl: string): string {
   const m = /^upload:(image\/[a-z0-9.+-]+);([0-9a-f]{64})$/.exec(dataUrl);
-  return m ? `/api/uploads/${m[2]}?type=${encodeURIComponent(m[1])}` : dataUrl;
+  return m ? daemonUrl(`/api/uploads/${m[2]}?type=${encodeURIComponent(m[1])}`) : dataUrl.startsWith("/api/") ? daemonUrl(dataUrl) : dataUrl;
 }
 
 export const isImageAttachment = (dataUrl: string) => dataUrl.startsWith("data:image/") || dataUrl.startsWith("upload:image/");

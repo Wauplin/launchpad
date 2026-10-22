@@ -132,6 +132,7 @@ pub struct Auth {
     sessions: RwLock<HashMap<String, Session>>,
     pairs: RwLock<HashMap<String, i64>>,
     reverse: RwLock<ReversePairs>,
+    socket_tickets: RwLock<HashMap<String, (Access, i64)>>,
     changes: watch::Sender<u64>,
     db: Db,
 }
@@ -190,6 +191,7 @@ impl Auth {
             sessions: RwLock::new(sessions),
             pairs: RwLock::new(HashMap::new()),
             reverse: RwLock::new(ReversePairs::default()),
+            socket_tickets: Default::default(),
             changes,
             db,
         })
@@ -326,7 +328,7 @@ impl Auth {
             if let Some(origin) = headers.get(header::ORIGIN)
                 && !origin
                     .to_str()
-                    .is_ok_and(|o| network.origins.iter().any(|allowed| allowed == o))
+                    .is_ok_and(|o| o == launchpad_core::browser::extension_origin() || network.origins.iter().any(|allowed| allowed == o))
             {
                 return Err("foreign Origin");
             }
@@ -427,6 +429,7 @@ pub fn router() -> Router<Server> {
         .route("/api/devices/reverse/approve", post(reverse_approve))
         .route("/api/devices", get(devices))
         .route("/api/devices/pair", post(pair))
+        .route("/api/devices/socket-ticket", post(socket_ticket))
         .route("/api/devices/pairing-info", get(pairing_info))
         .route("/api/devices/https/run", post(run_https))
         .route("/api/devices/https/check", post(check_https))
@@ -455,7 +458,12 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
         }
         return private_response(next.run(req).await, private);
     }
-    if let Some(access) = s.auth.authenticate(req.headers()) {
+    let ticket_access = if path == "/ws" && req.method() == Method::GET && req.headers().contains_key(header::UPGRADE)
+        && req.headers().get(header::ORIGIN).is_some_and(|v| v.as_bytes() == launchpad_core::browser::extension_origin().as_bytes()) {
+        let tickets: Vec<_> = req.uri().query().unwrap_or("").split('&').filter_map(|v| v.strip_prefix("ticket=")).collect();
+        if tickets.len() == 1 { s.auth.socket_tickets.write().unwrap().remove(&hash(tickets[0])).filter(|(access, expires)| *expires > now() && access.valid()).map(|(access, _)| access) } else { None }
+    } else { None };
+    if let Some(access) = s.auth.authenticate(req.headers()).or(ticket_access) {
         req.extensions_mut().insert(access);
         return private_response(next.run(req).await, private);
     }
@@ -476,6 +484,20 @@ fn private_response(mut response: Response, private: bool) -> Response {
             .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     }
     response
+}
+
+/// Chrome omits SameSite cookies on extension WebSocket handshakes. Keep the cookie policy
+/// and exchange an authenticated, origin-bound ticket valid for one upgrade within 30 seconds.
+async fn socket_ticket(State(s): State<Server>, Extension(access): Extension<Access>, headers: HeaderMap) -> ApiResult<Value> {
+    if access.device.is_none() || headers.get(header::ORIGIN).is_none_or(|v| v.as_bytes() != launchpad_core::browser::extension_origin().as_bytes()) {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "Socket tickets are only available to the paired Launchpad extension"));
+    }
+    let mut tickets = s.auth.socket_tickets.write().unwrap();
+    tickets.retain(|_, (access, expires)| *expires > now() && access.valid());
+    if tickets.len() >= 100 { return Err(ApiError::new(StatusCode::TOO_MANY_REQUESTS, "Too many pending socket connections")); }
+    let ticket = secret();
+    tickets.insert(hash(&ticket), (access, now() + 30));
+    Ok(Json(json!({"ticket":ticket})))
 }
 
 async fn pairing_info(State(s): State<Server>) -> ApiResult<Value> {

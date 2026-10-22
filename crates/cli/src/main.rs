@@ -2,11 +2,14 @@
 //!
 //! The environment comes from `LAUNCHPAD_ENV` (`prod` by default, `dev` for development).
 
+mod browser;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use launchpad_core::paths::Paths;
 
 /// The daemon API: over its local port, or, for agents on an SSH host, through the Launchpad helper there.
+#[derive(Clone)]
 enum Client {
     Local { base: String, token: String, http: reqwest::Client },
     Helper(std::path::PathBuf),
@@ -90,6 +93,12 @@ enum Command {
         #[arg(long)]
         through: Option<i64>,
     },
+    /// Read-only browser MCP bridge, started by Launchpad harness adapters.
+    #[command(hide = true)]
+    BrowserMcp { #[arg(long)] data_dir: Option<std::path::PathBuf> },
+    /// Chrome native messaging host (registered for the pinned extension only).
+    #[command(hide = true)]
+    NativeHost { origin: String, #[arg(trailing_var_arg = true, allow_hyphen_values = true)] extra: Vec<String> },
     /// Run the daemon (HTTP + WebSocket; loopback by default).
     Daemon,
     /// Print the daemon status as JSON.
@@ -293,6 +302,12 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        Command::BrowserMcp { data_dir } => {
+            let mut paths = paths;
+            if let Some(dir) = data_dir { paths.data_dir = dir; }
+            browser::mcp(&paths).await
+        },
+        Command::NativeHost { origin, .. } => browser::native_host(&paths, &origin).await,
         Command::Daemon => {
             init_tracing();
             tracing::info!("env {}, data in {}", paths.app_env.name(), paths.data_dir.display());

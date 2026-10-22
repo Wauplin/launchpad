@@ -1,6 +1,7 @@
 //! Domain types and services of the Launchpad daemon.
 
 pub mod attachments;
+pub mod browser;
 pub mod code;
 pub mod compose;
 pub mod config;
@@ -76,6 +77,7 @@ pub struct App {
     pub terminals: terminals::Terminals,
     pub push: push::Push,
     pub hosts: hosts::Hosts,
+    pub browser: browser::Broker,
 }
 
 impl App {
@@ -113,6 +115,7 @@ impl App {
             terminals: terminals::Terminals::default(),
             push: web_push,
             hosts,
+            browser: browser::Broker::default(),
         };
         predrafts::link_skill()?;
         app.sessions.load(&app).await?;
