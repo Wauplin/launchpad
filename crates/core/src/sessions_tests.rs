@@ -249,3 +249,62 @@ async fn timed_out_shutdowns_retain_ownership_until_all_waits_finish() {
         while sessions.ensure_shutdown_finished("task").is_err() { tokio::task::yield_now().await; }
     }).await.unwrap();
 }
+
+#[tokio::test]
+async fn unpriced_costs_are_hidden_after_reload_and_cannot_drive_limits() {
+    let (_fixture, app) = fixture().await;
+    let mut config = app.config.get();
+    for (id, model) in [("hf", "deepseek-ai/DeepSeek-V4.1-Flash-1017"), ("native", "opus")] {
+        config.profiles.push(serde_json::from_value(serde_json::json!({
+            "id":id,"name":id,"harness":"claude","model":model,"billing":"pay_as_you_go",
+            "budget_usd":1.0,"spend_limits":[{"usd":1.0,"hours":5}]
+        })).unwrap());
+    }
+    app.config.save(config).unwrap();
+    app.sessions.update(&app, "test", |s| {
+        s.harness = crate::harness::claude::ID;
+        s.model = Some("deepseek-ai/DeepSeek-V4.1-Flash-1017".into());
+        s.launch_spec.harness = Some(crate::harness::claude::ID);
+        s.launch_spec.profile = Some("hf".into());
+        s.launch_spec.budget_usd = Some(1.0);
+        s.usage.cost_usd = Some(62.30);
+    }).await.unwrap();
+    // The shared fixture starts as Codex; harness identity is immutable in normal session updates.
+    app.state_db.call(|c| {
+        c.execute("UPDATE session SET harness = 'claude' WHERE id = 'test'", [])?;
+        Ok(())
+    }).await.unwrap();
+    // Previously recorded unsupported costs must not block input or appear as a meter.
+    crate::spend::record(&app, "hf", 62.30).await;
+    app.sessions.load(&app).await.unwrap();
+    let session = app.sessions.get("test").unwrap();
+    assert!(session.usage.cost_unavailable);
+    assert_eq!(session.usage.cost_usd, None);
+    assert!(!session.budget_reached());
+    assert!(crate::spend::reached(&app, &session.launch_spec).is_empty());
+    assert!(crate::spend::current(&app).iter().all(|s| s.profile != "hf"));
+    assert!(app.sessions.set_budget(&app, "test", Some(2.0)).await.unwrap_err().to_string().contains("Cost management is unavailable"));
+    app.state_db.call(|c| {
+        assert_eq!(c.query_row("SELECT cost_usd FROM session WHERE id = 'test'", [], |r| r.get::<_, Option<f64>>(0))?, None);
+        Ok(())
+    }).await.unwrap();
+    let sink = app.sessions.sink(&app, "test");
+    sink.update_usage(|u| { u.cost_usd = Some(100.0); u.output_tokens = 7; }).await;
+    let session = app.sessions.get("test").unwrap();
+    assert_eq!(session.usage.cost_usd, None);
+    assert_eq!(session.usage.output_tokens, 7);
+    // Reliable native costs still record and enforce limits normally.
+    app.sessions.update(&app, "test", |s| {
+        s.model = Some("opus".into());
+        s.launch_spec.profile = Some("native".into());
+        s.usage.cost_unavailable = false;
+    }).await.unwrap();
+    sink.update_usage(|u| u.cost_usd = Some(1.5)).await;
+    assert!(app.sessions.get("test").unwrap().budget_reached());
+    assert_eq!(crate::spend::current(&app).iter().find(|s| s.profile == "native").unwrap().windows[0].used_usd, 1.5);
+    // Runtime loss of pricing disables both guards, even for a formerly supported profile.
+    sink.update_usage(|u| u.cost_unavailable = true).await;
+    assert!(!app.sessions.get("test").unwrap().budget_reached());
+    assert!(crate::spend::current(&app).iter().all(|s| s.profile != "native"));
+    assert!(super::ensure_budget(&app, &app.sessions.get("test").unwrap()).is_ok());
+}

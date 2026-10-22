@@ -12,4 +12,8 @@ input_tokens: number, cached_tokens: number, output_tokens: number,
 /**
  * Reported cumulative USD cost when the harness exposes it; not necessarily a billed charge.
  */
-cost_usd: number | null, };
+cost_usd: number | null,
+/**
+ * Native pricing is unknown; no cost or cost protection is available.
+ */
+cost_unavailable: boolean, };

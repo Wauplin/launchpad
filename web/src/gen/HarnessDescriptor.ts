@@ -4,16 +4,20 @@ import type { HarnessCapabilities } from "./HarnessCapabilities";
 import type { HarnessKind } from "./HarnessKind";
 import type { ProfileTemplate } from "./ProfileTemplate";
 
-export type HarnessDescriptor = { id: HarnessKind, name: string, icon_svg: string, color: string, working_message: string, capabilities: HarnessCapabilities, 
+export type HarnessDescriptor = { id: HarnessKind, name: string, icon_svg: string, color: string, working_message: string, capabilities: HarnessCapabilities,
+/**
+ * Model prefixes with native pricing; empty means no model restriction.
+ */
+cost_model_prefixes: Array<string>,
 /**
  * Variables that select the subscription login (a configuration folder): profiles with different values
  * are different accounts, each with its own quota monitor.
  */
-account_env: Array<string>, 
+account_env: Array<string>,
 /**
  * Documented environment variables offered in the profile editor.
  */
-env_vars: Array<EnvVarDoc>, 
+env_vars: Array<EnvVarDoc>,
 /**
  * Ready-made profiles offered by Settings → Profiles → New profile.
  */

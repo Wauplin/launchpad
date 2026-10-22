@@ -1042,6 +1042,7 @@ const PROFILE_TEMPLATES: &[super::ProfileTemplate] = &[
 
 pub const REGISTRATION: super::Registration = super::Registration {
     descriptor: super::HarnessDescriptor {
+        cost_model_prefixes: &[],
         id: ID,
         name: "Codex",
         icon_svg: include_str!("icons/codex.svg"),
@@ -1215,7 +1216,7 @@ impl super::Harness for Adapter {
             .next_back()
             .context("no generated title")?;
         // Codex does not report USD costs.
-        Ok(super::TitleReply { title, cost_usd: None })
+        Ok(super::TitleReply { title, ..Default::default() })
     }
 }
 /// Quota from a Codex `rateLimits` object.

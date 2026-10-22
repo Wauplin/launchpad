@@ -22,6 +22,13 @@ pub fn resolve(app: &App, harness: HarnessKind, spec: &LaunchSpec) -> Result<Opt
     Ok(Some(v))
 }
 
+/// Cost support for the selected model, including a profile's default model.
+pub fn supports_cost(app: &App, harness: HarnessKind, spec: &LaunchSpec, model: Option<&str>) -> bool {
+    let config = app.config.get();
+    let profile = spec.profile.as_deref().and_then(|id| config.profile(id));
+    crate::harness::registration(harness).descriptor.supports_cost(model.or(spec.model.as_deref()).or_else(|| profile.and_then(|p| p.model.as_deref())))
+}
+
 /// Environment overrides for processes of this spec, with `~/` and `${NAME}` references expanded.
 /// `model` is the session's current model (the profile default applies when it is None) and `host`
 /// the SSH host of the session folder.

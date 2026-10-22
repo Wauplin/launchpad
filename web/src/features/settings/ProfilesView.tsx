@@ -22,7 +22,7 @@ import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { useHosts } from "@/lib/hosts";
 import { useConfig, useHarnessDefaults, useStatus, type ConfigResponse } from "@/lib/queries";
-import { parseUsd, quotaFor, usd, usesModelReference, useProfileModels, windowLabel } from "@/lib/profiles";
+import { costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, usesModelReference, useProfileModels, windowLabel } from "@/lib/profiles";
 import { useOpenTerminal } from "@/features/terminals/lib";
 import { Card, SaveBar, SettingsPage } from "./SettingsView";
 
@@ -191,7 +191,7 @@ export function ProfilesView() {
         title="Profiles"
         end={!adding && drafts.length > 0 && <button className="btn btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={12} />New profile</button>}
       >
-        <p className="text-[12.5px] text-ink-2">A profile is one way to run a coding agent: a harness (Claude Code, Codex, OpenCode), what pays for its work (a subscription login, an API key or another provider) and its default model. The composer lists your profiles. Subscription profiles get quota meters and protection, one per login, so several accounts of one harness work side by side; pay-as-you-go profiles get cost and spending limits.</p>
+        <p className="text-[12.5px] text-ink-2">A profile is one way to run a coding agent: a harness (Claude Code, Codex, OpenCode), what pays for its work (a subscription login, an API key or another provider) and its default model. The composer lists your profiles. Subscription profiles get quota meters and protection, one per login, so several accounts of one harness work side by side; pay-as-you-go profiles get cost and spending limits only when reliable model pricing is available.</p>
         {(adding || drafts.length === 0) && <NewProfile onAdd={add} onCancel={drafts.length > 0 ? () => setAdding(false) : null} />}
         {drafts.map((d) => (
           <ProfileCard key={d.key} draft={d} open={isOpen(d)} problem={problem(d)} onToggle={() => toggle(d.key)}
@@ -250,6 +250,7 @@ function ProfileCard({ draft: d, open, problem, onToggle, onChange, onDelete }: 
   const pct = (q: { used_percent: number } | null) => (q ? `${Math.round(q.used_percent)}%` : "?");
   const summary = [
     source(d, harness),
+    harness?.capabilities.cost && (!supportsModelCost(harness, d.model) || status?.cost_unavailable_profiles.includes(d.id)) ? "Cost management unavailable" : null,
     d.model ? d.model : null,
     quota ? `5 h ${pct(quota.five_hour)} · week ${pct(quota.weekly)}` : null,
     spend?.windows.length ? spend.windows.map((w) => `${usd(w.used_usd)}/${usd(w.limit_usd)} per ${windowLabel(w.hours)}`).join(" · ") : null,
@@ -284,6 +285,8 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
   const harnesses = useHarnesses();
   const harness = harnesses.find((h) => h.id === d.harness);
   const defaults = useHarnessDefaults(d.harness).data;
+  const unavailable = useStatus().data?.cost_unavailable_profiles.includes(d.id) ?? false;
+  const supportsCost = supportsModelCost(harness, d.model) && !unavailable;
   const ownModels = !!d.models_url?.trim();
   const providerModels = useProfileModels(ownModels ? d.models_url!.trim() : null);
   const model = defaults?.models.find((m) => m.id === (d.model ?? defaults?.model));
@@ -298,6 +301,7 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
   const references = d.env.some(([, v]) => /\$\{(?!LAUNCHPAD_MODEL\})/.test(v));
   return (
     <div className="grid gap-3 border-t border-line-2 p-3">
+      {!supportsCost && harness?.capabilities.cost && <div className="text-xs text-attn">{costUnavailableMessage}</div>}
       {problem && <div className="text-xs text-attn">{problem}</div>}
       {d.template && !d.saved && (d.template.setup || d.template.setup_command) && (
         <div className="grid gap-1.5 rounded-md bg-chrome px-3 py-2 text-xs text-ink-2">
@@ -327,7 +331,7 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
         <b className="pt-1 font-[650]">Billing</b>
         <span className="grid gap-1">
           {harness?.capabilities.quota && <label className="flex items-start gap-2"><input type="radio" className="mt-0.5 accent-teal" checked={d.billing === "subscription"} onChange={() => onChange((x) => ({ ...x, billing: "subscription" }))} /><span>Subscription <span className="text-ink-3">· Launchpad reads the quota of this profile's login ({harness.account_env.length ? `${harness.account_env.join(", ")} selects another account` : "its default login"}) and pauses work at its limits. Paid usage stays off unless allowed per session.</span></span></label>}
-          <label className="flex items-start gap-2"><input type="radio" className="mt-0.5 accent-teal" checked={d.billing === "pay_as_you_go" || !harness?.capabilities.quota} onChange={() => onChange((x) => ({ ...x, billing: "pay_as_you_go" }))} /><span>Pay as you go <span className="text-ink-3">· no subscription quota protection{harness?.capabilities.cost ? "; use a cost limit and spending limits" : ""}.</span></span></label>
+          <label className="flex items-start gap-2"><input type="radio" className="mt-0.5 accent-teal" checked={d.billing === "pay_as_you_go" || !harness?.capabilities.quota} onChange={() => onChange((x) => ({ ...x, billing: "pay_as_you_go" }))} /><span>Pay as you go <span className="text-ink-3">· no subscription quota protection{supportsCost ? "; use a cost limit and spending limits" : ""}.</span></span></label>
         </span>
       </div>
       <div className={row}>
@@ -362,14 +366,14 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
         <b className="pt-1 font-[650]">Provider</b>
         <ProviderPicker models={providerModels.data} model={d.model} up={modelUp} onChange={(id) => onChange((x) => ({ ...x, model: id }))} />
       </div>}
-      {harness?.capabilities.cost && <div className={row}>
+      {supportsCost && <div className={row}>
         <b className="pt-1 font-[650]">Default cost limit</b>
         <span className="flex flex-wrap items-center gap-2">
           <input className="field-input w-28 font-mono text-xs" aria-label="Default cost limit in USD" placeholder="No limit" value={d.budget} onChange={(e) => onChange((x) => ({ ...x, budget: e.target.value }))} />
-          <span className={`text-xs ${budgetValid ? "text-ink-3" : "text-attn"}`}>{budgetValid ? `USD per session, prefilled in the composer and editable on each session.${ownModels ? ` ${harness.name} estimates costs with its own prices, which may not match other providers.` : ""}` : "Enter a positive amount, or leave empty."}</span>
+          <span className={`text-xs ${budgetValid ? "text-ink-3" : "text-attn"}`}>{budgetValid ? `USD per session, prefilled in the composer and editable on each session.` : "Enter a positive amount, or leave empty."}</span>
         </span>
       </div>}
-      {harness?.capabilities.cost && d.billing === "pay_as_you_go" && <div className={row}>
+      {supportsCost && d.billing === "pay_as_you_go" && <div className={row}>
         <b className="pt-1 font-[650]">Spending limits</b>
         <SpendLimits draft={d} onChange={(limits) => onChange((x) => ({ ...x, limits }))} />
       </div>}

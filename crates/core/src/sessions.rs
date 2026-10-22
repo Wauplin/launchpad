@@ -256,18 +256,27 @@ impl Sessions {
         {
             let mut recs = self.inner.records.lock().unwrap();
             for mut s in rows {
+                let mut changed = false;
+                if !crate::profiles::supports_cost(app, s.harness, &s.launch_spec, s.model.as_deref()) && crate::harness::registration(s.harness).descriptor.capabilities.cost {
+                    changed = !s.usage.cost_unavailable;
+                    s.usage.cost_unavailable = true;
+                }
+                if s.usage.cost_unavailable {
+                    changed |= s.usage.cost_usd.take().is_some();
+                }
                 if let Some(pause) = &mut s.quota_pause {
                     pause.phase = if pause.phase == QuotaPausePhase::Resuming {
                         pause.error = Some("Daemon stopped during continuation; inspect the trace before resuming.".into());
                         QuotaPausePhase::NeedsAttention
                     } else if pause.phase == QuotaPausePhase::Pausing { QuotaPausePhase::Paused } else { pause.phase };
                     s.change_status(SessionStatus::QuotaPaused);
-                    interrupted.push(s.clone());
+                    changed = true;
                 } else if s.status.is_running() {
                     s.change_status(SessionStatus::Interrupted);
                     s.status_since = now_ms();
-                    interrupted.push(s.clone());
+                    changed = true;
                 }
+                if changed { interrupted.push(s.clone()); }
                 recs.insert(s.id.clone(), s);
             }
         }
@@ -352,6 +361,12 @@ impl Sessions {
         let mut v: Vec<Session> = self.inner.records.lock().unwrap().values().cloned().collect();
         v.sort_by(|a, b| b.started_at.cmp(&a.started_at));
         v
+    }
+
+    /// Profiles whose ledger cannot represent all of their usage reliably.
+    pub(crate) fn profiles_without_cost(&self) -> std::collections::HashSet<String> {
+        self.inner.records.lock().unwrap().values().filter(|s| s.usage.cost_unavailable)
+            .filter_map(|s| s.launch_spec.profile.clone()).collect()
     }
 
     pub fn get(&self, id: &str) -> Option<Session> {
@@ -659,6 +674,9 @@ impl Sessions {
         crate::attachments::validate(&spec.attachments)?;
         anyhow::ensure!(spec.attachments.iter().all(|f| !crate::attachments::is_image(&f.data_url)) || crate::harness::registration(harness).descriptor.capabilities.images, "This harness does not support images.");
         let profile = crate::profiles::resolve(app, harness, &spec)?;
+        if crate::harness::registration(harness).descriptor.capabilities.cost && !crate::profiles::supports_cost(app, harness, &spec, spec.model.as_deref()) {
+            spec.budget_usd = None;
+        }
         check_budget(harness, spec.budget_usd)?;
         crate::spend::ensure(app, &spec)?;
         let (model, effort) = (
@@ -1108,7 +1126,7 @@ impl Sessions {
         anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.quota,
             "This integration does not monitor subscription quotas; native provider billing settings apply.");
         anyhow::ensure!(!crate::profiles::pay_as_you_go(app, &s.launch_spec),
-            "This pay-as-you-go profile has no subscription quota protection; use its cost limit instead.");
+            "This pay-as-you-go profile has no subscription quota protection. Cost limits are available only with reliable model cost reporting.");
         if s.launch_spec.allow_paid_usage == allow { return Ok(s); }
         self.inner.manual_quota_retries.lock().unwrap().remove(id);
         let s = self.update(app, id, |s| s.launch_spec.allow_paid_usage = allow).await?;
@@ -1120,6 +1138,7 @@ impl Sessions {
     pub async fn set_budget(&self, app: &App, id: &str, budget_usd: Option<f64>) -> Result<Session> {
         let _action = self.inner.actions.lock().await;
         let s = self.get(id).context("no such session")?;
+        anyhow::ensure!(budget_usd.is_none() || (!s.usage.cost_unavailable && crate::profiles::supports_cost(app, s.harness, &s.launch_spec, s.model.as_deref())), "{}", crate::harness::COST_UNAVAILABLE);
         check_budget(s.harness, budget_usd)?;
         if s.launch_spec.budget_usd == budget_usd { return Ok(s); }
         let s = self.update(app, id, |s| s.launch_spec.budget_usd = budget_usd).await?;
@@ -1868,16 +1887,27 @@ impl Sink {
     pub async fn update_usage(&self, f: impl FnOnce(&mut Usage)) {
         if self.agent_id.is_some() { return; }
         let mut crossed = false;
+        let mut unavailable = false;
         let mut added = 0.0;
         let mut profile = None;
         let _ = self.sessions.update(&self.app, &self.id, |s| {
             let before = s.budget_reached();
             let cost = s.usage.cost_usd.unwrap_or(0.0);
+            let was_unavailable = s.usage.cost_unavailable;
             f(&mut s.usage);
+            if !crate::profiles::supports_cost(&self.app, s.harness, &s.launch_spec, s.model.as_deref()) && crate::harness::registration(s.harness).descriptor.capabilities.cost {
+                s.usage.cost_unavailable = true;
+            }
+            if s.usage.cost_unavailable { s.usage.cost_usd = None; }
+            unavailable = !was_unavailable && s.usage.cost_unavailable;
             crossed = !before && s.budget_reached();
             added = s.usage.cost_usd.unwrap_or(0.0) - cost;
             profile = s.launch_spec.profile.clone();
         }).await;
+        if unavailable {
+            crate::spend::publish(&self.app);
+            self.emit(EventBody::Notice { text: crate::harness::COST_UNAVAILABLE.into() }).await;
+        }
         if let Some(v) = profile.filter(|_| added > 0.0) {
             let spec = self.sessions.get(&self.id).map(|s| s.launch_spec).unwrap_or_default();
             let before = crate::spend::reached(&self.app, &spec).len();

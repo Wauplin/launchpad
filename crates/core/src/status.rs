@@ -30,6 +30,8 @@ pub struct Status {
     pub hosts: Vec<crate::hosts::HostStatus>,
     /// Rolling spending limits of pay-as-you-go profiles.
     pub spend: Vec<crate::spend::ProfileSpend>,
+    /// Profiles with unpriced historical usage; rolling cost management is unavailable.
+    pub cost_unavailable_profiles: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, TS)]

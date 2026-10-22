@@ -11,6 +11,7 @@ use std::sync::Arc;
 pub const ID: HarnessKind = HarnessKind::new("opencode");
 pub const REGISTRATION: super::Registration = super::Registration {
     descriptor: super::HarnessDescriptor {
+        cost_model_prefixes: &[],
         id: ID,
         name: "OpenCode",
         icon_svg: include_str!("icons/opencode.svg"),

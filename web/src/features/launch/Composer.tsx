@@ -27,7 +27,7 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
 import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/queries";
-import { parseUsd, usd, usesModelReference, useProfileModels, useProfiles } from "@/lib/profiles";
+import { costUnavailableMessage, supportsModelCost, parseUsd, usd, usesModelReference, useProfileModels, useProfiles } from "@/lib/profiles";
 import { ModelSearch } from "@/components/ModelSearch";
 import { findModel, pickModel, ProviderPicker } from "@/components/ProviderPicker";
 import { useScope } from "@/lib/workspace";
@@ -250,7 +250,7 @@ export function Composer() {
   // Switching profiles restores the latest run settings of that profile; the cost limit follows its default.
   const withProfile = (s: LaunchSpec, o: Profile): LaunchSpec => {
     const same = s.harness === o.harness && s.profile === o.id;
-    const cost = harnesses.find((h) => h.id === o.harness)?.capabilities.cost;
+    const cost = supportsModelCost(harnesses.find((h) => h.id === o.harness), o.model);
     const run = same ? { model: s.model, effort: s.effort, permission_mode: s.permission_mode } : rememberedRun(o.harness, o.id);
     return { ...s, harness: o.harness, profile: o.id, ...run, budget_usd: same ? s.budget_usd : cost ? (o.budget_usd ?? null) : null };
   };
@@ -350,8 +350,9 @@ export function Composer() {
   const efforts = ownModels ? [] : model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
   const modelMissing = !spec.model && !fallbackModel && !!profile && usesModelReference(Object.entries(profile.env));
   const scheduled = conditions.length > 0;
+  const supportsCost = supportsModelCost(harness, spec.model ?? fallbackModel);
   const budgetInput = budgetText ?? (spec.budget_usd != null ? String(spec.budget_usd) : "");
-  const budgetValid = parseUsd(budgetInput) !== undefined;
+  const budgetValid = !supportsCost || parseUsd(budgetInput) !== undefined;
   const missingProfile = !!spec.profile && !profile;
   // The daemon renders and checks the prompt at launch; Launch does not wait for a preview.
   const hasPrompt = !!spec.text.trim() || items > 0 || spec.presets.length > 0;
@@ -458,7 +459,7 @@ export function Composer() {
   const worktreeMode = spec.target.kind === "project" && !!spec.worktree && gitTarget;
   const runIn = spec.target.kind === "session_folder" ? "previous agent’s folder" : spec.target.kind === "temp" ? "new folder" : spec.target.kind === "predraft" ? "pre-draft PR" : spec.target.kind === "existing_predraft" ? "existing pre-draft" : worktreeMode ? "new worktree" : spec.target.kind === "project" ? "checkout" : null;
   const baseLabel = spec.worktree?.base ?? targetBranches.data?.current ?? "current branch";
-  const billingText = payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${profile!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
+  const billingText = !supportsCost && harness?.capabilities.cost ? costUnavailableMessage : payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${profile!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
   const presetLabels = (config?.presets ?? []).filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
 
   return (
@@ -641,7 +642,8 @@ export function Composer() {
           <Token warn={scheduled} title={scheduled ? "Starts when all start conditions are met" : undefined}>{scheduled ? `start: ${conditions.length} condition${conditions.length === 1 ? "" : "s"}` : "now"}</Token>
           <Token warn={!!cron} title={cron ? `Cron schedule ${cron.schedule}` : undefined}>{cron ? `cron ${cron.schedule}` : "once"}</Token>
           <Token warn={payg || spec.allow_paid_usage} title={billingText}>{payg ? "pay as you go" : harness && !harness.capabilities.quota ? "provider billing" : spec.allow_paid_usage ? "paid usage on" : "subscription only"}</Token>
-          {harness?.capabilities.cost && <Token warn={spec.budget_usd != null || !budgetValid}>{spec.budget_usd != null ? `limit ${usd(spec.budget_usd)}` : "no cost limit"}</Token>}
+          {!supportsCost && harness?.capabilities.cost && <Token warn title={costUnavailableMessage}>cost unavailable</Token>}
+          {supportsCost && <Token warn={spec.budget_usd != null || !budgetValid}>{spec.budget_usd != null ? `limit ${usd(spec.budget_usd)}` : "no cost limit"}</Token>}
           <span className="ml-auto flex items-center gap-0.5 pl-1 text-[11.5px] text-ink-3">Options<Icon name="chev" size={12} className={showOptions ? "rotate-180" : ""} /></span>
         </button>
 
@@ -753,7 +755,8 @@ export function Composer() {
               {config?.presets.length === 0 && <span className="pt-1.5 text-xs text-ink-3">No preset.</span>}
             </div>
           </OptionRow>
-          {harness?.capabilities.cost && <OptionRow label="Cost limit">
+          {!supportsCost && harness?.capabilities.cost && <OptionRow label="Cost management"><span className="text-xs text-attn">{costUnavailableMessage}</span></OptionRow>}
+          {supportsCost && <OptionRow label="Cost limit">
             <span className="grid gap-1">
               <input className="field-input w-28 font-mono text-xs" aria-label="Cost limit in USD" placeholder="No limit" value={budgetInput} onChange={(e) => { setBudgetText(e.target.value); const v = parseUsd(e.target.value); if (v !== undefined) set((s) => ({ ...s, budget_usd: v })); }} />
               <span className={`text-[11px] ${budgetValid ? "text-ink-3" : "text-attn"}`}>{budgetValid ? "USD of reported cost. At the limit, the running turn stops and no new turn starts. Empty: no limit." : "Enter a positive amount in USD, or leave empty."}</span>

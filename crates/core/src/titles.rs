@@ -18,9 +18,12 @@ pub fn generate(app: &App, session: &Session) {
         if let Ok(Some(reply)) = result {
             // The naming request costs money too: add what it reported to the session usage, so a
             // per-session limit and its profile's spending ledger see it.
-            if let Some(cost) = reply.cost_usd.filter(|c| *c > 0.0) {
+            if reply.cost_unavailable || reply.cost_usd.is_some_and(|c| c > 0.0) {
                 app.sessions.sink(&app, &session.id).update_usage(|us| {
-                    us.cost_usd = Some(us.cost_usd.unwrap_or(0.0) + cost);
+                    us.cost_unavailable |= reply.cost_unavailable;
+                    if let Some(cost) = reply.cost_usd {
+                        us.cost_usd = Some(us.cost_usd.unwrap_or(0.0) + cost);
+                    }
                 }).await;
             }
             if let Err(e) = app.sessions.update(&app, &session.id, |s| {
@@ -54,7 +57,7 @@ async fn title(app: &App, session: &Session) -> Result<Option<Named>> {
     std::fs::create_dir_all(&cwd)?;
     let adapter = app.harnesses.get(session.harness);
     let Some(mut cmd) = adapter.title_command(app, session, &cwd) else {
-        return Ok(Some(Named { title: Some(session.title.clone()), cost_usd: None }));
+        return Ok(Some(Named { title: Some(session.title.clone()), cost_usd: None, cost_unavailable: false }));
     };
     cmd.envs(crate::profiles::env(app, session.harness, &session.launch_spec, session.model.as_deref(), None)?);
     cmd.arg(prompt).stdin(crate::exec::Io::Null);
@@ -77,11 +80,12 @@ async fn title(app: &App, session: &Session) -> Result<Option<Named>> {
     let reply = adapter.title_response(stdout)?;
     let title = reply.title.trim().trim_matches('"').trim();
     anyhow::ensure!(!title.is_empty() && !title.contains('\n') && title.chars().count() <= 100, "invalid generated title");
-    Ok(Some(Named { title: Some(title.to_string()), cost_usd: reply.cost_usd }))
+    Ok(Some(Named { title: Some(title.to_string()), cost_usd: reply.cost_usd, cost_unavailable: reply.cost_unavailable }))
 }
 
 /// A naming attempt: the title to save (None keeps the prompt title) and the cost it reported.
 struct Named {
     title: Option<String>,
     cost_usd: Option<f64>,
+    cost_unavailable: bool,
 }

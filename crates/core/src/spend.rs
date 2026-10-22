@@ -100,8 +100,9 @@ fn window(entries: &[Entry], profile: &str, limit: &SpendLimit, now: i64) -> Spe
 pub fn current(app: &App) -> Vec<ProfileSpend> {
     let config = app.config.get();
     let now = now_ms();
+    let unavailable = app.sessions.profiles_without_cost();
     app.sessions.spend_entries(|entries| {
-        config.profiles.iter().filter(|v| !v.spend_limits.is_empty()).map(|v| ProfileSpend {
+        config.profiles.iter().filter(|v| !v.spend_limits.is_empty() && crate::harness::registration(v.harness).descriptor.supports_cost(v.model.as_deref()) && !unavailable.contains(&v.id)).map(|v| ProfileSpend {
             profile: v.id.clone(),
             name: v.name.clone(),
             harness: v.harness,
@@ -114,6 +115,8 @@ pub fn current(app: &App) -> Vec<ProfileSpend> {
 pub fn reached(app: &App, spec: &LaunchSpec) -> Vec<SpendWindow> {
     if !crate::profiles::pay_as_you_go(app, spec) { return vec![]; }
     let Some(id) = spec.profile.as_deref() else { return vec![] };
+    let harness = spec.harness.or_else(|| app.config.get().profile(id).map(|p| p.harness));
+    if !harness.is_some_and(|h| crate::profiles::supports_cost(app, h, spec, spec.model.as_deref())) { return vec![]; }
     current(app).into_iter().find(|v| v.profile == id).map(|v| v.windows.into_iter().filter(SpendWindow::reached).collect()).unwrap_or_default()
 }
 
@@ -133,7 +136,10 @@ pub fn message(name: &str, w: &SpendWindow) -> String {
 /// Publishes the spending windows when they changed (costs leave rolling windows over time).
 pub fn publish(app: &App) {
     let spend = current(app);
-    if app.status.get().spend != spend {
-        app.status.update(|s| s.spend = spend);
+    let mut unavailable: Vec<_> = app.sessions.profiles_without_cost().into_iter().collect();
+    unavailable.sort();
+    let status = app.status.get();
+    if status.spend != spend || status.cost_unavailable_profiles != unavailable {
+        app.status.update(|s| { s.spend = spend; s.cost_unavailable_profiles = unavailable; });
     }
 }

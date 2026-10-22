@@ -5,28 +5,32 @@ import type { ProfileSpend } from "./ProfileSpend";
 import type { QuotaStatus } from "./QuotaStatus";
 import type { SessionCounts } from "./SessionCounts";
 
-export type Status = { env: string, commit: string, 
+export type Status = { env: string, commit: string,
 /**
  * Host name of the machine the daemon runs on (shown to browsers on other devices).
  */
-host: string, harnesses: { [key in string]: HarnessStatus }, 
+host: string, harnesses: { [key in string]: HarnessStatus },
 /**
  * Included quota of each monitored subscription login, keyed by `profiles::account`.
  */
-quotas: { [key in string]: QuotaStatus }, sessions: SessionCounts, 
+quotas: { [key in string]: QuotaStatus }, sessions: SessionCounts,
 /**
  * IANA name of the daemon host time zone (crons use it), when the host exposes one.
  */
-time_zone: string | null, 
+time_zone: string | null,
 /**
  * Current UTC offset of the daemon host, in minutes east of UTC.
  */
-utc_offset_minutes: number, 
+utc_offset_minutes: number,
 /**
  * SSH hosts and their connection state.
  */
-hosts: Array<HostStatus>, 
+hosts: Array<HostStatus>,
 /**
  * Rolling spending limits of pay-as-you-go profiles.
  */
-spend: Array<ProfileSpend>, };
+spend: Array<ProfileSpend>,
+/**
+ * Profiles with unpriced historical usage; rolling cost management is unavailable.
+ */
+cost_unavailable_profiles: Array<string>, };

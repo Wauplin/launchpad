@@ -114,6 +114,9 @@ pub struct Usage {
     pub output_tokens: u64,
     /// Reported cumulative USD cost when the harness exposes it; not necessarily a billed charge.
     pub cost_usd: Option<f64>,
+    /// Native pricing is unknown; no cost or cost protection is available.
+    #[serde(default)]
+    pub cost_unavailable: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -199,7 +202,7 @@ impl Session {
 
     /// The reported cost reached the session cost limit: no new turn may start.
     pub fn budget_reached(&self) -> bool {
-        self.launch_spec.budget_usd.is_some_and(|b| self.usage.cost_usd.unwrap_or(0.0) >= b)
+        !self.usage.cost_unavailable && self.launch_spec.budget_usd.is_some_and(|b| self.usage.cost_usd.unwrap_or(0.0) >= b)
     }
 }
 

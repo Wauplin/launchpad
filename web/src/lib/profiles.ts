@@ -35,7 +35,14 @@ export const usesModelReference = (env: Iterable<[string, string]>) => [...env].
 
 export const usd = (n: number) => `$${n.toFixed(2)}`;
 
-export const budgetReached = (s: Session) => s.launch_spec.budget_usd != null && (s.usage.cost_usd ?? 0) >= s.launch_spec.budget_usd;
+export const costUnavailableMessage = "Reliable cost reporting is unavailable for this model. Cost management is unavailable: session and profile spending limits cannot protect this usage. Check your provider's billing dashboard.";
+
+/** The adapter declares the model families it can price. */
+export function supportsModelCost(harness: { capabilities: { cost: boolean }; cost_model_prefixes: string[] } | null | undefined, model: string | null | undefined): boolean {
+  return !!harness?.capabilities.cost && (!harness.cost_model_prefixes.length || model == null || harness.cost_model_prefixes.some((p) => model.startsWith(p)));
+}
+
+export const budgetReached = (s: Session) => !s.usage.cost_unavailable && s.launch_spec.budget_usd != null && (s.usage.cost_usd ?? 0) >= s.launch_spec.budget_usd;
 
 /** A positive amount, or null for an empty field; undefined when the text is invalid. */
 export function parseUsd(text: string): number | null | undefined {

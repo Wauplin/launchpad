@@ -72,6 +72,7 @@ struct State {
 }
 
 pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
+    sink.update_usage(|_| {}).await;
     let mut args: Vec<String> = [
         "-p",
         "--input-format",
@@ -309,7 +310,27 @@ fn finish_agent(state: &mut State, id: &str) {
     state.active_agents.remove(id);
     for child in state.children.values() { child.lock().unwrap().active_agents.remove(id); }
 }
+fn unknown_model_cost(msg: &Value) -> bool {
+    msg["hasUnknownModelCost"] == true
+        || msg["message"]["model"].as_str().or_else(|| msg["event"]["message"]["model"].as_str()).is_some_and(|m| m != "<synthetic>" && !REGISTRATION.descriptor.supports_cost(Some(m)))
+        || msg["modelUsage"].as_object().is_some_and(|models| models.keys().any(|m| m != "<synthetic>" && !REGISTRATION.descriptor.supports_cost(Some(m))))
+}
+
+fn result_usage(us: &mut Usage, msg: &Value, cost_delta: Option<f64>) {
+    let u = &msg["usage"];
+    us.input_tokens += u["input_tokens"].as_u64().unwrap_or(0) + u["cache_creation_input_tokens"].as_u64().unwrap_or(0);
+    us.cached_tokens += u["cache_read_input_tokens"].as_u64().unwrap_or(0);
+    us.output_tokens += u["output_tokens"].as_u64().unwrap_or(0);
+    us.cost_unavailable |= unknown_model_cost(msg);
+    if us.cost_unavailable {
+        us.cost_usd = None;
+    } else if let Some(c) = cost_delta.filter(|c| c.is_finite() && *c > 0.0) {
+        us.cost_usd = Some(us.cost_usd.unwrap_or(0.0) + c);
+    }
+}
+
 async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>, msg: &Value) {
+    if unknown_model_cost(msg) { sink.root().update_usage(|u| { u.cost_unavailable = true; u.cost_usd = None; }).await; }
     match msg["type"].as_str().unwrap_or("") {
         "system" => handle_system(sink, st, msg).await,
         "stream_event" => {
@@ -391,9 +412,8 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
             };
             let interrupted = msg["subtype"] == "error_during_execution";
             sink.emit(EventBody::TurnEnd { duration_ms: msg["duration_ms"].as_i64(), interrupted, error: error.clone() }).await;
-            let u = &msg["usage"];
             // Only the increase since this process last reported is new spending.
-            let reported = msg["total_cost_usd"].as_f64();
+            let reported = msg["total_cost_usd"].as_f64().filter(|c| c.is_finite() && *c >= 0.0);
             let cost_delta = reported.map(|c| {
                 let mut st = st.lock().unwrap();
                 let delta = c - st.cost_reported;
@@ -405,12 +425,7 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
                 st.lock().unwrap().context_window = Some(w);
             }
             sink.update_usage(|us| {
-                us.input_tokens += u["input_tokens"].as_u64().unwrap_or(0) + u["cache_creation_input_tokens"].as_u64().unwrap_or(0);
-                us.cached_tokens += u["cache_read_input_tokens"].as_u64().unwrap_or(0);
-                us.output_tokens += u["output_tokens"].as_u64().unwrap_or(0);
-                if let Some(c) = cost_delta.filter(|c| *c > 0.0) {
-                    us.cost_usd = Some(us.cost_usd.unwrap_or(0.0) + c);
-                }
+                result_usage(us, msg, cost_delta);
                 if window.is_some() {
                     us.context_window = window;
                 }
@@ -859,6 +874,7 @@ const PROFILE_TEMPLATES: &[super::ProfileTemplate] = &[
 ];
 pub const REGISTRATION: super::Registration = super::Registration {
     descriptor: super::HarnessDescriptor {
+        cost_model_prefixes: &["claude-", "opus", "sonnet", "haiku"],
         id: ID,
         name: "Claude Code",
         icon_svg: include_str!("icons/claude.svg"),
@@ -997,7 +1013,8 @@ impl super::Harness for Adapter {
         let value: Value = serde_json::from_str(stdout.trim()).context("unreadable title response")?;
         anyhow::ensure!(value["is_error"].as_bool() != Some(true), "title generator failed: {}", value["result"].as_str().unwrap_or("unknown error"));
         let title = value["result"].as_str().context("no generated title")?.to_string();
-        Ok(super::TitleReply { title, cost_usd: value["total_cost_usd"].as_f64().filter(|c| c.is_finite() && *c >= 0.0) })
+        let cost_unavailable = unknown_model_cost(&value);
+        Ok(super::TitleReply { title, cost_unavailable, cost_usd: if cost_unavailable { None } else { value["total_cost_usd"].as_f64().filter(|c| c.is_finite() && *c >= 0.0) } })
     }
 }
 /// Quota from a Claude `rate_limit_event` (fractions and Unix seconds).
@@ -1173,6 +1190,67 @@ fn claude_transcripts_dir(cwd: &str) -> std::path::PathBuf {
 #[cfg(test)]
 mod permission_tests {
     use super::*;
+
+    #[test]
+    fn unknown_pricing_discards_cost_without_losing_tokens_or_enforcing_a_budget() {
+        let mut usage = Usage { cost_usd: Some(20.0), ..Default::default() };
+        let mut result = json!({"total_cost_usd":62.297053,"usage":{"input_tokens":100,"cache_read_input_tokens":90,"output_tokens":4},"modelUsage":{"deepseek-ai/DeepSeek-V4.1-Flash-1017":{}}});
+        result_usage(&mut usage, &result, Some(62.297053));
+        assert!(usage.cost_unavailable);
+        assert_eq!(usage.cost_usd, None);
+        assert_eq!((usage.input_tokens, usage.cached_tokens, usage.output_tokens), (100, 90, 4));
+        // A later known model cannot reconstruct the unpriced part of the session.
+        result["modelUsage"] = json!({"claude-opus-4-7":{}});
+        result_usage(&mut usage, &result, Some(62.297053));
+        assert_eq!(usage.cost_usd, None);
+        let mut known = Usage { cost_usd: Some(20.0), ..Default::default() };
+        result_usage(&mut known, &result, Some(62.297053));
+        assert_eq!(known.cost_usd, Some(82.297053));
+        result["hasUnknownModelCost"] = json!(true);
+        result_usage(&mut known, &result, Some(62.297053));
+        assert!(known.cost_unavailable);
+        assert_eq!(known.cost_usd, None);
+        for model in ["opus", "sonnet", "haiku", "claude-sonnet-4-6"] {
+            assert!(REGISTRATION.descriptor.supports_cost(Some(model)));
+        }
+        assert!(!REGISTRATION.descriptor.supports_cost(Some("deepseek-ai/DeepSeek-V4.1-Flash-1017")));
+        assert!(unknown_model_cost(&json!({"message":{"model":"some-unknown-model"}})));
+        assert!(!unknown_model_cost(&json!({"message":{"model":"<synthetic>"}})));
+        let old: Usage = serde_json::from_value(json!({"context_tokens":null,"context_window":null,"input_tokens":0,"cached_tokens":0,"output_tokens":0,"cost_usd":1.0})).unwrap();
+        assert!(!old.cost_unavailable);
+    }
+
+    #[test]
+    fn turn_deltas_preserve_spending_from_concurrent_title_requests() {
+        let result = json!({"modelUsage":{"claude-haiku-4-5":{}},"usage":{}});
+        let mut usage = Usage { cost_usd: Some(0.25), ..Default::default() };
+        result_usage(&mut usage, &result, Some(2.0));
+        assert_eq!(usage.cost_usd, Some(2.25));
+        // A title request finishes between two cumulative native turn reports.
+        usage.cost_usd = Some(2.75);
+        result_usage(&mut usage, &result, Some(1.0));
+        assert_eq!(usage.cost_usd, Some(3.75));
+        result_usage(&mut usage, &result, Some(0.0));
+        assert_eq!(usage.cost_usd, Some(3.75));
+    }
+
+    #[test]
+    fn title_responses_do_not_report_fallback_model_prices() {
+        use crate::harness::Harness;
+        let mut result = json!({"result":"A useful title","total_cost_usd":0.5,"modelUsage":{"deepseek-ai/DeepSeek-V4.1-Flash-1017":{}}});
+        let reply = Adapter.title_response(result.to_string()).unwrap();
+        assert_eq!(reply.title, "A useful title");
+        assert!(reply.cost_unavailable);
+        assert_eq!(reply.cost_usd, None);
+        result["modelUsage"] = json!({"claude-haiku-4-5":{}});
+        let reply = Adapter.title_response(result.to_string()).unwrap();
+        assert!(!reply.cost_unavailable);
+        assert_eq!(reply.cost_usd, Some(0.5));
+        result["hasUnknownModelCost"] = json!(true);
+        let reply = Adapter.title_response(result.to_string()).unwrap();
+        assert!(reply.cost_unavailable);
+        assert_eq!(reply.cost_usd, None);
+    }
 
     #[test]
     fn usage_readings_require_both_valid_windows() {

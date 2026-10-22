@@ -42,6 +42,8 @@ pub struct HarnessDescriptor {
     pub color: &'static str,
     pub working_message: &'static str,
     pub capabilities: HarnessCapabilities,
+    /// Model prefixes with native pricing; empty means no model restriction.
+    pub cost_model_prefixes: &'static [&'static str],
     /// Variables that select the subscription login (a configuration folder): profiles with different values
     /// are different accounts, each with its own quota monitor.
     pub account_env: &'static [&'static str],
@@ -92,6 +94,14 @@ pub struct ProfileTemplate {
     pub billing: crate::config::Billing,
     pub models_url: Option<&'static str>,
 }
+
+impl HarnessDescriptor {
+    pub fn supports_cost(&self, model: Option<&str>) -> bool {
+        self.capabilities.cost && (self.cost_model_prefixes.is_empty() || model.is_none_or(|m| self.cost_model_prefixes.iter().any(|p| m.starts_with(p))))
+    }
+}
+
+pub const COST_UNAVAILABLE: &str = "Reliable cost reporting is unavailable for this model. Cost management is unavailable: session and profile spending limits cannot protect this usage. Check your provider's billing dashboard.";
 
 pub fn permission_options() -> Vec<crate::model::QuestionOption> {
     [("Allow once", "Run this operation"), ("Deny", "Do not run this operation")].into_iter()
@@ -176,6 +186,8 @@ pub trait Harness: Send + Sync {
 pub struct TitleReply {
     pub title: String,
     pub cost_usd: Option<f64>,
+    /// Naming used unknown native pricing; the whole session cost is incomplete.
+    pub cost_unavailable: bool,
 }
 
 #[derive(Clone)]
