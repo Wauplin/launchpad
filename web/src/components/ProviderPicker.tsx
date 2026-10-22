@@ -51,16 +51,56 @@ function resolved(providers: ModelProvider[], provider: string): ModelProvider |
 const speed = (p: ModelProvider) => [p.throughput !== null && `${Math.round(p.throughput)} tok/s`, p.context_length !== null && `${Math.round(p.context_length / 1000)}K context`].filter(Boolean).join(" · ");
 const shortPrices = (p: ModelProvider) => (p.input_usd === null && p.output_usd === null ? "price not reported" : `${price(p.input_usd ?? 0)} in · ${price(p.output_usd ?? 0)} out`);
 
+/** Provider actually priced, and what the numbers describe. */
+function priced(model: ModelInfo, provider: string) {
+  const hit = resolved(model.providers, provider);
+  const list = hit ? [hit] : model.providers;
+  const note = hit ? `${provider === hit.name ? hit.name : `currently ${hit.name}`}${speed(hit) ? ` · ${speed(hit)}` : ""}` : `range over ${model.providers.length} provider${model.providers.length === 1 ? "" : "s"}`;
+  return { list, note };
+}
+
+const costSource = "Prices are reported by Hugging Face; Claude Code estimates session costs with its own prices.";
+/** The tooltip of the compact chip: the prices it shows, then where they come from. */
+const chipNote = (prices: string, note: string) => `${prices} USD per 1M tokens · ${note}. ${costSource}`;
+
+/**
+ * Prices of the chosen provider (or the range of all providers) in one compact chip, for the
+ * composer where the option row stays on a single line. The full note is in the tooltip.
+ */
+export function ProviderPriceChip({ model, provider }: { model: ModelInfo; provider: string }) {
+  const { list, note } = priced(model, provider);
+  const input = range(list.map((x) => x.input_usd));
+  const cached = range(list.map((x) => x.cached_input_usd));
+  const output = range(list.map((x) => x.output_usd));
+  const shown: [string, string][] = [
+    ...(input ? [["in", input] as [string, string]] : []),
+    ...(cached ? [["cached", cached] as [string, string]] : []),
+    ...(output ? [["out", output] as [string, string]] : []),
+  ];
+  const full = [input && `Input ${input}`, cached && `Cached input ${cached}`, output && `Output ${output}`].filter(Boolean).join(" · ") || "Price not reported";
+  return (
+    <span title={chipNote(full, note)} aria-label={`Price per 1M tokens: ${full}`}
+      className="inline-flex h-6 max-w-full items-center gap-[5px] truncate rounded-md border border-line bg-paper px-2 text-xs text-ink-3">
+      {shown.length ? shown.map(([label, value], i) => (
+        <span key={label} className="inline-flex items-baseline gap-1">
+          {i > 0 && <span>·</span>}
+          <span>{label}</span>
+          <b className="font-mono font-semibold tabular-nums text-ink">{value}</b>
+        </span>
+      )) : <span>price not reported</span>}
+      {!!shown.length && <span>/1M</span>}
+    </span>
+  );
+}
+
 /** Prices of the chosen provider (or the range of all providers) per million tokens. */
 export function ProviderCost({ model, provider }: { model: ModelInfo; provider: string }) {
-  const p = resolved(model.providers, provider);
-  const list = p ? [p] : model.providers;
+  const { list, note } = priced(model, provider);
   const cells: [string, string | null][] = [
     ["Input", range(list.map((x) => x.input_usd))],
     ["Cached input", range(list.map((x) => x.cached_input_usd))],
     ["Output", range(list.map((x) => x.output_usd))],
   ];
-  const note = p ? `${provider === p.name ? p.name : `currently ${p.name}`}${speed(p) ? ` · ${speed(p)}` : ""}` : `range over ${model.providers.length} provider${model.providers.length === 1 ? "" : "s"}`;
   return (
     <span className="grid gap-1">
       <span className="flex flex-wrap gap-1.5" aria-label="Price per million tokens">
@@ -71,13 +111,13 @@ export function ProviderCost({ model, provider }: { model: ModelInfo; provider: 
           </span>
         ))}
       </span>
-      <span className="text-[11.5px] text-ink-3">USD per 1M tokens · {note}. Prices are reported by Hugging Face; Claude Code estimates session costs with its own prices.</span>
+      <span className="text-[11.5px] text-ink-3">USD per 1M tokens · {note}. {costSource}</span>
     </span>
   );
 }
 
 /** Provider dropdown and prices for a router model; nothing for models without provider details. */
-export function ProviderPicker({ models, model, onChange, up }: { models: ModelInfo[] | undefined; model: string | null; onChange: (id: string) => void; up?: boolean }) {
+export function ProviderPicker({ models, model, onChange, up, compact }: { models: ModelInfo[] | undefined; model: string | null; onChange: (id: string) => void; up?: boolean; compact?: boolean }) {
   const info = findModel(models, model);
   if (!model || !info?.providers.length) return null;
   const { base, provider } = splitModel(model);
@@ -85,7 +125,7 @@ export function ProviderPicker({ models, model, onChange, up }: { models: ModelI
   const label = !provider ? "Fastest (default)" : (policy?.label ?? provider);
   const unknown = !!provider && !policy && !info.providers.some((p) => p.name === provider);
   return (
-    <span className="grid gap-1.5">
+    <span className={compact ? "flex flex-wrap items-center gap-1.5" : "grid gap-1.5"}>
       <Popover width={300} up={up} trigger={({ toggle }) => (
         <button type="button" className={`btn btn-sm w-fit max-w-full ${unknown ? "border-attn-line!" : ""}`} aria-label="Inference provider" onClick={toggle}>
           <span className="truncate">{label}</span>
@@ -104,7 +144,8 @@ export function ProviderPicker({ models, model, onChange, up }: { models: ModelI
           </>
         )}
       </Popover>
-      {unknown ? <span className="text-[11.5px] text-attn">{provider} does not currently serve this model with tool use.</span> : <ProviderCost model={info} provider={provider} />}
+      {unknown ? <span className="text-[11.5px] text-attn">{provider} does not currently serve this model with tool use.</span>
+        : compact ? <ProviderPriceChip model={info} provider={provider} /> : <ProviderCost model={info} provider={provider} />}
     </span>
   );
 }

@@ -709,7 +709,7 @@ export function Composer() {
             </Popover>
           </OptionRow>
           {ownModels && !!findModel(providerModels.data, spec.model ?? fallbackModel)?.providers.length && <OptionRow label="Provider">
-            <ProviderPicker models={providerModels.data} model={spec.model ?? fallbackModel} onChange={(id) => set((s) => ({ ...s, model: id }))} />
+            <ProviderPicker compact models={providerModels.data} model={spec.model ?? fallbackModel} onChange={(id) => set((s) => ({ ...s, model: id }))} />
           </OptionRow>}
           {!!efforts.length && <OptionRow label="Effort">
             <Popover
