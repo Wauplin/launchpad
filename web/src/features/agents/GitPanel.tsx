@@ -130,17 +130,17 @@ export function GitPanel({ sessionId, initialMain = false, canMessage = true }: 
     </button>;
   })}</div></div>;
   return <div className="flex min-h-0 flex-1 flex-col">
-    <div className="flex flex-wrap items-center gap-2 border-b border-line p-2 text-xs"><b>{status.data?.branch ?? "Git status"}</b><span>{files.length} changed files</span>
+    <div className="flex flex-wrap items-center gap-2 border-b border-line p-2 text-xs"><span>{files.length} changed files</span>
       {files.length > 0 && <span className="flex items-center gap-1.5" title="Files marked viewed (shared with your other devices)"><span className="inline-block h-1.5 w-16 overflow-hidden rounded bg-meter"><i className="block h-full bg-gh-open" style={{ width: `${(viewedCount / files.length) * 100}%` }} /></span>{viewedCount}/{files.length} viewed</span>}
       <button className="btn btn-sm" onClick={() => { void status.refetch(); void history.refetch(); if (commit) void commitHistory.refetch(); if (selected) void diff.refetch(); }}>Refresh</button><button className={`btn btn-sm ${!staged && !main && !committed ? "bg-select!" : ""}`} onClick={() => { setMode("live"); setStaged(false); setMain(false); setPicked(null); }}>Working tree</button><button className={`btn btn-sm ${staged && !main && !committed ? "bg-select!" : ""}`} onClick={() => { setMode("live"); setStaged(true); setMain(false); setPicked(null); }}>Staged</button><button className={`btn btn-sm ${main && !committed ? "bg-select!" : ""}`} disabled={!status.data?.main_changes} onClick={() => { setMode("live"); setMain(true); setPicked(null); }}>Compared with main</button>
       {!!history.data?.commits.length && <button className={`btn btn-sm ${committed ? "bg-select!" : ""}`} onClick={() => { setMode("committed"); setPicked(null); }}>Committed changes</button>}</div>
-    {history.data?.merged_into && <p className="border-b border-line bg-chrome px-2 py-2 text-xs">Merged into <b>{history.data.merged_into}</b>. Committed changes remain available for review.</p>}
-    {committed && history.data && <label className="flex min-w-0 items-center gap-2 border-b border-line p-2 text-xs">Commits
-      <select aria-label="Commit to review" className="field-input min-w-0 flex-1" value={commit} onChange={(e) => { setCommit(e.target.value); setPath(null); setPicked(null); setShowList(true); }}>
+    {history.data && (committed || history.data.merged_into) && <div className="flex min-w-0 items-center gap-2 border-b border-line p-2 text-xs">
+      {history.data.merged_into ? <span className="max-w-1/2 truncate" title={`Merged into ${history.data.merged_into}`}>Merged into {history.data.merged_into}</span> : <span>Commits</span>}
+      {committed && <select aria-label="Commit to review" className="field-input min-w-0 flex-1" value={commit} onChange={(e) => { setCommit(e.target.value); setPath(null); setPicked(null); setShowList(true); }}>
         <option value="">All commits ({history.data.commits.length})</option>
         {history.data.commits.map((c) => <option key={c.id} value={c.id}>{c.id.slice(0, 8)} · {c.subject}</option>)}
-      </select>
-    </label>}
+      </select>}
+    </div>}
     {commit && commitHistory.error && <p className="p-2 text-xs text-gh-closed">{commitHistory.error.message}. Select All commits to refresh the selection.</p>}
     {history.error && <p className="p-2 text-xs text-gh-closed">Committed changes unavailable: {history.error.message}</p>}
     {notes.value.length > 0 && <div className="flex flex-wrap items-center gap-2 border-b border-attn-line bg-attn-soft px-2 py-1.5 text-xs">
