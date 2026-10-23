@@ -34,6 +34,7 @@ import { buildRows } from "./rows";
 import { EventRow } from "./EventRow";
 import { foldTrace } from "./traceRows";
 import { MenuItem, Popover } from "@/components/Popover";
+import type { SessionGitHistory } from "@/gen/SessionGitHistory";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import { StatusBadge, usageLine } from "./SessionBits";
 import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
@@ -192,7 +193,8 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const [view, setView] = useState<View | null>(initialView ?? null);
   useEffect(() => { if (s && view === null) setView(isRunning(s) ? "trace" : "summary"); else if (s && isRunning(s) && view === "summary") setView("trace"); }, [s, view]);
   const git = useQuery({ queryKey: ["session-git", sessionId], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${sessionId}/git`), refetchInterval: 5000 });
-  const isGit = !!git.data;
+  const history = useQuery({ queryKey: ["session-git-commits", sessionId, ""], queryFn: () => api.get<SessionGitHistory | null>(`/api/sessions/${sessionId}/git-commits`), refetchInterval: 5000 });
+  const isGit = !!git.data || !!history.data;
   const current: View = view === "processes" && !hasProcesses ? "trace" : view === "changes" && !isGit ? "summary" : view ?? "summary";
   const summary = !s || current === "summary" && !isRunning(s);
   const changesOpen = current === "changes";
@@ -266,7 +268,8 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const mainChanges = git.data?.main_changes?.files ?? 0;
   // Committed differences from main remain reviewable, but do not block Archive.
   const uncommitted = (git.data?.files.length ?? 0) > 0;
-  const changed = uncommitted || mainChanges > 0;
+  const committedFiles = history.data?.files.length ?? 0;
+  const changed = uncommitted || mainChanges > 0 || committedFiles > 0;
   const showChanges = (main: boolean) => { setGitMain(main); setView("changes"); };
   const onlyMain = (git.data?.files.length ?? 0) === 0 && mainChanges > 0;
   const archive = () => void act(s.id, "close");
@@ -359,7 +362,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
             <button className={`btn btn-sm ${traceOpen && !phone ? "bg-select!" : ""}`} aria-pressed={traceOpen} onClick={() => setView("trace")}>Trace</button>
             {hasProcesses && <button className={`btn btn-sm ${processesOpen && !phone ? "bg-select!" : ""}`} aria-pressed={processesOpen} onClick={() => setView("processes")}>Processes · {runningProcesses.length}</button>}
             {children.length > 0 && <button className={`btn btn-sm ${childrenOpen && !phone ? "bg-select!" : ""}`} aria-pressed={childrenOpen} onClick={() => setView("subagents")}><Icon name="agents" size={12} />Subagents · {children.filter((a) => a.status === "running").length || children.length}{children.some((a) => a.status === "running") ? " running" : ""}</button>}
-            {isGit && <button className={`btn btn-sm ${changesOpen && !phone ? "bg-select!" : ""}`} aria-pressed={changesOpen} title="Git changes of the session folder" onClick={() => showChanges(onlyMain)}>Changes{changed ? ` · ${git.data!.files.length || mainChanges}` : ""}</button>}
+            {isGit && <button className={`btn btn-sm ${changesOpen && !phone ? "bg-select!" : ""}`} aria-pressed={changesOpen} title="Git changes of the session folder" onClick={() => showChanges(onlyMain)}>Changes{changed ? ` · ${git.data?.files.length || committedFiles || mainChanges}` : ""}</button>}
           </div>
           <div className="session-actions ml-auto flex flex-wrap items-center gap-1">
             {!phone && <>

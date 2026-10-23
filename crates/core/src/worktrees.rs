@@ -94,6 +94,9 @@ pub enum MergePhase {
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct Merged {
+    /// Review baseline after any rebase. Older records fall back to the starting commit.
+    #[serde(default)]
+    pub base: Option<String>,
     pub into: String,
     pub head: String,
     #[ts(type = "number")]
@@ -916,10 +919,10 @@ async fn attempt(app: &App, id: &str) {
         let result = try_merge(app, &w).await;
         m.terminal_blocked = false;
         let result = match result {
-            Ok(Step::Merged(head)) => {
+            Ok(Step::Merged(head, base)) => {
                 let into = w.base_branch.clone().unwrap_or_default();
                 w.merge = None;
-                w.merged = Some(Merged { into: into.clone(), head: head.clone(), at: now_ms() });
+                w.merged = Some(Merged { base: Some(base), into: into.clone(), head: head.clone(), at: now_ms() });
                 notice(app, &w, &format!("Launchpad merged {} into {into} ({}).", w.branch, &head[..12.min(head.len())])).await;
                 None
             }
@@ -957,7 +960,7 @@ async fn attempt(app: &App, id: &str) {
 }
 
 enum Step {
-    Merged(String),
+    Merged(String, String),
     Wait(String),
     TerminalWait(String),
     Conflict(String),
@@ -999,7 +1002,7 @@ async fn try_merge(app: &App, w: &TaskWorktree) -> Result<Step> {
     let head = git(app, &w.root, &["rev-parse", "HEAD"]).await?;
     let base_head = git(app, &w.root, &["rev-parse", &format!("refs/heads/{base}")]).await?;
     if git(app, &w.root, &["merge-base", "--is-ancestor", &head, &base_head]).await.is_ok() {
-        return Ok(Step::Merged(base_head));
+        return Ok(Step::Merged(head, w.merged.as_ref().and_then(|m| m.base.clone()).unwrap_or_else(|| w.base_commit.clone())));
     }
     let needs_rebase = git(app, &w.root, &["merge-base", "--is-ancestor", &base_head, &head]).await.is_err();
     if needs_rebase && !git(app, &w.root, &["rev-list", "--merges", &format!("{base_head}..{head}"), "--"]).await?.is_empty() {
@@ -1015,7 +1018,7 @@ async fn try_merge(app: &App, w: &TaskWorktree) -> Result<Step> {
     }
     let head = git(app, &w.root, &["rev-parse", "HEAD"]).await?;
     git(app, &target, &["merge", "--ff-only", &head]).await.with_context(|| format!("fast-forward of {base} in {target}"))?;
-    Ok(Step::Merged(head))
+    Ok(Step::Merged(head, base_head))
 }
 
 /// Promotes the session's worktree into a pre-draft, which then owns its folder and branch.

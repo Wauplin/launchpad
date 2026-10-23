@@ -90,3 +90,59 @@ async fn force_merge_only_overrides_terminals() {
     removed.unwrap();
     result.unwrap();
 }
+
+#[tokio::test]
+async fn committed_history_survives_merge_rebase_and_cleanup() {
+    let root = std::env::temp_dir().join(format!("launchpad-commit-review-{}", uuid::Uuid::new_v4()));
+    let app = fixture(&root).await;
+    let result: anyhow::Result<()> = async {
+        let repo = root.join("repo");
+        std::fs::create_dir(&repo)?;
+        let repo = repo.to_str().unwrap();
+        git(&app, repo, &["init", "-b", "main"]).await?;
+        git(&app, repo, &["config", "user.name", "Test"]).await?;
+        git(&app, repo, &["config", "user.email", "test@example.invalid"]).await?;
+        git(&app, repo, &["commit", "--allow-empty", "-m", "base"]).await?;
+        let original_base = git(&app, repo, &["rev-parse", "HEAD"]).await?;
+        let project = crate::projects::register(&app, std::path::Path::new(repo), false).await?;
+        let (w, _) = create(&app, "review-task", &project, &crate::model::WorktreeOptions::default(), true, "commit review").await?;
+        std::fs::write(std::path::Path::new(&w.root).join("task.txt"), "first\n")?;
+        git(&app, &w.root, &["add", "."]).await?;
+        git(&app, &w.root, &["commit", "-m", "first task change"]).await?;
+        std::fs::write(std::path::Path::new(&w.root).join("task.txt"), "first\nsecond\n")?;
+        git(&app, &w.root, &["commit", "-am", "second task change"]).await?;
+        let before = crate::session_git::history(&app, "review-task", None).await?.unwrap();
+        anyhow::ensure!(before.commits.len() == 2 && before.merged_into.is_none());
+        // A concurrent main commit forces a rebase; it must not enter the task's review range.
+        std::fs::write(std::path::Path::new(repo).join("unrelated.txt"), "other work\n")?;
+        git(&app, repo, &["add", "."]).await?;
+        git(&app, repo, &["commit", "-m", "unrelated main change"]).await?;
+        let target = git(&app, repo, &["rev-parse", "HEAD"]).await?;
+        let merged = request_merge(&app, &w.id, false).await?;
+        anyhow::ensure!(merged.merged.as_ref().and_then(|m| m.base.as_ref()) == Some(&target));
+        let all = crate::session_git::history(&app, "review-task", None).await?.unwrap();
+        anyhow::ensure!(all.commits.len() == 2 && all.merged_into.as_deref() == Some("main"));
+        anyhow::ensure!(all.files.len() == 1 && all.files[0].path == "task.txt");
+        let patch = crate::session_git::committed_diff(&app, "review-task", "task.txt", None).await?;
+        anyhow::ensure!(patch.unstaged.contains("+first") && patch.unstaged.contains("+second"));
+        let second = &all.commits[0].id;
+        let patch = crate::session_git::committed_diff(&app, "review-task", "task.txt", Some(second)).await?;
+        anyhow::ensure!(patch.unstaged.contains("+second") && !patch.unstaged.contains("+first"));
+        let patch = crate::session_git::committed_diff(&app, "review-task", "task.txt", Some(&all.commits[1].id)).await?;
+        anyhow::ensure!(patch.unstaged.contains("+first") && !patch.unstaged.contains("+second"));
+        anyhow::ensure!(crate::session_git::history(&app, "review-task", Some(&original_base)).await.is_err());
+        anyhow::ensure!(crate::session_git::committed_diff(&app, "review-task", "unrelated.txt", None).await.is_err());
+        // Advancing main and removing the worktree/branch must not erase its committed review.
+        git(&app, repo, &["commit", "--allow-empty", "-m", "later main change"]).await?;
+        remove(&app, &w.id).await?;
+        let after = crate::session_git::history(&app, "review-task", None).await?.unwrap();
+        anyhow::ensure!(after.head == all.head && after.base == all.base && after.commits.len() == 2);
+        let patch = crate::session_git::committed_diff(&app, "review-task", "task.txt", None).await?;
+        anyhow::ensure!(patch.unstaged.contains("+second"));
+        Ok(())
+    }.await;
+    drop(app);
+    let removed = std::fs::remove_dir_all(root);
+    removed.unwrap();
+    result.unwrap();
+}

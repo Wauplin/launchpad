@@ -45,6 +45,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/seen", post(mark_seen))
         .route("/api/sessions/{id}/unread", post(mark_unread))
         .route("/api/sessions/{id}/git", get(session_git))
+        .route("/api/sessions/{id}/git-commits", get(session_git_history))
         .route("/api/sessions/{id}/git-diff", get(session_git_diff))
         .route("/api/sessions/search", get(search_sessions))
         .route("/api/sessions/{id}/events", get(events))
@@ -619,8 +620,16 @@ async fn session_git(State(s): State<Server>, Path(id): Path<String>) -> ApiResu
     Ok(Json(launchpad_core::session_git::status(&s.app,&id).await.map_err(bad)?))
 }
 #[derive(Deserialize)]
-struct GitDiffQuery { path: String, #[serde(default)] main: bool }
+struct GitDiffQuery { path: String, #[serde(default)] main: bool, #[serde(default)] committed: bool, commit: Option<String> }
+#[derive(Deserialize)]
+struct GitHistoryQuery { commit: Option<String> }
+async fn session_git_history(State(s): State<Server>, Path(id): Path<String>, Query(q): Query<GitHistoryQuery>) -> ApiResult<Option<launchpad_core::session_git::GitHistory>> {
+    Ok(Json(launchpad_core::session_git::history(&s.app, &id, q.commit.as_deref()).await.map_err(bad)?))
+}
 async fn session_git_diff(State(s): State<Server>, Path(id): Path<String>, Query(q): Query<GitDiffQuery>) -> ApiResult<launchpad_core::session_git::GitDiff> {
+    if q.committed {
+        return Ok(Json(launchpad_core::session_git::committed_diff(&s.app, &id, &q.path, q.commit.as_deref()).await.map_err(bad)?));
+    }
     Ok(Json(launchpad_core::session_git::diff(&s.app,&id,&q.path,q.main).await.map_err(bad)?))
 }
 #[derive(Deserialize)]

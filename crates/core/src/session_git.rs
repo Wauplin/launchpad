@@ -37,6 +37,71 @@ pub struct GitDiff {
     pub truncated: bool,
 }
 
+/// Committed task changes stay reviewable even after the target branch advances.
+#[derive(Serialize, TS)]
+#[ts(rename = "SessionGitHistory")]
+pub struct GitHistory {
+    pub commits: Vec<GitCommit>,
+    pub files: Vec<GitFile>,
+    pub merged_into: Option<String>,
+    pub base: String,
+    pub head: String,
+}
+#[derive(Serialize, TS)]
+#[ts(rename = "SessionGitCommit")]
+pub struct GitCommit {
+    pub id: String,
+    pub subject: String,
+}
+
+pub async fn history(app: &App, id: &str, commit: Option<&str>) -> Result<Option<GitHistory>> {
+    let Some(w) = crate::worktrees::for_session(app, id).await?.into_iter().find(|w| w.primary) else {
+        return Ok(None);
+    };
+    // Read committed objects in the registered repository, including after folder cleanup.
+    let cwd = std::path::Path::new(&w.repo);
+    let branch_head = procs::output(&app.env, "git", &["rev-parse", "--verify", &format!("refs/heads/{}", w.branch)], Some(cwd)).await;
+    let head = match branch_head {
+        Ok(head) => head,
+        Err(_) => w.merged.as_ref().context("task branch is unavailable")?.head.clone(),
+    };
+    let base = if let Some(base) = w.merged.as_ref().and_then(|m| m.base.as_ref()) {
+        base.clone()
+    } else {
+        procs::output(&app.env, "git", &["merge-base", &w.base_commit, &head], Some(cwd)).await?
+    };
+    let log = procs::output(&app.env, "git", &["log", "--format=%H %s", &format!("{base}..{head}"), "--"], Some(cwd)).await?;
+    let commits: Vec<_> = log.lines().filter_map(|line| line.split_once(' '))
+        .map(|(id, subject)| GitCommit { id: id.into(), subject: subject.into() }).collect();
+    let (from, to) = if let Some(commit) = commit {
+        anyhow::ensure!(commits.iter().any(|c| c.id == commit), "commit is not part of this task");
+        (format!("{commit}^"), commit.to_string())
+    } else { (base.clone(), head.clone()) };
+    let names = procs::command(&app.env, "git", Some(cwd))
+        .args(["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", &from, &to, "--"])
+        .output().await?;
+    anyhow::ensure!(names.status.success(), "could not read committed files");
+    let files = String::from_utf8_lossy(&names.stdout).split('\0').filter(|p| !p.is_empty())
+        .map(|path| GitFile { path: path.into(), status: "Δ".into(), previous: None }).collect();
+    let merged_into = if let Some(m) = &w.merged && m.head == head {
+        Some(m.into.clone())
+    } else if let Some(target) = &w.base_branch
+        && !commits.is_empty()
+        && procs::output(&app.env, "git", &["merge-base", "--is-ancestor", &head, &format!("refs/heads/{target}")], Some(cwd)).await.is_ok()
+    {
+        Some(target.clone())
+    } else { None };
+    Ok(Some(GitHistory { commits, files, merged_into, base: from, head: to }))
+}
+
+pub async fn committed_diff(app: &App, id: &str, path: &str, commit: Option<&str>) -> Result<GitDiff> {
+    let h = history(app, id, commit).await?.context("no task worktree history")?;
+    anyhow::ensure!(h.files.iter().any(|f| f.path == path), "file is not changed in this selection");
+    let w = crate::worktrees::for_session(app, id).await?.into_iter().find(|w| w.primary).context("no task worktree")?;
+    let patch = procs::output(&app.env, "git", &["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", &h.base, &h.head, "--", path], Some(std::path::Path::new(&w.repo))).await?;
+    Ok(GitDiff { staged: String::new(), truncated: patch.len() > 200_000, unstaged: truncate_output(&patch, 200_000) })
+}
+
 pub async fn status(app: &App, id: &str) -> Result<GitStatus> {
     let s = app.sessions.get(id).context("no such session")?;
     let cwd = std::path::Path::new(&s.cwd);

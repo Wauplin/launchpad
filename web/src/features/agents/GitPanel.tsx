@@ -12,6 +12,7 @@ import { usePhone } from "@/lib/phone";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import type { SessionGitStatus as Status } from "@/gen/SessionGitStatus";
+import type { SessionGitHistory as History } from "@/gen/SessionGitHistory";
 import type { SessionGitDiff as Diff } from "@/gen/SessionGitDiff";
 
 type Note = { path: string; line: number | null; code: string; text: string };
@@ -64,12 +65,18 @@ export function GitPanel({ sessionId, initialMain = false, canMessage = true }: 
   const [path, setPath] = useState<string | null>(null);
   const [showList, setShowList] = useState(true);
   const [main, setMain] = useState(initialMain);
+  const [mode, setMode] = useState<"auto" | "live" | "committed">("auto");
+  const [commit, setCommit] = useState("");
+  const history = useQuery({ queryKey: ["session-git-commits", sessionId, ""], queryFn: () => api.get<History | null>(`/api/sessions/${sessionId}/git-commits`), refetchInterval: 5000 });
+  const commitHistory = useQuery({ queryKey: ["session-git-commits", sessionId, commit], queryFn: () => api.get<History | null>(`/api/sessions/${sessionId}/git-commits?commit=${commit}`), enabled: !!commit, refetchInterval: commit ? 5000 : false });
+  const selectedHistory = commit ? commitHistory.data : history.data;
   const [staged, setStaged] = useState(false);
   const [wrap, setWrap] = useState(phone);
   const status = useQuery({ queryKey: ["session-git", sessionId], queryFn: () => api.get<Status>(`/api/sessions/${sessionId}/git`), refetchInterval: 5000 });
-  const files = (main ? status.data?.main_files : status.data?.files) ?? [];
+  const committed = mode === "committed" || (mode === "auto" && !status.isPending && !status.data?.files.length && !!history.data?.commits.length);
+  const files = (committed ? selectedHistory?.files : main ? status.data?.main_files : status.data?.files) ?? [];
   const selected = files.find((f) => f.path === path)?.path ?? files[0]?.path;
-  const diff = useQuery({ queryKey: ["session-git-diff", sessionId, selected, main], queryFn: () => api.get<Diff>(`/api/sessions/${sessionId}/git-diff?path=${encodeURIComponent(selected!)}&main=${main}`), enabled: !!selected, refetchInterval: 5000 });
+  const diff = useQuery({ queryKey: ["session-git-diff", sessionId, selected, main, committed, commit, committed ? selectedHistory?.head : null], queryFn: () => api.get<Diff>(`/api/sessions/${sessionId}/git-diff?path=${encodeURIComponent(selected!)}&main=${main}&committed=${committed}${committed && commit ? `&commit=${commit}` : ""}`), enabled: !!selected, refetchInterval: 5000 });
   const viewed = useReviewState<Record<string, string>>(`session-viewed:${sessionId}`, {});
   const notes = useReviewState<Note[]>(`session-notes:${sessionId}`, []);
   const [picked, setPicked] = useState<number | null>(null);
@@ -78,9 +85,9 @@ export function GitPanel({ sessionId, initialMain = false, canMessage = true }: 
   const [sending, setSending] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const codeRef = useRef<HTMLDivElement>(null);
-  const text = (staged && !main ? diff.data?.staged : diff.data?.unstaged) ?? "";
+  const text = (staged && !main && !committed ? diff.data?.staged : diff.data?.unstaged) ?? "";
   const rows = useMemo(() => numbered(text), [text]);
-  const scope = main ? "main" : staged ? "staged" : "tree";
+  const scope = committed ? `committed:${selectedHistory?.base}:${selectedHistory?.head}` : main ? "main" : staged ? "staged" : "tree";
   const key = (p: string) => `${scope}:${p}`;
   const viewedCount = files.filter((f) => key(f.path) in viewed.value).length;
   const fileNotes = notes.value.filter((n) => n.path === selected);
@@ -125,7 +132,17 @@ export function GitPanel({ sessionId, initialMain = false, canMessage = true }: 
   return <div className="flex min-h-0 flex-1 flex-col">
     <div className="flex flex-wrap items-center gap-2 border-b border-line p-2 text-xs"><b>{status.data?.branch ?? "Git status"}</b><span>{files.length} changed files</span>
       {files.length > 0 && <span className="flex items-center gap-1.5" title="Files marked viewed (shared with your other devices)"><span className="inline-block h-1.5 w-16 overflow-hidden rounded bg-meter"><i className="block h-full bg-gh-open" style={{ width: `${(viewedCount / files.length) * 100}%` }} /></span>{viewedCount}/{files.length} viewed</span>}
-      <button className="btn btn-sm" onClick={() => { void status.refetch(); void diff.refetch(); }}>Refresh</button><button className={`btn btn-sm ${!staged && !main ? "bg-select!" : ""}`} onClick={() => { setStaged(false); setMain(false); }}>Working tree</button><button className={`btn btn-sm ${staged && !main ? "bg-select!" : ""}`} onClick={() => { setStaged(true); setMain(false); }}>Staged</button><button className={`btn btn-sm ${main ? "bg-select!" : ""}`} disabled={!status.data?.main_changes} onClick={() => setMain(true)}>Compared with main</button></div>
+      <button className="btn btn-sm" onClick={() => { void status.refetch(); void history.refetch(); if (commit) void commitHistory.refetch(); if (selected) void diff.refetch(); }}>Refresh</button><button className={`btn btn-sm ${!staged && !main && !committed ? "bg-select!" : ""}`} onClick={() => { setMode("live"); setStaged(false); setMain(false); setPicked(null); }}>Working tree</button><button className={`btn btn-sm ${staged && !main && !committed ? "bg-select!" : ""}`} onClick={() => { setMode("live"); setStaged(true); setMain(false); setPicked(null); }}>Staged</button><button className={`btn btn-sm ${main && !committed ? "bg-select!" : ""}`} disabled={!status.data?.main_changes} onClick={() => { setMode("live"); setMain(true); setPicked(null); }}>Compared with main</button>
+      {!!history.data?.commits.length && <button className={`btn btn-sm ${committed ? "bg-select!" : ""}`} onClick={() => { setMode("committed"); setPicked(null); }}>Committed changes</button>}</div>
+    {history.data?.merged_into && <p className="border-b border-line bg-chrome px-2 py-2 text-xs">Merged into <b>{history.data.merged_into}</b>. Committed changes remain available for review.</p>}
+    {committed && history.data && <label className="flex min-w-0 items-center gap-2 border-b border-line p-2 text-xs">Commits
+      <select aria-label="Commit to review" className="field-input min-w-0 flex-1" value={commit} onChange={(e) => { setCommit(e.target.value); setPath(null); setPicked(null); setShowList(true); }}>
+        <option value="">All commits ({history.data.commits.length})</option>
+        {history.data.commits.map((c) => <option key={c.id} value={c.id}>{c.id.slice(0, 8)} · {c.subject}</option>)}
+      </select>
+    </label>}
+    {commit && commitHistory.error && <p className="p-2 text-xs text-gh-closed">{commitHistory.error.message}. Select All commits to refresh the selection.</p>}
+    {history.error && <p className="p-2 text-xs text-gh-closed">Committed changes unavailable: {history.error.message}</p>}
     {notes.value.length > 0 && <div className="flex flex-wrap items-center gap-2 border-b border-attn-line bg-attn-soft px-2 py-1.5 text-xs">
       <b className="text-attn">{notes.value.length} note{notes.value.length === 1 ? "" : "s"} for the agent</b>
       <button className="btn btn-sm btn-primary" disabled={!canMessage} title={canMessage ? "Read the exact message, then send it" : "The agent cannot take a message now"} onClick={() => setPreview(true)}>Review and send…</button>
@@ -137,9 +154,9 @@ export function GitPanel({ sessionId, initialMain = false, canMessage = true }: 
       <div className="flex flex-wrap gap-2"><button className="btn btn-sm btn-primary" disabled={sending} onClick={() => void send()}>{sending ? "◷ Sending…" : `Send ${notes.value.length} note${notes.value.length === 1 ? "" : "s"}`}</button><button className="btn btn-sm" disabled={sending} onClick={() => setPreview(false)}>Cancel</button></div>
       {notes.value.map((n, i) => <div key={i} className="flex items-start gap-2"><span className="min-w-0 flex-1 truncate">{n.path}{n.line != null ? `:${n.line}` : ""} · {n.text}</span><button className="btn btn-sm" onClick={() => notes.set((all) => all.filter((_, j) => j !== i))}>Remove</button></div>)}
     </div>}
-    {status.error && (/not a git repository/i.test(status.error.message) ? <p className="p-3 text-xs text-ink-3">This folder is not a Git repository.</p> : <p className="p-3 text-xs text-gh-closed">{status.error.message}</p>)}
+    {status.error && !committed && (/not a git repository/i.test(status.error.message) ? <p className="p-3 text-xs text-ink-3">This folder is not a Git repository.</p> : <p className="p-3 text-xs text-gh-closed">{status.error.message}</p>)}
     {status.isPending && <p className="p-3 text-xs">Reading Git status…</p>}
-    {status.data && !files.length && <p className="p-3 text-xs text-ink-3">{main ? "No tracked changes compared with main." : "Working tree clean."}</p>}
+    {(status.data || history.data) && !files.length && <p className="p-3 text-xs text-ink-3">{committed ? "No net file changes in these commits." : main ? "No tracked changes compared with main." : "Working tree clean."}</p>}
     {!!files.length && <div className="flex min-h-0 flex-1">
       {(!phone || showList) && fileList}
       {(!phone || !showList) && <div className="flex min-w-0 flex-1 flex-col">
@@ -153,7 +170,7 @@ export function GitPanel({ sessionId, initialMain = false, canMessage = true }: 
         {diff.error && <p className="p-2 text-xs text-gh-closed">{diff.error.message}</p>}
         {diff.isPending && <p className="p-2 text-xs">Loading diff…</p>}
         {diff.data?.truncated && <p className="p-2 text-xs text-ink-3">Large diff: showing its beginning and end.</p>}
-        {diff.data && !text && <p className="p-2 text-xs text-ink-3">No {main ? "changes compared with main" : staged ? "staged" : "working tree"} changes for this file.</p>}
+        {diff.data && !text && <p className="p-2 text-xs text-ink-3">No {committed ? "committed" : main ? "changes compared with main" : staged ? "staged" : "working tree"} changes for this file.</p>}
         {!!text && picked === null && <p className="border-b border-line-2 px-2 py-1 text-[11.5px] text-ink-3">{phone ? "Tap" : "Click"} a line to write a note for the agent.</p>}
         <div ref={codeRef} className="min-h-0 flex-1 overflow-auto"><div style={{ height: lines.getTotalSize(), position: "relative", minWidth: "100%", width: wrap ? "100%" : "max-content" }}>{lines.getVirtualItems().map((r) => {
           const line = rows[r.index];
