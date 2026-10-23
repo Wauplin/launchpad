@@ -1,6 +1,5 @@
 // Bottom dock with one tab per integrated terminal of the current workspace. Hide keeps the processes running.
 
-import { isDesktopShell } from "@/lib/platform";
 import { HostLabel } from "@/components/HostLabel";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
@@ -110,8 +109,7 @@ export function TerminalDock({ fill }: { fill?: boolean } = {}) {
           ))}
           {terminals.length === 0 && <span className="py-0.5 text-ink-3">No terminal open in this workspace.</span>}
         </div>
-        <button className="btn btn-sm" disabled={!folder} title={folder ? `Open a shell in ${folder}${isDesktopShell ? " (Ctrl+T / Cmd+T)" : ""}` : "Open a project, a session or the code viewer first"} onClick={() => folder && void open.shell(folder)}>New terminal</button>
-        {!phone && <button className="btn btn-sm" title="Hide the dock; terminals keep running" onClick={() => setDock({ open: false })}>Hide</button>}
+        {!phone && <button className="btn btn-sm" title="Hide the dock; terminals keep running" aria-label="Hide terminal dock" onClick={() => setDock({ open: false })}><Icon name="down" size={16} /></button>}
       </div>
       {[...visited.current].map((id) => (
         <Suspense key={id} fallback={dock.open && id === active?.id ? <div className="grid flex-1 place-items-center text-ink-3" role="status">Loading terminal…</div> : null}>
