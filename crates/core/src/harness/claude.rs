@@ -88,11 +88,17 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     .into_iter()
     .map(String::from)
     .collect();
-    if spec.browser {
+    if spec.browser_tools {
         let bridge = crate::browser::mcp_config(app, &spec);
         let mcp = json!({"command":bridge["command"],"args":bridge["args"],"env":bridge["env"]});
-        args.extend(["--strict-mcp-config".into(), "--mcp-config".into(), json!({"mcpServers":{"launchpad_browser":mcp}}).to_string(),
-            "--tools".into(), "".into(), "--allowedTools".into(), "mcp__launchpad_browser__*".into()]);
+        let config = json!({"mcpServers":{"launchpad_browser":mcp}}).to_string();
+        // The broker checks grants and owner reviews for every call, so its tools need no native approval.
+        if spec.browser {
+            args.extend(["--strict-mcp-config".into(), "--mcp-config".into(), config, "--tools".into(), "".into()]);
+        } else {
+            args.extend(["--mcp-config".into(), config]);
+        }
+        args.extend(["--allowedTools".into(), "mcp__launchpad_browser__*".into()]);
     }
     args.extend(permission_args(spec.permission_mode));
     let harness_id = spec.harness_session_id.clone().unwrap_or_else(|| spec.session_id.clone());
@@ -118,7 +124,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
         .stdin(crate::exec::Io::Piped)
         .stdout(crate::exec::Io::Piped)
         .stderr(crate::exec::Io::Piped);
-    if spec.browser { cmd.env("MCP_TOOL_TIMEOUT", "720000"); }
+    if spec.browser_tools { cmd.env("MCP_TOOL_TIMEOUT", "720000"); }
     let mut child = cmd.spawn().await.context("start claude")?;
     sink.raw("cmd", &format!("claude {}", args.join(" "))).await;
     sink.set_harness_id(&harness_id).await;

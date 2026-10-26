@@ -835,6 +835,17 @@ Chrome sends device cookies on permitted extension HTTP fetches but omits them o
 
 See [E0 verification and remaining checks](spikes/chrome-extension-e0.md) and [build/install instructions](../extension/README.md).
 
+### 15.5 Chrome extension redesign and project tasks (2026-10-26)
+
+The owner found the E1/E2 panel hard to use: it embedded the app's composer and session view, put permission buttons before the task and used internal vocabulary. After a [design review with sketches](https://huggingface.co/spaces/Wauplin/launchpad-chrome-extension-redesign), the panel became a separate small chat UI, modeled on the Claude and Codex browser extensions:
+
+- One message box with tab chips (the current tab is proposed until the owner edits the chips), pasted images, a selection quote and four pills: **+** (tab checklist), Agent (profiles, last used first, with subscription use or pay per use), Read/Act and Project. Model, effort, permission mode and budget come from the profile and the latest launches; presets, scheduling, Preview prompt, follow-ups and trace context stay in the app.
+- Send requests Chrome site access first in the click, captures each chosen tab, creates its grant and launches. A tab already controlled by another task returns "Another task is using this tab"; the panel offers **Move it here** (the existing take-tab control) or Read.
+- The task view replaces Summary/Trace with the conversation (`rows.ts`), a collapsible step list per turn with plain labels, question/permission cards, browser review cards and an uncertain-action card. Replies continue the same task; **+** in the reply box attaches more tabs, including to archived tasks before their next message resumes them.
+- While acting, the tab gets an outline and a corner pill whose trusted clicks send Stop (interrupt) or Take control (pause) to the worker. Review creation and resolution are published on the `browser` bus topic so panels refresh at once.
+
+`Target::Browser` gained `project_id` and `act`. With a project (owner choice in the panel, previously the deferred E3), the session runs like a project launch (task worktree, workspace membership, project page) with the harness's normal tools, MCP servers and saved permission mode plus `launchpad_browser`; adapters distinguish `StartSpec.browser` (isolated, browser tools only) from `browser_tools` (attach the server). Codex adds the server through the dotted `mcp_servers.launchpad_browser` override so other servers stay configured. `act` makes claimed and attached grants Work grants; `browser::set_mode` switches a task and its grants. `browser_site` stores origins where Act is always allowed: they set the starting mode in the panel and skip the site review for navigation to them; element actions with consequences are always reviewed. The launch instruction tells agents that the mode can change and that `browser_tabs` reports each tab's current access.
+
 ## 16. Risks and unknowns
 
 | Risk | Impact | Mitigation |
@@ -1164,3 +1175,5 @@ The [static UX suggestions report](research/ux-suggestions/index.html) is a seco
 137. **Chrome extension page actions (2026-10-22).** Owner-approved E2 of the extension proposal, extending decision 136. Add explicit Work grants, serialized trusted CDP input, device-only owner reviews, form proposals, site approvals, tab ownership, control lifecycle and handover. Persist dispatch claims and require owner inspection after uncertain outcomes, preserving action deduplication across reconnect/restart. E3 and developer access remain deferred; [E2 verification](spikes/chrome-extension-e2.md) records the checked scope and limits.
 
 138. **Presets on session messages (2026-10-26).** Steering, resuming and scheduled follow-ups reuse the composer presets. The browser composes the final text instead of the daemon, so retries, uncertain-delivery recovery and follow-ups keep sending exactly what the owner saw, without a new API field. The trace recognizes the appended block by matching configured preset texts; renamed or deleted presets simply show the full text.
+
+139. **Chrome extension redesign and project tasks (2026-10-26).** The side panel is a dedicated chat UI instead of the app's composer and session view: tab chips shared on Send, Agent/Read·Act/Project pills, conversation with steps and inline reviews, Open in Launchpad for everything else. Browser targets carry `project_id` (task worktree, normal tools plus browser tools; this replaces the deferred E3 with an owner-chosen per-task option) and `act` (Work grants for the task). Remember the last mode and agent in the extension; remember always-allowed sites in `state.db` for the starting mode and navigation reviews only. See section 15.5.

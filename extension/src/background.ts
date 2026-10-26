@@ -1,5 +1,5 @@
 import { readPage } from "./page";
-import { work, release, releaseAll, reconcile, type Request } from "./work";
+import { work, release, releaseAll, reconcile, controller, type Request } from "./work";
 
 type Page = { tab: number; document: string; url: string; title: string };
 let socket: WebSocket | null = null;
@@ -87,6 +87,15 @@ async function connect() {
   return connecting;
 }
 
+async function pageControl(tab: number, action: string) {
+  const owner = controller(tab);
+  await release(tab);
+  if (!owner) return;
+  if (action === "stop") await api(`/api/sessions/${owner.session}/interrupt`, {});
+  else await api(`/api/browser/grants/${owner.grant}/control`, { action: "take-over" });
+  void chrome.runtime.sendMessage({ type: "browser-changed" }).catch(() => {});
+}
+
 export async function capture(tabId: number): Promise<Page> {
   const [result] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, func: readPage });
   if (!result?.result) throw new Error("Chrome cannot read this page. Open an ordinary HTTP or HTTPS page.");
@@ -102,11 +111,16 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== "ask-launchpad" || tab?.id == null) return;
   // Open synchronously in the user gesture. Capture is deferred until the panel asks for it.
-  void chrome.storage.session.set({ askSelection: { tab: tab.id } });
+  void chrome.storage.session.set({ askSelection: { tab: tab.id, text: info.selectionText ?? "" } });
   void chrome.sidePanel.open({ windowId: tab.windowId });
   void chrome.runtime.sendMessage({ type: "selection-ready" }).catch(() => {});
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  // Stop and Take control from the in-page pill: only ever reduce the agent's access to that tab.
+  if (sender.id === chrome.runtime.id && sender.tab?.id != null && message.type === "page-control") {
+    void pageControl(sender.tab.id, message.action).then(() => respond({ ok: true }), (e) => respond({ error: String(e) }));
+    return true;
+  }
   if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL(""))) return;
   if (message.type === "connect") { void connect().then(() => respond({ ok: true }), (e) => respond({ error: String(e) })); return true; }
   if (message.type === "release") { void release(message.tab).then(() => respond({ ok: true })); return true; }

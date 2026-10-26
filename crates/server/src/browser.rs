@@ -14,6 +14,9 @@ pub fn router() -> Router<Server> {
         .route("/api/browser/grants/{id}/control", post(control))
         .route("/api/browser/sessions/{id}/grants/{grant}", post(attach))
         .route("/api/browser/sessions/{id}/call", post(call))
+        .route("/api/browser/sessions/{id}/mode", post(mode))
+        .route("/api/browser/sites", get(sites).post(allow_site))
+        .route("/api/browser/sites/forget", post(forget_site))
 }
 
 async fn list(State(s): State<Server>, Extension(access): Extension<Access>) -> ApiResult<Value> {
@@ -52,6 +55,11 @@ async fn reviews(State(s): State<Server>, Extension(access): Extension<Access>) 
 }
 async fn decide(State(s): State<Server>, Extension(access): Extension<Access>, Path(id): Path<String>, Json(body): Json<Value>) -> ApiResult<Value> {
     let device = access.device.ok_or_else(|| ApiError::bad_request("Owner browser required"))?;
+    // "Always allow this site" on a site review also remembers the destination for later navigation.
+    let site = (body["allow"] == true && body["always"] == true).then(|| s.app.browser.reviews(&device).into_iter().find(|r| r.id == id))
+        .flatten().filter(|r| matches!(r.details["tool"].as_str(), Some("browser_navigate" | "browser_open_tab")))
+        .and_then(|r| r.details["target"]["url"].as_str().map(str::to_owned));
+    if let Some(url) = site { browser::allow_site(&s.app, &url).await.map_err(|e| ApiError::bad_request(e.to_string()))?; }
     s.app.browser.decide(&device, &id, body["allow"] == true).map_err(|e| ApiError::bad_request(e.to_string()))?;
     Ok(Json(json!({"ok":true})))
 }
@@ -64,5 +72,26 @@ async fn control(State(s): State<Server>, Extension(access): Extension<Access>, 
 async fn authorize(State(s): State<Server>, Extension(access): Extension<Access>, Path(id): Path<String>) -> ApiResult<Value> {
     let device = access.device.ok_or_else(|| ApiError::bad_request("Owner browser required"))?;
     s.app.browser.authorize(&s.app, &device, &id).await.map_err(|e| ApiError::bad_request(e.to_string()))?;
+    Ok(Json(json!({"ok":true})))
+}
+
+async fn mode(State(s): State<Server>, Extension(access): Extension<Access>, Path(id): Path<String>, Json(body): Json<Value>) -> ApiResult<Value> {
+    let device = access.device.ok_or_else(|| ApiError::bad_request("Owner browser required"))?;
+    browser::set_mode(&s.app, &device, &id, body["act"] == true).await.map_err(|e| ApiError::bad_request(e.to_string()))?;
+    Ok(Json(json!({"ok":true})))
+}
+
+async fn sites(State(s): State<Server>) -> ApiResult<Value> {
+    Ok(Json(json!(browser::sites(&s.app).await?)))
+}
+
+async fn allow_site(State(s): State<Server>, Extension(access): Extension<Access>, Json(body): Json<Value>) -> ApiResult<Value> {
+    access.device.ok_or_else(|| ApiError::bad_request("Owner browser required"))?;
+    browser::allow_site(&s.app, body["url"].as_str().unwrap_or("")).await.map_err(|e| ApiError::bad_request(e.to_string()))?;
+    Ok(Json(json!({"ok":true})))
+}
+
+async fn forget_site(State(s): State<Server>, Json(body): Json<Value>) -> ApiResult<Value> {
+    browser::forget_site(&s.app, body["origin"].as_str().unwrap_or("")).await?;
     Ok(Json(json!({"ok":true})))
 }

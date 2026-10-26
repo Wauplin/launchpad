@@ -270,7 +270,7 @@ export const useComposer = create<Composer>((set, get) => ({
   followUpFrom: (session) => {
     const spec: LaunchSpec = {
       ...emptySpec(), ...lastLaunch, permission_mode: rememberedRun(lastLaunch.harness, lastLaunch.profile).permission_mode,
-      target: session.launch_spec.target.kind === "browser" ? { kind: "browser", source_session_id: session.id, grants: [] } : { kind: "session_folder", session_id: session.id },
+      target: session.launch_spec.target.kind === "browser" ? { ...session.launch_spec.target, source_session_id: session.id, grants: [] } : { kind: "session_folder", session_id: session.id },
       worktree: null,
       agent_traces: session.last_seq > 0 ? [{ session_id: session.id, through_seq: session.last_seq }] : [],
     };

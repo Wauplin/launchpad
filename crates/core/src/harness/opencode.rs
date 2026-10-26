@@ -103,6 +103,11 @@ impl super::Harness for Adapter {
             command.env("OPENCODE_CONFIG_CONTENT", serde_json::json!({"permission":permission,"mcp":servers,"experimental":{"mcp_timeout":720000}}).to_string());
             serde_json::json!([{"name":"launchpad_browser","command":mcp["command"],"args":mcp["args"],
                 "env":mcp["env"].as_object().unwrap().iter().map(|(k,v)| serde_json::json!({"name":k,"value":v})).collect::<Vec<_>>()}])
+        } else if spec.browser_tools {
+            let mcp = crate::browser::mcp_config(app, &spec);
+            command.env("OPENCODE_CONFIG_CONTENT", serde_json::json!({"permission":{"launchpad_browser_*":"allow"},"experimental":{"mcp_timeout":720000}}).to_string());
+            serde_json::json!([{"name":"launchpad_browser","command":mcp["command"],"args":mcp["args"],
+                "env":mcp["env"].as_object().unwrap().iter().map(|(k,v)| serde_json::json!({"name":k,"value":v})).collect::<Vec<_>>()}])
         } else { serde_json::json!([]) };
         sink.raw("cmd", "opencode acp").await;
         super::acp::start(command, spec, sink, super::acp::Extensions {

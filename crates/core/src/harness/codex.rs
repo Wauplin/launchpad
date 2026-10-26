@@ -157,6 +157,12 @@ async fn start(
         config.insert("mcp_servers".into(), json!(servers));
         config.insert("web_search".into(), json!("disabled"));
         Some(Value::Object(config))
+    } else if spec.browser_tools {
+        // Add the browser server next to the owner's configuration (a dotted key overrides only this entry).
+        let mut mcp = crate::browser::mcp_config(app, &spec);
+        mcp["default_tools_approval_mode"] = json!("approve");
+        mcp["enabled"] = json!(true);
+        Some(json!({"mcp_servers.launchpad_browser": mcp}))
     } else { None };
     let thread_id = if spec.resume {
         let id = spec

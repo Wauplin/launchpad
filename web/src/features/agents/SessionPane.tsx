@@ -24,7 +24,7 @@ import { citationPath } from "@/lib/fileCitations";
 import { daemonUrl } from "@/lib/connection";
 import { downloadUrl, pathResolver, useCodeFiles } from "@/features/code/lib";
 import { useMessageDrafts } from "@/stores/messages";
-import { isDone, isRunning } from "@/lib/sessionStatus";
+import { isDone, isRunning, sessionPlace } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { abandonOperation } from "@/lib/operations";
@@ -361,14 +361,14 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
           {phone ? <>
             <HostLabel path={s.cwd} />
             <StatusBadge s={s} />
-            <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{s.launch_spec.target.kind === "browser" ? "Browser · explicit page grants" : projectName(projects, s.project_id, s.cwd)} <Icon name="chev" size={12} /></button>
+            <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{sessionPlace(s, projectName(projects, s.project_id, s.cwd))} <Icon name="chev" size={12} /></button>
             <span className="ml-auto flex flex-wrap justify-end gap-1">{primary}</span>
             <PermissionSwitch session={s} />
             <PaidUsageToggle session={s} badge />
             <CostLimit session={s} badge />
           </> : <>
             {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Pre-draft PR</button>}
-            <span className="truncate">{s.launch_spec.target.kind === "browser" ? "Browser · explicit page grants" : projectName(projects, s.project_id, s.cwd)}</span>
+            <span className="truncate">{sessionPlace(s, projectName(projects, s.project_id, s.cwd))}</span>
             <WorktreeChip session={s} />
             {s.launch_spec.profile && <span title="Harness profile">{profileName ?? `${s.launch_spec.profile} (deleted profile)`}</span>}
             <HostLabel path={s.cwd} />
@@ -392,7 +392,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
             {!phone && <>
               {primary}
               <FollowUpAgent session={s} />
-              {s.launch_spec.target.kind !== "browser" && <button className="btn btn-sm" title={`Open a shell in ${s.cwd}`} onClick={() => void openTerminal.shell(s.cwd)}>
+              {!(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <button className="btn btn-sm" title={`Open a shell in ${s.cwd}`} onClick={() => void openTerminal.shell(s.cwd)}>
                 <Icon name="term" size={12} />
                 Terminal
               </button>}
@@ -402,7 +402,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
                 {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Needs you for later" onClick={() => { close(); onClear(); void act(s.id, "unread"); }} />}
                 {phone && <>
                   <MenuItem label="Session details" detail="Branch, usage and follow up" onClick={() => { close(); setDetailsOpen(true); }} />
-                  {s.launch_spec.target.kind !== "browser" && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder" onClick={() => { close(); void openTerminal.shell(s.cwd); }} />}
+                  {!(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder" onClick={() => { close(); void openTerminal.shell(s.cwd); }} />}
                 </>}
                 {s.status === "in_terminal" && tui && <MenuItem label="Show TUI" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}
                 {s.launch_spec.target.kind !== "browser" && !running && s.status !== "in_terminal" && s.status !== "quota_paused" && harness?.capabilities.terminal && <MenuItem icon={<Icon name="term" size={14} />} label="Open in terminal" detail={`Continue in the ${name} TUI, outside quota protection`} onClick={() => { close(); void openTerminal.tui(s.id); }} />}
@@ -417,7 +417,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       </div>
       {phone && detailsOpen && <Sheet title="Session details" onClose={() => setDetailsOpen(false)}>
         <div className="session-detail-sheet grid gap-4 p-4 text-sm">
-          <div className="flex items-start gap-2"><HarnessMark harness={s.harness} size={20} /><div className="min-w-0"><b className="break-words">{s.title}</b><p className="mt-1 text-ink-3">{s.launch_spec.target.kind === "browser" ? "Browser · explicit page grants" : projectName(projects, s.project_id, s.cwd)} · {s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : name}</p></div></div>
+          <div className="flex items-start gap-2"><HarnessMark harness={s.harness} size={20} /><div className="min-w-0"><b className="break-words">{s.title}</b><p className="mt-1 text-ink-3">{sessionPlace(s, projectName(projects, s.project_id, s.cwd))} · {s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : name}</p></div></div>
           <dl className="grid gap-2 text-ink-2">
             {usageLine(s) && <div><dt className="text-xs text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
             <div><dt className="text-xs text-ink-3">Started</dt><dd>{new Date(s.started_at).toLocaleString()}</dd></div>
@@ -433,13 +433,13 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         <button className="btn btn-sm" disabled={log.loading} onClick={() => void load(sessionId)}>{log.loading ? "Loading…" : "Retry"}</button>
       </div>}
       <HostBand cwd={s.cwd} running={running} />
-      {s.launch_spec.target.kind === "browser" && <div className="border-b border-line bg-teal-soft px-3 py-1 text-xs text-teal-ink">Browser · explicit page grants</div>}
+      {s.launch_spec.target.kind === "browser" && <div className="border-b border-line bg-teal-soft px-3 py-1 text-xs text-teal-ink">Browser task · tabs shared from the Chrome extension · {s.launch_spec.target.act ? "Act" : "Read"}</div>}
       {s.live && processes.isError && <div role="alert" className="px-3 py-2 text-xs text-danger">{String(processes.error)} <button className="btn btn-sm" onClick={() => void processes.refetch()}>Retry</button></div>}
       {hasProcesses && !processesOpen && !running && <div className="flex items-center gap-2 px-3 py-2 text-xs text-ink-3">Background commands are still running.<button className="btn btn-sm" onClick={() => setView("processes")}>View processes</button></div>}
       {processesOpen && <ProcessesPanel sessionId={s.id} processes={runningProcesses} refresh={() => processes.refetch()} />}
       {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} canMessage={s.status !== "in_terminal" && s.status !== "quota_paused" && !(running && !harness?.capabilities.messages_while_running)} />}
       <CodeLinksContext.Provider value={codeLinks}>
-      <ShellCodeContext.Provider value={s.launch_spec.target.kind === "browser" ? null : s.cwd}>
+      <ShellCodeContext.Provider value={s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id ? null : s.cwd}>
       {childrenOpen && log && <SubagentsPanel key={s.id} log={log} agents={children} sessionId={s.id} live={s.live} back={() => setView("trace")} />}
       {!changesOpen && !childrenOpen && !processesOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">{log.error ? "Session events unavailable." : "Loading…"}</div> : <SessionSummary key={s.id} session={s} rows={rows} earlier={log?.earlier ?? null} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
       {traceOpen && !running && <><StateBand session={s}>

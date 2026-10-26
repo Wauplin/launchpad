@@ -22,6 +22,8 @@ export async function release(tab: number) {
   await chrome.scripting.executeScript({ target: { tabId: tab, frameIds: [0] }, func: () => document.getElementById("__launchpad-control")?.remove() }).catch(() => {});
 }
 chrome.debugger.onDetach.addListener((source) => { if (source.tabId != null) { attached.delete(source.tabId); controlling.delete(source.tabId); } });
+/** The task and grant controlling a tab, if any. */
+export const controller = (tab: number) => controlling.get(tab) ?? null;
 export async function releaseAll() { await Promise.all([...attached].map(release)); }
 export async function reconcile(sessions: { id: string; status: string; quota_pause?: unknown }[]) {
   for (const [tab, owner] of controlling) {
@@ -103,10 +105,24 @@ async function attach(req: Request, tab: number) {
   controlling.set(tab, { session: req.session, grant: req.grant, until: Date.now() + 1_800_000 });
   await chrome.scripting.executeScript({ target: { tabId: tab }, func: () => {
     if (document.getElementById("__launchpad-control")) return;
-    const banner = document.createElement("div"); banner.id = "__launchpad-control"; banner.dataset.launchpadPrivate = "true";
-    banner.textContent = "Launchpad agent controls this tab · Pause or Take over in the side panel";
-    banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#0d7266;color:white;padding:8px;font:13px sans-serif;text-align:center;pointer-events:none";
-    document.documentElement.append(banner);
+    // A thin outline marks the tab, and a small corner pill offers Stop and Take control. Only trusted
+    // clicks count; the outline ignores pointer events so it never covers the page.
+    const root = document.createElement("div"); root.id = "__launchpad-control"; root.dataset.launchpadPrivate = "true";
+    const frame = document.createElement("div");
+    frame.style.cssText = "position:fixed;inset:0;z-index:2147483646;pointer-events:none;box-shadow:inset 0 0 0 3px #0d7266";
+    const pill = document.createElement("div");
+    pill.style.cssText = "position:fixed;right:14px;bottom:14px;z-index:2147483647;display:flex;align-items:center;gap:8px;padding:6px 6px 6px 12px;border-radius:999px;background:#17202b;color:#fff;font:13px/1.2 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.25)";
+    const label = document.createElement("span"); label.textContent = "Launchpad is working in this tab";
+    pill.append(label);
+    for (const [action, text] of [["take-over", "Take control"], ["stop", "Stop"]]) {
+      const button = document.createElement("button");
+      button.textContent = text;
+      button.style.cssText = `all:unset;cursor:pointer;border-radius:999px;padding:5px 11px;font-weight:600;${action === "stop" ? "background:#fff;color:#17202b" : "color:#fff;border:1px solid rgba(255,255,255,.35)"}`;
+      button.addEventListener("click", (event) => { if (event.isTrusted) void chrome.runtime.sendMessage({ type: "page-control", action }); });
+      pill.append(button);
+    }
+    root.append(frame, pill);
+    document.documentElement.append(root);
   } });
 }
 async function group(req: Request, tab: number) {
@@ -114,7 +130,7 @@ async function group(req: Request, tab: number) {
   let groupId = stored[`group:${req.session}`] as number | undefined;
   if (groupId != null) try { await chrome.tabGroups.get(groupId); } catch { groupId = undefined; }
   groupId = await chrome.tabs.group({ tabIds: tab, ...(groupId == null ? {} : { groupId }) });
-  await chrome.tabGroups.update(groupId, { title: `Launchpad · ${req.session.slice(0, 8)}`, color: "cyan" });
+  await chrome.tabGroups.update(groupId, { title: "Launchpad", color: "cyan" });
   await chrome.storage.session.set({ [`group:${req.session}`]: groupId });
 }
 export async function work(req: Request) {
