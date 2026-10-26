@@ -614,7 +614,7 @@ async fn read(env: &UserEnv, src: &Source, path: &str, limit: u64) -> Result<std
     }
 }
 
-/// Raw bytes, for images.
+/// Raw bytes, for images and attachment downloads (at most 20 MiB).
 pub async fn raw(app: &App, src: &Source, path: &str) -> Result<Vec<u8>> {
     read(&app.env, src, path, 4 * MAX_LOAD).await?.map_err(|size| anyhow::anyhow!("{path} is too large ({size} bytes)"))
 }
@@ -913,6 +913,41 @@ pub async fn commit(app: &App, src: &Source) -> Result<CommitInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn artifact_reads_allow_ignored_outputs_but_reject_escape_and_oversize() {
+        let folder = std::env::temp_dir().join(format!("launchpad-artifacts-{}", uuid::Uuid::new_v4()));
+        let root = folder.join("project");
+        std::fs::create_dir_all(root.join("output")).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let env = UserEnv::resolve().await;
+        run(&env, &root, &["init"]).await.unwrap();
+        std::fs::write(root.join(".gitignore"), "output/\n").unwrap();
+        let bytes = b"%PDF-1.7\nignored generated output";
+        std::fs::write(root.join("output/My book.pdf"), bytes).unwrap();
+        std::fs::write(folder.join("outside.txt"), "outside").unwrap();
+        let src = Source {
+            project: Project {
+                id: "test".into(), name: "test".into(), path: root.to_string_lossy().into_owned(),
+                remote_url: None, gh_repo: None, gh_upstream: None, description: String::new(),
+                is_temp: false, pinned: false, created_at: 0, worktree_setup: String::new(), merge_when_done: false,
+            },
+            root: root.clone(), rev: None, git: true,
+        };
+        assert_eq!(read(&env, &src, "output/My book.pdf", 100).await.unwrap().unwrap(), bytes);
+        assert!(read(&env, &src, "output/My book.pdf", 4).await.unwrap().is_err());
+        for path in ["../outside.txt", "output/../../outside.txt", "output/missing.pdf", "output"] {
+            assert!(read(&env, &src, path, 100).await.is_err(), "{path}");
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(folder.join("outside.txt"), root.join("output/escape.txt")).unwrap();
+            assert!(read(&env, &src, "output/escape.txt", 100).await.is_err());
+            std::os::unix::fs::symlink(root.join("output/My book.pdf"), root.join("output/inside.pdf")).unwrap();
+            assert_eq!(read(&env, &src, "output/inside.pdf", 100).await.unwrap().unwrap(), bytes);
+        }
+        std::fs::remove_dir_all(folder).unwrap();
+    }
 
     #[tokio::test]
     async fn commit_ids_ignore_missing_objects_blobs_tags_and_hash_named_refs() {

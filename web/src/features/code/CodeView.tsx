@@ -1,3 +1,4 @@
+import { daemonUrl } from "@/lib/connection";
 import { PhoneActions } from "@/mobile/PhoneHeader";
 // Code viewer (sketch S7, ARCHITECTURE.md section 8.1): one source at a time (a working tree or a git
 // revision), a file tree, tabs, colored code with changed-line bars, find in file (Ctrl+F) and
@@ -32,7 +33,7 @@ import { useMessageDrafts } from "@/stores/messages";
 import { CodeLines, type CodeLinesHandle, type Selection } from "./CodeLines";
 import { useTheme, type Theme } from "@/stores/theme";
 import { cachedTokens, highlight, type Tokens } from "./highlight";
-import { basename, dirname, findAll, githubUrl, lineRef, matcher, rawUrl, useCodeFile, useCodeFiles, useCodeSources, useCommit, type FindOpts } from "./lib";
+import { basename, dirname, downloadUrl, findAll, githubUrl, lineRef, matcher, rawUrl, useCodeFile, useCodeFiles, useCodeSources, useCommit, type FindOpts } from "./lib";
 import { FilesPanel, FindToggles, SearchPanel } from "./SidePanel";
 import { sourceKey, useCode, type CodeSearch } from "./store";
 import { useOpenTerminal } from "@/features/terminals/lib";
@@ -413,6 +414,7 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
         <div className="grid flex-1 place-items-center text-center text-ink-2">
           <div className="grid justify-items-center gap-2">
             {f.kind === "binary" ? `Binary file · ${sizeText(f.size)}` : `This file is ${sizeText(f.size)}: too large to show here.`}
+            {f.size <= 20 * 1024 * 1024 && <a className="btn btn-sm" href={daemonUrl(downloadUrl(root, rev, path))} download>Download file</a>}
           </div>
         </div>
       ) : limits.display ? (

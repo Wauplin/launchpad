@@ -19,6 +19,7 @@ pub fn router() -> Router<Server> {
         .route("/api/code/files", get(files))
         .route("/api/code/file", get(file))
         .route("/api/code/raw", get(raw))
+        .route("/api/code/download", get(download))
         .route("/api/code/search", get(search))
         .route("/api/code/commit", get(commit))
         .route("/api/code/commit-diff", get(commit_diff))
@@ -108,6 +109,26 @@ async fn raw(State(s): State<Server>, Query(q): Query<FileQuery>) -> Result<Resp
             (header::CONTENT_SECURITY_POLICY, "default-src 'none'; style-src 'unsafe-inline'; sandbox".to_string()),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
             (header::CACHE_CONTROL, "no-cache".to_string()),
+        ],
+        bytes,
+    )
+        .into_response())
+}
+
+/// Downloads always use an attachment and an inert MIME type, including HTML/SVG outputs.
+/// Reuse the authorized source, symlink confinement and 20 MiB bounded read used by images.
+async fn download(State(s): State<Server>, Query(q): Query<FileQuery>) -> Result<Response, ApiError> {
+    let src = source(&s, &q.root, q.rev.as_deref()).await?;
+    let bytes = code::raw(&s.app, &src, &q.path).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+    let name = q.path.rsplit('/').next().unwrap_or("download");
+    let encoded: String = name.as_bytes().iter().map(|b| format!("%{b:02X}")).collect();
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_string()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"download\"; filename*=UTF-8''{encoded}")),
+            (header::CONTENT_SECURITY_POLICY, "default-src 'none'; sandbox".to_string()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+            (header::CACHE_CONTROL, "no-store".to_string()),
         ],
         bytes,
     )

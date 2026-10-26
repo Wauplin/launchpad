@@ -20,7 +20,9 @@ import type { Session } from "@/gen/Session";
 import type { ImageAttachment } from "@/gen/ImageAttachment";
 import { HarnessMark, useHarnessInfo } from "@/components/HarnessMark";
 import { CodeLinksContext, ShellCodeContext, type CodeLinks } from "@/components/Markdown";
-import { pathResolver, useCodeFiles } from "@/features/code/lib";
+import { citationPath } from "@/lib/fileCitations";
+import { daemonUrl } from "@/lib/connection";
+import { downloadUrl, pathResolver, useCodeFiles } from "@/features/code/lib";
 import { useMessageDrafts } from "@/stores/messages";
 import { isDone, isRunning } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
@@ -155,6 +157,15 @@ function useCodeLinks(s: { id: string; project_id: string | null; cwd: string } 
     const commitRoot = project?.path ?? cwd;
     return {
       resolve: pathResolver(files?.files ?? [], cwd),
+      citation: (raw) => {
+        const path = citationPath(raw, cwd);
+        if (!path) return null;
+        return {
+          path, line: null,
+          href: `/projects/${encodeURIComponent(project_id)}/code?root=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}&session=${encodeURIComponent(id)}`,
+          downloadHref: daemonUrl(downloadUrl(cwd, null, path)),
+        };
+      },
       commits: {
         root: commitRoot,
         href: (sha) => `/projects/${encodeURIComponent(project_id)}/code?root=${encodeURIComponent(commitRoot)}&rev=${sha}&view=diff&session=${encodeURIComponent(id)}`,

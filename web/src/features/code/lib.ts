@@ -9,6 +9,8 @@ import { api } from "@/lib/api";
 
 export const sourceParams = (root: string, rev: string | null | undefined) => `root=${encodeURIComponent(root)}${rev ? `&rev=${encodeURIComponent(rev)}` : ""}`;
 
+export const downloadUrl = (root: string, rev: string | null, path: string) => `/api/code/download?${sourceParams(root, rev)}&path=${encodeURIComponent(path)}`;
+
 export const rawUrl = (root: string, rev: string | null, path: string) => `/api/code/raw?${sourceParams(root, rev)}&path=${encodeURIComponent(path)}`;
 
 export const useCodeSources = (projectId: string | undefined) =>

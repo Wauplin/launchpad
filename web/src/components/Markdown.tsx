@@ -7,6 +7,7 @@
 // relative images and links to files of the same source (`links` prop). Verified commit IDs in
 // prose and inline code link to their revision in the session project, even after worktree cleanup.
 
+import { installFileCitations, type FileCitations } from "@/lib/fileCitations";
 import { openExternal } from "@/lib/platform";
 import MarkdownIt from "markdown-it";
 import { useQueries } from "@tanstack/react-query";
@@ -20,7 +21,7 @@ import { toast } from "./Toast";
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
 
 /** Opens session file references and repository-verified commits in the code viewer. */
-export type CodeLinks = {
+export type CodeLinks = FileCitations & {
   resolve: (raw: string) => { path: string; line: number | null } | null;
   open: (path: string, line: number | null) => void;
   commits?: { root: string; href: (sha: string) => string; open: (sha: string) => void };
@@ -60,6 +61,7 @@ md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
   return self.renderToken(tokens, idx, options);
 };
 
+installFileCitations(md);
 installCommitLinks(md);
 
 export const Markdown = memo(function Markdown({ text, className = "", links, runShell = false }: { text: string; className?: string; links?: Links; runShell?: boolean }) {
@@ -118,6 +120,10 @@ export const Markdown = memo(function Markdown({ text, className = "", links, ru
     }
     const path = target.closest<HTMLElement>("[data-path]");
     if (path && codeLinks) {
+      if (path.tagName === "A") {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+      }
       codeLinks.open(path.dataset.path!, path.dataset.line ? Number(path.dataset.line) : null);
       return;
     }
