@@ -17,8 +17,9 @@ import { connectEvents, onConnectionChange, onEvent } from "@/lib/ws";
 import { emptySpec, rememberSuccessfulSession, rememberedRun } from "@/stores/composer";
 import { Box, chipOf, suggestProject, useAgents, useWindowTabs, type Quote } from "./compose";
 import { Favicon, Icon } from "./icons";
-import { grantTabs, hostOf, isBrowserTask, openInLaunchpad, prefs, rememberSites, requestSites, savePrefs, siteOf, tabChip, useReviews, useSites, type Grant, type TabChip } from "./lp";
+import { grantTabs, hostOf, isBrowserTask, newTabGrant, openInLaunchpad, prefs, rememberSites, requestSites, savePrefs, siteOf, tabChip, useReviews, useSites, type Grant, type TabChip } from "./lp";
 import { StatusPill, TaskView, taskStatus } from "./task";
+import { TEXT_SIZES, applyTextSize, textSize } from "./textSize";
 
 type View = { kind: "new" } | { kind: "task"; id: string } | { kind: "tasks" } | { kind: "settings" };
 const VIEW = "launchpad-extension-view";
@@ -167,9 +168,9 @@ function NewChat({ open }: { open: (id: string) => void }) {
     setBusy(true);
     let grants: Grant[] = [];
     try {
-      if (!chips.length) throw new Error("Share at least one tab with + Tabs.");
       if (!await requestSites(chips)) throw new Error("Chrome access to the site was declined");
-      grants = await grantTabs(chips);
+      // Without a shared tab, the agent gets a "New tab" handle and opens the sites it needs.
+      grants = chips.length ? await grantTabs(chips) : [await newTabGrant()];
       await launch(grants, act);
     } catch (e) {
       const busyTab = e instanceof Error && /Another task is using this tab/.test(e.message);
@@ -197,8 +198,8 @@ function NewChat({ open }: { open: (id: string) => void }) {
     <div className="x-body">
       {waiting.length > 0 && <div style={{ display: "grid", gap: 2 }}><div className="x-sect" style={{ margin: "0 4px" }}>Needs you</div>{waiting.slice(0, 3).map((s) => <TaskRow key={s.id} s={s} open={open} />)}</div>}
       <div className="x-hello">
-        <h1>{chips.length > 1 ? "What should I do with these tabs?" : "What should I do with this page?"}</h1>
-        <div className="x-muted x-small">I can read the tabs you add below. Nothing is shared until you send.</div>
+        <h1>{!chips.length ? "What should I look up?" : chips.length > 1 ? "What should I do with these tabs?" : "What should I do with this page?"}</h1>
+        <div className="x-muted x-small">{chips.length ? "I can read the tabs you add below. Nothing is shared until you send." : "With no tab shared, I open the sites I need in new tabs and ask before each new site."}</div>
         <div className="x-sugg">
           <button onClick={() => suggest("Summarize this page.")}><Icon name="sum" size={16} />Summarize this page</button>
           <button onClick={() => suggest("Explain the part I selected on this page.")}><Icon name="q" size={16} />Explain the part I select</button>
@@ -220,7 +221,7 @@ function NewChat({ open }: { open: (id: string) => void }) {
         profile={profile} setProfile={(id) => setDraft((d) => ({ ...d, profile: id }))}
         act={act} setAct={(a, always) => { setDraft((d) => ({ ...d, act: a })); void rememberSites(always, sites).then(() => client.invalidateQueries({ queryKey: ["browser-sites"] })).catch(toastError); }} sites={sites}
         project={project?.id ?? null} setProject={(id) => setDraft((d) => ({ ...d, project: id }))}
-        busy={busy} canSend={!!draft.text.trim() && chips.length > 0 && !!profile} placeholder={chips.length ? "Ask about these tabs, or tell me what to do…" : "Add a tab with + Tabs, then ask…"}
+        busy={busy} canSend={!!draft.text.trim() && !!profile} noTabs="The agent opens its own tabs" placeholder={chips.length ? "Ask about these tabs, or tell me what to do…" : "What should the agent research?"}
         onSend={() => void send()} />
     </div>
   </>;
@@ -259,6 +260,7 @@ function Settings() {
   const sites = useSites().data ?? [];
   const agents = useAgents();
   const [profile, setProfile] = useState(prefs().profile ?? agents[0]?.id ?? "");
+  const [size, setSize] = useState(textSize);
   const forget = (origin: string) => void api.post("/api/browser/sites/forget", { origin }).then(() => client.invalidateQueries({ queryKey: ["browser-sites"] })).catch(toastError);
   const disconnect = async () => {
     await chrome.storage.local.remove("daemon");
@@ -268,6 +270,8 @@ function Settings() {
   return <div className="x-body" style={{ gap: 0 }}>
     <div className="x-sect" style={{ marginLeft: 4 }}>Connection</div>
     <div className="x-setrow"><Icon name="plug" /><span className="x-d"><b style={{ fontWeight: 500 }}>Connected to Launchpad</b><small>{daemonUrl("") || "this computer"}</small></span><button className="x-btn x-sm" onClick={() => void disconnect()}>Disconnect</button></div>
+    <div className="x-sect" style={{ marginLeft: 4, marginTop: 16 }}>Text size</div>
+    <div className="x-sizes" role="radiogroup" aria-label="Text size">{TEXT_SIZES.map((v) => <button key={v} role="radio" aria-checked={v === size} className={`x-btn x-sm ${v === size ? "x-pri" : ""}`} onClick={() => { applyTextSize(v); setSize(v); }}>{v}%</button>)}</div>
     <div className="x-sect" style={{ marginLeft: 4, marginTop: 16 }}>Default agent</div>
     <div className="x-setrow"><Icon name="agent" /><span className="x-d"><select className="x-field" value={profile} onChange={(e) => { setProfile(e.target.value); savePrefs({ profile: e.target.value }); }}>{agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></span></div>
     <div className="x-sect" style={{ marginLeft: 4, marginTop: 16 }}>Sites always allowed to Act</div>

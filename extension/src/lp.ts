@@ -52,6 +52,10 @@ export async function grantTabs(chips: TabChip[]): Promise<Grant[]> {
   return grants;
 }
 
+/** A "New tab" handle: the agent opens its own tabs through it (no page shared). */
+export const newTabGrant = () => api.post<Grant>("/api/browser/grants/new-tab");
+export const isHandle = (g: Grant) => g.page.tab < 0;
+
 export async function tabChip(tabId: number): Promise<TabChip | null> {
   try {
     const t = await chrome.tabs.get(tabId);

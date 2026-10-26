@@ -133,7 +133,34 @@ async function group(req: Request, tab: number) {
   await chrome.tabGroups.update(groupId, { title: "Launchpad", color: "cyan" });
   await chrome.storage.session.set({ [`group:${req.session}`]: groupId });
 }
+/** Consumes a request ID before input: event replay or worker suspension can never dispatch it twice. */
+async function consume(id: string) {
+  const consumed = await chrome.storage.session.get(`action:${id}`);
+  if (consumed[`action:${id}`]) throw new Error("Action already dispatched; inspect outcome, never retry");
+  await chrome.storage.session.set({ [`action:${id}`]: true });
+}
+
+/** A task's "New tab" handle has no page yet: it can only open a site, in a new tab of the task's group. */
+async function openFromHandle(req: Request) {
+  if (!["browser_navigate", "browser_open_tab"].includes(req.tool)) throw new Error("No page yet: open a site with browser_navigate first");
+  const url = String(req.args.url);
+  const site = origin(url);
+  if (req.phase === "prepare") return { confirmation: true, url };
+  await consume(req.id);
+  if (!await chrome.permissions.contains({ origins: [`${site}/*`] })) throw new Error("Owner must allow the destination site in the review card");
+  const tab = await chrome.tabs.create({ url, active: false });
+  if (tab.id == null) throw new Error("Cannot open tab");
+  await group(req, tab.id);
+  for (let i = 0; i < 60; i++) { if ((await chrome.tabs.get(tab.id)).status === "complete") break; await sleep(100); }
+  await sleep(150);
+  const captured = await inject(tab.id, readPage);
+  if (origin(captured.url) !== site) throw new Error("Navigation reached a new site; add the destination explicitly");
+  const page = { tab: tab.id, document: captured.document, url: captured.url, title: captured.title };
+  return { page, summary: `${req.tool} opened a new tab once; inspect outline for outcome`, outline: await outline(page) };
+}
+
 export async function work(req: Request) {
+  if (req.page.tab < 0) return openFromHandle(req);
   let page = req.page;
   const epoch = epochs.get(page.tab) ?? 0;
   const checkControl = () => { if ((epochs.get(req.page.tab) ?? 0) !== epoch) throw new Error("Owner released control during action"); };
@@ -152,9 +179,7 @@ export async function work(req: Request) {
     return prepared;
   }
   // A request ID is consumed before input. Event replay or worker suspension cannot execute it twice.
-  const consumed = await chrome.storage.session.get(`action:${req.id}`);
-  if (consumed[`action:${req.id}`]) throw new Error("Action already dispatched; inspect outcome, never retry");
-  await chrome.storage.session.set({ [`action:${req.id}`]: true });
+  await consume(req.id);
   checkControl();
   if (req.tool === "browser_handover") {
     const captured = await inject(page.tab, readPage);

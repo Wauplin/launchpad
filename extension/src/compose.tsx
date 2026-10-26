@@ -96,6 +96,8 @@ type BoxProps = {
   onSend: () => void;
   onStop?: () => void;
   hint?: ReactNode;
+  /** Shown as a chip when no tab is chosen: what happens without one. */
+  noTabs?: string;
 };
 
 export function Box(p: BoxProps) {
@@ -125,7 +127,8 @@ export function Box(p: BoxProps) {
     {menu === "mode" && <ModeMenu {...p} close={() => setMenu(null)} />}
     {menu === "project" && <ProjectMenu {...p} projects={projects} close={() => setMenu(null)} />}
     <div className="x-box">
-      {(p.chips.length > 0 || p.quote || p.images.length > 0) && <div className="x-chips">
+      {(p.chips.length > 0 || p.quote || p.images.length > 0 || p.noTabs) && <div className="x-chips">
+        {!p.chips.length && p.noTabs && <span className="x-chip x-ghost" title="Without a shared tab, the agent opens the sites it needs in new tabs. Each new site asks you first unless you always allow it."><Icon name="globe" size={14} /><span>{p.noTabs}</span></span>}
         {p.quote && <span className="x-chip x-quote" title={p.quote.text}><Icon name="quote" size={14} /><span>{p.quote.text}</span><button aria-label="Remove the quote" onClick={p.clearQuote}><Icon name="close" size={12} /></button></span>}
         {p.chips.map((c) => <span key={c.tab} className="x-chip" title={c.url}><Favicon url={c.url} title={c.title} src={c.favIconUrl} /><span>{c.title}</span><button aria-label={`Do not share ${c.title}`} onClick={() => p.setChips(p.chips.filter((x) => x.tab !== c.tab))}><Icon name="close" size={12} /></button></span>)}
         {p.images.map((f, i) => <span key={f.data_url} className="x-chip"><img className="x-thumb" src={attachmentSrc(f.data_url)} alt="" /><span>{f.name}</span><button aria-label={`Remove ${f.name}`} onClick={() => p.setImages(p.images.filter((_, j) => j !== i))}><Icon name="close" size={12} /></button></span>)}
@@ -137,10 +140,12 @@ export function Box(p: BoxProps) {
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (sendable) p.onSend(); } }} />
       {reading && <div className="x-small x-faint" style={{ padding: "0 6px 4px" }}>Reading images…</div>}
       <div className="x-row">
+        <div className="x-pills">
         <button className={`x-pill ${menu === "tabs" ? "x-on" : ""}`} title="Share tabs" aria-label="Share tabs" onClick={() => setMenu("tabs")}><Icon name="plus" size={16} /></button>
         {!p.reply && p.profile !== undefined && <button className={`x-pill x-shrink ${menu === "agent" ? "x-on" : ""}`} title="Agent" onClick={() => setMenu("agent")}><Icon name="agent" size={14} /><span>{p.profile?.name ?? "Agent"}</span></button>}
         <button className={`x-pill ${menu === "mode" ? "x-on" : ""} ${p.act ? "x-acting" : ""}`} title="What the agent can do" onClick={() => setMenu("mode")}><Icon name={p.act ? "hand" : "eye"} size={14} /><span>{p.act ? "Act" : "Read"}</span></button>
         {!p.reply && p.setProject && projects.length > 0 && <button className={`x-pill x-shrink ${menu === "project" ? "x-on" : ""}`} title="Project" onClick={() => setMenu("project")}><Icon name="folder" size={14} /><span>{project?.name ?? "No project"}</span></button>}
+        </div>
         {showStop
           ? <button className="x-send x-stop" aria-label="Stop" title="Stop" onClick={p.onStop}><Icon name="stop" size={16} /></button>
           : <button className="x-send" aria-label="Send" title="Send" disabled={!sendable} onClick={p.onSend}>{p.busy ? <span className="x-spin" /> : <Icon name="send" size={16} />}</button>}
@@ -169,7 +174,7 @@ function TabsMenu(p: BoxProps & { close: () => void }) {
       </button>;
     })}
     <div className="x-sep" />
-    <div className="x-note">Chrome may ask to allow access to new sites when you send.</div>
+    <div className="x-note">Chrome may ask to allow access to new sites when you send. Share no tab to let the agent open its own tabs.</div>
     <div className="x-btns" style={{ padding: "0 4px 4px" }}><button className="x-btn x-pri x-wide" onClick={p.close}>Done</button></div>
   </div>;
 }

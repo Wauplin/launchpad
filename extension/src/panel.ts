@@ -1,5 +1,8 @@
 // Pair before loading shared stores and their background writers.
 import "./styles.css";
+import { applyTextSize } from "./textSize";
+
+applyTextSize();
 
 const root = document.getElementById("root")!;
 document.documentElement.classList.add("x-panel");

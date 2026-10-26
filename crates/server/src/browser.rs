@@ -6,6 +6,7 @@ use crate::{Server, auth::Access, error::{ApiError, ApiResult}};
 pub fn router() -> Router<Server> {
     Router::new()
         .route("/api/browser/grants", get(list).post(create))
+        .route("/api/browser/grants/new-tab", post(new_tab))
         .route("/api/browser/grants/{id}", axum::routing::delete(revoke))
         .route("/api/browser/replies/{id}", post(reply))
         .route("/api/browser/reviews", get(reviews))
@@ -94,4 +95,9 @@ async fn allow_site(State(s): State<Server>, Extension(access): Extension<Access
 async fn forget_site(State(s): State<Server>, Json(body): Json<Value>) -> ApiResult<Value> {
     browser::forget_site(&s.app, body["origin"].as_str().unwrap_or("")).await?;
     Ok(Json(json!({"ok":true})))
+}
+
+async fn new_tab(State(s): State<Server>, Extension(access): Extension<Access>) -> ApiResult<Value> {
+    let device = access.device.ok_or_else(|| ApiError::bad_request("Pair the Chrome extension first"))?;
+    Ok(Json(json!(browser::new_tab(&s.app, device).await?)))
 }

@@ -17,7 +17,7 @@ import { isRunning, needsYou } from "@/lib/sessionStatus";
 import { sendPresence } from "@/lib/ws";
 import { Box, chipOf, useWindowTabs } from "./compose";
 import { Favicon, Icon } from "./icons";
-import { grantTabs, hostOf, live, rememberSites, requestSites, siteOf, stepLabel, useGrants, useReviews, useSites, type Grant, type Review, type TabChip } from "./lp";
+import { grantTabs, hostOf, isHandle, live, newTabGrant, rememberSites, requestSites, siteOf, stepLabel, useGrants, useReviews, useSites, type Grant, type Review, type TabChip } from "./lp";
 
 export type Tone = "run" | "need" | "done" | "off" | "bad";
 /** The one status word of a task, with the review cards of the panel counted as Needs you. */
@@ -102,11 +102,11 @@ export function TaskView({ id }: { id: string }) {
 function SharedTabs({ grants, running, control }: { grants: Grant[]; running: boolean; control: (g: Grant, action: string) => Promise<void> }) {
   const client = useQueryClient();
   const stopSharing = (g: Grant) => void api.delete(`/api/browser/grants/${g.id}`).then(() => client.invalidateQueries({ queryKey: ["browser-grants"] })).catch(toastError);
-  const paused = grants.filter((g) => g.work && g.paused);
-  const acting = grants.filter((g) => g.work && !g.paused);
+  const paused = grants.filter((g) => g.work && g.paused && !isHandle(g));
+  const acting = grants.filter((g) => g.work && !g.paused && !isHandle(g));
   return <div className="x-banner x-run" style={{ flexWrap: "wrap" }}>
     <Icon name={acting.length ? "hand" : "eye"} size={15} />
-    <span className="x-shared">{grants.map((g) => <span key={g.id} className="x-chip" title={g.page.url}><Favicon url={g.page.url} title={g.page.title} /><span style={{ maxWidth: 150 }}>{g.page.title}</span><button aria-label={`Stop sharing ${g.page.title}`} title="Stop sharing" onClick={() => stopSharing(g)}><Icon name="close" size={12} /></button></span>)}</span>
+    <span className="x-shared">{grants.map((g) => <span key={g.id} className="x-chip" title={isHandle(g) ? "The agent opens its own tabs from here" : g.page.url}>{isHandle(g) ? <Icon name="globe" size={14} /> : <Favicon url={g.page.url} title={g.page.title} />}<span style={{ maxWidth: 150 }}>{isHandle(g) ? "Own tabs" : g.page.title}</span><button aria-label={`Stop sharing ${g.page.title}`} title="Stop sharing" onClick={() => stopSharing(g)}><Icon name="close" size={12} /></button></span>)}</span>
     {paused.length > 0 ? <button className="x-btn x-sm" title="Give control back to the agent" onClick={() => void Promise.all(paused.map((g) => control(g, "continue")))}>Resume</button>
       : acting.length > 0 && running && <button className="x-btn x-sm" title="Pause the agent's control so you can use the tab" onClick={() => void Promise.all(acting.map((g) => control(g, "take-over")))}>Take control</button>}
   </div>;
@@ -201,7 +201,7 @@ function ReviewCard({ review }: { review: Review }) {
   </div>;
   if (tool === "browser_navigate" || tool === "browser_open_tab") return <div className="x-card x-ask" role="region" aria-label="Site review">
     <h3><Icon name="globe" size={16} />Go to {url ? hostOf(url) : "another site"}?</h3>
-    <div className="x-kv"><i>From</i><span>{site}</span><i>To</i><span>{url}</span></div>
+    <div className="x-kv"><i>From</i><span>{page.tab < 0 ? "a new tab" : site}</span><i>To</i><span>{url}</span></div>
     <div className="x-btns"><button className="x-btn x-pri x-wide" disabled={busy} onClick={() => void decide(true)}>Allow</button><button className="x-btn x-wide" disabled={busy} onClick={() => void decide(false)}>Not now</button></div>
     {url && <button className="x-btn x-link x-small" disabled={busy} onClick={() => void decide(true, true)}>Always allow {hostOf(url)}</button>}
   </div>;
@@ -239,11 +239,11 @@ function Reply({ s, grants }: { s: Session; grants: Grant[] }) {
     if (!message && !images.length && !shown.length) return;
     setBusy(true);
     try {
-      if (shown.length) {
-        if (!await requestSites(shown)) throw new Error("Chrome access to the site was declined");
-        for (const g of await grantTabs(shown)) await api.post(`/api/browser/sessions/${s.id}/grants/${g.id}`);
-        await client.invalidateQueries({ queryKey: ["browser-grants"] });
-      }
+      if (!await requestSites(shown)) throw new Error("Chrome access to the site was declined");
+      // A task with nothing shared anymore gets a "New tab" handle so the agent can browse again.
+      const added = shown.length ? await grantTabs(shown) : grants.length ? [] : [await newTabGrant()];
+      for (const g of added) await api.post(`/api/browser/sessions/${s.id}/grants/${g.id}`);
+      if (added.length) await client.invalidateQueries({ queryKey: ["browser-grants"] });
       if (message || images.length) await api.post(`/api/sessions/${s.id}/input`, { text: message, images });
       setText(""); setChips([]); setImages([]);
     } catch (e) { toastError(e); }
@@ -263,5 +263,6 @@ function Reply({ s, grants }: { s: Session; grants: Grant[] }) {
     running={running} busy={busy} canSend={!!(text.trim() || images.length || shown.length)}
     placeholder={archived ? "Reply to continue this task…" : running ? "Add a message…" : "Reply…"}
     onSend={() => void send()} onStop={() => void api.post(`/api/sessions/${s.id}/interrupt`).catch(toastError)}
-    hint={running ? "You can type while it works. Your message is read at the next step." : !grants.length && !shown.length ? "No tab is shared with this task anymore. Add one with + Tabs." : undefined} />;
+    noTabs={!grants.length ? "The agent opens its own tabs" : undefined}
+    hint={running ? "You can type while it works. Your message is read at the next step." : undefined} />;
 }
