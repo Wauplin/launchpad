@@ -43,6 +43,8 @@ import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
 import { Sheet } from "@/mobile/Sheet";
 import { WorktreeCard, useSessionWorktrees, WorktreeChip } from "./Worktrees";
 import { usePhone } from "@/lib/phone";
+import { PresetButton, PresetChips, usePresets } from "./MessagePresets";
+import { withPresets } from "@/lib/presets";
 
 function act(id: string, action: string) {
   return api.post(`/api/sessions/${id}/${action}`).catch(toastError);
@@ -54,6 +56,13 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
   const text = useMessageDrafts((s) => s.drafts[sessionId] ?? "");
   const setDraft = useMessageDrafts((s) => s.set);
   const setText = (t: string) => setDraft(sessionId, t);
+  const allPresets = usePresets();
+  const selectedPresets = useMessageDrafts((s) => s.presets[sessionId]);
+  const setStoredPresets = useMessageDrafts((s) => s.setPresets);
+  // Presets go with messages, not with answers to an open question.
+  const presets = ask ? [] : (selectedPresets ?? []).filter((id) => allPresets.some((p) => p.id === id));
+  const setPresets = (ids: string[]) => setStoredPresets(sessionId, ids);
+  const message = ask ? text.trim() : withPresets(text, presets, allPresets);
   const [busy, setBusy] = useState(false);
   const [delivery, setDelivery] = useState<"sending" | "delivered" | "uncertain" | "failed" | null>(null);
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -80,7 +89,7 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [text, ref]);
   const send = async () => {
-    const t = text.trim();
+    const t = message;
     if ((!t && !images.length) || busy || disabled || reading || ask?.permission) return;
     setBusy(true);
     setDelivery("sending");
@@ -95,6 +104,7 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
       setDelivery("delivered");
       onSent();
       setText("");
+      if (!ask) setPresets([]);
       setImages([]);
     } catch (e) {
       setDelivery(e instanceof ApiError && e.operationCompleted ? "failed" : "uncertain");
@@ -111,8 +121,9 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
         <button className="iconbtn absolute -top-1 -right-1 bg-paper!" title={`Remove ${image.name}`} disabled={busy || reading} onClick={() => setImages((current) => current.filter((_, j) => j !== i))}><Icon name="x" size={12} /></button>
       </div>)}</div>}
       {delivery && <div role="status" className="mb-1 text-[11.5px] text-ink-3">{delivery === "sending" ? "◷ Sending…" : delivery === "delivered" ? "✓ Delivered" : delivery === "failed" ? "Attempt failed. Check the trace before starting a new attempt." : "Delivery not confirmed. Retry the same message to check its result."}</div>}
-      {delivery === "uncertain" && <button className="btn btn-sm mb-1" disabled={busy} onClick={() => void abandonOperation(`/api/sessions/${sessionId}/input`, { text: text.trim(), images }).then(() => setDelivery(null)).catch(toastError)}>I checked the trace — start a new attempt</button>}
+      {delivery === "uncertain" && <button className="btn btn-sm mb-1" disabled={busy} onClick={() => void abandonOperation(`/api/sessions/${sessionId}/input`, { text: message, images }).then(() => setDelivery(null)).catch(toastError)}>I checked the trace — start a new attempt</button>}
       {reading && <div className="mb-1 text-[11.5px] text-ink-3">Reading images…</div>}
+      {!ask && <PresetChips selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
       <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
         <textarea
           ref={ref}
@@ -135,10 +146,11 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
           }}
           className="max-h-40 min-h-5 min-w-0 flex-1 resize-none bg-transparent text-[12.5px] leading-5 outline-none disabled:opacity-60"
         />
+        {!ask && <PresetButton selected={presets} onChange={setPresets} disabled={disabled || busy || reading} />}
         {acceptsImages && <button className="iconbtn" title="Attach images (you can also drop or paste them)" aria-label="Attach images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
           <Icon name="clip" size={14} />
         </button>}
-        <button className="iconbtn border-line! bg-paper" title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : "Send"} disabled={disabled || busy || reading || (!text.trim() && !images.length)} onClick={() => void send()}>
+        <button className="iconbtn border-line! bg-paper" title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : "Send"} disabled={disabled || busy || reading || (!message && !images.length)} onClick={() => void send()}>
           <Icon name="send" size={14} />
         </button>
       </div>
@@ -229,7 +241,8 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const children = useMemo(() => subagents(log, s?.live ?? false), [log, s?.live]);
   const childrenOpen = current === "subagents";
   const typed = s?.launch_spec.text ?? "";
-  const trace = useMemo(() => foldTrace(rows, typed), [rows, typed]);
+  const presets = usePresets();
+  const trace = useMemo(() => foldTrace(rows, typed, presets), [rows, typed, presets]);
   const ask: PendingAsk = useMemo(() => {
     for (let i = rows.length - 1; i >= 0; i--) {
       const r = rows[i];
@@ -454,7 +467,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
                 void loadEarlier(s.id)
                   .then(() => requestAnimationFrame(() => {
                     // Keep the first previously shown row in view.
-                    const added = foldTrace(buildRows(useSessionLogs.getState().logs[s.id]), typed).length - before;
+                    const added = foldTrace(buildRows(useSessionLogs.getState().logs[s.id]), typed, presets).length - before;
                     if (added > 0) v.scrollToIndex(added, { align: "start" });
                   }))
                   .catch(toastError)

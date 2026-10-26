@@ -531,3 +531,6 @@ button {
 .lp-phone .phone-workspace-project { min-height: 44px; }
 .lp-phone .code-browser .h-\[30px\] { min-height: 44px; height: auto; }
 .lp-phone .code-browser .inline-grid { min-height: 44px; min-width: 44px; }
+
+/* Presets chosen for the next session message: whole chip removes, with a phone touch target. */
+.lp-phone .message-preset-chip { height: auto; min-height: 44px; padding-inline: 12px 10px; font-size: 13px; }

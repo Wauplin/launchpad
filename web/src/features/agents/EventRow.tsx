@@ -211,10 +211,10 @@ function BackgroundRow({ row, sessionId }: { row: Extract<Row, { t: "bg" }>; ses
 }
 
 /** Appended context, presets and Launchpad instructions of the launch prompt, folded. */
-export function Instructions({ blocks, className = "" }: { blocks: string[]; className?: string }) {
+export function Instructions({ blocks, className = "", label }: { blocks: string[]; className?: string; label?: string }) {
   const [open, setOpen] = useState(false);
   return <div className={className}>
-    <button className="text-[11.5px] text-ink-3 hover:text-ink" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? "−" : "+"} Launchpad instructions ({blocks.length})</button>
+    <button className="text-[11.5px] text-ink-3 hover:text-ink" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? "−" : "+"} {label ?? `Launchpad instructions (${blocks.length})`}</button>
     {open && <div className="mt-1 grid gap-2 border-l-2 border-line pl-2 text-xs text-ink-2">{blocks.map((b, i) => <div key={i}>{b}</div>)}</div>}
   </div>;
 }
@@ -241,6 +241,7 @@ export const EventRow = memo(
           <div className="ml-auto max-w-[88%] rounded-[10px_10px_3px_10px] bg-sunk px-2.5 py-[7px] text-[12.5px] whitespace-pre-wrap">
             {row.text}
             {row.instructions && <Instructions blocks={row.instructions} className={row.text ? "mt-1.5" : ""} />}
+            {row.presets && <Instructions label={`Presets: ${row.presets.map((p) => p.label).join(" · ")}`} blocks={row.presets.map((p) => p.text.trim())} className={row.text ? "mt-1.5" : ""} />}
             <div className="flex flex-wrap gap-2">{row.images.map((image, i) => <a key={i} href={image.data_url.startsWith("/api/") ? daemonUrl(image.data_url) : image.data_url} download={image.name} title={`Save ${image.name}`}><img src={image.data_url.startsWith("/api/") ? daemonUrl(image.data_url) : image.data_url} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-md border border-line" /></a>)}</div>
             {row.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
           </div>

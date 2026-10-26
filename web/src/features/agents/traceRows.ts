@@ -1,10 +1,13 @@
 // Display-only folding on top of rows.ts: consecutive notices become one line, and the launch
-// prompt shows the typed text with the appended Launchpad blocks folded.
+// prompt shows the typed text with the appended Launchpad blocks folded, and later messages fold
+// the presets appended to them.
 
 import type { Row } from "./rows";
+import type { Preset } from "@/gen/Preset";
+import { splitPresets } from "@/lib/presets";
 
 export type NoticesRow = { key: string; v: string; t: "notices"; texts: string[] };
-export type TraceRow = (Row & { instructions?: string[] }) | NoticesRow;
+export type TraceRow = (Row & { instructions?: string[]; presets?: Preset[] }) | NoticesRow;
 
 /**
  * The launch prompt starts with the typed text (compose.rs renders it first, then blank-line
@@ -18,7 +21,7 @@ export function splitPrompt(text: string, typed: string): { typed: string; instr
   return instructions.length ? { typed: t, instructions } : null;
 }
 
-export function foldTrace(rows: Row[], typed: string): TraceRow[] {
+export function foldTrace(rows: Row[], typed: string, presets: Preset[] = []): TraceRow[] {
   const out: TraceRow[] = [];
   let first = true;
   for (const r of rows) {
@@ -26,6 +29,11 @@ export function foldTrace(rows: Row[], typed: string): TraceRow[] {
       first = false;
       const split = splitPrompt(r.text, typed);
       out.push(split ? { ...r, text: split.typed, instructions: split.instructions } : r);
+      continue;
+    }
+    if (r.t === "user") {
+      const split = splitPresets(r.text, presets);
+      out.push(split ? { ...r, text: split.text, presets: split.presets } : r);
       continue;
     }
     const last = out[out.length - 1];
