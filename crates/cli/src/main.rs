@@ -117,6 +117,11 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
+    /// Ask Launchpad proposals with ids, titles, states and contents (JSON).
+    Proposals {
+        #[command(subcommand)]
+        command: ListOnly,
+    },
     /// Store an inert proposal for the owner to start from the Ask page; never starts anything.
     Propose {
         #[arg(value_parser = ["launch", "message", "schedule", "cron", "status"])]
@@ -125,6 +130,9 @@ enum Command {
         title: String,
         #[arg(long)]
         note: Option<String>,
+        /// Supersede a waiting, unstarted proposal in the same workspace.
+        #[arg(long)]
+        replaces: Option<String>,
         /// JSON file with the proposal fields (see the Ask Launchpad instructions).
         #[arg(long)]
         spec_file: std::path::PathBuf,
@@ -355,13 +363,19 @@ async fn main() -> Result<()> {
         Command::Schedules { command: ListOnly::List { workspace } } => context_command(&paths, "schedules", workspace).await,
         Command::Sessions { command: Sessions::List { workspace } } => context_command(&paths, "sessions", workspace).await,
         Command::Sessions { command: Sessions::Show { session_id } } => context_command(&paths, &format!("sessions/{}", url_segment(&session_id)), None).await,
-        Command::Propose { kind, title, note, spec_file, session_id } => {
+        Command::Proposals { command: ListOnly::List { workspace } } => {
+            let path = match workspace { Some(w) => query("/api/proposals", &[("workspace", &w)]), None => "/api/proposals".into() };
+            let proposals = Client::new(&paths)?.json("GET", &path, None).await?;
+            println!("{}", serde_json::to_string_pretty(&proposals)?);
+            Ok(())
+        }
+        Command::Propose { kind, title, note, replaces, spec_file, session_id } => {
             let text = std::fs::read_to_string(&spec_file).with_context(|| format!("read {}", spec_file.display()))?;
             let mut body: serde_json::Value = serde_json::from_str(&text).context("the spec file is not valid JSON")?;
             anyhow::ensure!(body.is_object(), "the spec file must hold a JSON object");
             body["kind"] = serde_json::Value::String(kind);
             let session_id = session_id.or_else(|| std::env::var("LAUNCHPAD_SESSION_ID").ok());
-            let created = Client::new(&paths)?.json("POST", "/api/proposals", Some(serde_json::json!({"title": title, "note": note, "body": body, "session_id": session_id}))).await?;
+            let created = Client::new(&paths)?.json("POST", "/api/proposals", Some(serde_json::json!({"title": title, "note": note, "replaces": replaces, "body": body, "session_id": session_id}))).await?;
             println!("Proposal {} saved. The owner starts it from the Ask page.", created["id"].as_str().unwrap_or("?"));
             Ok(())
         }
@@ -441,5 +455,20 @@ fn init_tracing() {
         builder.without_time().with_ansi(false).init();
     } else {
         builder.init();
+    }
+}
+
+#[cfg(test)]
+mod proposal_tests {
+    use super::*;
+
+    #[test]
+    fn proposal_cli_accepts_replacement_without_a_note_and_lists_by_workspace() {
+        let cli = Cli::try_parse_from(["launchpad", "propose", "launch", "--title", "Refined", "--spec-file", "spec.json", "--replaces", "old-id"]).unwrap();
+        assert!(matches!(cli.command, Command::Propose { replaces: Some(id), note: None, .. } if id == "old-id"));
+        let cli = Cli::try_parse_from(["launchpad", "propose", "status", "--title", "New", "--spec-file", "spec.json"]).unwrap();
+        assert!(matches!(cli.command, Command::Propose { replaces: None, .. }));
+        let cli = Cli::try_parse_from(["launchpad", "proposals", "list", "--workspace", "Work"]).unwrap();
+        assert!(matches!(cli.command, Command::Proposals { command: ListOnly::List { workspace: Some(w) } } if w == "Work"));
     }
 }

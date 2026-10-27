@@ -33,7 +33,7 @@ When the prompt lists reference agent traces, load one only if it helps the task
 
 ## Launchpad state (read only)
 
-To look up Launchpad state, use the JSON commands `launchpad folders list`, `launchpad sessions list`, `launchpad sessions show <session-id>`, `launchpad profiles list`, `launchpad presets list`, `launchpad inbox list` and `launchpad schedules list`; most accept `--workspace <id or name>`. They never change anything. Only the Ask Launchpad assistant writes proposals (`launchpad propose …`); other agents do not.
+To look up Launchpad state, use the JSON commands `launchpad folders list`, `launchpad sessions list`, `launchpad sessions show <session-id>`, `launchpad profiles list`, `launchpad presets list`, `launchpad inbox list` `launchpad schedules list` and `launchpad proposals list`; most accept `--workspace <id or name>`. They never change anything. Only the Ask Launchpad assistant writes proposals (`launchpad propose …`); other agents do not.
 
 ## Platform shell syntax
 

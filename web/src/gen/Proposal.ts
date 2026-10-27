@@ -18,4 +18,8 @@ note: string | null, body: ProposalBody, state: ProposalState,
 /**
  * For launches: the session ID reserved at proposal time. Then the started session, schedule or cron.
  */
-result_id: string | null, error: string | null, created_at: number, updated_at: number, };
+result_id: string | null,
+/**
+ * Successor card when this proposal was replaced.
+ */
+replaced_by: string | null, error: string | null, created_at: number, updated_at: number, };

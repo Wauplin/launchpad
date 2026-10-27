@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { memo, useState } from "react";
 import type { Proposal } from "@/gen/Proposal";
 import type { Session } from "@/gen/Session";
@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { useProfiles } from "@/lib/profiles";
 import { useProjects, useSessions } from "@/lib/queries";
 import { useComposer } from "@/stores/composer";
+import { useWorkspace } from "@/stores/workspace";
 import { useLayout } from "@/stores/layout";
 import { StatusBadge } from "@/features/agents/SessionBits";
 
@@ -73,7 +74,7 @@ const SessionRow = memo(function SessionRow({ s }: { s: Session }) {
   );
 });
 
-export const ProposalCard = memo(function ProposalCard({ p, onAccepted }: { p: Proposal; onAccepted?: () => void }) {
+export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor = false }: { p: Proposal; onAccepted?: () => void; anchor?: boolean }) {
   const qc = useQueryClient();
   const sessions = useSessions().data ?? [];
   const [busy, setBusy] = useState(false);
@@ -94,7 +95,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted }: { p: P
   const session = started && (p.body.kind === "launch" || p.body.kind === "message") ? sessions.find((s) => s.id === p.result_id) : undefined;
   const statusSessions = p.body.kind === "status" ? p.body.session_ids.map((id) => sessions.find((s) => s.id === id)).filter((s): s is Session => !!s) : [];
   return (
-    <article className={`grid gap-2 rounded-xl border bg-paper p-3 ${p.body.kind === "cron" && !started ? "border-attn-line" : "border-line"}`}>
+    <article id={anchor ? `proposal-${p.id}` : undefined} tabIndex={-1} className={`grid gap-2 rounded-xl border bg-paper p-3 ${p.body.kind === "cron" && !started ? "border-attn-line" : "border-line"}`}>
       <div className="flex items-start gap-2">
         <Icon name={p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" ? "refresh" : p.body.kind === "status" ? "agents" : "play"} size={14} className="mt-0.5 flex-none text-ink-3" />
         <div className="min-w-0 flex-1">
@@ -110,6 +111,8 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted }: { p: P
       {statusSessions.length > 0 && <div className="grid">{statusSessions.map((s) => <SessionRow key={s.id} s={s} />)}</div>}
       {session && <SessionRow s={session} />}
       {started && !session && p.body.kind !== "status" && <span className="text-[12px] text-gh-open"><Icon name="check" size={11} /> {p.body.kind === "schedule" ? "Scheduled: see Agents → Scheduled" : p.body.kind === "cron" ? "Cron created: see Agents → Cron" : "Started"}</span>}
+      {p.state === "replaced" && <span className="text-[12px] text-ink-3">Replaced{p.replaced_by && <> · <Link to="/ask" search={{ proposal: p.replaced_by }} onClick={() => useWorkspace.getState().switchTo(p.workspace_id)} className="underline">View replacement</Link></>}</span>}
+      {p.state === "dismissed" && <span className="text-[12px] text-ink-3">Dismissed</span>}
       {p.state === "failed" && p.error && <ErrorState error={p.error} />}
       {p.state === "uncertain" && <div className="grid gap-1.5 text-[12px] text-attn">Delivery not confirmed. Check Agents before starting a new attempt.<button className="btn btn-sm w-fit" disabled={busy} onClick={() => void act("recheck")}>I checked Agents — check again</button></div>}
       {(p.state === "proposed" || p.state === "failed") && p.body.kind !== "status" && (

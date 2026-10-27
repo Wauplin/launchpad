@@ -32,8 +32,14 @@ fn bad(e: anyhow::Error) -> ApiError {
     ApiError::bad_request(format!("{e:#}"))
 }
 
-async fn list(State(s): State<Server>) -> ApiResult<Vec<Proposal>> {
-    Ok(Json(proposals::list(&s.app).await?))
+async fn list(State(s): State<Server>, Query(q): Query<Scope>) -> ApiResult<Vec<Proposal>> {
+    let mut proposals = proposals::list(&s.app).await?;
+    if let Some(w) = q.workspace.filter(|w| !w.is_empty() && w != "all") {
+        let workspaces = launchpad_core::workspace::list(&s.app).await?;
+        let ws = workspaces.iter().find(|x| x.id == w || x.name.eq_ignore_ascii_case(&w)).ok_or_else(|| ApiError::not_found(format!("no workspace {w}")))?;
+        proposals.retain(|p| p.workspace_id.as_deref() == Some(&ws.id));
+    }
+    Ok(Json(proposals))
 }
 async fn create(State(s): State<Server>, Json(c): Json<Create>) -> ApiResult<Proposal> {
     Ok(Json(proposals::create(&s.app, c).await.map_err(bad)?))

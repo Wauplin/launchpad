@@ -4,7 +4,7 @@
 //! automatically. Launches use the session ID chosen at proposal time, so a finished launch is found
 //! again by that ID.
 use anyhow::{Context, Result, bail, ensure};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use ts_rs::TS;
@@ -41,6 +41,8 @@ pub enum ProposalState {
     /// Done: `result_id` is the session, schedule or cron.
     Started,
     Dismissed,
+    /// Superseded by another proposal before starting.
+    Replaced,
     /// The action failed before doing anything; the owner may start it again.
     Failed,
     /// A claim whose outcome is unknown (daemon restart while starting). Never retried automatically.
@@ -61,6 +63,9 @@ pub struct Proposal {
     pub state: ProposalState,
     /// For launches: the session ID reserved at proposal time. Then the started session, schedule or cron.
     pub result_id: Option<String>,
+    /// Successor card when this proposal was replaced.
+    #[serde(default)]
+    pub replaced_by: Option<String>,
     pub error: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
@@ -68,6 +73,8 @@ pub struct Proposal {
 
 #[derive(Deserialize)]
 pub struct Create {
+    #[serde(default)]
+    pub replaces: Option<String>,
     pub title: String,
     #[serde(default)]
     pub note: Option<String>,
@@ -107,11 +114,11 @@ pub async fn instruction(app: &App, workspace_id: Option<&str>, cli: &str) -> St
     format!(
         "You are Ask Launchpad, the owner's assistant inside Launchpad, scoped to {ws}. You turn requests into proposals that the owner starts with one tap. You never start agents, send messages, schedule, publish or post to GitHub yourself, and you do not edit files.\n\n\
 Read Launchpad state with these read-only commands (JSON output):\n\
-- `{cmd} folders list{ws_arg}`\n- `{cmd} sessions list{ws_arg}` and `{cmd} sessions show <session-id>`\n- `{cmd} profiles list` (profiles and the quota of each subscription login)\n- `{cmd} presets list`\n- `{cmd} inbox list{ws_arg}`\n- `{cmd} schedules list{ws_arg}`\n- `{cmd} trace <session-id>` for an agent's full trace\n\n\
-Write proposals with `{cmd} propose <launch|message|schedule|cron|status> --title \"…\" [--note \"…\"] --spec-file <file.json>`. The JSON file holds:\n\
+- `{cmd} folders list{ws_arg}`\n- `{cmd} sessions list{ws_arg}` and `{cmd} sessions show <session-id>`\n- `{cmd} profiles list` (profiles and the quota of each subscription login)\n- `{cmd} presets list`\n- `{cmd} inbox list{ws_arg}`\n- `{cmd} schedules list{ws_arg}`\n- `{cmd} proposals list{ws_arg}` (proposal ids, titles, states and contents)\n- `{cmd} trace <session-id>` for an agent's full trace\n\n\
+Write proposals with `{cmd} propose <launch|message|schedule|cron|status> --title \"…\" [--note \"…\"] [--replaces <proposal-id>] --spec-file <file.json>`. The JSON file holds:\n\
 - launch: {{\"spec\": <launch spec>}}\n- message: {{\"session_id\": \"…\", \"text\": \"…\"}}\n- schedule: {{\"spec\": <launch spec>, \"conditions\": [{{\"kind\": \"in\", \"minutes\": 30}} | {{\"kind\": \"at\", \"at\": <unix ms>}} | {{\"kind\": \"agents\", \"session_ids\": [\"…\"]}} | {{\"kind\": \"quota\", \"harness\": \"claude\", \"window\": \"five_hour\"}}]}}\n- cron: {{\"spec\": <launch spec>, \"schedule\": \"0 9 * * 1\", \"conditions\": []}}\n- status: {{\"session_ids\": [\"…\"]}}\n\
 A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"target\": {{\"kind\": \"project\", \"project_id\": \"<folder id>\"}} or {{\"kind\": \"temp\"}}, \"worktree\": {{\"base\": null, \"include_changes\": false, \"merge_when_done\": false}} for Git folders (null for the checkout), \"github_refs\": [], \"presets\": [<preset ids>]}}; other fields take their defaults. Launchpad validates each proposal with the launch preview and refuses invalid ones; read the error and fix the file. Paid usage stays off. Prefer one proposal per independent task, a message proposal to steer an existing agent, a status proposal to answer \"what needs me\", and a schedule with a quota condition for work that should wait for quota. Crons always need the owner's tap.\n\n\
-Answer in short sentences. After proposing, tell the owner what each card does; they can accept it directly in the thread. Accepting a proposal closes this thread; the next request starts fresh, and the owner can resume this conversation."
+When refining an earlier waiting proposal, find it with `proposals list` and use `--replaces <proposal-id>` so only the refined card waits. Only proposed or failed cards in this workspace can be replaced; starting, started, dismissed, uncertain and already replaced cards cannot. Tell the owner which card was replaced. The note on the new card is optional.\n\nAnswer in short sentences. After proposing, tell the owner what each card does; they can accept it directly in the thread. Accepting a proposal closes this thread; the next request starts fresh, and the owner can resume this conversation."
     )
 }
 
@@ -180,12 +187,34 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
         crate::crons::next_after(schedule, now_ms()).context("invalid cron schedule")?;
     }
     let now = now_ms();
-    let p = Proposal { id: uuid::Uuid::new_v4().to_string(), workspace_id, session_id: c.session_id, title: c.title.trim().to_string(), note: c.note.filter(|n| !n.trim().is_empty()), body, state: ProposalState::Proposed, result_id, error: None, created_at: now, updated_at: now };
-    save(app, &p).await?;
+    let p = Proposal { id: uuid::Uuid::new_v4().to_string(), workspace_id, session_id: c.session_id, title: c.title.trim().to_string(), note: c.note.filter(|n| !n.trim().is_empty()), body, state: ProposalState::Proposed, result_id, replaced_by: None, error: None, created_at: now, updated_at: now };
+    // Share the claim lock with accept/dismiss: a replacement cannot race an owner click.
+    let _lock = ACCEPT.lock().await;
+    let stored = p.clone();
+    app.state_db.call(move |db| store_created(db, &stored, c.replaces.as_deref())).await?;
+    app.bus.publish("proposals", "changed", serde_json::to_value(&p)?);
     Ok(p)
 }
 
-/// Serializes accepts so a double click cannot claim twice.
+/// Atomically retire the old card and insert its successor, or leave both untouched on error.
+fn store_created(db: &mut rusqlite::Connection, p: &Proposal, replaces: Option<&str>) -> Result<()> {
+    let tx = db.transaction()?;
+    if let Some(id) = replaces {
+        let json: Option<String> = tx.query_row("SELECT json FROM launch_proposal WHERE id = ?1", [id], |r| r.get(0)).optional()?;
+        let mut old: Proposal = serde_json::from_str(&json.context("no such proposal to replace")?)?;
+        ensure!(matches!(old.state, ProposalState::Proposed | ProposalState::Failed), "cannot replace proposal '{}' ({:?}); only waiting, unstarted proposals can be replaced", old.title, old.state);
+        ensure!(old.workspace_id == p.workspace_id, "cannot replace a proposal from another workspace");
+        old.state = ProposalState::Replaced;
+        old.replaced_by = Some(p.id.clone());
+        old.updated_at = p.updated_at;
+        tx.execute("UPDATE launch_proposal SET json = ?2 WHERE id = ?1", params![id, serde_json::to_string(&old)?])?;
+    }
+    tx.execute("INSERT INTO launch_proposal (id, json) VALUES (?1, ?2)", params![p.id, serde_json::to_string(p)?])?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Serializes claims, dismissals and replacements so only one can retire a waiting card.
 static ACCEPT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Owner click: claim, act, record the result. `body` may replace the proposal's spec (edited in the card).
@@ -199,6 +228,7 @@ pub async fn accept(app: &App, id: &str) -> Result<Proposal> {
             ProposalState::Uncertain => bail!("Delivery not confirmed. Check Agents before starting a new attempt."),
             ProposalState::Starting => bail!("This proposal is already starting"),
             ProposalState::Dismissed => bail!("This proposal was dismissed"),
+            ProposalState::Replaced => bail!("This proposal was replaced; open its replacement card"),
         }
         p.state = ProposalState::Starting;
         p.error = None;
@@ -344,4 +374,76 @@ pub fn thread(app: &App, workspace_id: Option<&str>) -> Option<crate::model::Ses
         .into_iter()
         .filter(|s| s.status != crate::model::SessionStatus::Closed && matches!(&s.launch_spec.target, Target::Assistant { workspace_id: w } if w.as_deref() == workspace_id))
         .max_by_key(|s| s.started_at)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn proposal(id: &str, state: ProposalState) -> Proposal {
+        Proposal {
+            id: id.into(), workspace_id: None, session_id: None, title: format!("Card {id}"), note: None,
+            body: ProposalBody::Status { session_ids: vec!["session".into()] }, state, result_id: None,
+            replaced_by: None, error: None, created_at: 1, updated_at: 2,
+        }
+    }
+
+    fn database() -> rusqlite::Connection {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE launch_proposal (id TEXT PRIMARY KEY, json TEXT NOT NULL)").unwrap();
+        db
+    }
+
+    fn read(db: &rusqlite::Connection, id: &str) -> Proposal {
+        let json: String = db.query_row("SELECT json FROM launch_proposal WHERE id = ?1", [id], |r| r.get(0)).unwrap();
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn replaces_waiting_cards_and_keeps_successor_links() {
+        for state in [ProposalState::Proposed, ProposalState::Failed] {
+            let mut db = database();
+            store_created(&mut db, &proposal("old", state), None).unwrap();
+            store_created(&mut db, &proposal("new", ProposalState::Proposed), Some("old")).unwrap();
+            let old = read(&db, "old");
+            assert_eq!(old.state, ProposalState::Replaced);
+            assert_eq!(old.replaced_by.as_deref(), Some("new"));
+            assert_eq!(old.title, "Card old");
+            assert_eq!(read(&db, "new").state, ProposalState::Proposed);
+            assert!(read(&db, "new").note.is_none());
+            store_created(&mut db, &proposal("newer", ProposalState::Proposed), Some("new")).unwrap();
+            assert_eq!(read(&db, "new").replaced_by.as_deref(), Some("newer"));
+        }
+    }
+
+    #[test]
+    fn rejects_nonwaiting_missing_and_cross_workspace_targets_without_creating_a_card() {
+        for state in [ProposalState::Starting, ProposalState::Started, ProposalState::Dismissed, ProposalState::Uncertain, ProposalState::Replaced] {
+            let mut db = database();
+            store_created(&mut db, &proposal("old", state.clone()), None).unwrap();
+            let error = store_created(&mut db, &proposal("new", ProposalState::Proposed), Some("old")).unwrap_err();
+            assert!(error.to_string().contains("only waiting, unstarted proposals"));
+            assert_eq!(read(&db, "old").state, state);
+            assert_eq!(db.query_row("SELECT count(*) FROM launch_proposal", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+        }
+        let mut db = database();
+        assert!(store_created(&mut db, &proposal("new", ProposalState::Proposed), Some("missing")).unwrap_err().to_string().contains("no such proposal"));
+        let mut old = proposal("old", ProposalState::Proposed);
+        old.workspace_id = Some("other".into());
+        store_created(&mut db, &old, None).unwrap();
+        assert!(store_created(&mut db, &proposal("new", ProposalState::Proposed), Some("old")).unwrap_err().to_string().contains("another workspace"));
+        assert_eq!(read(&db, "old").state, ProposalState::Proposed);
+    }
+
+    #[test]
+    fn insertion_failure_rolls_back_replacement_and_legacy_cards_still_load() {
+        let mut db = database();
+        let old = proposal("old", ProposalState::Proposed);
+        store_created(&mut db, &old, None).unwrap();
+        assert!(store_created(&mut db, &old, Some("old")).is_err());
+        assert_eq!(read(&db, "old").state, ProposalState::Proposed);
+        let mut json = serde_json::to_value(old).unwrap();
+        json.as_object_mut().unwrap().remove("replaced_by");
+        assert!(serde_json::from_value::<Proposal>(json).unwrap().replaced_by.is_none());
+    }
 }

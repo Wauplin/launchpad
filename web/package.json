@@ -14,6 +14,7 @@
     "test:terminals": "node --experimental-strip-types --test tests/terminals.test.mjs",
     "test:code": "node --experimental-strip-types --test tests/codeSafety.test.mjs",
     "test:markdown": "node --experimental-strip-types --test tests/commitLinks.test.mjs tests/fileCitations.test.mjs",
+    "test:proposals": "node --experimental-strip-types --test tests/proposals.test.mjs",
     "test:drafts": "node --experimental-strip-types --test tests/draftPersistence.test.mjs"
   },
   "dependencies": {

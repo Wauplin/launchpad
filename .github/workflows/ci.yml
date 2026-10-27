@@ -67,6 +67,9 @@ jobs:
       - name: Composer defaults regressions
         working-directory: web
         run: pnpm test:composer
+      - name: Ask proposal regressions
+        working-directory: web
+        run: pnpm test:proposals
       - name: Draft persistence regressions
         working-directory: web
         run: pnpm test:drafts

@@ -354,7 +354,7 @@ async fn accepted_proposals_close_only_their_author_and_keep_results_retry_safe(
         id: "accept".into(), workspace_id: None, session_id: Some("author".into()),
         title: "Launch".into(), note: None,
         body: ProposalBody::Launch { spec: original.launch_spec.clone() },
-        state: ProposalState::Proposed, result_id: Some("test".into()), error: None,
+        state: ProposalState::Proposed, result_id: Some("test".into()), replaced_by: None, error: None,
         created_at: 0, updated_at: 0,
     };
     async fn store(app: &crate::App, p: &Proposal) {
@@ -400,4 +400,38 @@ async fn accepted_proposals_close_only_their_author_and_keep_results_retry_safe(
     store(&app, &proposal).await;
     assert_eq!(proposals::accept(&app, &proposal.id).await.unwrap().state, ProposalState::Started);
     assert_eq!(app.sessions.get("other").unwrap().status, SessionStatus::Waiting);
+}
+
+#[tokio::test]
+async fn proposal_replacements_validate_notify_and_reject_stale_owner_actions() {
+    use crate::proposals::{self, Create, ProposalState};
+    let (_fixture, app) = fixture().await;
+    let request = |title: &str, replaces: Option<&str>| -> Create {
+        serde_json::from_value(serde_json::json!({
+            "title": title, "replaces": replaces,
+            "body": {"kind": "status", "session_ids": ["test"]}
+        })).unwrap()
+    };
+    let old = proposals::create(&app, request("Original", None)).await.unwrap();
+    assert!(proposals::create(&app, request(" ", Some(&old.id))).await.is_err());
+    assert_eq!(proposals::get(&app, &old.id).await.unwrap().state, ProposalState::Proposed);
+    let mut viewer = app.bus.subscribe(None).rx;
+    let (a, b) = tokio::join!(
+        proposals::create(&app, request("Refined A", Some(&old.id))),
+        proposals::create(&app, request("Refined B", Some(&old.id)))
+    );
+    assert_ne!(a.is_ok(), b.is_ok());
+    let next = a.or(b).unwrap();
+    assert!(next.note.is_none());
+    assert_eq!(proposals::get(&app, &old.id).await.unwrap().replaced_by.as_deref(), Some(next.id.as_str()));
+    assert_eq!(proposals::list(&app).await.unwrap().len(), 2);
+    let event: serde_json::Value = serde_json::from_str(&viewer.try_recv().unwrap().text).unwrap();
+    assert_eq!(event["topic"], "proposals");
+    assert!(proposals::accept(&app, &old.id).await.unwrap_err().to_string().contains("replaced"));
+    assert!(proposals::dismiss(&app, &old.id).await.is_err());
+    let (replacement, dismissed) = tokio::join!(
+        proposals::create(&app, request("Refined again", Some(&next.id))),
+        proposals::dismiss(&app, &next.id)
+    );
+    assert_ne!(replacement.is_ok(), dismissed.is_ok());
 }

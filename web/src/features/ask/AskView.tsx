@@ -21,6 +21,7 @@ import { needsYou, isQuotaPaused, isRunning } from "@/lib/sessionStatus";
 import { useScope } from "@/lib/workspace";
 import { useComposer } from "@/stores/composer";
 import { useWorkspace } from "@/stores/workspace";
+import { isWaiting, visibleProposals } from "./proposalState";
 import { ProposalCard, useProposalList } from "./ProposalCard";
 import { SessionPane } from "@/features/agents/SessionPane";
 import { PhoneActions } from "@/mobile/PhoneHeader";
@@ -133,16 +134,26 @@ export function AskView() {
   const scope = useScope();
   const sessions = useSessions().data ?? [];
   const proposals = useProposalList();
-  const search = useSearch({ strict: false }) as { q?: string };
+  const search = useSearch({ strict: false }) as { q?: string; proposal?: string };
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<"open" | "all">("open");
-  const [pane, setPane] = useState<"chat" | "cards">("chat");
+  const [pane, setPane] = useState<"chat" | "cards">(search.proposal ? "cards" : "chat");
+  const revealed = search.proposal ?? null;
+  const focusedProposal = useRef<string | null>(null);
+  useEffect(() => {
+    if (revealed) { setFilter("all"); setPane("cards"); }
+  }, [revealed]);
+  useEffect(() => {
+    if (!revealed || filter !== "all" || focusedProposal.current === revealed) return;
+    const card = document.getElementById(`proposal-${revealed}`);
+    if (card) { card.focus(); focusedProposal.current = revealed; }
+  }, [revealed, filter, proposals.data, pane]);
   const threads = (useSessions(true).data ?? []).filter((s) => s.launch_spec.target.kind === "assistant" && ((s.launch_spec.target as { workspace_id: string | null }).workspace_id ?? null) === workspace).sort((a, b) => b.started_at - a.started_at);
   const thread = threads.find((s) => s.status !== "closed");
   const previous = threads.find((s) => s.status === "closed");
   const mine = (proposals.data ?? []).filter((p) => (p.workspace_id ?? null) === workspace);
-  const waiting = mine.filter((p) => p.state === "proposed" || p.state === "failed" || p.state === "uncertain");
-  const shown = filter === "open" ? waiting : mine.slice(0, 50);
+  const waiting = mine.filter(isWaiting);
+  const shown = visibleProposals(mine, filter === "open", revealed);
   const ask = async (text: string, attachments: FileAttachment[] = []) => {
     setBusy(true);
     try { await api.post<Session>("/api/assistant", { workspace_id: workspace, text, attachments }); await qc.invalidateQueries({ queryKey: ["sessions"] }); return true; }
@@ -195,7 +206,7 @@ export function AskView() {
         </FilterChips>
         {startable.length > 1 && <button className="btn btn-sm btn-primary ml-auto" disabled={busy} onClick={() => void startAll()}><Icon name="play" size={12} />Start all & close threads ({startable.length})</button>}
       </div>
-      {proposals.isLoading ? <Loading what="proposals" /> : proposals.error ? <ErrorState error={proposals.error} onRetry={() => void proposals.refetch()} /> : shown.length === 0 ? <Empty icon="spark">{filter === "open" ? "No proposal waits for you." : "No proposal yet."}</Empty> : shown.map((p) => <ProposalCard key={p.id} p={p} onAccepted={() => setPane("chat")} />)}
+      {proposals.isLoading ? <Loading what="proposals" /> : proposals.error ? <ErrorState error={proposals.error} onRetry={() => void proposals.refetch()} /> : shown.length === 0 ? <Empty icon="spark">{filter === "open" ? "No proposal waits for you." : "No proposal yet."}</Empty> : shown.map((p) => <ProposalCard key={p.id} p={p} anchor onAccepted={() => setPane("chat")} />)}
     </section>
   );
   const chat = thread
