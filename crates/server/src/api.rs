@@ -316,8 +316,20 @@ async fn profile_models(Json(b): Json<ModelsUrl>) -> ApiResult<Vec<launchpad_cor
 
 // ---------------------------------------------------------------- sessions
 
-async fn list_sessions(State(s): State<Server>) -> Json<Vec<Session>> {
-    Json(s.app.sessions.list().iter().map(Session::light).collect())
+#[derive(Default, Deserialize)]
+struct SessionListing {
+    #[serde(default)]
+    include_assistant: bool,
+}
+
+impl SessionListing {
+    fn includes(&self, session: &Session) -> bool {
+        self.include_assistant || !session.launch_spec.target.is_assistant()
+    }
+}
+
+async fn list_sessions(State(s): State<Server>, Query(q): Query<SessionListing>) -> Json<Vec<Session>> {
+    Json(s.app.sessions.list().iter().filter(|s| q.includes(s)).map(Session::light).collect())
 }
 
 async fn get_session(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Session> {
@@ -678,7 +690,7 @@ async fn session_git_diff(State(s): State<Server>, Path(id): Path<String>, Query
     Ok(Json(launchpad_core::session_git::diff(&s.app,&id,&q.path,q.main).await.map_err(bad)?))
 }
 #[derive(Deserialize)]
-struct SessionSearch { q: String }
+struct SessionSearch { q: String, #[serde(default)] include_assistant: bool }
 async fn search_sessions(State(s): State<Server>, Query(q): Query<SessionSearch>) -> ApiResult<Vec<String>> {
     let needle = q.q.trim().to_string();
     if needle.is_empty() { return Ok(Json(vec![])); }
@@ -686,5 +698,32 @@ async fn search_sessions(State(s): State<Server>, Query(q): Query<SessionSearch>
         let mut st = c.prepare("SELECT DISTINCT session_id FROM session_event WHERE instr(lower(json_extract(json, '$.text')), lower(?1)) > 0")?;
         Ok(st.query_map([needle], |r| r.get::<_,String>(0))?.collect::<Result<Vec<_>, _>>()?)
     }).await?;
-    Ok(Json(ids))
+    let listing = SessionListing { include_assistant: q.include_assistant };
+    Ok(Json(ids.into_iter().filter(|id| s.app.sessions.get(id).is_some_and(|s| listing.includes(&s))).collect()))
+}
+
+#[cfg(test)]
+mod session_listing_tests {
+    use super::*;
+
+    #[test]
+    fn assistant_threads_require_explicit_listing_opt_in() {
+        let mut session: Session = serde_json::from_value(serde_json::json!({
+            "id": "a", "harness": "codex", "cwd": "/tmp", "title": "Task",
+            "status": "working", "status_since": 1, "live": false, "open_question": false,
+            "prompt": "task", "usage": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0},
+            "started_at": 0, "last_seq": 0, "launch_spec": {}, "seen_at": 0
+        })).unwrap();
+        let default: SessionListing = serde_json::from_value(serde_json::json!({})).unwrap();
+        let explicit = SessionListing { include_assistant: true };
+        assert!(default.includes(&session));
+        for workspace_id in [None, Some("workspace".to_string())] {
+            session.launch_spec.target = launchpad_core::model::Target::Assistant { workspace_id };
+            for status in [SessionStatus::Working, SessionStatus::Waiting, SessionStatus::Error, SessionStatus::Closed] {
+                session.status = status;
+                assert!(!default.includes(&session));
+                assert!(explicit.includes(&session));
+            }
+        }
+    }
 }

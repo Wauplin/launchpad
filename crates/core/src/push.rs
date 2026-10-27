@@ -175,7 +175,7 @@ impl Push {
 
     /// A test notification to the subscriptions of one device.
     pub async fn send_test(&self, app: &App, device: &str) -> Result<usize> {
-        let needs = app.sessions.list().iter().filter(|s| s.needs_you()).count();
+        let needs = app.sessions.list().iter().filter(|s| !s.launch_spec.target.is_assistant() && s.needs_you()).count();
         let n = self
             .send(app, Some(device.to_string()), |_| Message {
                 title: "Launchpad test notification".into(),
@@ -195,7 +195,7 @@ impl Push {
         let (push, app, s) = (self.clone(), app.clone(), s.clone());
         tokio::spawn(async move {
             let project = project_name(&app, &s).await;
-            let needs = app.sessions.list().iter().filter(|s| s.needs_you()).count();
+            let needs = app.sessions.list().iter().filter(|s| !s.launch_spec.target.is_assistant() && s.needs_you()).count();
             let title = event.summary(&project);
             let result = push
                 .send(&app, None, |titles| Message {

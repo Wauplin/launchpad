@@ -245,7 +245,7 @@ export function AskView() {
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<"open" | "all">("open");
   const [pane, setPane] = useState<"chat" | "cards">("chat");
-  const thread = sessions.filter((s) => s.launch_spec.target.kind === "assistant" && ((s.launch_spec.target as { workspace_id: string | null }).workspace_id ?? null) === workspace && s.status !== "closed").sort((a, b) => b.started_at - a.started_at)[0];
+  const thread = (useSessions(true).data ?? []).filter((s) => s.launch_spec.target.kind === "assistant" && ((s.launch_spec.target as { workspace_id: string | null }).workspace_id ?? null) === workspace && s.status !== "closed").sort((a, b) => b.started_at - a.started_at)[0];
   const mine = (proposals.data ?? []).filter((p) => (p.workspace_id ?? null) === workspace);
   const waiting = mine.filter((p) => p.state === "proposed" || p.state === "failed" || p.state === "uncertain");
   const shown = filter === "open" ? waiting : mine.slice(0, 50);
@@ -270,7 +270,7 @@ export function AskView() {
   };
   const newThread = async () => {
     if (!thread) return;
-    try { await api.post(`/api/sessions/${thread.id}/close`); toast("Thread archived; it stays resumable in Agents → Archived"); } catch (e) { toastError(e); }
+    try { await api.post(`/api/sessions/${thread.id}/close`); toast("Thread archived; reopen it in Agents → Show Ask threads → Archived"); } catch (e) { toastError(e); }
   };
   const needs = sessions.filter((s) => scope.hasSession(s) && needsYou(s)).length;
   const running = sessions.filter((s) => scope.hasSession(s) && (isRunning(s) || isQuotaPaused(s))).length;

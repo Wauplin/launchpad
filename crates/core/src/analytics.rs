@@ -14,10 +14,10 @@ pub struct AgentRun {
     pub output_tokens: u64,
 }
 
-/// Count each saved session once, including archived sessions. Group into local days in the UI.
+/// Count each normal agent session once, including archives; assistant threads stay out of activity. Group into local days in the UI.
 pub async fn runs(db: &crate::db::Db, from: i64, until: i64) -> Result<Vec<AgentRun>> {
     db.call(move |conn| {
-        let mut stmt = conn.prepare("SELECT started_at, harness, json_extract(launch_spec_json, '$.profile'), usage_json FROM session WHERE started_at >= ?1 AND started_at < ?2 ORDER BY started_at, id")?;
+        let mut stmt = conn.prepare("SELECT started_at, harness, json_extract(launch_spec_json, '$.profile'), usage_json FROM session WHERE started_at >= ?1 AND started_at < ?2 AND coalesce(json_extract(launch_spec_json, '$.target.kind'), '') != 'assistant' ORDER BY started_at, id")?;
         Ok(stmt.query_map(rusqlite::params![from, until], |row| {
             let stored: Option<String> = row.get(3)?;
             let usage = stored.and_then(|s| serde_json::from_str::<crate::model::Usage>(&s).ok()).unwrap_or_default();
@@ -44,6 +44,8 @@ mod tests {
                 ("archived", "codex", r#"{"profile":"fast"}"#, "closed", 20),
                 ("other", "claude", r#"{"profile":"fast"}"#, "running", 20),
                 ("end", "opencode", "{}", "done", 30),
+                ("ask-all", "codex", r#"{"target":{"kind":"assistant","workspace_id":null}}"#, "waiting", 15),
+                ("ask-scope", "codex", r#"{"target":{"kind":"assistant","workspace_id":"w"}}"#, "closed", 20),
             ] {
                 conn.execute("INSERT INTO session (id, harness, cwd, title, status, launch_spec_json, prompt, started_at) VALUES (?1, ?2, '.', '', ?3, ?4, '', ?5)", rusqlite::params![id, harness, status, spec, at])?;
             }

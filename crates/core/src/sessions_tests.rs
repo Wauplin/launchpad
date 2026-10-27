@@ -309,3 +309,28 @@ async fn unpriced_costs_are_hidden_after_reload_and_cannot_drive_limits() {
     assert!(crate::spend::current(&app).iter().all(|s| s.profile != "native"));
     assert!(super::ensure_budget(&app, &app.sessions.get("test").unwrap()).is_ok());
 }
+
+#[tokio::test]
+async fn assistant_threads_stay_reachable_without_contributing_to_global_counts() {
+    use crate::model::{SessionStatus, Target};
+    let (_fixture, app) = fixture().await;
+    for status in [SessionStatus::Working, SessionStatus::Waiting, SessionStatus::Error, SessionStatus::QuotaPaused, SessionStatus::Closed] {
+        {
+            let mut records = app.sessions.inner.records.lock().unwrap();
+            let ordinary = records.get_mut("test").unwrap();
+            ordinary.status = SessionStatus::Working;
+            let mut assistant = ordinary.clone();
+            assistant.id = "assistant".into();
+            assistant.launch_spec.target = Target::Assistant { workspace_id: None };
+            assistant.status = status;
+            assistant.seen_at = 0;
+            assistant.status_since = 1;
+            records.insert(assistant.id.clone(), assistant);
+        }
+        app.sessions.publish_counts(&app);
+        let counts = app.status.get().sessions;
+        assert_eq!((counts.running, counts.done, counts.quota_paused), (1, 0, 0));
+        assert_eq!(app.sessions.get("assistant").unwrap().status, status);
+        assert_eq!(crate::proposals::thread(&app, None).is_some(), status != SessionStatus::Closed);
+    }
+}

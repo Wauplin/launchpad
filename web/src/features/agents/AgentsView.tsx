@@ -17,7 +17,7 @@ import { HostLabel } from "@/components/HostLabel";
 import { isRunning, isDone, isQuotaPaused, isStopped, isUnseen, needsYou, sessionPlace } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
-import { projectName, useCrons, useProjects, useSessions } from "@/lib/queries";
+import { projectName, useCrons, useProjects, useSession, useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
 import { sendPresence } from "@/lib/ws";
 import { isCollapsed, useLayout, type AgentGroup } from "@/stores/layout";
@@ -209,7 +209,8 @@ function AskLaunchpadField() {
 
 export function AgentsView() {
   const scope = useScope();
-  const sessionsQuery = useSessions();
+  const [showAssistant, setShowAssistant] = useState(false);
+  const sessionsQuery = useSessions(showAssistant);
   const allSessions = sessionsQuery.data ?? [];
   const sessions = allSessions.filter(scope.hasSession);
   const [panelLoad, setPanelLoad] = useState(0);
@@ -219,7 +220,7 @@ export function AgentsView() {
   const [archiving, setArchiving] = useState(false);
   const pinned = useLayout((s) => s.pinned);
   useEffect(() => { const t = setTimeout(() => setDebounced(filter.trim()), 250); return () => clearTimeout(t); }, [filter]);
-  const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
+  const matches = useQuery({ queryKey: ["session-search", debounced, showAssistant], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}&include_assistant=${showAssistant}`), enabled: !!debounced });
   const schedules = (useSchedules().data ?? []).filter((s) => scope.hasSpec(s.spec));
   const [scheduledId, setScheduledIdState] = useState<string | null>(null);
   const scheduled = schedules.find((s) => s.id === scheduledId);
@@ -273,8 +274,9 @@ export function AgentsView() {
   // Tell the daemon which sessions are on screen, so it does not notify about them, and mark the shown session seen.
   const focused = useWindowFocused();
   const wanted = phone ? search.session ?? null : selectedSession;
-  const visibleSession = !cron && !scheduled && sessions.some((s) => s.id === wanted) ? wanted : null;
-  const visible = sessions.find((s) => s.id === visibleSession);
+  const selected = useSession(wanted);
+  const visible = !cron && !scheduled && selected && (sessions.some((s) => s.id === wanted) || selected.launch_spec.target.kind === "assistant") ? selected : undefined;
+  const visibleSession = visible?.id ?? null;
   useEffect(() => { sendPresence(focused, visibleSession ? [visibleSession] : []); }, [focused, visibleSession]);
   useEffect(() => () => sendPresence(false, []), []);
   useMarkSeen(visible, focused);
@@ -345,7 +347,7 @@ export function AgentsView() {
       <div className={`flex flex-col bg-paper ${phone ? (paneOpen ? "hidden" : "w-full") : "w-[280px] flex-none border-r border-line"}`}>
         <div className="grid gap-2 border-b border-line p-2">
           <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setArchivedLimit(30); }} />
-          <div className="flex items-center gap-2"><button className="lp-chip" aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button>{phone && <span className="ml-auto"><LaunchButton small label="New agent" title="Open the composer (the draft if one exists)" /></span>}</div>
+          <div className="flex flex-wrap items-center gap-2"><button className="lp-chip" aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button><button className="lp-chip" aria-pressed={showAssistant} onClick={() => setShowAssistant(!showAssistant)}>Show Ask threads</button>{phone && <span className="ml-auto"><LaunchButton small label="New agent" title="Open the composer (the draft if one exists)" /></span>}</div>
           {matches.isFetching && <span className="text-xs text-ink-3">Searching messages…</span>}
           {matches.error && <span className="text-xs text-danger-ink">{matches.error.message}</span>}
         </div>

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { useSessionLogs, emptyLog, reloadSessionLogs } from "../src/lib/sessionStore.ts";
 import { api } from "../src/lib/api.ts";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { restoreCache } from "../src/lib/offlineCache.ts";
 
 const event = (seq) => ({ session_id: "a", seq, ts: seq, body: { kind: "assistant_message", item_id: `m${seq}`, text: `message ${seq}` } });
@@ -111,4 +111,27 @@ test("delayed offline restore cannot replace fresh daemon data; restored data ca
     await qc.invalidateQueries();
     assert.equal(qc.getQueryState(["projects"]).isInvalidated, true);
   } finally { globalThis.indexedDB = old; qc.clear(); }
+});
+
+// The shared list selector also runs on offline restores and WebSocket cache updates, while Ask and
+// direct session lookups observe the complete cache under the same key.
+test("normal lists hide Ask threads across cache restore, live updates and archive", async () => {
+  const { normalSessions } = await import("../src/lib/sessionVisibility.ts");
+  const qc = new QueryClient();
+  const ordinary = { id: "task", status: "working", launch_spec: { target: { kind: "project", project_id: "p" } } };
+  const assistant = (status, workspace_id = null) => ({ id: `ask-${workspace_id}`, status, launch_spec: { target: { kind: "assistant", workspace_id } } });
+  qc.setQueryData(["sessions"], [ordinary, assistant("working"), assistant("waiting", "w")]);
+  const normal = new QueryObserver(qc, { queryKey: ["sessions"], select: normalSessions, enabled: false });
+  const ask = new QueryObserver(qc, { queryKey: ["sessions"], enabled: false });
+  const stopNormal = normal.subscribe(() => {});
+  const stopAsk = ask.subscribe(() => {});
+  try {
+    assert.deepEqual(normal.getCurrentResult().data, [ordinary]);
+    assert.equal(ask.getCurrentResult().data.length, 3);
+    for (const status of ["working", "waiting", "error", "interrupted", "quota_paused", "closed"]) {
+      qc.setQueryData(["sessions"], [ordinary, assistant(status), assistant(status, "w")]);
+      assert.deepEqual(normal.getCurrentResult().data, [ordinary]);
+      assert.equal(ask.getCurrentResult().data.find((s) => s.id === "ask-null").status, status);
+    }
+  } finally { stopNormal(); stopAsk(); qc.clear(); }
 });

@@ -499,7 +499,7 @@ impl Sessions {
 
     fn publish_counts(&self, app: &App) {
         let (mut running, mut done, mut quota_paused) = (0, 0, 0);
-        for s in self.inner.records.lock().unwrap().values() {
+        for s in self.inner.records.lock().unwrap().values().filter(|s| !s.launch_spec.target.is_assistant()) {
             if s.status.is_running() {
                 running += 1;
             } else if s.status == SessionStatus::QuotaPaused {

@@ -10,6 +10,7 @@ import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
 import { rememberProjectDefaults } from "@/stores/composer";
 import { api } from "./api";
+import { normalSessions } from "./sessionVisibility.ts";
 
 export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: async () => { const projects = await api.get<Project[]>("/api/projects"); rememberProjectDefaults(projects); return projects; }, staleTime: Infinity });
 
@@ -18,10 +19,17 @@ export function useProject(id: string | null | undefined) {
   return data?.find((p) => p.id === id) ?? null;
 }
 
-export const useSessions = () => useQuery({ queryKey: ["sessions"], queryFn: () => api.get<Session[]>("/api/sessions"), staleTime: Infinity });
+// Keep all sessions in the live/offline cache; filter at the shared listing boundary so bus updates
+// and restored caches cannot leak assistant threads into counts, Now or normal session pickers.
+export const useSessions = (includeAssistant = false) => useQuery({
+  queryKey: ["sessions"],
+  queryFn: () => api.get<Session[]>("/api/sessions?include_assistant=true"),
+  select: includeAssistant ? undefined : normalSessions,
+  staleTime: Infinity,
+});
 
 export function useSession(id: string | null | undefined) {
-  const { data } = useSessions();
+  const { data } = useSessions(true);
   return data?.find((s) => s.id === id) ?? null;
 }
 
