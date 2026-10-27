@@ -3,8 +3,16 @@ use std::{collections::BTreeMap, sync::{Arc, RwLock}, time::Duration};
 use anyhow::{Context, Result};
 use crate::{App, exec::Io, shellenv::UserEnv};
 
+/// The outcome of the last pass, shown in Settings → Hugging Face.
+#[derive(Clone, Default, Debug, serde::Serialize)]
+pub struct BackupState {
+    pub error: Option<String>,
+    /// When the last chunk was uploaded (ms since the epoch); `None` since startup.
+    pub last_upload: Option<i64>,
+}
+
 #[derive(Clone, Default)]
-pub struct BackupStatus(pub Arc<RwLock<Option<String>>>);
+pub struct BackupStatus(pub Arc<RwLock<BackupState>>);
 
 async fn hf(env: &UserEnv, args: &[&str], data: Option<Vec<u8>>) -> Result<String> {
     let mut cmd = crate::procs::command(env, "hf", None);
@@ -23,17 +31,18 @@ pub async fn account(env: &UserEnv) -> Result<String> {
     Ok(user.into())
 }
 
-/// Read-only setup check, using the same contract as the GitHub card.
-pub async fn check(env: &UserEnv) -> crate::signin::SignInCheck {
+/// Read-only setup check, using the same contract as the GitHub card, plus the signed-in account.
+pub async fn check(env: &UserEnv) -> (crate::signin::SignInCheck, Option<String>) {
     let cli_found = env.which("hf").is_some_and(|p| p.is_file());
     let mut c = crate::signin::SignInCheck { id: "huggingface".into(), profile: None, name: "Hugging Face CLI".into(), cli_found, signed_in: None, detail: None, command: "hf auth login".into() };
+    let mut user = None;
     if cli_found {
         match account(env).await {
-            Ok(user) => { c.signed_in = Some(true); c.detail = Some(format!("Account {user}")); }
-            Err(_) => { c.signed_in = Some(false); c.detail = Some("Run hf auth whoami on this computer to check your login; update hf if JSON output is unsupported.".into()); }
+            Ok(u) => { c.signed_in = Some(true); c.detail = Some(format!("Account {u}")); user = Some(u); }
+            Err(_) => { c.signed_in = Some(false); c.detail = Some("hf auth whoami failed. Sign in, or update hf if it does not support JSON output.".into()); }
         }
     }
-    c
+    (c, user)
 }
 
 fn destination(bucket: &str, user: &str, folder: &str, harness: &str, id: &str) -> String {
@@ -90,6 +99,7 @@ pub(crate) async fn upload(app: &App) -> Result<()> {
         hf(&app.env, &["buckets", "cp", "-", &target, "--quiet"], Some(data)).await?;
         cursors.insert(dest, through);
         crate::paths::write_private(&cursor_path, &serde_json::to_string(&cursors)?)?;
+        app.trace_backup.0.write().unwrap().last_upload = Some(crate::util::now_ms());
     }
     Ok(())
 }
@@ -103,7 +113,7 @@ pub fn spawn(app: &App) {
                 tracing::warn!("Hugging Face trace backup failed; retrying in 60 seconds: {e:#}");
                 "Trace backup failed. Check hf auth whoami, update hf and verify bucket write access. Retrying automatically; agents are unaffected.".to_string()
             });
-            *app.trace_backup.0.write().unwrap() = error;
+            app.trace_backup.0.write().unwrap().error = error;
             tokio::time::sleep(Duration::from_secs(60)).await;
         }
     });

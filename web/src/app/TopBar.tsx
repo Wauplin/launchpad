@@ -22,6 +22,7 @@ const SETTINGS: Record<string, string> = {
   hosts: "Machines",
   devices: "Devices",
   github: "GitHub",
+  huggingface: "Hugging Face",
   worktrees: "Maintenance",
 };
 

@@ -13,7 +13,7 @@ import type { ProfileTemplate } from "@/gen/ProfileTemplate";
 import type { SignInCheck } from "@/gen/SignInCheck";
 import type { SpendLimit } from "@/gen/SpendLimit";
 import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
-import { Icon } from "@/components/Icon";
+import { Icon, type IconName } from "@/components/Icon";
 import { ModelSearch } from "@/components/ModelSearch";
 import { findModel, pickModel, ProviderPicker } from "@/components/ProviderPicker";
 import { MenuItem, Popover } from "@/components/Popover";
@@ -529,19 +529,25 @@ export function GitHubCard() {
   return (
     <Card title="GitHub CLI">
       <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">The Inbox, issues, PRs and publication use the GitHub CLI of this computer. <span className="text-ink-3" title="Git push also needs credentials there (SSH keys or gh auth setup-git); folders on SSH hosts push with the host's own credentials (Settings → Machines)."><Icon name="info" size={13} /></span></p>
-      {c && (
-        <div className="flex flex-wrap items-center gap-2 text-[13px]">
-          <Icon name="pr" size={14} />
-          <b className="font-[650]">GitHub CLI</b>
-          <span className={`text-xs font-semibold ${!c.cli_found ? "text-gh-closed" : c.signed_in ? "text-gh-open" : "text-attn"}`}>{!c.cli_found ? "Not installed" : c.signed_in ? "Signed in" : "Not signed in"}</span>
-          {c.detail && <span className="text-xs text-ink-3">{c.detail}</span>}
-          {(!c.cli_found || !c.signed_in) && <>
-            <code className="rounded bg-chrome px-1.5 py-0.5 font-mono text-xs">{c.command}</code>
-            <button className="iconbtn" title="Copy the command" aria-label={`Copy ${c.command}`} onClick={() => void copyText(c.command).then(() => toast("Command copied"))}><Icon name="copy" size={12} /></button>
-          </>}
-        </div>
-      )}
+      {c && <CliCheckRow check={c} icon="pr" />}
     </Card>
+  );
+}
+
+/** One CLI of this computer: installed and signed-in state, and the command to run when something is missing. */
+export function CliCheckRow({ check: c, icon, command = c.command, children }: { check: SignInCheck; icon: IconName; command?: string | null; children?: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-[13px]">
+      <Icon name={icon} size={14} />
+      <b className="font-[650]">{c.name}</b>
+      <span className={`text-xs font-semibold ${!c.cli_found ? "text-gh-closed" : c.signed_in ? "text-gh-open" : "text-attn"}`}>{!c.cli_found ? "Not installed" : c.signed_in ? "Signed in" : "Not signed in"}</span>
+      {c.detail && <span className="text-xs text-ink-3">{c.detail}</span>}
+      {command && (!c.cli_found || !c.signed_in) && <>
+        <code className="rounded bg-chrome px-1.5 py-0.5 font-mono text-xs">{command}</code>
+        <button className="iconbtn" title="Copy the command" aria-label={`Copy ${command}`} onClick={() => void copyText(command).then(() => toast("Command copied"))}><Icon name="copy" size={12} /></button>
+      </>}
+      {children}
+    </div>
   );
 }
 
