@@ -217,8 +217,8 @@ export function LocalPrCleanupRow({ config }: { config: Config }) {
   const patch = usePatchConfig();
   const { state, error, run } = useSaveState();
   return (
-    <SettingRow label="Published Local PRs" hint="Remove the clean worktree after a successful publication." scope="all" state={state} error={error}>
-      <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" className="accent-teal" checked={config.remove_published_worktree} onChange={(e) => void run(() => patch({ remove_published_worktree: e.target.checked }))} />Remove after publishing</label>
+    <SettingRow label="Published Local PRs" hint="Remove the clean worktree after a successful publication or local merge." scope="all" state={state} error={error}>
+      <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" className="accent-teal" checked={config.remove_published_worktree} onChange={(e) => void run(() => patch({ remove_published_worktree: e.target.checked }))} />Remove after publishing or merging locally</label>
     </SettingRow>
   );
 }

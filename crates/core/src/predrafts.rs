@@ -1,4 +1,4 @@
-//! Local pull requests. Only `publish` writes to a remote.
+//! Local pull requests. Only `publish` writes to a remote; `merge_local` only changes local branches.
 use crate::{App, model::SessionStatus};
 use anyhow::{Context, Result, ensure};
 use reqwest::Method;
@@ -31,6 +31,23 @@ pub struct Predraft {
     pub remote_branch: Option<String>,
     pub pushed_head: Option<String>,
     pub created_at: i64,
+    /// Merged into the local base branch with Merge locally; nothing was pushed.
+    #[serde(default)]
+    pub merged: Option<LocalMerge>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct LocalMerge {
+    /// The checkout whose base branch was fast-forwarded.
+    pub checkout: String,
+    /// The merged commit, after any rebase onto the local base branch.
+    pub head: String,
+    pub at: i64,
+}
+impl Predraft {
+    /// Still a Local PR under review: not discarded, published or merged locally.
+    pub fn is_open(&self) -> bool {
+        !self.archived && self.published_url.is_none() && self.merged.is_none()
+    }
 }
 #[derive(Default, Deserialize)]
 pub struct Create {
@@ -49,6 +66,11 @@ pub struct Patch {
 pub struct Publish {
     pub remote_branch: String,
     pub draft: bool,
+    pub head: String,
+}
+#[derive(Deserialize)]
+pub struct MergeLocal {
+    /// The reviewed head; the merge refuses a branch that changed since.
     pub head: String,
 }
 
@@ -155,7 +177,7 @@ pub async fn resolve(app: &App, cwd: &str) -> Result<Predraft> {
     list(app)
         .await?
         .into_iter()
-        .find(|p| p.root == root && !p.archived && p.published_url.is_none())
+        .find(|p| p.root == root && p.is_open())
         .context("no local pre-draft in this worktree")
 }
 pub async fn save(app: &App, p: &Predraft) -> Result<()> {
@@ -248,6 +270,7 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
             remote_branch: None,
             pushed_head: None,
             created_at: crate::util::now_ms(),
+            merged: None,
         };
         save(app, &p).await?;
         crate::worktrees::mark_predraft(app, &w.root, &p.id).await?;
@@ -301,6 +324,7 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
         remote_branch: None,
         pushed_head: None,
         created_at: crate::util::now_ms(),
+        merged: None,
     };
     if let Err(e) = save(app, &p).await {
         let _ = git(app, &project.path, &["worktree", "remove", &p.root]).await;
@@ -319,10 +343,7 @@ pub fn instruction(app: &App, p: &Predraft) -> String {
 }
 
 fn editable(p: &Predraft) -> Result<()> {
-    ensure!(
-        !p.archived && p.published_url.is_none(),
-        "this pre-draft is archived or published"
-    );
+    ensure!(p.is_open(), "this pre-draft is archived, published or merged locally");
     Ok(())
 }
 fn idle(app: &App, p: &Predraft) -> Result<()> {
@@ -371,7 +392,7 @@ pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
     if fetch {
         git(app, &project.path, &["fetch", "origin"]).await?;
     }
-    if p.archived || p.published_url.is_some() && !crate::hostfs::exists(&p.root).await {
+    if p.archived || (p.published_url.is_some() || p.merged.is_some()) && !crate::hostfs::exists(&p.root).await {
         return Ok(json!({"predraft":p,"status":status,"files":[],"commits":[],"base_ahead":0}));
     }
     let head = git(
@@ -544,6 +565,94 @@ pub async fn discard(app: &App, id: &str) -> Result<Predraft> {
     cleanup(app, &p, true).await?;
     p.archived = true;
     save(app, &p).await?;
+    Ok(p)
+}
+/// Merge locally: rebase the branch onto the local base branch when needed, then fast-forward the
+/// checkout that has the base branch checked out. Nothing is pushed and GitHub is not called.
+pub async fn merge_local(app: &App, id: &str, q: MergeLocal) -> Result<Predraft> {
+    let _action = app.sessions.action_lock().await;
+    let _work = app.sessions.allow_work().await;
+    let _lock = app.predraft_lock.lock().await;
+    let mut p = get(app, id).await?;
+    editable(&p)?;
+    ensure!(
+        p.pushed_head.is_none(),
+        "publication has started; finish it with Publish instead"
+    );
+    idle(app, &p)?;
+    let project = crate::projects::get(app, &p.project_id)
+        .await?
+        .context("project not found")?;
+    let base = p.base_branch.clone();
+    ensure!(crate::hostfs::is_dir(&p.root).await, "the worktree folder is missing");
+    let dirty = crate::worktrees::dirty_files(app, &p.root).await?;
+    ensure!(
+        dirty.is_empty(),
+        "the worktree has {} uncommitted files ({}); commit or remove them before merging",
+        dirty.len(),
+        dirty.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
+    );
+    ensure!(
+        !crate::worktrees::operation_in_progress(app, &p.root).await,
+        "a Git operation is in progress in the worktree"
+    );
+    ensure!(
+        git(app, &p.root, &["branch", "--show-current"]).await? == p.branch,
+        "worktree is on a different branch"
+    );
+    let head = git(app, &p.root, &["rev-parse", "HEAD"]).await?;
+    ensure!(head == q.head, "branch changed since review; refresh and review again");
+    let target = crate::worktrees::checkout_of(app, &project.path, &base)
+        .await?
+        .with_context(|| format!("no checkout has {base} checked out; check out {base} in {} first", project.path))?;
+    let target_dirty = crate::worktrees::dirty_files(app, &target).await?;
+    ensure!(
+        target_dirty.is_empty(),
+        "{target} has {} uncommitted files ({}); commit or remove them before merging",
+        target_dirty.len(),
+        target_dirty.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
+    );
+    ensure!(
+        !crate::worktrees::operation_in_progress(app, &target).await,
+        "a Git operation is in progress in {target}"
+    );
+    ensure!(
+        !app.sessions.list().iter().any(|s| crate::hosts::loc::within(&s.cwd, &target)
+            && !crate::hosts::loc::within(&s.cwd, &p.root)
+            && app.sessions.is_busy(s)),
+        "an agent is running in {target}; wait for it to finish"
+    );
+    let base_head = git(app, &p.root, &["rev-parse", "--verify", &format!("refs/heads/{base}^{{commit}}")]).await?;
+    let mut tip = head.clone();
+    if git(app, &p.root, &["merge-base", "--is-ancestor", &head, &base_head]).await.is_err() {
+        if git(app, &p.root, &["merge-base", "--is-ancestor", &base_head, &head]).await.is_err() {
+            ensure!(
+                git(app, &p.root, &["rev-list", "--merges", &format!("{base_head}..{head}"), "--"]).await?.is_empty(),
+                "branch {} contains merge commits; integrate {base} manually, then merge again",
+                p.branch
+            );
+            if let Err(e) = git(app, &p.root, &["rebase", &base_head]).await {
+                let files = git(app, &p.root, &["diff", "--name-only", "--diff-filter=U"]).await.unwrap_or_default();
+                git(app, &p.root, &["rebase", "--abort"]).await.context("could not abort the failed rebase")?;
+                let files = files.lines().take(10).collect::<Vec<_>>().join(", ");
+                anyhow::bail!(
+                    "{}; nothing was merged. Ask the agent to rebase onto {base}, then merge again",
+                    if files.is_empty() { format!("rebasing onto {base} failed: {e:#}") } else { format!("rebasing onto {base} conflicts in {files}") }
+                );
+            }
+            tip = git(app, &p.root, &["rev-parse", "HEAD"]).await?;
+        }
+        git(app, &target, &["merge", "--ff-only", &tip])
+            .await
+            .with_context(|| format!("fast-forward of {base} in {target}"))?;
+    }
+    p.merged = Some(LocalMerge { checkout: target, head: tip, at: crate::util::now_ms() });
+    save(app, &p).await?;
+    if app.config.get().remove_published_worktree
+        && let Err(e) = cleanup(app, &p, false).await
+    {
+        tracing::warn!("Local PR merged locally; worktree kept: {e:#}");
+    }
     Ok(p)
 }
 pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {

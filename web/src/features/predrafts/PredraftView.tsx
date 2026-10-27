@@ -1,4 +1,4 @@
-// A Local PR: a PR prepared locally in its own worktree, published to GitHub only with the owner's click.
+// A Local PR: a PR prepared locally in its own worktree, published to GitHub or merged locally only with the owner's click.
 // Description · Changes · Commits. Line notes from Changes and general notes go to the agent as feedback.
 
 import { usePhone } from "@/lib/phone";
@@ -98,9 +98,9 @@ function Review({ id }: { id: string }) {
   if (!p || !q.data) return <Loading what="the Local PR" />;
   const d = q.data;
   if (d.project_missing) return <Orphan p={p} running={RUNNING.includes(d.status ?? "")} onDiscarded={() => void qc.invalidateQueries({ queryKey: ["predrafts"] })} />;
-  const active = !p.archived && !p.published_url;
+  const active = !p.archived && !p.published_url && !p.merged;
   const running = RUNNING.includes(d.status ?? "");
-  const [state, tone]: [string, BadgeTone] = p.archived ? ["Discarded", "done"] : p.published_url ? ["Published", "ok"] : running ? ["Agent working", "work"] : d.status === "waiting" ? ["Ready for review", "teal"] : d.status === "error" || d.status === "interrupted" ? ["Agent needs attention", "danger"] : ["Local review", "neutral"];
+  const [state, tone]: [string, BadgeTone] = p.archived ? ["Discarded", "done"] : p.published_url ? ["Published", "ok"] : p.merged ? ["Merged locally", "ok"] : running ? ["Agent working", "work"] : d.status === "waiting" ? ["Ready for review", "teal"] : d.status === "error" || d.status === "interrupted" ? ["Agent needs attention", "danger"] : ["Local review", "neutral"];
   const refresh = () => void run(async () => { qc.setQueryData(["predrafts", id], await api.post<Detail>(`/api/predrafts/${id}/refresh`)); });
   const all = allNotes();
   const sendNotes = () => run(async () => { await save(); await api.post(`/api/predrafts/${id}/feedback`); setNotes([]); }, "Notes sent to the agent");
@@ -127,7 +127,8 @@ function Review({ id }: { id: string }) {
     {phone ? <><PhoneHeader title={p.title} subtitle={`Local PR · ${state}`} onBack={() => void navigate({ to: "/review" })} backLabel="Back to Review" actions={<>{headerActions}<button className="btn btn-sm" disabled={busy} onClick={refresh}>Refresh</button></>} details={<p className="break-all font-mono text-xs text-ink-3">{p.branch} → {p.base_branch}</p>} /><div className="px-3">{tabs}</div></>
       : <PageHeader title={p.title} meta={meta} actions={headerActions} tabs={tabs} />}
     {p.published_url && <div className="border-b border-line-2 px-4 py-2 text-[12px]"><button className="text-teal-ink hover:underline" onClick={() => openGitHub(p.published_url!)}>Published on GitHub as #{p.published_number}</button></div>}
-    {(d.base_ahead > 0 || d.dirty) && <div className="grid gap-1 border-b border-attn-line bg-attn-soft px-4 py-2 text-[12px] text-attn">
+    {p.merged && <div className="border-b border-line-2 px-4 py-2 text-[12px] text-ink-2">Merged locally into <span className="font-mono">{p.base_branch}</span> at <span className="font-mono">{p.merged.head.slice(0, 8)}</span> in <span className="font-mono">{p.merged.checkout}</span>. Nothing was pushed.</div>}
+    {active && (d.base_ahead > 0 || d.dirty) && <div className="grid gap-1 border-b border-attn-line bg-attn-soft px-4 py-2 text-[12px] text-attn">
       {d.base_ahead > 0 && <span className="flex items-center gap-1.5"><Icon name="alert" size={12} />Base moved: {p.base_branch} is {d.base_ahead} commits ahead of this branch. Review against the refreshed base before publishing.</span>}
       {d.dirty && <span className="flex items-center gap-1.5"><Icon name="alert" size={12} />Uncommitted changes are excluded from this review. Ask the agent to commit them before publishing.</span>}
     </div>}
@@ -153,6 +154,7 @@ function Review({ id }: { id: string }) {
       <input aria-label="Remote branch name" className="field-input min-w-48 flex-1" value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="Remote branch name" />
       <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} />As a GitHub draft</label>
       <ConfirmButton tone="publish" small={false} className="btn-primary" disabled={busy || running || d.dirty || !d.head || !remote.trim()} consequence={`Pushes ${remote.trim()} and creates ${draft ? "a GitHub draft" : "a"} PR on GitHub.`} confirmLabel="Push and create PR" onConfirm={() => run(async () => { await save(); await api.post(`/api/predrafts/${id}/publish`, { remote_branch: remote, draft, head: d.head }); await saved.clear(); }, "Local PR published")}>Publish</ConfirmButton>
+      <ConfirmButton tone="publish" small={false} disabled={busy || running || d.dirty || !d.head} consequence={`Rebases ${p.branch} onto the local ${p.base_branch} branch if needed, then fast-forwards ${p.base_branch} in its checkout. Nothing is pushed.`} confirmLabel={`Merge into ${p.base_branch}`} onConfirm={() => run(async () => { await api.post(`/api/predrafts/${id}/merge-local`, { head: d.head }); await saved.clear(); }, `Merged locally into ${p.base_branch}`)}>Merge locally</ConfirmButton>
       <ConfirmButton small={false} disabled={busy || running || d.dirty} consequence="Deletes the branch and the worktree." confirmLabel="Discard" onConfirm={() => run(() => api.post(`/api/predrafts/${id}/discard`), "Local PR discarded")}>Discard</ConfirmButton>
     </div>}
   </div>;
@@ -161,13 +163,13 @@ function Review({ id }: { id: string }) {
 /** The folder of this Local PR was removed from Launchpad: show the record and offer Discard only. */
 function Orphan({ p, running, onDiscarded }: { p: Predraft; running: boolean; onDiscarded: () => void }) {
   const [error, setError] = useState<unknown>(null);
-  const active = !p.archived && !p.published_url;
+  const active = !p.archived && !p.published_url && !p.merged;
   return <div className="h-full overflow-auto p-6">
     <div className="max-w-[760px] rounded-lg border border-line bg-paper p-4">
       <Badge tone="attn" icon="alert">Local PR · folder removed</Badge>
       <h2 className="my-2 text-[18px] font-semibold">{p.title}</h2>
       <p className="font-mono text-[12px] text-ink-3">{p.branch} → {p.base_branch} · {p.root}</p>
-      <p className="mt-3 text-[13px] text-ink-2">The folder of this Local PR is no longer registered in Launchpad, so its commits and changes cannot be reviewed or published from here. {active ? "Discard archives this record and closes the agents and terminals in its worktree. Without the folder, the worktree and the branch are kept on disk; remove them with git if you no longer need them." : p.archived ? "This Local PR was discarded." : "This Local PR was published."}</p>
+      <p className="mt-3 text-[13px] text-ink-2">The folder of this Local PR is no longer registered in Launchpad, so its commits and changes cannot be reviewed or published from here. {active ? "Discard archives this record and closes the agents and terminals in its worktree. Without the folder, the worktree and the branch are kept on disk; remove them with git if you no longer need them." : p.archived ? "This Local PR was discarded." : p.merged ? "This Local PR was merged locally." : "This Local PR was published."}</p>
       {p.published_url && <button className="text-teal-ink hover:underline" onClick={() => openGitHub(p.published_url!)}>Published on GitHub as #{p.published_number}</button>}
       {p.body && <div className="mt-3 border-t border-line pt-3"><Markdown text={p.body} /></div>}
       {!!error && <ErrorState className="mt-2" error={error} />}

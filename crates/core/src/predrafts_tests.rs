@@ -36,7 +36,7 @@ async fn fixture() -> (Fixture, App, Predraft) {
         base_branch: "main".into(), initial_base: "head".into(), title: "Test".into(), body: String::new(),
         session_id: None, notes: vec![Note { path: None, text: "Fix it".into() }],
         archived: false, published_url: None, published_number: None, default_remote_branch: "test".into(),
-        remote_branch: None, pushed_head: None, created_at: 0,
+        remote_branch: None, pushed_head: None, created_at: 0, merged: None,
     };
     save(&app, &p).await.unwrap();
     let cwd = Path::new(&p.root).join("subdir").to_string_lossy().into_owned();
@@ -57,6 +57,8 @@ async fn subfolder_guards_cover_activity_publication_feedback_and_recovery() {
     let err = publish(&app, &p.id, Publish { remote_branch: "test".into(), draft: true, head: "head".into() }).await.unwrap_err();
     assert!(err.to_string().contains("active agent"));
     assert!(discard(&app, &p.id).await.unwrap_err().to_string().contains("active agent"));
+    let err = merge_local(&app, &p.id, MergeLocal { head: "head".into() }).await.unwrap_err();
+    assert!(err.to_string().contains("active agent"));
     app.sessions.update(&app, "agent", |s| s.status = SessionStatus::InTerminal).await.unwrap();
     assert!(idle(&app, &p).is_err());
     app.sessions.update(&app, "agent", |s| s.status = SessionStatus::Waiting).await.unwrap();
@@ -77,6 +79,13 @@ async fn subfolder_guards_cover_activity_publication_feedback_and_recovery() {
     assert!(feedback(&app, &p.id).await.unwrap_err().to_string().contains("publication has started"));
     check_session_work(&app, &format!("{}-other/subdir", p.root)).await.unwrap();
     p.pushed_head = None;
+    // A local merge closes the review but keeps later agent turns possible.
+    p.merged = Some(LocalMerge { checkout: "/repo".into(), head: "head".into(), at: 0 });
+    save(&app, &p).await.unwrap();
+    check_session_work(&app, &cwd).await.unwrap();
+    assert!(editable(&p).is_err());
+    assert!(merge_local(&app, &p.id, MergeLocal { head: "head".into() }).await.unwrap_err().to_string().contains("merged locally"));
+    p.merged = None;
     p.archived = true;
     save(&app, &p).await.unwrap();
     assert!(check_session_work(&app, &cwd).await.is_err());

@@ -125,8 +125,8 @@ pub async fn create(app: &App, q: Create) -> Result<Suggestion> {
         SuggestionTarget::Predraft { id } => {
             let p = predrafts::get(app, id).await?;
             ensure!(
-                !p.archived && p.published_url.is_none(),
-                "pre-draft is archived or published"
+                p.is_open(),
+                "pre-draft is archived, published or merged locally"
             );
         }
     }
@@ -205,7 +205,7 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
             let _predraft = app.predraft_lock.lock().await;
             let mut p = predrafts::get(app, id).await?;
             ensure!(
-                !p.archived && p.published_url.is_none() && p.pushed_head.is_none(),
+                p.is_open() && p.pushed_head.is_none(),
                 "pre-draft is no longer editable"
             );
             p.notes.push(predrafts::Note {

@@ -513,12 +513,12 @@ fn idle_reason(app: &App, w: &TaskWorktree, strict: bool) -> Option<String> {
     None
 }
 
-async fn dirty_files(app: &App, dir: &str) -> Result<Vec<String>> {
-    Ok(git(app, dir, &["status", "--porcelain", "--untracked-files=all"]).await?.lines().map(|l| l.get(3..).unwrap_or(l).to_string()).collect())
+pub(crate) async fn dirty_files(app: &App, dir: &str) -> Result<Vec<String>> {
+    Ok(git(app, dir, &["status", "--porcelain", "--untracked-files=all"]).await?.lines().map(|l| l.get(2..).unwrap_or(l).trim_start().to_string()).collect())
 }
 
 /// A rebase, merge or cherry-pick stopped in this worktree.
-async fn operation_in_progress(app: &App, dir: &str) -> bool {
+pub(crate) async fn operation_in_progress(app: &App, dir: &str) -> bool {
     for marker in ["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD"] {
         if let Ok(p) = git(app, dir, &["rev-parse", "--path-format=absolute", "--git-path", marker]).await
             && crate::hostfs::exists(on(dir, &p)).await
@@ -530,7 +530,7 @@ async fn operation_in_progress(app: &App, dir: &str) -> bool {
 }
 
 /// The checkout that has `branch` checked out, from `git worktree list`.
-async fn checkout_of(app: &App, repo: &str, branch: &str) -> Result<Option<String>> {
+pub(crate) async fn checkout_of(app: &App, repo: &str, branch: &str) -> Result<Option<String>> {
     let list = git(app, repo, &["worktree", "list", "--porcelain"]).await?;
     let mut path = None;
     for line in list.lines() {

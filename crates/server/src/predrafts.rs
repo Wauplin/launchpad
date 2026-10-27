@@ -4,7 +4,7 @@ use axum::{
     extract::{Path, Query, State},
     routing::{get, post},
 };
-use launchpad_core::predrafts::{self, Create, Patch, Publish};
+use launchpad_core::predrafts::{self, Create, MergeLocal, Patch, Publish};
 use serde::Deserialize;
 use serde_json::{Value, json};
 pub fn router() -> Router<Server> {
@@ -51,6 +51,9 @@ async fn action(
         "discard" => json!(predrafts::discard(&s.app, &id).await?),
         "publish" => {
             json!(predrafts::publish(&s.app, &id, serde_json::from_value::<Publish>(q)?).await?)
+        }
+        "merge-local" => {
+            json!(predrafts::merge_local(&s.app, &id, serde_json::from_value::<MergeLocal>(q)?).await?)
         }
         _ => return Err(anyhow::anyhow!("unknown pre-draft action").into()),
     };

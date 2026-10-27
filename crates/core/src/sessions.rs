@@ -577,8 +577,8 @@ impl Sessions {
             Target::ExistingPredraft { predraft_id } => {
                 let p = crate::predrafts::get(app, predraft_id).await?;
                 anyhow::ensure!(
-                    !p.archived && p.published_url.is_none() && p.pushed_head.is_none(),
-                    "pre-draft is archived, published, or publication has started"
+                    p.is_open() && p.pushed_head.is_none(),
+                    "pre-draft is archived, published, merged locally, or publication has started"
                 );
                 let project = crate::projects::get(app, &p.project_id)
                     .await?
@@ -775,8 +775,8 @@ impl Sessions {
                     let _lock = app.predraft_lock.lock().await;
                     let mut p = crate::predrafts::get(app, predraft_id).await?;
                     anyhow::ensure!(
-                        !p.archived && p.published_url.is_none() && p.pushed_head.is_none(),
-                        "pre-draft is archived, published, or publication has started"
+                        p.is_open() && p.pushed_head.is_none(),
+                        "pre-draft is archived, published, merged locally, or publication has started"
                     );
                     anyhow::ensure!(
                         !self.list().iter().any(|s| s.cwd == p.root

@@ -45,7 +45,7 @@ export function ProjectPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
-        {phone ? <PhoneHeader title={p.name} onBack={() => void navigate({ to: "/projects" })} backLabel="Back to folders" primary={<LaunchButton ctx={{ projectId: p.id }} />} subtitle={`${sessions.filter(isRunning).length} running · ${sessions.filter(needsYou).length} waiting · ${predrafts.filter((d) => !d.archived && !d.published_url).length} Local PR`} actions={
+        {phone ? <PhoneHeader title={p.name} onBack={() => void navigate({ to: "/projects" })} backLabel="Back to folders" primary={<LaunchButton ctx={{ projectId: p.id }} />} subtitle={`${sessions.filter(isRunning).length} running · ${sessions.filter(needsYou).length} waiting · ${predrafts.filter((d) => !d.archived && !d.published_url && !d.merged).length} Local PR`} actions={
           <div className="ml-auto flex gap-1.5">
             {p.gh_repo && (
               <button className="btn" title="Open on GitHub" onClick={() => openExternal(`https://github.com/${p.gh_repo}`)}>
@@ -69,7 +69,7 @@ export function ProjectPage() {
               {[
                 [sessions.filter(isRunning).length, "running"],
                 [sessions.filter(needsYou).length, "waiting"],
-                [predrafts.filter((d) => !d.archived && !d.published_url).length, "Local PR"],
+                [predrafts.filter((d) => !d.archived && !d.published_url && !d.merged).length, "Local PR"],
               ].map(([n, label]) => (
                 <span key={label} className={`rounded-full border px-2 py-0.5 ${n ? "border-line bg-paper font-semibold text-ink" : "border-line-2 text-ink-3"}`}>{n} {label}</span>
               ))}
@@ -103,7 +103,7 @@ export function ProjectPage() {
               {worktrees.map((w) => {
                 const session = sessions.filter((s) => s.cwd === w.path).sort((a, b) => b.started_at - a.started_at)[0];
                 const draft = predrafts.find((d) => d.root === w.path);
-                const canLaunch = draft && !draft.archived && !draft.published_url && !draft.pushed_head;
+                const canLaunch = draft && !draft.archived && !draft.published_url && !draft.merged && !draft.pushed_head;
                 const rowActions = <>
                   {session && <button className="btn btn-sm" title={session.title} onClick={() => { show(session.id); void navigate({ to: "/agents", search: phone ? { session: session.id } : {} }); }}>Agent</button>}
                     {canLaunch && !session && <button className="btn btn-sm btn-primary" title="Launch an agent in this worktree" onClick={() => { useComposer.getState().start({ projectId: p.id }); useComposer.getState().update((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: draft.id } })); }}><Icon name="play" size={12} />Launch here</button>}
