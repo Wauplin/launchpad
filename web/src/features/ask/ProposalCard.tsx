@@ -117,7 +117,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
       {p.state === "uncertain" && <div className="grid gap-1.5 text-[12px] text-attn">Delivery not confirmed. Check Agents before starting a new attempt.<button className="btn btn-sm w-fit" disabled={busy} onClick={() => void act("recheck")}>I checked Agents — check again</button></div>}
       {(p.state === "proposed" || p.state === "failed") && p.body.kind !== "status" && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void act("accept")}><Icon name="play" size={12} />{busy ? "Starting…" : `${START[p.body.kind]}${p.session_id ? " & close thread" : ""}`}</button>
+          <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void act("accept")}><Icon name="play" size={12} />{busy ? "Starting…" : START[p.body.kind]}</button>
           <EditButton p={p} />
           <button className="btn btn-sm btn-ghost ml-auto" disabled={busy} onClick={() => void act("dismiss")}>Dismiss</button>
         </div>

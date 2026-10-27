@@ -204,7 +204,7 @@ export function AskView() {
           <FilterChip active={filter === "open"} count={waiting.length} onClick={() => setFilter("open")}>Waiting</FilterChip>
           <FilterChip active={filter === "all"} onClick={() => setFilter("all")}>All</FilterChip>
         </FilterChips>
-        {startable.length > 1 && <button className="btn btn-sm btn-primary ml-auto" disabled={busy} onClick={() => void startAll()}><Icon name="play" size={12} />Start all & close threads ({startable.length})</button>}
+        {startable.length > 1 && <button className="btn btn-sm btn-primary ml-auto" disabled={busy} onClick={() => void startAll()}><Icon name="play" size={12} />Start all ({startable.length})</button>}
       </div>
       {proposals.isLoading ? <Loading what="proposals" /> : proposals.error ? <ErrorState error={proposals.error} onRetry={() => void proposals.refetch()} /> : shown.length === 0 ? <Empty icon="spark">{filter === "open" ? "No proposal waits for you." : "No proposal yet."}</Empty> : shown.map((p) => <ProposalCard key={p.id} p={p} anchor onAccepted={() => setPane("chat")} />)}
     </section>

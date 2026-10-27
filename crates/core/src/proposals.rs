@@ -118,7 +118,7 @@ Read Launchpad state with these read-only commands (JSON output):\n\
 Write proposals with `{cmd} propose <launch|message|schedule|cron|status> --title \"…\" [--note \"…\"] [--replaces <proposal-id>] --spec-file <file.json>`. The JSON file holds:\n\
 - launch: {{\"spec\": <launch spec>}}\n- message: {{\"session_id\": \"…\", \"text\": \"…\"}}\n- schedule: {{\"spec\": <launch spec>, \"conditions\": [{{\"kind\": \"in\", \"minutes\": 30}} | {{\"kind\": \"at\", \"at\": <unix ms>}} | {{\"kind\": \"agents\", \"session_ids\": [\"…\"]}} | {{\"kind\": \"quota\", \"harness\": \"claude\", \"window\": \"five_hour\"}}]}}\n- cron: {{\"spec\": <launch spec>, \"schedule\": \"0 9 * * 1\", \"conditions\": []}}\n- status: {{\"session_ids\": [\"…\"]}}\n\
 A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"target\": {{\"kind\": \"project\", \"project_id\": \"<folder id>\"}} or {{\"kind\": \"temp\"}}, \"worktree\": {{\"base\": null, \"include_changes\": false, \"merge_when_done\": false}} for Git folders (null for the checkout), \"github_refs\": [], \"presets\": [<preset ids>]}}; other fields take their defaults. Launchpad validates each proposal with the launch preview and refuses invalid ones; read the error and fix the file. Paid usage stays off. Prefer one proposal per independent task, a message proposal to steer an existing agent, a status proposal to answer \"what needs me\", and a schedule with a quota condition for work that should wait for quota. Crons always need the owner's tap.\n\n\
-When refining an earlier waiting proposal, find it with `proposals list` and use `--replaces <proposal-id>` so only the refined card waits. Only proposed or failed cards in this workspace can be replaced; starting, started, dismissed, uncertain and already replaced cards cannot. Tell the owner which card was replaced. The note on the new card is optional.\n\nAnswer in short sentences. After proposing, tell the owner what each card does; they can accept it directly in the thread. Accepting a proposal closes this thread; the next request starts fresh, and the owner can resume this conversation."
+When refining an earlier waiting proposal, find it with `proposals list` and use `--replaces <proposal-id>` so only the refined card waits. Only proposed or failed cards in this workspace can be replaced; starting, started, dismissed, uncertain and already replaced cards cannot. Tell the owner which card was replaced. The note on the new card is optional.\n\nAnswer in short sentences. After proposing, tell the owner what each card does; they can accept it directly in the thread. Accepting a proposal keeps this thread open while other proposals from it remain unfinished. Accepting the last remaining proposal closes it; the next request starts fresh, and the owner can resume this conversation."
     )
 }
 
@@ -271,7 +271,17 @@ pub async fn accept(app: &App, id: &str) -> Result<Proposal> {
     Ok(p)
 }
 
-/// Close only the assistant that authored a successful proposal, never a newer workspace thread.
+/// Check the full history, including cards outside the recent-proposals list.
+fn has_remaining_proposals(c: &rusqlite::Connection, session_id: &str) -> Result<bool> {
+    Ok(c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM launch_proposal WHERE json_extract(json, '$.session_id') = ?1
+         AND json_extract(json, '$.state') IN ('proposed', 'starting', 'failed', 'uncertain'))",
+        [session_id],
+        |r| r.get(0),
+    )?)
+}
+
+/// Close only the assistant that authored a successful proposal once no unfinished cards remain.
 /// Keep the accepted result durable even if shutting down the assistant fails.
 async fn close_accepted_thread(app: &App, p: &Proposal) -> Result<()> {
     if p.state == ProposalState::Started
@@ -279,6 +289,10 @@ async fn close_accepted_thread(app: &App, p: &Proposal) -> Result<()> {
         && s.launch_spec.target.is_assistant()
         && s.status != crate::model::SessionStatus::Closed
     {
+        let session_id = s.id.clone();
+        if app.state_db.call(move |c| has_remaining_proposals(c, &session_id)).await? {
+            return Ok(());
+        }
         app.sessions.close(app, &s.id).await.context("Proposal accepted, but its assistant thread could not close")?;
     }
     Ok(())
@@ -397,6 +411,46 @@ mod tests {
     fn read(db: &rusqlite::Connection, id: &str) -> Proposal {
         let json: String = db.query_row("SELECT json FROM launch_proposal WHERE id = ?1", [id], |r| r.get(0)).unwrap();
         serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn thread_keeps_open_until_its_last_proposal_starts() {
+        let mut db = database();
+        let mut first = proposal("first", ProposalState::Started);
+        first.session_id = Some("thread".into());
+        let mut second = proposal("second", ProposalState::Proposed);
+        second.session_id = first.session_id.clone();
+        store_created(&mut db, &first, None).unwrap();
+        store_created(&mut db, &second, None).unwrap();
+        assert!(has_remaining_proposals(&db, "thread").unwrap());
+        second.state = ProposalState::Started;
+        db.execute("UPDATE launch_proposal SET json = ?1 WHERE id = ?2", params![serde_json::to_string(&second).unwrap(), second.id]).unwrap();
+        assert!(!has_remaining_proposals(&db, "thread").unwrap());
+    }
+
+    #[test]
+    fn unfinished_cards_keep_only_their_own_thread_open() {
+        for state in [ProposalState::Proposed, ProposalState::Starting, ProposalState::Failed, ProposalState::Uncertain, ProposalState::Started, ProposalState::Dismissed, ProposalState::Replaced] {
+            let mut db = database();
+            let unfinished = matches!(state, ProposalState::Proposed | ProposalState::Starting | ProposalState::Failed | ProposalState::Uncertain);
+            let mut p = proposal("card", state);
+            p.session_id = Some("thread".into());
+            store_created(&mut db, &p, None).unwrap();
+            assert_eq!(has_remaining_proposals(&db, "thread").unwrap(), unfinished);
+            assert!(!has_remaining_proposals(&db, "other-thread").unwrap());
+        }
+    }
+
+    #[test]
+    fn remaining_cards_are_checked_beyond_recent_history() {
+        let mut db = database();
+        let mut waiting = proposal("waiting", ProposalState::Proposed);
+        waiting.session_id = Some("thread".into());
+        store_created(&mut db, &waiting, None).unwrap();
+        for i in 0..501 {
+            store_created(&mut db, &proposal(&i.to_string(), ProposalState::Proposed), None).unwrap();
+        }
+        assert!(has_remaining_proposals(&db, "thread").unwrap());
     }
 
     #[test]
