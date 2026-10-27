@@ -19,7 +19,7 @@ export function ScheduledPane({ launch, onStart, onClose }: { launch: ScheduledL
   const [busy, setBusy] = useState(false);
   const preview = useQuery({ queryKey: ["scheduled-preview", launch.id], queryFn: () => api.post<Preview>("/api/launch/preview", launch.spec), enabled: !launch.resume_session_id });
   const projectId = (launch.spec.target.kind === "project" || launch.spec.target.kind === "predraft") ? launch.spec.target.project_id : null;
-  const name = projects.find((p) => p.id === projectId)?.name ?? (launch.spec.target.kind === "existing_predraft" ? "Local pre-draft" : "New temporary folder");
+  const name = projects.find((p) => p.id === projectId)?.name ?? (launch.spec.target.kind === "existing_predraft" ? "Local PR" : "New scratch folder");
   const act = async (start: boolean) => {
     setBusy(true);
     try {
@@ -46,7 +46,7 @@ export function ScheduledPane({ launch, onStart, onClose }: { launch: ScheduledL
         </div>
       </div>
       <p className="text-ink-2">{launch.spec.harness ? harnessName(launch.spec.harness) : "Agent"} · {name} · {launch.spec.model ?? "Default model"} · {launch.spec.effort ?? "Default effort"}</p>
-      <div><b className="text-xs text-ink-2">{launch.resume_session_id ? "Follow-up message (same session)" : "Prompt preview"}</b><pre className="mt-2 rounded-lg border border-line p-3 text-xs whitespace-pre-wrap">{launch.resume_session_id ? launch.spec.text : preview.data?.prompt ?? (preview.isError ? "Project context is unavailable. Cancel and schedule again with another project." : "Loading…")}</pre></div>
+      <div><b className="text-xs text-ink-2">{launch.resume_session_id ? "Message sent later (same session)" : "Prompt preview"}</b><pre className="mt-2 rounded-lg border border-line p-3 text-xs whitespace-pre-wrap">{launch.resume_session_id ? launch.spec.text : preview.data?.prompt ?? (preview.isError ? "Project context is unavailable. Cancel and schedule again with another project." : "Loading…")}</pre></div>
     </div>
   </div>;
 }

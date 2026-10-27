@@ -18,6 +18,7 @@ pub fn router() -> Router<Server> {
     Router::new()
         .route("/api/projects", get(list_projects).post(add_project))
         .route("/api/projects/discover", post(discover))
+        .route("/api/projects/browse", get(browse_local))
         .route("/api/projects/{id}", get(get_project).patch(patch_project).delete(delete_project))
         .route("/api/projects/{id}/branches", get(branches))
         .route("/api/projects/{id}/promote", post(promote))
@@ -95,6 +96,40 @@ struct AddProject {
     host: Option<String>,
     /// The workspace of the window that adds it.
     workspace_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct BrowseLocal {
+    path: Option<String>,
+}
+
+/// Folders of this computer, for Add folder. Starts at the folders root (or the home folder); each
+/// entry says whether it is a Git repository, so the dialog can suggest them.
+async fn browse_local(State(s): State<Server>, Query(q): Query<BrowseLocal>) -> ApiResult<Value> {
+    let home = launchpad_core::paths::expand_home("~");
+    let start = match q.path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        Some(p) if p == "~" || p.starts_with("~/") || std::path::Path::new(p).is_absolute() => launchpad_core::paths::expand_home(p),
+        Some(_) => return Err(ApiError::bad_request("use an absolute folder or ~/…")),
+        None => {
+            let root = launchpad_core::paths::expand_home(&s.app.config.get().projects_root);
+            if tokio::fs::metadata(&root).await.is_ok_and(|m| m.is_dir()) { root } else { home.clone() }
+        }
+    };
+    let path = tokio::fs::canonicalize(&start).await.map_err(|e| ApiError::bad_request(format!("{}: {e}", start.display())))?;
+    let mut rd = tokio::fs::read_dir(&path).await.map_err(|e| ApiError::bad_request(format!("{}: {e}", path.display())))?;
+    let mut entries = Vec::new();
+    while let Ok(Some(e)) = rd.next_entry().await {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') || !tokio::fs::metadata(e.path()).await.is_ok_and(|m| m.is_dir()) {
+            continue;
+        }
+        let git = entries.len() < 500 && tokio::fs::metadata(e.path().join(".git")).await.is_ok();
+        entries.push(json!({"name": name, "git": git}));
+    }
+    entries.sort_by_key(|e| e["name"].as_str().unwrap_or("").to_lowercase());
+    let parent = path.parent().map(|p| p.to_string_lossy().into_owned());
+    let git = tokio::fs::metadata(path.join(".git")).await.is_ok();
+    Ok(Json(json!({"path": path.to_string_lossy(), "location": path.to_string_lossy(), "parent": parent, "home": home.to_string_lossy(), "git": git, "entries": entries})))
 }
 
 async fn add_project(State(s): State<Server>, Json(b): Json<AddProject>) -> ApiResult<Project> {

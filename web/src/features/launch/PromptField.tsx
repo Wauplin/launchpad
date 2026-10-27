@@ -118,8 +118,8 @@ export function PromptField({
         value={value}
         rows={7}
         autoFocus
-        placeholder={"What should the agent do?\nType @ for a project or # for an issue or PR. Add more context with + Add context, or add lines from the code viewer."}
-        className="block min-h-[140px] w-full resize-y rounded-lg border-[1.5px] border-line bg-paper px-2.5 py-2 text-[13px] leading-normal outline-none focus:border-teal focus:shadow-[0_0_0_3px_var(--color-teal-soft)]"
+        placeholder={"What should the agent do?\nType @ for a folder or # for an issue or PR. Add more context with + Add context, or add lines from Files."}
+        className="block min-h-[140px] w-full resize-y rounded-lg border-[1.5px] border-line bg-paper px-2.5 pt-2 pb-9 text-[13px] leading-normal outline-none focus:border-teal focus:shadow-[0_0_0_3px_var(--color-teal-soft)]"
         onChange={(e) => update(e.target.value, e.target.selectionStart)}
         onClick={(e) => setMention(mentionAt(value, e.currentTarget.selectionStart))}
         onBlur={() => setTimeout(() => setMention(null), 150)}
@@ -154,7 +154,7 @@ export function PromptField({
                   e.preventDefault();
                   pick(i);
                 }}
-                className={`grid grid-cols-[16px_1fr] gap-x-[9px] rounded-md px-[9px] py-[6px] text-left text-[12.5px] ${i === sel ? "bg-select" : "hover:bg-sunk"}`}
+                className={`grid grid-cols-[16px_1fr] gap-x-[9px] rounded-md px-[9px] py-[6px] text-left text-[13px] ${i === sel ? "bg-select" : "hover:bg-sunk"}`}
               >
                 <Icon name="folder" size={14} className="mt-0.5 text-ink-2" />
                 <span className="truncate">
@@ -172,14 +172,14 @@ export function PromptField({
                     e.preventDefault();
                     pick(i);
                   }}
-                  className={`grid grid-cols-[16px_1fr] gap-x-[9px] gap-y-px rounded-md px-[9px] py-[6px] text-left text-[12.5px] ${i === sel ? "bg-select" : "hover:bg-sunk"}`}
+                  className={`grid grid-cols-[16px_1fr] gap-x-[9px] gap-y-px rounded-md px-[9px] py-[6px] text-left text-[13px] ${i === sel ? "bg-select" : "hover:bg-sunk"}`}
                 >
                   <Icon name={ic.name} size={14} className={`mt-0.5 ${ic.color}`} />
                   <span className="truncate">
                     <b className="mr-1 font-mono text-xs font-semibold">#{it.number}</b>
                     {it.title}
                   </span>
-                  <span className="col-start-2 text-[11.5px] text-ink-3">
+                  <span className="col-start-2 text-[12px] text-ink-3">
                     {it.kind === "pr" ? "PR" : "Issue"} · {it.author} · {it.state}
                   </span>
                 </button>
@@ -189,7 +189,7 @@ export function PromptField({
             {mention.trigger === "@"
               ? projectHits.length
                 ? "Registered projects"
-                : "No matching project"
+                : "No matching folder"
               : !repo
                 ? "Pick a project with a GitHub remote first"
                 : gh.isLoading

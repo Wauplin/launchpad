@@ -56,7 +56,7 @@ function renderedText(element: HTMLElement | null, fallback: string): string {
 
 function Section({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
   return <section className="border-b border-line px-4 py-3">
-    <div className="mb-2 flex flex-wrap items-center gap-2"><h3 className="text-[10.5px] font-semibold tracking-wider text-ink-3 uppercase">{title}</h3>{actions && <span className="ml-auto flex gap-1">{actions}</span>}</div>
+    <div className="mb-2 flex flex-wrap items-center gap-2"><h3 className="text-[11px] font-semibold tracking-wider text-ink-3 uppercase">{title}</h3>{actions && <span className="ml-auto flex gap-1">{actions}</span>}</div>
     {children}
   </section>;
 }
@@ -73,7 +73,7 @@ function Fold({ children, lines, label }: { children: ReactNode; lines: number; 
     observer.observe(el); check();
     return () => observer.disconnect();
   }, [lines, children]);
-  return <><div ref={ref} className="overflow-hidden text-[12.5px] leading-[1.6]" style={{ maxHeight: expanded ? undefined : `${lines * 1.6}em` }}>{children}</div>{long && <button className="btn btn-sm mt-2" onClick={() => setExpanded(!expanded)}>{expanded ? "Show less" : label}</button>}</>;
+  return <><div ref={ref} className="overflow-hidden text-[13px] leading-[1.6]" style={{ maxHeight: expanded ? undefined : `${lines * 1.6}em` }}>{children}</div>{long && <button className="btn btn-sm mt-2" onClick={() => setExpanded(!expanded)}>{expanded ? "Show less" : label}</button>}</>;
 }
 
 function NextStep({ source, text, button, onClick, disabled }: { source: string; text: string; button: string; onClick: () => void; disabled?: boolean }) {
@@ -157,21 +157,23 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   });
   const followUp = schedules.some((q) => q.resume_session_id === s.id);
   const unfinished = ["stopped", "interrupted", "error"].includes(s.status);
+  const working = ["starting", "working", "background"].includes(s.status);
   return <div className="min-h-0 flex-1 overflow-y-auto bg-paper">
-    <StateBand session={s} /><FollowUpBands sessionId={s.id} /><QuotaBand session={s} />
+    {working && <div role="status" className="flex items-center gap-2 border-b border-line bg-work-soft px-4 py-2 text-[12px] text-work"><span className="lp-spin" />Working… The run facts below update when the turn ends.<button className="btn btn-sm ml-auto" onClick={showTrace}>Show trace</button></div>}
+    {!working && <StateBand session={s} />}<FollowUpBands sessionId={s.id} /><QuotaBand session={s} />
     {pendingQuestions.length > 0 && <Section title="Needs your decision">{pendingQuestions.map((question) => <AskCard key={question.request_id} row={question} sessionId={s.id} live={s.live} />)}</Section>}
     <Section title="Run"><dl className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">{metadata.map(([key, value]) => <Fragment key={key}><dt className="text-ink-3">{key}</dt><dd className="break-words whitespace-pre-wrap">{value}</dd></Fragment>)}</dl></Section>
     <Section title="Task · first prompt"><Fold lines={4} label="Show full task"><div className="whitespace-pre-wrap">{split ? split.typed : prompt}</div>{split && <Instructions blocks={split.instructions} className="mt-1" />}</Fold></Section>
     {final && <Section title={s.status === "stopped" || unfinished ? "Last agent message" : "Final message"} actions={<><button className="btn btn-sm" onClick={() => void copyText(final.text).then(() => toast("Copied"))}>Copy</button><button className="btn btn-sm" onClick={() => void copyText(renderedText(finalRef.current, final.text)).then(() => toast("Copied as text"))}>Copy as text</button></>}><Fold lines={30} label="Show full message"><div ref={finalRef}><Markdown text={final.text} runShell /></div></Fold></Section>}
     <Section title="Next steps">
       <WorktreeSteps session={s} />
-      {!(worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && !localPr) && (localPr && !localPr.published_url || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== "main" && !refs.some((r) => r.kind === "pr")) && s.project_id && <NextStep source="Git" text={localPr ? `This agent prepared a local pre-draft PR${localPr.title ? `: ${localPr.title}` : ""}.` : (git.data?.unpushed_commits ?? 0) > 0 ? `${git.data!.unpushed_commits} commits are absent from cached remote refs.` : "No PR is linked to this session."} button={localPr ? "Review & publish" : "Open pre-draft PR"} onClick={openPr} disabled={busy} />}
-      {drafts.map((d) => <NextStep key={d.id} source={d.target.kind === "predraft" ? "Local" : "GitHub"} text={`This agent drafted a ${d.kind} ${d.target.kind === "predraft" ? "on its local pre-draft PR" : `on ${d.target.repo} #${d.target.number}`}${d.status === "draft" ? "" : ": publication was attempted, check GitHub"}.`} button="Review & post" onClick={() => { const t = d.target; if (t.kind === "predraft") void navigate({ to: "/predrafts/$id", params: { id: t.id } }); else { const [owner, repo] = t.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(t.number) } }); } }} />)}
+      {!(worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && !localPr) && (localPr && !localPr.published_url || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== "main" && !refs.some((r) => r.kind === "pr")) && s.project_id && <NextStep source="Git" text={localPr ? `This agent prepared a Local PR${localPr.title ? `: ${localPr.title}` : ""}.` : (git.data?.unpushed_commits ?? 0) > 0 ? `${git.data!.unpushed_commits} commits are absent from cached remote refs.` : "No PR is linked to this session."} button={localPr ? "Review & publish" : "Open Local PR"} onClick={openPr} disabled={busy} />}
+      {drafts.map((d) => <NextStep key={d.id} source={d.target.kind === "predraft" ? "Local" : "GitHub"} text={`This agent drafted a ${d.kind} ${d.target.kind === "predraft" ? "on its Local PR" : `on ${d.target.repo} #${d.target.number}`}${d.status === "draft" ? "" : ": publication was attempted, check GitHub"}.`} button="Review & post" onClick={() => { const t = d.target; if (t.kind === "predraft") void navigate({ to: "/predrafts/$id", params: { id: t.id } }); else { const [owner, repo] = t.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(t.number) } }); } }} />)}
       {((changes?.files ?? 0) > 0 || (git.data?.files.length ?? 0) > 0) && <NextStep source="Git" text={`${git.data?.files.length ?? 0} uncommitted files${changes ? `; ${changes.files} tracked files differ from main` : ""}.`} button="Review diff" onClick={() => reviewDiff((changes?.files ?? 0) > 0)} />}
       {(unfinished || s.status === "closed") && <NextStep source="Session" text={s.status === "closed" ? "This archived session is still resumable." : "The last turn did not finish successfully."} button="Resume" disabled={busy} onClick={() => void run(async () => { if (unfinished) await api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }); else await api.post(`/api/sessions/${s.id}/resume`); showTrace(); })} />}
       {refs.map((r, i) => <NextStep key={i} source="GitHub" text={r.title ?? `Linked ${r.kind}${r.number ? ` #${r.number}` : ""}.`} button={`Open ${r.number ? `#${r.number}` : r.kind}`} onClick={() => { if (r.number && r.repo.includes("/")) { const [owner, repo] = r.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(r.number) } }); } else openExternal(r.url); }} />)}
-      {!scheduling && <p className="pt-2 text-xs text-ink-3">{followUp ? "A follow-up is already scheduled for this session." : s.status === "quota_paused" ? null : <button className="text-teal-ink hover:underline" onClick={() => setScheduling(true)}>Schedule follow-up</button>}</p>}
-      {scheduling && <div className="grid gap-3 border-t border-line py-3"><b className="text-xs">Schedule follow-up · same session, new message</b><textarea className="field-input min-h-20" aria-label="Follow-up message" placeholder="Message to send later…" value={message} onChange={(e) => setMessage(e.target.value)} /><div className="grid gap-1.5"><div><PresetButton labeled selected={followUpPresets} onChange={setFollowUpPresets} /></div><PresetChips selected={followUpPresets} onChange={setFollowUpPresets} /></div><DelaySelector conditions={conditions} harness={s.harness} profile={s.launch_spec.profile} onChange={setConditions} onValidityChange={setValid} /><p className="text-xs text-ink-3">If this session is running, in a terminal or awaiting an answer at that time, the follow-up stays queued until it is ready.</p><div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !followUpMessage || !conditions.length || !valid} onClick={() => void run(async () => { await api.post(`/api/sessions/${s.id}/follow-up`, { message: followUpMessage, conditions }); setScheduling(false); setMessage(""); setFollowUpPresets([]); })}>Schedule</button><button className="btn btn-sm" onClick={() => setScheduling(false)}>Cancel</button></div></div>}
+      {!scheduling && <p className="pt-2 text-xs text-ink-3">{followUp ? "A message is already scheduled for this session." : s.status === "quota_paused" ? null : <button className="text-teal-ink hover:underline" title="A message delivered later to this same session" onClick={() => setScheduling(true)}>Send later…</button>}</p>}
+      {scheduling && <div className="grid gap-3 border-t border-line py-3"><b className="text-xs">Send later · same session, new message</b><textarea className="field-input min-h-20" aria-label="Message to send later" placeholder="Message to send later…" value={message} onChange={(e) => setMessage(e.target.value)} /><div className="grid gap-1.5"><div><PresetButton labeled selected={followUpPresets} onChange={setFollowUpPresets} /></div><PresetChips selected={followUpPresets} onChange={setFollowUpPresets} /></div><DelaySelector conditions={conditions} harness={s.harness} profile={s.launch_spec.profile} onChange={setConditions} onValidityChange={setValid} /><p className="text-xs text-ink-3">If this session is running, in a terminal or awaiting an answer at that time, the message stays queued until it is ready.</p><div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !followUpMessage || !conditions.length || !valid} onClick={() => void run(async () => { await api.post(`/api/sessions/${s.id}/follow-up`, { message: followUpMessage, conditions }); setScheduling(false); setMessage(""); setFollowUpPresets([]); })}>Schedule</button><button className="btn btn-sm" onClick={() => setScheduling(false)}>Cancel</button></div></div>}
     </Section>
   </div>;
 }
@@ -240,23 +242,36 @@ export function CostLimit({ session: s, badge = false }: { session: Session; bad
   </Popover>;
 }
 
+const PERMISSIONS: { id: "yolo" | "approvals" | "auto"; label: string; detail: string }[] = [
+  { id: "yolo", label: "YOLO", detail: "Commands and file changes run without prompts" },
+  { id: "approvals", label: "Ask for approval", detail: "Requests wait for your decision in the session" },
+  { id: "auto", label: "Auto approval", detail: "A separate AI reviews actions that need permission" },
+];
+
+/** The session's permission mode, edited in Summary → Run (the header only shows a token when it is not YOLO). */
 export function PermissionSwitch({ session: s }: { session: Session }) {
   const [busy, setBusy] = useState(false);
   const supported = useHarnessInfo(s.harness)?.capabilities.permission_modes;
   if (!supported) return null;
-  return <label className="inline-flex min-w-0 items-center gap-1" title="Changing permissions pauses the current turn and continues the same conversation. Pending approvals are cancelled and reconsidered by the agent.">
-    <span className="sr-only">Permissions</span>
-    <select className="field-input w-auto max-w-full text-xs" aria-label="Session permissions" value={s.launch_spec.permission_mode} disabled={busy || s.status === "in_terminal" || s.status === "starting"} onChange={async (e) => {
-      const mode = e.target.value;
+  const current = PERMISSIONS.find((p) => p.id === s.launch_spec.permission_mode) ?? PERMISSIONS[0];
+  return <Popover width={300} trigger={({ open, toggle }) => (
+    <button className="btn btn-sm" aria-label="Session permissions" aria-expanded={open} disabled={busy || s.status === "in_terminal" || s.status === "starting"} title="Changing permissions pauses the current turn and continues the same conversation. Pending approvals are cancelled and reconsidered by the agent." onClick={toggle}>{busy ? "Switching…" : current.label}<Icon name="chev" size={11} /></button>
+  )}>
+    {(close) => <>{PERMISSIONS.map((p) => <MenuItem key={p.id} label={p.label} detail={p.detail} active={p.id === current.id} onClick={async () => {
+      close();
+      if (p.id === current.id) return;
       setBusy(true);
-      try { await api.post(`/api/sessions/${s.id}/permissions`, { mode }); } catch (e) { toastError(e); } finally { setBusy(false); }
-    }}>
-      <option value="yolo">YOLO</option>
-      <option value="approvals">Ask for approval</option>
-      <option value="auto">Auto approval</option>
-    </select>
-    {busy && <span role="status">Switching…</span>}
-  </label>;
+      try { await api.post(`/api/sessions/${s.id}/permissions`, { mode: p.id }); } catch (e) { toastError(e); } finally { setBusy(false); }
+    }} />)}</>}
+  </Popover>;
+}
+
+/** Header token for run settings that differ from the default; it opens Summary → Run. */
+export function RunSettingsChip({ session: s, open }: { session: Session; open: () => void }) {
+  const supported = useHarnessInfo(s.harness)?.capabilities.permission_modes;
+  const mode = s.launch_spec.permission_mode;
+  if (!supported || !mode || mode === "yolo") return null;
+  return <button className="inline-flex h-5 items-center gap-1 rounded-[5px] border border-line-2 bg-chrome px-1.5 text-[11px] text-ink-2 hover:bg-sunk" title="Run settings: edit them in Summary → Run" onClick={open}><Icon name="sliders" size={11} />{PERMISSIONS.find((p) => p.id === mode)?.label}</button>;
 }
 
 /** Model and supported effort choices come from the registered adapter. */

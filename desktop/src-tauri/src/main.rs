@@ -248,6 +248,32 @@ fn build_window(app: &tauri::AppHandle, app_env: &AppEnv, label: &str, url: Webv
                 let _ = w.set_title(&title);
             }
         })
+        .on_download({
+            let origin = origin.clone();
+            move |webview, event| match event {
+                // Attachment downloads from the daemon go to the Downloads folder under a free name.
+                tauri::webview::DownloadEvent::Requested { url, destination } => {
+                    if !same_origin(&url, &origin) {
+                        return false;
+                    }
+                    let Some(dir) = dirs::download_dir().or_else(|| dirs::home_dir().map(|h| h.join("Downloads"))) else { return false };
+                    let name = destination.file_name().map(|n| n.to_string_lossy().into_owned()).filter(|n| !n.is_empty() && n != "download").or_else(|| url.query_pairs().find(|(k, _)| k == "path").and_then(|(_, p)| p.rsplit('/').next().map(str::to_string))).unwrap_or_else(|| "download".into());
+                    let _ = std::fs::create_dir_all(&dir);
+                    let (stem, ext) = match name.rsplit_once('.') {
+                        Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
+                        _ => (name.clone(), String::new()),
+                    };
+                    *destination = (0..).map(|n| dir.join(if n == 0 { name.clone() } else { format!("{stem} ({n}){ext}") })).find(|p| !p.exists()).unwrap();
+                    true
+                }
+                tauri::webview::DownloadEvent::Finished { path, success, .. } => {
+                    let path = path.map(|p| p.display().to_string()).unwrap_or_default();
+                    let _ = webview.eval(format!("window.__launchpadDownloaded && window.__launchpadDownloaded({}, {success})", serde_json_string(&path)));
+                    true
+                }
+                _ => true,
+            }
+        })
         .on_navigation(move |url| {
             let internal = same_origin(url, &origin) || url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost");
             if !internal && matches!(url.scheme(), "http" | "https" | "mailto") {

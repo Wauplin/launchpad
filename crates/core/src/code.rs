@@ -619,6 +619,27 @@ pub async fn raw(app: &App, src: &Source, path: &str) -> Result<Vec<u8>> {
     read(&app.env, src, path, 4 * MAX_LOAD).await?.map_err(|size| anyhow::anyhow!("{path} is too large ({size} bytes)"))
 }
 
+/// Files on SSH hosts and git objects are read at once, up to this size.
+const MAX_DOWNLOAD: u64 = 512 * 1024 * 1024;
+
+/// Bytes of a download: a working-tree file on this computer streams from disk at any size.
+pub enum Download {
+    File(PathBuf, u64),
+    Bytes(Vec<u8>),
+}
+
+pub async fn download(app: &App, src: &Source, path: &str) -> Result<Download> {
+    if src.rev.is_none() && crate::hosts::loc::split_path(&src.root).is_none() {
+        let full = inside(&src.root, check_path(path)?).await?;
+        let meta = crate::hostfs::metadata(&full).await?;
+        if meta.is_dir() {
+            bail!("{path} is a folder");
+        }
+        return Ok(Download::File(full, meta.len));
+    }
+    read(&app.env, src, path, MAX_DOWNLOAD).await?.map(Download::Bytes).map_err(|size| anyhow::anyhow!("{path} is too large to download from here ({size} bytes)"))
+}
+
 pub async fn file(app: &App, src: &Source, path: &str) -> Result<CodeFile> {
     let env = &app.env;
     let (language, language_name) = language(path).map(|(id, name)| (Some(id.to_string()), Some(name.to_string()))).unwrap_or_default();

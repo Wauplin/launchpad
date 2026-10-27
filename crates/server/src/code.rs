@@ -2,6 +2,7 @@
 //! for a revision); `launchpad_core::code::open` checks it before anything is read.
 
 use axum::Json;
+use axum::body::Body;
 use axum::Router;
 use axum::extract::{Query, State};
 use axum::http::header;
@@ -9,6 +10,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use launchpad_core::code::{self, CodeFile, CodeSources, CommitInfo, FileList, SearchQuery, SearchResult, Source};
 use serde::Deserialize;
+use tokio::io::AsyncReadExt;
 
 use crate::Server;
 use crate::error::{ApiError, ApiResult};
@@ -116,21 +118,42 @@ async fn raw(State(s): State<Server>, Query(q): Query<FileQuery>) -> Result<Resp
 }
 
 /// Downloads always use an attachment and an inert MIME type, including HTML/SVG outputs.
-/// Reuse the authorized source, symlink confinement and 20 MiB bounded read used by images.
+/// Reuse the authorized source and symlink confinement; local working-tree files stream without a size cap.
 async fn download(State(s): State<Server>, Query(q): Query<FileQuery>) -> Result<Response, ApiError> {
     let src = source(&s, &q.root, q.rev.as_deref()).await?;
-    let bytes = code::raw(&s.app, &src, &q.path).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+    let (body, len) = match code::download(&s.app, &src, &q.path).await.map_err(|e| ApiError::not_found(format!("{e:#}")))? {
+        code::Download::Bytes(bytes) => {
+            let len = bytes.len() as u64;
+            (Body::from(bytes), len)
+        }
+        code::Download::File(path, len) => {
+            let file = tokio::fs::File::open(&path).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+            let chunks = futures_util::stream::unfold(file, |mut file| async move {
+                let mut buf = vec![0u8; 256 * 1024];
+                match file.read(&mut buf).await {
+                    Ok(0) => None,
+                    Ok(n) => {
+                        buf.truncate(n);
+                        Some((Ok::<_, std::io::Error>(buf), file))
+                    }
+                    Err(e) => Some((Err(e), file)),
+                }
+            });
+            (Body::from_stream(chunks), len)
+        }
+    };
     let name = q.path.rsplit('/').next().unwrap_or("download");
     let encoded: String = name.as_bytes().iter().map(|b| format!("%{b:02X}")).collect();
     Ok((
         [
+            (header::CONTENT_LENGTH, len.to_string()),
             (header::CONTENT_TYPE, "application/octet-stream".to_string()),
             (header::CONTENT_DISPOSITION, format!("attachment; filename=\"download\"; filename*=UTF-8''{encoded}")),
             (header::CONTENT_SECURITY_POLICY, "default-src 'none'; sandbox".to_string()),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
             (header::CACHE_CONTROL, "no-store".to_string()),
         ],
-        bytes,
+        body,
     )
         .into_response())
 }

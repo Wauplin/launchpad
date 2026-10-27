@@ -105,13 +105,13 @@ export function ProviderCost({ model, provider }: { model: ModelInfo; provider: 
     <span className="grid gap-1">
       <span className="flex flex-wrap gap-1.5" aria-label="Price per million tokens">
         {cells.map(([label, value]) => (
-          <span key={label} className="inline-flex items-baseline gap-1.5 rounded-md border border-line bg-paper px-2 py-0.5 text-[11.5px]">
+          <span key={label} className="inline-flex items-baseline gap-1.5 rounded-md border border-line bg-paper px-2 py-0.5 text-[12px]">
             <span className="text-ink-3">{label}</span>
             <b className={`font-mono font-semibold tabular-nums ${value ? "text-ink" : "font-normal text-ink-3"}`}>{value ?? "not reported"}</b>
           </span>
         ))}
       </span>
-      <span className="text-[11.5px] text-ink-3">USD per 1M tokens · {note}. {costSource}</span>
+      <span className="text-[12px] text-ink-3">USD per 1M tokens · {note}. {costSource}</span>
     </span>
   );
 }
@@ -144,7 +144,7 @@ export function ProviderPicker({ models, model, onChange, up, compact }: { model
           </>
         )}
       </Popover>
-      {unknown ? <span className="text-[11.5px] text-attn">{provider} does not currently serve this model with tool use.</span>
+      {unknown ? <span className="text-[12px] text-attn">{provider} does not currently serve this model with tool use.</span>
         : compact ? <ProviderPriceChip model={info} provider={provider} /> : <ProviderCost model={info} provider={provider} />}
     </span>
   );

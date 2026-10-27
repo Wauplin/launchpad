@@ -16,7 +16,7 @@ function Prompt({ h }: { h: HostStatus }) {
     api.post(`/api/hosts/${h.host.id}/prompt`, { prompt_id: p.id, answer }).catch(toastError).finally(() => setBusy(false));
   };
   return (
-    <div className="grid gap-2.5 rounded-[10px] border border-line bg-paper p-4 text-[12.5px] shadow-[0_12px_32px_-12px_rgba(23,32,43,.45)]">
+    <div className="grid gap-2.5 rounded-[10px] border border-line bg-paper p-4 text-[13px] shadow-[0_12px_32px_-12px_rgba(23,32,43,.45)]">
       <b className="font-[650]">ssh asks about {h.host.id}</b>
       <pre className="m-0 max-h-48 overflow-auto rounded bg-chrome p-2 font-mono text-xs whitespace-pre-wrap">{p.text}</pre>
       {p.secret ? (

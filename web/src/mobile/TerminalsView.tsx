@@ -2,6 +2,7 @@
 // Desktop terminals keep their normal shortcuts and bottom dock.
 
 import { useEffect, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { isPhone } from "@/lib/phone";
 import { useLayout } from "@/stores/layout";
 import { useScopedTerminals } from "@/features/terminals/lib";
@@ -79,9 +80,14 @@ function KeyBar() {
   );
 }
 
+/** Phones: the key bar under the full-page dock. Desktop has no /terminals page: it opens the dock and goes to Agents. */
 export function TerminalsView() {
   const setDock = useLayout((s) => s.setDock);
-  useEffect(() => { if (!isPhone) setDock({ open: true }); }, [setDock]);
-  if (isPhone) return <KeyBar />;
-  return <div className="grid h-full place-items-center p-8 text-center text-ink-2">Terminals open in the dock at the bottom of the window.</div>;
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (isPhone) return;
+    setDock({ open: true });
+    void navigate({ to: "/agents", replace: true });
+  }, [setDock, navigate]);
+  return isPhone ? <KeyBar /> : null;
 }

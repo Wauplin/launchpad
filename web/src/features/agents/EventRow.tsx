@@ -66,7 +66,7 @@ function PathText({ path, className }: { path: string; className: string }) {
     <span
       role="link"
       className={`${className} lp-path`}
-      title="Open in the code viewer"
+      title="Open in Files"
       onClick={(e) => {
         e.stopPropagation();
         links!.open(hit.path, hit.line);
@@ -93,7 +93,7 @@ function CallLine({ c }: { c: Call }) {
       >
         {running ? <span className="lp-spin" /> : <Icon name="chev" size={12} className={`flex-none text-ink-3 transition-transform ${open ? "" : "-rotate-90"}`} />}
         <span className={`font-[650] ${running ? "text-work" : "text-ink"}`}>{c.name}</span>
-        {FILE_TOOLS.has(c.name) ? <PathText path={c.summary} className="min-w-0 truncate font-mono text-[11.5px]" /> : <span className="min-w-0 truncate font-mono text-[11.5px]">{c.summary}</span>}
+        {FILE_TOOLS.has(c.name) ? <PathText path={c.summary} className="min-w-0 truncate font-mono text-[12px]" /> : <span className="min-w-0 truncate font-mono text-[12px]">{c.summary}</span>}
         <span className="ml-auto flex-none whitespace-nowrap text-ink-3 tabular-nums">
           {running ? <Ago ts={c.ts} /> : [duration(c.result?.duration_ms), c.result?.exit_code != null ? `exit ${c.result.exit_code}` : c.result?.is_error ? "error" : ""].filter(Boolean).join(" · ")}
         </span>
@@ -214,7 +214,7 @@ function BackgroundRow({ row, sessionId }: { row: Extract<Row, { t: "bg" }>; ses
 export function Instructions({ blocks, className = "", label }: { blocks: string[]; className?: string; label?: string }) {
   const [open, setOpen] = useState(false);
   return <div className={className}>
-    <button className="text-[11.5px] text-ink-3 hover:text-ink" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? "−" : "+"} {label ?? `Launchpad instructions (${blocks.length})`}</button>
+    <button className="text-[12px] text-ink-3 hover:text-ink" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? "−" : "+"} {label ?? `Launchpad instructions (${blocks.length})`}</button>
     {open && <div className="mt-1 grid gap-2 border-l-2 border-line pl-2 text-xs text-ink-2">{blocks.map((b, i) => <div key={i}>{b}</div>)}</div>}
   </div>;
 }
@@ -223,13 +223,13 @@ function NoticesRow({ texts }: { texts: string[] }) {
   const [open, setOpen] = useState(false);
   return <div className="grid gap-1">
     <Separator><button className="hover:text-ink" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{noticesSummary(texts)} {open ? "▾" : "▸"}</button></Separator>
-    {open && texts.map((t, i) => <div key={i} className="text-center text-[11.5px] text-ink-3">{t}</div>)}
+    {open && texts.map((t, i) => <div key={i} className="text-center text-[12px] text-ink-3">{t}</div>)}
   </div>;
 }
 
 function Separator({ children, tone = "" }: { children: React.ReactNode; tone?: string }) {
   return (
-    <div className={`flex items-center gap-2 text-[11.5px] text-ink-3 before:h-px before:flex-1 before:bg-line-2 after:h-px after:flex-1 after:bg-line-2 ${tone}`}>{children}</div>
+    <div className={`flex items-center gap-2 text-[12px] text-ink-3 before:h-px before:flex-1 before:bg-line-2 after:h-px after:flex-1 after:bg-line-2 ${tone}`}>{children}</div>
   );
 }
 
@@ -238,7 +238,7 @@ export const EventRow = memo(
     switch (row.t) {
       case "user":
         return (
-          <div className="ml-auto max-w-[88%] rounded-[10px_10px_3px_10px] bg-sunk px-2.5 py-[7px] text-[12.5px] whitespace-pre-wrap">
+          <div className="ml-auto max-w-[88%] rounded-[10px_10px_3px_10px] bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap">
             {row.text}
             {row.instructions && <Instructions blocks={row.instructions} className={row.text ? "mt-1.5" : ""} />}
             {row.presets && <Instructions label={`Presets: ${row.presets.map((p) => p.label).join(" · ")}`} blocks={row.presets.map((p) => p.text.trim())} className={row.text ? "mt-1.5" : ""} />}

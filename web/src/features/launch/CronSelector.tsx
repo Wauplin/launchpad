@@ -47,7 +47,7 @@ export function CronFields({ draft, harness, onChange, onValidityChange }: { dra
     {next.error ? <p role="alert" className="text-xs text-gh-closed">{next.error.message}</p>
       : next.data && <p className="text-xs text-ink-2">Next runs{tz?.differs ? ` (your time, ${browserZone})` : ""}: {next.data.map((at) => new Date(at).toLocaleString()).join(" · ")}</p>}
     <p className="text-xs text-ink-3">5 fields: minute, hour, day of month, month, day of week. {tz?.differs ? <b className="font-semibold text-attn">Server time ({tz.label}), not your time zone.</b> : <>Your local time · {browserZone}</>}</p>
-    <b className="text-[11.5px] font-[650] text-ink-2">Run only if</b>
+    <b className="text-[12px] font-[650] text-ink-2">Run only if</b>
     <label className="flex items-center gap-2 text-xs"><input type="checkbox" className="accent-teal" checked={previous} onChange={(e) => onChange({ ...draft, conditions: [...(e.target.checked ? [{ kind: "previous_run_finished" as const }] : []), ...quotas] })} />The previous run is no longer Running</label>
     {quotas.map((q, i) => <div key={i} className="flex flex-wrap items-center gap-2 text-xs">
       <span>{harness ? name(harness) : "The agent"} has at least</span>
@@ -67,7 +67,7 @@ export function CronSelector({ cron, harness, onChange, onValidityChange }: { cr
   const supportsQuota = useHarnessInfo(harness)?.capabilities.quota ?? false;
   useEffect(() => { if (!cron) onValidityChange(true); }, [cron, onValidityChange]);
   return <div className="grid gap-1.5">
-    <label className="text-[11.5px] font-[650] text-ink-2" htmlFor="launch-repeat">Repeat</label>
+    <label className="text-[12px] font-[650] text-ink-2" htmlFor="launch-repeat">Repeat</label>
     <select id="launch-repeat" className="field-input h-8" value={cron ? "cron" : "once"} onChange={(e) => onChange(e.target.value === "cron" ? { ...DEFAULT_CRON, conditions: DEFAULT_CRON.conditions.filter((c) => supportsQuota || c.kind !== "quota_left") } : null)}>
       <option value="once">Run once</option><option value="cron">On a cron schedule…</option>
     </select>

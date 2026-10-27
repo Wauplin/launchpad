@@ -19,7 +19,7 @@ use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use crate::auth::Access;
 use futures_util::{SinkExt, StreamExt};
-use launchpad_core::terminals::{Output, TerminalInfo};
+use launchpad_core::terminals::{Output, TerminalFolders, TerminalInfo};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
@@ -32,6 +32,8 @@ pub fn router() -> Router<Server> {
         .route("/api/terminals", get(list).post(open))
         .route("/api/profiles/{id}/setup", post(profile_setup))
         .route("/api/terminals/close-all", post(close_all))
+        .route("/api/terminals/folders", get(folders))
+        .route("/api/terminals/{id}/restart", post(restart))
         .route("/api/terminals/{id}", axum::routing::delete(remove))
         .route("/api/terminals/{id}/close", post(close))
         .route("/api/terminals/{id}/ws", get(ws))
@@ -74,8 +76,23 @@ async fn close(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Val
     Ok(Json(json!({"ok": true})))
 }
 
+#[derive(Deserialize)]
+struct FolderQuery {
+    cwd: String,
+}
+
+/// The folder menu of a Terminal button: the folder, its project's checkout and other worktrees.
+async fn folders(State(s): State<Server>, Query(q): Query<FolderQuery>) -> ApiResult<TerminalFolders> {
+    Ok(Json(launchpad_core::terminals::folders(&s.app, &q.cwd).await.map_err(bad)?))
+}
+
+async fn restart(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<TerminalInfo> {
+    Ok(Json(s.app.terminals.restart(&s.app, &id).await.map_err(bad)?))
+}
+
+/// Stops every terminal in every workspace and removes all tabs.
 async fn close_all(State(s): State<Server>) -> ApiResult<Value> {
-    s.app.terminals.close_all().await.map_err(bad)?;
+    s.app.terminals.close_and_remove_all(&s.app).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 

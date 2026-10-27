@@ -28,7 +28,7 @@ const ProjectRow = memo(function ProjectRow({ project, active, onPick }: { proje
   </div>;
 });
 
-export function ProjectPicker({ projects, workspaceName, hasProject, selected, temporary, projectsRoot, emptyMessage = "No project yet: add some in Projects.", onPick }: {
+export function ProjectPicker({ projects, workspaceName, hasProject, selected, temporary, projectsRoot, emptyMessage = "No folder yet: add one from the sidebar.", onPick }: {
   projects: Project[];
   workspaceName?: string;
   hasProject: (id: string) => boolean;
@@ -67,8 +67,8 @@ export function ProjectPicker({ projects, workspaceName, hasProject, selected, t
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => scroll.current, estimateSize: (index) => typeof rows[index] === "string" ? 24 : 48, getItemKey: (index) => { const r = rows[index]; return typeof r === "string" ? `group-${r}` : r.id; }, overscan: 4, useFlushSync: false });
   const height = Math.min(rows.reduce((n, r) => n + (typeof r === "string" ? 24 : 48), 0), 220);
   return <div className="grid gap-1">
-    <input autoFocus className="field-input w-full" aria-label="Find project" placeholder="Find a project…" value={search} onChange={(e) => { setSearch(e.target.value); scroll.current?.scrollTo({ top: 0 }); }} />
-    {projectsRoot !== undefined && <MenuItem icon={<Icon name="plus" size={13} />} label="New temporary folder" detail={`in ${projectsRoot}`} active={temporary} onClick={() => onPick(null)} />}
+    <input autoFocus className="field-input w-full" aria-label="Find folder" placeholder="Find a folder…" value={search} onChange={(e) => { setSearch(e.target.value); scroll.current?.scrollTo({ top: 0 }); }} />
+    {projectsRoot !== undefined && <MenuItem icon={<Icon name="plus" size={13} />} label="New scratch folder" detail={`in ${projectsRoot}`} active={temporary} onClick={() => onPick(null)} />}
     <div ref={scroll} className="overflow-y-auto" style={{ height }}>
       <div className="relative" style={{ height: virtual.getTotalSize() }}>
         {virtual.getVirtualItems().map((row) => {
@@ -79,6 +79,6 @@ export function ProjectPicker({ projects, workspaceName, hasProject, selected, t
         })}
       </div>
     </div>
-    {!matches.length && <div className="px-2 py-1.5 text-xs text-ink-3">{projects.length ? "No matching projects." : emptyMessage}</div>}
+    {!matches.length && <div className="px-2 py-1.5 text-xs text-ink-3">{projects.length ? "No matching folder." : emptyMessage}</div>}
   </div>;
 }

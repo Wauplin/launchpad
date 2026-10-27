@@ -5,7 +5,8 @@ import { FollowUpAgent } from "./FollowUpAgent";
 import { HostLabel } from "@/components/HostLabel";
 import { hostOf, linkLabel, useHost } from "@/lib/hosts";
 import { useProfile } from "@/lib/profiles";
-import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle, PermissionSwitch } from "./SessionSummary";
+import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle, RunSettingsChip } from "./SessionSummary";
+import { Tabs } from "@/components/ui";
 import { SubagentsPanel, subagents } from "./SubagentsPanel";
 import { GitPanel } from "./GitPanel";
 import { ProcessesPanel } from "./ProcessesPanel";
@@ -40,6 +41,7 @@ import type { SessionGitHistory } from "@/gen/SessionGitHistory";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import { StatusBadge, usageLine } from "./SessionBits";
 import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
+import { TerminalMenu } from "@/features/terminals/TerminalMenu";
 import { Sheet } from "@/mobile/Sheet";
 import { WorktreeCard, useSessionWorktrees, WorktreeChip } from "./Worktrees";
 import { usePhone } from "@/lib/phone";
@@ -52,7 +54,8 @@ function act(id: string, action: string) {
 
 type PendingAsk = { request_id: string; count: number; permission: boolean } | null;
 
-function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, dropImages, inputRef: ref, onSent }: { acceptsImages: boolean; sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null>; inputRef: React.RefObject<HTMLTextAreaElement | null>; onSent: () => void }) {
+/** The session message box; Now cards on the phone reuse it for Reply. */
+export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, dropImages, inputRef: ref, onSent }: { acceptsImages: boolean; sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null>; inputRef: React.RefObject<HTMLTextAreaElement | null>; onSent: () => void }) {
   const text = useMessageDrafts((s) => s.drafts[sessionId] ?? "");
   const setDraft = useMessageDrafts((s) => s.set);
   const setText = (t: string) => setDraft(sessionId, t);
@@ -120,9 +123,9 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
         <img src={attachmentSrc(image.data_url)} alt={image.name} title={image.name} className="h-16 max-w-28 rounded-md border border-line object-contain" />
         <button className="iconbtn absolute -top-1 -right-1 bg-paper!" title={`Remove ${image.name}`} disabled={busy || reading} onClick={() => setImages((current) => current.filter((_, j) => j !== i))}><Icon name="x" size={12} /></button>
       </div>)}</div>}
-      {delivery && <div role="status" className="mb-1 text-[11.5px] text-ink-3">{delivery === "sending" ? "◷ Sending…" : delivery === "delivered" ? "✓ Delivered" : delivery === "failed" ? "Attempt failed. Check the trace before starting a new attempt." : "Delivery not confirmed. Retry the same message to check its result."}</div>}
+      {delivery && <div role="status" className="mb-1 text-[12px] text-ink-3">{delivery === "sending" ? "Sending…" : delivery === "delivered" ? "Delivered" : delivery === "failed" ? "Attempt failed. Check the trace before starting a new attempt." : "Delivery not confirmed. Retry the same message to check its result."}</div>}
       {delivery === "uncertain" && <button className="btn btn-sm mb-1" disabled={busy} onClick={() => void abandonOperation(`/api/sessions/${sessionId}/input`, { text: message, images }).then(() => setDelivery(null)).catch(toastError)}>I checked the trace — start a new attempt</button>}
-      {reading && <div className="mb-1 text-[11.5px] text-ink-3">Reading images…</div>}
+      {reading && <div className="mb-1 text-[12px] text-ink-3">Reading images…</div>}
       {!ask && <PresetChips selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
       <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
         <textarea
@@ -144,7 +147,7 @@ function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, drop
               void send();
             }
           }}
-          className="max-h-40 min-h-5 min-w-0 flex-1 resize-none bg-transparent text-[12.5px] leading-5 outline-none disabled:opacity-60"
+          className="max-h-40 min-h-5 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none disabled:opacity-60"
         />
         {!ask && <PresetButton selected={presets} onChange={setPresets} disabled={disabled || busy || reading} />}
         {acceptsImages && <button className="iconbtn" title="Attach images (you can also drop or paste them)" aria-label="Attach images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
@@ -219,7 +222,8 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const history = useQuery({ queryKey: ["session-git-commits", sessionId, ""], queryFn: () => api.get<SessionGitHistory | null>(`/api/sessions/${sessionId}/git-commits`), refetchInterval: 5000 });
   const isGit = !!git.data || !!history.data;
   const current: View = view === "processes" && !hasProcesses ? "trace" : view === "changes" && !isGit ? "summary" : view ?? "summary";
-  const summary = !s || current === "summary" && !isRunning(s);
+  // Running opens Trace by default (decision 10 allows Summary while running, with a "Working…" band).
+  const summary = !s || current === "summary";
   const changesOpen = current === "changes";
   const processesOpen = current === "processes";
   const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => p.root === s?.cwd || p.id === localStorage.getItem(`launchpad.session-predraft.${sessionId}`));
@@ -345,10 +349,10 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         </span>
         <div className="session-heading order-2 flex min-w-0 items-center gap-1">
           {renaming ? <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-            <input autoFocus aria-label="Session title" className="field-input min-w-0 flex-1 basis-32 text-[12.5px] font-[650]" maxLength={100} value={title} disabled={savingTitle} onChange={(e) => setTitle(e.target.value)} />
+            <input autoFocus aria-label="Session title" className="field-input min-w-0 flex-1 basis-32 text-[13px] font-[650]" maxLength={100} value={title} disabled={savingTitle} onChange={(e) => setTitle(e.target.value)} />
             <button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, { title: title.trim() }); setRenaming(false); } catch (e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button>
             <button className="btn btn-sm" disabled={savingTitle} onClick={() => setRenaming(false)}>Cancel</button>
-          </div> : <button className="session-title min-w-0 flex-1 truncate text-left text-[12.5px] font-[650] hover:text-teal-ink" title={`${s.title} · Click to edit`} aria-label={`Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
+          </div> : <button className="session-title min-w-0 flex-1 truncate text-left text-[13px] font-[650] hover:text-teal-ink" title={`${s.title} · Click to edit`} aria-label={`Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
             {isPinned && <span className="mr-1 text-teal-ink" title="Pinned">★</span>}{s.title}
           </button>}
           {phone
@@ -357,56 +361,52 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
               <Icon name="x" size={14} />
             </button>}
         </div>
-        <span className="session-meta order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-3 tabular-nums">
+        <span className="session-meta order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3 tabular-nums">
           {phone ? <>
             <HostLabel path={s.cwd} />
             <StatusBadge s={s} />
             <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{sessionPlace(s, projectName(projects, s.project_id, s.cwd))} <Icon name="chev" size={12} /></button>
             <span className="ml-auto flex flex-wrap justify-end gap-1">{primary}</span>
-            <PermissionSwitch session={s} />
+            <RunSettingsChip session={s} open={() => setView("summary")} />
             <PaidUsageToggle session={s} badge />
             <CostLimit session={s} badge />
           </> : <>
-            {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Pre-draft PR</button>}
-            <span className="truncate">{sessionPlace(s, projectName(projects, s.project_id, s.cwd))}</span>
-            <WorktreeChip session={s} />
-            {s.launch_spec.profile && <span title="Harness profile">{profileName ?? `${s.launch_spec.profile} (deleted profile)`}</span>}
-            <HostLabel path={s.cwd} />
             <StatusBadge s={s} />
-            <PermissionSwitch session={s} />
+            <span className="truncate" title={`Started ${new Date(s.started_at).toLocaleString()}`}>{sessionPlace(s, projectName(projects, s.project_id, s.cwd))}</span>
+            <HostLabel path={s.cwd} />
+            <WorktreeChip session={s} />
+            {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Local PR</button>}
+            {s.launch_spec.profile && <span title="Profile">{profileName ?? `${s.launch_spec.profile} (deleted profile)`}</span>}
+            {usageLine(s) && <span>{usageLine(s)}</span>}
+            <RunSettingsChip session={s} open={() => setView("summary")} />
             <PaidUsageToggle session={s} badge />
             <CostLimit session={s} badge />
-            <span>{usageLine(s)}</span>
-            <span className="ml-auto" title="Started">{new Date(s.started_at).toLocaleDateString()}</span>
           </>}
         </span>
         <div className="session-toolbar order-4 col-span-2 flex flex-wrap items-center gap-1 pt-1">
-          <div className="session-views mr-1 inline-flex max-w-full flex-wrap gap-0.5 rounded border border-line p-0.5" role="group" aria-label="Session view">
-            <button className={`btn btn-sm ${summary && !phone ? "bg-select!" : ""}`} aria-pressed={summary} disabled={running} onClick={() => setView("summary")}>Summary</button>
-            <button className={`btn btn-sm ${traceOpen && !phone ? "bg-select!" : ""}`} aria-pressed={traceOpen} onClick={() => setView("trace")}>Trace</button>
-            {hasProcesses && <button className={`btn btn-sm ${processesOpen && !phone ? "bg-select!" : ""}`} aria-pressed={processesOpen} onClick={() => setView("processes")}>Processes · {runningProcesses.length}</button>}
-            {children.length > 0 && <button className={`btn btn-sm ${childrenOpen && !phone ? "bg-select!" : ""}`} aria-pressed={childrenOpen} onClick={() => setView("subagents")}><Icon name="agents" size={12} />Subagents · {children.filter((a) => a.status === "running").length || children.length}{children.some((a) => a.status === "running") ? " running" : ""}</button>}
-            {isGit && <button className={`btn btn-sm ${changesOpen && !phone ? "bg-select!" : ""}`} aria-pressed={changesOpen} title="Git changes of the session folder" onClick={() => showChanges(onlyMain)}>Changes{changed ? ` · ${git.data?.files.length || committedFiles || mainChanges}` : ""}</button>}
-          </div>
+          <Tabs className="session-views mr-1 max-w-full border-b-0" label="Session view" value={summary ? "summary" : changesOpen ? "changes" : processesOpen ? "processes" : childrenOpen ? "subagents" : "trace"} onChange={(v) => (v === "changes" ? showChanges(onlyMain) : setView(v))} items={[
+            { id: "summary", label: "Summary" },
+            { id: "trace", label: "Trace" },
+            ...(hasProcesses ? [{ id: "processes" as const, label: `Processes · ${runningProcesses.length}` }] : []),
+            ...(children.length > 0 ? [{ id: "subagents" as const, icon: "agents" as const, label: `Subagents · ${children.filter((a) => a.status === "running").length || children.length}${children.some((a) => a.status === "running") ? " running" : ""}` }] : []),
+            ...(isGit ? [{ id: "changes" as const, title: "Git changes of the session folder", label: `Changes${changed ? ` · ${git.data?.files.length || committedFiles || mainChanges}` : ""}` }] : []),
+          ]} />
           <div className="session-actions ml-auto flex flex-wrap items-center gap-1">
             {!phone && <>
               {primary}
               <FollowUpAgent session={s} />
-              {!(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <button className="btn btn-sm" title={`Open a shell in ${s.cwd}`} onClick={() => void openTerminal.shell(s.cwd)}>
-                <Icon name="term" size={12} />
-                Terminal
-              </button>}
+              {!(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <TerminalMenu cwd={s.cwd} small />}
             </>}
-            <Popover viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={`${phone ? "iconbtn" : "btn btn-sm"} ${open ? "bg-select!" : ""}`} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}>{phone ? <span aria-hidden="true" className="text-xl leading-none">⋯</span> : <>More<Icon name="chev" size={12} /></>}</button>}>
+            <Popover viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={phone ? "iconbtn" : "btn btn-sm"} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}>{phone ? <Icon name="more" size={20} /> : <>More<Icon name="chev" size={12} /></>}</button>}>
               {(close) => <>
                 {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Needs you for later" onClick={() => { close(); onClear(); void act(s.id, "unread"); }} />}
                 {phone && <>
-                  <MenuItem label="Session details" detail="Branch, usage and follow up" onClick={() => { close(); setDetailsOpen(true); }} />
-                  {!(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder" onClick={() => { close(); void openTerminal.shell(s.cwd); }} />}
+                  <MenuItem label="Session details" detail="Branch, usage and New agent here" onClick={() => { close(); setDetailsOpen(true); }} />
+                  {!(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder (the checkout when its worktree is gone)" onClick={() => { close(); void openTerminal.folder(s.cwd); }} />}
                 </>}
-                {s.status === "in_terminal" && tui && <MenuItem label="Show TUI" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}
-                {s.launch_spec.target.kind !== "browser" && !running && s.status !== "in_terminal" && s.status !== "quota_paused" && harness?.capabilities.terminal && <MenuItem icon={<Icon name="term" size={14} />} label="Open in terminal" detail={`Continue in the ${name} TUI, outside quota protection`} onClick={() => { close(); void openTerminal.tui(s.id); }} />}
-                {s.project_id && <MenuItem icon={<Icon name="file" size={14} />} label="Files" detail="Read the folder in the code viewer" onClick={() => { close(); void navigate({ to: "/projects/$id/code", params: { id: s.project_id! }, search: { root: s.cwd, session: s.id } }); }} />}
+                {s.status === "in_terminal" && tui && <MenuItem icon={<Icon name="term" size={14} />} label="Show TUI tab" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}
+                {s.launch_spec.target.kind !== "browser" && !running && s.status !== "in_terminal" && s.status !== "quota_paused" && harness?.capabilities.terminal && <MenuItem icon={<Icon name="term" size={14} />} label={`Continue in ${name} TUI`} detail="In the terminal dock, outside quota protection; Re-attach brings it back" onClick={() => { close(); void openTerminal.tui(s.id); }} />}
+                {s.project_id && <MenuItem icon={<Icon name="folder" size={14} />} label="Browse files" detail="Read the folder in Files" onClick={() => { close(); void navigate({ to: "/projects/$id/code", params: { id: s.project_id! }, search: { root: s.cwd, session: s.id } }); }} />}
                 <MenuItem icon={<Icon name="agents" size={14} />} label="Use trace as context" detail="Reference this trace in a new agent's prompt" disabled={s.last_seq === 0} onClick={() => { close(); useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] }); }} />
                 {s.status !== "closed" && !archivePrimary && <MenuItem icon={<Icon name="archive" size={14} />} label="Archive" detail="It stays resumable" onClick={() => { close(); archive(); }} />}
                 <MenuItem icon={<span className="text-teal-ink">{isPinned ? "★" : "☆"}</span>} label={isPinned ? "Unpin session" : "Pin session"} onClick={() => { close(); togglePin(s.id); }} />
@@ -422,7 +422,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
             {usageLine(s) && <div><dt className="text-xs text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
             <div><dt className="text-xs text-ink-3">Started</dt><dd>{new Date(s.started_at).toLocaleString()}</dd></div>
           </dl>
-          {localPr && <button className="btn" onClick={() => { setDetailsOpen(false); void navigate({ to: "/predrafts/$id", params: { id: localPr.id } }); }}>Pre-draft PR</button>}
+          {localPr && <button className="btn" onClick={() => { setDetailsOpen(false); void navigate({ to: "/predrafts/$id", params: { id: localPr.id } }); }}>Local PR</button>}
           <SessionWorktreeDetails session={s} />
           <FollowUpAgent session={s} onPrepared={() => setDetailsOpen(false)} />
         </div>

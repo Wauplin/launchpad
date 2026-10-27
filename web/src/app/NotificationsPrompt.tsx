@@ -9,7 +9,7 @@ function dismissed() {
   try { return localStorage.getItem(DISMISSED) === "1"; } catch { return true; }
 }
 
-/** One-time offer to turn on push notifications in this browser; Settings → Devices has the full controls. */
+/** One-time dismissible banner offering push notifications in this browser; Settings → Notifications has the full controls. */
 export function NotificationsPrompt() {
   const push = usePushState().data;
   const refresh = useRefreshPush();
@@ -27,13 +27,11 @@ export function NotificationsPrompt() {
     finally { setBusy(false); await refresh(); }
   };
   return (
-    <span className="flex shrink-0 items-center">
-      <button type="button" className="btn btn-ghost" disabled={busy} aria-label="Turn on notifications" title="Turn on notifications on this browser: agents that finish or ask a question" onClick={() => void turnOn()}>
-        <Icon name="bell" size={14} />
-      </button>
-      <button type="button" className="btn btn-ghost px-1!" aria-label="Dismiss the notifications offer" title="Not now (Settings → Devices keeps the setting)" onClick={dismiss}>
-        <Icon name="x" size={12} />
-      </button>
-    </span>
+    <div role="region" aria-label="Notifications offer" className="flex flex-none flex-wrap items-center gap-2 border-b border-line-2 bg-teal-soft px-3.5 py-1.5 text-[13px] text-teal-ink">
+      <Icon name="bell" size={14} />
+      <span className="min-w-0 flex-1">Get notified when agents finish or need you, in this browser.</span>
+      <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => void turnOn()}>Turn on</button>
+      <button type="button" className="btn btn-sm btn-ghost" title="Settings → Notifications keeps the setting" onClick={dismiss}>Not now</button>
+    </div>
   );
 }

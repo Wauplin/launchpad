@@ -10,7 +10,7 @@ import { HarnessMark, useHarnessInfo, useHarnesses, type Harness } from "@/compo
 import { formatAge, formatReset, resetLabel } from "@/lib/format";
 import { onConnectionChange } from "@/lib/ws";
 import { Popover } from "@/components/Popover";
-import { TerminalButton } from "@/features/terminals/TerminalDock";
+import { TerminalsChip } from "@/features/terminals/TerminalDock";
 import { isDesktopShell } from "@/lib/platform";
 import { HostChip } from "./Connection";
 import { Link } from "@tanstack/react-router";
@@ -21,7 +21,7 @@ function Hosts() {
   const hosts = useHosts();
   if (hosts.length === 0) return null;
   return (
-    <Link to="/settings/hosts" className="inline-flex items-center gap-1.5 rounded px-1 hover:bg-select" title="Settings → Hosts">
+    <Link to="/settings/hosts" className="inline-flex items-center gap-1.5 rounded px-1 hover:bg-select" title="Settings → Machines">
       <span className="text-ink-3">Hosts:</span>
       {hosts.map((h) => (
         <span key={h.host.id} className="inline-flex items-center gap-1" title={`${h.host.id}: ${linkLabel[h.state]}${h.error ? ` · ${h.error}` : ""}`}>
@@ -83,7 +83,7 @@ function SpendPair({ v }: { v: ProfileSpend }) {
           <span className="inline-flex items-center gap-1.5 font-semibold"><HarnessMark harness={v.harness} size={14} />{v.name} <span className="font-normal text-ink-3">· pay as you go</span></span>
           {v.windows.map((w, i) => <span key={i} className={w.used_usd >= w.limit_usd ? "text-gh-closed" : "text-ink-2"}>{windowLabel(w.hours)}: {spendLabel(w)}</span>)}
           <span className="text-ink-3">Rolling windows over the cost reported by the harness for all sessions of this profile.</span>
-          <Link to="/settings/profiles" className="text-teal-ink hover:underline">Edit limits in Settings → Profiles</Link>
+          <Link to="/settings/profiles" className="text-teal-ink hover:underline">Edit limits in Profiles</Link>
         </div>
       )}
     </Popover>
@@ -140,9 +140,10 @@ function Details({ entry, labeled, data, limits }: { entry: QuotaEntry | null; l
     <Popover up width={320} trigger={({ open, toggle }) => entry ? <QuotaButton entry={entry} labeled={labeled} open={open} toggle={toggle} /> : (
       <button type="button" className="inline-flex h-[22px] items-center rounded px-1 text-ink-3 hover:bg-select focus-visible:outline-2 focus-visible:outline-teal" aria-expanded={open} onClick={toggle}>Status</button>
     )}>
-      {() => (
+      {(close) => (
         <div className="grid gap-1.5 p-1.5 text-[12px] whitespace-normal">
           {quotas.map((e) => <QuotaLine key={e.key} e={e} />)}
+          {quotas.length > 0 && <Link to="/settings/usage" className="w-fit text-teal-ink hover:underline" onClick={close}>Usage history and agent activity</Link>}
           <div className="grid gap-0.5 border-t border-line pt-1.5">
             {harnesses.map((h) => {
               const s = data.harnesses[h.id] ?? emptyStatus;
@@ -180,7 +181,7 @@ export function StatusBar() {
   const labeled = (e: QuotaEntry) => quota.filter((x) => x.harness === e.harness).length > 1;
 
   return (
-    <footer className="flex min-h-[30px] flex-none items-center gap-x-2.5 border-t border-line bg-chrome px-3 py-1 text-[11.5px] whitespace-nowrap text-ink-2 tabular-nums">
+    <footer className="flex min-h-[30px] flex-none items-center gap-x-2.5 border-t border-line bg-chrome px-3 py-1 text-[12px] whitespace-nowrap text-ink-2 tabular-nums">
       {data ? (
         <>
           {quota.length === 0 && <Details entry={null} labeled={false} data={data} limits={limits} />}
@@ -193,7 +194,7 @@ export function StatusBar() {
             <Hosts />
             {isDesktopShell ? !online && <span className="font-semibold text-gh-closed">Daemon disconnected, reconnecting…</span> : <HostChip />}
             {data.env === "dev" && <span className="font-mono text-ink-3" title={`Running commit: ${data.commit}`}>{data.commit.slice(0, 7)}</span>}
-            <TerminalButton />
+            <TerminalsChip />
             {data.env === "dev" && <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn">dev</span>}
           </span>
         </>

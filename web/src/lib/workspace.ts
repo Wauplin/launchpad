@@ -101,3 +101,20 @@ export async function openWindow(workspaceId: string | null) {
 
 /** "window" in the desktop shell, "tab" in a browser. */
 export const newWindowWord = isDesktopShell ? "window" : "tab";
+
+/** Membership changes of a workspace, saved at once; every window refreshes on the `workspaces` bus topic. */
+export async function setWorkspaceProjects(workspace: Workspace, projectIds: string[]) {
+  await api.patch<Workspace>(`/api/workspaces/${workspace.id}`, { project_ids: projectIds });
+}
+
+/** After a launch that silently added its folder to the window's workspace: "Added X to <workspace> · Undo". */
+export function announceImplicitAdd(workspace: Workspace | null, projectId: string | null, name: string) {
+  if (!workspace || !projectId || workspace.project_ids.includes(projectId)) return;
+  toast(`Added ${name} to ${workspace.name}`, {
+    label: "Undo",
+    run: () => void api.get<Workspace[]>("/api/workspaces").then((all) => {
+      const w = all.find((x) => x.id === workspace.id);
+      if (w) return setWorkspaceProjects(w, w.project_ids.filter((id) => id !== projectId));
+    }).catch(() => toast(`Could not remove ${name} from ${workspace.name}`)),
+  });
+}

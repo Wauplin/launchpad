@@ -81,6 +81,52 @@ pub struct TerminalInfo {
     pub alive: bool,
     pub exit_code: Option<u32>,
     pub created_at: i64,
+    /// The project name, or the folder name.
+    pub folder: String,
+    /// Tab chip: `checkout`, the worktree folder name, or none (not a Git folder, home folder).
+    pub place: Option<String>,
+    pub branch: Option<String>,
+    /// No project: a sign-in, install or host command. Shown in every workspace with a Setup chip.
+    pub setup: bool,
+    /// A foreground job runs in it (PTYs on this computer, Unix); none when unknown. Filled by `list`.
+    pub busy: Option<bool>,
+    /// Only in the open response: the folder that was used instead, or the idle shell that was reused.
+    pub notice: Option<String>,
+}
+
+/// How to start a terminal again in the same place (Restart here).
+#[derive(Clone, Debug)]
+enum Recipe {
+    Shell { cwd: String, command: Option<String>, language: Option<String> },
+    Setup { profile: String, host: Option<String>, install: bool },
+    Tui,
+}
+
+/// One entry of the folder menu of a Terminal button.
+#[derive(Clone, Debug, Serialize, TS)]
+pub struct FolderChoice {
+    pub path: String,
+    /// `Checkout`, or the worktree folder name.
+    pub label: String,
+    pub branch: Option<String>,
+    pub available: bool,
+    /// Why it cannot be opened, or a state worth knowing (merged).
+    pub reason: Option<String>,
+}
+
+/// The folder menu of a Terminal button: the folder itself, its project's checkout and other worktrees.
+#[derive(Clone, Debug, Serialize, TS)]
+pub struct TerminalFolders {
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    /// The asked folder when it is not the checkout (a worktree, a session folder).
+    pub current: Option<FolderChoice>,
+    pub checkout: Option<FolderChoice>,
+    pub worktrees: Vec<FolderChoice>,
+    /// What Terminal opens: the current folder, or the checkout when it was merged or removed.
+    pub default: Option<String>,
+    /// Why the default is the checkout.
+    pub notice: Option<String>,
 }
 
 /// What a viewer receives after its snapshot.
@@ -119,6 +165,27 @@ struct Term {
     pid: Option<u32>,
     /// A PTY owned by the helper of an SSH host: input, size and signals go through the connection.
     remote: Option<(Arc<crate::hosts::Conn>, Arc<crate::hosts::RemoteProc>)>,
+    recipe: Recipe,
+}
+
+impl Term {
+    /// Whether the shell has handed the terminal to a foreground job (the PTY's foreground group is not the shell).
+    fn busy(&self) -> Option<bool> {
+        if !self.info.lock().unwrap().alive || self.remote.is_some() {
+            return None;
+        }
+        #[cfg(unix)]
+        {
+            let pid = self.pid? as i32;
+            let master = self.master.lock().unwrap();
+            let fd = master.as_ref()?.as_raw_fd()?;
+            let foreground = unsafe { libc::tcgetpgrp(fd) };
+            if foreground <= 0 { return None; }
+            Some(foreground != pid)
+        }
+        #[cfg(not(unix))]
+        { None }
+    }
 }
 
 /// The retained output and the absolute number of bytes the terminal ever produced, so a viewer
@@ -158,7 +225,12 @@ pub struct Attach {
 
 impl Terminals {
     pub fn list(&self) -> Vec<TerminalInfo> {
-        let mut v: Vec<TerminalInfo> = self.inner.lock().unwrap().values().map(|t| t.info.lock().unwrap().clone()).collect();
+        let mut v: Vec<TerminalInfo> = self.inner.lock().unwrap().values().map(|t| {
+            let busy = t.busy();
+            let mut info = t.info.lock().unwrap().clone();
+            info.busy = busy;
+            info
+        }).collect();
         v.sort_by_key(|t| t.created_at);
         v
     }
@@ -311,6 +383,29 @@ impl Terminals {
         self.close_and_wait(&ids).await
     }
 
+    /// Close all terminals (dock menu): stops every process, then removes every tab, exited ones included.
+    pub async fn close_and_remove_all(&self, app: &App) -> Result<()> {
+        let result = self.close_all().await;
+        for t in self.list() {
+            if !t.alive { let _ = self.remove(app, &t.id); }
+        }
+        result
+    }
+
+    /// Restart here: the same shell, snippet or setup command in the same folder, replacing the exited tab.
+    /// Harness TUIs restart through their session (Re-attach or Continue in TUI).
+    pub async fn restart(&self, app: &App, id: &str) -> Result<TerminalInfo> {
+        let t = self.get(id)?;
+        anyhow::ensure!(!t.info.lock().unwrap().alive, "the terminal is still running");
+        let next = match t.recipe.clone() {
+            Recipe::Shell { cwd, command, language } => self.open_shell(app, &cwd, command.as_deref(), language.as_deref()).await?,
+            Recipe::Setup { profile, host, install } => self.open_profile_setup(app, &profile, host.as_deref(), install).await?,
+            Recipe::Tui => bail!("open the agent and use Continue in TUI"),
+        };
+        let _ = self.remove(app, id);
+        Ok(next)
+    }
+
     pub async fn close_and_wait(&self, ids: &[String]) -> Result<()> {
         for id in ids {
             self.close(id)?;
@@ -335,7 +430,7 @@ impl Terminals {
         Ok(())
     }
 
-    async fn spawn(&self, app: &App, mut info: TerminalInfo, argv: Vec<String>, env: Vec<(String, String)>) -> Result<TerminalInfo> {
+    async fn spawn(&self, app: &App, mut info: TerminalInfo, argv: Vec<String>, env: Vec<(String, String)>, recipe: Recipe) -> Result<TerminalInfo> {
         // The PTY would otherwise start the process in another folder.
         if !crate::hostfs::is_dir(&info.cwd).await {
             bail!("the folder {} no longer exists", info.cwd);
@@ -344,7 +439,7 @@ impl Terminals {
             bail!("{MAX_OPEN} terminals are already open; close one first");
         }
         if let Some(host) = crate::hosts::loc::host_of(&info.cwd).map(str::to_string) {
-            return self.spawn_remote(app, info, &host, argv, env).await;
+            return self.spawn_remote(app, info, &host, argv, env, recipe).await;
         }
         let pair = portable_pty::native_pty_system().openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })?;
         let mut cmd = CommandBuilder::from_argv(argv.iter().map(Into::into).collect());
@@ -377,6 +472,7 @@ impl Terminals {
             killer: Mutex::new(Some(child.clone_killer())),
             pid: child.process_id(),
             remote: None,
+            recipe,
         });
         self.inner.lock().unwrap().insert(info.id.clone(), term.clone());
         tracing::info!("terminal {} started in {}: {}", info.id, info.cwd, argv.join(" "));
@@ -415,7 +511,7 @@ impl Terminals {
     }
 
     /// A PTY on an SSH host: the helper owns it, so it survives a lost connection and the output resumes.
-    async fn spawn_remote(&self, app: &App, mut info: TerminalInfo, host: &str, argv: Vec<String>, env: Vec<(String, String)>) -> Result<TerminalInfo> {
+    async fn spawn_remote(&self, app: &App, mut info: TerminalInfo, host: &str, argv: Vec<String>, env: Vec<(String, String)>, recipe: Recipe) -> Result<TerminalInfo> {
         let conn = crate::hosts::conn(host)?;
         let mut vars = vec![("TERM".to_string(), "xterm-256color".to_string()), ("COLORTERM".into(), "truecolor".into()), ("LAUNCHPAD_ENV".into(), app.paths.app_env.name().into())];
         vars.extend(env.into_iter().map(|(k, v)| (k, crate::hosts::loc::localize_arg(host, &v))));
@@ -435,6 +531,7 @@ impl Terminals {
             killer: Mutex::new(None),
             pid: None,
             remote: Some((conn.clone(), p.clone())),
+            recipe,
         });
         self.inner.lock().unwrap().insert(info.id.clone(), term.clone());
         tracing::info!("terminal {} started on {host} in {}: {}", info.id, info.cwd, argv.join(" "));
@@ -466,33 +563,62 @@ impl Terminals {
         Ok(info)
     }
 
-    /// Opens a login shell or runs an explicit snippet in an allowed folder.
+    /// Opens a login shell or runs an explicit snippet in an allowed folder. A shell asked for a folder that no
+    /// longer exists (a merged or removed worktree) opens in the project's checkout, with a `notice`. A shell
+    /// asked for a folder that already has an idle shell shows that one instead of opening a duplicate.
     pub async fn open_shell(&self, app: &App, cwd: &str, command: Option<&str>, language: Option<&str>) -> Result<TerminalInfo> {
         if command.is_some_and(|c| c.trim().is_empty()) {
             bail!("the command is empty");
         }
+        let mut notice = None;
+        let mut cwd = cwd.to_string();
+        if !crate::hostfs::is_dir(&cwd).await {
+            let folders = folders(app, &cwd).await?;
+            match folders.checkout.filter(|c| c.available && command.is_none()) {
+                Some(checkout) => {
+                    let why = match folders.current.and_then(|c| c.reason) {
+                        Some(r) if r != "The folder no longer exists" => format!("This worktree is gone ({})", r.to_lowercase()),
+                        _ => "This folder no longer exists".to_string(),
+                    };
+                    notice = Some(format!("{why}: opened the checkout of {} instead.", folders.project_name.unwrap_or_default()));
+                    cwd = checkout.path;
+                }
+                None => bail!("The folder {cwd} no longer exists."),
+            }
+        }
         // Serialize terminal startup with task Git operations and their idle checks.
         let _action = app.sessions.action_lock().await;
         let _guard = app.sessions.allow_work().await;
-        let (cwd, project) = check_cwd(app, cwd).await?;
-        let cwd_s = cwd.to_string_lossy().to_string();
+        let (root, project, home) = check_cwd(app, &cwd).await?;
+        let cwd_s = root.to_string_lossy().to_string();
         crate::predrafts::check_session_work(app, &cwd_s).await?;
-        let branch = crate::procs::output(&app.env, "git", &["rev-parse", "--abbrev-ref", "HEAD"], Some(&cwd)).await.ok();
-        let name = project.as_ref().map(|p| p.name.clone()).unwrap_or_else(|| cwd.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(cwd_s.clone()));
-        let title = match branch.filter(|b| !b.is_empty() && b != "HEAD") {
-            Some(b) => format!("{name} · {b}"),
-            None => name,
+        if command.is_none()
+            && let Some(mut idle) = self.list().into_iter().find(|t| t.alive && t.kind == TerminalKind::Shell && t.cwd == cwd_s && t.busy == Some(false))
+        {
+            idle.notice = Some(notice.unwrap_or_else(|| format!("Showing the open idle shell in {}.", idle.folder)));
+            return Ok(idle);
+        }
+        let (folder, place, branch) = describe(app, &root, project.as_ref()).await;
+        let title = match &branch {
+            Some(b) => format!("{folder} · {b}"),
+            None => folder.clone(),
         };
         let info = TerminalInfo {
             id: uuid::Uuid::new_v4().to_string(),
             kind: if command.is_some() { TerminalKind::Command } else { TerminalKind::Shell },
             title,
-            cwd: cwd_s,
+            cwd: cwd_s.clone(),
             project_id: project.map(|p| p.id),
             session_id: None,
             alive: true,
             exit_code: None,
             created_at: now_ms(),
+            folder,
+            place,
+            branch,
+            setup: home,
+            busy: None,
+            notice: None,
         };
         let remote = crate::hosts::loc::host_of(&info.cwd).is_some();
         let argv = match command {
@@ -500,7 +626,10 @@ impl Terminals {
             None if remote => vec!["@shell".into(), "-l".into()],
             None => shell(app),
         };
-        self.spawn(app, info, argv, vec![]).await
+        let recipe = Recipe::Shell { cwd: cwd_s, command: command.map(str::to_string), language: language.map(str::to_string) };
+        let mut info = self.spawn(app, info, argv, vec![], recipe).await?;
+        info.notice = notice;
+        Ok(info)
     }
 
     /// Runs the install or sign-in command of a profile's harness in a visible terminal in the home folder of
@@ -527,15 +656,22 @@ impl Terminals {
             id: uuid::Uuid::new_v4().to_string(),
             kind: TerminalKind::Command,
             title: format!("{} · {}", if install { "Install" } else { "Sign in" }, p.name),
+            folder: host.map(str::to_string).unwrap_or_else(|| "Home".into()),
             cwd: home,
             project_id: None,
             session_id: None,
             alive: true,
             exit_code: None,
             created_at: now_ms(),
+            place: None,
+            branch: None,
+            setup: true,
+            busy: None,
+            notice: None,
         };
         let argv = command_shell(app, &command, "shell", host.is_some())?;
-        self.spawn(app, info, argv, env).await
+        let recipe = Recipe::Setup { profile: profile_id.to_string(), host: host.map(str::to_string), install };
+        self.spawn(app, info, argv, env, recipe).await
     }
 
     /// Opens the harness TUI of a session. The caller detaches the headless harness first.
@@ -548,6 +684,14 @@ impl Terminals {
         // The TUI uses the same profile environment as the headless process (account, API key).
         let mut env = crate::profiles::env(app, s.harness, &s.launch_spec, s.model.as_deref(), crate::hosts::loc::host_of(&s.cwd))?;
         env.extend(app.harnesses.get(s.harness).terminal_env(is_temp).iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        let project = match &s.project_id {
+            Some(id) => crate::projects::get(app, id).await.ok().flatten(),
+            None => None,
+        };
+        let (folder, place, branch) = match crate::hostfs::canonicalize(&s.cwd).await {
+            Ok(root) => describe(app, &root, project.as_ref()).await,
+            Err(_) => (project.as_ref().map(|p| p.name.clone()).unwrap_or_default(), None, None),
+        };
         let info = TerminalInfo {
             id: uuid::Uuid::new_v4().to_string(),
             kind: TerminalKind::Tui,
@@ -558,8 +702,14 @@ impl Terminals {
             alive: true,
             exit_code: None,
             created_at: now_ms(),
+            folder,
+            place,
+            branch,
+            setup: false,
+            busy: None,
+            notice: None,
         };
-        self.spawn(app, info, argv, env).await
+        self.spawn(app, info, argv, env, Recipe::Tui).await
     }
 }
 
@@ -658,16 +808,16 @@ fn command_shell(app: &App, command: &str, language: &str, remote: bool) -> Resu
 
 /// Like `code::open`: a registered project, one of its git worktrees, the folder of a session, or the home
 /// folder of an SSH host (setup terminals: install and sign-in commands).
-async fn check_cwd(app: &App, cwd: &str) -> Result<(PathBuf, Option<crate::model::Project>)> {
-    let root = crate::hostfs::canonicalize(cwd).await.with_context(|| format!("{cwd} does not exist"))?;
+async fn check_cwd(app: &App, cwd: &str) -> Result<(PathBuf, Option<crate::model::Project>, bool)> {
+    let root = crate::hostfs::canonicalize(cwd).await.map_err(|_| anyhow::anyhow!("The folder {cwd} no longer exists."))?;
     if let Some(host) = crate::hosts::loc::host_of_path(&root)
         && app.hosts.home(host).is_some_and(|h| crate::hosts::loc::join(Some(host), &h) == root.to_string_lossy())
     {
-        return Ok((root, None));
+        return Ok((root, None, true));
     }
     let projects = crate::projects::list(app).await?;
     if let Some(p) = crate::code::project_for_root(&projects, &root).await {
-        return Ok((root, Some(p)));
+        return Ok((root, Some(p), false));
     }
     let mut session = None;
     for s in app.sessions.list() {
@@ -679,10 +829,113 @@ async fn check_cwd(app: &App, cwd: &str) -> Result<(PathBuf, Option<crate::model
     match session {
         Some(s) => {
             let project = projects.into_iter().find(|p| Some(&p.id) == s.project_id.as_ref());
-            Ok((root, project))
+            Ok((root, project, false))
         }
         None => bail!("{} is not a registered project, one of its worktrees, or a session folder", root.display()),
     }
+}
+
+/// The tab label parts of a folder: the project (or folder) name, the place chip and the branch.
+async fn describe(app: &App, root: &Path, project: Option<&crate::model::Project>) -> (String, Option<String>, Option<String>) {
+    let branch = crate::procs::output(&app.env, "git", &["rev-parse", "--abbrev-ref", "HEAD"], Some(root)).await.ok().filter(|b| !b.is_empty() && b != "HEAD");
+    let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p.to_string_lossy().to_string());
+    let folder = project.map(|p| p.name.clone()).unwrap_or_else(|| name(root));
+    let place = match project {
+        Some(p) if branch.is_some() => {
+            let checkout = crate::hostfs::canonicalize(&p.path).await.is_ok_and(|c| c == root);
+            Some(if checkout { "checkout".to_string() } else { name(root) })
+        }
+        _ => None,
+    };
+    (folder, place, branch)
+}
+
+fn last_name(path: &str) -> String {
+    let trimmed = path.trim_end_matches(['/', '\\']);
+    trimmed.rsplit(['/', '\\', ':']).next().filter(|n| !n.is_empty()).unwrap_or(trimmed).to_string()
+}
+
+/// The folder menu of a Terminal button for `cwd`, which may no longer exist: the folder, its project's
+/// checkout and the project's other worktrees. A merged or removed worktree makes the checkout the default.
+pub async fn folders(app: &App, cwd: &str) -> Result<TerminalFolders> {
+    let projects = crate::projects::list(app).await?;
+    let records = crate::worktrees::list(app).await.unwrap_or_default();
+    let record = records.iter().find(|w| crate::worktrees::folder(w) == cwd).or_else(|| records.iter().find(|w| Path::new(cwd).starts_with(&w.root)));
+    let session_project = app.sessions.list().into_iter().find(|s| s.cwd == cwd).and_then(|s| s.project_id);
+    // Managed worktrees live in `<projects root>/.worktrees/<project id>/<slug>`.
+    let by_layout = {
+        let parts: Vec<String> = Path::new(cwd).components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect();
+        parts.iter().position(|c| c == ".worktrees").and_then(|i| parts.get(i + 1).cloned())
+    };
+    let project = record.map(|w| w.project_id.clone()).or(session_project).or(by_layout)
+        .and_then(|id| projects.iter().find(|p| p.id == id).cloned())
+        .or_else(|| projects.iter().filter(|p| Path::new(cwd).starts_with(&p.path)).max_by_key(|p| p.path.len()).cloned());
+    let exists = crate::hostfs::is_dir(cwd).await;
+    // Any other Git worktree of a registered project (same repository).
+    let project = match project {
+        None if exists => match crate::hostfs::canonicalize(cwd).await {
+            Ok(root) => crate::code::project_for_root(&projects, &root).await,
+            Err(_) => None,
+        },
+        p => p,
+    };
+    let branch_of = |dir: String| async move {
+        crate::procs::output(&app.env, "git", &["rev-parse", "--abbrev-ref", "HEAD"], Some(Path::new(&dir))).await.ok().filter(|b| !b.is_empty() && b != "HEAD")
+    };
+    let Some(p) = project else {
+        let current = FolderChoice { path: cwd.to_string(), label: last_name(cwd), branch: if exists { branch_of(cwd.to_string()).await } else { None }, available: exists, reason: (!exists).then(|| "The folder no longer exists".to_string()) };
+        return Ok(TerminalFolders { project_id: None, project_name: None, default: exists.then(|| cwd.to_string()), current: Some(current), checkout: None, worktrees: vec![], notice: None });
+    };
+    let checkout_exists = crate::hostfs::is_dir(&p.path).await;
+    let checkout = FolderChoice { path: p.path.clone(), label: "Checkout".into(), branch: if checkout_exists { branch_of(p.path.clone()).await } else { None }, available: checkout_exists, reason: (!checkout_exists).then(|| "The folder no longer exists".to_string()) };
+    let is_checkout = Path::new(cwd) == Path::new(&p.path) || (exists && checkout_exists && crate::hostfs::canonicalize(cwd).await.ok() == crate::hostfs::canonicalize(&p.path).await.ok());
+    let mut current = None;
+    let mut default = if checkout_exists { Some(p.path.clone()) } else { None };
+    let mut notice = None;
+    if !is_checkout {
+        let merged = record.and_then(|w| w.merged.as_ref()).map(|m| m.into.clone());
+        let reason = if exists {
+            merged.as_ref().map(|into| format!("Merged into {into}"))
+        } else {
+            Some(match record.map(|w| w.state) {
+                Some(crate::worktrees::WorktreeState::Removed) => "Removed by cleanup; Resume the agent to restore it".to_string(),
+                Some(crate::worktrees::WorktreeState::Discarded) => "Discarded".to_string(),
+                Some(crate::worktrees::WorktreeState::HandedOff) => "Checked out in the checkout".to_string(),
+                _ => match &merged { Some(into) => format!("Merged into {into} and removed"), None => "The folder no longer exists".to_string() },
+            })
+        };
+        let label = record.map(|w| last_name(&w.root)).unwrap_or_else(|| last_name(cwd));
+        let branch = match (exists, record) {
+            (true, _) => branch_of(cwd.to_string()).await,
+            (false, Some(w)) => Some(w.branch.clone()),
+            (false, None) => None,
+        };
+        if exists && merged.is_none() {
+            default = Some(cwd.to_string());
+        } else if checkout_exists {
+            notice = Some(format!("This worktree is {}: Terminal opens the checkout.", if exists { format!("merged into {}", merged.unwrap_or_default()) } else { "gone".to_string() }));
+        }
+        current = Some(FolderChoice { path: cwd.to_string(), label, branch, available: exists, reason });
+    }
+    let mut worktrees = Vec::new();
+    if checkout_exists {
+        // `git worktree list` only (Files' source list also reads every ref).
+        let dir = Path::new(&p.path);
+        let prefix = crate::procs::output(&app.env, "git", &["rev-parse", "--show-prefix"], Some(dir)).await.unwrap_or_default();
+        let list = crate::procs::output(&app.env, "git", &["worktree", "list", "--porcelain"], Some(dir)).await.unwrap_or_default();
+        let here = crate::hostfs::canonicalize(cwd).await.ok();
+        let main = crate::hostfs::canonicalize(&p.path).await.ok();
+        for block in list.split("\n\n") {
+            let path = block.lines().find_map(|l| l.strip_prefix("worktree ")).map(|w| Path::new(&crate::hosts::loc::rehost(&p.path, w)).join(prefix.trim()).to_string_lossy().into_owned());
+            let Some(path) = path else { continue };
+            let branch = block.lines().find_map(|l| l.strip_prefix("branch ")).map(|b| b.trim_start_matches("refs/heads/").to_string());
+            let Ok(canonical) = crate::hostfs::canonicalize(&path).await else { continue };
+            if Some(&canonical) == main.as_ref() || Some(&canonical) == here.as_ref() || path == cwd { continue }
+            let path = canonical.to_string_lossy().into_owned();
+            worktrees.push(FolderChoice { label: last_name(&path), path, branch, available: true, reason: None });
+        }
+    }
+    Ok(TerminalFolders { project_id: Some(p.id.clone()), project_name: Some(p.name.clone()), current, checkout: Some(checkout), worktrees, default, notice })
 }
 
 /// The command that resumes the session in a TUI.

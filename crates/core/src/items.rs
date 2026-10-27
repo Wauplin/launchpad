@@ -259,11 +259,21 @@ pub async fn mutate(app: &App, repo: &str, n: u64, action: &str, body: Value) ->
                 body["commit_id"].as_str().is_some(),
                 "missing reviewed commit"
             );
-            (
-                Method::POST,
-                format!("{pull}/reviews"),
-                json!({"event":body["event"],"body":body["body"],"commit_id":body["commit_id"]}),
-            )
+            // Optional line comments from the Changes view: path, line, side (LEFT/RIGHT) and body each.
+            let mut review = json!({"event":body["event"],"body":body["body"],"commit_id":body["commit_id"]});
+            if let Some(comments) = body["comments"].as_array().filter(|c| !c.is_empty()) {
+                ensure!(comments.len() <= 100, "too many line comments");
+                let mut out = Vec::with_capacity(comments.len());
+                for c in comments {
+                    let (Some(path), Some(line), Some(text)) = (c["path"].as_str(), c["line"].as_u64(), c["body"].as_str()) else { anyhow::bail!("invalid line comment") };
+                    let side = c["side"].as_str().unwrap_or("RIGHT");
+                    ensure!(side == "LEFT" || side == "RIGHT", "invalid line comment side");
+                    ensure!(!text.trim().is_empty(), "empty line comment");
+                    out.push(json!({"path":path,"line":line,"side":side,"body":text}));
+                }
+                review["comments"] = Value::Array(out);
+            }
+            (Method::POST, format!("{pull}/reviews"), review)
         }
         "reviewers" => (
             Method::POST,

@@ -37,7 +37,7 @@ pub async fn list(app: &App) -> Result<Vec<Workspace>> {
     Ok(all)
 }
 
-async fn get(app: &App, id: &str) -> Result<Workspace> {
+pub async fn get(app: &App, id: &str) -> Result<Workspace> {
     list(app).await?.into_iter().find(|w| w.id == id).context("no such workspace")
 }
 

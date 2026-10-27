@@ -4,11 +4,13 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { externalLinkProps, isDesktopShell } from "@/lib/platform";
 import { signOut } from "@/lib/clientStorage";
 import { api } from "@/lib/api";
+import { Icon } from "@/components/Icon";
+import { Empty, ErrorState, Loading } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { toast, toastError } from "@/components/Toast";
 import { formatAge } from "@/lib/format";
 import { disablePush, enablePush, sendTestPush, setPushTitles, usePushState, useRefreshPush, type PushState } from "@/lib/push";
-import { Card, SettingsPage } from "./SettingsView";
+import { Card, NotificationsView, SettingsPage } from "./SettingsView";
 
 type Device = { id: string; name: string; created_at: number; expires_at: number; last_seen_at: number | null; push: boolean; current: boolean };
 type Pair = { url: string; svg: string; expires_at: number; warning: string | null };
@@ -39,10 +41,9 @@ export function DevicesView() {
     finally { setBusy(null); }
   }, [qc]);
   const remaining = pair ? Math.max(0, Math.ceil((pair.expires_at * 1000 - now) / 1000)) : 0;
-  return <SettingsPage>
-    <NotificationsCard />
+  return <SettingsPage title="Devices" intro="Browsers paired with this daemon. Each one has full access.">
     <Card title="Pair a device" end={<button className="btn btn-sm btn-primary" disabled={busy !== null} onClick={() => void createPair()}>Create pairing link</button>}>
-      <p className="text-sm text-ink-2">Scan the QR code with your phone, or open the link in another browser. Give that browser a name to finish pairing. Each link works once and expires after five minutes.</p>
+      <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">Scan the QR code, or open the link in another browser. <span className="text-ink-3" title="Give that browser a name to finish pairing. Each link works once and expires after five minutes."><Icon name="info" size={13} /></span></p>
       <ReversePairing disabled={busy !== null} />
       <HttpsSetup disabled={busy !== null} onBusy={(active) => setBusy(active ? "https" : null)} onPair={setPair} />
       {pair?.warning && <p className="text-sm text-attn" role="status">{pair.warning}</p>}
@@ -59,9 +60,9 @@ export function DevicesView() {
       </div> : <p className="text-sm text-ink-3" role="status">Pairing link expired. Create a new link.</p>)}
     </Card>
     <Card title="Paired browsers">
-      <p className="text-sm text-ink-2">Revoke signs out that browser and disconnects its event and terminal viewers. Agents and terminals keep running on the host.</p>
-      {devices.error && <p className="text-sm text-attn" role="alert">{devices.error.message}</p>}
-      {!devices.data ? <p className="text-sm text-ink-3">Loading…</p> : !rows.length ? <p className="text-sm text-ink-3">No paired browsers.</p> :
+      <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">Revoke signs a browser out. <span className="text-ink-3" title="Revoking disconnects its event and terminal viewers. Agents and terminals keep running on the host."><Icon name="info" size={13} /></span></p>
+      {devices.error && <ErrorState error={devices.error} onRetry={() => void devices.refetch()} />}
+      {!devices.data ? <Loading what="browsers" /> : !rows.length ? <Empty icon="window">No paired browser.</Empty> :
         <div ref={scroll} className="overflow-y-auto" style={{ height: Math.min(rows.length * 72, 360) }}>
           <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
             {virtualizer.getVirtualItems().map((item) => {
@@ -192,6 +193,11 @@ const UNAVAILABLE: Record<Exclude<PushState["support"], "supported">, string> = 
 };
 
 /** Web Push for this browser: completed turns, automatic stops and automatic quota resumption. */
+/** Settings → Notifications. */
+export function NotificationsPage() {
+  return <NotificationsView browser={<NotificationsCard />} />;
+}
+
 function NotificationsCard() {
   const state = usePushState();
   const refresh = useRefreshPush();
@@ -206,12 +212,12 @@ function NotificationsCard() {
   const push = state.data;
   const on = !!push?.subscribed;
   const showTitles = on ? push.titles : titles ?? false;
-  return <Card title="Notifications on this browser" end={push?.support === "supported" && (on
+  return <Card title="This browser" end={push?.support === "supported" && (on
     ? <button className="btn btn-sm" disabled={busy} onClick={() => void run(disablePush, "Notifications turned off on this browser")}>Turn off</button>
     : <button className="btn btn-sm btn-primary" disabled={busy || push.permission === "denied"} onClick={() => void run(() => enablePush(showTitles), "Notifications turned on on this browser")}>Turn on</button>)}>
-    <p className="text-sm text-ink-2">Get a notification when an agent finishes, fails, stops automatically, or resumes after quota becomes available, and no window in use shows it. Launches, questions and manual stops stay silent. Notifications show the status and the project; never code or messages.</p>
-    {state.error && <p className="text-sm text-attn" role="alert">{state.error.message}</p>}
-    {!push ? <p className="text-sm text-ink-3">Loading…</p> : push.support !== "supported" ? <p className="text-sm text-ink-3" role="status">{UNAVAILABLE[push.support]}</p> : <>
+    <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">Shown when no window in use shows the agent. <span className="text-ink-3" title="Sent when an agent finishes, fails, stops automatically, or resumes after quota becomes available. Launches, questions and manual stops stay silent. Notifications show the status and the folder; never code or messages."><Icon name="info" size={13} /></span></p>
+    {state.error && <ErrorState error={state.error} />}
+    {!push ? <Loading /> : push.support !== "supported" ? <p className="text-sm text-ink-3" role="status">{UNAVAILABLE[push.support]}</p> : <>
       <p className="text-sm" role="status">
         {on ? "On for this browser." : push.permission === "denied" ? "Blocked: allow notifications for this site in the browser's site settings, then turn them on here." : "Off for this browser."}
       </p>

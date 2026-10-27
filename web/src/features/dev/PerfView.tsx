@@ -102,16 +102,16 @@ const DiffRow = memo(function DiffRow({ l }: { l: DiffLine }) {
 const EventRow = memo(function EventRow({ e }: { e: SessionEvent }) {
   switch (e.kind) {
     case "user":
-      return <div className="ml-auto max-w-[80%] rounded-[10px_10px_3px_10px] bg-sunk px-2.5 py-1.5 text-[12.5px]">{e.text}</div>;
+      return <div className="ml-auto max-w-[80%] rounded-[10px_10px_3px_10px] bg-sunk px-2.5 py-1.5 text-[13px]">{e.text}</div>;
     case "assistant":
       return (
-        <div className="text-[12.5px] leading-normal">
+        <div className="text-[13px] leading-normal">
           {e.paras.map((p, i) => (
             <p key={i} className="my-1">
               {p}
             </p>
           ))}
-          {e.code && <pre className="m-0 rounded-md border border-line-2 bg-code px-2 py-1.5 font-mono text-[11.5px] whitespace-pre-wrap">{e.code}</pre>}
+          {e.code && <pre className="m-0 rounded-md border border-line-2 bg-code px-2 py-1.5 font-mono text-[12px] whitespace-pre-wrap">{e.code}</pre>}
         </div>
       );
     case "tool":

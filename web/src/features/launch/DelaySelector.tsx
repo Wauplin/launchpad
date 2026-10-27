@@ -164,7 +164,7 @@ export function DelaySelector({ conditions, harness, profile, onChange, onValidi
   useEffect(() => { onValidityChange(valid); }, [valid, onValidityChange]);
   const hasAgents = conditions.some((c) => c.kind === "agents");
   return <div className="grid gap-1.5">
-    <label className="text-[11.5px] font-[650] text-ink-2" htmlFor="launch-start">Start</label>
+    <label className="text-[12px] font-[650] text-ink-2" htmlFor="launch-start">Start</label>
     <p className="text-xs text-ink-3">{!conditions.length ? "Now, when you click Launch. Add conditions to schedule it." : conditions.length === 1 ? "When this condition is met." : "When all of these conditions are met."}</p>
     {conditions.map((c, i) => <ConditionEditor key={i} delay={c} run={run} onChange={(next) => onChange(conditions.map((x, j) => j === i ? next : x))} onRemove={() => onChange(conditions.filter((_, j) => j !== i))} />)}
     <select id="launch-start" className="field-input h-8" value="" onChange={(e) => { const c = newCondition(e.target.value, e.target.value === "quota" ? quotaHarness : harness); if (c) onChange([...conditions, c]); }}>

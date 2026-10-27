@@ -46,7 +46,7 @@ md.renderer.rules.code_inline = (tokens, idx, _options, env) => {
   const hit = (env as Env | undefined)?.codeLinks?.resolve(content);
   const text = md.utils.escapeHtml(content);
   if (!hit) return `<code>${text}</code>`;
-  return `<code class="lp-path" data-path="${md.utils.escapeHtml(hit.path)}" data-line="${hit.line ?? ""}" title="Open in the code viewer">${text}</code>`;
+  return `<code class="lp-path" data-path="${md.utils.escapeHtml(hit.path)}" data-line="${hit.line ?? ""}" title="Open in Files">${text}</code>`;
 };
 const defaultImage = md.renderer.rules.image!;
 md.renderer.rules.image = (tokens, idx, options, env, self) => {
@@ -141,7 +141,7 @@ export const Markdown = memo(function Markdown({ text, className = "", links, ru
       try { file = decodeURIComponent(file); } catch { /* Keep the original path. */ }
       const hit = codeLinks?.resolve(file);
       if (hit) codeLinks!.open(hit.path, hit.line);
-      else if (codeLinks) toast("File is not available in this session's code viewer");
+      else if (codeLinks) toast("This file is not in the agent's folder");
     }
   };
   return <div className={`lp-md ${className}`} onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;

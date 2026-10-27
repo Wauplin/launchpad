@@ -1,5 +1,5 @@
 // Now (phone): what needs you first, with cards that open the agent, then what waits to be published and what
-// runs. Uses the same predicates and workspace scope as the desktop Agents list and To publish.
+// runs. Uses the same predicates and workspace scope as the desktop Agents list and Review.
 
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -8,13 +8,15 @@ import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "reac
 import type { TerminalInfo } from "@/gen/TerminalInfo";
 import type { Session } from "@/gen/Session";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
-import { HarnessMark } from "@/components/HarnessMark";
+import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
+import { Loading } from "@/components/ui";
+import { MessageBox } from "@/features/agents/SessionPane";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { AskCard } from "@/features/agents/AskCard";
 import { buildRows } from "@/features/agents/rows";
 import { StatusBadge } from "@/features/agents/SessionBits";
-import { usePublishItems } from "@/features/publish/items";
+import { useReviewCount } from "@/features/review/data";
 import { useConnection } from "@/app/Connection";
 import { cachedAt } from "@/lib/offlineCache";
 import { NotificationsPrompt } from "@/app/NotificationsPrompt";
@@ -39,7 +41,7 @@ const TerminalRow = memo(function TerminalRow({ terminal, project }: { terminal:
     <Icon name="term" size={18} className="flex-none text-ink-3" />
     <span className="min-w-0 flex-1">
       <span className="block truncate font-medium">{terminal.title}</span>
-      <span className="block truncate text-[12.5px] text-ink-3">{project} · {terminal.kind === "tui" ? "TUI" : "Shell"} · {terminalStatus(terminal)}</span>
+      <span className="block truncate text-[12px] text-ink-3">{project} · {terminal.kind === "tui" ? "TUI" : "Shell"} · {terminalStatus(terminal)}</span>
     </span>
     <Icon name="chev" size={14} className="flex-none -rotate-90 text-ink-3" />
   </Link>;
@@ -85,7 +87,7 @@ function CardHead({ s, project }: { s: Session; project: string }) {
     <span className="mt-0.5"><HarnessMark harness={s.harness} size={18} /></span>
     <div className="min-w-0">
       <div className="line-clamp-2 text-[15px] font-semibold" title={s.title}>{s.title}</div>
-      <div className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-3"><span className="truncate">{project}</span><span className="flex-none">· {formatAge(s.status_since)} ago</span></div>
+      <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-3"><span className="truncate">{project}</span><span className="flex-none">· {formatAge(s.status_since)} ago</span></div>
     </div>
     <div className="col-start-2 min-w-0"><StatusBadge s={s} /></div>
   </div>;
@@ -113,7 +115,7 @@ const QuestionCard = memo(function QuestionCard({ s, project }: { s: Session; pr
   }, [log]);
   return <AgentCard s={s} className="phone-review-card border-attn-line">
     <CardHead s={s} project={project} />
-    {ask && s.live ? <div className="pointer-events-none relative z-20 [&_button]:pointer-events-auto"><AskCard row={ask} sessionId={s.id} live={s.live} hint="Or tap Other answer to write one." /></div> : <p className="text-[13.5px] text-ink-2">{s.last_message ?? "The agent asked a question."}</p>}
+    {ask && s.live ? <div className="pointer-events-none relative z-20 [&_button]:pointer-events-auto"><AskCard row={ask} sessionId={s.id} live={s.live} hint="Or tap Other answer to write one." /></div> : <p className="text-[13px] text-ink-2">{s.last_message ?? "The agent asked a question."}</p>}
     <div className="pointer-events-none relative z-20 flex flex-wrap gap-2 [&_button]:pointer-events-auto"><button className="btn" onClick={() => open(navigate, s.id)}>{ask?.questions.some((q) => q.permission) ? "View session" : "Other answer…"}</button></div>
   </AgentCard>;
 });
@@ -127,11 +129,21 @@ function GitFacts({ id }: { id: string }) {
   if (d.main_changes?.files) parts.push(`${d.main_changes.files} file${d.main_changes.files === 1 ? "" : "s"} differ from main${d.main_changes.additions != null ? ` (+${d.main_changes.additions} −${d.main_changes.deletions ?? 0})` : ""}`);
   if (d.unpushed_commits) parts.push(`${d.unpushed_commits} unpushed commit${d.unpushed_commits === 1 ? "" : "s"}`);
   if (!parts.length) parts.push("No changes in Git");
-  return <div className="flex min-w-0 items-start gap-1.5 text-[12.5px] text-ink-2"><Icon name="branch" size={13} className="mt-0.5 flex-none text-ink-3" /><div className="min-w-0"><div className="font-mono">{d.branch}</div><div>{parts.join(" · ")}</div></div></div>;
+  return <div className="flex min-w-0 items-start gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={13} className="mt-0.5 flex-none text-ink-3" /><div className="min-w-0"><div className="font-mono">{d.branch}</div><div>{parts.join(" · ")}</div></div></div>;
+}
+
+/** Reply in place: the shared session message box, expanded inside the card. */
+function Reply({ s, onDone }: { s: Session; onDone: () => void }) {
+  const harness = useHarnesses().find((h) => h.id === s.harness);
+  const drop = useRef<((files: File[]) => void) | null>(null);
+  const input = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => input.current?.focus(), []);
+  return <div className="pointer-events-auto relative z-20 -mx-3 -mb-3"><MessageBox acceptsImages={!!harness?.capabilities.images} sessionId={s.id} placeholder="Reply to the agent" disabled={false} ask={null} dropImages={drop} inputRef={input} onSent={onDone} /></div>;
 }
 
 const OutcomeCard = memo(function OutcomeCard({ s, project }: { s: Session; project: string }) {
   const [busy, setBusy] = useState(false);
+  const [replying, setReplying] = useState(false);
   const act = async (path: string, body?: unknown) => {
     setBusy(true);
     try { await api.post(`/api/sessions/${s.id}/${path}`, body); } catch (e) { toastError(e); } finally { setBusy(false); }
@@ -139,12 +151,14 @@ const OutcomeCard = memo(function OutcomeCard({ s, project }: { s: Session; proj
   const done = isDone(s);
   return <AgentCard s={s} className={done ? "border-line" : "border-gh-closed/40"}>
     <CardHead s={s} project={project} />
-    {s.last_message && <p className="line-clamp-4 text-[13.5px] text-ink-2">{s.last_message}</p>}
+    {s.last_message && <p className="line-clamp-4 text-[13px] text-ink-2">{s.last_message}</p>}
     {done && <GitFacts id={s.id} />}
     <div className="pointer-events-none relative z-20 flex flex-wrap gap-2 [&_button]:pointer-events-auto">
       {done && <button className="btn" disabled={busy} title="Archive the session (it stays resumable)" onClick={() => void act("close")}><Icon name="archive" size={14} />Archive</button>}
       {!done && <button className="btn" disabled={busy} title="Send “Continue the unfinished turn.”" onClick={() => void act("input", { text: "Continue the unfinished turn." })}>Resume</button>}
+      {s.status !== "in_terminal" && <button className="btn" aria-expanded={replying} onClick={() => setReplying((v) => !v)}><Icon name="send" size={14} />{replying ? "Cancel reply" : "Reply"}</button>}
     </div>
+    {replying && <Reply s={s} onDone={() => setReplying(false)} />}
   </AgentCard>;
 });
 
@@ -152,7 +166,7 @@ const PausedCard = memo(function PausedCard({ s, project }: { s: Session; projec
   const blockers = s.quota_pause?.blockers.map((b) => `${b.window} resets ${b.resets_at === null ? "at an unknown time" : new Date(b.resets_at * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`).join(" · ");
   return <AgentCard s={s} className="phone-review-card border-attn-line">
     <CardHead s={s} project={project} />
-    <p className="text-[13.5px] text-attn">{s.quota_pause?.error ?? blockers ?? "Waiting for a quota update"}</p>
+    <p className="text-[13px] text-attn">{s.quota_pause?.error ?? blockers ?? "Waiting for a quota update"}</p>
     <div className="pointer-events-none relative z-20 flex flex-wrap gap-2 [&_button]:pointer-events-auto">
       <button className="btn" onClick={() => void api.post(`/api/sessions/${s.id}/interrupt`).catch(toastError)}><Icon name="stop" size={14} />Stop</button>
     </div>
@@ -162,7 +176,7 @@ const PausedCard = memo(function PausedCard({ s, project }: { s: Session; projec
 function Row({ s, project }: { s: Session; project: string }) {
   return <Link to="/agents" search={{ session: s.id }} className="flex min-h-12 items-center gap-2.5 rounded-lg px-2 text-ink no-underline active:bg-sunk">
     <HarnessMark harness={s.harness} size={16} />
-    <span className="min-w-0 flex-1"><span className="block truncate font-medium">{s.title}</span><span className="block truncate text-[12.5px] text-ink-3">{project}{s.last_message ? ` · ${s.last_message}` : ""}</span></span>
+    <span className="min-w-0 flex-1"><span className="block truncate font-medium">{s.title}</span><span className="block truncate text-[12px] text-ink-3">{project}{s.last_message ? ` · ${s.last_message}` : ""}</span></span>
     <span className="lp-spin flex-none" title="Running" />
   </Link>;
 }
@@ -174,8 +188,8 @@ function Freshness() {
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 20_000); return () => clearInterval(t); }, []);
   const saved = cachedAt();
   const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  if (saved) return <p className="py-4 text-center text-[12.5px] text-attn" role="status">Saved data from {clock(saved)} · connecting…</p>;
-  return <p className="py-4 text-center text-[12.5px] text-ink-3" role="status">{online ? "Live · updated just now" : `Offline · last update ${since ? new Date(since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "unknown"}`}</p>;
+  if (saved) return <p className="py-4 text-center text-[12px] text-attn" role="status">Saved data from {clock(saved)} · connecting…</p>;
+  return <p className="py-4 text-center text-[12px] text-ink-3" role="status">{online ? "Live · updated just now" : `Offline · last update ${since ? new Date(since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "unknown"}`}</p>;
 }
 
 export function NowView() {
@@ -183,7 +197,7 @@ export function NowView() {
   const query = useSessions();
   const projects = useProjects().data;
   const sessions = (query.data ?? []).filter(scope.hasSession);
-  const publish = usePublishItems();
+  const publish = { length: useReviewCount() };
   const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
   const rank = (s: Session) => (s.open_question ? 0 : isDone(s) ? 1 : 2);
   const needs = sessions.filter(needsYou).sort((a, b) => rank(a) - rank(b) || b.status_since - a.status_since);
@@ -198,17 +212,18 @@ export function NowView() {
       void load(s.id);
     }
   }, [needs.map((s) => s.id).join(), load]);
-  if (query.isPending) return <div className="grid h-full place-items-center text-ink-3" role="status">Loading…</div>;
+  if (query.isPending) return <Loading what="agents" className="h-full justify-center" />;
   return (
     <div className="h-full overflow-y-auto [overflow-wrap:anywhere]">
       <div className="mx-auto grid min-w-0 max-w-[640px] grid-cols-1 gap-5 px-3 pt-4">
-        <div className="flex min-w-0 items-center gap-2"><h1 className="min-w-0 flex-1 px-1 text-[19px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "agent needs" : "agents need"} you` : "Nothing waits for you"}</h1><NotificationsPrompt /></div>
+        <div className="-mx-3 -mt-4"><NotificationsPrompt /></div>
+        <h1 className="m-0 min-w-0 px-1 text-[18px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "agent needs" : "agents need"} you` : "Nothing waits for you"}</h1>
         <OpenTerminals />
         {needs.length > 0 && <Section title="Needs you" count={needs.length}>
           {needs.map((s) => s.open_question ? <QuestionCard key={s.id} s={s} project={name(s)} /> : <OutcomeCard key={s.id} s={s} project={name(s)} />)}
         </Section>}
         {paused.length > 0 && <Section title="Quota paused" count={paused.length}>{paused.map((s) => <PausedCard key={s.id} s={s} project={name(s)} />)}</Section>}
-        {publish.length > 0 && <Section title="Ready to publish" count={publish.length}>
+        {publish.length > 0 && <Section title="Review" count={publish.length}>
           <Link to="/review" className="flex min-h-12 items-center gap-2 phone-review-card rounded-xl border border-line bg-paper px-3 text-ink no-underline"><Icon name="pr" size={16} />{publish.length} {publish.length === 1 ? "item waits" : "items wait"} for your review<Icon name="chev" size={14} className="ml-auto -rotate-90" /></Link>
         </Section>}
         <Section title="Running" count={running.length}>

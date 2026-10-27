@@ -48,14 +48,14 @@ const TreeLine = memo(function TreeLine({ row, letter, changedDir, active, onCli
     <button
       onClick={() => onClick(row)}
       title={row.path}
-      className={`code-tree-line flex h-6 w-full items-center gap-1.5 pr-2.5 text-left text-[12.5px] whitespace-nowrap ${active ? "bg-select font-semibold shadow-[inset_2px_0_0_var(--color-teal)]" : "hover:bg-sunk"} ${letter ? "text-attn" : "text-ink"}`}
+      className={`code-tree-line flex h-6 w-full items-center gap-1.5 pr-2.5 text-left text-[13px] whitespace-nowrap ${active ? "bg-select font-semibold shadow-[inset_2px_0_0_var(--color-teal)]" : "hover:bg-sunk"} ${letter ? "text-attn" : "text-ink"}`}
       style={{ paddingLeft: pad }}
     >
       {row.kind === "dir" && <Icon name="chev" size={12} className={`text-ink-3 ${row.open ? "" : "-rotate-90"}`} />}
       <Icon name={row.kind === "dir" ? "folder" : "file"} size={13} className="text-ink-3" />
       <span className={`min-w-0 truncate ${row.kind === "dir" ? "font-[550]" : ""}`}>{row.name}</span>
       {changedDir && <span className="size-1.5 flex-none rounded-full bg-attn" title="Changed files inside" />}
-      {letter && <span className="ml-auto font-mono text-[10.5px] font-bold">{letter}</span>}
+      {letter && <span className="ml-auto font-mono text-[11px] font-bold">{letter}</span>}
     </button>
   );
 });
@@ -65,12 +65,12 @@ const GoLine = memo(function GoLine({ path, letter, active, onClick }: { path: s
     <button
       onClick={() => onClick(path)}
       title={path}
-      className={`code-tree-line flex h-6 w-full items-center gap-1.5 px-2.5 text-left text-[12.5px] whitespace-nowrap ${active ? "bg-select" : "hover:bg-sunk"} ${letter ? "text-attn" : ""}`}
+      className={`code-tree-line flex h-6 w-full items-center gap-1.5 px-2.5 text-left text-[13px] whitespace-nowrap ${active ? "bg-select" : "hover:bg-sunk"} ${letter ? "text-attn" : ""}`}
     >
       <Icon name="file" size={13} className="text-ink-3" />
       <span className="flex-none font-[550]">{basename(path)}</span>
-      <span className="min-w-0 truncate text-[11.5px] text-ink-3">{dirname(path)}</span>
-      {letter && <span className="ml-auto font-mono text-[10.5px] font-bold">{letter}</span>}
+      <span className="min-w-0 truncate text-[12px] text-ink-3">{dirname(path)}</span>
+      {letter && <span className="ml-auto font-mono text-[11px] font-bold">{letter}</span>}
     </button>
   );
 });
@@ -118,7 +118,7 @@ export function FilesPanel({ list, skey, active, onOpen }: { list: FileList | un
       <div className="grid grid-cols-[minmax(0,1fr)] gap-2 border-b border-line-2 px-2.5 pt-1 pb-2">
         <div className="flex h-[30px] items-center gap-[7px] rounded-[7px] border border-line px-2 text-ink-3 focus-within:border-teal">
           <Icon name="search" size={13} />
-          <input className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink outline-none" placeholder="Go to file" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none" placeholder="Go to file" value={query} onChange={(e) => setQuery(e.target.value)} />
           {going && (
             <button className="text-ink-3 hover:text-ink" title="Clear" onClick={() => setQuery("")}>
               <Icon name="x" size={12} />
@@ -128,7 +128,7 @@ export function FilesPanel({ list, skey, active, onOpen }: { list: FileList | un
         <label className={`flex items-center gap-2 text-xs whitespace-nowrap text-ink-2 ${list?.git === false ? "opacity-50" : ""}`}>
           <input type="checkbox" className="accent-teal" checked={changedOnly} disabled={!list?.git} onChange={(e) => setChangedOnly(e.target.checked)} />
           Changed only
-          <span className="ml-auto text-[11.5px] text-ink-3" title={list?.base ? `Since the branch left ${list.base}, committed or not` : undefined}>
+          <span className="ml-auto text-[12px] text-ink-3" title={list?.base ? `Since the branch left ${list.base}, committed or not` : undefined}>
             {list?.git === false ? "not a git repository" : `${changedCount} changed${list?.base ? ` since ${list.base.replace(/^origin\//, "")}` : ""}`}
           </span>
         </label>
@@ -206,10 +206,10 @@ export function SearchPanel({ root, rev, onOpen, state, setState }: { root: stri
       <div className="grid grid-cols-[minmax(0,1fr)] gap-2 border-b border-line-2 px-2.5 pt-1 pb-2">
         <div className="flex h-[30px] items-center gap-1 rounded-[7px] border border-line pr-1 pl-2 text-ink-3 focus-within:border-teal">
           <Icon name="search" size={13} />
-          <input className="ml-1 min-w-0 flex-1 bg-transparent text-[12.5px] text-ink outline-none" placeholder="Search in project" value={state.q} onChange={(e) => setState({ ...state, q: e.target.value })} />
+          <input className="ml-1 min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none" placeholder="Search in project" value={state.q} onChange={(e) => setState({ ...state, q: e.target.value })} />
           <FindToggles opts={opts} set={(o) => setState({ ...state, opts: o })} />
         </div>
-        <div className="text-[11.5px] text-ink-3">
+        <div className="text-[12px] text-ink-3">
           {!enabled
             ? "Type at least two characters. Uses git grep on this source."
             : res.isFetching
@@ -265,7 +265,7 @@ const HitLine = memo(function HitLine({ path, line, text, re, onOpen }: { path: 
   return (
     <button className="flex h-6 w-full items-center gap-2 pr-2.5 pl-8 text-left hover:bg-sunk" title={`${path}:${line}`} onClick={() => onOpen(path, line)}>
       <span className="w-8 flex-none text-right font-mono text-[11px] text-ink-3 tabular-nums">{line}</span>
-      <span className="min-w-0 truncate font-mono text-[11.5px] whitespace-pre">{parts}</span>
+      <span className="min-w-0 truncate font-mono text-[12px] whitespace-pre">{parts}</span>
     </button>
   );
 });

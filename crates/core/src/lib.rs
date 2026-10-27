@@ -26,6 +26,7 @@ pub mod procs;
 pub mod push;
 pub mod project_clone;
 pub mod projects;
+pub mod proposals;
 pub mod schedules;
 pub mod session_pages;
 pub mod sessions;
@@ -120,6 +121,7 @@ impl App {
         predrafts::link_skill()?;
         app.sessions.load(&app).await?;
         schedules::recover(&app).await?;
+        proposals::recover(&app).await?;
         schedules::spawn(&app);
         {
             let app = app.clone();
@@ -192,6 +194,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     inbox::InboxSnapshot::export_all(&cfg)?;
     inbox::ThreadPreview::export_all(&cfg)?;
     terminals::TerminalInfo::export_all(&cfg)?;
+    terminals::TerminalFolders::export_all(&cfg)?;
     code::CodeSources::export_all(&cfg)?;
     code::FileList::export_all(&cfg)?;
     code::CodeFile::export_all(&cfg)?;
@@ -205,6 +208,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     worktrees::WorktreeInfo::export_all(&cfg)?;
     hosts::HostStatus::export_all(&cfg)?;
     hosts::sshconfig::SshConfigHost::export_all(&cfg)?;
+    proposals::Proposal::export_all(&cfg)?;
     Ok(())
 }
 

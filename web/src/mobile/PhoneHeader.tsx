@@ -5,7 +5,7 @@ import { Popover } from "@/components/Popover";
 
 export function PhoneActions({ label = "Actions & details", children, details, closeOnAction = true }: { label?: string; children?: ReactNode; details?: ReactNode; closeOnAction?: boolean }) {
   return <Popover viewport keepMounted align="right" width={280} label={label}
-    trigger={({ open, toggle }) => <button className={`iconbtn shrink-0 ${open ? "bg-select!" : ""}`} aria-label={label} aria-haspopup="dialog" aria-expanded={open} title={label} onClick={toggle}><span aria-hidden="true" className="text-xl leading-none">⋯</span></button>}
+    trigger={({ open, toggle }) => <button className="iconbtn shrink-0" aria-label={label} aria-haspopup="dialog" aria-expanded={open} title={label} onClick={toggle}><Icon name="more" size={20} /></button>}
   >
     {(close) => <div className="phone-action-content grid min-w-0 gap-2">
       {children && <div className="phone-action-buttons grid min-w-0" onClickCapture={(e) => {

@@ -607,6 +607,7 @@ impl Sessions {
                 (cwd, None)
             }
             Target::Temp => (None, None),
+            Target::Assistant { workspace_id } => (Some(crate::proposals::assistant_dir(app, workspace_id.as_deref()).to_string_lossy().into_owned()), None),
             Target::None => (None, None),
         };
         // The session runs on the machine of its folder; agents there use the helper's `launchpad` CLI.
@@ -655,6 +656,12 @@ impl Sessions {
             }
             prompt.push_str("\n\n");
             prompt.push_str(&crate::browser::instruction(*act, !spec.target.browser_only(), !spec.agent_traces.is_empty()));
+        }
+        if let Target::Assistant { workspace_id } = &spec.target {
+            anyhow::ensure!(spec.context_projects.is_empty() && spec.worktree.is_none() && !spec.allow_paid_usage, "The assistant has no folders, worktrees or paid usage");
+            prompt.push_str("\n\n");
+            prompt.push_str(&crate::proposals::instruction(app, workspace_id.as_deref(), &cli).await);
+            return Ok(Preview { title: "Ask Launchpad".into(), prompt, cwd, add_dirs });
         }
         crate::compose::append_initial_summary_instruction(&mut prompt);
         Ok(Preview {
@@ -737,6 +744,11 @@ impl Sessions {
                 Target::Temp => {
                     let p = crate::projects::create_temp(app, &spec.text).await?;
                     (p.path, Some(p.id))
+                }
+                Target::Assistant { workspace_id } => {
+                    let folder = crate::proposals::assistant_dir(app, workspace_id.as_deref());
+                    std::fs::create_dir_all(&folder)?;
+                    (folder.to_string_lossy().into_owned(), None)
                 }
                 Target::Project { project_id } => (preview.cwd.clone().unwrap_or_default(), Some(project_id.clone())),
                 Target::Predraft { project_id } => {

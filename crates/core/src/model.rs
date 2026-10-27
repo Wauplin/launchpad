@@ -424,10 +424,17 @@ pub enum Target {
     },
     /// A new temporary folder in the projects root.
     Temp,
+    /// The Ask Launchpad assistant of a workspace (None: Everything), in `<data_dir>/assistant/<workspace>`.
+    /// It reads Launchpad state and writes inert proposals through its restricted CLI token.
+    Assistant {
+        #[serde(default)]
+        workspace_id: Option<String>,
+    },
 }
 
 impl Target {
     pub fn is_browser(&self) -> bool { matches!(self, Target::Browser { .. }) }
+    pub fn is_assistant(&self) -> bool { matches!(self, Target::Assistant { .. }) }
     /// A browser task without a project: scratch folder, browser tools only.
     pub fn browser_only(&self) -> bool { matches!(self, Target::Browser { project_id: None, .. }) }
     /// The project of a browser task that works in a project.

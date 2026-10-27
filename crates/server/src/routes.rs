@@ -63,12 +63,30 @@ struct GeneralPatch {
     projects_root: Option<String>,
     remove_published_worktree: Option<bool>,
     presets: Option<Vec<launchpad_core::config::Preset>>,
+    notify: Option<bool>,
+    github_poll_interval_seconds: Option<u64>,
+    worktrees_keep: Option<u32>,
+    browser: Option<String>,
+    /// Ask Launchpad: the assistant's profile ID and model (empty strings clear them).
+    assistant_profile: Option<String>,
+    assistant_model: Option<String>,
 }
 async fn patch_general_config(State(s): State<Server>, Json(patch): Json<GeneralPatch>) -> ApiResult<Value> {
     let mut config = s.app.config.get();
     if let Some(value) = patch.projects_root { config.projects_root = value; }
     if let Some(value) = patch.remove_published_worktree { config.remove_published_worktree = value; }
     if let Some(value) = patch.presets { config.presets = value; }
+    if let Some(value) = patch.notify { config.agents.notify = value; }
+    if let Some(value) = patch.github_poll_interval_seconds { config.github.poll_interval_seconds = value.max(15); }
+    if let Some(value) = patch.worktrees_keep { config.worktrees.keep = value; }
+    if let Some(value) = patch.assistant_profile { config.assistant.profile = Some(value).filter(|v| !v.is_empty()); }
+    if let Some(value) = patch.assistant_model { config.assistant.model = Some(value).filter(|v| !v.is_empty()); }
+    if let Some(value) = patch.browser {
+        if s.auth.remote() {
+            return Err(crate::error::ApiError::bad_request("Edit [commands] in config.toml on the host"));
+        }
+        config.commands.browser = value;
+    }
     config.validate().map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
     s.app.config.save(config)?;
     Ok(Json(json!({"config": browser_config(&s), "error": null, "remote": s.auth.remote()})))

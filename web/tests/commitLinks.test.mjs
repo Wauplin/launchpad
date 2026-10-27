@@ -50,7 +50,7 @@ test("preserves the existing inline file renderer when no verified commit matche
 
 test("commit diff route validation preserves repository, revision and back-to-session context", () => {
   assert.deepEqual(validateCodeSearch({ root: "/repo", rev: sha, session: "run", view: "diff", path: "changed.txt" }), {
-    root: "/repo", rev: sha, path: "changed.txt", line: undefined, session: "run", view: "diff",
+    root: "/repo", rev: sha, path: "changed.txt", line: undefined, session: "run", pr: undefined, view: "diff",
   });
   assert.equal(validateCodeSearch({ view: "unexpected" }).view, undefined);
 });

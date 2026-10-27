@@ -69,7 +69,7 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
   const shownPage = Math.min(page, Math.max(0, Math.ceil(groups.length / 6) - 1));
   const dateLabel = (date: Date) => date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
-  return <Card title="Analytics · Agent activity">
+  return <Card title="Agent activity">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 className="font-semibold">Your daily rhythm</h2>
@@ -83,7 +83,7 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
     </div>
     <p className="text-sm font-semibold text-teal-ink" aria-live="polite">{month.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</p>
     <div className="flex w-fit gap-1 rounded-lg border border-line bg-chrome p-1" role="group" aria-label="Activity metric">
-      {(["agents", "tokens"] as const).map((value) => <button key={value} className={`btn ${metric === value ? "bg-select! border-teal! font-semibold text-teal-ink" : ""}`} aria-pressed={metric === value} onClick={() => { setMetric(value); setPage(0); }}>{value === "agents" ? "Agents" : "Tokens"}</button>)}
+      {(["agents", "tokens"] as const).map((value) => <button key={value} className="lp-chip" aria-pressed={metric === value} onClick={() => { setMetric(value); setPage(0); }}>{value === "agents" ? "Agents" : "Tokens"}</button>)}
     </div>
     {query.isError && <p role="alert" className="text-sm text-danger">Could not load agent activity. <button className="btn" onClick={() => void query.refetch()}>Retry</button></p>}
     {query.isPending ? <div className="rounded-lg bg-chrome p-8 text-center text-sm text-ink-3">Loading agent activity…</div> : !query.isError && <>
@@ -140,6 +140,6 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
       {!total && <p className="py-3 text-center text-sm text-ink-3">{metric === "tokens" ? "No reported tokens for sessions started this month." : "No agents started this month. Activity will appear here after a launch."}</p>}
     </>}
     {metric === "tokens" && <p className="rounded-lg border border-line bg-chrome p-3 text-xs leading-relaxed text-ink-2">Session token totals (input + cached input + output) are grouped by start date, including later follow-ups. Daily consumption history is unavailable; missing usage counts as zero.</p>}
-    <p className="text-xs leading-relaxed text-ink-3">{metric === "agents" && "One count per saved session on its start date, including archived sessions. Follow-up turns and resumes don’t add counts. "}All workspaces · your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Historical profiles use their saved ID if no longer configured.</p>
+    <p className="text-xs leading-relaxed text-ink-3">{metric === "agents" && "One count per saved session on its start date, including archived sessions. Follow-up turns and resumes don’t add counts. "}Everything · your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Historical profiles use their saved ID if no longer configured.</p>
   </Card>;
 }

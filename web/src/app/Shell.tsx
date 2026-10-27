@@ -1,4 +1,6 @@
 import { Outlet } from "@tanstack/react-router";
+import { lazy, Suspense } from "react";
+import { useAddFolder } from "@/features/projects/addFolderStore";
 import { IconSprite } from "@/components/Icon";
 import { Toasts } from "@/components/Toast";
 import { Composer } from "@/features/launch/Composer";
@@ -10,8 +12,12 @@ import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
 import { HostPrompts } from "./HostPrompt";
+import { NotificationsPrompt } from "./NotificationsPrompt";
+
+const AddFolderDialog = lazy(() => import("@/features/projects/AddFolder").then((m) => ({ default: m.AddFolderDialog })));
 
 export function Shell() {
+  const addOpen = useAddFolder((s) => s.open);
   const scale = useZoomScale();
   useLayoutEffect(() => { document.documentElement.style.zoom = String(scale); }, [scale]);
   useWorkspaceSync();
@@ -23,6 +29,7 @@ export function Shell() {
       <div className="relative flex min-h-0 flex-1">
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
+          <NotificationsPrompt />
           <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-paper">
             <Outlet />
           </main>
@@ -33,6 +40,7 @@ export function Shell() {
       <StatusBar />
       <Toasts />
       <HostPrompts />
+      {addOpen && <Suspense fallback={null}><AddFolderDialog /></Suspense>}
     </div>
   );
 }

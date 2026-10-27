@@ -7,6 +7,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { toastError } from "@/components/Toast";
+import { MenuItem, Popover } from "@/components/Popover";
+import { ErrorState, Loading, Tabs } from "@/components/ui";
+import { formatAge } from "@/lib/format";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import type { Predraft } from "@/gen/Predraft";
 import { LabelChip } from "./LabelChip";
@@ -55,7 +58,7 @@ const Row = memo(function Row({
           className="flex items-center gap-1.5 overflow-hidden text-xs whitespace-nowrap text-ink-3"
           title={i.labels?.nodes.map((l) => l.name).join(", ")}
         >
-          #{i.number} · {i.isDraft ? "draft" : i.state.toLowerCase()} · {i.author.login}
+          #{i.number} · {i.isDraft ? "GitHub draft" : i.state.toLowerCase()} · {i.author.login}
           {i.labels?.nodes.map((l) => (
             <LabelChip key={l.name} label={l} />
           ))}
@@ -122,6 +125,7 @@ export function RepoItems({
       ].sort((a, b) => a.localeCompare(b)),
     [q.data],
   );
+  const colors = useMemo(() => new Map([...(q.data?.prs ?? []), ...(q.data?.issues ?? [])].flatMap((i) => i.labels?.nodes ?? []).map((l) => [l.name, l.color])), [q.data]);
   const items = q.data?.[tab] ?? [];
   const githubList = items.filter(
     (i) =>
@@ -152,88 +156,35 @@ export function RepoItems({
   ];
   return (
     <section className="rounded-lg border border-line overflow-clip">
-      {phone ? <div className="flex min-w-0 items-center gap-1 border-b border-line bg-chrome px-2">
-        <div className="phone-tabs flex min-w-0 flex-1" role="group" aria-label="Project GitHub items"><button className="btn btn-sm" aria-pressed={tab === "prs"} onClick={() => setTab("prs")}>PRs {(q.data?.prs?.length ?? 0) + predrafts.length}</button><button className="btn btn-sm" aria-pressed={tab === "issues"} onClick={() => setTab("issues")}>Issues {q.data?.issues?.length ?? 0}</button></div>
-        <button className="iconbtn" aria-label="Refresh project items" title="Refresh project items" disabled={busy || !repo} onClick={() => void refresh()}><Icon name="refresh" size={16} /></button>
-        <PhoneActions label="Project item options" closeOnAction={false} details={<div className="grid gap-3"><button className="btn" disabled={!repo} onClick={() => openGitHub(`https://github.com/${repo}/${tab === "prs" ? "pulls" : "issues"}`)}>Open on GitHub</button><label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Discarded local PRs</label></div>} />
-      </div> : <>
-      <div className="flex flex-wrap items-center gap-2 bg-chrome p-3">
-        <button
-          className={`btn ${tab === "prs" ? "bg-select!" : ""}`}
-          onClick={() => setTab("prs")}
-        >
-          Pull requests {(q.data?.prs?.length ?? 0) + predrafts.length}
-        </button>
-        <button
-          className={`btn ${tab === "issues" ? "bg-select!" : ""}`}
-          onClick={() => setTab("issues")}
-        >
-          Issues {q.data?.issues?.length ?? ""}
-        </button>
-        <button
-          className="btn ml-auto"
-          disabled={busy || !repo}
-          onClick={() => void refresh()}
-        >
-          {busy ? "Refreshing…" : "Refresh"}
-        </button>
-        <button
-          className="btn"
-          disabled={!repo}
-          onClick={() =>
-            openGitHub(
-              `https://github.com/${repo}/${tab === "prs" ? "pulls" : "issues"}`,
-            )
-          }
-        >
-          Open on GitHub
-        </button>
-        <label className="flex items-center gap-1 text-xs">
-          <input
-            type="checkbox"
-            checked={showArchived}
-            onChange={(e) => setShowArchived(e.target.checked)}
-          />
-          Discarded local PRs
-        </label>
+      <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-line bg-chrome px-3">
+        <Tabs<"prs" | "issues"> label="Folder GitHub items" value={tab} onChange={setTab} className="min-w-0 flex-1" items={[{ id: "prs", label: phone ? "PRs" : "Pull requests", count: (q.data?.prs?.length ?? 0) + predrafts.length }, { id: "issues", label: "Issues", count: q.data?.issues?.length ?? 0 }]} />
+        {q.data && !phone && <span className="text-[12px] text-ink-3">Synced {formatAge(q.data.fetched_at)} ago</span>}
+        <button className="iconbtn" aria-label="Refresh from GitHub" title="Refresh from GitHub" disabled={busy || !repo} onClick={() => void refresh()}><Icon name="refresh" size={phone ? 16 : 13} className={busy ? "animate-spin" : ""} /></button>
+        {phone ? <PhoneActions label="Item options" closeOnAction={false} details={<div className="grid gap-3"><button className="btn" disabled={!repo} onClick={() => openGitHub(`https://github.com/${repo}/${tab === "prs" ? "pulls" : "issues"}`)}>Open on GitHub</button><label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Discarded Local PRs</label></div>} />
+          : <Popover align="right" width={240} label="More options" trigger={({ open, toggle }) => <button className="iconbtn" aria-label="More options" aria-expanded={open} title="More options" onClick={toggle}><Icon name="more" size={15} /></button>}>
+            {(close) => <div className="grid gap-1">
+              <MenuItem icon={<Icon name="ext" size={13} />} label="Open on GitHub" disabled={!repo} onClick={() => { openGitHub(`https://github.com/${repo}/${tab === "prs" ? "pulls" : "issues"}`); close(); }} />
+              <label className="flex items-center gap-2 px-[9px] py-[7px] text-[12px]"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show discarded Local PRs</label>
+            </div>}
+          </Popover>}
       </div>
-      </>}
       {repo && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-line bg-paper px-3 py-2 text-xs">
-          <label className="flex items-center gap-2">
-            GitHub label
-            <select
-              className="field-input w-auto!"
-              value={labelFilter}
-              onChange={(e) => setLabelFilter(e.target.value)}
-            >
-              <option value="all">All labels</option>
-              <option value="none">No labels</option>
-              {labels.map((name) => (
-                <option key={name} value={`label:${name}`}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
-          {labelFilter !== "all" && (
-            <button
-              className="btn btn-sm"
-              onClick={() => setLabelFilter("all")}
-            >
-              Clear filter
-            </button>
-          )}
+        <div className="flex flex-wrap items-center gap-2 border-b border-line bg-paper px-3 py-2 text-[12px]">
+          <Popover width={260} label="GitHub label" trigger={({ open, toggle }) => <button className="lp-chip" aria-pressed={labelFilter !== "all"} aria-expanded={open} onClick={toggle}>Label: {labelFilter === "all" ? "all" : labelFilter === "none" ? "no labels" : labelFilter.slice(6)}<Icon name="chev" size={12} /></button>}>
+            {(close) => <div className="grid max-h-72 gap-0.5 overflow-auto">
+              <MenuItem label="All labels" active={labelFilter === "all"} onClick={() => { setLabelFilter("all"); close(); }} />
+              <MenuItem label="No labels" active={labelFilter === "none"} onClick={() => { setLabelFilter("none"); close(); }} />
+              {labels.map((name) => <MenuItem key={name} label={<LabelChip label={{ name, color: colors.get(name) ?? "d0d7de" }} />} active={labelFilter === `label:${name}`} onClick={() => { setLabelFilter(`label:${name}`); close(); }} />)}
+            </div>}
+          </Popover>
+          {labelFilter !== "all" && <button className="btn btn-sm" onClick={() => setLabelFilter("all")}>Clear filter</button>}
           <span className="text-ink-3">
-            {githubList.length} of {items.length} recent open{" "}
-            {tab === "prs" ? "pull requests" : "issues"}
-            {tab === "prs" &&
-              predrafts.length > 0 &&
-              ` · ${predrafts.length} local PRs`}
+            {githubList.length} of {items.length} recent open {tab === "prs" ? "pull requests" : "issues"}
+            {tab === "prs" && predrafts.length > 0 && ` · ${predrafts.length} Local PR${predrafts.length === 1 ? "" : "s"}`}
           </span>
         </div>
       )}
-      {q.error && <p className="p-3 text-gh-closed">{String(q.error)}</p>}
+      {q.error && <ErrorState className="m-2" error={q.error} onRetry={() => void refresh()} />}
       <div ref={ref} className="overflow-auto" style={list.length ? { height: Math.min(list.length * 52, 468) } : undefined}>
         <div className="relative" style={list.length ? { height: v.getTotalSize() } : undefined}>
           {v.getVirtualItems().map((row) => {
@@ -265,19 +216,11 @@ export function RepoItems({
               </div>
             );
           })}
-          {!list.length && (
-            <p className="m-0 px-3 py-2 text-[12.5px] text-ink-3">
-              {q.isPending && repo
-                ? "Fetching recent items…"
-                : labelFilter === "all"
-                  ? "No open items."
-                  : "No recent open items match this label."}
-            </p>
-          )}
+          {!list.length && (q.isPending && repo ? <Loading what="recent items" /> : <p className="m-0 px-3 py-2 text-[12px] text-ink-3">{labelFilter === "all" ? "No open items." : "No recent open items match this label."}</p>)}
         </div>
       </div>
       {refs.length > 0 && (
-        <div className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-line bg-teal-soft px-3 py-2 text-[12.5px]">
+        <div className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-line bg-teal-soft px-3 py-2 text-[12px]">
           <b>{refs.length} selected</b>
           <span className="text-ink-3">as context for an agent</span>
           <span className="ml-auto flex gap-2">
@@ -298,9 +241,7 @@ const LocalRow = memo(function LocalRow({ p }: { p: Predraft }) {
       params={{ id: p.id }}
       className="flex h-[52px] items-center gap-3 border-b border-line-2 bg-teal-soft px-3 no-underline text-teal-ink"
     >
-      <span className="rounded border border-teal-ink px-2 py-1 text-[11px]">
-        Local
-      </span>
+      <Icon name="pr-local" size={15} />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-semibold">{p.title}</span>
         <span className="text-xs">
@@ -308,11 +249,11 @@ const LocalRow = memo(function LocalRow({ p }: { p: Predraft }) {
             ? "Discarded"
             : p.published_number
               ? `Published #${p.published_number}`
-              : "Pre-draft PR"}{" "}
+              : "Local PR"}{" "}
           · {p.branch}
         </span>
       </span>
-      <span className="text-xs">Review</span>
+      <span className="text-[12px]">Review</span>
     </Link>
   );
 });

@@ -1,6 +1,7 @@
 import { isDesktopShell } from "@/lib/platform";
 import { hostOf, profileOnHost, useHosts } from "@/lib/hosts";
 import { isPhone } from "@/lib/phone";
+import { Sheet } from "@/mobile/Sheet";
 import { useStatus } from "@/lib/queries";
 // Composer drawer (sketch S2): stays on the right while you navigate, so context can be added from
 // anywhere. It minimizes to a draft pill, and covers the content on narrow windows. Prompt first, then
@@ -10,7 +11,6 @@ import { abandonOperation } from "@/lib/operations";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { AgentTraceRef } from "@/gen/AgentTraceRef";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
@@ -30,20 +30,20 @@ import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/q
 import { costUnavailableMessage, supportsModelCost, parseUsd, usd, usesModelReference, useProfileModels, useProfiles } from "@/lib/profiles";
 import { ModelSearch } from "@/components/ModelSearch";
 import { findModel, pickModel, ProviderPicker } from "@/components/ProviderPicker";
-import { useScope } from "@/lib/workspace";
+import { announceImplicitAdd, specProject, useScope } from "@/lib/workspace";
 import { useZoomScale } from "@/lib/zoom";
 import { rememberProjectCompletion, rememberedRun, rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { ProjectPicker } from "./ProjectPicker";
 import { AgentTracePicker } from "./AgentTracePicker";
 import { DelaySelector, conditionsError } from "./DelaySelector";
-import { CronSelector, type CronDraft } from "./CronSelector";
+import { CronSelector, DEFAULT_CRON, type CronDraft } from "./CronSelector";
 import { itemIcon, PromptField } from "./PromptField";
 
 function Field({ label, hint, end, children }: { label: string; hint?: string; end?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="grid min-w-0 grid-cols-1 content-start gap-1.5">
-      <div className="flex items-center gap-2 text-[11.5px] font-[650] text-ink-2">
+      <div className="flex items-center gap-2 text-[12px] font-[650] text-ink-2">
         {label}
         {hint && <span className="font-normal text-ink-3">{hint}</span>}
         {end && <span className="ml-auto">{end}</span>}
@@ -55,7 +55,7 @@ function Field({ label, hint, end, children }: { label: string; hint?: string; e
 
 function SelectButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
   return (
-    <button onClick={onClick} className="flex h-8 w-full min-w-0 items-center gap-2 rounded-[7px] border border-line bg-paper px-2.5 text-left text-[12.5px] hover:border-line">
+    <button onClick={onClick} className="flex h-8 w-full min-w-0 items-center gap-2 rounded-[7px] border border-line bg-paper px-2.5 text-left text-[13px] hover:border-line">
       <span className="flex min-w-0 flex-1 items-center gap-2 truncate">{children}</span>
       <Icon name="chev" size={14} className="flex-none text-ink-3" />
     </button>
@@ -72,7 +72,7 @@ function Branch({ projectId, branch, onChange, currentLabel = "checkout" }: { pr
     <Popover
       width={260}
       trigger={({ toggle }) => (
-        <button onClick={toggle} className="inline-flex h-5 items-center gap-1 rounded-[5px] border border-line bg-paper px-1.5 font-mono text-[11.5px] whitespace-nowrap">
+        <button onClick={toggle} className="inline-flex h-5 items-center gap-1 rounded-[5px] border border-line bg-paper px-1.5 font-mono text-[12px] whitespace-nowrap">
           <Icon name="branch" size={12} />
           {branch ?? `${currentLabel}${q.data?.current ? ` (${q.data.current})` : ""}`}
           <Icon name="chev" size={12} className="text-ink-3" />
@@ -150,12 +150,12 @@ function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject,
     >
       {(close) => {
         const back = <MenuItem icon={<Icon name="chev" size={13} className="rotate-90" />} label="Back" onClick={() => setMode("menu")} />;
-        if (mode === "project") return <>{back}<ProjectPicker projects={projects} hasProject={() => true} temporary={false} emptyMessage="No other project." onPick={(p) => { if (p) { onProject(p); close(); } }} /></>;
+        if (mode === "project") return <>{back}<ProjectPicker projects={projects} hasProject={() => true} temporary={false} emptyMessage="No other folder." onPick={(p) => { if (p) { onProject(p); close(); } }} /></>;
         if (mode === "github") return <>{back}<GitHubLinkForm onAdd={onGitHub} onDone={close} /></>;
         if (mode === "trace") return <>{back}<AgentTracePicker sessions={sessions} selected={selectedTraces} onPick={(t) => { onTrace(t); close(); }} /></>;
         return (
           <>
-            <MenuItem icon={<Icon name="folder" size={13} />} label="Project…" detail="Another project as read-only context" onClick={() => setMode("project")} />
+            <MenuItem icon={<Icon name="folder" size={13} />} label="Folder…" detail="Another folder as read-only context" onClick={() => setMode("project")} />
             <MenuItem icon={<Icon name="issue" size={13} />} label="GitHub link…" detail="An issue, PR or comment URL" onClick={() => setMode("github")} />
             <MenuItem icon={<Icon name="agents" size={13} />} label="Agent trace…" detail="The stored trace of another agent" onClick={() => setMode("trace")} />
             {!!recent.length && <div className="px-[9px] pt-2 pb-1 seclabel">Recent contexts</div>}
@@ -172,12 +172,12 @@ function PromptPreview({ spec, title }: { spec: LaunchSpec; title: string }) {
   const preview = useQuery({ queryKey: ["preview", debounced], queryFn: () => api.post<Preview>("/api/launch/preview", debounced), placeholderData: (prev) => prev });
   return (
     <div className="grid gap-1 p-1">
-      <div className="flex items-center text-[11.5px] font-[650] text-ink-2">
+      <div className="flex items-center text-[12px] font-[650] text-ink-2">
         {title}
         <span className="ml-auto font-normal text-ink-3">{preview.isFetching ? "Updating…" : `${preview.data?.prompt.length ?? 0} characters`}</span>
       </div>
-      <pre className="m-0 max-h-[50vh] overflow-y-auto rounded-md bg-chrome px-2.5 py-2 font-mono text-[11.5px] leading-normal whitespace-pre-wrap text-ink-2">
-        {preview.isError ? <span className="text-red-700">{preview.error.message}</span> : preview.data?.prompt || <span className="text-ink-3">{preview.isLoading ? "Rendering…" : "The prompt is empty."}</span>}
+      <pre className="m-0 max-h-[50vh] overflow-y-auto rounded-md bg-chrome px-2.5 py-2 font-mono text-[12px] leading-normal whitespace-pre-wrap text-ink-2">
+        {preview.isError ? <span className="text-danger-ink">{preview.error.message}</span> : preview.data?.prompt || <span className="text-ink-3">{preview.isLoading ? "Rendering…" : "The prompt is empty."}</span>}
       </pre>
     </div>
   );
@@ -205,14 +205,25 @@ function useOverlay(scale: number) {
   return width / scale < OVERLAY_BELOW;
 }
 
+/** Makes `p` the target of a draft (keeping a Local PR target kind), and drops it from the context folders. */
+function withFolder(s: LaunchSpec, p: Project): LaunchSpec {
+  return { ...s, target: { kind: s.target.kind === "predraft" ? "predraft" : "project", project_id: p.id }, context_projects: s.context_projects.filter((c) => c.project_id !== p.id) };
+}
+
 function Token({ warn, title, children }: { warn?: boolean; title?: string; children: React.ReactNode }) {
   return <span title={title} className={`inline-flex h-[22px] max-w-full items-center gap-1 truncate rounded-md px-1.5 text-[12px] ${warn ? "bg-attn-soft font-semibold text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]" : "bg-sunk text-ink-2"}`}>{children}</span>;
+}
+
+/** The options panel: inline on desktop, a bottom sheet on the phone. */
+function OptionsFrame({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  if (isPhone) return <Sheet title="Launch options" onClose={onClose}><div className="grid gap-3 p-3">{children}</div></Sheet>;
+  return <div className="grid gap-3 rounded-lg border border-line bg-chrome p-2.5">{children}</div>;
 }
 
 function OptionRow({ label, end, children }: { label: string; end?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[76px_1fr] items-start gap-2">
-      <span className="flex items-center gap-1 pt-1.5 text-[11.5px] font-[650] text-ink-2">{label}{end}</span>
+      <span className="flex items-center gap-1 pt-1.5 text-[12px] font-[650] text-ink-2">{label}{end}</span>
       <div className="min-w-0">{children}</div>
     </div>
   );
@@ -241,8 +252,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const config = useConfig().data?.config;
   const overlay = useOverlay(useZoomScale());
   const host = useStatus().data?.host;
-  const [pillSlot, setPillSlot] = useState<HTMLElement | null>(null);
-  useEffect(() => setPillSlot(document.getElementById("draft-pill-slot")), []);
   const defaults = useHarnessDefaults(spec.harness).data;
   const harness = useHarnessInfo(spec.harness);
   const profiles = useProfiles();
@@ -273,6 +282,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const showSession = useLayout((s) => s.show);
   const [delayValid, setDelayValid] = useState(true);
   const [cron, setCron] = useState<CronDraft | null>(null);
+  const [later, setLater] = useState(false);
   const [cronValid, setCronValid] = useState(true);
   const [launching, setLaunching] = useState(false);
   const [unconfirmedLaunch, setUnconfirmedLaunch] = useState<LaunchSpec | null>(null);
@@ -296,17 +306,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   };
   const [showOptions, setShowOptions] = useState(false);
   const items = (spec.attachments ?? []).length + spec.github_refs.length + (spec.files ?? []).length + spec.context_projects.length + (spec.agent_traces ?? []).length;
-  // The draft pill flashes when "+ Add" buttons add context to a minimized draft.
-  const [flash, setFlash] = useState(false);
-  const lastItems = useRef(items);
-  useEffect(() => {
-    const grew = items > lastItems.current;
-    lastItems.current = items;
-    if (!grew || !minimized) return;
-    setFlash(true);
-    const t = setTimeout(() => setFlash(false), 900);
-    return () => clearTimeout(t);
-  }, [items, minimized]);
 
   const targetId = spec.target.kind === "project" || spec.target.kind === "predraft" ? spec.target.project_id : null;
   const targetBranches = useQuery({
@@ -323,6 +322,24 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const source = spec.target.kind === "session_folder" ? sessions?.find((s) => s.id === (spec.target as { session_id: string }).session_id) : undefined;
   const recentSessions = (sessions ?? []).filter(scope.hasSession);
   const hosts = useHosts();
+  // Recent folders of this workspace, newest first, as one-tap target chips.
+  const recentFolders: Project[] = [];
+  for (const session of [...recentSessions].sort((a, b) => b.started_at - a.started_at)) {
+    const p = projects.find((x) => x.id === session.project_id && !x.is_temp);
+    if (p && !recentFolders.includes(p)) recentFolders.push(p);
+    if (recentFolders.length >= 4) break;
+  }
+  // A draft without a folder starts in the workspace's only folder, else the last folder used here.
+  const preselected = useRef(false);
+  useEffect(() => {
+    if (!open) { preselected.current = false; return; }
+    if (preselected.current || spec.target.kind !== "none" || !projects.length) return;
+    preselected.current = true;
+    const mine = projects.filter((p) => !p.is_temp && scope.hasProject(p.id));
+    const pick = mine.length === 1 ? mine[0] : recentFolders[0];
+    if (pick) update((s) => (s.target.kind === "none" ? withFolder(s, pick) : s));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, spec.target.kind, projects.length]);
   // Keep every hook above this early return: hook order must not change when the draft opens or closes.
   // A draft without a profile (older drafts, the first launch) takes the first profile of its harness, else the first one.
   useEffect(() => {
@@ -351,6 +368,14 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const efforts = ownModels ? [] : model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
   const modelMissing = !spec.model && !fallbackModel && !!profile && usesModelReference(Object.entries(profile.env));
   const scheduled = conditions.length > 0;
+  // Launch ▾ chooses when: now, later (start conditions) or repeatedly (a cron agent).
+  const timing: "now" | "later" | "repeat" = cron ? "repeat" : later || scheduled ? "later" : "now";
+  const setTiming = (t: "now" | "later" | "repeat") => {
+    if (t !== "repeat") setCron(null);
+    if (t !== "later") { setLater(false); setConditions([]); }
+    if (t === "later") setLater(true);
+    if (t === "repeat" && !cron) setCron({ ...DEFAULT_CRON, conditions: DEFAULT_CRON.conditions.filter((c) => harness?.capabilities.quota || c.kind !== "quota_left") });
+  };
   const supportsCost = supportsModelCost(harness, spec.model ?? fallbackModel);
   const budgetInput = budgetText ?? (spec.budget_usd != null ? String(spec.budget_usd) : "");
   const budgetValid = !supportsCost || parseUsd(budgetInput) !== undefined;
@@ -361,13 +386,15 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const targetHost = hostOf(target?.path);
   const hostStatus = targetHost ? (hosts.find((h) => h.host.id === targetHost) ?? null) : null;
   const hostProfile = (p: Profile | null) => (p ? profileOnHost(hostStatus, p) : null);
-  const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Hosts` : hostProfile(profile)?.ok === false ? hostProfile(profile)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context projects must be on the same machine as the project" : null;
-  const blocker = hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a project" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Machines` : hostProfile(profile)?.ok === false ? hostProfile(profile)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context folders must be on the same machine as the folder" : null;
+  const blocker = hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
+  // The first @folder of a draft without a target becomes its target; later ones are context.
   const addProjectContext = (p: Project) =>
-    set((s) => (s.context_projects.some((c) => c.project_id === p.id) || ((s.target.kind === "project" || s.target.kind === "predraft") && s.target.project_id === p.id) ? s : { ...s, context_projects: [...s.context_projects, { project_id: p.id, branch: null, editable: false }] }));
+    set((s) => s.target.kind === "none" ? withFolder(s, p) : (s.context_projects.some((c) => c.project_id === p.id) || ((s.target.kind === "project" || s.target.kind === "predraft") && s.target.project_id === p.id) ? s : { ...s, context_projects: [...s.context_projects, { project_id: p.id, branch: null, editable: false }] }));
+
 
   const recentContexts: { key: string; label: string; add: () => void }[] = [];
   const seenContexts = new Set<string>();
@@ -397,11 +424,14 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     // The target project joins this window's workspace, so the new agent shows up here.
     const draft = useComposer.getState().spec;
     const spec = { ...draft, workspace_id: scope.workspace?.id ?? null, worktree: draft.target.kind === "project" && !gitTarget ? null : draft.worktree };
+    const joins = specProject(spec);
+    const announce = () => announceImplicitAdd(scope.workspace, joins, projects.find((p) => p.id === joins)?.name ?? "the folder");
     try {
       if (cron) {
         await api.post("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions });
         setCron(null);
         discard();
+        announce();
         void navigate({ to: "/agents" });
         toast("Cron agent created. Find it in the Cron group in Agents.");
         return;
@@ -409,6 +439,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       if (scheduled) {
         await api.post("/api/launch/schedules", { spec, conditions });
         discard();
+        announce();
         void navigate({ to: "/agents" });
         toast("Agent scheduled. You can start it now or cancel in Agents.");
         return;
@@ -417,13 +448,15 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       setUnconfirmedLaunch(null);
       if (s.status !== "error") useComposer.getState().rememberLaunch(spec, s.started_at);
       discard();
+      announce();
       const where = s.launch_spec.target.kind === "browser" ? "a browser session" : projects.find((p) => p.id === s.project_id)?.name ?? s.cwd.split("/").pop();
       const openIt = () => {
         showSession(s.id);
         void navigate({ to: "/agents", search: { session: s.id } });
       };
-      if (openAfterLaunch) { openIt(); toast("✓ Delivered: agent launched."); }
-      else toast(`✓ Delivered: ${harnessName(s.harness)} started in ${where}`, { label: "Open", run: openIt });
+      // On the phone, the new agent always opens.
+      if (openAfterLaunch || isPhone) { openIt(); toast("Delivered: agent launched."); }
+      else toast(`Delivered: ${harnessName(s.harness)} started in ${where}`, { label: "Open", run: openIt });
     } catch (e) {
       if (!cron && !scheduled && !(e instanceof ApiError && e.operationCompleted)) setUnconfirmedLaunch(spec);
       toastError(e);
@@ -431,34 +464,33 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       setLaunching(false);
     }
   };
-  const launchLabel = launching ? (cron ? "Creating…" : scheduled ? "Scheduling…" : "◷ Sending…") : cron ? "Create cron" : scheduled ? "Schedule" : "Launch";
-  const launchButton = (small?: boolean) => (
-    <button className={`btn btn-primary ${small ? "btn-sm" : ""}`} disabled={!canLaunch || launching} title={unsupportedImages ? "This harness does not support attached images" : blocker ?? undefined} onClick={() => void launch()}>
-      <Icon name="play" size={small ? 12 : 14} />
-      {small && launchLabel === "Launch" ? "Launch draft" : launchLabel}
-    </button>
+  const launchLabel = launching ? (cron ? "Creating…" : scheduled ? "Scheduling…" : "Sending…") : cron ? "Create cron" : timing === "later" ? "Schedule" : "Launch";
+  const launchButton = () => (
+    <span className="inline-flex">
+      <button className={`btn btn-primary ${browserOnly ? "" : "rounded-r-none"} ${isPhone ? "min-w-[120px] justify-center" : ""}`} disabled={!canLaunch || launching} title={unsupportedImages ? "This harness does not support attached images" : blocker ?? undefined} onClick={() => void launch()}>
+        <Icon name={timing === "repeat" ? "refresh" : timing === "later" ? "clock" : "play"} size={14} />
+        {launchLabel}
+      </button>
+      {!browserOnly && <Popover up align="right" width={280} trigger={({ open: menu, toggle }) => <button className="btn btn-primary rounded-l-none border-l-white/30 px-1.5!" aria-label="When to start" aria-expanded={menu} disabled={launching} onClick={toggle}><Icon name="chev" size={12} /></button>}>
+        {(closeMenu) => (
+          <>
+            <MenuItem icon={<Icon name="play" size={13} />} label="Launch now" active={timing === "now"} onClick={() => { setTiming("now"); closeMenu(); }} />
+            <MenuItem icon={<Icon name="clock" size={13} />} label="Start later…" detail="After a delay, at a time, after agents are Done, when quota resets" active={timing === "later"} onClick={() => { setTiming("later"); closeMenu(); }} />
+            <MenuItem icon={<Icon name="refresh" size={13} />} label="Repeat on a schedule…" detail="Creates a cron agent" active={timing === "repeat"} onClick={() => { setTiming("repeat"); closeMenu(); }} />
+          </>
+        )}
+      </Popover>}
+    </span>
   );
-  const where = browserOnly ? "Browser · explicit page grants" : spec.target.kind === "temp" ? "temporary folder" : (target?.name ?? "no project");
 
-  if (minimized) {
-    if (!pillSlot) return null;
-    return createPortal(
-      <div className={`flex max-w-[520px] min-w-0 items-center gap-2 rounded-xl border border-line bg-paper py-1 pr-1 pl-3 transition-shadow ${flash ? "ring-[3px] ring-teal" : ""}`}>
-        <b className="text-[12.5px]">Draft</b>
-        <span className="min-w-0 truncate text-xs text-ink-2" title={spec.text || undefined}>{where}{spec.text.trim() ? ` · ${spec.text.trim().split("\n")[0]}` : ""}</span>
-        <span className={`flex-none rounded-full px-2 py-0.5 text-[11.5px] ${flash ? "bg-teal-soft font-semibold text-teal-ink" : "bg-sunk text-ink-2"}`}>{items} {items === 1 ? "item" : "items"}</span>
-        {conflict && <span className="flex-none rounded-full bg-attn-soft px-2 py-0.5 text-[11.5px] font-semibold text-attn" title="Another window or device saved a newer draft">Newer draft elsewhere</span>}
-        <button className="btn btn-sm" title="Open the composer" onClick={() => setMinimized(false)}>Open</button>
-        {launchButton(true)}
-      </div>,
-      pillSlot,
-    );
-  }
+  // A minimized draft is the "draft" badge of the top-bar Launch button (TopLaunchButton).
+  if (minimized) return null;
 
   const modelLabel = spec.model ?? fallbackModel ?? "default model";
   const effortLabel = spec.effort ?? profile?.effort ?? defaults?.effort ?? null;
   const worktreeMode = spec.target.kind === "project" && !!spec.worktree && gitTarget;
-  const runIn = spec.target.kind === "session_folder" ? "previous agent’s folder" : spec.target.kind === "temp" ? "new folder" : spec.target.kind === "predraft" ? "pre-draft PR" : spec.target.kind === "existing_predraft" ? "existing pre-draft" : worktreeMode ? "new worktree" : spec.target.kind === "project" ? "checkout" : null;
+  // Only values that differ from the defaults show in the option line; a new worktree is the default for Git folders.
+  const runIn = spec.target.kind === "session_folder" ? "previous agent’s folder" : spec.target.kind === "predraft" ? "new Local PR" : spec.target.kind === "existing_predraft" ? "existing Local PR" : worktreeMode ? null : spec.target.kind === "project" && gitTarget ? "checkout" : null;
   const baseLabel = spec.worktree?.base ?? targetBranches.data?.current ?? "current branch";
   const billingText = !supportsCost && harness?.capabilities.cost ? costUnavailableMessage : payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${profile!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
   const presetLabels = (config?.presets ?? []).filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
@@ -467,14 +499,14 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     <aside onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${!embedded && isPhone ? "fixed! inset-0 z-50 w-full! pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" : ""} ${embedded ? "absolute inset-0 z-40 w-full!" : overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
       <div className="flex items-center gap-1.5 border-b border-line px-3.5 py-2.5">
         <span className="flex-1 whitespace-nowrap text-sm font-bold">New agent</span>
-        {!embedded && <button className="btn btn-sm btn-ghost" title="Minimize to a draft pill; + Add buttons keep adding context" onClick={() => setMinimized(true)}>Minimize</button>}
+        {!embedded && !isPhone && <button className="btn btn-sm btn-ghost" title="Keep the draft as a badge on Launch; + Add buttons keep adding context" onClick={() => setMinimized(true)}>Minimize</button>}
         <button className="iconbtn" title="Close (the draft is kept)" onClick={close}>
           <Icon name="x" size={14} />
         </button>
       </div>
 
       {conflict && (
-        <div role="alert" className="flex flex-col gap-2 border-b border-attn-line bg-attn-soft px-3.5 py-2.5 text-[12.5px] text-ink">
+        <div role="alert" className="flex flex-col gap-2 border-b border-attn-line bg-attn-soft px-3.5 py-2.5 text-[13px] text-ink">
           <span><b className="text-attn">Another window or device saved a newer draft.</b> Changes made here are not saved until you choose.</span>
           <span className="flex gap-2">
             <button className="btn btn-sm btn-primary" onClick={() => void loadNewer()}>Load the newer draft</button>
@@ -484,43 +516,44 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       )}
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-3">
-        <PromptField
-          disabled={launching || readingAttachments}
-          onPaste={(e) => { if (launching || attachmentRead.current) return; const files = pastedImages(e); if (files) void addAttachments(files); }}
-          value={spec.text}
-          onChange={(text) => set((s) => ({ ...s, text }))}
-          projects={sorted}
-          repo={repo}
-          onPickProject={addProjectContext}
-          onPickItem={(it) =>
-            set((s) =>
-              s.github_refs.some((g) => g.url === it.url)
-                ? s
-                : { ...s, github_refs: [...s.github_refs, { url: it.url, kind: it.kind, repo: it.repo, number: it.number, title: it.title }] },
-            )
-          }
-        />
-
-        <div>
+        <div className="relative">
+          <PromptField
+            disabled={launching || readingAttachments}
+            onPaste={(e) => { if (launching || attachmentRead.current) return; const files = pastedImages(e); if (files) void addAttachments(files); }}
+            value={spec.text}
+            onChange={(text) => set((s) => ({ ...s, text }))}
+            projects={sorted}
+            repo={repo}
+            onPickProject={addProjectContext}
+            onPickItem={(it) =>
+              set((s) =>
+                s.github_refs.some((g) => g.url === it.url)
+                  ? s
+                  : { ...s, github_refs: [...s.github_refs, { url: it.url, kind: it.kind, repo: it.repo, number: it.number, title: it.title }] },
+              )
+            }
+          />
           <input ref={attachmentInput} type="file" multiple hidden onChange={(e) => { void addAttachments(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
-          <button className="btn btn-sm" disabled={launching || readingAttachments} onClick={() => attachmentInput.current?.click()} title="Attach files or images; you can also drop files or paste a screenshot"><Icon name="clip" size={14} />Attach files / images</button>
-          <div className="mt-1 text-xs text-ink-3">{readingAttachments ? "Reading attachments…" : "Drop files or paste a screenshot into the prompt. Up to 8 files, 5 MB each, 20 MB total."}</div>
-          {(spec.attachments ?? []).length > 0 && <div className="mt-2 flex flex-wrap items-start gap-2">{spec.attachments.map((file, i) => <div key={i} className="relative max-w-full rounded-md border border-line bg-chrome p-1.5 pr-6">
+          <button className="iconbtn absolute right-1.5 bottom-1.5 bg-paper!" disabled={launching || readingAttachments} aria-label="Attach files or images" title={`Attach files or images${isPhone ? "" : "; you can also drop files or paste a screenshot"}. Up to 8 files, 5 MB each, 20 MB total.`} onClick={() => attachmentInput.current?.click()}><Icon name="clip" size={14} /></button>
+        </div>
+        {(readingAttachments || (spec.attachments ?? []).length > 0 || unsupportedImages) && <div>
+          {readingAttachments && <div className="text-[12px] text-ink-3">Reading attachments…</div>}
+          {(spec.attachments ?? []).length > 0 && <div className="flex flex-wrap items-start gap-2">{spec.attachments.map((file, i) => <div key={i} className="relative max-w-full rounded-md border border-line bg-chrome p-1.5 pr-6">
             {isImageAttachment(file.data_url) && <img src={attachmentSrc(file.data_url)} alt={file.name} className="mb-1 h-16 max-w-28 object-contain" />}
-            <div className="max-w-48 truncate text-xs" title={file.name}>{file.name}</div>
+            <div className="max-w-48 truncate text-[12px]" title={file.name}>{file.name}</div>
             <button className="iconbtn absolute top-0 right-0" title={`Remove ${file.name}`} aria-label={`Remove ${file.name}`} disabled={launching || readingAttachments} onClick={() => set((s) => ({ ...s, attachments: s.attachments.filter((_, j) => j !== i) }))}><Icon name="x" size={12} /></button>
           </div>)}</div>}
-          {unsupportedImages && <div className="mt-1 text-xs text-danger">This harness does not support attached images. Remove them or choose another harness.</div>}
-        </div>
+          {unsupportedImages && <div className="mt-1 text-[12px] text-danger-ink">This harness does not support attached images. Remove them or choose another harness.</div>}
+        </div>}
 
-        {browserOnly ? <div className="rounded-lg border border-line bg-chrome px-3 py-2 text-xs">Browser · explicit page grants · scratch folder, no worktree<div className="mt-1 text-ink-3">{harness?.browser_isolation}</div></div> : <div className="grid grid-cols-2 gap-2.5">
-          <Field label="Project">
+        {browserOnly ? <div className="rounded-lg border border-line bg-chrome px-3 py-2 text-xs">Browser · explicit page grants · scratch folder, no worktree<div className="mt-1 text-ink-3">{harness?.browser_isolation}</div></div> : <div className={`grid gap-2.5 ${isPhone ? "grid-cols-1" : "grid-cols-2"}`}>
+          <Field label="Folder">
             <Popover
               width={300}
               trigger={({ toggle }) => (
                 <SelectButton onClick={toggle}>
                   <Icon name="folder" size={14} />
-                  {spec.target.kind === "temp" ? "New temporary folder" : (target?.name ?? <span className="text-ink-3">Pick a project</span>)}
+                  {spec.target.kind === "temp" ? "New scratch folder" : (target?.name ?? <span className="text-ink-3">Pick a folder</span>)}
                 </SelectButton>
               )}
             >
@@ -533,19 +566,20 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                   temporary={spec.target.kind === "temp"}
                   projectsRoot={config?.projects_root ?? "~/projects"}
                   onPick={(p) => {
-                    set((s) => p ? ({ ...s, target: { kind: s.target.kind === "predraft" ? "predraft" : "project", project_id: p.id }, context_projects: s.context_projects.filter((c) => c.project_id !== p.id) }) : ({ ...s, target: { kind: "temp" } }));
+                    set((s) => p ? withFolder(s, p) : ({ ...s, target: { kind: "temp" } }));
                     closeMenu();
                   }}
                 />
               )}
             </Popover>
+            {recentFolders.filter((p) => p.id !== target?.id).length > 0 && <div className="mt-1.5 flex flex-wrap gap-1">{recentFolders.filter((p) => p.id !== target?.id).slice(0, 3).map((p) => <button key={p.id} className="lp-chip h-[22px]! px-2! text-[11px]!" title={`Run in ${p.name}`} onClick={() => set((s) => withFolder(s, p))}>{p.name}</button>)}</div>}
           </Field>
           <Field label="Run in">
             {target ? <select className="field-input h-8 w-full" aria-label="Run in" value={worktreeMode ? "worktree" : spec.target.kind} onChange={(e) => { const v = e.target.value; set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, include_changes: false, merge_when_done: false }) : v === "project" ? null : s.worktree })); }}>
-              {spec.target.kind === "session_folder" && <option value="session_folder">Previous agent’s folder</option>}{existing && <option value="existing_predraft">Pre-draft: {existing.title}</option>}{gitTarget && <option value="worktree">New worktree</option>}<option value="project">{gitTarget ? "Project checkout" : "Project folder (no Git)"}</option>{gitTarget && <option value="predraft">Pre-draft PR</option>}
-            </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "A new folder" : "—"}</div>}
+              {spec.target.kind === "session_folder" && <option value="session_folder">Previous agent’s folder</option>}{existing && <option value="existing_predraft">Local PR: {existing.title}</option>}{gitTarget && <option value="worktree">New worktree</option>}<option value="project">{gitTarget ? "Checkout" : "Folder (no Git)"}</option>{gitTarget && <option value="predraft">New Local PR</option>}
+            </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "A new scratch folder" : "—"}</div>}
             {spec.target.kind === "session_folder" && <div className="mt-1 break-all text-xs text-ink-3">{source?.cwd ?? "Source session unavailable"}</div>}
-            {target && spec.target.kind === "project" && !worktreeMode && <div className="mt-1 text-xs text-ink-3">{gitTarget ? <TargetCheckout projectId={target.id} /> : "Runs in the project folder"}</div>}
+            {target && spec.target.kind === "project" && !worktreeMode && <div className="mt-1 text-xs text-ink-3">{gitTarget ? <TargetCheckout projectId={target.id} /> : "Runs in the folder"}</div>}
             {worktreeMode && <div className="mt-1 text-xs text-ink-3" title="Launchpad creates a new branch and folder before the agent starts; your checkout is not modified.">Your checkout stays untouched</div>}
           </Field>
         </div>}
@@ -633,22 +667,22 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           onClick={() => setShowOptions((v) => !v)}
         >
           <Token warn={!profile}>{spec.harness && <HarnessMark harness={spec.harness} size={13} />}{profile?.name ?? "No profile"}</Token>
-          <Token>{modelLabel}</Token>
-          {!!efforts.length && effortLabel && <Token>{effortLabel}</Token>}
-          {harness?.capabilities.permission_modes && <Token>{spec.permission_mode === "auto" ? "Auto approval" : spec.permission_mode === "approvals" ? "Ask for approval" : "YOLO"}</Token>}
+          {spec.model && spec.model !== fallbackModel && <Token>{modelLabel}</Token>}
+          {!!efforts.length && spec.effort && spec.effort !== (profile?.effort ?? defaults?.effort) && <Token>{effortLabel}</Token>}
+          {harness?.capabilities.permission_modes && spec.permission_mode && spec.permission_mode !== "yolo" && <Token>{spec.permission_mode === "auto" ? "Auto approval" : "Ask for approval"}</Token>}
           {targetHost && <Token warn={hostStatus?.state !== "connected"} title={hostStatus?.state === "connected" ? `The agent runs on ${targetHost}` : `${targetHost} is ${hostStatus?.state ?? "unknown"}: the launch waits up to 25 s for a connection`}>on {targetHost}</Token>}
           {runIn && <Token>{runIn}</Token>}
           {worktreeMode && spec.worktree?.merge_when_done && <Token title={`The agent asks Launchpad to merge into ${baseLabel} when it is done`}>merge when done</Token>}
           {presetLabels.map((l) => <Token key={l}>{l}</Token>)}
-          <Token warn={scheduled} title={scheduled ? "Starts when all start conditions are met" : undefined}>{scheduled ? `start: ${conditions.length} condition${conditions.length === 1 ? "" : "s"}` : "now"}</Token>
-          <Token warn={!!cron} title={cron ? `Cron schedule ${cron.schedule}` : undefined}>{cron ? `cron ${cron.schedule}` : "once"}</Token>
-          <Token warn={payg || spec.allow_paid_usage} title={billingText}>{payg ? "pay as you go" : harness && !harness.capabilities.quota ? "provider billing" : spec.allow_paid_usage ? "paid usage on" : "subscription only"}</Token>
+          {scheduled && <Token warn title="Starts when all start conditions are met">start: {conditions.length} condition{conditions.length === 1 ? "" : "s"}</Token>}
+          {cron && <Token warn title={`Cron schedule ${cron.schedule}`}>cron {cron.schedule}</Token>}
+          {(payg || spec.allow_paid_usage || (harness && !harness.capabilities.quota)) && <Token warn={payg || spec.allow_paid_usage} title={billingText}>{payg ? "pay as you go" : spec.allow_paid_usage ? "paid usage on" : "provider billing"}</Token>}
           {!supportsCost && harness?.capabilities.cost && <Token warn title={costUnavailableMessage}>cost unavailable</Token>}
-          {supportsCost && <Token warn={spec.budget_usd != null || !budgetValid}>{spec.budget_usd != null ? `limit ${usd(spec.budget_usd)}` : "no cost limit"}</Token>}
-          <span className="ml-auto flex items-center gap-0.5 pl-1 text-[11.5px] text-ink-3">Options<Icon name="chev" size={12} className={showOptions ? "rotate-180" : ""} /></span>
+          {supportsCost && (spec.budget_usd != null || !budgetValid) && <Token warn>{spec.budget_usd != null ? `limit ${usd(spec.budget_usd)}` : "invalid cost limit"}</Token>}
+          <span className="ml-auto flex items-center gap-0.5 pl-1 text-[12px] text-ink-3">Options<Icon name="chev" size={12} className={showOptions ? "rotate-180" : ""} /></span>
         </button>
 
-        {showOptions && <div className="grid gap-3 rounded-lg border border-line bg-chrome p-2.5">
+        {showOptions && <OptionsFrame onClose={() => setShowOptions(false)}>
           <OptionRow label="Profile">
             <span className="grid gap-1">
               <span className="inline-flex flex-wrap gap-0.5 rounded-lg bg-sunk p-0.5">
@@ -658,7 +692,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                     title={hostProfile(o)?.ok === false ? hostProfile(o)!.reason : `${harnessName(o.harness)} · ${o.billing === "pay_as_you_go" ? "pay as you go" : "subscription"}`}
                     disabled={hostProfile(o)?.ok === false}
                     onClick={() => { setBudgetText(null); set((s) => withProfile(s, o)); }}
-                    className={`inline-flex h-[26px] shrink-0 items-center disabled:cursor-not-allowed disabled:opacity-45 gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[12.5px] ${
+                    className={`inline-flex h-[26px] shrink-0 items-center disabled:cursor-not-allowed disabled:opacity-45 gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[13px] ${
                       spec.profile === o.id ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"
                     }`}
                   >
@@ -667,7 +701,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                   </button>
                 ))}
               </span>
-              <Link to="/settings/profiles" className="w-fit text-[11.5px] text-teal-ink hover:underline">Manage profiles</Link>
+              <Link to="/settings/profiles" className="w-fit text-[12px] text-teal-ink hover:underline">Manage profiles</Link>
             </span>
           </OptionRow>
           {harness?.capabilities.permission_modes && <OptionRow label="Permissions">
@@ -677,7 +711,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                 <option value="approvals">Ask for approval</option>
                 <option value="auto">Auto approval</option>
               </select>
-              <span className="text-[11.5px] text-ink-3">{spec.permission_mode === "auto" ? "A separate AI reviews actions that need permission. Human-only requests still appear in the session. Requires native CLI, model and account support." : spec.permission_mode === "approvals" ? "Uses native permission rules. Requested commands and changes wait for your approval in the session." : "Commands and file changes run without permission prompts."}</span>
+              <span className="text-[12px] text-ink-3">{spec.permission_mode === "auto" ? "A separate AI reviews actions that need permission. Human-only requests still appear in the session. Requires native CLI, model and account support." : spec.permission_mode === "approvals" ? "Uses native permission rules. Requested commands and changes wait for your approval in the session." : "Commands and file changes run without permission prompts."}</span>
             </div>
           </OptionRow>}
           <OptionRow label="Model" end={
@@ -737,7 +771,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               )}
             </Popover>
           </OptionRow>}
-          <OptionRow label="Presets" end={<button className="ml-1 font-normal text-teal-ink hover:underline" onClick={() => void navigate({ to: "/settings", hash: "presets" })}>Edit</button>}>
+          <OptionRow label="Presets" end={<button className="ml-1 font-normal text-teal-ink hover:underline" onClick={() => void navigate({ to: "/settings/presets" })}>Edit</button>}>
             <div className="flex flex-wrap gap-1.5">
               {(config?.presets ?? []).map((p) => {
                 const on = spec.presets.includes(p.id);
@@ -746,7 +780,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                     key={p.id}
                     title={p.text}
                     onClick={() => set((s) => ({ ...s, presets: on ? s.presets.filter((x) => x !== p.id) : [...s.presets, p.id] }))}
-                    className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-[11px] text-[12.5px] ${on ? "border-ink bg-ink font-semibold text-paper" : "border-line bg-paper text-ink-2 hover:border-line"}`}
+                    className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-[11px] text-[13px] ${on ? "border-ink bg-ink font-semibold text-paper" : "border-line bg-paper text-ink-2 hover:border-line"}`}
                   >
                     {on && <Icon name="check" size={12} />}
                     {p.label}
@@ -769,8 +803,11 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               Allow paid usage after included quota runs out
             </label>
           </OptionRow>}
-          {!browserOnly && <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); }} onValidityChange={setCronValid} />}
-          {!browserOnly && !cron && <DelaySelector conditions={conditions} harness={spec.harness} profile={spec.profile} onChange={setConditions} onValidityChange={setDelayValid} />}
+        </OptionsFrame>}
+
+        {timing !== "now" && !browserOnly && <div className="grid gap-2 rounded-lg border border-attn-line bg-attn-soft/40 p-2.5">
+          <div className="flex items-center gap-2 text-[12px] font-semibold text-attn"><Icon name={timing === "repeat" ? "refresh" : "clock"} size={13} />{timing === "repeat" ? "Repeat on a schedule: creates a cron agent" : "Start later"}<button className="btn btn-sm btn-ghost ml-auto" onClick={() => setTiming("now")}>Launch now instead</button></div>
+          {timing === "repeat" ? <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); else setTiming("now"); }} onValidityChange={setCronValid} /> : <DelaySelector conditions={conditions} harness={spec.harness} profile={spec.profile} onChange={setConditions} onValidityChange={setDelayValid} />}
         </div>}
 
         <Popover width={400} trigger={({ toggle }) => <button className="btn btn-sm w-fit" onClick={toggle}><Icon name="eye" size={12} />Preview prompt</button>}>
@@ -779,15 +816,16 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t border-line bg-chrome px-3.5 py-2.5">
-        <label className="mr-auto inline-flex items-center gap-[7px] text-xs text-ink-2" style={scheduled || cron ? { visibility: "hidden" } : undefined}>
+        <label className="mr-auto inline-flex items-center gap-[7px] text-xs text-ink-2" style={scheduled || cron || isPhone ? { visibility: "hidden" } : undefined}>
           <input type="checkbox" className="accent-teal" disabled={scheduled || !!cron} checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
           Open after launch
         </label>
-        <button className="btn btn-ghost" onClick={() => { setCron(null); discard(); }} title="Clear the composer">
+        <button className="btn btn-ghost" onClick={() => { setCron(null); setLater(false); discard(); }} title="Clear the composer">
           Discard
         </button>
-        {unconfirmedLaunch && <div role="status" className="text-[11.5px] text-ink-3">Delivery not confirmed. Retry unchanged to check the result. Inspect Agents before starting another attempt.<button className="btn btn-sm mt-1" disabled={launching} onClick={() => void abandonOperation("/api/sessions", unconfirmedLaunch).then(() => setUnconfirmedLaunch(null)).catch(toastError)}>I checked Agents — start a new attempt</button></div>}
-        {!isDesktopShell && host && <span className="text-[11.5px] text-ink-3" title="Agents run on the daemon's machine">Runs on {host}</span>}
+        {unconfirmedLaunch && <div role="status" className="text-[12px] text-ink-3">Delivery not confirmed. Retry unchanged to check the result. Inspect Agents before starting another attempt.<button className="btn btn-sm mt-1" disabled={launching} onClick={() => void abandonOperation("/api/sessions", unconfirmedLaunch).then(() => setUnconfirmedLaunch(null)).catch(toastError)}>I checked Agents — start a new attempt</button></div>}
+        {!isDesktopShell && host && <span className="text-[12px] text-ink-3" title="Agents run on the daemon's machine">Runs on {host}</span>}
+        {(blocker || unsupportedImages) && !launching && <span role="status" className="basis-full text-right text-[12px] text-attn sm:basis-auto">{unsupportedImages ? "Remove the images or pick another harness" : blocker}</span>}
         {launchButton()}
       </div>
     </aside>

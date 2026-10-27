@@ -9,6 +9,7 @@ import type { Session } from "@/gen/Session";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { Icon } from "@/components/Icon";
 import { Popover } from "@/components/Popover";
+import { TerminalMenu } from "@/features/terminals/TerminalMenu";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { isPhone } from "@/lib/phone";
@@ -22,7 +23,7 @@ export function worktreeState(i: WorktreeInfo): string {
   const w = i.worktree;
   const base = w.base_branch ?? "base";
   if (w.state === "discarded") return "discarded";
-  if (w.state === "predraft") return "pre-draft PR";
+  if (w.state === "predraft") return "Local PR";
   if (w.state === "handed_off") return "checked out locally";
   if (w.merge) return w.merge.phase === "waiting" ? "merge waiting" : w.merge.phase === "conflict" ? "merge conflict" : "merge failed";
   if (w.state === "removed") return "folder removed";
@@ -90,7 +91,7 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
   let text: string;
   if (w.state === "removed") text = `Clean folder removed by cleanup; the branch keeps the commits. Sending a message restores it.`;
   else if (w.state === "handed_off") text = `Branch checked out in ${w.repo}, so you can run it there.`;
-  else if (w.state === "predraft") text = "Promoted to a pre-draft PR.";
+  else if (w.state === "predraft") text = "Promoted to a Local PR.";
   else if (w.state === "discarded") text = "Discarded: folder and branch deleted.";
   else if (w.merge) text = w.merge.reason;
   else {
@@ -106,7 +107,7 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
     <div className="grid gap-1.5 text-xs">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <Icon name="branch" size={13} className="text-ink-3" />
-        <b className="font-mono text-[11.5px]">{w.branch}</b>
+        <b className="font-mono text-[12px]">{w.branch}</b>
         <span className="text-ink-3">{i.project_name}{w.primary ? "" : " · editable context"}</span>
       </div>
       <div className={warn(i) ? "text-attn" : "text-ink-2"}>{text}</div>
@@ -132,10 +133,11 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
           <div className="flex flex-wrap gap-1.5"><button className="btn btn-sm btn-primary" disabled={busy} onClick={() => { setForceAsk(false); void act("force-merge"); }}>Confirm force merge</button><button className="btn btn-sm" onClick={() => setForceAsk(false)}>Cancel</button></div>
         </div>}
         {w.merge?.ignore_terminals && <div className="w-full text-[11px] text-attn">Open terminals allowed for this merge request.</div>}
+        <TerminalMenu cwd={i.path} small phone={isPhone} align="left" />
         {w.merge && <button className="btn btn-sm" disabled={busy} onClick={() => void act("cancel-merge")}>Cancel merge</button>}
         {w.state === "active" && w.primary && !w.merge && <button className="btn btn-sm" disabled={busy || running} title={`Check out ${w.branch} in ${w.repo} to run it there. Both folders must be clean.`} onClick={() => void act("handoff", "Branch checked out locally")}>Check out locally</button>}
-        {w.state === "handed_off" && <button className="btn btn-sm" disabled={busy || running} title="Restore the previous branch in the project checkout and move the agent back to its worktree" onClick={() => void act("handback", "Back in the worktree")}>Move back to worktree</button>}
-        {w.state === "active" && w.primary && !w.merge && <button className="btn btn-sm" disabled={busy} title="Turn this branch into a local pre-draft PR, published to GitHub only with your click" onClick={() => void predraft()}>Create pre-draft PR</button>}
+        {w.state === "handed_off" && <button className="btn btn-sm" disabled={busy || running} title="Restore the previous branch in the folder checkout and move the agent back to its worktree" onClick={() => void act("handback", "Back in the worktree")}>Move back to worktree</button>}
+        {w.state === "active" && w.primary && !w.merge && <button className="btn btn-sm" disabled={busy} title="Turn this branch into a Local PR, published to GitHub only with your click" onClick={() => void predraft()}>Create Local PR</button>}
         {w.state === "removed" && <button className="btn btn-sm" disabled={busy} onClick={() => void act("restore", "Worktree restored")}>Restore folder</button>}
         {(w.state === "active" || w.state === "removed") && <button className="btn btn-sm text-gh-closed" disabled={busy || running} title={`Delete the folder and the branch, including uncommitted and unmerged work${w.primary ? ", and archive its agents" : ""}`} onClick={() => { if (!confirm) return setConfirm(true); setConfirm(false); void act("discard", "Worktree discarded"); }}>{confirm ? `Confirm: delete ${i.ahead ? `${i.ahead} unmerged commits and ` : ""}the folder` : "Discard"}</button>}
         {confirm && <button className="btn btn-sm" onClick={() => setConfirm(false)}>Cancel</button>}

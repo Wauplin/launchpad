@@ -1,22 +1,36 @@
-// Desktop dock resizing uses CSS pixels; pointer coordinates include the app's root zoom.
+// Desktop dock resizing uses CSS pixels; pointer coordinates include the app's root zoom. The height is a
+// share of the area above the status bar (default 35%, never more than half), remembered per window.
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
-export function TerminalPanel({ phone, open, height, scale, onHeight, children }: {
+const KEY = "launchpad-dock-height";
+const DEFAULT_RATIO = 0.35;
+const MAX_RATIO = 0.5;
+
+function storedRatio() {
+  const value = Number(sessionStorage.getItem(KEY));
+  return Number.isFinite(value) && value > 0 && value <= MAX_RATIO ? value : DEFAULT_RATIO;
+}
+
+export function TerminalPanel({ phone, open, scale, children }: {
   phone: boolean;
   open: boolean;
-  height: number;
   scale: number;
-  onHeight: (height: number) => void;
   children: ReactNode;
 }) {
+  const [ratio, setRatio] = useState(storedRatio);
+  const [area, setArea] = useState(0);
   const panel = useRef<HTMLElement>(null);
   const drag = useRef<{ pointer: number; y: number; height: number } | null>(null);
   const [maximum, setMaximum] = useState(10000);
   useLayoutEffect(() => {
     const parent = panel.current?.parentElement;
     if (phone || !parent) return;
-    // Leave room to use the main view, even after shrinking the window or changing zoom.
-    const measure = () => setMaximum(Math.max(0, parent.getBoundingClientRect().height / scale - 100));
+    // Never more than half of the area, even after shrinking the window or changing zoom.
+    const measure = () => {
+      const height = parent.getBoundingClientRect().height / scale;
+      setArea(height);
+      setMaximum(Math.max(0, height * MAX_RATIO));
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(parent);
@@ -26,7 +40,13 @@ export function TerminalPanel({ phone, open, height, scale, onHeight, children }
 
   const minimum = Math.min(120, maximum);
   const clamp = (value: number) => Math.max(minimum, Math.min(maximum, value));
-  const visibleHeight = clamp(height);
+  const visibleHeight = clamp(area ? ratio * area : 320);
+  const onHeight = (height: number) => {
+    if (!area) return;
+    const next = Math.min(MAX_RATIO, height / area);
+    setRatio(next);
+    sessionStorage.setItem(KEY, String(next));
+  };
   return (
     <section ref={panel} className={`flex flex-col border-t border-line bg-paper ${phone ? "min-h-0 flex-1" : "min-h-0 flex-none"}`} style={{ height: phone ? undefined : visibleHeight, display: open ? undefined : "none" }} aria-label="Terminals">
       {!phone && <div

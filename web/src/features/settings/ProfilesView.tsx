@@ -24,7 +24,9 @@ import { useHosts } from "@/lib/hosts";
 import { useConfig, useHarnessDefaults, useStatus, type ConfigResponse } from "@/lib/queries";
 import { costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, usesModelReference, useProfileModels, windowLabel } from "@/lib/profiles";
 import { useOpenTerminal } from "@/features/terminals/lib";
-import { Card, SaveBar, SettingsPage } from "./SettingsView";
+import { Card, ConfigError, SettingsPage } from "./SettingsView";
+import { ConfirmButton, Loading } from "@/components/ui";
+import { useBlocker } from "@tanstack/react-router";
 
 /** Editable form of a profile: environment rows keep their order and allow empty names while typing. */
 type Draft = Omit<Profile, "env" | "budget_usd" | "spend_limits"> & { key: string; env: [string, string][]; budget: string; limits: LimitDraft[]; saved: boolean; template: ProfileTemplate | null };
@@ -133,10 +135,7 @@ export function ProfilesView() {
   useEffect(() => {
     if (q.data && !drafts) setDrafts(q.data.config.profiles.map(toDraft));
   }, [q.data, drafts]);
-  if (!drafts || !q.data) return <SettingsPage><div className="text-ink-3">Loading…</div></SettingsPage>;
-  const saved = q.data.config;
-  const invalid = drafts.map(problem).find(Boolean) ?? null;
-  const toProfiles = (list: Draft[]): Profile[] => list.map(({ env, budget, limits, saved: _, template: __, key: ___, ...v }) => ({
+  const toProfile = ({ env, budget, limits, saved: _, template: __, key: ___, ...v }: Draft): Profile => ({
     ...v,
     name: v.name.trim(),
     env: Object.fromEntries(env.map(([k, x]) => [k.trim(), x])),
@@ -144,29 +143,55 @@ export function ProfilesView() {
     models_url: v.models_url?.trim() || null,
     // Limits apply only to pay-as-you-go profiles of harnesses that report costs.
     spend_limits: v.billing === "pay_as_you_go" && harnesses.find((h) => h.id === v.harness)?.capabilities.cost ? limits.map(parseLimit).filter((l): l is SpendLimit => !!l) : [],
-  }));
-  const dirty = JSON.stringify(toProfiles(drafts).map(canonical)) !== JSON.stringify(saved.profiles.map(canonical));
-  const save = async () => {
-    // New profiles get a stable ID from their name; saved IDs never change.
-    const taken = drafts.filter((d) => d.id).map((d) => d.id);
-    const list = drafts.map((d) => {
-      if (d.id) return d;
-      const id = slug(d.name, taken);
-      taken.push(id);
-      return { ...d, id };
-    });
+  });
+  const savedProfiles = q.data?.config.profiles ?? [];
+  // The explicit Save of the profile editor is per profile: only that card's changes are written.
+  const isDirty = (d: Draft) => {
+    if (!d.saved) return true;
+    const before = savedProfiles.find((p) => p.id === d.id);
+    return !before || JSON.stringify(canonical(toProfile(d))) !== JSON.stringify(canonical(before));
+  };
+  const anyDirty = !!drafts?.some(isDirty);
+  const blocker = useBlocker({ shouldBlockFn: () => anyDirty, enableBeforeUnload: () => anyDirty, withResolver: true });
+  if (!drafts || !q.data) return <SettingsPage title="Profiles"><Loading what="profiles" /></SettingsPage>;
+  const saved = q.data.config;
+  const write = async (profiles: Profile[]) => {
+    const res = await api.put<ConfigResponse>("/api/config", { ...saved, profiles });
+    qc.setQueryData(["config"], res);
+    void qc.invalidateQueries({ queryKey: ["sign-in"] });
+    return res;
+  };
+  const saveOne = async (d: Draft) => {
+    // A new profile gets a stable ID from its name; saved IDs never change.
+    const id = d.id || slug(d.name, saved.profiles.map((p) => p.id));
+    const profile = toProfile({ ...d, id });
+    const list = saved.profiles.some((p) => p.id === id) ? saved.profiles.map((p) => (p.id === id ? profile : p)) : [...saved.profiles, profile];
     try {
-      const res = await api.put<ConfigResponse>("/api/config", { ...saved, profiles: toProfiles(list) });
-      qc.setQueryData(["config"], res);
-      const next = res.config.profiles.map(toDraft);
-      // Keep the cards that were open open, under their saved keys.
-      setOpen((o) => new Set(list.flatMap((d, i) => (o.has(d.key) && next[i] ? [next[i].key] : []))));
-      setDrafts(next);
-      void qc.invalidateQueries({ queryKey: ["sign-in"] });
-      toast("Profiles saved");
+      const res = await write(list);
+      const next = res.config.profiles.find((p) => p.id === id);
+      if (next) {
+        const nd = toDraft(next);
+        setDrafts((all) => all && all.map((x) => (x.key === d.key ? nd : x)));
+        setOpen((o) => { const n = new Set(o); if (n.delete(d.key)) n.add(nd.key); return n; });
+      }
+      toast(`${profile.name} saved`);
     } catch (e) {
       toastError(e);
     }
+  };
+  const remove = async (d: Draft) => {
+    if (!d.saved) return setDrafts((all) => all && all.filter((x) => x.key !== d.key));
+    try {
+      await write(saved.profiles.filter((p) => p.id !== d.id));
+      setDrafts((all) => all && all.filter((x) => x.key !== d.key));
+      toast(`${d.name} deleted`);
+    } catch (e) {
+      toastError(e);
+    }
+  };
+  const revert = (d: Draft) => {
+    const before = saved.profiles.find((p) => p.id === d.id);
+    setDrafts((all) => all && (before ? all.map((x) => (x.key === d.key ? toDraft(before) : x)) : all.filter((x) => x.key !== d.key)));
   };
   const setAt = (key: string, f: (d: Draft) => Draft) => setDrafts((all) => all && all.map((d) => (d.key === key ? f(d) : d)));
   const toggle = (key: string) => setOpen((o) => { const n = new Set(o); if (n.has(key)) n.delete(key); else n.add(key); return n; });
@@ -181,30 +206,36 @@ export function ProfilesView() {
     setOpen((o) => new Set(o).add(key));
     setAdding(false);
   };
-  // A card with a problem opens so the owner sees what to fix.
-  const isOpen = (d: Draft) => open.has(d.key) || !d.saved || (!!invalid && problem(d) === invalid);
+  // A card with a problem or unsaved changes stays open so the owner sees what to fix or save.
+  const isOpen = (d: Draft) => open.has(d.key) || !d.saved || isDirty(d);
 
   return (
-    <SettingsPage>
-      {q.data.error && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">config.toml has an error, the previous settings are in use: {q.data.error}</div>}
-      <Card
-        title="Profiles"
-        end={!adding && drafts.length > 0 && <button className="btn btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={12} />New profile</button>}
-      >
-        <p className="text-[12.5px] text-ink-2">A profile is one way to run a coding agent: a harness (Claude Code, Codex, OpenCode), what pays for its work (a subscription login, an API key or another provider) and its default model. The composer lists your profiles. Subscription profiles get quota meters and protection, one per login, so several accounts of one harness work side by side; pay-as-you-go profiles get cost and spending limits only when reliable model pricing is available.</p>
-        {(adding || drafts.length === 0) && <NewProfile onAdd={add} onCancel={drafts.length > 0 ? () => setAdding(false) : null} />}
-        {drafts.map((d) => (
-          <ProfileCard key={d.key} draft={d} open={isOpen(d)} problem={problem(d)} onToggle={() => toggle(d.key)}
-            onChange={(f) => setAt(d.key, f)} onDelete={() => setDrafts((all) => all && all.filter((x) => x.key !== d.key))} />
-        ))}
-      </Card>
-      <GitHubCard />
-      <SaveBar dirty={dirty} invalid={invalid} onSave={() => void save()} onRevert={() => setDrafts(saved.profiles.map(toDraft))} />
+    <SettingsPage
+      title="Profiles"
+      intro="Each profile is one way to run an agent: a harness, what pays for it, and defaults."
+      info="The composer lists your profiles. Subscription profiles get quota meters and protection, one per login, so several accounts of one harness work side by side; pay-as-you-go profiles get cost and spending limits only when reliable model pricing is available. Each profile has its own Save."
+      actions={!adding && drafts.length > 0 && <button className="btn btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={12} />New profile</button>}
+    >
+      <ConfigError />
+      {blocker.status === "blocked" && (
+        <div role="alertdialog" className="flex flex-wrap items-center gap-2 rounded-lg border border-attn-line bg-attn-soft px-3 py-2 text-[13px] text-attn">
+          <Icon name="alert" size={14} />
+          <b>A profile has unsaved changes.</b>
+          <span className="ml-auto flex gap-1.5">
+            <button className="btn btn-sm" onClick={() => blocker.reset?.()}>Stay and save</button>
+            <button className="btn btn-sm btn-danger" onClick={() => blocker.proceed?.()}>Leave without saving</button>
+          </span>
+        </div>
+      )}
+      {(adding || drafts.length === 0) && <NewProfile onAdd={add} onCancel={drafts.length > 0 ? () => setAdding(false) : null} />}
+      {drafts.map((d) => (
+        <ProfileCard key={d.key} draft={d} open={isOpen(d)} problem={problem(d)} dirty={isDirty(d)} onToggle={() => toggle(d.key)}
+          onChange={(f) => setAt(d.key, f)} onDelete={() => remove(d)} onSave={() => void saveOne(d)} onRevert={() => revert(d)} />
+      ))}
     </SettingsPage>
   );
 }
 
-/** Two questions: how the work is paid, then which harness and setup. */
 function NewProfile({ onAdd, onCancel }: { onAdd: (h: HarnessDescriptor, t: ProfileTemplate | null) => void; onCancel: (() => void) | null }) {
   const harnesses = useHarnesses();
   const [kind, setKind] = useState<ProfileKind | "custom" | null>(null);
@@ -212,7 +243,7 @@ function NewProfile({ onAdd, onCancel }: { onAdd: (h: HarnessDescriptor, t: Prof
   return (
     <div className="grid gap-2 rounded-lg border border-line bg-chrome p-3">
       <div className="flex items-center gap-2">
-        <b className="text-[12.5px]">{kind === null ? "New profile · how is the work paid?" : "New profile · choose a setup"}</b>
+        <b className="text-[13px]">{kind === null ? "New profile · how is the work paid?" : "New profile · choose a setup"}</b>
         <span className="ml-auto flex gap-1.5">
           {kind !== null && <button className="btn btn-sm" onClick={() => setKind(null)}>Back</button>}
           {onCancel && <button className="btn btn-sm" onClick={onCancel}>Cancel</button>}
@@ -234,7 +265,7 @@ function NewProfile({ onAdd, onCancel }: { onAdd: (h: HarnessDescriptor, t: Prof
   );
 }
 
-function ProfileCard({ draft: d, open, problem, onToggle, onChange, onDelete }: { draft: Draft; open: boolean; problem: string | null; onToggle: () => void; onChange: (f: (d: Draft) => Draft) => void; onDelete: () => void }) {
+function ProfileCard({ draft: d, open, problem, dirty, onToggle, onChange, onDelete, onSave, onRevert }: { draft: Draft; open: boolean; problem: string | null; dirty: boolean; onToggle: () => void; onChange: (f: (d: Draft) => Draft) => void; onDelete: () => unknown; onSave: () => void; onRevert: () => void }) {
   const harnesses = useHarnesses();
   const harness = harnesses.find((h) => h.id === d.harness);
   const machines = useMachines(d);
@@ -273,10 +304,20 @@ function ProfileCard({ draft: d, open, problem, onToggle, onChange, onDelete }: 
               <span className="text-ink-2">{m.host ?? "This computer"}</span>
             </span>
           ))}
-          <button className="iconbtn" title="Delete profile" aria-label={`Delete ${d.name || "profile"}`} onClick={onDelete}><Icon name="trash" size={14} /></button>
+          {d.saved ? <ConfirmButton icon="trash" title={`Delete ${d.name || "profile"}`} consequence="Sessions using it fail on resume." confirmLabel="Delete" onConfirm={onDelete}>{""}</ConfirmButton> : <button className="iconbtn" title="Discard this new profile" aria-label="Discard this new profile" onClick={() => void onDelete()}><Icon name="trash" size={14} /></button>}
         </span>
       </div>
       {open && <ProfileEditor draft={d} problem={problem} onChange={onChange} machines={machines} />}
+      {open && dirty && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-attn-line bg-attn-soft px-3 py-2 text-[13px]">
+          <b className="text-attn">{d.saved ? "Unsaved changes" : "New profile, not saved yet"}</b>
+          {problem && <span className="text-danger-ink">{problem}</span>}
+          <span className="ml-auto flex gap-1.5">
+            <button className="btn btn-sm" onClick={onRevert}>{d.saved ? "Revert" : "Discard"}</button>
+            <button className="btn btn-sm btn-primary" disabled={!!problem} onClick={onSave}>Save profile</button>
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -293,12 +334,14 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
   const efforts = ownModels ? [] : model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
   const budgetValid = parseUsd(d.budget) !== undefined;
   const needsModel = !d.model && usesModelReference(d.env);
-  const row = "grid grid-cols-1 @min-[480px]:grid-cols-[130px_1fr] items-start gap-3 text-[12.5px]";
+  const row = "grid grid-cols-1 @min-[480px]:grid-cols-[130px_1fr] items-start gap-3 text-[13px]";
   const [modelUp, setModelUp] = useState(false);
   // Advanced settings start open while the environment still needs values.
   const [advanced, setAdvanced] = useState(() => !d.saved && d.env.length > 0);
   const setHarness = (h: HarnessDescriptor) => onChange((x) => ({ ...x, harness: h.id, model: null, effort: null, billing: h.capabilities.quota ? x.billing : "pay_as_you_go", budget: h.capabilities.cost ? x.budget : "" }));
   const references = d.env.some(([, v]) => /\$\{(?!LAUNCHPAD_MODEL\})/.test(v));
+  // Keys of a profile that does not use a subscription login are shown at the top level, not under Advanced.
+  const credentials = d.billing === "subscription" ? [] : d.env.flatMap(([k], j) => (harness?.env_vars.find((x) => x.name === k.trim())?.secret ? [j] : []));
   return (
     <div className="grid gap-3 border-t border-line-2 p-3">
       {!supportsCost && harness?.capabilities.cost && <div className="text-xs text-attn">{costUnavailableMessage}</div>}
@@ -324,7 +367,7 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
       <div className={row}>
         <b className="pt-1 font-[650]">Harness</b>
         <span className="flex flex-wrap gap-1.5">
-          {harnesses.map((h) => <button key={h.id} disabled={d.saved} title={d.saved ? "Saved sessions depend on the harness; create another profile to change it" : undefined} className={`btn btn-sm ${d.harness === h.id ? "bg-select! font-semibold" : ""}`} onClick={() => setHarness(h)}><HarnessMark harness={h.id} size={14} />{h.name}</button>)}
+          {harnesses.map((h) => <button key={h.id} disabled={d.saved} title={d.saved ? "Saved sessions depend on the harness; create another profile to change it" : undefined} className="lp-chip" aria-pressed={d.harness === h.id} onClick={() => setHarness(h)}><HarnessMark harness={h.id} size={14} />{h.name}</button>)}
         </span>
       </div>
       <div className={row}>
@@ -377,19 +420,32 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
         <b className="pt-1 font-[650]">Spending limits</b>
         <SpendLimits draft={d} onChange={(limits) => onChange((x) => ({ ...x, limits }))} />
       </div>}
+      {credentials.length > 0 && <div className={row}>
+        <b className="pt-1 font-[650]">Credentials</b>
+        <span className="grid gap-1.5">
+          {credentials.map((j) => {
+            const [k, v] = d.env[j];
+            return <EnvRow key={j} name={k} value={v} doc={harness?.env_vars.find((x) => x.name === k.trim())}
+              onName={(name) => onChange((x) => ({ ...x, env: x.env.map((p, n) => (n === j ? [name, p[1]] : p)) }))}
+              onValue={(value) => onChange((x) => ({ ...x, env: x.env.map((p, n) => (n === j ? [p[0], value] : p)) }))}
+              onRemove={() => onChange((x) => ({ ...x, env: x.env.filter((_, n) => n !== j) }))} />;
+          })}
+          <span className="text-xs text-ink-3">A key or a <code className="font-mono">{"${NAME}"}</code> reference to a login-shell variable.</span>
+        </span>
+      </div>}
       <div className={row}>
         <b className="pt-1 font-[650]">Works on</b>
         <WorksOn draft={d} machines={machines} />
       </div>
       <div className="grid gap-3">
-        <button className="flex w-fit items-center gap-1.5 text-[12.5px] font-[650] text-ink-2 hover:text-ink" aria-expanded={advanced} onClick={() => setAdvanced((x) => !x)}>
-          <Icon name="chev" size={12} className={advanced ? "" : "-rotate-90"} />Advanced · environment{d.env.length ? ` (${d.env.length})` : ""}, model list, SSH hosts
+        <button className="flex w-fit items-center gap-1.5 text-[13px] font-[650] text-ink-2 hover:text-ink" aria-expanded={advanced} onClick={() => setAdvanced((x) => !x)}>
+          <Icon name="chev" size={12} className={advanced ? "" : "-rotate-90"} />Advanced · environment{d.env.length - credentials.length ? ` (${d.env.length - credentials.length})` : ""}, model list, SSH hosts
         </button>
         {advanced && <>
           <div className={row}>
             <b className="pt-1 font-[650]">Environment</b>
             <span className="grid gap-1.5">
-              {d.env.map(([k, v], j) => (
+              {d.env.map(([k, v], j) => credentials.includes(j) ? null : (
                 <EnvRow key={j} name={k} value={v} doc={harness?.env_vars.find((x) => x.name === k.trim())}
                   onName={(name) => onChange((x) => ({ ...x, env: x.env.map((p, n) => (n === j ? [name, p[1]] : p)) }))}
                   onValue={(value) => onChange((x) => ({ ...x, env: x.env.map((p, n) => (n === j ? [p[0], value] : p)) }))}
@@ -467,14 +523,14 @@ function WorksOn({ draft: d, machines }: { draft: Draft; machines: Machine[] }) 
   );
 }
 
-function GitHubCard() {
+export function GitHubCard() {
   const q = useSignIn();
   const c = q.data?.find((x) => x.id === "github");
   return (
     <Card title="GitHub CLI">
-      <p className="text-[12.5px] text-ink-2">The inbox, issues, pull requests and publication use the GitHub CLI on the computer that runs the daemon. Git push also needs credentials there (SSH keys or <code className="font-mono">gh auth setup-git</code>); projects on SSH hosts push with the host's own credentials (Settings → Hosts).</p>
+      <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">The Inbox, issues, PRs and publication use the GitHub CLI of this computer. <span className="text-ink-3" title="Git push also needs credentials there (SSH keys or gh auth setup-git); folders on SSH hosts push with the host's own credentials (Settings → Machines)."><Icon name="info" size={13} /></span></p>
       {c && (
-        <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+        <div className="flex flex-wrap items-center gap-2 text-[13px]">
           <Icon name="pr" size={14} />
           <b className="font-[650]">GitHub CLI</b>
           <span className={`text-xs font-semibold ${!c.cli_found ? "text-gh-closed" : c.signed_in ? "text-gh-open" : "text-attn"}`}>{!c.cli_found ? "Not installed" : c.signed_in ? "Signed in" : "Not signed in"}</span>
@@ -504,7 +560,7 @@ function EnvRow({ name, value, doc, onName, onValue, onRemove }: { name: string;
         </span>
         <button className="iconbtn" title="Remove variable" onClick={onRemove}><Icon name="x" size={13} /></button>
       </span>
-      {doc && <span className="text-[11.5px] text-ink-3">{doc.description}</span>}
+      {doc && <span className="text-[12px] text-ink-3">{doc.description}</span>}
     </span>
   );
 }

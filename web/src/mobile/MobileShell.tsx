@@ -1,7 +1,9 @@
 // Phone shell (hosting report, section 05): a top bar with the workspace menu and the connection, one page at a
-// time, and five bottom tabs (Now · Agents · Launch · Review · Inbox). Same daemon, rules and feature components
+// time, and five bottom tabs (Now · Agents · Ask · Review · Inbox). Same daemon, rules and feature components
 // as the desktop shell; only the frame differs. Every action stays a visible button.
 
+import { lazy, Suspense } from "react";
+import { useAddFolder } from "@/features/projects/addFolderStore";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useLayoutEffect, useState, type ReactNode } from "react";
 import { IconSprite, Icon, type IconName } from "@/components/Icon";
@@ -10,16 +12,17 @@ import { HostPrompts } from "@/app/HostPrompt";
 import { Composer } from "@/features/launch/Composer";
 import { TerminalDock } from "@/features/terminals/TerminalDock";
 import { useInboxNeeds } from "@/features/inbox/data";
-import { usePublishItems } from "@/features/publish/items";
+import { useReviewCount } from "@/features/review/data";
 import { useScope, useWorkspaces, useWorkspaceSync } from "@/lib/workspace";
 import { useProjects, useSessions } from "@/lib/queries";
 import { isRunning, needsYou } from "@/lib/sessionStatus";
 import { setLayoutChoice } from "@/lib/phone";
-import { useComposer } from "@/stores/composer";
 import { useTheme } from "@/stores/theme";
 import { useWorkspace } from "@/stores/workspace";
 import { Sheet } from "./Sheet";
 import { ServerStatus } from "./ServerStatus";
+
+const AddFolderDialog = lazy(() => import("@/features/projects/AddFolder").then((m) => ({ default: m.AddFolderDialog })));
 
 function pageTitle(path: string): string {
   if (path.startsWith("/now")) return "Now";
@@ -27,11 +30,11 @@ function pageTitle(path: string): string {
   if (path.startsWith("/review") || path.startsWith("/publish")) return "Review";
   if (path.startsWith("/inbox") || path === "/") return "Inbox";
   if (path.startsWith("/github")) return "GitHub";
-  if (path.startsWith("/predrafts")) return "Pre-draft PR";
+  if (path.startsWith("/predrafts")) return "Local PR";
+  if (path.startsWith("/ask")) return "Ask";
   if (path.startsWith("/terminals")) return "Terminals";
-  if (path.startsWith("/settings/devices")) return "Devices";
   if (path.startsWith("/settings")) return "Settings";
-  if (path.startsWith("/projects")) return path.endsWith("/code") ? "Code" : "Projects";
+  if (path.startsWith("/projects")) return path.endsWith("/code") ? "Files" : "Folders";
   return "Launchpad";
 }
 
@@ -45,7 +48,7 @@ function Tab({ to, icon, label, count, highlight }: { to: string; icon: IconName
     >
       <Icon name={icon} size={20} />
       {label}
-      {!!count && <span className={`absolute top-1.5 left-[calc(50%+6px)] min-w-[18px] rounded-full px-1 text-center text-[10.5px] leading-[18px] font-bold ${highlight ? "bg-attn text-white" : "bg-sunk text-ink-2"}`}>{count}</span>}
+      {!!count && <span className={`absolute top-1.5 left-[calc(50%+6px)] min-w-[18px] rounded-full px-1 text-center text-[11px] leading-[18px] font-bold ${highlight ? "bg-attn text-white" : "bg-sunk text-ink-2"}`}>{count}</span>}
     </Link>
   );
 }
@@ -63,22 +66,21 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
   const pick = (id: string | null) => { switchTo(id); onClose(); };
   const button = (id: string | null, label: string, detail: string) => (
     <button key={id ?? "all"} className={`flex min-h-12 w-full items-center gap-3 border-b border-line-2 px-4 text-left text-[15px] ${current === id ? "font-semibold text-teal-ink" : ""}`} aria-pressed={current === id} onClick={() => pick(id)}>
-      <span className="flex-1 truncate">{label}</span><span className="text-[12.5px] text-ink-3">{detail}</span>{current === id && <Icon name="check" size={16} />}
+      <span className="flex-1 truncate">{label}</span><span className="text-[13px] text-ink-3">{detail}</span>{current === id && <Icon name="check" size={16} />}
     </button>
   );
   return (
     <Sheet title="Workspace" onClose={onClose}>
       <div className="seclabel px-4 pt-3 pb-1">Show in this tab</div>
-      {button(null, "All workspaces", `${projects} projects`)}
-      {workspaces.map((w) => button(w.id, w.name, `${w.project_ids.length} projects`))}
+      {button(null, "Everything", `${projects} folders`)}
+      {workspaces.map((w) => button(w.id, w.name, `${w.project_ids.length} folders`))}
       <div className="seclabel px-4 pt-4 pb-1">Go to</div>
-      <MenuLink to="/projects" icon="folder" onClick={onClose}>Projects</MenuLink>
+      <MenuLink to="/projects" icon="folder" onClick={onClose}>Folders</MenuLink>
       <MenuLink to="/terminals" icon="term" onClick={onClose}>Terminals</MenuLink>
-      <MenuLink to="/settings/devices" icon="window" onClick={onClose}>Devices and notifications</MenuLink>
       <MenuLink to="/settings" icon="sliders" onClick={onClose}>Settings</MenuLink>
       <div className="seclabel px-4 pt-4 pb-1">This device</div>
       <div className="flex flex-wrap gap-2 px-4 pb-4">
-        <button className="btn" aria-pressed={theme === "dark"} onClick={toggle}>{theme === "dark" ? "☾ Dark theme" : "☀ Light theme"}</button>
+        <button className="btn" aria-pressed={theme === "dark"} onClick={toggle}><Icon name={theme === "dark" ? "moon" : "sun"} size={16} />{theme === "dark" ? "Dark theme" : "Light theme"}</button>
         <button className="btn" title="Use the laptop layout on this device (reloads)" onClick={() => setLayoutChoice("desktop")}>Use desktop layout</button>
       </div>
     </Sheet>
@@ -102,6 +104,7 @@ function useTerminalViewport(enabled: boolean) {
 }
 
 export function MobileShell() {
+  const addOpen = useAddFolder((s) => s.open);
   useWorkspaceSync();
   useLayoutEffect(() => {
     document.documentElement.classList.add("lp-phone");
@@ -113,12 +116,11 @@ export function MobileShell() {
   const sessions = (useSessions().data ?? []).filter(scope.hasSession);
   const needs = sessions.filter(needsYou).length;
   const running = sessions.filter(isRunning).length;
-  const publish = usePublishItems().length;
+  const publish = useReviewCount();
   const inbox = useInboxNeeds();
-  const start = useComposer((s) => s.start);
   const terminals = path.startsWith("/terminals");
   const viewport = useTerminalViewport(terminals);
-  const workspaceName = scope.workspace?.name ?? "All workspaces";
+  const workspaceName = scope.workspace?.name ?? "Everything";
   return (
     <div className="flex h-dvh flex-col bg-paper pt-[env(safe-area-inset-top)]" style={viewport ? { position: "fixed", insetInline: 0, top: viewport.top, height: viewport.height } : undefined}>
       <IconSprite />
@@ -135,13 +137,12 @@ export function MobileShell() {
         {/* Visited terminals stay mounted while other pages show. */}
         <div className={terminals ? "flex h-full flex-col" : "hidden"}><TerminalDock fill={terminals} />{terminals && <Outlet />}</div>
       </main>
-      {!viewport?.keyboard && <div id="draft-pill-slot" className="flex flex-none justify-center empty:hidden border-t border-line-2 bg-chrome px-2 py-1" />}
       {!viewport?.keyboard && <nav className="flex flex-none border-t border-line bg-chrome pb-[env(safe-area-inset-bottom)]" aria-label="Main">
         <Tab to="/now" icon="alert" label="Now" count={needs} highlight />
         <Tab to="/agents" icon="agents" label="Agents" count={running} />
-        <button className="flex min-h-[54px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold text-teal-ink" onClick={() => start()}>
-          <span className="grid size-8 place-items-center rounded-full bg-teal text-white"><Icon name="plus" size={18} /></span><span className="text-[11px]">Launch</span>
-        </button>
+        <Link to="/ask" className="flex min-h-[54px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold text-teal-ink no-underline" activeProps={{ "aria-current": "page" } as never}>
+          <span className="grid size-8 place-items-center rounded-full bg-teal text-white"><Icon name="spark" size={18} /></span><span className="text-[11px]">Ask</span>
+        </Link>
         <Tab to="/review" icon="pr" label="Review" count={publish} />
         <Tab to="/inbox" icon="inbox" label="Inbox" count={inbox} highlight />
       </nav>}
@@ -149,6 +150,7 @@ export function MobileShell() {
       {menu && <WorkspaceMenu onClose={() => setMenu(false)} />}
       <Toasts />
       <HostPrompts />
+      {addOpen && <Suspense fallback={null}><AddFolderDialog /></Suspense>}
     </div>
   );
 }

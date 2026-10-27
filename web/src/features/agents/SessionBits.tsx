@@ -54,7 +54,7 @@ export function statusInfo(s: Session): { label: string; style: keyof typeof STY
 export function StatusBadge({ s }: { s: Session }) {
   const { label, style, icon } = statusInfo(s);
   return (
-    <span className={`inline-flex h-5 items-center gap-[5px] rounded-full px-2 text-[11.5px] font-semibold whitespace-nowrap ${STYLES[style]}`}>
+    <span className={`inline-flex h-5 items-center gap-[5px] rounded-full px-2 text-[12px] font-semibold whitespace-nowrap ${STYLES[style]}`}>
       {icon ? <Icon name={icon} size={11} /> : <span className="size-1.5 rounded-full bg-current" />}
       {label}
     </span>

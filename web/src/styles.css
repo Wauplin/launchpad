@@ -31,6 +31,7 @@
   --color-meter: #dce1e8;
 
   --color-danger: #cf222e;
+  --color-danger-ink: #a40e26;
   --color-code: #f6f8fa;
   --color-diff-add: #e6ffed;
   --color-diff-del: #ffeef0;
@@ -69,6 +70,8 @@
   --color-code: #161b22;
   --color-diff-add: #173321;
   --color-diff-del: #3b2026;
+  --color-danger: #e5534b;
+  --color-danger-ink: #ff939a;
 }
 
 :root {
@@ -99,7 +102,7 @@ button {
 /* Shared small components. */
 @layer components {
   .btn {
-    @apply inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-line bg-paper px-[11px] text-[12.5px] font-[550] whitespace-nowrap text-ink select-none;
+    @apply inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-line bg-paper px-[11px] text-[13px] font-[550] whitespace-nowrap text-ink select-none;
   }
   .btn:hover:not(:disabled) {
     @apply border-line bg-chrome;
@@ -134,8 +137,53 @@ button {
   .field-input:focus {
     @apply border-teal shadow-[0_0_0_3px_var(--color-teal-soft)];
   }
+  .btn-danger {
+    @apply border-danger bg-danger text-white;
+  }
+  .btn-danger:hover:not(:disabled) {
+    @apply border-danger bg-danger brightness-90;
+  }
+  .btn-danger-ghost {
+    @apply text-danger-ink;
+  }
+  /* Underline tabs: views of one object. */
+  .lp-tabs {
+    @apply flex min-w-0 items-end gap-1 overflow-x-auto overflow-y-hidden border-b border-line-2;
+  }
+  .lp-tab {
+    @apply -mb-px inline-flex h-8 items-center gap-1.5 border-b-2 border-transparent px-2.5 text-[12px] font-[550] whitespace-nowrap text-ink-2 select-none;
+  }
+  .lp-tab:hover:not(:disabled) {
+    @apply text-ink;
+  }
+  .lp-tab[aria-selected="true"] {
+    @apply border-teal text-teal-ink;
+  }
+  .lp-tab:disabled {
+    @apply opacity-50;
+  }
+  /* Filter chips: narrow a list. */
+  .lp-chip {
+    @apply inline-flex h-[26px] items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 text-[12px] font-[550] whitespace-nowrap text-ink-2 select-none;
+  }
+  .lp-chip:hover:not(:disabled) {
+    @apply bg-chrome text-ink;
+  }
+  .lp-chip[aria-pressed="true"] {
+    @apply border-teal bg-teal-soft text-teal-ink;
+  }
+  .lp-chip:disabled {
+    @apply opacity-50;
+  }
+  .lp-count {
+    @apply rounded-full bg-sunk px-1.5 text-[11px] leading-4 font-semibold text-ink-3 tabular-nums;
+  }
+  [aria-pressed="true"] > .lp-count,
+  [aria-selected="true"] > .lp-count {
+    @apply bg-paper text-teal-ink;
+  }
   .seclabel {
-    @apply text-[10.5px] font-[650] tracking-[0.08em] text-ink-3 uppercase;
+    @apply text-[11px] font-[650] tracking-[0.08em] text-ink-3 uppercase;
   }
 }
 
@@ -364,7 +412,7 @@ button {
     @apply min-h-10 text-[16px];
   }
   .lp-phone .seclabel {
-    @apply text-[11.5px];
+    @apply text-[12px];
   }
 }
 
@@ -534,3 +582,8 @@ button {
 
 /* Presets chosen for the next session message: whole chip removes, with a phone touch target. */
 .lp-phone .message-preset-chip { height: auto; min-height: 44px; padding-inline: 12px 10px; font-size: 13px; }
+/* Shared primitives on the phone: 44 px tabs and chips, one scrolling row. */
+.lp-phone .lp-tab { min-height: 44px; flex-shrink: 0; padding-inline: 12px; font-size: 13px; }
+.lp-phone .lp-chip { min-height: 36px; flex-shrink: 0; padding-inline: 12px; font-size: 13px; }
+.lp-phone .page-header { padding: 8px 12px 0; }
+.lp-phone .page-header h1 { font-size: 16px; white-space: normal; overflow-wrap: anywhere; }

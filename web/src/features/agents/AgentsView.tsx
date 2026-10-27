@@ -56,18 +56,18 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
       <button
         type="button"
         onClick={onClick}
-        className={`grid h-[68px] w-full grid-cols-[18px_1fr_auto] content-start gap-x-[9px] gap-y-[3px] border-b border-line-2 px-3 py-2 text-left hover:bg-chrome ${selected ? "bg-select!" : ""}`}
+        className={`grid h-[68px] w-full grid-cols-[18px_1fr_auto] content-start gap-x-[9px] gap-y-[3px] border-b border-line-2 px-3 py-2 text-left hover:bg-chrome ${selected ? "bg-select hover:bg-select" : ""}`}
       >
         <span className="row-span-2 mt-px">
           <HarnessMark harness={s.harness} size={18} />
         </span>
-        <span className={`truncate text-[12.5px] leading-[1.35] ${dim ? "font-medium text-ink-2" : needs ? "font-semibold" : "font-medium"}`} title={s.title}>
+        <span className={`truncate text-[13px] leading-[1.35] ${dim ? "font-medium text-ink-2" : needs ? "font-semibold" : "font-medium"}`} title={s.title}>
           {pinned ? "★ " : ""}{s.title}
         </span>
-        <span className="flex items-center gap-1 text-[11.5px] whitespace-nowrap text-ink-3">
+        <span className="flex items-center gap-1 text-[12px] whitespace-nowrap text-ink-3">
           {informative(s) ? <StatusBadge s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{formatAge(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
         </span>
-        <span className={`col-span-2 line-clamp-2 text-[11.5px] leading-[1.3] text-ink-3 ${dim ? "" : canMarkUnread ? "pr-14" : "pr-7"}`} title={line ? `${project} · ${line}` : project}>
+        <span className={`col-span-2 line-clamp-2 text-[12px] leading-[1.3] text-ink-3 ${dim ? "" : canMarkUnread ? "pr-14" : "pr-7"}`} title={line ? `${project} · ${line}` : project}>
           <HostLabel path={s.cwd} className="mr-1 align-[1px]" /><span className="text-ink-2">{sessionPlace(s, project)}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
         </span>
       </button>
@@ -158,11 +158,12 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedu
   const pct = (q: { used_percent: number } | null) => (q ? `${Math.round(q.used_percent)}%` : "unknown");
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto grid w-full max-w-[560px] grid-cols-[minmax(0,1fr)] gap-5 px-6 py-8 text-[12.5px]">
+      <div className="mx-auto grid w-full max-w-[560px] grid-cols-[minmax(0,1fr)] gap-5 px-6 py-8 text-[13px]">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-[15px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "session needs" : "sessions need"} you` : "Nothing waits for you"}</h2>
           <span className="ml-auto"><LaunchButton small /></span>
         </div>
+        <AskLaunchpadField />
         {needs.length > 0 && <HomeSection title="Needs you">{needs.slice(0, 5).map((s) => <HomeRow key={s.id} s={s} project={name(s)} onOpen={() => onOpen(s.id)} />)}{needs.length > 5 && <span className="px-2 text-ink-3">{needs.length - 5} more in the list on the left</span>}</HomeSection>}
         <HomeSection title={`Running · ${running.length}`}>
           {running.length ? running.slice(0, 8).map((s) => <HomeRow key={s.id} s={s} project={name(s)} onOpen={() => onOpen(s.id)} />) : <span className="px-2 text-ink-3">No agent is running.</span>}
@@ -188,6 +189,20 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedu
           })}
         </HomeSection>}
       </div>
+    </div>
+  );
+}
+
+/** "Ask Launchpad…": opens the Ask page with the text already sent. */
+function AskLaunchpadField() {
+  const navigate = useNavigate();
+  const [text, setText] = useState("");
+  const send = () => { if (text.trim()) void navigate({ to: "/ask", search: { q: text.trim() } }); };
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5 focus-within:border-teal">
+      <Icon name="spark" size={14} className="text-teal-ink" />
+      <input className="min-w-0 flex-1 bg-transparent text-[13px] outline-none" aria-label="Ask Launchpad" placeholder="Ask Launchpad… (it proposes, you confirm)" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
+      <button className="iconbtn" aria-label="Send to Ask Launchpad" title="Send" disabled={!text.trim()} onClick={send}><Icon name="send" size={13} /></button>
     </div>
   );
 }
@@ -330,13 +345,13 @@ export function AgentsView() {
       <div className={`flex flex-col bg-paper ${phone ? (paneOpen ? "hidden" : "w-full") : "w-[280px] flex-none border-r border-line"}`}>
         <div className="grid gap-2 border-b border-line p-2">
           <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setArchivedLimit(30); }} />
-          <div className="flex gap-2"><button className={`btn btn-sm ${pinsOnly ? "bg-teal-soft!" : ""}`} aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button></div>
+          <div className="flex items-center gap-2"><button className="lp-chip" aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button>{phone && <span className="ml-auto"><LaunchButton small label="New agent" title="Open the composer (the draft if one exists)" /></span>}</div>
           {matches.isFetching && <span className="text-xs text-ink-3">Searching messages…</span>}
-          {matches.error && <span className="text-xs text-danger">{matches.error.message}</span>}
+          {matches.error && <span className="text-xs text-danger-ink">{matches.error.message}</span>}
         </div>
         <div ref={listRef} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         {sessions.length === 0 && schedules.length === 0 && crons.length === 0 && (
-          <div className="grid gap-3 p-4 text-[12.5px] text-ink-2">
+          <div className="grid gap-3 p-4 text-[13px] text-ink-2">
             {scope.workspace ? `No agent in ${scope.workspace.name} yet.` : "No session yet."}
             <span>
               <LaunchButton small />

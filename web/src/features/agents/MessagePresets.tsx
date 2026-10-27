@@ -52,7 +52,7 @@ export function PresetButton({ selected, onChange, disabled, labeled = false }: 
     >
       {(close) => (
         <>
-          <div className="px-[9px] pt-1 pb-1.5 text-[11.5px] text-ink-3">Added after your message, in settings order.</div>
+          <div className="px-[9px] pt-1 pb-1.5 text-[12px] text-ink-3">Added after your message, in settings order.</div>
           {presets.map((p) => {
             const on = selected.includes(p.id);
             return (
@@ -61,19 +61,19 @@ export function PresetButton({ selected, onChange, disabled, labeled = false }: 
                 role="menuitemcheckbox"
                 aria-checked={on}
                 onClick={() => toggle(p.id)}
-                className={`message-preset-row grid grid-cols-[18px_minmax(0,1fr)] items-start gap-x-[9px] rounded-md px-[9px] py-[7px] text-left text-[12.5px] hover:bg-select ${on ? "bg-select" : ""}`}
+                className={`message-preset-row grid grid-cols-[18px_minmax(0,1fr)] items-start gap-x-[9px] rounded-md px-[9px] py-[7px] text-left text-[13px] hover:bg-select ${on ? "bg-select" : ""}`}
               >
                 <span className={`mt-px grid h-[18px] w-[18px] place-items-center rounded border ${on ? "border-ink bg-ink text-paper" : "border-line bg-paper"}`}>{on && <Icon name="check" size={12} />}</span>
                 <span className="min-w-0">
                   <span className={`block truncate ${on ? "font-semibold" : ""}`}>{p.label}</span>
-                  <span className="line-clamp-2 text-[11.5px] text-ink-3">{p.text.trim() || "Empty text: nothing is added."}</span>
+                  <span className="line-clamp-2 text-[12px] text-ink-3">{p.text.trim() || "Empty text: nothing is added."}</span>
                 </span>
               </button>
             );
           })}
           {presets.length === 0 && <div className="px-[9px] py-2 text-xs text-ink-3">No preset yet. Presets are reusable instructions defined in Settings.</div>}
           <div className="mt-1 flex items-center gap-2 border-t border-line-2 px-[5px] pt-1.5">
-            <button className="btn btn-sm" onClick={() => { close(); void navigate({ to: "/settings", hash: "presets" }); }}>{presets.length ? "Edit presets" : "Create a preset"}</button>
+            <button className="btn btn-sm" onClick={() => { close(); void navigate({ to: "/settings/presets" }); }}>{presets.length ? "Edit presets" : "Create a preset"}</button>
             {count > 0 && <button className="btn btn-sm" onClick={() => onChange([])}>Clear</button>}
             <button className="btn btn-sm btn-primary ml-auto" onClick={close}>Done</button>
           </div>
@@ -89,11 +89,11 @@ export function PresetChips({ selected, onChange, disabled, className = "" }: { 
   if (!chosen.length) return null;
   return (
     <div className={`flex flex-wrap items-center gap-1.5 ${className}`}>
-      <span className="text-[11.5px] text-ink-3">Presets</span>
+      <span className="text-[12px] text-ink-3">Presets</span>
       {chosen.map((p) => (
         <button
           key={p.id}
-          className="message-preset-chip inline-flex h-6 max-w-full items-center gap-1 rounded-full border border-teal bg-teal-soft pr-1.5 pl-2.5 text-[11.5px] font-semibold text-teal-ink hover:bg-paper disabled:opacity-60"
+          className="message-preset-chip inline-flex h-6 max-w-full items-center gap-1 rounded-full border border-teal bg-teal-soft pr-1.5 pl-2.5 text-[12px] font-semibold text-teal-ink hover:bg-paper disabled:opacity-60"
           title={`${p.text.trim()}\n\nClick to remove`}
           aria-label={`Remove preset ${p.label}`}
           disabled={disabled}

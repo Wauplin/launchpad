@@ -7,7 +7,9 @@ import { PhoneActions } from "@/mobile/PhoneHeader";
 import { usePhone } from "@/lib/phone";
 import { openExternal } from "@/lib/platform";
 import { CommitDiff, type CommitChanges } from "./CommitDiff";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CodeFile } from "@/gen/CodeFile";
@@ -33,11 +35,12 @@ import { useMessageDrafts } from "@/stores/messages";
 import { CodeLines, type CodeLinesHandle, type Selection } from "./CodeLines";
 import { useTheme, type Theme } from "@/stores/theme";
 import { cachedTokens, highlight, type Tokens } from "./highlight";
-import { basename, dirname, downloadUrl, findAll, githubUrl, lineRef, matcher, rawUrl, useCodeFile, useCodeFiles, useCodeSources, useCommit, type FindOpts } from "./lib";
+import { ancestors, basename, dirname, downloadUrl, findAll, githubUrl, lineRef, matcher, rawUrl, useCodeFile, useCodeFiles, useCodeSources, useCommit, type FindOpts } from "./lib";
 import { FilesPanel, FindToggles, SearchPanel } from "./SidePanel";
 import { sourceKey, useCode, type CodeSearch } from "./store";
-import { useOpenTerminal } from "@/features/terminals/lib";
+import { TerminalMenu } from "@/features/terminals/TerminalMenu";
 import { textLimits } from "./limits";
+import { Empty, ErrorState, Loading, Tabs } from "@/components/ui";
 
 const sizeText = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
@@ -60,10 +63,10 @@ export function CodeView() {
     if (search.root && !search.session) setLast(id, { root: search.root, rev: search.rev, path: search.path, view: search.view });
   }, [id, search.root, search.rev, search.path, search.view, search.session, setLast]);
 
-  if (!project) return <div className="p-6 text-ink-3">This project is not registered.</div>;
+  if (!project) return <Empty fill icon="folder">This folder is not registered in Launchpad.</Empty>;
   if (!search.root) return null;
   const diff = !!search.rev && search.view === "diff";
-  const go = (next: CodeSearch) => void navigate({ to: "/projects/$id/code", params: { id }, search: { root: search.root, rev: search.rev, session: search.session, ...next } });
+  const go = (next: CodeSearch) => void navigate({ to: "/projects/$id/code", params: { id }, search: { root: search.root, rev: search.rev, session: search.session, pr: search.pr, ...next } });
   const showCode = () => {
     const files = qc.getQueryData<CommitChanges>(["code-commit-diff", search.root, search.rev])?.files;
     const selected = files?.find((f) => f.filename === search.path) ?? files?.[0];
@@ -72,18 +75,16 @@ export function CodeView() {
   return <div className="flex h-full min-h-0 flex-col">
     {search.rev && <div className="flex flex-wrap items-center gap-2 border-b border-line bg-paper px-3 py-2">
       {search.session && <BackToSession id={search.session} />}
+      {search.pr && <BackToPr pr={search.pr} />}
       <span className="min-w-0 truncate font-mono text-xs text-ink-3" title={search.rev}>{diff ? "Commit" : "Revision"} {search.rev.slice(0, 12)}</span>
-      <div className="ml-auto flex gap-1">
-        <button className={`btn btn-sm ${diff ? "bg-select! font-semibold" : ""}`} aria-pressed={diff} onClick={() => go({ view: "diff", path: search.path })}>Diff</button>
-        <button className={`btn btn-sm ${!diff ? "bg-select! font-semibold" : ""}`} aria-pressed={!diff} onClick={showCode}>Code</button>
-      </div>
+      <Tabs className="ml-auto border-b-0" label="Commit view" value={diff ? "diff" : "files"} onChange={(v) => (v === "diff" ? go({ view: "diff", path: search.path }) : showCode())} items={[{ id: "diff", label: "Diff" }, { id: "files", label: "Files" }]} />
     </div>}
     {diff ? <CommitDiff key={sourceKey(search.root, search.rev)} root={search.root} rev={search.rev!} path={search.path} select={(path) => go({ view: "diff", path })} openFile={(rev, path) => go({ rev, path })} /> :
-      <div className="min-h-0 flex-1"><Viewer key={sourceKey(search.root, search.rev)} project={project} root={search.root} rev={search.rev ?? null} path={search.path ?? null} line={search.line ?? null} session={search.session ?? null} /></div>}
+      <div className="min-h-0 flex-1"><Viewer key={sourceKey(search.root, search.rev)} project={project} root={search.root} rev={search.rev ?? null} path={search.path ?? null} line={search.line ?? null} session={search.session ?? null} pr={search.pr ?? null} /></div>}
   </div>;
 }
 
-function Viewer({ project, root, rev, path, line, session }: { project: Project; root: string; rev: string | null; path: string | null; line: number | null; session: string | null }) {
+function Viewer({ project, root, rev, path, line, session, pr }: { project: Project; root: string; rev: string | null; path: string | null; line: number | null; session: string | null; pr: string | null }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const phone = usePhone();
@@ -94,14 +95,16 @@ function Viewer({ project, root, rev, path, line, session }: { project: Project;
   const openTab = useCode((s) => s.openTab);
   const closeTab = useCode((s) => s.closeTab);
   const [panel, setPanel] = useState<"files" | "search">("files");
-  const openTerminal = useOpenTerminal();
   const [searchState, setSearchState] = useState<{ q: string; opts: FindOpts }>({ q: "", opts: { case: false, word: false, regex: false } });
 
   const go = useCallback(
-    (s: CodeSearch) => void navigate({ to: "/projects/$id/code", params: { id: project.id }, search: { root, rev: rev ?? undefined, session: session ?? undefined, ...s }, replace: true }),
-    [navigate, project.id, root, rev, session],
+    (s: CodeSearch, push = false) => void navigate({ to: "/projects/$id/code", params: { id: project.id }, search: { root, rev: rev ?? undefined, session: session ?? undefined, pr: pr ?? undefined, ...s }, replace: !push }),
+    [navigate, project.id, root, rev, session, pr],
   );
-  const open = useCallback((p: string, l?: number) => { go({ path: p, line: l }); if (phone) setBrowserOpen(false); }, [go, phone]);
+  // Each opened file is its own history entry, so Back returns to the previous file.
+  const open = useCallback((p: string, l?: number) => { go({ path: p, line: l }, p !== path); if (phone) setBrowserOpen(false); }, [go, phone, path]);
+  const expand = useCode((s) => s.expand);
+  const reveal = useCallback((dir: string) => { expand(skey, [...ancestors(dir), dir]); setPanel("files"); if (phone) setBrowserOpen(true); }, [expand, skey, phone]);
 
   useEffect(() => {
     if (path) openTab(skey, path);
@@ -138,33 +141,32 @@ function Viewer({ project, root, rev, path, line, session }: { project: Project;
   return (
     <div className={`code-layout h-full ${phone ? "flex flex-col" : "grid grid-cols-[284px_minmax(0,1fr)]"}`}>
       {phone && <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1">
-        <button className="btn btn-sm" aria-expanded={browserOpen} onClick={() => setBrowserOpen((v) => !v)}><Icon name={browserOpen ? "x" : "folder"} size={16} />{browserOpen ? "Close files" : "Files & search"}</button>
+        <button className="btn btn-sm" aria-expanded={browserOpen} onClick={() => setBrowserOpen((v) => !v)}><Icon name={browserOpen ? "x" : "folder"} size={16} />{browserOpen ? "Close tree" : "Tree & search"}</button>
         <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{path ?? project.name}</span>
         {session && !rev && <BackToSession id={session} />}
+        {pr && !rev && <BackToPr pr={pr} />}
       </div>}
       <aside className={`code-browser min-h-0 min-w-0 flex-col border-r border-line bg-paper ${phone ? browserOpen ? "flex flex-1" : "hidden" : "flex"}`}>
         <div className="grid grid-cols-[minmax(0,1fr)] gap-2 px-2.5 pt-2.5 pb-1">
           {session && !rev && !phone && <BackToSession id={session} />}
+          {pr && !rev && !phone && <BackToPr pr={pr} />}
           <div className="flex min-w-0 gap-1.5">
             <div className="min-w-0 flex-1"><SourcePicker project={project} root={root} rev={rev} path={path} session={session} /></div>
-            <button className={phone ? "btn" : "btn h-[34px]!"} title={`Open a shell in ${root}`} onClick={() => void openTerminal.shell(root)}>
-              <Icon name="term" size={14} />
-              Terminal
-            </button>
+            <TerminalMenu cwd={root} phone={phone} className="flex-none" />
           </div>
           <span className="inline-flex gap-0.5 rounded-lg bg-sunk p-0.5">
             {(["files", "search"] as const).map((p) => (
               <button
                 key={p}
                 onClick={() => setPanel(p)}
-                className={`h-[26px] flex-1 rounded-md text-[12.5px] ${panel === p ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"}`}
+                className={`h-[26px] flex-1 rounded-md text-[13px] ${panel === p ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"}`}
               >
                 {p === "files" ? "Files" : "Search"}
               </button>
             ))}
           </span>
         </div>
-        {list.isError && <div className="px-3 py-2 text-xs text-gh-closed">{(list.error as Error).message}</div>}
+        {list.isError && <ErrorState className="mx-2.5 my-1" error={list.error} onRetry={() => void list.refetch()} />}
         {panel === "files" ? (
           <FilesPanel list={list.data} skey={skey} active={path} onOpen={open} />
         ) : (
@@ -176,7 +178,7 @@ function Viewer({ project, root, rev, path, line, session }: { project: Project;
           {tabs.map((t) => (
             <div
               key={t}
-              className={`group flex flex-none items-center gap-1.5 border-r border-line pr-1 pl-3 text-[12.5px] ${t === path ? "bg-paper font-semibold text-ink shadow-[inset_0_2px_0_var(--color-teal)]" : "text-ink-2 hover:bg-sunk"} ${list.data?.changes[t] ? "text-attn!" : ""}`}
+              className={`group flex flex-none items-center gap-1.5 border-r border-line pr-1 pl-3 text-[13px] ${t === path ? "bg-paper font-semibold text-ink shadow-[inset_0_2px_0_var(--color-teal)]" : "text-ink-2 hover:bg-sunk"} ${list.data?.changes[t] ? "text-attn!" : ""}`}
             >
               <button className="flex h-full items-center gap-1.5" title={t} onClick={() => open(t)}>
                 <Icon name="file" size={12} className="text-ink-3" />
@@ -197,9 +199,11 @@ function Viewer({ project, root, rev, path, line, session }: { project: Project;
           ))}
         </div>
         {path ? (
-          <FileView key={`${skey}\n${path}`} project={project} root={root} rev={rev} path={path} line={line} letter={list.data?.changes[path]} />
+          <FileView key={`${skey}\n${path}`} project={project} root={root} rev={rev} path={path} line={line} letter={list.data?.changes[path]} reveal={reveal} />
+        ) : list.isError && /does not exist|No such file/i.test(String((list.error as Error)?.message)) ? (
+          <RemovedWorktree project={project} root={root} />
         ) : (
-          <div className="grid flex-1 place-items-center text-ink-3">{list.data?.files.length === 0 ? "This source has no file." : "Pick a file in the tree, or search the project."}</div>
+          <Empty fill icon="folder" className="flex-1">{list.data?.files.length === 0 ? "This folder has no file." : "Pick a file in the tree, or search the folder."}</Empty>
         )}
       </div>
     </div>
@@ -224,7 +228,37 @@ function BackToSession({ id }: { id: string }) {
   const navigate = useNavigate();
   const title = useSessions().data?.find((s) => s.id === id)?.title;
   if (!title) return null;
-  return <button aria-label="Back to session" className={phone ? "iconbtn shrink-0 text-teal-ink" : "truncate text-left text-xs text-teal-ink hover:underline"} title={`Back to the session "${title}"`} onClick={() => void navigate({ to: "/agents", search: { session: id } })}>{phone ? <Icon name="chev" size={20} className="rotate-90" /> : <>← Back to session · {title}</>}</button>;
+  return <button aria-label="Back to agent" className={phone ? "iconbtn shrink-0 text-teal-ink" : "truncate text-left text-xs text-teal-ink hover:underline"} title={`Back to the agent "${title}"`} onClick={() => void navigate({ to: "/agents", search: { session: id } })}>{phone ? <Icon name="chev" size={20} className="rotate-90" /> : <>← Back to agent · {title}</>}</button>;
+}
+
+/** Shown when Files was opened from a pull request's Changes: `pr` is `owner/repo#number`. */
+function BackToPr({ pr }: { pr: string }) {
+  const phone = usePhone();
+  const navigate = useNavigate();
+  const m = pr.match(/^([^/]+)\/([^#]+)#(\d+)$/);
+  if (!m) return null;
+  const [, owner, repo, number] = m;
+  return <button aria-label={`Back to PR #${number}`} className={phone ? "iconbtn shrink-0 text-teal-ink" : "truncate text-left text-xs text-teal-ink hover:underline"} title={`Back to ${owner}/${repo}#${number}`} onClick={() => void navigate({ to: "/items/$owner/$repo/$number", params: { owner, repo, number }, search: { tab: "files" } as never })}>{phone ? <Icon name="chev" size={20} className="rotate-90" /> : <>← Back to PR #{number}</>}</button>;
+}
+
+/** The branch of the task worktree that lived at `root`, if Launchpad knows it. */
+function useWorktreeBranch(root: string): string | null {
+  const list = useQuery({ queryKey: ["worktrees", "all"], queryFn: () => api.get<WorktreeInfo[]>("/api/worktrees"), staleTime: 30_000 }).data;
+  return list?.find((w) => w.worktree.root === root)?.worktree.branch ?? null;
+}
+
+/** The Files source is a worktree folder that no longer exists (cleaned up after a merge). */
+function RemovedWorktree({ project, root }: { project: Project; root: string }) {
+  const navigate = useNavigate();
+  const branch = useWorktreeBranch(root);
+  return (
+    <Empty fill icon="branch" className="flex-1" action={<div className="flex flex-wrap justify-center gap-2">
+      <button className="btn btn-sm btn-primary" onClick={() => void navigate({ to: "/projects/$id/code", params: { id: project.id }, search: { root: project.path } })}><Icon name="folder" size={12} />Open checkout</button>
+      {branch && <button className="btn btn-sm" onClick={() => void navigate({ to: "/projects/$id/code", params: { id: project.id }, search: { root: project.path, rev: branch } })}><Icon name="branch" size={12} />Open branch {branch} from git</button>}
+    </div>}>
+      This worktree was removed, probably after its merge. Its branch stays in git.
+    </Empty>
+  );
 }
 
 // ---------------------------------------------------------------- source picker
@@ -252,7 +286,7 @@ function SourcePicker({ project, root, rev, path, session }: { project: Project;
     <Popover
       width={phone ? 280 : 340}
       trigger={({ toggle }) => (
-        <button onClick={toggle} className="flex h-[34px] w-full min-w-0 items-center gap-2 rounded-[7px] border border-line bg-paper px-2.5 text-left text-[12.5px] hover:border-line" title={rev ? `${rev} in ${root}` : root}>
+        <button onClick={toggle} className="flex h-[34px] w-full min-w-0 items-center gap-2 rounded-[7px] border border-line bg-paper px-2.5 text-left text-[13px] hover:border-line" title={rev ? `${rev} in ${root}` : root}>
           <Icon name={rev ? "branch" : "folder"} size={14} className="text-ink-3" />
           <span className="min-w-0 flex-1 truncate">
             <b className={rev || !worktree?.main ? "font-mono text-xs" : "font-semibold"}>{label}</b>
@@ -319,7 +353,7 @@ function splitLines(text: string): string[] {
   return lines.map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l));
 }
 
-function FileView({ project, root, rev, path, line, letter }: { project: Project; root: string; rev: string | null; path: string; line: number | null; letter: string | undefined }) {
+function FileView({ project, root, rev, path, line, letter, reveal }: { project: Project; root: string; rev: string | null; path: string; line: number | null; letter: string | undefined; reveal: (dir: string) => void }) {
   const phone = usePhone();
   const qc = useQueryClient();
   const q = useCodeFile(root, rev, path);
@@ -366,7 +400,11 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
   const dirtyReason = f?.dirty ? "This file has uncommitted changes, so GitHub shows other lines" : null;
   const ghTitle = !commit ? "Checking GitHub…" : !ghFile ? "This commit is not on GitHub" : (dirtyReason ?? "Open on GitHub at this commit");
 
+  const download = () => saveFile(root, rev, path);
   const fileActions = <>
+          <button className={phone ? "btn btn-sm" : "iconbtn"} title="Download this file" onClick={download}>
+            <Icon name="download" size={14} />{phone && "Download"}
+          </button>
           <button className={phone ? "btn btn-sm" : "iconbtn"} title="Copy path" onClick={() => void copyText(path).then(() => toast("Path copied"))}>
             <Icon name="copy" size={14} />{phone && "Copy path"}
           </button>
@@ -381,8 +419,11 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="phone-file-toolbar flex min-h-[42px] flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-line-2 px-3.5 py-1.5">
-        <span className="min-w-0 truncate font-mono text-[12.5px] text-ink-2" title={path}>
-          {dirname(path) && <>{dirname(path).split("/").join(" / ")} / </>}
+        <span className="min-w-0 truncate font-mono text-[12px] text-ink-2" title={path}>
+          {dirname(path) && dirname(path).split("/").map((seg, i, all) => {
+            const dir = all.slice(0, i + 1).join("/");
+            return <span key={dir}><button className="hover:text-teal-ink hover:underline" title={`Show ${dir} in the file tree`} onClick={() => reveal(dir)}>{seg}</button> / </span>;
+          })}
           <b className="font-semibold text-ink">{basename(path)}</b>
         </span>
         {f && !phone && <FileMeta f={f} letter={letter} />}
@@ -403,22 +444,22 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
         </span>
       </div>
       {q.isError ? (
-        <div className="grid flex-1 place-items-center text-ink-3">{(q.error as Error).message}</div>
+        <div className="grid flex-1 place-items-center p-6"><ErrorState error={q.error} onRetry={reload} /></div>
       ) : !f ? (
-        <div className="grid flex-1 place-items-center text-ink-3">Loading…</div>
+        <Loading what="file" className="flex-1 justify-center" />
       ) : f.kind === "image" ? (
         <div className="cv-check flex min-h-0 flex-1 items-center justify-center p-6">
           <img src={rawUrl(root, rev, path)} alt={path} className="max-h-full max-w-full border border-line-2 object-contain" />
         </div>
-      ) : f.kind === "binary" || f.kind === "too_large" ? (
-        <div className="grid flex-1 place-items-center text-center text-ink-2">
-          <div className="grid justify-items-center gap-2">
-            {f.kind === "binary" ? `Binary file · ${sizeText(f.size)}` : `This file is ${sizeText(f.size)}: too large to show here.`}
-            {f.size <= 20 * 1024 * 1024 && <a className="btn btn-sm" href={daemonUrl(downloadUrl(root, rev, path))} download>Download file</a>}
-          </div>
-        </div>
-      ) : limits.display ? (
-        <div className="grid flex-1 place-items-center p-6 text-center text-ink-2">{limits.display}</div>
+      ) : f.kind === "binary" || f.kind === "too_large" || limits.display ? (
+        <CannotShow
+          reason={f.kind === "binary" ? "Binary file: Launchpad cannot show it." : f.kind === "too_large" ? "This file is too large to show here." : limits.display!}
+          size={f.size}
+          path={path}
+          text={f.kind === "text" ? f.text : null}
+          download={download}
+          github={ghFile}
+        />
       ) : preview && limits.colors && html ? (
         <HtmlPreview text={f.text ?? ""} path={path} />
       ) : preview && limits.colors && markdown ? (
@@ -439,6 +480,59 @@ function FileView({ project, root, rev, path, line, letter }: { project: Project
           findRef={findRef}
         />
       )}
+    </div>
+  );
+}
+
+/** Saves the file: an attachment link in browsers; the desktop shell saves it to Downloads and reports the path. */
+function saveFile(root: string, rev: string | null, path: string) {
+  const w = window as unknown as { __launchpadDesktop?: boolean; __launchpadDownloaded?: (path: string, ok: boolean) => void };
+  if (w.__launchpadDesktop) w.__launchpadDownloaded = (saved, ok) => (ok ? toast(saved ? `Saved to ${saved}` : "Download finished") : toast("The download failed"));
+  const a = document.createElement("a");
+  a.href = daemonUrl(downloadUrl(root, rev, path));
+  a.download = basename(path);
+  document.body.append(a);
+  a.click();
+  a.remove();
+}
+
+const FALLBACK_LINES = 2000;
+const FALLBACK_LINE = 2000;
+
+/** One card for every "cannot show" state: the reason, the size, Download first, then the other ways to read the file. */
+function CannotShow({ reason, size, path, text, download, github }: { reason: string; size: number; path: string; text: string | null; download: () => void; github: string | null }) {
+  const [plain, setPlain] = useState(false);
+  const head = useMemo(() => {
+    if (!plain || text === null) return null;
+    const lines = text.split("\n", FALLBACK_LINES + 1);
+    const more = lines.length > FALLBACK_LINES;
+    return { body: lines.slice(0, FALLBACK_LINES).map((l) => (l.length > FALLBACK_LINE ? `${l.slice(0, FALLBACK_LINE)} …` : l)).join("\n"), more };
+  }, [plain, text]);
+  if (head)
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line-2 bg-attn-soft px-3.5 py-1.5 text-[12px] text-attn">
+          <Icon name="alert" size={12} />
+          Plain text: the first {FALLBACK_LINES.toLocaleString()} lines{head.more ? "" : " (the whole file)"}, long lines cut at {FALLBACK_LINE.toLocaleString()} characters.
+          <button className="btn btn-sm ml-auto" onClick={download}><Icon name="download" size={12} />Download the whole file</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => setPlain(false)}>Back</button>
+        </div>
+        <pre className="m-0 min-h-0 flex-1 overflow-auto p-3.5 font-mono text-[12px] leading-[1.5] whitespace-pre text-ink">{head.body}</pre>
+      </div>
+    );
+  return (
+    <div className="grid flex-1 place-items-center p-6">
+      <div className="grid max-w-md justify-items-center gap-3 rounded-xl border border-line-2 bg-chrome px-6 py-5 text-center">
+        <Icon name="file" size={22} className="text-ink-3" />
+        <div className="text-[13px] font-semibold text-ink">{reason}</div>
+        <div className="text-[12px] text-ink-3">{basename(path)} · {sizeText(size)}</div>
+        <div className="flex flex-wrap justify-center gap-2">
+          <button className="btn btn-primary" onClick={download}><Icon name="download" size={14} />Download</button>
+          {github && <button className="btn" onClick={() => openExternal(github)}><Icon name="ext" size={14} />Open on GitHub</button>}
+          <button className="btn" onClick={() => void copyText(path).then(() => toast("Path copied"))}><Icon name="copy" size={14} />Copy path</button>
+        </div>
+        {text !== null && <button className="text-[12px] text-teal-ink hover:underline" onClick={() => setPlain(true)}>Show the first {FALLBACK_LINES.toLocaleString()} lines as plain text</button>}
+      </div>
     </div>
   );
 }
@@ -643,7 +737,7 @@ function TextView({
           <Icon name="search" size={13} className="text-ink-3" />
           <input
             ref={findRef}
-            className="h-6 w-56 bg-transparent text-[12.5px] outline-none"
+            className="h-6 w-56 bg-transparent text-[13px] outline-none"
             placeholder="Find in file"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -658,7 +752,7 @@ function TextView({
               }
             }}
           />
-          <span className={`min-w-16 text-right text-[11.5px] tabular-nums ${typeof re === "string" ? "text-gh-closed" : "text-ink-3"}`}>
+          <span className={`min-w-16 text-right text-[12px] tabular-nums ${typeof re === "string" ? "text-gh-closed" : "text-ink-3"}`}>
             {typeof re === "string" ? "Invalid" : !query ? "" : matches.length ? `${Math.min(index, matches.length - 1) + 1} of ${matches.length >= 10_000 ? "10,000+" : matches.length}` : "No match"}
           </span>
           <FindToggles opts={opts} set={setOpts} />

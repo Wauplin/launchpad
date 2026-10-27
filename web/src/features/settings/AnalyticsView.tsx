@@ -55,9 +55,9 @@ export function AnalyticsView() {
     setSelected(dayKey(date));
   };
 
-  return <SettingsPage>
+  return <SettingsPage title="Usage" intro="Quota resets and agent activity, per month.">
     <AgentActivity month={month} selected={selected} onSelect={setSelected} onMove={move} onToday={() => { const today = new Date(); setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); setSelected(dayKey(today)); }} />
-    <Card title="Analytics · Weekly quota resets">
+    <Card title="Weekly quota resets">
       <p className="text-sm text-ink-2">Observed resets come from large drops in weekly usage, including early resets. Expected dates are the providers’ latest predictions and can change.</p>
       <details className="text-xs text-ink-3"><summary className="cursor-pointer py-2">How resets are recorded · {Intl.DateTimeFormat().resolvedOptions().timeZone}</summary><p>History starts when this version runs. Calendar dates use your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). A reset is placed on the day it was detected; the details show the interval between readings. A drop of at least 10 points, or usage ending near 0 after it was used, counts as a reset; smaller corrections to reported usage are ignored. Resets with no observed usage drop cannot be detected.</p></details>
       <div className="grid gap-2 sm:grid-cols-2">

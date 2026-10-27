@@ -13,11 +13,12 @@ export function makeRouter({ Root, AgentsView, InboxView }: Entry, history?: Rou
 const root = createRootRoute({ component: Root });
 
 const routeTree = root.addChildren([
-  // Phone pages. The desktop shows the same information in Agents (dashboard) and To publish.
+  // Phone pages. The desktop shows the same information in Agents (dashboard). Review is shared by both shells.
   createRoute({ getParentRoute: () => root, path: "/now", component: lazyRouteComponent(() => import("@/mobile/NowView"), "NowView"), beforeLoad: () => { if (!isPhone) throw redirect({ to: "/agents" }); } }),
   createRoute({ getParentRoute: () => root, path: "/review", component: lazyRouteComponent(() => import("@/features/review/ReviewView"), "ReviewView") }),
   createRoute({ getParentRoute: () => root, path: "/terminals", component: lazyRouteComponent(() => import("@/mobile/TerminalsView"), "TerminalsView") }),
   createRoute({ getParentRoute: () => root, path: "/inbox", component: InboxView }),
+  createRoute({ getParentRoute: () => root, path: "/ask", component: lazyRouteComponent(() => import("@/features/ask/AskView"), "AskView"), validateSearch: (s: Record<string, unknown>): { q?: string } => (typeof s.q === "string" && s.q ? { q: s.q } : {}) }),
   createRoute({ getParentRoute: () => root, path: "/predrafts/$id", component: lazyRouteComponent(() => import("@/features/predrafts/PredraftView"), "PredraftView") }),
   createRoute({
     getParentRoute: () => root,
@@ -26,7 +27,8 @@ const routeTree = root.addChildren([
     // `draft`: the agent suggestion to expand and scroll to.
     validateSearch: (s: Record<string, unknown>): { draft?: string } => (typeof s.draft === "string" || typeof s.draft === "number" ? { draft: String(s.draft) } : {}),
   }),
-  createRoute({ getParentRoute: () => root, path: "/publish", component: lazyRouteComponent(() => import("@/features/publish/PublishView"), "PublishView") }),
+  // The former To publish page is the To publish group of Review.
+  createRoute({ getParentRoute: () => root, path: "/publish", beforeLoad: () => { throw redirect({ to: "/review" }); } }),
   // The phone opens on Now; its Inbox tab is /inbox.
   createRoute({ getParentRoute: () => root, path: "/", component: InboxView, beforeLoad: () => { if (isPhone) throw redirect({ to: "/now" }); } }),
   createRoute({
@@ -40,9 +42,14 @@ const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/projects/$id", component: lazyRouteComponent(() => import("@/features/projects/ProjectPage"), "ProjectPage") }),
   createRoute({ getParentRoute: () => root, path: "/projects/$id/code", component: lazyRouteComponent(() => import("@/features/code/CodeView"), "CodeView"), validateSearch: validateCodeSearch }),
   createRoute({ getParentRoute: () => root, path: "/settings", component: lazyRouteComponent(() => import("@/features/settings/SettingsView"), "SettingsView") }),
-  createRoute({ getParentRoute: () => root, path: "/settings/workspaces", component: lazyRouteComponent(() => import("@/features/workspaces/Workspaces"), "WorkspacesView") }),
+  // Workspaces are managed from the sidebar; Analytics became Usage.
+  createRoute({ getParentRoute: () => root, path: "/settings/workspaces", beforeLoad: () => { throw redirect({ to: "/settings" }); } }),
+  createRoute({ getParentRoute: () => root, path: "/settings/analytics", beforeLoad: () => { throw redirect({ to: "/settings/usage" }); } }),
+  createRoute({ getParentRoute: () => root, path: "/settings/notifications", component: lazyRouteComponent(() => import("@/features/settings/DevicesView"), "NotificationsPage") }),
+  createRoute({ getParentRoute: () => root, path: "/settings/presets", component: lazyRouteComponent(() => import("@/features/settings/SettingsView"), "PresetsView") }),
+  createRoute({ getParentRoute: () => root, path: "/settings/github", component: lazyRouteComponent(() => import("@/features/settings/GitHubView"), "GitHubView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/profiles", component: lazyRouteComponent(() => import("@/features/settings/ProfilesView"), "ProfilesView") }),
-  createRoute({ getParentRoute: () => root, path: "/settings/analytics", component: lazyRouteComponent(() => import("@/features/settings/AnalyticsView"), "AnalyticsView") }),
+  createRoute({ getParentRoute: () => root, path: "/settings/usage", component: lazyRouteComponent(() => import("@/features/settings/AnalyticsView"), "AnalyticsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/worktrees", component: lazyRouteComponent(() => import("@/features/settings/WorktreesView"), "WorktreesView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/hosts", component: lazyRouteComponent(() => import("@/features/settings/HostsView"), "HostsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/devices", component: lazyRouteComponent(() => import("@/features/settings/DevicesView"), "DevicesView") }),

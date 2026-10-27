@@ -1,4 +1,4 @@
-// Settings → Hosts: machines reached with the system `ssh` where projects live and agents run. Adding a host
+// Settings → Machines: this computer and the hosts reached with the system `ssh` where projects live and agents run. Adding a host
 // installs only the Launchpad helper; preflight is read-only and each failed check names the command to run,
 // which the owner can start in a visible terminal on the host.
 
@@ -14,7 +14,9 @@ import { formatAge } from "@/lib/format";
 import { linkLabel, useHosts } from "@/lib/hosts";
 import { useProjects, useSessions, useStatus } from "@/lib/queries";
 import { useOpenTerminal } from "@/features/terminals/lib";
-import { Card, SettingsPage } from "./SettingsView";
+import { Card, ConfigError, SavedInput, SettingsPage, usePatchConfig } from "./SettingsView";
+import { ConfirmButton, Empty, SettingRow } from "@/components/ui";
+import { useConfig } from "@/lib/queries";
 
 const tone: Record<HostStatus["state"], string> = {
   connected: "text-gh-open",
@@ -51,14 +53,14 @@ function AddHost({ onDone }: { onDone: () => void }) {
     }
   };
   return (
-    <div className="grid gap-2.5 rounded-md border border-line p-3 text-[12.5px]">
+    <div className="grid gap-2.5 rounded-md border border-line p-3 text-[13px]">
       <b className="font-[650]">Add host</b>
       {(config.data ?? []).length > 0 && (
         <div className="grid gap-1">
           <span className="text-ink-2">From ~/.ssh/config (jump hosts, certificates and agent keys work as in a terminal):</span>
           <div className="flex flex-wrap gap-1.5">
             {config.data!.map((c) => (
-              <button key={c.alias} className={`btn btn-sm ${destination === c.alias ? "bg-select!" : ""}`} disabled={known.has(c.alias)} title={[c.user && `${c.user}@`, c.hostname, c.proxy_jump && ` via ${c.proxy_jump}`].filter(Boolean).join("") || c.alias} onClick={() => setDestination(c.alias)}>
+              <button key={c.alias} className="lp-chip" aria-pressed={destination === c.alias} disabled={known.has(c.alias)} title={[c.user && `${c.user}@`, c.hostname, c.proxy_jump && ` via ${c.proxy_jump}`].filter(Boolean).join("") || c.alias} onClick={() => setDestination(c.alias)}>
                 {c.alias}{c.proxy_jump && <span className="text-ink-3">via {c.proxy_jump}</span>}
               </button>
             ))}
@@ -72,7 +74,7 @@ function AddHost({ onDone }: { onDone: () => void }) {
       <div className="grid grid-cols-[1fr_90px_1fr] gap-2">
         <label className="grid gap-1"><span className="text-ink-2">Name (optional)</span><input className="field-input" value={id} placeholder="from the destination" onChange={(e) => setId(e.target.value)} /></label>
         <label className="grid gap-1"><span className="text-ink-2">Port</span><input className="field-input" value={port} inputMode="numeric" placeholder="22" onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} /></label>
-        <label className="grid gap-1"><span className="text-ink-2">Projects root on the host</span><input className="field-input" value={root} onChange={(e) => setRoot(e.target.value)} /></label>
+        <label className="grid gap-1"><span className="text-ink-2">Folders root on the host</span><input className="field-input" value={root} onChange={(e) => setRoot(e.target.value)} /></label>
       </div>
       <p className="text-xs text-ink-3">Launchpad uses the system ssh with your configuration. Password, passphrase and host key questions appear in a dialog; Launchpad never stores the answers. It uploads its own helper to ~/.local/share/launchpad-host and nothing else.</p>
       <div className="flex gap-1.5">
@@ -109,7 +111,7 @@ function Checks({ h }: { h: HostStatus }) {
       <div className="grid rounded-md border border-line">
         {h.checks.length === 0 && <div className="px-3 py-2 text-xs text-ink-3">{h.state === "connected" ? "Checking…" : "Checks run once the host is connected."}</div>}
         {h.checks.map((c) => (
-          <div key={c.id} className="grid gap-1 border-b border-line-2 px-3 py-1.5 text-[12.5px] last:border-0">
+          <div key={c.id} className="grid gap-1 border-b border-line-2 px-3 py-1.5 text-[13px] last:border-0">
             <div className="flex items-center gap-2">
               <span className={c.ok === true ? "text-gh-open" : c.ok === false ? "text-gh-closed" : "text-attn"} aria-hidden>{c.ok === true ? "✓" : c.ok === false ? "✕" : "!"}</span>
               {c.found !== null ? <HarnessMark harness={c.id} size={14} /> : null}
@@ -138,13 +140,12 @@ function HostCard({ h }: { h: HostStatus }) {
   const sessions = useSessions().data ?? [];
   const terminal = useOpenTerminal();
   const qc = useQueryClient();
-  const [root, setRoot] = useState(h.host.projects_root);
   const mine = projects.filter((p) => p.path.startsWith(`${h.host.id}:`));
   const running = sessions.filter((s) => s.cwd.startsWith(`${h.host.id}:`) && ["starting", "working", "background"].includes(s.status)).length;
   const act = (p: Promise<unknown>, done?: string) => p.then(() => { if (done) toast(done); return qc.invalidateQueries({ queryKey: ["status"] }); }).catch(toastError);
   return (
     <div className="grid gap-2.5 rounded-md border border-line p-3">
-      <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+      <div className="flex flex-wrap items-center gap-2 text-[13px]">
         <Icon name="term" size={14} />
         <b className="font-[650]">{h.host.id}</b>
         <span className="text-ink-3">{h.host.destination}{h.host.port ? `:${h.host.port}` : ""}</span>
@@ -153,15 +154,14 @@ function HostCard({ h }: { h: HostStatus }) {
       <div className="text-xs text-ink-2">
         {[h.info && `${h.info.os} ${h.info.arch}`, `${mine.length} project${mine.length === 1 ? "" : "s"}`, running > 0 && `${running} agent${running === 1 ? "" : "s"} running`, h.state !== "connected" && `since ${new Date(Number(h.since)).toLocaleTimeString()}`].filter(Boolean).join(" · ")}
       </div>
-      {h.error && <div className={`text-xs ${h.state === "connecting" ? "text-ink-2" : "text-gh-closed"}`}>{h.error}</div>}
+      {h.error && <div className={`text-xs ${h.state === "connecting" ? "text-ink-2" : "text-danger-ink"}`}>{h.error}</div>}
       {h.state === "unreachable" && running > 0 && <div className="text-xs text-ink-2">Agents keep running on the host; their output appears when the connection returns.</div>}
       <div className="flex flex-wrap items-end gap-2 text-xs">
-        <label className="grid gap-1"><span className="text-ink-2">Projects root</span><input className="field-input w-[220px]" value={root} onChange={(e) => setRoot(e.target.value)} /></label>
-        {root !== h.host.projects_root && <button className="btn btn-sm" onClick={() => void act(api.patch(`/api/hosts/${h.host.id}`, { projects_root: root }), "Projects root saved")}>Save</button>}
+        <label className="grid min-w-[260px] gap-1"><span className="text-ink-2">Folders root</span><SavedInput label={`Folders root on ${h.host.id}`} className="font-mono text-xs" value={h.host.projects_root} onSave={async (v) => { await api.patch(`/api/hosts/${h.host.id}`, { projects_root: v }); await qc.invalidateQueries({ queryKey: ["status"] }); }} /></label>
         <span className="ml-auto flex flex-wrap gap-1.5">
           {h.info && <button className="btn btn-sm" onClick={() => void terminal.shell(`${h.host.id}:${h.info!.home}`)}><Icon name="term" size={12} />Open terminal on host</button>}
           <button className="btn btn-sm" onClick={() => void act(api.post(`/api/hosts/${h.host.id}/retry`))}><Icon name="refresh" size={12} />{h.state === "connected" ? "Reconnect" : "Retry now"}</button>
-          <button className="btn btn-sm" onClick={() => { if (confirm(`Remove ${h.host.id}? Processes Launchpad started there are stopped. Files on the host are kept.`)) void act(api.delete(`/api/hosts/${h.host.id}`), "Host removed"); }}><Icon name="trash" size={12} />Remove</button>
+          <ConfirmButton icon="trash" consequence="Processes Launchpad started there stop. Files on the host are kept." confirmLabel={`Remove ${h.host.id}`} onConfirm={() => act(api.delete(`/api/hosts/${h.host.id}`), `${h.host.id} removed`)}>Remove</ConfirmButton>
         </span>
       </div>
       <Checks h={h} />
@@ -176,18 +176,30 @@ export function HostsView() {
   const harnesses = useHarnesses();
   const [adding, setAdding] = useState(false);
   const local = projects.filter((p) => !/^[a-z0-9][a-z0-9._-]+:\//.test(p.path)).length;
+  const config = useConfig().data;
+  const patch = usePatchConfig();
   return (
-    <SettingsPage>
-      <Card title="Hosts" end={!adding && <button className="btn btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={12} />Add host</button>}>
-        <p className="text-[12.5px] text-ink-2">Machines reached with ssh. Agents, worktrees, terminals, Changes and the code viewer of a project run on its host; this daemon keeps the agent list, quotas, schedules and GitHub. A turn continues on the host when this computer sleeps, and its output catches up when the connection returns. Scheduled launches and crons wait while this computer sleeps.</p>
-        <div className="grid gap-1 rounded-md border border-line p-3 text-[12.5px]">
-          <div className="flex items-center gap-2"><Icon name="folder" size={14} /><b className="font-[650]">This computer</b><span className="text-ink-3">{status?.host}</span><span className="ml-auto text-xs font-semibold text-gh-open">Ready</span></div>
-          <div className="text-xs text-ink-2">{local} project{local === 1 ? "" : "s"} · {harnesses.map((h) => h.name).join(", ")} as configured in Settings → Profiles</div>
-        </div>
-        {adding && <AddHost onDone={() => setAdding(false)} />}
-        {hosts.map((h) => <HostCard key={h.host.id} h={h} />)}
-        {hosts.length === 0 && !adding && <div className="text-xs text-ink-3">No hosts yet. Add one from your ~/.ssh/config or as user@host.</div>}
+    <SettingsPage
+      title="Machines"
+      intro="This computer and the SSH hosts where folders live and agents run."
+      info="Agents, worktrees, terminals, Changes and Files of a folder run on its host; this daemon keeps the agent list, quotas, schedules and GitHub. A turn continues on the host when this computer sleeps, and its output catches up when the connection returns. Scheduled launches and crons wait while this computer sleeps."
+      actions={!adding && <button className="btn btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={12} />Add host</button>}
+    >
+      <ConfigError />
+      <Card title="This computer" end={<span className="text-[12px] font-semibold text-gh-open">Ready</span>}>
+        <div className="text-[12px] text-ink-2">{status?.host} · {local} folder{local === 1 ? "" : "s"} · {harnesses.map((h) => h.name).join(", ")} as configured in Profiles</div>
+        {config && <>
+          <SettingRow label="Folders root" hint="Where folders are suggested, and where scratch folders and worktrees are created." scope="all">
+            <SavedInput label="Folders root" className="font-mono text-xs" value={config.config.projects_root} onSave={(v) => patch({ projects_root: v })} />
+          </SettingRow>
+          <SettingRow label="Open links with" hint={config.remote ? "Edit [commands] in config.toml on this computer." : "Command that opens links; empty uses the system default."} scope="all">
+            <SavedInput label="Browser command" className="font-mono text-xs" placeholder="xdg-open" disabled={config.remote} value={config.config.commands.browser} onSave={(v) => patch({ browser: v })} />
+          </SettingRow>
+        </>}
       </Card>
+      {adding && <AddHost onDone={() => setAdding(false)} />}
+      {hosts.map((h) => <HostCard key={h.host.id} h={h} />)}
+      {hosts.length === 0 && !adding && <Empty icon="term" action={<button className="btn btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={12} />Add host</button>}>No SSH host yet. Add one from your ~/.ssh/config or as user@host.</Empty>}
     </SettingsPage>
   );
 }

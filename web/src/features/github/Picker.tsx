@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Popover } from "@/components/Popover";
+import { Icon } from "@/components/Icon";
 import { api } from "@/lib/api";
 import type { Label } from "./types";
 
@@ -16,7 +17,7 @@ export function useRepoMeta(repo: string) {
 /** A searchable checkbox list. `allowNew` offers the typed text when it is not in the list. */
 export function Picker({ label, options, selected, onChange, allowNew, render, disabled }: { label: string; options: string[]; selected: string[]; onChange: (next: string[]) => void; allowNew?: string; render?: (name: string) => ReactNode; disabled?: boolean }) {
   return (
-    <Popover width={250} trigger={({ open, toggle }) => <button className="btn btn-sm mt-2 w-full justify-between" disabled={disabled} aria-expanded={open} onClick={toggle}>{label} <span>▾</span></button>}>
+    <Popover width={250} trigger={({ open, toggle }) => <button className="btn btn-sm w-full justify-between" disabled={disabled} aria-expanded={open} onClick={toggle}>{label} <Icon name="chev" size={12} /></button>}>
       {() => <List options={options} selected={selected} onChange={onChange} allowNew={allowNew} render={render} />}
     </Popover>
   );

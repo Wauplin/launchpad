@@ -29,6 +29,15 @@ pub struct Config {
     pub presets: Vec<Preset>,
     /// Named harness settings, selectable in the composer beside the base harnesses.
     pub profiles: Vec<Profile>,
+    pub assistant: Assistant,
+}
+
+/// Ask Launchpad: the profile and model of the assistant session. None: the first subscription profile and its default model.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
+#[serde(default)]
+pub struct Assistant {
+    pub profile: Option<String>,
+    pub model: Option<String>,
 }
 
 /// Network front door. File edits require restart; pairing can apply verified HTTPS live.
@@ -160,6 +169,7 @@ impl Default for Config {
             worktrees: Worktrees::default(),
             profiles: vec![],
             presets: vec![],
+            assistant: Assistant::default(),
         }
     }
 }

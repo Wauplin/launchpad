@@ -24,7 +24,7 @@ export function CronPane({ cron, onOpen, onClose }: { cron: CronAgent; onOpen: (
   const [editValid, setEditValid] = useState(false);
   const preview = useQuery({ queryKey: ["cron-preview", cron.id], queryFn: () => api.post<Preview>("/api/launch/preview", cron.spec) });
   const projectId = (cron.spec.target.kind === "project" || cron.spec.target.kind === "predraft") ? cron.spec.target.project_id : null;
-  const name = projects.find((p) => p.id === projectId)?.name ?? (cron.spec.target.kind === "existing_predraft" ? "Local pre-draft" : "New temporary folder");
+  const name = projects.find((p) => p.id === projectId)?.name ?? (cron.spec.target.kind === "existing_predraft" ? "Local PR" : "New scratch folder");
   const runs = cron.runs.slice().reverse().map((id) => ({ id, session: sessions.find((s) => s.id === id) }));
   const act = async (f: () => Promise<void>) => {
     setBusy(true);

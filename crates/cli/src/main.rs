@@ -24,7 +24,8 @@ impl Client {
         });
         Ok(match helper {
             Some(dir) => Client::Helper(dir),
-            None => Client::Local { base: paths.base_url(), token: paths.token()?, http: reqwest::Client::new() },
+            // LAUNCHPAD_TOKEN: a restricted credential (the Ask Launchpad assistant's read-and-propose token).
+            None => Client::Local { base: paths.base_url(), token: match std::env::var("LAUNCHPAD_TOKEN") { Ok(t) if !t.trim().is_empty() => t.trim().to_string(), _ => paths.token()? }, http: reqwest::Client::new() },
         })
     }
 
@@ -86,6 +87,51 @@ enum Command {
         #[command(subcommand)]
         command: Work,
     },
+    /// Registered folders (JSON), optionally of one workspace.
+    Folders {
+        #[command(subcommand)]
+        command: ListOnly,
+    },
+    /// Agent sessions (JSON): `list` or `show <id>`.
+    Sessions {
+        #[command(subcommand)]
+        command: Sessions,
+    },
+    /// Profiles without their environment, with the quota of each subscription login (JSON).
+    Profiles {
+        #[command(subcommand)]
+        command: ListOnly,
+    },
+    /// Prompt presets (JSON).
+    Presets {
+        #[command(subcommand)]
+        command: ListOnly,
+    },
+    /// Active GitHub inbox threads (JSON), optionally of one workspace's repositories.
+    Inbox {
+        #[command(subcommand)]
+        command: ListOnly,
+    },
+    /// Scheduled launches and cron agents (JSON).
+    Schedules {
+        #[command(subcommand)]
+        command: ListOnly,
+    },
+    /// Store an inert proposal for the owner to start from the Ask page; never starts anything.
+    Propose {
+        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status"])]
+        kind: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        note: Option<String>,
+        /// JSON file with the proposal fields (see the Ask Launchpad instructions).
+        #[arg(long)]
+        spec_file: std::path::PathBuf,
+        /// The assistant session writing it (defaults to LAUNCHPAD_SESSION_ID).
+        #[arg(long)]
+        session_id: Option<String>,
+    },
     /// Print the stored trace of an agent session, for use as reference context.
     Trace {
         session_id: String,
@@ -119,6 +165,32 @@ enum Command {
         #[arg(default_value = "web/src/gen")]
         out: std::path::PathBuf,
     },
+}
+
+#[derive(Subcommand)]
+enum ListOnly {
+    List {
+        /// Workspace ID or name (default: every workspace).
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum Sessions {
+    List {
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+    Show { session_id: String },
+}
+
+/// Read-only context commands: GET `/api/context/<what>`.
+async fn context_command(paths: &Paths, what: &str, workspace: Option<String>) -> Result<()> {
+    let path = match workspace { Some(w) => query(&format!("/api/context/{what}"), &[("workspace", &w)]), None => format!("/api/context/{what}") };
+    let body = Client::new(paths)?.json("GET", &path, None).await?;
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
 }
 
 #[derive(Subcommand)]
@@ -276,6 +348,23 @@ async fn main() -> Result<()> {
         Command::Suggest { command } => suggest_command(&paths, command).await,
         Command::Pr { command } => pr_command(&paths, command).await,
         Command::Work { command } => work_command(&paths, command).await,
+        Command::Folders { command: ListOnly::List { workspace } } => context_command(&paths, "folders", workspace).await,
+        Command::Profiles { command: ListOnly::List { .. } } => context_command(&paths, "profiles", None).await,
+        Command::Presets { command: ListOnly::List { .. } } => context_command(&paths, "presets", None).await,
+        Command::Inbox { command: ListOnly::List { workspace } } => context_command(&paths, "inbox", workspace).await,
+        Command::Schedules { command: ListOnly::List { workspace } } => context_command(&paths, "schedules", workspace).await,
+        Command::Sessions { command: Sessions::List { workspace } } => context_command(&paths, "sessions", workspace).await,
+        Command::Sessions { command: Sessions::Show { session_id } } => context_command(&paths, &format!("sessions/{}", url_segment(&session_id)), None).await,
+        Command::Propose { kind, title, note, spec_file, session_id } => {
+            let text = std::fs::read_to_string(&spec_file).with_context(|| format!("read {}", spec_file.display()))?;
+            let mut body: serde_json::Value = serde_json::from_str(&text).context("the spec file is not valid JSON")?;
+            anyhow::ensure!(body.is_object(), "the spec file must hold a JSON object");
+            body["kind"] = serde_json::Value::String(kind);
+            let session_id = session_id.or_else(|| std::env::var("LAUNCHPAD_SESSION_ID").ok());
+            let created = Client::new(&paths)?.json("POST", "/api/proposals", Some(serde_json::json!({"title": title, "note": note, "body": body, "session_id": session_id}))).await?;
+            println!("Proposal {} saved. The owner starts it from the Ask page.", created["id"].as_str().unwrap_or("?"));
+            Ok(())
+        }
         Command::Trace { session_id, through } => {
             let mut path = format!("/api/sessions/{}/trace", url_segment(&session_id));
             if let Some(through) = through {
