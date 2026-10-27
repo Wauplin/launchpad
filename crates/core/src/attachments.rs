@@ -219,7 +219,7 @@ pub async fn prepare(
     }
     let dir = dir(app, host, id);
     let mut paths = Vec::new();
-    for (i, file) in files.iter().enumerate() {
+    for file in files {
         if is_image(&file.data_url) {
             images.push(ImageAttachment {
                 name: file.name.clone(),
@@ -239,11 +239,14 @@ pub async fn prepare(
                 })
                 .take(120)
                 .collect();
+            // A content prefix keeps names stable across retries and distinct across later messages.
+            let bytes = decode(&file.data_url, false)?;
             let path = dir.join(format!(
-                "{i}-{}",
+                "{}-{}",
+                &hex::encode(Sha256::digest(&bytes))[..8],
                 if name.is_empty() { "attachment" } else { &name }
             ));
-            crate::hostfs::write_mode(&path, &decode(&file.data_url, false)?, Some(0o600)).await?;
+            crate::hostfs::write_mode(&path, &bytes, Some(0o600)).await?;
             paths.push(format!("- {}", crate::hosts::loc::native(&path.to_string_lossy())));
         }
     }
@@ -257,4 +260,16 @@ pub async fn prepare(
         String::new()
     };
     Ok((images, has_files.then_some(dir), instruction))
+}
+
+/// Attachments of a message to a running session: images become native image input, other files are
+/// copied to the session's private attachment folder and listed after the text.
+pub async fn for_message(app: &crate::App, id: &str, text: &str, files: &[FileAttachment]) -> Result<(String, Vec<ImageAttachment>)> {
+    if files.is_empty() {
+        return Ok((text.to_string(), Vec::new()));
+    }
+    validate(files)?;
+    let s = app.sessions.get(id).context("no such session")?;
+    let (images, _, instruction) = prepare(app, crate::hosts::loc::host_of(&s.cwd), id, files).await?;
+    Ok((format!("{text}{instruction}").trim_start().to_string(), images))
 }

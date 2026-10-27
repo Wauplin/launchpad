@@ -56,14 +56,17 @@ struct Scope {
 #[derive(Deserialize)]
 struct Ask {
     workspace_id: Option<String>,
+    #[serde(default)]
     text: String,
+    #[serde(default)]
+    attachments: Vec<launchpad_core::model::FileAttachment>,
 }
 
 async fn thread(State(s): State<Server>, Query(q): Query<Scope>) -> Json<Option<Session>> {
     Json(proposals::thread(&s.app, q.workspace.as_deref()))
 }
 async fn ask(State(s): State<Server>, Json(b): Json<Ask>) -> ApiResult<Session> {
-    Ok(Json(proposals::ask(&s.app, b.workspace_id, b.text).await.map_err(bad)?))
+    Ok(Json(proposals::ask(&s.app, b.workspace_id, b.text, b.attachments).await.map_err(bad)?))
 }
 
 /// The workspace (by ID or name) and its folder IDs; None means every folder.

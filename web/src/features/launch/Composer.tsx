@@ -16,7 +16,8 @@ import type { GitHubRef } from "@/gen/GitHubRef";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import type { Profile } from "@/gen/Profile";
-import { attachmentSrc, isImageAttachment, pastedImages, readAttachments } from "@/lib/attachments";
+import { isImageAttachment, pastedImages, readAttachments } from "@/lib/attachments";
+import { AttachmentList } from "@/features/agents/MessageAttachments";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
 import type { Project } from "@/gen/Project";
@@ -538,11 +539,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         </div>
         {(readingAttachments || (spec.attachments ?? []).length > 0 || unsupportedImages) && <div>
           {readingAttachments && <div className="text-[12px] text-ink-3">Reading attachments…</div>}
-          {(spec.attachments ?? []).length > 0 && <div className="flex flex-wrap items-start gap-2">{spec.attachments.map((file, i) => <div key={i} className="relative max-w-full rounded-md border border-line bg-chrome p-1.5 pr-6">
-            {isImageAttachment(file.data_url) && <img src={attachmentSrc(file.data_url)} alt={file.name} className="mb-1 h-16 max-w-28 object-contain" />}
-            <div className="max-w-48 truncate text-[12px]" title={file.name}>{file.name}</div>
-            <button className="iconbtn absolute top-0 right-0" title={`Remove ${file.name}`} aria-label={`Remove ${file.name}`} disabled={launching || readingAttachments} onClick={() => set((s) => ({ ...s, attachments: s.attachments.filter((_, j) => j !== i) }))}><Icon name="x" size={12} /></button>
-          </div>)}</div>}
+          <AttachmentList files={spec.attachments ?? []} disabled={launching || readingAttachments} onRemove={(i) => set((s) => ({ ...s, attachments: s.attachments.filter((_, j) => j !== i) }))} />
           {unsupportedImages && <div className="mt-1 text-[12px] text-danger-ink">This harness does not support attached images. Remove them or choose another harness.</div>}
         </div>}
 

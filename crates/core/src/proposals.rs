@@ -284,16 +284,19 @@ pub async fn recover(app: &App) -> Result<()> {
 }
 
 /// Starts (or continues) the assistant thread of a workspace with the owner's message.
-pub async fn ask(app: &App, workspace_id: Option<String>, text: String) -> Result<crate::model::Session> {
-    ensure!(!text.trim().is_empty(), "the message is empty");
+/// Images go to the assistant as native image input; other files become private local copies it can read.
+pub async fn ask(app: &App, workspace_id: Option<String>, text: String, attachments: Vec<crate::model::FileAttachment>) -> Result<crate::model::Session> {
+    ensure!(!text.trim().is_empty() || !attachments.is_empty(), "the message is empty");
     if let Some(s) = thread(app, workspace_id.as_deref()) {
-        app.sessions.send(app, &s.id, &text, vec![]).await?;
+        let (text, images) = crate::attachments::for_message(app, &s.id, &text, &attachments).await?;
+        app.sessions.send(app, &s.id, &text, images).await?;
         return app.sessions.get(&s.id).context("the assistant session disappeared");
     }
     let config = app.config.get();
     let profile = config.assistant.profile.as_ref().and_then(|id| config.profiles.iter().find(|p| &p.id == id)).or_else(|| config.profiles.iter().find(|p| p.billing == crate::config::Billing::Subscription)).or(config.profiles.first()).context("add a profile in Settings → Profiles first")?;
     let spec = LaunchSpec {
         text,
+        attachments,
         harness: Some(profile.harness),
         profile: Some(profile.id.clone()),
         model: config.assistant.model.clone().or_else(|| profile.model.clone()),

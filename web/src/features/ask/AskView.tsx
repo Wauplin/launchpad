@@ -8,12 +8,14 @@ import { memo, useEffect, useRef, useState } from "react";
 import type { Proposal } from "@/gen/Proposal";
 import type { Session } from "@/gen/Session";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
-import { HarnessMark } from "@/components/HarnessMark";
+import type { FileAttachment } from "@/gen/FileAttachment";
+import { HarnessMark, useHarnessInfo } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader, Tabs, Token } from "@/components/ui";
 import { api } from "@/lib/api";
+import { pastedImages } from "@/lib/attachments";
 import { usePhone } from "@/lib/phone";
 import { useProfiles } from "@/lib/profiles";
 import { useConfig, useHarnessDefaults, useProjects, useSessions, type ConfigResponse } from "@/lib/queries";
@@ -25,6 +27,7 @@ import { useLayout } from "@/stores/layout";
 import { SessionPane } from "@/features/agents/SessionPane";
 import { StatusBadge } from "@/features/agents/SessionBits";
 import { PhoneActions } from "@/mobile/PhoneHeader";
+import { ATTACH_LIMITS, AttachmentList, useMessageAttachments } from "@/features/agents/MessageAttachments";
 
 const useProposalList = () => useQuery({ queryKey: ["proposals"], queryFn: () => api.get<Proposal[]>("/api/proposals"), staleTime: 30_000 });
 
@@ -193,13 +196,39 @@ function PhoneAskBar({ pane, setPane, waiting, thread, newThread }: { pane: "cha
 /** First message of a thread (later messages use the session's own message box). */
 const EXAMPLES = ["What needs me?", "Review the PRs waiting for me", "Summarize what my agents did today"];
 
-function AskField({ onSend, busy, autoFocus, phone }: { onSend: (text: string) => void; busy: boolean; autoFocus?: boolean; phone?: boolean }) {
+function AskField({ onSend, busy, autoFocus, phone }: { onSend: (text: string, attachments: FileAttachment[]) => Promise<boolean>; busy: boolean; autoFocus?: boolean; phone?: boolean }) {
   const [text, setText] = useState("");
+  // The profile the next thread starts with decides whether images can be attached.
+  const images = useHarnessInfo(useAssistant().current?.harness ?? null)?.capabilities.images ?? true;
+  const attachments = useMessageAttachments(images);
+  const { files, reading } = attachments;
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const blocked = busy || reading;
+  const send = async () => {
+    if (blocked || (!text.trim() && !files.length)) return;
+    if (await onSend(text.trim(), files)) { setText(""); attachments.clear(); }
+  };
   return (<>
     {phone && <div className="flex flex-wrap gap-1.5">{EXAMPLES.map((x) => <button key={x} className="btn btn-sm" disabled={busy} onClick={() => setText(x)}>{x}</button>)}</div>}
-    <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
-      <textarea autoFocus={autoFocus} rows={2} value={text} disabled={busy} aria-label="Ask Launchpad" placeholder={phone ? "Ask or describe work…" : "Ask or describe work… e.g. “Fix the flaky snapshot test in hub”, “Review the PRs waiting for me”, “What needs me?”"} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (text.trim()) { onSend(text.trim()); setText(""); } } }} className="max-h-40 min-h-10 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none" />
-      <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={busy || !text.trim()} onClick={() => { onSend(text.trim()); setText(""); }}><Icon name="send" size={14} /></button>
+    <div className="relative"
+      onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
+      onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(false); if (!blocked) void attachments.add(Array.from(e.dataTransfer.files)); } }}
+    >
+      {dragging && <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-lg border-2 border-teal bg-teal-soft/80 text-[13px] font-semibold text-teal-ink">Drop files{images ? " or images" : ""} to attach</div>}
+      <input ref={fileRef} type="file" multiple hidden onChange={(e) => { void attachments.add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+      <AttachmentList files={files} disabled={blocked} onRemove={attachments.remove} />
+      {reading && <div className="mb-1 text-[12px] text-ink-3">Reading attachments…</div>}
+      <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
+        <textarea autoFocus={autoFocus} rows={2} value={text} disabled={blocked} aria-label="Ask Launchpad" placeholder={phone ? "Ask or describe work…" : "Ask or describe work… e.g. “Fix the flaky snapshot test in hub”, “Review the PRs waiting for me”, “What needs me?”"}
+          onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => { if (!images || blocked || attachments.readingRef.current) return; const pasted = pastedImages(e); if (pasted) void attachments.add(pasted); }}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}
+          className="max-h-40 min-h-10 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none" />
+        <button className="iconbtn" title={`Attach files or images (you can also drop files${images ? " or paste a screenshot" : ""}). ${ATTACH_LIMITS}`} aria-label="Attach files or images" disabled={blocked} onClick={() => fileRef.current?.click()}><Icon name="clip" size={14} /></button>
+        <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={blocked || (!text.trim() && !files.length)} onClick={() => void send()}><Icon name="send" size={14} /></button>
+      </div>
     </div>
   </>);
 }
@@ -220,10 +249,10 @@ export function AskView() {
   const mine = (proposals.data ?? []).filter((p) => (p.workspace_id ?? null) === workspace);
   const waiting = mine.filter((p) => p.state === "proposed" || p.state === "failed" || p.state === "uncertain");
   const shown = filter === "open" ? waiting : mine.slice(0, 50);
-  const ask = async (text: string) => {
+  const ask = async (text: string, attachments: FileAttachment[] = []) => {
     setBusy(true);
-    try { await api.post<Session>("/api/assistant", { workspace_id: workspace, text }); await qc.invalidateQueries({ queryKey: ["sessions"] }); }
-    catch (e) { toastError(e); } finally { setBusy(false); }
+    try { await api.post<Session>("/api/assistant", { workspace_id: workspace, text, attachments }); await qc.invalidateQueries({ queryKey: ["sessions"] }); return true; }
+    catch (e) { toastError(e); return false; } finally { setBusy(false); }
   };
   // The Agents dashboard field opens this page with its text already sent.
   const sent = useRef(false);
@@ -275,12 +304,12 @@ export function AskView() {
       ? <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
           <p className="m-0 text-[13px] text-ink-2">Describe work in plain words. The assistant reads your folders, agents, inbox and quotas, then proposes launches, messages, schedules and crons. Nothing starts until you tap it; nothing reaches GitHub.</p>
           {busy && <Loading what="the assistant" />}
-          <div className="mt-auto grid gap-2"><AskField phone onSend={(t) => void ask(t)} busy={busy} /></div>
+          <div className="mt-auto grid gap-2"><AskField phone onSend={ask} busy={busy} /></div>
         </div>
       : <div className="grid min-h-0 flex-1 place-items-center p-6">
         <div className="grid w-full max-w-[560px] gap-3">
           <p className="m-0 text-[13px] text-ink-2">Describe work in plain words. The assistant reads your folders, agents, inbox and quotas, then proposes launches, messages, schedules and crons as cards. Nothing starts until you tap it; nothing reaches GitHub.</p>
-          <AskField onSend={(t) => void ask(t)} busy={busy} autoFocus />
+          <AskField onSend={ask} busy={busy} autoFocus />
           {busy && <Loading what="the assistant" />}
           <p className="m-0 text-[12px] text-ink-3">The full composer stays one click away: <button className="text-teal-ink hover:underline" onClick={() => useComposer.getState().start()}>open the composer</button> or use <Link to="/agents">Agents</Link>.</p>
         </div>

@@ -18,7 +18,6 @@ import { useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@/gen/Session";
-import type { ImageAttachment } from "@/gen/ImageAttachment";
 import { HarnessMark, useHarnessInfo } from "@/components/HarnessMark";
 import { CodeLinksContext, ShellCodeContext, type CodeLinks } from "@/components/Markdown";
 import { citationPath } from "@/lib/fileCitations";
@@ -30,7 +29,8 @@ import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { abandonOperation } from "@/lib/operations";
 import { api, ApiError } from "@/lib/api";
-import { attachmentSrc, pastedImages, readAttachments } from "@/lib/attachments";
+import { pastedImages } from "@/lib/attachments";
+import { ATTACH_LIMITS, AttachmentList, useMessageAttachments } from "./MessageAttachments";
 import { projectName, useProjects, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
 import { buildRows } from "./rows";
@@ -68,23 +68,14 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
   const message = ask ? text.trim() : withPresets(text, presets, allPresets);
   const [busy, setBusy] = useState(false);
   const [delivery, setDelivery] = useState<"sending" | "delivered" | "uncertain" | "failed" | null>(null);
-  const [images, setImages] = useState<ImageAttachment[]>([]);
-  const [reading, setReading] = useState(false);
+  const attachments = useMessageAttachments(acceptsImages);
+  const { files, reading, readingRef } = attachments;
   const fileRef = useRef<HTMLInputElement>(null);
-  const readingRef = useRef(false);
-  const addImages = async (input: File[] | Promise<File[]>) => {
-    if (!acceptsImages || disabled || busy || readingRef.current) return;
-    readingRef.current = true;
-    setReading(true);
-    try {
-      const files = await input;
-      if (!files.length) return;
-      const added = await readAttachments(files, images, true);
-      setImages((current) => [...current, ...added]);
-    } catch (e) { toastError(e); }
-    finally { readingRef.current = false; setReading(false); }
+  const addFiles = (input: File[] | Promise<File[]>) => {
+    if (disabled || busy) return;
+    void attachments.add(input);
   };
-  useLayoutEffect(() => { dropImages.current = (files) => { void addImages(files); }; });
+  useLayoutEffect(() => { dropImages.current = (dropped) => addFiles(dropped); });
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -93,22 +84,22 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
   }, [text, ref]);
   const send = async () => {
     const t = message;
-    if ((!t && !images.length) || busy || disabled || reading || ask?.permission) return;
+    if ((!t && !files.length) || busy || disabled || reading || ask?.permission) return;
     setBusy(true);
     setDelivery("sending");
     try {
       if (ask) {
         // A typed answer to the open question.
-        await api.post(`/api/sessions/${sessionId}/answer`, { request_id: ask.request_id, answers: Array(ask.count).fill(t || "See the attached images in my next message.") });
-        if (images.length) await api.post(`/api/sessions/${sessionId}/input`, { text: t, images });
+        await api.post(`/api/sessions/${sessionId}/answer`, { request_id: ask.request_id, answers: Array(ask.count).fill(t || "See the attachments in my next message.") });
+        if (files.length) await api.post(`/api/sessions/${sessionId}/input`, { text: t, files });
       } else {
-        await api.post(`/api/sessions/${sessionId}/input`, { text: t, images });
+        await api.post(`/api/sessions/${sessionId}/input`, { text: t, files });
       }
       setDelivery("delivered");
       onSent();
       setText("");
       if (!ask) setPresets([]);
-      setImages([]);
+      attachments.clear();
     } catch (e) {
       setDelivery(e instanceof ApiError && e.operationCompleted ? "failed" : "uncertain");
       toastError(e);
@@ -118,14 +109,11 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
   };
   return (
     <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5">
-      <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { void addImages(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
-      {images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{images.map((image, i) => <div key={i} className="relative">
-        <img src={attachmentSrc(image.data_url)} alt={image.name} title={image.name} className="h-16 max-w-28 rounded-md border border-line object-contain" />
-        <button className="iconbtn absolute -top-1 -right-1 bg-paper!" title={`Remove ${image.name}`} disabled={busy || reading} onClick={() => setImages((current) => current.filter((_, j) => j !== i))}><Icon name="x" size={12} /></button>
-      </div>)}</div>}
+      <input ref={fileRef} type="file" multiple hidden onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+      <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
       {delivery && <div role="status" className="mb-1 text-[12px] text-ink-3">{delivery === "sending" ? "Sending…" : delivery === "delivered" ? "Delivered" : delivery === "failed" ? "Attempt failed. Check the trace before starting a new attempt." : "Delivery not confirmed. Retry the same message to check its result."}</div>}
-      {delivery === "uncertain" && <button className="btn btn-sm mb-1" disabled={busy} onClick={() => void abandonOperation(`/api/sessions/${sessionId}/input`, { text: message, images }).then(() => setDelivery(null)).catch(toastError)}>I checked the trace — start a new attempt</button>}
-      {reading && <div className="mb-1 text-[12px] text-ink-3">Reading images…</div>}
+      {delivery === "uncertain" && <button className="btn btn-sm mb-1" disabled={busy} onClick={() => void abandonOperation(`/api/sessions/${sessionId}/input`, { text: message, files }).then(() => setDelivery(null)).catch(toastError)}>I checked the trace — start a new attempt</button>}
+      {reading && <div className="mb-1 text-[12px] text-ink-3">Reading attachments…</div>}
       {!ask && <PresetChips selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
       <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
         <textarea
@@ -135,8 +123,8 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
           disabled={disabled || busy || reading}
           onPaste={(e) => {
             if (!acceptsImages || disabled || busy || readingRef.current) return;
-            const files = pastedImages(e);
-            if (files) void addImages(files);
+            const pasted = pastedImages(e);
+            if (pasted) addFiles(pasted);
           }}
           placeholder={placeholder}
           onChange={(e) => setText(e.target.value)}
@@ -150,10 +138,10 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
           className="max-h-40 min-h-5 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none disabled:opacity-60"
         />
         {!ask && <PresetButton selected={presets} onChange={setPresets} disabled={disabled || busy || reading} />}
-        {acceptsImages && <button className="iconbtn" title="Attach images (you can also drop or paste them)" aria-label="Attach images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
+        <button className="iconbtn" title={`Attach files or images (you can also drop files${acceptsImages ? " or paste a screenshot" : ""}). ${ATTACH_LIMITS}`} aria-label="Attach files or images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
           <Icon name="clip" size={14} />
-        </button>}
-        <button className="iconbtn border-line! bg-paper" title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : "Send"} disabled={disabled || busy || reading || (!message && !images.length)} onClick={() => void send()}>
+        </button>
+        <button className="iconbtn border-line! bg-paper" title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : "Send"} disabled={disabled || busy || reading || (!message && !files.length)} onClick={() => void send()}>
           <Icon name="send" size={14} />
         </button>
       </div>
@@ -343,7 +331,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
       onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(false); dropImages.current?.(Array.from(e.dataTransfer.files)); } }}
     >
-      {dragging && <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center border-2 border-teal bg-teal-soft/80 font-semibold text-teal-ink">{harness?.capabilities.images ? "Drop images to attach to your message" : `${name} does not accept images`}</div>}
+      {dragging && <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center border-2 border-teal bg-teal-soft/80 font-semibold text-teal-ink">{harness?.capabilities.images ? "Drop files or images to attach to your message" : `Drop files to attach (${name} does not accept images)`}</div>}
       {phone && chat ? <div className="flex min-h-11 items-center gap-2 border-b border-line-2 px-3 py-1 text-[12px] text-ink-3">
         <StatusBadge s={s} />
         <span className="min-w-0 flex-1 truncate">{usageLine(s)}</span>

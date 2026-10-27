@@ -85,11 +85,10 @@ export function attachmentSrc(dataUrl: string): string {
 
 export const isImageAttachment = (dataUrl: string) => dataUrl.startsWith("data:image/") || dataUrl.startsWith("upload:image/");
 
-export async function readAttachments(files: File[], current: FileAttachment[], imagesOnly = false): Promise<FileAttachment[]> {
+export async function readAttachments(files: File[], current: FileAttachment[]): Promise<FileAttachment[]> {
   if (current.length + files.length > 8) throw new Error("Attach at most 8 files.");
   const prepared = await Promise.all(files.map(async (file) => {
     const looksImage = file.type.startsWith("image/") || (!file.type && /\.(heic|heif)$/i.test(file.name));
-    if (imagesOnly && !looksImage) throw new Error("Attach images only.");
     const ready = looksImage ? await normalizeImage(file) : file;
     if (ready.size > 5 * 1024 * 1024) throw new Error("Each attachment must be 5 MB or smaller.");
     if (looksImage && !ready.size) throw new Error("The image is empty.");
