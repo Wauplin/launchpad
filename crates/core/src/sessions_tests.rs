@@ -334,3 +334,70 @@ async fn assistant_threads_stay_reachable_without_contributing_to_global_counts(
         assert_eq!(crate::proposals::thread(&app, None).is_some(), status != SessionStatus::Closed);
     }
 }
+
+#[tokio::test]
+async fn accepted_proposals_close_only_their_author_and_keep_results_retry_safe() {
+    use crate::model::{SessionStatus, Target};
+    use crate::proposals::{self, Proposal, ProposalBody, ProposalState};
+    let (_fixture, app) = fixture().await;
+    let original = app.sessions.get("test").unwrap();
+    for (id, assistant) in [("author", true), ("newer", true), ("other", false)] {
+        let mut session = original.clone();
+        session.id = id.into();
+        session.started_at = if id == "newer" { 2 } else { 1 };
+        if assistant { session.launch_spec.target = Target::Assistant { workspace_id: None }; }
+        super::Sessions::persist(&app.state_db, &session).await.unwrap();
+    }
+    app.sessions.load(&app).await.unwrap();
+    // The reserved launch already exists: no harness or network activity is needed.
+    let mut proposal = Proposal {
+        id: "accept".into(), workspace_id: None, session_id: Some("author".into()),
+        title: "Launch".into(), note: None,
+        body: ProposalBody::Launch { spec: original.launch_spec.clone() },
+        state: ProposalState::Proposed, result_id: Some("test".into()), error: None,
+        created_at: 0, updated_at: 0,
+    };
+    async fn store(app: &crate::App, p: &Proposal) {
+        let id = p.id.clone();
+        let json = serde_json::to_string(p).unwrap();
+        app.state_db.call(move |c| {
+            c.execute("INSERT OR REPLACE INTO launch_proposal (id,json) VALUES (?1,?2)", rusqlite::params![id, json])?;
+            Ok(())
+        }).await.unwrap();
+    }
+    store(&app, &proposal).await;
+    let accepted = proposals::accept(&app, &proposal.id).await.unwrap();
+    assert_eq!(accepted.state, ProposalState::Started);
+    assert_eq!(accepted.result_id.as_deref(), Some("test"));
+    assert_eq!(app.sessions.get("author").unwrap().status, SessionStatus::Closed);
+    assert_eq!(proposals::thread(&app, None).unwrap().id, "newer");
+    assert_eq!(app.sessions.get("test").unwrap().status, SessionStatus::Waiting);
+    // Repeated delivery must not close a thread that the owner deliberately reopened.
+    app.sessions.update(&app, "author", |s| s.status = SessionStatus::Waiting).await.unwrap();
+    proposals::accept(&app, &proposal.id).await.unwrap();
+    assert_eq!(app.sessions.get("author").unwrap().status, SessionStatus::Waiting);
+
+    proposal.id = "failed".into();
+    proposal.body = ProposalBody::Message { session_id: "missing".into(), text: "hello".into() };
+    store(&app, &proposal).await;
+    assert_eq!(proposals::accept(&app, &proposal.id).await.unwrap().state, ProposalState::Failed);
+    assert_eq!(app.sessions.get("author").unwrap().status, SessionStatus::Waiting);
+    proposal.id = "uncertain".into();
+    proposal.state = ProposalState::Uncertain;
+    store(&app, &proposal).await;
+    assert!(proposals::accept(&app, &proposal.id).await.is_err());
+    assert_eq!(app.sessions.get("author").unwrap().status, SessionStatus::Waiting);
+
+    proposal.id = "recovered".into();
+    proposal.body = ProposalBody::Launch { spec: original.launch_spec };
+    store(&app, &proposal).await;
+    assert_eq!(proposals::recheck(&app, &proposal.id).await.unwrap().state, ProposalState::Started);
+    assert_eq!(app.sessions.get("author").unwrap().status, SessionStatus::Closed);
+
+    proposal.id = "non-assistant".into();
+    proposal.session_id = Some("other".into());
+    proposal.state = ProposalState::Proposed;
+    store(&app, &proposal).await;
+    assert_eq!(proposals::accept(&app, &proposal.id).await.unwrap().state, ProposalState::Started);
+    assert_eq!(app.sessions.get("other").unwrap().status, SessionStatus::Waiting);
+}

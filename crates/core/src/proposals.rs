@@ -111,7 +111,7 @@ Read Launchpad state with these read-only commands (JSON output):\n\
 Write proposals with `{cmd} propose <launch|message|schedule|cron|status> --title \"…\" [--note \"…\"] --spec-file <file.json>`. The JSON file holds:\n\
 - launch: {{\"spec\": <launch spec>}}\n- message: {{\"session_id\": \"…\", \"text\": \"…\"}}\n- schedule: {{\"spec\": <launch spec>, \"conditions\": [{{\"kind\": \"in\", \"minutes\": 30}} | {{\"kind\": \"at\", \"at\": <unix ms>}} | {{\"kind\": \"agents\", \"session_ids\": [\"…\"]}} | {{\"kind\": \"quota\", \"harness\": \"claude\", \"window\": \"five_hour\"}}]}}\n- cron: {{\"spec\": <launch spec>, \"schedule\": \"0 9 * * 1\", \"conditions\": []}}\n- status: {{\"session_ids\": [\"…\"]}}\n\
 A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"target\": {{\"kind\": \"project\", \"project_id\": \"<folder id>\"}} or {{\"kind\": \"temp\"}}, \"worktree\": {{\"base\": null, \"include_changes\": false, \"merge_when_done\": false}} for Git folders (null for the checkout), \"github_refs\": [], \"presets\": [<preset ids>]}}; other fields take their defaults. Launchpad validates each proposal with the launch preview and refuses invalid ones; read the error and fix the file. Paid usage stays off. Prefer one proposal per independent task, a message proposal to steer an existing agent, a status proposal to answer \"what needs me\", and a schedule with a quota condition for work that should wait for quota. Crons always need the owner's tap.\n\n\
-Answer in short sentences. After proposing, tell the owner what each card does; they start it from the Ask page."
+Answer in short sentences. After proposing, tell the owner what each card does; they can accept it directly in the thread. Accepting a proposal closes this thread; the next request starts fresh, and the owner can resume this conversation."
     )
 }
 
@@ -237,7 +237,21 @@ pub async fn accept(app: &App, id: &str) -> Result<Proposal> {
     }
     p.updated_at = now_ms();
     save(app, &p).await?;
+    close_accepted_thread(app, &p).await?;
     Ok(p)
+}
+
+/// Close only the assistant that authored a successful proposal, never a newer workspace thread.
+/// Keep the accepted result durable even if shutting down the assistant fails.
+async fn close_accepted_thread(app: &App, p: &Proposal) -> Result<()> {
+    if p.state == ProposalState::Started
+        && let Some(s) = p.session_id.as_deref().and_then(|id| app.sessions.get(id))
+        && s.launch_spec.target.is_assistant()
+        && s.status != crate::model::SessionStatus::Closed
+    {
+        app.sessions.close(app, &s.id).await.context("Proposal accepted, but its assistant thread could not close")?;
+    }
+    Ok(())
 }
 
 pub async fn dismiss(app: &App, id: &str) -> Result<Proposal> {
@@ -267,6 +281,7 @@ pub async fn recheck(app: &App, id: &str) -> Result<Proposal> {
     }
     p.updated_at = now_ms();
     save(app, &p).await?;
+    close_accepted_thread(app, &p).await?;
     Ok(p)
 }
 

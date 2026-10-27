@@ -1,6 +1,7 @@
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
+import { ProposalCard, useProposalList } from "@/features/ask/ProposalCard";
 import { FollowUpAgent } from "./FollowUpAgent";
 import { HostLabel } from "@/components/HostLabel";
 import { hostOf, linkLabel, useHost } from "@/lib/hosts";
@@ -245,14 +246,17 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
     return earlier?.kind === "ask_user" && !log?.earlier?.last_ask_answers ? { request_id: earlier.request_id, count: earlier.questions.length, permission: earlier.questions.some((q) => q.permission) } : null;
   }, [rows, log?.earlier]);
 
+  const proposals = useProposalList(s?.launch_spec.target.kind === "assistant");
+  const threadProposals = (proposals.data ?? []).filter((p) => p.session_id === sessionId).sort((a, b) => a.created_at - b.created_at);
+  const rowCount = trace.length + threadProposals.length;
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
   const traceOpen = !summary && !changesOpen && !childrenOpen && !processesOpen;
-  const v = useVirtualizer({ enabled: traceOpen, count: trace.length, getScrollElement: () => scrollRef.current, estimateSize: () => 48, overscan: 6, useFlushSync: false });
+  const v = useVirtualizer({ enabled: traceOpen, count: rowCount, getItemKey: (i) => i < trace.length ? trace[i].key : threadProposals[i - trace.length].id, getScrollElement: () => scrollRef.current, estimateSize: () => 48, overscan: 6, useFlushSync: false });
   const total = v.getTotalSize();
   useLayoutEffect(() => {
-    if (atBottom.current && trace.length) v.scrollToIndex(trace.length - 1, { align: "end" });
-  }, [trace.length, total, v, summary, changesOpen]);
+    if (atBottom.current && rowCount) v.scrollToIndex(rowCount - 1, { align: "end" });
+  }, [rowCount, total, v, summary, changesOpen]);
   // Answer: show the open question in the trace and focus the message box.
   const [answering, setAnswering] = useState(0);
   useEffect(() => {
@@ -478,13 +482,13 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
           <div style={{ height: total, position: "relative" }}>
             {v.getVirtualItems().map((it) => (
               <div
-                key={trace[it.index].key}
+                key={it.key}
                 data-index={it.index}
                 ref={v.measureElement}
                 className="flex flex-col py-[5px]"
                 style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${it.start}px)` }}
               >
-                <EventRow row={trace[it.index]} sessionId={s.id} live={s.live} />
+                {it.index < trace.length ? <EventRow row={trace[it.index]} sessionId={s.id} live={s.live} /> : <ProposalCard p={threadProposals[it.index - trace.length]} />}
               </div>
             ))}
           </div>
