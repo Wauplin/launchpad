@@ -23,6 +23,7 @@ async fn fixture() -> (Fixture, App, Predraft) {
     let hosts = crate::hosts::Hosts::start(paths.clone(), env.clone(), state_db.clone(), status.clone()).await.unwrap();
     let app = App {
         browser: Default::default(),
+        trace_backup: Default::default(),
         push: crate::push::Push::new(paths.clone()), paths, config, state_db,
         github: crate::github::GitHub::new(env.clone(), cache_db.clone()), cache_db,
         harnesses: crate::harness::Registry::new(&env), env, status, bus, hosts,

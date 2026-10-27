@@ -65,6 +65,9 @@ struct GeneralPatch {
     presets: Option<Vec<launchpad_core::config::Preset>>,
     notify: Option<bool>,
     github_poll_interval_seconds: Option<u64>,
+    trace_backup_enabled: Option<bool>,
+    trace_backup_bucket: Option<String>,
+    trace_backup_folder: Option<String>,
     worktrees_keep: Option<u32>,
     browser: Option<String>,
     /// Ask Launchpad: the assistant's profile ID, model and effort (empty strings clear them).
@@ -74,6 +77,9 @@ struct GeneralPatch {
 }
 async fn patch_general_config(State(s): State<Server>, Json(patch): Json<GeneralPatch>) -> ApiResult<Value> {
     let mut config = s.app.config.get();
+    if let Some(v) = patch.trace_backup_enabled { config.trace_backup.enabled = v; }
+    if let Some(v) = patch.trace_backup_bucket { config.trace_backup.bucket = v; }
+    if let Some(v) = patch.trace_backup_folder { config.trace_backup.folder = v; }
     if let Some(value) = patch.projects_root { config.projects_root = value; }
     if let Some(value) = patch.remove_published_worktree { config.remove_published_worktree = value; }
     if let Some(value) = patch.presets { config.presets = value; }

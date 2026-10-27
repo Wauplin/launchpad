@@ -167,7 +167,7 @@ pub fn spawn_monitors(app: &App) {
     });
 }
 
-fn host_name() -> String {
+pub(crate) fn host_name() -> String {
     #[cfg(unix)]
     {
         let mut buf = [0u8; 256];

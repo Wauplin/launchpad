@@ -40,6 +40,7 @@ pub mod analytics;
 pub mod review_state;
 pub mod suggestions;
 pub mod terminals;
+pub mod trace_backup;
 mod titles;
 pub mod util;
 pub mod profiles;
@@ -79,6 +80,7 @@ pub struct App {
     pub push: push::Push,
     pub hosts: hosts::Hosts,
     pub browser: browser::Broker,
+    pub trace_backup: trace_backup::BackupStatus,
 }
 
 impl App {
@@ -117,6 +119,7 @@ impl App {
             push: web_push,
             hosts,
             browser: browser::Broker::default(),
+            trace_backup: trace_backup::BackupStatus::default(),
         };
         predrafts::link_skill()?;
         app.sessions.load(&app).await?;
@@ -136,6 +139,7 @@ impl App {
                 }
             });
         }
+        trace_backup::spawn(&app);
         crons::spawn(&app);
         status::spawn_monitors(&app);
         quota::spawn(&app);

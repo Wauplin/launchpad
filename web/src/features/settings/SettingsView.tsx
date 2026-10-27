@@ -33,7 +33,7 @@ type NavEntry = { to: string; label: string; icon: IconName; exact?: boolean };
 export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
   { group: "This device", items: [{ to: "/settings", label: "Appearance", icon: "sun", exact: true }, { to: "/settings/notifications", label: "Notifications", icon: "bell" }] },
   { group: "Agents", items: [{ to: "/settings/profiles", label: "Profiles", icon: "agents" }, { to: "/settings/presets", label: "Presets", icon: "preset" }, { to: "/settings/usage", label: "Usage", icon: "clock" }] },
-  { group: "Machines & access", items: [{ to: "/settings/hosts", label: "Machines", icon: "term" }, { to: "/settings/devices", label: "Devices", icon: "window" }, { to: "/settings/github", label: "GitHub", icon: "pr" }] },
+  { group: "Machines & access", items: [{ to: "/settings/hosts", label: "Machines", icon: "term" }, { to: "/settings/devices", label: "Devices", icon: "window" }, { to: "/settings/github", label: "GitHub", icon: "pr" }, { to: "/settings/huggingface", label: "Hugging Face", icon: "archive" }] },
   { group: "Maintenance", items: [{ to: "/settings/worktrees", label: "Maintenance", icon: "archive" }] },
 ];
 

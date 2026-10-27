@@ -7,6 +7,7 @@ use serde::Deserialize;
 pub fn router() -> Router<Server> {
     Router::new()
         .route("/api/setup/sign-in", get(sign_in))
+        .route("/api/setup/trace-backup", get(trace_backup))
         .route("/api/projects/clone", get(clone_suggestions).post(clone))
 }
 
@@ -32,4 +33,9 @@ async fn clone(State(s): State<Server>, Json(b): Json<Clone>) -> ApiResult<Proje
         workspace::add_project(&s.app, ws, &p.id).await?;
     }
     Ok(Json(p))
+}
+
+async fn trace_backup(State(s): State<Server>) -> Json<serde_json::Value> {
+    let check = launchpad_core::trace_backup::check(&s.app.env).await;
+    Json(serde_json::json!({"check": check, "error": s.app.trace_backup.0.read().unwrap().clone()}))
 }
