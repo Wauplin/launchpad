@@ -124,6 +124,8 @@ export function PromptField({
         onClick={(e) => setMention(mentionAt(value, e.currentTarget.selectionStart))}
         onBlur={() => setTimeout(() => setMention(null), 150)}
         onKeyDown={(e) => {
+          // Leave word/selection navigation and IME keys to the text editor.
+          if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.nativeEvent.isComposing) return;
           // Only while the list is open; otherwise keys type text as usual.
           if (!mention || count === 0) {
             if (e.key === "Escape") setMention(null);

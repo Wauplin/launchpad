@@ -232,7 +232,7 @@ fn build_window(app: &tauri::AppHandle, app_env: &AppEnv, label: &str, url: Webv
     let builder = WebviewWindowBuilder::new(app, label, url)
         .initialization_script(format!("if (location.origin === {}) {{ window.__launchpadDesktop = true; window.__launchpadReconnect = () => window.__TAURI_INTERNALS__.invoke('reconnect_local'); }}", serde_json_string(&origin)));
     #[cfg(target_os = "linux")]
-    let builder = builder.initialization_script(format!(
+    let builder = builder.initialization_script(include_str!("editing.js")).initialization_script(format!(
         "if (location.origin === {}) {{ window.__launchpadReadClipboardImage = () => window.__TAURI_INTERNALS__.invoke('read_clipboard_image'); }}",
         serde_json_string(&origin)
     ));
