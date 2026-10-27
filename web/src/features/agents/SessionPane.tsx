@@ -198,7 +198,8 @@ function SessionWorktreeDetails({ session }: { session: Session }) {
 
 type View = "summary" | "trace" | "changes" | "subagents" | "processes";
 
-export function SessionPane({ sessionId, onClear, initialView }: { sessionId: string; onClear: () => void; initialView?: "changes" }) {
+/** `chat`: an Ask Launchpad thread. It opens on Trace and, on phones, replaces the session header with one status row. */
+export function SessionPane({ sessionId, onClear, initialView, chat = false }: { sessionId: string; onClear: () => void; initialView?: "changes" | "trace"; chat?: boolean }) {
   const phone = usePhone();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -216,7 +217,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const runningProcesses = s?.live ? processes.data ?? [] : [];
   const hasProcesses = runningProcesses.length > 0;
   const [gitMain, setGitMain] = useState(false);
-  const [view, setView] = useState<View | null>(initialView ?? null);
+  const [view, setView] = useState<View | null>(initialView ?? (chat ? "trace" : null));
   useEffect(() => { if (s && view === null) setView(isRunning(s) ? "trace" : "summary"); else if (s && isRunning(s) && view === "summary") setView("trace"); }, [s, view]);
   const git = useQuery({ queryKey: ["session-git", sessionId], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${sessionId}/git`), refetchInterval: 5000 });
   const history = useQuery({ queryKey: ["session-git-commits", sessionId, ""], queryFn: () => api.get<SessionGitHistory | null>(`/api/sessions/${sessionId}/git-commits`), refetchInterval: 5000 });
@@ -343,7 +344,12 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(false); dropImages.current?.(Array.from(e.dataTransfer.files)); } }}
     >
       {dragging && <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center border-2 border-teal bg-teal-soft/80 font-semibold text-teal-ink">{harness?.capabilities.images ? "Drop images to attach to your message" : `${name} does not accept images`}</div>}
-      <div className="session-header grid grid-cols-[18px_1fr] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
+      {phone && chat ? <div className="flex min-h-11 items-center gap-2 border-b border-line-2 px-3 py-1 text-[12px] text-ink-3">
+        <StatusBadge s={s} />
+        <span className="min-w-0 flex-1 truncate">{usageLine(s)}</span>
+        {!archivePrimary && primary}
+        <button className="btn btn-sm" aria-pressed={summary} title="The thread's run facts, model and effort" onClick={() => setView(summary ? "trace" : "summary")}>{summary ? "Chat" : "Summary"}</button>
+      </div> : <div className="session-header grid grid-cols-[18px_1fr] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
         <span className={`order-1 row-span-2 self-start pt-px ${phone ? "hidden" : ""}`}>
           <HarnessMark harness={s.harness} size={18} />
         </span>
@@ -414,7 +420,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
             </Popover>
           </div>
         </div>
-      </div>
+      </div>}
       {phone && detailsOpen && <Sheet title="Session details" onClose={() => setDetailsOpen(false)}>
         <div className="session-detail-sheet grid gap-4 p-4 text-sm">
           <div className="flex items-start gap-2"><HarnessMark harness={s.harness} size={20} /><div className="min-w-0"><b className="break-words">{s.title}</b><p className="mt-1 text-ink-3">{sessionPlace(s, projectName(projects, s.project_id, s.cwd))} · {s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : name}</p></div></div>
@@ -442,10 +448,10 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       <ShellCodeContext.Provider value={s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id ? null : s.cwd}>
       {childrenOpen && log && <SubagentsPanel key={s.id} log={log} agents={children} sessionId={s.id} live={s.live} back={() => setView("trace")} />}
       {!changesOpen && !childrenOpen && !processesOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">{log.error ? "Session events unavailable." : "Loading…"}</div> : <SessionSummary key={s.id} session={s} rows={rows} earlier={log?.earlier ?? null} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
-      {traceOpen && !running && <><StateBand session={s}>
+      {traceOpen && !running && <>{!(phone && chat) && <StateBand session={s}>
         <button className="btn btn-sm" disabled={!rows.some((r) => r.t === "assistant")} onClick={() => { atBottom.current = false; const i = trace.findLastIndex((r) => r.t === "assistant"); if (i >= 0) v.scrollToIndex(i, { align: "start" }); }}>Final message</button>
         <button className="btn btn-sm" onClick={() => setView("summary")}>Summary</button>
-      </StateBand><FollowUpBands sessionId={s.id} /><QuotaBand session={s} /></>}
+      </StateBand>}<FollowUpBands sessionId={s.id} /><QuotaBand session={s} /></>}
       <div
         ref={scrollRef}
         className={`min-h-0 flex-1 overflow-y-auto px-3 ${traceOpen ? "" : "hidden"}`}

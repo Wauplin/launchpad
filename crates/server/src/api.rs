@@ -485,7 +485,11 @@ async fn set_permissions(State(s): State<Server>, Path(id): Path<String>, Json(b
 #[derive(Deserialize)]
 struct SessionModel { model: Option<String>, effort: Option<String> }
 async fn set_model(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<SessionModel>) -> ApiResult<Session> {
-    Ok(Json(s.app.sessions.set_model(&s.app, &id, b.model, b.effort).await.map_err(bad)?))
+    let session = s.app.sessions.set_model(&s.app, &id, b.model, b.effort).await.map_err(bad)?;
+    if let Err(e) = launchpad_core::proposals::remember_model(&s.app, &session) {
+        tracing::warn!("could not save the assistant model: {e:#}");
+    }
+    Ok(Json(session))
 }
 
 async fn open_terminal(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<launchpad_core::terminals::TerminalInfo> {

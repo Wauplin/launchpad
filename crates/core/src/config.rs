@@ -32,12 +32,15 @@ pub struct Config {
     pub assistant: Assistant,
 }
 
-/// Ask Launchpad: the profile and model of the assistant session. None: the first subscription profile and its default model.
+/// Ask Launchpad: the profile, model and effort of the assistant session, kept apart from the composer's
+/// remembered launch defaults. None: the first subscription profile and its defaults. Changing the model of an
+/// assistant thread (Summary → Run) saves it here for the next threads.
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
 #[serde(default)]
 pub struct Assistant {
     pub profile: Option<String>,
     pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 /// Network front door. File edits require restart; pairing can apply verified HTTPS live.

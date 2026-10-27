@@ -67,9 +67,10 @@ struct GeneralPatch {
     github_poll_interval_seconds: Option<u64>,
     worktrees_keep: Option<u32>,
     browser: Option<String>,
-    /// Ask Launchpad: the assistant's profile ID and model (empty strings clear them).
+    /// Ask Launchpad: the assistant's profile ID, model and effort (empty strings clear them).
     assistant_profile: Option<String>,
     assistant_model: Option<String>,
+    assistant_effort: Option<String>,
 }
 async fn patch_general_config(State(s): State<Server>, Json(patch): Json<GeneralPatch>) -> ApiResult<Value> {
     let mut config = s.app.config.get();
@@ -81,6 +82,7 @@ async fn patch_general_config(State(s): State<Server>, Json(patch): Json<General
     if let Some(value) = patch.worktrees_keep { config.worktrees.keep = value; }
     if let Some(value) = patch.assistant_profile { config.assistant.profile = Some(value).filter(|v| !v.is_empty()); }
     if let Some(value) = patch.assistant_model { config.assistant.model = Some(value).filter(|v| !v.is_empty()); }
+    if let Some(value) = patch.assistant_effort { config.assistant.effort = Some(value).filter(|v| !v.is_empty()); }
     if let Some(value) = patch.browser {
         if s.auth.remote() {
             return Err(crate::error::ApiError::bad_request("Edit [commands] in config.toml on the host"));

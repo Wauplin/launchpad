@@ -228,8 +228,9 @@ export function rememberedRun(harness: LaunchSpec["harness"], profile: LaunchSpe
 let lastLaunchAt = 0;
 let lastLaunch: Pick<LaunchSpec, "harness" | "profile" | "budget_usd" | "model" | "effort" | "permission_mode"> = { harness: null, profile: null, budget_usd: null, model: null, effort: null, permission_mode: "yolo" };
 
+// Ask Launchpad threads keep their own profile/model (`[assistant]` in config), apart from the composer's defaults.
 export function rememberSuccessfulSession(session: Session) {
-  if (session.launch_spec.harness && session.last_seq > 0 && session.status !== "error") {
+  if (session.launch_spec.harness && session.launch_spec.target.kind !== "assistant" && session.last_seq > 0 && session.status !== "error") {
     useComposer.getState().rememberLaunch(session.launch_spec, session.started_at);
   }
 }
@@ -243,7 +244,7 @@ export const useComposer = create<Composer>((set, get) => ({
   openAfterLaunch: false,
   loaded: false,
   rememberLaunch: (spec, startedAt) => {
-    if (!spec.harness) return;
+    if (!spec.harness || spec.target.kind === "assistant") return;
     const key = runKey(spec.harness, spec.profile);
     if (startedAt > (runs.get(key)?.startedAt ?? 0)) runs.set(key, { startedAt, defaults: { model: spec.model, effort: spec.effort, permission_mode: spec.permission_mode ?? "yolo" } });
     if (startedAt > lastLaunchAt) {

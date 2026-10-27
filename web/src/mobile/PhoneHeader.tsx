@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Icon } from "@/components/Icon";
 import { Popover } from "@/components/Popover";
 
-export function PhoneActions({ label = "Actions & details", children, details, closeOnAction = true }: { label?: string; children?: ReactNode; details?: ReactNode; closeOnAction?: boolean }) {
+export function PhoneActions({ label = "Actions & details", children, details, closeOnAction = true }: { label?: string; children?: ReactNode | ((close: () => void) => ReactNode); details?: ReactNode; closeOnAction?: boolean }) {
   return <Popover viewport keepMounted align="right" width={280} label={label}
     trigger={({ open, toggle }) => <button className="iconbtn shrink-0" aria-label={label} aria-haspopup="dialog" aria-expanded={open} title={label} onClick={toggle}><Icon name="more" size={20} /></button>}
   >
@@ -12,7 +12,7 @@ export function PhoneActions({ label = "Actions & details", children, details, c
         const button = (e.target as Element).closest("button, a");
         // Pickers and multi-step controls retain their state and manage their own dismissal.
         if (closeOnAction && button && !button.hasAttribute("aria-expanded") && !button.hasAttribute("disabled")) queueMicrotask(close);
-      }}>{children}</div>}
+      }}>{typeof children === "function" ? children(close) : children}</div>}
       {details && <div className="phone-action-details grid min-w-0 gap-3 px-3 py-2 text-sm">{details}</div>}
     </div>}
   </Popover>;

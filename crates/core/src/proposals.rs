@@ -297,12 +297,26 @@ pub async fn ask(app: &App, workspace_id: Option<String>, text: String) -> Resul
         harness: Some(profile.harness),
         profile: Some(profile.id.clone()),
         model: config.assistant.model.clone().or_else(|| profile.model.clone()),
-        effort: profile.effort.clone(),
+        effort: config.assistant.effort.clone().or_else(|| profile.effort.clone()),
         target: Target::Assistant { workspace_id: workspace_id.clone() },
         workspace_id,
         ..Default::default()
     };
     app.sessions.launch(app, spec).await
+}
+
+/// Remembers a model change of an assistant thread as the assistant's default (never the composer's).
+pub fn remember_model(app: &App, session: &crate::model::Session) -> Result<()> {
+    if !session.launch_spec.target.is_assistant() {
+        return Ok(());
+    }
+    let mut config = app.config.get();
+    let next = crate::config::Assistant { profile: session.launch_spec.profile.clone(), model: session.model.clone(), effort: session.effort.clone() };
+    if config.assistant == next {
+        return Ok(());
+    }
+    config.assistant = next;
+    app.config.save(config)
 }
 
 /// The open assistant thread of a workspace: its newest unarchived assistant session.
