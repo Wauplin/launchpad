@@ -9,12 +9,14 @@ import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { useInboxThreads } from "@/features/inbox/data";
 import { usePublishItems, type Row } from "@/features/publish/items";
 import { api } from "@/lib/api";
+import { useSessions } from "@/lib/queries";
+import { isQuotaPaused, isRunning } from "@/lib/sessionStatus";
 import { useScope } from "@/lib/workspace";
 
 export type ReviewGroup = "publish" | "branches" | "requests";
 export const reviewGroups: [ReviewGroup, string, string][] = [
   ["publish", "To publish", "Suggestions and Local PRs that wait for your click"],
-  ["branches", "Agent branches", "Agent worktrees with commits, uncommitted files or a merge request"],
+  ["branches", "Agent branches", "Agent worktrees with commits, uncommitted files or a merge request, once their agents stopped working"],
   ["requests", "Review requests", "Open pull requests where GitHub requests your review"],
 ];
 
@@ -42,11 +44,16 @@ export function useReviewData(): ReviewData {
   const scope = useScope();
   const publish = usePublishItems();
   const worktrees = useQuery({ queryKey: ["worktrees", "all"], queryFn: () => api.get<WorktreeInfo[]>("/api/worktrees"), refetchInterval: 15_000 }).data;
+  const sessions = useSessions().data;
   const { threads } = useInboxThreads();
   // Agent branches with work to look at: commits ahead of their base, uncommitted files, or a merge in progress.
-  const branches = useMemo(() => (worktrees ?? [])
-    .filter((i) => scope.hasProject(i.worktree.project_id) && !i.worktree.predraft_id && (i.worktree.state === "active" || i.worktree.state === "handed_off") && (i.ahead > 0 || i.dirty_files > 0 || !!i.worktree.merge))
-    .sort((a, b) => b.worktree.created_at - a.worktree.created_at), [worktrees, scope]);
+  // Worktrees where an agent still works (Running or Quota paused) are left out until it stops.
+  const branches = useMemo(() => {
+    const busy = new Set((sessions ?? []).filter((s) => isRunning(s) || isQuotaPaused(s)).map((s) => s.id));
+    return (worktrees ?? [])
+      .filter((i) => scope.hasProject(i.worktree.project_id) && !i.worktree.predraft_id && (i.worktree.state === "active" || i.worktree.state === "handed_off") && (i.ahead > 0 || i.dirty_files > 0 || !!i.worktree.merge) && !i.worktree.sessions.some((id) => busy.has(id)))
+      .sort((a, b) => b.worktree.created_at - a.worktree.created_at);
+  }, [worktrees, sessions, scope]);
   const requests = useMemo(() => threads.filter((t) => t.reason === "review_requested" && t.kind === "PullRequest" && t.number !== null && t.state !== "closed" && t.state !== "merged"), [threads]);
   return { publish, branches, requests, branchesLoaded: !!worktrees, total: publish.length + branches.length + requests.length };
 }
