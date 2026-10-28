@@ -52,7 +52,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
   const quotaDetail = s.quota_pause?.error ?? s.quota_pause?.blockers.map((b) => `${b.window} reset ${b.resets_at === null ? "unknown" : new Date(b.resets_at * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`).join(" · ");
   const line = s.quota_pause ? quotaDetail || "Waiting for a quota update" : s.last_message ?? (s.usage.cost_usd != null ? `$${s.usage.cost_usd.toFixed(2)}` : "");
   return (
-    <div className="group relative">
+    <div className="group relative" data-tour="agents.row" data-tour-id={s.id}>
       <button
         type="button"
         onClick={onClick}
@@ -109,6 +109,8 @@ function Group({ title, count, highlight, detail, collapsed, onToggle }: { title
       type="button"
       aria-expanded={!collapsed}
       aria-label={`${collapsed ? "Expand" : "Collapse"} ${title}`}
+      data-tour="agents.group"
+      data-tour-id={title}
       onClick={onToggle}
       className="flex h-[34px] w-full items-center gap-2 px-3 text-left seclabel hover:bg-sunk"
     >
@@ -351,7 +353,7 @@ export function AgentsView() {
           {matches.isFetching && <span className="text-xs text-ink-3">Searching messages…</span>}
           {matches.error && <span className="text-xs text-danger-ink">{matches.error.message}</span>}
         </div>
-        <div ref={listRef} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <div ref={listRef} data-tour="agents.list" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         {sessions.length === 0 && schedules.length === 0 && crons.length === 0 && (
           <div className="grid gap-3 p-4 text-[13px] text-ink-2">
             {scope.workspace ? `No agent in ${scope.workspace.name} yet.` : "No session yet."}

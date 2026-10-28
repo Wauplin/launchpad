@@ -109,7 +109,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
     }
   };
   return (
-    <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5">
+    <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5" data-tour="session.reply">
       <input ref={fileRef} type="file" multiple hidden onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
       {delivery && <div role="status" className="mb-1 text-[12px] text-ink-3">{delivery === "sending" ? "Sending…" : delivery === "delivered" ? "Delivered" : delivery === "failed" ? "Attempt failed. Check the trace before starting a new attempt." : "Delivery not confirmed. Retry the same message to check its result."}</div>}
@@ -382,7 +382,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
           </>}
         </span>
         <div className="session-toolbar order-4 col-span-2 flex flex-wrap items-center gap-1 pt-1">
-          <Tabs className="session-views mr-1 max-w-full border-b-0" label="Session view" value={summary ? "summary" : changesOpen ? "changes" : processesOpen ? "processes" : childrenOpen ? "subagents" : "trace"} onChange={(v) => (v === "changes" ? showChanges(onlyMain) : setView(v))} items={[
+          <Tabs tour="session.views" className="session-views mr-1 max-w-full border-b-0" label="Session view" value={summary ? "summary" : changesOpen ? "changes" : processesOpen ? "processes" : childrenOpen ? "subagents" : "trace"} onChange={(v) => (v === "changes" ? showChanges(onlyMain) : setView(v))} items={[
             { id: "summary", label: "Summary" },
             { id: "trace", label: "Trace" },
             ...(hasProcesses ? [{ id: "processes" as const, label: `Processes · ${runningProcesses.length}` }] : []),
@@ -391,7 +391,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
           ]} />
           <div className="session-actions ml-auto flex flex-wrap items-center gap-1">
             {!phone && <>
-              {primary}
+              <span data-tour="session.primary" className="inline-flex">{primary}</span>
               <FollowUpAgent session={s} />
               {!(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <TerminalMenu cwd={s.cwd} small />}
             </>}

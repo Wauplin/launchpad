@@ -27,11 +27,11 @@ export function PageHeader({ title, meta, actions, tabs, back, icon, className =
 export type TabItem<T extends string> = { id: T; label: ReactNode; count?: number; disabled?: boolean; title?: string; icon?: IconName };
 
 /** Underline tabs: switch between views of one object (Summary/Trace/Changes, Conversation/Files). */
-export function Tabs<T extends string>({ items, value, onChange, label, className = "" }: { items: TabItem<T>[]; value: T; onChange: (id: T) => void; label: string; className?: string }) {
+export function Tabs<T extends string>({ items, value, onChange, label, className = "", tour }: { items: TabItem<T>[]; value: T; onChange: (id: T) => void; label: string; className?: string; tour?: string }) {
   return (
-    <div role="tablist" aria-label={label} className={`lp-tabs phone-tabs ${className}`}>
+    <div role="tablist" aria-label={label} data-tour={tour} className={`lp-tabs phone-tabs ${className}`}>
       {items.map((t) => (
-        <button key={t.id} role="tab" type="button" aria-selected={t.id === value} aria-pressed={t.id === value} disabled={t.disabled} title={t.title} className="lp-tab" onClick={() => onChange(t.id)}>
+        <button key={t.id} role="tab" type="button" data-tour-id={t.id} aria-selected={t.id === value} aria-pressed={t.id === value} disabled={t.disabled} title={t.title} className="lp-tab" onClick={() => onChange(t.id)}>
           {t.icon && <Icon name={t.icon} size={12} />}
           {t.label}
           {t.count != null && <span className="lp-count">{t.count}</span>}

@@ -15,7 +15,8 @@
     "test:code": "node --experimental-strip-types --test tests/codeSafety.test.mjs",
     "test:markdown": "node --experimental-strip-types --test tests/commitLinks.test.mjs tests/fileCitations.test.mjs",
     "test:proposals": "node --experimental-strip-types --test tests/proposals.test.mjs",
-    "test:drafts": "node --experimental-strip-types --test tests/draftPersistence.test.mjs"
+    "test:drafts": "node --experimental-strip-types --test tests/draftPersistence.test.mjs",
+    "test:tour": "node --test tests/tour.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.0",

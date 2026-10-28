@@ -23,11 +23,11 @@ import { useComposer } from "@/stores/composer";
 import { useOpenTerminal } from "@/features/terminals/lib";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 
-function NavItem({ to, icon, children, end }: { to: string; icon: IconName; children: ReactNode; end?: ReactNode }) {
+function NavItem({ to, icon, children, end, tour }: { to: string; icon: IconName; children: ReactNode; end?: ReactNode; tour?: string }) {
   return (
     <Link
       to={to}
-      data-tour={`sidebar.${to === "/" ? "inbox" : to.slice(1)}`}
+      data-tour={tour}
       className="flex min-h-[31px] flex-none items-center gap-[9px] rounded-[7px] px-[9px] py-1 text-ink-2 no-underline hover:bg-sunk"
       activeProps={{ className: "!bg-paper !text-ink font-semibold shadow-[inset_0_0_0_1px_var(--color-line)]" }}
       activeOptions={{ exact: to === "/" }}
@@ -167,13 +167,13 @@ export function Sidebar() {
   return (
     <aside className="flex w-[200px] flex-none flex-col gap-px overflow-y-auto border-r border-line bg-chrome px-2 py-2.5">
       <nav aria-label="Places" data-tour="sidebar.nav" className="flex flex-col gap-px">
-      <NavItem to="/ask" icon="spark" end={proposals > 0 ? <span className="rounded-full bg-teal-soft px-1.5 text-[11px] font-semibold text-teal-ink tabular-nums" title={`${proposals} proposals wait for your tap`}>{proposals}</span> : undefined}>
+      <NavItem tour="sidebar.ask" to="/ask" icon="spark" end={proposals > 0 ? <span className="rounded-full bg-teal-soft px-1.5 text-[11px] font-semibold text-teal-ink tabular-nums" title={`${proposals} proposals wait for your tap`}>{proposals}</span> : undefined}>
         Ask
       </NavItem>
-      <NavItem to="/" icon="inbox" end={needs > 0 ? <span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold text-attn tabular-nums" title={`${needs} for you: unread review requests, mentions and assignments. The Inbox "For you" filter lists them.`} aria-label={`${needs} for you`}>{needs}</span> : undefined}>
+      <NavItem tour="sidebar.inbox" to="/" icon="inbox" end={needs > 0 ? <span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold text-attn tabular-nums" title={`${needs} for you: unread review requests, mentions and assignments. The Inbox "For you" filter lists them.`} aria-label={`${needs} for you`}>{needs}</span> : undefined}>
         Inbox
       </NavItem>
-      <NavItem to="/agents" icon="agents">
+      <NavItem tour="sidebar.agents" to="/agents" icon="agents">
         <span className="min-w-0 flex-1">
           <span className="block">Agents</span>
           {(waiting > 0 || quotaPaused > 0 || running > 0) && (
@@ -185,10 +185,10 @@ export function Sidebar() {
           )}
         </span>
       </NavItem>
-      <NavItem to="/review" icon="pr-local" end={toReview > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${toReview} to review: suggestions and Local PRs to publish, agent branches and review requests`}>{toReview}</span> : undefined}>
+      <NavItem tour="sidebar.review" to="/review" icon="pr-local" end={toReview > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${toReview} to review: suggestions and Local PRs to publish, agent branches and review requests`}>{toReview}</span> : undefined}>
         Review
       </NavItem>
-      <NavItem to="/projects" icon="folder">
+      <NavItem tour="sidebar.folders" to="/projects" icon="folder">
         Folders
       </NavItem>
       </nav>

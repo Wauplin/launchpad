@@ -41,9 +41,9 @@ import { DelaySelector, conditionsError } from "./DelaySelector";
 import { CronSelector, DEFAULT_CRON, type CronDraft } from "./CronSelector";
 import { itemIcon, PromptField } from "./PromptField";
 
-function Field({ label, hint, end, children }: { label: string; hint?: string; end?: React.ReactNode; children: React.ReactNode }) {
+function Field({ label, hint, end, children, tour }: { label: string; hint?: string; end?: React.ReactNode; children: React.ReactNode; tour?: string }) {
   return (
-    <div className="grid min-w-0 grid-cols-1 content-start gap-1.5">
+    <div className="grid min-w-0 grid-cols-1 content-start gap-1.5" data-tour={tour}>
       <div className="flex items-center gap-2 text-[12px] font-[650] text-ink-2">
         {label}
         {hint && <span className="font-normal text-ink-3">{hint}</span>}
@@ -467,7 +467,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   };
   const launchLabel = launching ? (cron ? "Creating…" : scheduled ? "Scheduling…" : "Sending…") : cron ? "Create cron" : timing === "later" ? "Schedule" : "Launch";
   const launchButton = () => (
-    <span className="inline-flex">
+    <span className="inline-flex" data-tour="composer.launch">
       <button className={`btn btn-primary ${browserOnly ? "" : "rounded-r-none"} ${isPhone ? "min-w-[120px] justify-center" : ""}`} disabled={!canLaunch || launching} title={unsupportedImages ? "This harness does not support attached images" : blocker ?? undefined} onClick={() => void launch()}>
         <Icon name={timing === "repeat" ? "refresh" : timing === "later" ? "clock" : "play"} size={14} />
         {launchLabel}
@@ -497,7 +497,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const presetLabels = (config?.presets ?? []).filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
 
   return (
-    <aside onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${!embedded && isPhone ? "fixed! inset-0 z-50 w-full! pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" : ""} ${embedded ? "absolute inset-0 z-40 w-full!" : overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
+    <aside data-tour="composer" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${!embedded && isPhone ? "fixed! inset-0 z-50 w-full! pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" : ""} ${embedded ? "absolute inset-0 z-40 w-full!" : overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
       <div className="flex items-center gap-1.5 border-b border-line px-3.5 py-2.5">
         <span className="flex-1 whitespace-nowrap text-sm font-bold">New agent</span>
         {!embedded && !isPhone && <button className="btn btn-sm btn-ghost" title="Keep the draft as a badge on Launch; + Add buttons keep adding context" onClick={() => setMinimized(true)}>Minimize</button>}
@@ -517,7 +517,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       )}
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-3">
-        <div className="relative">
+        <div className="relative" data-tour="composer.prompt">
           <PromptField
             disabled={launching || readingAttachments}
             onPaste={(e) => { if (launching || attachmentRead.current) return; const files = pastedImages(e); if (files) void addAttachments(files); }}
@@ -544,7 +544,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         </div>}
 
         {browserOnly ? <div className="rounded-lg border border-line bg-chrome px-3 py-2 text-xs">Browser · explicit page grants · scratch folder, no worktree<div className="mt-1 text-ink-3">{harness?.browser_isolation}</div></div> : <div className={`grid gap-2.5 ${isPhone ? "grid-cols-1" : "grid-cols-2"}`}>
-          <Field label="Folder">
+          <Field label="Folder" tour="composer.folder">
             <Popover
               width={300}
               trigger={({ toggle }) => (
@@ -571,7 +571,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             </Popover>
             {recentFolders.filter((p) => p.id !== target?.id).length > 0 && <div className="mt-1.5 flex flex-wrap gap-1">{recentFolders.filter((p) => p.id !== target?.id).slice(0, 3).map((p) => <button key={p.id} className="lp-chip h-[22px]! px-2! text-[11px]!" title={`Run in ${p.name}`} onClick={() => set((s) => withFolder(s, p))}>{p.name}</button>)}</div>}
           </Field>
-          <Field label="Run in">
+          <Field label="Run in" tour="composer.runin">
             {target ? <select className="field-input h-8 w-full" aria-label="Run in" value={worktreeMode ? "worktree" : spec.target.kind} onChange={(e) => { const v = e.target.value; set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, include_changes: false, merge_when_done: false }) : v === "project" ? null : s.worktree })); }}>
               {spec.target.kind === "session_folder" && <option value="session_folder">Previous agent’s folder</option>}{existing && <option value="existing_predraft">Local PR: {existing.title}</option>}{gitTarget && <option value="worktree">New worktree</option>}<option value="project">{gitTarget ? "Checkout" : "Folder (no Git)"}</option>{gitTarget && <option value="predraft">New Local PR</option>}
             </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "A new scratch folder" : "—"}</div>}
@@ -658,6 +658,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         {!profiles.length && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">No profile yet. A profile says which harness runs the agent and what pays for it. <Link to="/settings/profiles" className="font-semibold underline">Add one in Settings → Profiles</Link>.</div>}
 
         <button
+          data-tour="composer.options"
           className={`flex w-full flex-wrap items-center gap-1 rounded-lg border px-2 py-1.5 text-left ${showOptions ? "border-line bg-chrome" : "border-line bg-paper hover:border-line"}`}
           aria-expanded={showOptions}
           title={showOptions ? "Hide the options" : "Show the options"}
