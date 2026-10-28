@@ -47,6 +47,7 @@ export type IconName =
   | "info"
   | "download"
   | "upload"
+  | "huggingface"
   | "sun"
   | "moon"
   | "more"
@@ -103,6 +104,7 @@ export function IconSprite() {
     <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.5"/><path d="M8 7.2v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="8" cy="4.9" r=".9" fill="currentColor"/></symbol>
     <symbol id="i-download" viewBox="0 0 16 16"><path d="M8 2.5v7.5M4.75 7 8 10.25 11.25 7M2.75 13.25h10.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></symbol>
     <symbol id="i-upload" viewBox="0 0 16 16"><path d="M8 10.25V2.75M4.75 6 8 2.75 11.25 6M2.75 13.25h10.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></symbol>
+    <symbol id="i-huggingface" viewBox="0 0 24 24"><circle cx="12" cy="10" r="8.5" fill="#FFD21E" stroke="#FF9D00"/><g fill="#3A3B45"><ellipse cx="9" cy="8.5" rx="1" ry="1.3"/><ellipse cx="15" cy="8.5" rx="1" ry="1.3"/><path d="M8.5 11.5a3.5 3.5 0 0 0 7 0z"/></g><path d="M11 15.5 6.5 12a1 1 0 0 0-1.3 1.5L7 15l-4-2a1 1 0 0 0-1 1.7l2.5 1.5-2-.7a1 1 0 0 0-.7 1.9l2.4.9-1.2-.1a1 1 0 0 0-.2 2c3.9.8 7.6.2 8.2-2.2.2-.8.2-1.7 0-2.5Z" fill="#FFD21E" stroke="#FF9D00" strokeLinejoin="round"/><path d="m13 15.5 4.5-3.5a1 1 0 0 1 1.3 1.5L17 15l4-2a1 1 0 0 1 1 1.7l-2.5 1.5 2-.7a1 1 0 0 1 .7 1.9l-2.4.9 1.2-.1a1 1 0 0 1 .2 2c-3.9.8-7.6.2-8.2-2.2-.2-.8-.2-1.7 0-2.5Z" fill="#FFD21E" stroke="#FF9D00" strokeLinejoin="round"/></symbol>
     <symbol id="i-sun" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><circle cx="8" cy="8" r="2.75"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.06 1.06M11.54 11.54l1.06 1.06M3.4 12.6l1.06-1.06M11.54 4.46l1.06-1.06"/></g></symbol>
     <symbol id="i-moon" viewBox="0 0 16 16"><path d="M13.25 9.6A5.5 5.5 0 0 1 6.4 2.75a5.5 5.5 0 1 0 6.85 6.85z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></symbol>
     <symbol id="i-more" viewBox="0 0 16 16"><g fill="currentColor"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></g></symbol>

@@ -31,7 +31,7 @@ export function HuggingFaceView() {
       <ConfigError />
       <Card title="Hugging Face CLI" end={<button className="btn btn-sm" disabled={q.isFetching} onClick={() => void q.refetch()}><Icon name="refresh" size={12} />Check again</button>}>
         {q.isPending ? <Loading /> : q.isError ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : c && (
-          <CliCheckRow check={c} icon="upload" command={c.cli_found ? c.command : null}>
+          <CliCheckRow check={c} icon="huggingface" command={c.cli_found ? c.command : null}>
             {!c.cli_found && <a className="text-xs text-teal-ink underline" {...externalLinkProps(INSTALL_URL)}>Installation instructions</a>}
           </CliCheckRow>
         )}
