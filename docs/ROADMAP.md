@@ -32,6 +32,8 @@ Trace backup layout (2026-10-28, built; awaiting daily use): Hugging Face backup
 | UX | UX suggestions pass (2026-10-11) | The next action is one click away: Needs you, To publish, inbox triage, state-driven session actions | In progress |
 | UX2 | UX consistency pass and Ask Launchpad (2026-10-27) | One vocabulary and one set of controls; folders, terminals, Files, Settings and Review each have one home; a chat proposes launches you start in one tap | Built; awaiting daily use |
 
+| OB | Onboarding: demo tour and setup checklist (2026-10-28) | A new user learns Launchpad on demo data, then gets this machine ready without redoing what is already set up | Built; awaiting daily use |
+
 Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
 
 Codex status correction (2026-10-14, built; awaiting updated-app daily use): background output stays Background, the trace/composer identify background work, command cards remain pending across turn ends, and Stop explains the native limitation when only background commands remain.
@@ -448,4 +450,22 @@ Built:
 - Ask Launchpad attachments: files and images in the first Ask message and in every session message box (pick, drop, paste, removable previews); images go to the assistant as native image content and other files as private local copies listed by path (decision 144).
 
 Checks: workspace clippy with `-D warnings`, `cargo test`, UI typecheck, every `pnpm test:*` suite and a UI build pass; an isolated dev daemon was driven by API (folder browse, context commands with the assistant token, 403 on other endpoints, proposals created, validated and dismissed) and by headless Chrome at 1440×900 and 390×844 (Agents, Ask, Settings, Folders, Add folder, Review, Files, folder Settings, dock, phone Now/Ask/Settings, composer and draft badge). Not verified: a real assistant conversation and accepted launch (no agent was started), WebKitGTK downloads and the native folder picker (not added), macOS and Windows.
+
+## Onboarding: demo tour and setup checklist (2026-10-28)
+
+Scope: phases O0–O8 of the [onboarding plan](https://wauplin-launchpad-onboarding-plan.static.hf.space) with the owner's decisions (desktop-only tour, demo first, 3/10 min shown durations, detect-first checklist). O9 (What's new, Chrome extension chapter, `pnpm demo:walk` screenshots) waits for versioned releases.
+
+**Done when:** an isolated dev daemon with an empty HOME shows the welcome once and the owner's daemon shows only the banner; Essentials and Full play end to end in the desktop browser and the desktop window (WebKitGTK) at 100% and 150% zoom in both themes; DevTools shows no `/api` or `/ws` request in demo mode except `/api/onboarding`, and storage and `state.db` (except the onboarding row) are unchanged afterwards; on a throwaway SSH host with nothing installed the checklist reaches every required item using only its own buttons and the owner's typing.
+
+Built:
+
+- O0 demo transport: `?demo=` / `window.name` flag, memory storage, held `fetch`, fake sockets, `daemonAsset()` for links, purple stripe, "Demo · nothing is real" chip, Exit demo, "Launchpad (demo)" title.
+- O1 demo world and fake daemon: Acme and Personal workspaces, storefront, billing-api, docs, dotfiles and a scratch folder, about 16 sessions in every state across Claude Code, Codex and OpenCode, inbox, PRs, issues, Local PRs, a suggestion, proposals, crons, schedules, Files with Find, worktrees, profiles, quotas, spend, machines, devices with pairing, recorded terminals.
+- O2 tour engine and O3 scenario player as described in ARCHITECTURE 15.6.
+- O4/O7 chapters: Welcome & layout, Launch an agent, Agents & answering, Review the work (Essentials); GitHub inbox & PRs, Ask Launchpad, Terminals, Folders & workspaces, Start later/crons/quotas, Profiles/presets/devices (Full).
+- O5 welcome dialog, banner, Settings → Help → Onboarding, `onboarding` row and `GET/PATCH /api/onboarding`, glossary words Tour and Demo.
+- O6 setup checklist with per-machine checks, fix terminals, Git identity form, profile from an existing login, first-folder suggestions, notifications, starter presets, devices, Hugging Face, SSH machines, Chrome extension, Finish setup sidebar entry and the first real agent.
+- O8 `pnpm test:tour` in CI and the AGENTS.md rule.
+
+Checks: workspace clippy with `-D warnings`, UI typecheck and build, every `pnpm test:*` suite; every chapter played in headless Chrome against an isolated dev daemon (desktop layout, 120% zoom, light theme); `/setup` checked on an isolated daemon with an empty HOME (fresh-install welcome shown, SSH key detected). Not yet checked: the WebKitGTK desktop window, 100%/150% zoom and dark theme, the isolation comparison in DevTools, real reading times against the shown 3/10 minutes, and the throwaway SSH host acceptance run. `cargo test` has one failure (`accepted_proposals_close_only_their_author_and_keep_results_retry_safe`) that also fails on `main` at a150a56.
 

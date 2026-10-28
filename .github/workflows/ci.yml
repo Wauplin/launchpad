@@ -73,6 +73,9 @@ jobs:
       - name: Draft persistence regressions
         working-directory: web
         run: pnpm test:drafts
+      - name: Tour anchors and demo handlers
+        working-directory: web
+        run: pnpm test:tour
       - name: Agent Markdown commit regressions
         working-directory: web
         run: pnpm test:markdown

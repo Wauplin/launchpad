@@ -18,3 +18,5 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Open agent | Agent, Agent session, View session, Back to session | Every link to a session ("← Back to agent"). |
 | Everything | All workspaces | The workspace choice that applies no filter. |
 | Review | To publish, /review | The one page with To publish · Agent branches · Review requests. |
+| Tour | walkthrough, guide, onboarding (for the steps) | The guided steps on demo data (Essentials or Full, chapters). Settings → Onboarding holds the tours and the setup checklist. |
+| Demo | sandbox, playground | The fake world the tour runs on. Nothing in it is real or saved; Exit demo reloads the real app. |
