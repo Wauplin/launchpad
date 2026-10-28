@@ -9,6 +9,8 @@ import logo from "@/assets/launchpad.png";
 import { TopLaunchButton } from "@/features/launch/LaunchButton";
 import { useProjects } from "@/lib/queries";
 import { WorkspaceSwitcher } from "@/features/workspaces/Switcher";
+import { isDemo } from "@/demo/mode";
+import { DemoChip } from "@/onboarding/DemoChip";
 
 type Crumb = { label: string; to?: string; params?: Record<string, string> };
 
@@ -24,6 +26,7 @@ const SETTINGS: Record<string, string> = {
   github: "GitHub",
   huggingface: "Hugging Face",
   worktrees: "Maintenance",
+  onboarding: "Onboarding",
 };
 
 /** The breadcrumb of a route: every segment but the last is a link. Inbox, Now and Agents name themselves. */
@@ -77,7 +80,8 @@ export function TopBar() {
         {crumbs === "item" && gh ? <ItemCrumb repo={`${gh[1]}/${gh[2]}`} number={Number(gh[3])} /> : crumbs === "predraft" && predraftId ? <PredraftCrumb id={predraftId} /> : Array.isArray(crumbs) && <Crumbs list={crumbs} />}
       </nav>
       <span className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
-        <TopLaunchButton ctx={project ? { projectId: project.id } : undefined} />
+        {isDemo && <DemoChip />}
+        <span data-tour="topbar.launch"><TopLaunchButton ctx={project ? { projectId: project.id } : undefined} /></span>
       </span>
     </header>
   );

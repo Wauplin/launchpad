@@ -27,6 +27,7 @@ function NavItem({ to, icon, children, end }: { to: string; icon: IconName; chil
   return (
     <Link
       to={to}
+      data-tour={`sidebar.${to === "/" ? "inbox" : to.slice(1)}`}
       className="flex min-h-[31px] flex-none items-center gap-[9px] rounded-[7px] px-[9px] py-1 text-ink-2 no-underline hover:bg-sunk"
       activeProps={{ className: "!bg-paper !text-ink font-semibold shadow-[inset_0_0_0_1px_var(--color-line)]" }}
       activeOptions={{ exact: to === "/" }}
@@ -165,6 +166,7 @@ export function Sidebar() {
   const shownTemp = allTemp ? temp : tempActive;
   return (
     <aside className="flex w-[200px] flex-none flex-col gap-px overflow-y-auto border-r border-line bg-chrome px-2 py-2.5">
+      <nav aria-label="Places" data-tour="sidebar.nav" className="flex flex-col gap-px">
       <NavItem to="/ask" icon="spark" end={proposals > 0 ? <span className="rounded-full bg-teal-soft px-1.5 text-[11px] font-semibold text-teal-ink tabular-nums" title={`${proposals} proposals wait for your tap`}>{proposals}</span> : undefined}>
         Ask
       </NavItem>
@@ -189,6 +191,7 @@ export function Sidebar() {
       <NavItem to="/projects" icon="folder">
         Folders
       </NavItem>
+      </nav>
       <SideLabel end={<>
         <button className="iconbtn size-[22px]!" title={`Add folders${scope.workspace ? ` to ${scope.workspace.name}` : ""}`} aria-label="Add folders" onClick={showAdd}><Icon name="plus" size={13} /></button>
         <WorkspaceMenu workspace={scope.workspace} />

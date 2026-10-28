@@ -184,9 +184,11 @@ export function StatusBar() {
     <footer className="flex min-h-[30px] flex-none items-center gap-x-2.5 border-t border-line bg-chrome px-3 py-1 text-[12px] whitespace-nowrap text-ink-2 tabular-nums">
       {data ? (
         <>
+          <span data-tour="statusbar.quota" className="inline-flex items-center gap-x-2.5">
           {quota.length === 0 && <Details entry={null} labeled={false} data={data} limits={limits} />}
           {quota.map((e, i) => <Fragment key={e.key}>{i > 0 && <span className="h-3.5 w-px bg-line" />}<Details entry={e} labeled={labeled(e)} data={data} limits={limits} /></Fragment>)}
           {data.spend.map((v) => <Fragment key={v.profile}><span className="h-3.5 w-px bg-line" /><SpendPair v={v} /></Fragment>)}
+          </span>
           {harnesses.map((h) => <Warnings key={h.id} harness={h.id} s={data.harnesses[h.id] ?? emptyStatus} />)}
           {quota.map((e) => <StaleQuota key={e.key} e={e} />)}
           {low.map(([k, v]) => <span key={k} className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={`Resets ${formatReset(v.reset_at)}`}>GitHub {k} {v.remaining} calls left</span>)}

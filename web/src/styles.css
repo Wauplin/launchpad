@@ -35,6 +35,8 @@
   --color-code: #f6f8fa;
   --color-diff-add: #e6ffed;
   --color-diff-del: #ffeef0;
+  --color-demo: #6f42c1;
+  --color-demo-soft: #f1eafc;
 
   --font-ui: "Ubuntu Sans", "Ubuntu", system-ui, "Segoe UI", sans-serif;
   --font-mono: "Ubuntu Sans Mono", "Ubuntu Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -72,6 +74,8 @@
   --color-diff-del: #3b2026;
   --color-danger: #e5534b;
   --color-danger-ink: #ff939a;
+  --color-demo: #c3a0ff;
+  --color-demo-soft: #2c2142;
 }
 
 :root {
@@ -115,6 +119,13 @@ button {
   }
   .btn-primary {
     @apply border-teal-ink bg-teal text-white;
+  }
+  .btn-demo {
+    @apply border-demo bg-demo text-white;
+  }
+  :root[data-theme="dark"] .btn-demo { color: #17131f; }
+  .btn-demo:hover:not(:disabled) {
+    @apply brightness-90;
   }
   .btn-primary:hover:not(:disabled) {
     @apply border-teal-ink bg-teal brightness-90;
@@ -587,3 +598,26 @@ button {
 .lp-phone .lp-chip { min-height: 36px; flex-shrink: 0; padding-inline: 12px; font-size: 13px; }
 .lp-phone .page-header { padding: 8px 12px 0; }
 .lp-phone .page-header h1 { font-size: 16px; white-space: normal; overflow-wrap: anywhere; }
+
+/* Demo mode (src/demo/) and the tour overlay (src/onboarding/tour/). One dimming element, no blur. */
+:root.lp-demo body::before {
+  content: ""; position: fixed; inset: 0 0 auto 0; height: 3px; z-index: 90; pointer-events: none;
+  background: repeating-linear-gradient(135deg, var(--color-demo) 0 10px, var(--color-demo-soft) 10px 20px);
+}
+.lp-tour { position: fixed; inset: 0; z-index: 80; pointer-events: none; }
+.lp-tour-block { position: fixed; pointer-events: auto; }
+.lp-tour-dim { position: fixed; inset: 0; background: rgb(10 15 25 / 0.5); }
+.lp-tour-spot {
+  position: fixed; border-radius: 8px; box-shadow: 0 0 0 2px var(--color-demo), 0 0 0 9999px rgb(10 15 25 / 0.5);
+  transition: top 0.15s, left 0.15s, width 0.15s, height 0.15s;
+}
+.lp-tour-card {
+  position: fixed; pointer-events: auto; border: 1px solid var(--color-line); border-top: 3px solid var(--color-demo); border-radius: 10px;
+  background: var(--color-paper); color: var(--color-ink); padding: 12px 14px; box-shadow: 0 16px 40px -12px rgb(10 15 25 / 0.55);
+}
+.lp-tour-link { color: var(--color-ink-2); }
+.lp-tour-link:hover { color: var(--color-ink); text-decoration: underline; }
+.lp-tour-pill {
+  position: fixed; left: 12px; bottom: 40px; z-index: 80; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px;
+  border: 1px solid var(--color-demo); border-radius: 999px; background: var(--color-paper); box-shadow: 0 10px 30px -12px rgb(10 15 25 / 0.5); font-size: 13px;
+}

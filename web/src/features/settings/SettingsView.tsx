@@ -35,6 +35,7 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
   { group: "Agents", items: [{ to: "/settings/profiles", label: "Profiles", icon: "agents" }, { to: "/settings/presets", label: "Presets", icon: "preset" }, { to: "/settings/usage", label: "Usage", icon: "clock" }] },
   { group: "Machines & access", items: [{ to: "/settings/hosts", label: "Machines", icon: "term" }, { to: "/settings/devices", label: "Devices", icon: "window" }, { to: "/settings/github", label: "GitHub", icon: "pr" }, { to: "/settings/huggingface", label: "Hugging Face", icon: "upload" }] },
   { group: "Maintenance", items: [{ to: "/settings/worktrees", label: "Maintenance", icon: "archive" }] },
+  { group: "Help", items: [{ to: "/settings/onboarding", label: "Onboarding", icon: "spark" }] },
 ];
 
 /** The layout of every Settings page: grouped navigation on the left (a scrolling row on phones), one title, one short intro. */

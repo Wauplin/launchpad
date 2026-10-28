@@ -124,6 +124,8 @@ export function connectEvents(queryClient: QueryClient) {
     } else if (topic === "inbox") {
       if (!queryClient.isMutating({ mutationKey: ["inbox-action"] })) void queryClient.invalidateQueries({ queryKey: ["inbox"] });
       void queryClient.invalidateQueries({ queryKey: ["inbox-preview"] });
+    } else if (topic === "onboarding") {
+      void queryClient.invalidateQueries({ queryKey: ["onboarding"] });
     } else if (topic === "config") {
       void queryClient.invalidateQueries({ queryKey: ["config"] });
     } else if (topic === "proposals") {

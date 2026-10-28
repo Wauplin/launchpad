@@ -13,7 +13,11 @@ import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
 import { HostPrompts } from "./HostPrompt";
 import { NotificationsPrompt } from "./NotificationsPrompt";
+import { isDemo } from "@/demo/mode";
+import { WelcomeGate } from "@/onboarding/WelcomeGate";
 
+// Demo mode only: the tour overlay and its chapters (src/onboarding/tour/) load with the demo.
+const TourRoot = lazy(() => import("@/onboarding/tour/TourRoot").then((m) => ({ default: m.TourRoot })));
 const AddFolderDialog = lazy(() => import("@/features/projects/AddFolder").then((m) => ({ default: m.AddFolderDialog })));
 
 export function Shell() {
@@ -29,7 +33,8 @@ export function Shell() {
       <div className="relative flex min-h-0 flex-1">
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
-          <NotificationsPrompt />
+          {!isDemo && <WelcomeGate />}
+          {!isDemo && <NotificationsPrompt />}
           <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-paper">
             <Outlet />
           </main>
@@ -40,6 +45,7 @@ export function Shell() {
       <StatusBar />
       <Toasts />
       <HostPrompts />
+      {isDemo && <Suspense fallback={null}><TourRoot /></Suspense>}
       {addOpen && <Suspense fallback={null}><AddFolderDialog /></Suspense>}
     </div>
   );

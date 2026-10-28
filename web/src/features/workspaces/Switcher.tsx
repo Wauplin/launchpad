@@ -33,7 +33,7 @@ export function WorkspaceSwitcher() {
   if (workspaces.length > 3)
     return (
       <Popover width={280} trigger={({ open, toggle }) => (
-        <button className="btn max-w-[220px]" aria-expanded={open} title="Workspace of this window" onClick={toggle}>
+        <button className="btn max-w-[220px]" data-tour="topbar.workspaces" aria-expanded={open} title="Workspace of this window" onClick={toggle}>
           <span className="truncate font-semibold">{active?.name ?? EVERYTHING}</span>
           <Icon name="chev" size={12} />
         </button>
@@ -50,7 +50,7 @@ export function WorkspaceSwitcher() {
       </Popover>
     );
   return (
-    <div className="flex min-w-0 items-center gap-1.5" role="group" aria-label="Workspace of this window">
+    <div className="flex min-w-0 items-center gap-1.5" role="group" aria-label="Workspace of this window" data-tour="topbar.workspaces">
       <WorkspaceButton label={EVERYTHING} detail={`No filter · ${count(projects)}`} active={!active} onSwitch={() => switchTo(null)} />
       {workspaces.map((w) => (
         <WorkspaceButton key={w.id} label={w.name} detail={count(w.project_ids.length)} active={w.id === active?.id} onSwitch={() => switchTo(w.id)} />
