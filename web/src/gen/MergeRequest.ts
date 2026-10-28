@@ -11,14 +11,6 @@ reason: string,
  */
 by_agent: boolean,
 /**
- * Owner explicitly allowed open terminals for this request. Other merge guards still apply.
- */
-ignore_terminals: boolean,
-/**
- * The last attempt stopped at an open-terminal guard.
- */
-terminal_blocked: boolean,
-/**
  * Conflict messages already sent to the agent for this request.
  */
 agent_retries: number, requested_at: number, };

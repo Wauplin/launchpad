@@ -347,15 +347,20 @@ fn editable(p: &Predraft) -> Result<()> {
     Ok(())
 }
 fn idle(app: &App, p: &Predraft) -> Result<()> {
-    ensure!(
-        !app.sessions.list().iter().any(|s| crate::hosts::loc::within(&s.cwd, &p.root)
-            && (app.sessions.is_busy(s) || s.status == SessionStatus::InTerminal)),
-        "the worktree has an active agent; wait for it to finish"
-    );
+    agents_idle(app, p)?;
     let open = app.terminals.alive_in(&p.root).len();
     ensure!(
         open == 0,
         "{open} terminal(s) are open in the worktree; close them first"
+    );
+    Ok(())
+}
+/// Merge locally ignores open terminals: only agents block it.
+fn agents_idle(app: &App, p: &Predraft) -> Result<()> {
+    ensure!(
+        !app.sessions.list().iter().any(|s| crate::hosts::loc::within(&s.cwd, &p.root)
+            && (app.sessions.is_busy(s) || s.status == SessionStatus::InTerminal)),
+        "the worktree has an active agent; wait for it to finish"
     );
     Ok(())
 }
@@ -579,7 +584,7 @@ pub async fn merge_local(app: &App, id: &str, q: MergeLocal) -> Result<Predraft>
         p.pushed_head.is_none(),
         "publication has started; finish it with Publish instead"
     );
-    idle(app, &p)?;
+    agents_idle(app, &p)?;
     let project = crate::projects::get(app, &p.project_id)
         .await?
         .context("project not found")?;
@@ -605,13 +610,8 @@ pub async fn merge_local(app: &App, id: &str, q: MergeLocal) -> Result<Predraft>
     let target = crate::worktrees::checkout_of(app, &project.path, &base)
         .await?
         .with_context(|| format!("no checkout has {base} checked out; check out {base} in {} first", project.path))?;
-    let target_dirty = crate::worktrees::dirty_files(app, &target).await?;
-    ensure!(
-        target_dirty.is_empty(),
-        "{target} has {} uncommitted files ({}); commit or remove them before merging",
-        target_dirty.len(),
-        target_dirty.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
-    );
+    // Uncommitted files in the target block only when the fast-forward would overwrite them.
+    let target_dirty = !crate::worktrees::dirty_files(app, &target).await?.is_empty();
     ensure!(
         !crate::worktrees::operation_in_progress(app, &target).await,
         "a Git operation is in progress in {target}"
@@ -642,9 +642,12 @@ pub async fn merge_local(app: &App, id: &str, q: MergeLocal) -> Result<Predraft>
             }
             tip = git(app, &p.root, &["rev-parse", "HEAD"]).await?;
         }
-        git(app, &target, &["merge", "--ff-only", &tip])
-            .await
-            .with_context(|| format!("fast-forward of {base} in {target}"))?;
+        if let Err(e) = git(app, &target, &["merge", "--ff-only", &tip]).await {
+            if target_dirty {
+                anyhow::bail!("uncommitted changes in {target} would be overwritten by the merge ({e:#}); commit or remove them, then merge again");
+            }
+            return Err(e.context(format!("fast-forward of {base} in {target}")));
+        }
     }
     p.merged = Some(LocalMerge { checkout: target, head: tip, at: crate::util::now_ms() });
     save(app, &p).await?;

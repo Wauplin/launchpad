@@ -212,7 +212,7 @@ route("POST", "/api/worktrees/add-project", () => ({ message: "Demo: adding a fo
 
 function requestMerge(i: WorktreeInfo, byAgent: boolean) {
   const w = i.worktree;
-  w.merge = { phase: "waiting", reason: "Waiting for the agent to be idle", by_agent: byAgent, ignore_terminals: false, terminal_blocked: false, agent_retries: 0, requested_at: clock.now() };
+  w.merge = { phase: "waiting", reason: "Waiting for the agent to be idle", by_agent: byAgent, agent_retries: 0, requested_at: clock.now() };
   publishWorktree(i);
   setTimeout(() => {
     if (!w.merge) return;
@@ -231,7 +231,7 @@ route("POST", "/api/worktrees/:id/:action", ({ params }) => {
   if (!i) throw new DemoError(404, "no such worktree");
   const w = i.worktree, r = world.codeRoots[w.root];
   switch (params.action) {
-    case "merge": case "force-merge": case "fix": requestMerge(i, false); break;
+    case "merge": case "fix": requestMerge(i, false); break;
     case "cancel-merge": w.merge = null; break;
     case "handoff": w.state = "handed_off"; w.handoff_from = "main"; localToast(`checked out ${w.branch} in the folder`); break;
     case "handback": w.state = "active"; w.handoff_from = null; localToast(`checked out main again`); break;

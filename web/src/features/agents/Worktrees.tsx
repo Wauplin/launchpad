@@ -69,7 +69,6 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
   const [confirm, setConfirm] = useState(false);
   // The phone confirms merges in a sheet-like panel that lists what will happen.
   const [mergeAsk, setMergeAsk] = useState(false);
-  const [forceAsk, setForceAsk] = useState(false);
   const base = w.base_branch;
   const running = !!session && ["starting", "working", "background"].includes(session.status);
   const act = async (action: string, done?: string) => {
@@ -101,7 +100,6 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
     if (i.dirty_files) parts.push(`${i.dirty_files} uncommitted file${i.dirty_files === 1 ? "" : "s"}`);
     text = parts.join(" · ") || "Detached worktree.";
   }
-  const canForceMerge = w.state === "active" && w.merge?.phase === "waiting" && w.merge.terminal_blocked && !w.merge.ignore_terminals;
   const canMerge = w.state === "active" && !w.merge && !!base && i.ahead > 0;
   return (
     <div className="grid gap-1.5 text-xs">
@@ -118,21 +116,14 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
         {canMerge && mergeAsk && <div className="grid w-full gap-1.5 rounded-lg border border-line bg-chrome p-2">
           <b>Merge {w.branch} into {base}?</b>
           <ul className="m-0 list-disc pl-4 text-ink-2">
-            <li>Waits until the agent is idle and {i.target_checkout ?? `a checkout of ${base}`} has no uncommitted changes.</li>
+            <li>Waits until the agent is idle. Uncommitted files in {i.target_checkout ?? `the checkout of ${base}`} are kept; the merge waits only if it would overwrite them.</li>
             <li>Rebases the branch onto {base} if needed, then fast-forwards {base} ({i.ahead} commit{i.ahead === 1 ? "" : "s"}). Nothing is pushed.</li>
             <li>A conflict goes back to the agent; nothing is forced.</li>
           </ul>
           <div className="flex gap-1.5"><button className="btn btn-sm btn-primary" disabled={busy} onClick={() => { setMergeAsk(false); void act("merge"); }}>Merge</button><button className="btn btn-sm" onClick={() => setMergeAsk(false)}>Cancel</button></div>
         </div>}
-        {canMerge && !mergeAsk && <button className="btn btn-sm btn-primary" disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : `Rebase onto ${base} if needed and fast-forward ${base}${i.target_checkout ? ` in ${i.target_checkout}` : ""}. Waits while that checkout has uncommitted changes.`} onClick={() => (isPhone ? setMergeAsk(true) : void act("merge"))}>Merge into {base}</button>}
+        {canMerge && !mergeAsk && <button className="btn btn-sm btn-primary" disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : `Rebase onto ${base} if needed and fast-forward ${base}${i.target_checkout ? ` in ${i.target_checkout}` : ""}. Waits only if uncommitted files there would be overwritten.`} onClick={() => (isPhone ? setMergeAsk(true) : void act("merge"))}>Merge into {base}</button>}
         {w.merge && w.merge.phase !== "waiting" && session && <button className="btn btn-sm btn-primary" disabled={busy} title="Send the problem to the agent: it rebases, resolves and asks to merge again" onClick={() => void act("fix", "Sent to the agent")}>Fix with agent</button>}
-        {canForceMerge && !forceAsk && <button className="btn btn-sm" disabled={busy} title="Allow this merge while terminals stay open. All other merge checks still apply." onClick={() => setForceAsk(true)}>Force merge</button>}
-        {canForceMerge && forceAsk && <div className="grid w-full gap-1.5 rounded-lg border border-attn-line bg-attn-soft p-2">
-          <b>Merge {w.branch} into {base} with open terminals?</b>
-          <p className="text-ink-2">Files may change under processes running in these terminals. Terminals stay open. This request will ignore open terminals until it merges or is canceled; running agents, uncommitted changes and Git conflicts still block the merge.</p>
-          <div className="flex flex-wrap gap-1.5"><button className="btn btn-sm btn-primary" disabled={busy} onClick={() => { setForceAsk(false); void act("force-merge"); }}>Confirm force merge</button><button className="btn btn-sm" onClick={() => setForceAsk(false)}>Cancel</button></div>
-        </div>}
-        {w.merge?.ignore_terminals && <div className="w-full text-[11px] text-attn">Open terminals allowed for this merge request.</div>}
         <TerminalMenu cwd={i.path} small phone={isPhone} align="left" />
         {w.merge && <button className="btn btn-sm" disabled={busy} onClick={() => void act("cancel-merge")}>Cancel merge</button>}
         {w.state === "active" && w.primary && !w.merge && <button className="btn btn-sm" disabled={busy || running} title={`Check out ${w.branch} in ${w.repo} to run it there. Both folders must be clean.`} onClick={() => void act("handoff", "Branch checked out locally")}>Check out locally</button>}

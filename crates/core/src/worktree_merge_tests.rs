@@ -34,54 +34,56 @@ async fn git(app: &App, dir: &str, args: &[&str]) -> anyhow::Result<String> {
 }
 
 #[tokio::test]
-async fn force_merge_only_overrides_terminals() {
-    let root = std::env::temp_dir().join(format!("launchpad-force-merge-{}", uuid::Uuid::new_v4()));
+async fn merge_ignores_terminals_and_unrelated_target_changes() {
+    let root = std::env::temp_dir().join(format!("launchpad-merge-guards-{}", uuid::Uuid::new_v4()));
     let app = fixture(&root).await;
     // Return errors before asserting so even failures close every PTY and remove the fixtures.
     let result: anyhow::Result<()> = async {
         let repo = root.join("repo");
         std::fs::create_dir(&repo)?;
         let repo = repo.to_str().unwrap();
+        let path = |name: &str| std::path::Path::new(repo).join(name);
         git(&app, repo, &["init", "-b", "main"]).await?;
         git(&app, repo, &["config", "user.name", "Test"]).await?;
         git(&app, repo, &["config", "user.email", "test@example.invalid"]).await?;
-        git(&app, repo, &["commit", "--allow-empty", "-m", "base"]).await?;
+        std::fs::write(path("shared.txt"), "base\n")?;
+        git(&app, repo, &["add", "."]).await?;
+        git(&app, repo, &["commit", "-m", "base"]).await?;
         let project = crate::projects::register(&app, std::path::Path::new(repo), false).await?;
-        for (index, source) in [false, true].into_iter().enumerate() {
-            let (w, _) = create(&app, &format!("test-{index}"), &project, &crate::model::WorktreeOptions {
-                base: None, include_changes: false, merge_when_done: false,
-            }, true, "terminal merge").await?;
-            git(&app, &w.root, &["commit", "--allow-empty", "-m", "task"]).await?;
-            let head = git(&app, &w.root, &["rev-parse", "HEAD"]).await?;
-            let terminal_dir = if source { &w.root } else { repo };
-            app.terminals.open_shell(&app, terminal_dir, Some("sleep 120"), Some("sh")).await?;
-            let pending = request_merge(&app, &w.id, false).await?;
-            anyhow::ensure!(pending.merge.as_ref().is_some_and(|m| m.terminal_blocked && !m.ignore_terminals), "normal merge must wait for the terminal");
-            // Persisted records retain the override, but old records default to normal checks.
-            let old: MergeRequest = serde_json::from_value(serde_json::json!({"phase":"waiting", "reason":"old", "by_agent":false, "agent_retries":0, "requested_at":0}))?;
-            anyhow::ensure!(!old.ignore_terminals && !old.terminal_blocked);
-            std::fs::write(std::path::Path::new(repo).join("dirty"), "keep")?;
-            let pending = force_merge(&app, &w.id).await?;
-            anyhow::ensure!(pending.merge.as_ref().is_some_and(|m| m.ignore_terminals && !m.terminal_blocked && m.reason.contains("uncommitted")), "override must keep the dirty-target guard");
-            let persisted = get(&app, &w.id).await?;
-            anyhow::ensure!(persisted.merge.unwrap().ignore_terminals);
-            std::fs::remove_file(std::path::Path::new(repo).join("dirty"))?;
-            // Cancellation and a fresh request remove the override.
-            cancel_merge(&app, &w.id).await?;
-            let pending = request_merge(&app, &w.id, false).await?;
-            anyhow::ensure!(pending.merge.unwrap().terminal_blocked);
-            std::fs::write(std::path::Path::new(&w.root).join("dirty-source"), "keep")?;
-            let blocked = force_merge(&app, &w.id).await?;
-            anyhow::ensure!(blocked.merge.as_ref().is_some_and(|m| m.phase == MergePhase::Conflict && m.reason.contains("uncommitted")), "override must keep the dirty-source guard");
-            std::fs::remove_file(std::path::Path::new(&w.root).join("dirty-source"))?;
-            request_merge(&app, &w.id, false).await?;
-            let merged = force_merge(&app, &w.id).await?;
-            anyhow::ensure!(merged.merge.is_none() && merged.merged.is_some());
-            anyhow::ensure!(git(&app, repo, &["rev-parse", "HEAD"]).await? == head);
-            anyhow::ensure!(!app.terminals.alive_in(terminal_dir).is_empty(), "force merge must leave the terminal running");
-            anyhow::ensure!(force_merge(&app, &w.id).await.is_err(), "no override without a pending merge");
-            app.terminals.close_all().await?;
-        }
+        let (w, _) = create(&app, "test-merge", &project, &crate::model::WorktreeOptions {
+            base: None, include_changes: false, merge_when_done: false,
+        }, true, "merge guards").await?;
+        std::fs::write(std::path::Path::new(&w.root).join("shared.txt"), "task\n")?;
+        std::fs::write(std::path::Path::new(&w.root).join("added.txt"), "task\n")?;
+        git(&app, &w.root, &["add", "."]).await?;
+        git(&app, &w.root, &["commit", "-m", "task"]).await?;
+        // Main moved on with a new commit, and its checkout has unrelated untracked and modified files.
+        std::fs::write(path("other.txt"), "main\n")?;
+        git(&app, repo, &["add", "other.txt"]).await?;
+        git(&app, repo, &["commit", "-m", "main change"]).await?;
+        std::fs::write(path("untracked.txt"), "keep\n")?;
+        std::fs::write(path("other.txt"), "local edit\n")?;
+        app.terminals.open_shell(&app, &w.root, Some("sleep 120"), Some("sh")).await?;
+        app.terminals.open_shell(&app, repo, Some("sleep 120"), Some("sh")).await?;
+        // A local edit of a file the merge changes waits, keeps the edit and retries.
+        std::fs::write(path("shared.txt"), "local edit\n")?;
+        let pending = request_merge(&app, &w.id, false).await?;
+        anyhow::ensure!(pending.merge.as_ref().is_some_and(|m| m.phase == MergePhase::Waiting && m.reason.contains("overwritten")), "overlapping change must wait: {:?}", pending.merge);
+        anyhow::ensure!(std::fs::read_to_string(path("shared.txt"))? == "local edit\n");
+        git(&app, repo, &["checkout", "--", "shared.txt"]).await?;
+        // An untracked file the merge would add waits too.
+        std::fs::write(path("added.txt"), "local\n")?;
+        cancel_merge(&app, &w.id).await?;
+        let pending = request_merge(&app, &w.id, false).await?;
+        anyhow::ensure!(pending.merge.as_ref().is_some_and(|m| m.phase == MergePhase::Waiting), "untracked collision must wait: {:?}", pending.merge);
+        std::fs::remove_file(path("added.txt"))?;
+        cancel_merge(&app, &w.id).await?;
+        let merged = request_merge(&app, &w.id, false).await?;
+        anyhow::ensure!(merged.merge.is_none() && merged.merged.is_some(), "merge must succeed: {:?}", merged.merge);
+        anyhow::ensure!(git(&app, repo, &["rev-parse", "HEAD"]).await? == git(&app, &w.root, &["rev-parse", "HEAD"]).await?);
+        anyhow::ensure!(std::fs::read_to_string(path("untracked.txt"))? == "keep\n" && std::fs::read_to_string(path("other.txt"))? == "local edit\n");
+        anyhow::ensure!(std::fs::read_to_string(path("shared.txt"))? == "task\n");
+        anyhow::ensure!(!app.terminals.alive_in(&w.root).is_empty() && !app.terminals.alive_in(repo).is_empty(), "merge must leave terminals running");
         Ok(())
     }.await;
     let closed = app.terminals.close_all().await;

@@ -49,7 +49,7 @@ Built on 2026-10-11, awaiting daily use ([managed-worktrees-plan.md](managed-wor
 - Per-project When done preference (2026-10-13): selecting keep/merge saves immediately for subsequent drafts across workspaces and restarts; existing saved drafts and launched/scheduled specs retain their choices.
 - Default New worktree launches for Git projects, with base branch, Copy uncommitted changes and When done (keep or merge) in the composer; per-project setup command; `.worktreeinclude` copying.
 - Editable context projects with their own worktrees; `launchpad work add-project` during a task.
-- Merge into the base branch (owner button or `launchpad work finish`), waiting for a clean target, rebase and fast-forward, conflicts sent back to the agent. Conflict-recovery prompts preserve the original task summary in the final message (2026-10-13).
+- Merge into the base branch (owner button or `launchpad work finish`), rebase and fast-forward, conflicts sent back to the agent. Conflict-recovery prompts preserve the original task summary in the final message (2026-10-13). Since 2026-10-28, open terminals never block merges and target changes block only when the fast-forward would overwrite them.
 - Check out locally and Move back to worktree; Create pre-draft PR from the worktree; Discard.
 - Cleanup on archive and retention (`[worktrees] keep`), restore on resume, Settings → Worktrees.
 
