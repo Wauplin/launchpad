@@ -97,7 +97,7 @@ route("PUT", "/api/config", ({ body }) => {
 
 type GeneralPatch = Partial<{
   projects_root: string; remove_published_worktree: boolean; presets: Config["presets"]; notify: boolean; github_poll_interval_seconds: number;
-  trace_backup_enabled: boolean; trace_backup_bucket: string; trace_backup_folder: string; worktrees_keep: number; browser: string;
+  trace_backup_enabled: boolean; trace_backup_bucket: string; worktrees_keep: number; browser: string;
   assistant_profile: string; assistant_model: string; assistant_effort: string;
 }>;
 
@@ -111,7 +111,6 @@ route("PATCH", "/api/config", ({ body }) => {
     world.traceBackup.last_upload = p.trace_backup_enabled ? clock.now() : world.traceBackup.last_upload;
   }
   if (p.trace_backup_bucket !== undefined) c.trace_backup.bucket = p.trace_backup_bucket;
-  if (p.trace_backup_folder !== undefined) c.trace_backup.folder = p.trace_backup_folder;
   if (p.projects_root !== undefined) c.projects_root = p.projects_root;
   if (p.remove_published_worktree !== undefined) c.remove_published_worktree = p.remove_published_worktree;
   if (p.presets !== undefined) c.presets = p.presets;

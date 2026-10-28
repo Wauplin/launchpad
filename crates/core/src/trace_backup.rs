@@ -64,11 +64,10 @@ fn name_segment(name: &str) -> String {
     segment
 }
 
-fn destination(bucket: &str, user: &str, machine: &str, workspace: &str, folder: &str, harness: &str, id: &str) -> String {
+fn destination(bucket: &str, user: &str, folder: &str, harness: &str, id: &str) -> String {
     let bucket = if bucket.contains('/') { bucket.to_owned() } else { format!("{user}/{bucket}") };
-    let workspace = name_segment(workspace);
     let folder = name_segment(folder);
-    format!("hf://buckets/{bucket}/{machine}/{workspace}/{folder}/{harness}/{id}")
+    format!("hf://buckets/{bucket}/{folder}/{harness}/{id}")
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -121,7 +120,7 @@ pub(crate) async fn upload(app: &App) -> Result<()> {
             .map(|w| w.name.as_str()).unwrap_or("Everything");
         let folder = session.project_id.as_deref().and_then(|id| projects.iter().find(|p| p.id == id))
             .map(|p| p.name.as_str()).unwrap_or(if session.project_id.is_some() { "Removed folder" } else { "Scratch folder" });
-        let dest = destination(&config.bucket, &user, &config.folder, workspace, folder, session.harness.as_str(), &session.id);
+        let dest = destination(&config.bucket, &user, folder, session.harness.as_str(), &session.id);
         let cursor = cursors.entry(dest.clone()).or_default();
         let after = cursor.events;
         let id = session.id.clone();
@@ -235,9 +234,9 @@ mod tests {
     }
 
     #[test]
-    fn destinations_include_account_machine_workspace_folder_harness_and_session() {
-        assert_eq!(destination("launchpad-traces", "alice", "laptop", "Work", "Launchpad", "codex", "session"), "hf://buckets/alice/launchpad-traces/laptop/Work/Launchpad/codex/session");
-        assert_eq!(destination("team/traces", "alice", "desktop", "Personal", "Notes", "claude", "id"), "hf://buckets/team/traces/desktop/Personal/Notes/claude/id");
+    fn destinations_group_by_folder_harness_and_session() {
+        assert_eq!(destination("launchpad-traces", "alice", "Launchpad", "codex", "session"), "hf://buckets/alice/launchpad-traces/Launchpad/codex/session");
+        assert_eq!(destination("team/traces", "alice", "Notes", "claude", "id"), "hf://buckets/team/traces/Notes/claude/id");
     }
     #[test]
     fn names_stay_in_distinct_path_segments() {
@@ -255,6 +254,6 @@ mod tests {
         c.validate().unwrap();
         for bad in ["", "../x", "--option", "a/b/c", "a b"] { c.bucket = bad.into(); assert!(c.validate().is_err()); }
         c.bucket = "team/traces".into();
-        for bad in ["..", ".", "", "a/b", "a\\b"] { c.folder = bad.into(); assert!(c.validate().is_err()); }
+        c.validate().unwrap();
     }
 }

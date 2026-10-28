@@ -4,7 +4,7 @@ Status: implementation and acceptance tracker (updated 2026-10-15). See [ARCHITE
 
 Native trace backup (2026-10-28, built; awaiting daily use): Claude conversation/subagent JSONL, Codex rollouts and OpenCode native JSON exports are backed up without schema conversion, alongside full Launchpad run metadata and event sidecars. Changed snapshots upload independently of event cursors; unavailable native files or hosts do not block other sessions.
 
-Trace backup layout (2026-10-28, built; awaiting daily use): Hugging Face backup paths now include current workspace and registered folder names between machine and harness. Renames reupload to the new destination and leave bucket cleanup to the owner; Settings and the README describe the layout.
+Trace backup layout (2026-10-28, built; awaiting daily use): Hugging Face backups use `<folder name>/<harness>/<session>/` directly under the bucket, grouping the same folder name across machines and workspaces. Machine-folder configuration is removed; only folder renames change destinations. Settings and the README describe the layout.
 
 ## How to read this
 

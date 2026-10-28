@@ -3,4 +3,4 @@
 /**
  * Optional daemon-side export of stored trace events to Hugging Face.
  */
-export type TraceBackup = { enabled: boolean, bucket: string, folder: string, };
+export type TraceBackup = { enabled: boolean, bucket: string, };
