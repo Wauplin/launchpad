@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useZoomScale } from "@/lib/zoom";
 
 export function Popover({
   trigger,
@@ -20,7 +21,7 @@ export function Popover({
   up?: boolean;
   width?: number | string;
   className?: string;
-  // Opt in for phone actions: portal outside scrolling containers and fit the visual viewport.
+  // Portal outside scrolling containers and fit the visual viewport, including desktop zoom.
   viewport?: boolean;
   keepMounted?: boolean;
   label?: string;
@@ -29,6 +30,7 @@ export function Popover({
   const ref = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<CSSProperties>({});
+  const scale = useZoomScale();
   useLayoutEffect(() => {
     if (!open || !viewport) return;
     const place = () => {
@@ -43,15 +45,16 @@ export function Popover({
       if (anchor.bottom < y || anchor.top > y + h) { setOpen(false); return; }
       const below = Math.max(0, y + h - anchor.bottom - 12);
       const above = Math.max(0, anchor.top - y - 12);
-      const height = Math.min(panel.scrollHeight, 480);
+      const height = Math.min(panel.scrollHeight, 480) * scale;
       const upwards = below < height && above > below;
-      const maxHeight = Math.min(480, upwards ? above : below);
+      const maxHeight = Math.min(480 * scale, upwards ? above : below);
       const panelWidth = panel.getBoundingClientRect().width;
       setPosition({
-        left: Math.max(x + 8, Math.min(anchor.right - panelWidth, x + w - panelWidth - 8)),
-        top: upwards ? Math.max(y + 8, anchor.top - 4 - Math.min(height, maxHeight)) : anchor.bottom + 4,
-        maxHeight,
-        maxWidth: Math.max(0, w - 16),
+        // DOM rectangles use viewport pixels; fixed CSS offsets inherit the root zoom.
+        left: Math.max(x + 8, Math.min(anchor.right - panelWidth, x + w - panelWidth - 8)) / scale,
+        top: (upwards ? Math.max(y + 8, anchor.top - 4 - Math.min(height, maxHeight)) : anchor.bottom + 4) / scale,
+        maxHeight: maxHeight / scale,
+        maxWidth: Math.max(0, w - 16) / scale,
       });
     };
     place();
@@ -68,7 +71,7 @@ export function Popover({
       window.visualViewport?.removeEventListener("resize", place);
       window.visualViewport?.removeEventListener("scroll", place);
     };
-  }, [open, viewport]);
+  }, [open, viewport, scale]);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: Event) => {

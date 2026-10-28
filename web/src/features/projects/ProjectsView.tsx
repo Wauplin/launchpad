@@ -112,7 +112,7 @@ function FolderActions({ p }: { p: Project }) {
   const w = useScope().workspace;
   const inside = !!w?.project_ids.includes(p.id);
   return (
-    <Popover align="right" width={300} trigger={({ open, toggle }) => <button className="iconbtn" aria-label={`More actions for ${p.name}`} title="More actions" aria-expanded={open} onClick={toggle}><Icon name="more" size={14} /></button>}>
+    <Popover viewport align="right" width={300} trigger={({ open, toggle }) => <button className="iconbtn" aria-label={`More actions for ${p.name}`} title="More actions" aria-expanded={open} onClick={toggle}><Icon name="more" size={14} /></button>}>
       {(close) => (
         <div className="grid gap-1 p-1">
           <Link to="/projects/$id" params={{ id: p.id }} search={{ tab: "settings" } as never} className="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] text-ink no-underline hover:bg-sunk" onClick={close}><Icon name="sliders" size={13} />Folder settings</Link>
@@ -141,7 +141,7 @@ const FolderRow = memo(function FolderRow({ p }: { p: Project }) {
         <span className="truncate font-mono text-[12px] text-ink-3" title={p.path}>{p.description || p.path}</span>
       </div>
       <Link to="/projects/$id/code" params={{ id: p.id }} className="btn btn-sm no-underline" title={`Browse the files of ${p.name}`}><Icon name="folder" size={12} />{!phone && "Files"}</Link>
-      {!phone && <TerminalMenu cwd={p.path} small />}
+      {!phone && <TerminalMenu cwd={p.path} small viewport />}
       <LaunchButton small ctx={{ projectId: p.id }} label={null} title={`Launch an agent in ${p.name}`} />
       <FolderActions p={p} />
     </div>

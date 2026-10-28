@@ -53,12 +53,13 @@ export function FolderMenu({ cwd, onPick }: { cwd: string | null; onPick: (path:
  * Split button: Terminal opens a shell in the default folder of `cwd`, ▾ chooses another folder.
  * Without `cwd` the main part opens the folder menu's Other folder list.
  */
-export function TerminalMenu({ cwd, label = "Terminal", icon = "term", small, phone, className = "", align = "right", up, title, disabled }: {
+export function TerminalMenu({ cwd, label = "Terminal", icon = "term", small, phone, viewport = phone, className = "", align = "right", up, title, disabled }: {
   cwd: string | null;
   label?: ReactNode;
   icon?: IconName;
   small?: boolean;
   phone?: boolean;
+  viewport?: boolean;
   className?: string;
   align?: "left" | "right";
   up?: boolean;
@@ -72,7 +73,7 @@ export function TerminalMenu({ cwd, label = "Terminal", icon = "term", small, ph
       align={align}
       up={up}
       width={300}
-      viewport={phone}
+      viewport={viewport}
       label="Open a shell in"
       className={`inline-flex ${className}`}
       trigger={({ open: menuOpen, toggle }) => (
