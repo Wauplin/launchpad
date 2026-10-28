@@ -207,7 +207,14 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
   const hasProcesses = runningProcesses.length > 0;
   const [gitMain, setGitMain] = useState(false);
   const [view, setView] = useState<View | null>(initialView ?? (chat ? "trace" : null));
-  useEffect(() => { if (s && view === null) setView(isRunning(s) ? "trace" : "summary"); else if (s && isRunning(s) && view === "summary") setView("trace"); }, [s, view]);
+  // Running opens Trace when the panel loads or a turn starts; Summary stays selectable while it runs.
+  const sessionRunning = !!s && isRunning(s);
+  const wasRunning = useRef(sessionRunning);
+  useEffect(() => {
+    if (s && view === null) setView(sessionRunning ? "trace" : "summary");
+    else if (sessionRunning && !wasRunning.current && view === "summary") setView("trace");
+    wasRunning.current = sessionRunning;
+  }, [s, view, sessionRunning]);
   const git = useQuery({ queryKey: ["session-git", sessionId], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${sessionId}/git`), refetchInterval: 5000 });
   const history = useQuery({ queryKey: ["session-git-commits", sessionId, ""], queryFn: () => api.get<SessionGitHistory | null>(`/api/sessions/${sessionId}/git-commits`), refetchInterval: 5000 });
   const isGit = !!git.data || !!history.data;
