@@ -289,7 +289,7 @@ export function InboxView() {
     </div> : <PageHeader title="Inbox" meta={counters} actions={repoScope} />}
     {(error || data?.status.error) && <ErrorState className="m-2" error={error ?? data?.status.error} action={<span className="text-ink-2">Cached notifications remain available. Sign in with gh auth login if needed.</span>} />}
     <div className="inbox-filters flex flex-none flex-wrap items-center gap-1.5 border-b border-line px-3 py-2">
-      <FilterChips label="Why you were notified">
+      <FilterChips tour="inbox.reasons" label="Why you were notified">
         {whys.map(([k, label, title]) => <FilterChip key={k} active={view.why === k} title={title} count={counts[k]} onClick={() => useView.setState({ why: k, scroll: 0 })}>{label}</FilterChip>)}
       </FilterChips>
       {!phone && <><label className="ml-auto flex items-center gap-2 text-[12px]"><input type="checkbox" checked={view.unread} onChange={(e) => useView.setState({ unread: e.target.checked, scroll: 0 })} />Unread only</label>

@@ -77,7 +77,7 @@ export function GitPanel({ sessionId, initialMain = false, canMessage = true }: 
   };
   const live = (s: boolean, m: boolean) => { setMode("live"); setStaged(s); setMain(m); };
   const notGit = status.error && /not a git repository/i.test(status.error.message);
-  return <div className="flex min-h-0 flex-1 flex-col">
+  return <div data-tour="session.changes" className="flex min-h-0 flex-1 flex-col">
     {history.data && (committed || history.data.merged_into) && <div className="flex min-w-0 items-center gap-2 border-b border-line px-3 py-1.5 text-[12px]">
       {history.data.merged_into ? <span className="max-w-1/2 truncate" title={`Merged into ${history.data.merged_into}`}>Merged into {history.data.merged_into}</span> : <span>Commits</span>}
       {committed && <select aria-label="Commit to review" className="field-input min-w-0 flex-1" value={commit} onChange={(e) => { setCommit(e.target.value); setPath(null); }}>

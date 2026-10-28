@@ -153,7 +153,7 @@ export function ReviewView() {
     const t = data.requests[i];
     return <RequestRow t={t} ready={byItem.get(itemSuggestionKey(t.repo, t.number))?.find((s) => s.kind === "review")} projects={projects} />;
   };
-  const chips = <FilterChips label="Review groups">
+  const chips = <FilterChips tour="review.groups" label="Review groups">
     {reviewGroups.map(([id, label, title]) => <FilterChip key={id} active={group === id} count={counts[id]} title={title} onClick={() => { useGroup.setState({ group: id }); ref.current?.scrollTo({ top: 0 }); }}>{label}</FilterChip>)}
   </FilterChips>;
   const note = "Nothing is posted or published without your click";

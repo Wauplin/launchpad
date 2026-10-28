@@ -39,7 +39,7 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
     } catch (e) { setError(e); }
     finally { setBusy(false); void qc.invalidateQueries({ queryKey: ["suggestions"] }); }
   }
-  return <article className="rounded-lg border border-teal/40 bg-teal-soft p-4">
+  return <article data-tour="suggestion.card" className="rounded-lg border border-teal/40 bg-teal-soft p-4">
     <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px]">
       <b className="text-teal-ink">Suggestion by {s.author}</b><span>{s.kind === "review" ? `Review · ${event === "APPROVE" ? "approve" : event === "REQUEST_CHANGES" ? "request changes" : "comment"}` : local ? "Note" : "Comment"}</span>
       {s.head && <span className="font-mono" title={s.head}>{s.head.slice(0, 7)}</span>}

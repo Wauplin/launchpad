@@ -41,7 +41,7 @@ export function appendEvent(id: string, body: EventBody, live = false): SessionE
     log.push(ev);
     if (s) {
       s.last_seq = seq;
-      if (body.kind === "assistant_message") s.last_message = body.text.split("\n").find((l) => l.trim())?.slice(0, 400) ?? null;
+      if (body.kind === "assistant_message") s.last_message = body.text.split("\n").find((l) => l.trim())?.replace(/[*_`#>]/g, "").trim().slice(0, 400) ?? null;
     }
   }
   publish(`session/${id}`, "event", ev);

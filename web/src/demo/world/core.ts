@@ -6,6 +6,7 @@ import type { Status } from "@/gen/Status";
 import type { Workspace } from "@/gen/Workspace";
 import { clock } from "../daemon";
 import { ORG, P, ROOT, WS } from "./ids";
+import { demoHost } from "./settings";
 
 const project = (id: string, name: string, repo: string | null, description: string, extra: Partial<Project> = {}): Project => ({
   id, name, path: `${ROOT}/${name}`, remote_url: repo ? `git@github.com:${repo}.git` : null, gh_repo: repo, gh_upstream: null,
@@ -30,7 +31,7 @@ export function coreWorld() {
     server: { bind: "127.0.0.1", public_origin: null, auto_tailnet: true },
     commands: { browser: "" },
     github: { poll_interval_seconds: 60 },
-    trace_backup: { enabled: false, bucket: "", folder: "" },
+    trace_backup: { enabled: false, bucket: "launchpad-traces", folder: "this-computer" },
     agents: { notify: true },
     worktrees: { keep: 10 },
     presets: [
@@ -41,7 +42,7 @@ export function coreWorld() {
     profiles: [
       { id: "claude-max", name: "Claude · Max", harness: "claude", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], send_credentials: false },
       { id: "codex-plus", name: "Codex · Plus", harness: "codex", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], send_credentials: false },
-      { id: "opencode-router", name: "OpenCode · HF router", harness: "opencode", env: { OPENAI_API_KEY: "${HF_TOKEN}" }, model: null, effort: null, billing: "pay_as_you_go", budget_usd: null, models_url: "https://router.example.com/v1/models", spend_limits: [{ usd: 5, hours: 24 }], send_credentials: false },
+      { id: "opencode-router", name: "OpenCode · HF router", harness: "opencode", env: { OPENAI_API_KEY: "${HF_TOKEN}" }, model: "open-labs/open-coder-70b", effort: null, billing: "pay_as_you_go", budget_usd: null, models_url: "https://router.example.com/v1/models", spend_limits: [{ usd: 5, hours: 24 }], send_credentials: false },
     ],
     assistant: { profile: null, model: null, effort: null },
   };
@@ -54,12 +55,17 @@ export function coreWorld() {
       codex: { version: "0.80.0", version_error: null, updating_to: null },
       opencode: { version: "1.2.0", version_error: null, updating_to: null },
     },
-    quotas: {},
+    // One reading per subscription login (key: `profiles::account`, the harness alone without account variables).
+    // Claude is close to its 5-hour limit, so the meters and quota protection have something to show.
+    quotas: {
+      claude: { harness: "claude", profiles: ["claude-max"], five_hour: { used_percent: 86, resets_at: Math.floor(clock.ago(-47) / 1000) }, weekly: { used_percent: 41, resets_at: Math.floor(clock.ago(-60 * 24 * 4.7) / 1000) }, quota_at: clock.ago(2), quota_error: null },
+      codex: { harness: "codex", profiles: ["codex-plus"], five_hour: { used_percent: 23, resets_at: Math.floor(clock.ago(-60 * 3.2) / 1000) }, weekly: { used_percent: 35, resets_at: Math.floor(clock.ago(-60 * 24 * 2.4) / 1000) }, quota_at: clock.ago(1), quota_error: null },
+    },
     sessions: { running: 0, done: 0, quota_paused: 0 },
     time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
     utc_offset_minutes: -new Date().getTimezoneOffset(),
-    hosts: [],
-    spend: [],
+    hosts: [demoHost("gpu-box", "gpu-box", config.profiles)],
+    spend: [{ profile: "opencode-router", name: "OpenCode · HF router", harness: "opencode", windows: [{ hours: 24, limit_usd: 5, used_usd: 1.84, available_at: null }] }],
     cost_unavailable_profiles: [],
   };
   return { projects, workspaces, config, status };

@@ -9,9 +9,10 @@ import { Icon } from "@/components/Icon";
 import { demoChapter } from "@/demo/mode";
 import { useOnboarding } from "../data";
 import { CHAPTERS, chapter, trackChapters, trackTime } from "../chapters";
-import { setTourRouter } from "../chapters/helpers";
+import { activate, setTourRouter } from "../chapters/helpers";
 import { exitTour, nextChapter, parseEntry, playChapter, setUpThisMachine, skipChapter, useTour } from "./store";
 import type { Step } from "./types";
+import { getSpeed, isPlaying, setSpeed, skipToEnd } from "@/demo/player";
 
 type Box = { top: number; left: number; width: number; height: number };
 const PAD = 6;
@@ -143,7 +144,7 @@ function StepCard({ step, index, total, title, box, view, track }: { step: Step;
     setBusy(true);
     try {
       if (step.tryIt?.doIt) await step.tryIt.doIt();
-      else anchorElement(step)?.click();
+      else activate(anchorElement(step));
       if (!step.tryIt?.done) setTimeout(() => useTour.getState().next(), 400);
     } finally { setBusy(false); }
   };
@@ -156,6 +157,7 @@ function StepCard({ step, index, total, title, box, view, track }: { step: Step;
       <div className="mt-1 flex gap-1" aria-hidden>{Array.from({ length: total }, (_, i) => <span key={i} className={`h-1 flex-1 rounded-full ${i <= index ? "bg-demo" : "bg-line-2"}`} />)}</div>
       <h2 id="lp-tour-title" className="mt-2.5 mb-1 text-[15px] font-semibold">{step.title}</h2>
       <p className="m-0 text-[13px] text-ink-2">{step.body}</p>
+      {step.run && <RunControls run={step.run} />}
       {step.tryIt && <p className="mt-2 mb-0 flex items-start gap-1.5 text-[13px] font-semibold text-demo"><Icon name="play" size={12} className="mt-1 flex-none" />Try it: {step.tryIt.text}</p>}
       <div className="mt-3 flex items-center gap-2">
         {index > 0 && <button type="button" className="btn btn-sm" onClick={back}>Back</button>}
@@ -171,6 +173,24 @@ function StepCard({ step, index, total, title, box, view, track }: { step: Step;
         <button type="button" className="lp-tour-link ml-auto" onClick={exitTour}>Exit tour</button>
       </div>
       {menu && <ChapterList track={track === "essentials" ? "essentials" : "full"} />}
+    </div>
+  );
+}
+
+/** 1×, 2× and Skip to end for the prerecorded run a step watches. */
+function RunControls({ run }: { run: () => string | null }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 400); return () => clearInterval(t); }, []);
+  const id = run();
+  if (!id || !isPlaying(id)) return null;
+  const speed = getSpeed();
+  return (
+    <div className="mt-2 flex items-center gap-1.5 text-[12px] text-ink-3" role="group" aria-label="Replay speed">
+      <span className="lp-spin" />Replaying
+      <span className="flex-1" />
+      <button type="button" className="btn btn-sm" aria-pressed={speed === 1} onClick={() => { setSpeed(1); tick((n) => n + 1); }}>1×</button>
+      <button type="button" className="btn btn-sm" aria-pressed={speed === 2} onClick={() => { setSpeed(2); tick((n) => n + 1); }}>2×</button>
+      <button type="button" className="btn btn-sm" onClick={() => skipToEnd(id)}>Skip to end</button>
     </div>
   );
 }
@@ -232,7 +252,7 @@ function ExplorePill() {
   const { chapter: id } = useTour();
   return (
     <div className="lp-tour-pill" role="region" aria-label="Demo tour">
-      {menu && <div className="lp-tour-card absolute bottom-[calc(100%+8px)] left-0 w-[320px]"><ChapterList track="full" /></div>}
+      {menu && <div className="lp-tour-card absolute right-0 bottom-[calc(100%+8px)] w-[320px]"><ChapterList track="full" /></div>}
       <span className="font-semibold text-demo">Demo</span>
       {id && <button type="button" className="btn btn-sm" onClick={() => useTour.getState().resume()}>Back to the tour</button>}
       <button type="button" className="btn btn-sm" aria-expanded={menu} onClick={() => setMenu(!menu)}>Start a chapter</button>

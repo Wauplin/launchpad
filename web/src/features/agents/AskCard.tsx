@@ -31,7 +31,7 @@ export function AskCard({ row, sessionId, live, hint = "Or type another answer b
     }
   };
   return (
-    <div data-tour={row.questions.some((q) => q.permission) ? "session.approval" : "session.question"} className={`grid gap-2 rounded-lg border px-2.5 py-[9px] ${answered ? "border-line-2 bg-chrome" : "border-attn-line bg-attn-soft"}`}>
+    <div data-tour={answered ? undefined : row.questions.some((q) => q.permission) ? "session.approval" : "session.question"} className={`grid gap-2 rounded-lg border px-2.5 py-[9px] ${answered ? "border-line-2 bg-chrome" : "border-attn-line bg-attn-soft"}`}>
       {row.questions.map((q, qi) => (
         <div key={qi} className="grid gap-1.5">
           {q.permission && <div className="text-[13px] font-semibold">Approval required</div>}

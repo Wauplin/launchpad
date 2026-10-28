@@ -150,7 +150,7 @@ function Review({ id }: { id: string }) {
       </div>}
       {tab === "commits" && <Commits commits={d.commits} />}
     </div>}
-    {active && <div className="phone-publish-bar flex flex-wrap items-center gap-2 border-t border-line p-3">
+    {active && <div data-tour="predraft.actions" className="phone-publish-bar flex flex-wrap items-center gap-2 border-t border-line p-3">
       <input aria-label="Remote branch name" className="field-input min-w-48 flex-1" value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="Remote branch name" />
       <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} />As a GitHub draft</label>
       <ConfirmButton tone="publish" small={false} className="btn-primary" disabled={busy || running || d.dirty || !d.head || !remote.trim()} consequence={`Pushes ${remote.trim()} and creates ${draft ? "a GitHub draft" : "a"} PR on GitHub.`} confirmLabel="Push and create PR" onConfirm={() => run(async () => { await save(); await api.post(`/api/predrafts/${id}/publish`, { remote_branch: remote, draft, head: d.head }); await saved.clear(); }, "Local PR published")}>Publish</ConfirmButton>

@@ -25,10 +25,16 @@ export async function waitFor<T>(check: () => T | null | undefined | false, ms =
   return null;
 }
 
+/** Clicks an element, or the first enabled button inside it when it is a wrapper. */
+export function activate(el: HTMLElement | null) {
+  if (!el) return;
+  const target = el.matches("button,a,[role=button],[role=tab]") ? el : el.querySelector<HTMLElement>("button:not(:disabled),a,[role=button],[role=tab]") ?? el;
+  target.click();
+}
+
 /** Clicks an anchor once it is on screen. */
 export async function clickAnchor(name: string, id?: string) {
-  const el = await waitFor(() => anchor(name, id));
-  el?.click();
+  activate(await waitFor(() => anchor(name, id)));
 }
 
 /** Clicks the first visible button whose text or label is `label`, inside `within` when given. */

@@ -51,8 +51,8 @@ export function FilterChip({ active, onClick, children, count, title, disabled }
   );
 }
 
-export function FilterChips({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) {
-  return <div role="group" aria-label={label} className={`phone-tabs flex flex-wrap items-center gap-1.5 ${className}`}>{children}</div>;
+export function FilterChips({ label, children, className = "", tour }: { label: string; children: ReactNode; className?: string; tour?: string }) {
+  return <div role="group" aria-label={label} data-tour={tour} className={`phone-tabs flex flex-wrap items-center gap-1.5 ${className}`}>{children}</div>;
 }
 
 /**

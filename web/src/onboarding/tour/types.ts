@@ -19,6 +19,8 @@ export type Step = {
    * when the user clicks inside the anchor if `done` is missing. "Do it for me" runs `doIt`.
    */
   tryIt?: { text: string; done?: () => boolean; doIt?: () => unknown | Promise<unknown> };
+  /** The session whose prerecorded run the step watches: the card offers 1×, 2× and Skip to end while it plays. */
+  run?: () => string | null;
   /** Runs when the step is shown (prepare the world, open a panel). */
   enter?: () => unknown | Promise<unknown>;
   /** Release where the step first appeared (What's new, later). */
