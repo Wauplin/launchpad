@@ -131,7 +131,9 @@ export function ProfilesView() {
   const harnesses = useHarnesses();
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
   const [open, setOpen] = useState<Set<string>>(() => new Set());
-  const [adding, setAdding] = useState(false);
+  // `?new=<kind>` (setup checklist) opens New profile, at that billing choice when it is one.
+  const [startKind] = useState(() => new URLSearchParams(window.location.search).get("new"));
+  const [adding, setAdding] = useState(startKind !== null);
   useEffect(() => {
     if (q.data && !drafts) setDrafts(q.data.config.profiles.map(toDraft));
   }, [q.data, drafts]);
@@ -227,7 +229,7 @@ export function ProfilesView() {
           </span>
         </div>
       )}
-      {(adding || drafts.length === 0) && <NewProfile onAdd={add} onCancel={drafts.length > 0 ? () => setAdding(false) : null} />}
+      {(adding || drafts.length === 0) && <NewProfile initialKind={KINDS.find((k) => k.kind === startKind)?.kind ?? null} onAdd={add} onCancel={drafts.length > 0 ? () => setAdding(false) : null} />}
       {drafts.map((d) => (
         <ProfileCard key={d.key} draft={d} open={isOpen(d)} problem={problem(d)} dirty={isDirty(d)} onToggle={() => toggle(d.key)}
           onChange={(f) => setAt(d.key, f)} onDelete={() => remove(d)} onSave={() => void saveOne(d)} onRevert={() => revert(d)} />
@@ -236,9 +238,9 @@ export function ProfilesView() {
   );
 }
 
-function NewProfile({ onAdd, onCancel }: { onAdd: (h: HarnessDescriptor, t: ProfileTemplate | null) => void; onCancel: (() => void) | null }) {
+function NewProfile({ initialKind, onAdd, onCancel }: { initialKind: ProfileKind | null; onAdd: (h: HarnessDescriptor, t: ProfileTemplate | null) => void; onCancel: (() => void) | null }) {
   const harnesses = useHarnesses();
-  const [kind, setKind] = useState<ProfileKind | "custom" | null>(null);
+  const [kind, setKind] = useState<ProfileKind | "custom" | null>(initialKind);
   const templates = harnesses.flatMap((h) => h.profile_templates.filter((t) => t.kind === kind).map((t) => ({ h, t })));
   return (
     <div className="grid gap-2 rounded-lg border border-line bg-chrome p-3">

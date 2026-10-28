@@ -32,6 +32,7 @@ pub mod schedules;
 pub mod session_pages;
 pub mod sessions;
 pub mod shellenv;
+pub mod setup_checklist;
 pub mod signin;
 pub mod spend;
 pub mod status;
@@ -215,6 +216,8 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     hosts::sshconfig::SshConfigHost::export_all(&cfg)?;
     proposals::Proposal::export_all(&cfg)?;
     onboarding::OnboardingState::export_all(&cfg)?;
+    setup_checklist::Checklist::export_all(&cfg)?;
+    setup_checklist::ChecklistSummary::export_all(&cfg)?;
     Ok(())
 }
 

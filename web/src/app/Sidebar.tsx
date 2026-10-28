@@ -22,6 +22,8 @@ import { useWorkspace } from "@/stores/workspace";
 import { useComposer } from "@/stores/composer";
 import { useOpenTerminal } from "@/features/terminals/lib";
 import { useAddFolder } from "@/features/projects/addFolderStore";
+import { useSetupSummary } from "@/features/setup/summary";
+import { useOnboarding, usePatchOnboarding } from "@/onboarding/data";
 
 function NavItem({ to, icon, children, end, tour }: { to: string; icon: IconName; children: ReactNode; end?: ReactNode; tour?: string }) {
   return (
@@ -85,6 +87,22 @@ const FolderLink = memo(function FolderLink({ p, sessions }: { p: Project; sessi
     </div>
   );
 });
+
+/** "Finish setup · N left" until the required setup items pass or the owner dismisses it. */
+function FinishSetup() {
+  const left = useSetupSummary().data?.required_left ?? 0;
+  const onboarding = useOnboarding().data;
+  const patch = usePatchOnboarding();
+  if (!onboarding || left === 0 || onboarding.dismissed.includes("setup")) return null;
+  return (
+    <div className="flex items-center gap-0.5">
+      <div className="min-w-0 flex-1">
+        <NavItem to="/setup" icon="check" end={<span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold whitespace-nowrap text-attn tabular-nums">{left} left</span>}><span className="whitespace-nowrap">Finish setup</span></NavItem>
+      </div>
+      <button type="button" className="iconbtn size-[22px]!" title="Hide Finish setup (the checklist stays in Settings → Onboarding)" aria-label="Hide Finish setup" onClick={() => void patch({ dismiss: ["setup"] }).catch(toastError)}><Icon name="x" size={12} /></button>
+    </div>
+  );
+}
 
 /** The workspace section's menu: New workspace, Rename, Open in new window and Delete. */
 function WorkspaceMenu({ workspace }: { workspace: Workspace | null }) {
@@ -207,7 +225,9 @@ export function Sidebar() {
           {allTemp ? "Show only folders with agents" : `+ ${temp.length - tempActive.length} more scratch ${temp.length - tempActive.length === 1 ? "folder" : "folders"}`}
         </button>
       )}
-      <div className="mt-auto flex items-center gap-1 pt-2">
+      <div className="mt-auto" />
+      <FinishSetup />
+      <div className="flex items-center gap-1 pt-2">
         <div className="min-w-0 flex-1">
           <NavItem to="/settings" icon="sliders">
             Settings

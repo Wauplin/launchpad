@@ -198,7 +198,7 @@ export function NotificationsPage() {
   return <NotificationsView browser={<NotificationsCard />} />;
 }
 
-function NotificationsCard() {
+export function NotificationsCard() {
   const state = usePushState();
   const refresh = useRefreshPush();
   const [busy, setBusy] = useState(false);

@@ -99,6 +99,8 @@ pub struct TerminalInfo {
 enum Recipe {
     Shell { cwd: String, command: Option<String>, language: Option<String> },
     Setup { profile: String, host: Option<String>, install: bool },
+    /// A setup checklist fix: a fixed command in the home folder.
+    Fix { title: String, command: String, host: Option<String> },
     Tui,
 }
 
@@ -400,6 +402,7 @@ impl Terminals {
         let next = match t.recipe.clone() {
             Recipe::Shell { cwd, command, language } => self.open_shell(app, &cwd, command.as_deref(), language.as_deref()).await?,
             Recipe::Setup { profile, host, install } => self.open_profile_setup(app, &profile, host.as_deref(), install).await?,
+            Recipe::Fix { title, command, host } => self.open_setup_command(app, &title, &command, host.as_deref()).await?,
             Recipe::Tui => bail!("open the agent and use Continue in TUI"),
         };
         let _ = self.remove(app, id);
@@ -672,6 +675,34 @@ impl Terminals {
         let argv = command_shell(app, &command, "shell", host.is_some())?;
         let recipe = Recipe::Setup { profile: profile_id.to_string(), host: host.map(str::to_string), install };
         self.spawn(app, info, argv, env, recipe).await
+    }
+
+    /// Opens a setup checklist fix (`setup_checklist::fix_command`) in the home folder of this computer or a host.
+    pub async fn open_setup_command(&self, app: &App, title: &str, command: &str, host: Option<&str>) -> Result<TerminalInfo> {
+        let home = match host {
+            Some(h) => crate::hosts::loc::join(Some(h), &app.hosts.home(h).with_context(|| format!("{h} is not connected"))?),
+            None => dirs::home_dir().context("no home folder")?.to_string_lossy().into_owned(),
+        };
+        let info = TerminalInfo {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: TerminalKind::Command,
+            title: title.to_string(),
+            folder: host.map(str::to_string).unwrap_or_else(|| "Home".into()),
+            cwd: home,
+            project_id: None,
+            session_id: None,
+            alive: true,
+            exit_code: None,
+            created_at: now_ms(),
+            place: None,
+            branch: None,
+            setup: true,
+            busy: None,
+            notice: None,
+        };
+        let argv = command_shell(app, command, "shell", host.is_some())?;
+        let recipe = Recipe::Fix { title: title.to_string(), command: command.to_string(), host: host.map(str::to_string) };
+        self.spawn(app, info, argv, vec![], recipe).await
     }
 
     /// Opens the harness TUI of a session. The caller detaches the headless harness first.

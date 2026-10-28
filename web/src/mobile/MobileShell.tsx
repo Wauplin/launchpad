@@ -34,6 +34,7 @@ function pageTitle(path: string): string {
   if (path.startsWith("/ask")) return "Ask";
   if (path.startsWith("/terminals")) return "Terminals";
   if (path.startsWith("/settings")) return "Settings";
+  if (path.startsWith("/setup")) return "Setup";
   if (path.startsWith("/projects")) return path.endsWith("/code") ? "Files" : "Folders";
   return "Launchpad";
 }

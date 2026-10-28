@@ -55,6 +55,8 @@ export function useOpenTerminal() {
       tui: (sessionId: string) => api.post<TerminalInfo>(`/api/sessions/${sessionId}/terminal`).then(reveal).catch(toastError),
       /** The sign-in (or install) command of a profile, with its environment, in the home folder of this computer or a host. */
       profileSetup: (profileId: string, host: string | null, install = false) => api.post<TerminalInfo>(`/api/profiles/${profileId}/setup`, { host, install }).then(reveal).catch(toastError),
+      /** A setup checklist fix: the daemon runs the fixed command of a missing part, or refuses a part already set up. */
+      setupFix: (item: string, part: string, host: string | null) => api.post<TerminalInfo>(`/api/setup/fix/${item}`, { part, host }).then(reveal).catch(toastError),
       /** Restart here: the same shell, snippet or setup command (the daemon replaces the exited tab); a TUI goes through its agent. */
       restart: async (t: TerminalInfo) => {
         try {
