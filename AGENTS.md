@@ -159,3 +159,5 @@ This is a personal project: move fast and break things.
 
 - Markdown: never hard-wrap lines. Write each paragraph or list item on one line.
 - Use technical American English that non-native speakers can read easily.
+
+- Trace backup (`crates/core/src/trace_backup.rs`): adapters own native trace exports through `Harness::native_trace`; preserve native schemas and filenames. Keep Launchpad metadata/events in `launchpad.json` and `launchpad-events-*.jsonl` sidecars. Never synthesize native traces from normalized events. Snapshot hashes must be independent of event cursors so delayed native writes and terminal continuations are captured; unavailable native histories must not starve other sessions. Regression checks: `cargo test -p launchpad-core trace`.

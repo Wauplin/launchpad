@@ -1,6 +1,7 @@
 //! Best-effort, single-worker trace export. Local SQLite remains the source of truth.
 use std::{collections::BTreeMap, sync::{Arc, RwLock}, time::Duration};
 use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
 use crate::{App, exec::Io, shellenv::UserEnv};
 
 /// The outcome of the last pass, shown in Settings → Hugging Face.
@@ -70,14 +71,36 @@ fn destination(bucket: &str, user: &str, machine: &str, workspace: &str, folder:
     format!("hf://buckets/{bucket}/{machine}/{workspace}/{folder}/{harness}/{id}")
 }
 
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct Cursor {
+    events: i64,
+    files: BTreeMap<String, String>,
+}
+
+async fn changed_file(env: &UserEnv, dest: &str, cursor: &mut Cursor, name: &str, data: Vec<u8>) -> Result<bool> {
+    let hash = hex::encode(Sha256::digest(&data));
+    if cursor.files.get(name) == Some(&hash) { return Ok(false); }
+    hf(env, &["buckets", "cp", "-", &format!("{dest}/{name}"), "--quiet"], Some(data)).await?;
+    cursor.files.insert(name.into(), hash);
+    Ok(true)
+}
+
+/// Keep every serialized run field and the resolved destination context, without profile secrets.
+fn metadata(session: &crate::model::Session, workspace: &str, folder: &str) -> Result<Vec<u8>> {
+    Ok(serde_json::to_vec(&serde_json::json!({
+        "format": "launchpad", "version": 1,
+        "session": session, "workspace": workspace, "folder": folder,
+    }))?)
+}
+
 pub(crate) async fn upload(app: &App) -> Result<()> {
     let config = app.config.get().trace_backup;
     if !config.enabled { return Ok(()); }
     config.validate()?;
     let user = account(&app.env).await?;
     let bucket = if config.bucket.contains('/') { config.bucket.clone() } else { format!("{user}/{}", config.bucket) };
-    let cursor_path = app.paths.data_dir.join("trace-backup-cursors.json");
-    let mut cursors: BTreeMap<String, i64> = match tokio::fs::read(&cursor_path).await {
+    let cursor_path = app.paths.data_dir.join("trace-backup-native-cursors.json");
+    let mut cursors: BTreeMap<String, Cursor> = match tokio::fs::read(&cursor_path).await {
         Ok(bytes) => serde_json::from_slice(&bytes)?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
         Err(e) => return Err(e.into()),
@@ -86,6 +109,7 @@ pub(crate) async fn upload(app: &App) -> Result<()> {
     let workspaces = crate::workspace::list(app).await?;
     let projects = crate::projects::list(app).await?;
     let mut created = false;
+    let mut first_error = None;
     for session in app.sessions.list() {
         // Disabling or changing the destination stops this pass before the next session.
         if app.config.get().trace_backup != config { break; }
@@ -98,8 +122,8 @@ pub(crate) async fn upload(app: &App) -> Result<()> {
         let folder = session.project_id.as_deref().and_then(|id| projects.iter().find(|p| p.id == id))
             .map(|p| p.name.as_str()).unwrap_or(if session.project_id.is_some() { "Removed folder" } else { "Scratch folder" });
         let dest = destination(&config.bucket, &user, &config.folder, workspace, folder, session.harness.as_str(), &session.id);
-        let after = cursors.get(&dest).copied().unwrap_or(0);
-        if session.last_seq <= after { continue; }
+        let cursor = cursors.entry(dest.clone()).or_default();
+        let after = cursor.events;
         let id = session.id.clone();
         // Export raw stored bodies, preserving attachments, unknown event fields and sequence numbers.
         let rows = app.state_db.call(move |c| {
@@ -107,8 +131,7 @@ pub(crate) async fn upload(app: &App) -> Result<()> {
             let rows = st.query_map(rusqlite::params![id, after], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(rows)
         }).await?;
-        let Some((through, _, _)) = rows.last() else { continue };
-        let through = *through;
+        let through = rows.last().map(|r| r.0).unwrap_or(after);
         let mut data = Vec::new();
         for (seq, ts, json) in rows {
             let body: serde_json::Value = serde_json::from_str(&json)?;
@@ -119,19 +142,35 @@ pub(crate) async fn upload(app: &App) -> Result<()> {
             hf(&app.env, &["buckets", "create", &bucket, "--private", "--exist-ok", "--quiet"], None).await?;
             created = true;
         }
-        // Keep the original task and context even when startup failed before a user-message event.
-        let metadata = serde_json::to_vec(&serde_json::json!({
-            "id": session.id, "harness": session.harness, "title": session.title,
-            "prompt": session.prompt, "model": session.model, "effort": session.effort,
-            "cwd": session.cwd, "project_id": session.project_id, "started_at": session.started_at,
-        }))?;
-        hf(&app.env, &["buckets", "cp", "-", &format!("{dest}/session.json"), "--quiet"], Some(metadata)).await?;
-        let target = format!("{dest}/events-{}.jsonl", after + 1);
-        hf(&app.env, &["buckets", "cp", "-", &target, "--quiet"], Some(data)).await?;
-        cursors.insert(dest, through);
+        // Native snapshots are checked independently of event cursors: a writer may flush late,
+        // or the owner may continue a conversation in its native terminal UI.
+        let mut uploaded = false;
+        let result: Result<()> = async {
+            uploaded |= changed_file(&app.env, &dest, cursor, "launchpad.json", metadata(&session, workspace, folder)?).await?;
+            if !data.is_empty() {
+                hf(&app.env, &["buckets", "cp", "-", &format!("{dest}/launchpad-events-{}.jsonl", after + 1), "--quiet"], Some(data)).await?;
+                cursor.events = through;
+                uploaded = true;
+            }
+            if session.harness_session_id.is_some() {
+                let files = tokio::time::timeout(Duration::from_secs(60), app.harnesses.get(session.harness).native_trace(app, &session)).await
+                    .context("native trace export timed out")??;
+                for file in files {
+                    uploaded |= changed_file(&app.env, &dest, cursor, &file.name, file.data).await?;
+                }
+            }
+            Ok(())
+        }.await;
+        if uploaded { app.trace_backup.0.write().unwrap().last_upload = Some(crate::util::now_ms()); }
+        // Preserve successful uploads even when a native file was removed or its host is offline.
+        // One unavailable historical session must not starve the rest of the backup.
         crate::paths::write_private(&cursor_path, &serde_json::to_string(&cursors)?)?;
-        app.trace_backup.0.write().unwrap().last_upload = Some(crate::util::now_ms());
+        if let Err(e) = result {
+            tracing::warn!(session = %session.id, "native trace backup: {e:#}");
+            if first_error.is_none() { first_error = Some(e); }
+        }
     }
+    if let Some(e) = first_error { return Err(e); }
     Ok(())
 }
 
@@ -142,7 +181,7 @@ pub fn spawn(app: &App) {
             let result = upload(&app).await;
             let error = result.err().map(|e| {
                 tracing::warn!("Hugging Face trace backup failed; retrying in 60 seconds: {e:#}");
-                "Trace backup failed. Check hf auth whoami, update hf and verify bucket write access. Retrying automatically; agents are unaffected.".to_string()
+                "Trace backup incomplete. Check hf auth whoami, bucket write access, native trace files and SSH hosts. Missing or cleaned-up native traces cannot be reconstructed; other sessions continue backing up. Retrying automatically; agents are unaffected.".to_string()
             });
             app.trace_backup.0.write().unwrap().error = error;
             tokio::time::sleep(Duration::from_secs(60)).await;
@@ -153,6 +192,48 @@ pub fn spawn(app: &App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn trace_metadata_contains_the_full_run_even_without_native_history() {
+        let session: crate::model::Session = serde_json::from_value(serde_json::json!({
+            "id":"failed-start", "harness":"claude", "cwd":"/project", "title":"Run",
+            "status":"error", "status_since":10, "live":false, "open_question":false,
+            "prompt":"original task", "usage": {"input_tokens":3,"cached_tokens":1,"output_tokens":2},
+            "started_at":1,"ended_at":10,"last_seq":0,"seen_at":0,
+            "launch_spec":{"profile":"profile-id","permission_mode":"auto"}
+        })).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&metadata(&session, "Work", "Project").unwrap()).unwrap();
+        assert_eq!(value["session"], serde_json::to_value(&session).unwrap());
+        assert_eq!(value["workspace"], "Work");
+        assert_eq!(value["folder"], "Project");
+        assert_eq!(value["session"]["usage"]["input_tokens"], 3);
+        assert_eq!(value["session"]["launch_spec"]["profile"], "profile-id");
+        assert!(value["session"]["harness_session_id"].is_null());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn trace_snapshot_uploads_only_changes_and_retries_failures() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = crate::harness::trace::tests::Temp::new();
+        tmp.write("hf", b"#!/bin/sh\nif [ -f \"$TRACE_TEST_DIR/fail\" ]; then exit 1; fi\n/bin/cat > \"$TRACE_TEST_DIR/payload\"\n");
+        std::fs::set_permissions(tmp.0.join("hf"), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let env = UserEnv::resolve().await.with(&[("PATH".into(), tmp.0.to_string_lossy().into_owned()), ("TRACE_TEST_DIR".into(), tmp.0.to_string_lossy().into_owned())]);
+        let mut cursor = Cursor::default();
+        assert!(changed_file(&env, "hf://buckets/test/traces/run", &mut cursor, "native.jsonl", b"{}\n".to_vec()).await.unwrap());
+        assert_eq!(std::fs::read(tmp.0.join("payload")).unwrap(), b"{}\n");
+        std::fs::remove_file(tmp.0.join("payload")).unwrap();
+        assert!(!changed_file(&env, "hf://buckets/test/traces/run", &mut cursor, "native.jsonl", b"{}\n".to_vec()).await.unwrap());
+        assert!(!tmp.0.join("payload").exists());
+        tmp.write("fail", b"");
+        assert!(changed_file(&env, "hf://buckets/test/traces/run", &mut cursor, "native.jsonl", b"{\"new\":true}\n".to_vec()).await.is_err());
+        std::fs::remove_file(tmp.0.join("fail")).unwrap();
+        // Persisted hashes and independent event progress survive a restart.
+        cursor.events = 42;
+        let mut cursor: Cursor = serde_json::from_slice(&serde_json::to_vec(&cursor).unwrap()).unwrap();
+        assert!(changed_file(&env, "hf://buckets/test/traces/run", &mut cursor, "native.jsonl", b"{\"new\":true}\n".to_vec()).await.unwrap());
+        assert_eq!(cursor.events, 42);
+    }
+
     #[test]
     fn destinations_include_account_machine_workspace_folder_harness_and_session() {
         assert_eq!(destination("launchpad-traces", "alice", "laptop", "Work", "Launchpad", "codex", "session"), "hf://buckets/alice/launchpad-traces/laptop/Work/Launchpad/codex/session");

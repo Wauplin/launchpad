@@ -970,6 +970,11 @@ impl super::Harness for Adapter {
     fn spawn_quota(&self, app: &App, account: crate::quota::QuotaAccount) -> Option<tokio::task::JoinHandle<()>> {
         Some(spawn_quota(app, account))
     }
+    async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<super::trace::TraceFile>> {
+        let id = super::trace::conversation(session)?;
+        let root = super::trace::root(app, session, "CLAUDE_CONFIG_DIR", ".claude").await?;
+        trace_files(&root, crate::hosts::loc::native(&session.cwd), id).await
+    }
     fn project_moved(&self, old_s: &str, new_s: &str) {
         let (old_t, new_t) = (
             claude_transcripts_dir(old_s),
@@ -1201,6 +1206,19 @@ fn claude_transcripts_dir(cwd: &str) -> std::path::PathBuf {
         .join(encoded)
 }
 
+async fn trace_files(root: &std::path::Path, cwd: &str, id: &str) -> Result<Vec<super::trace::TraceFile>> {
+    let encoded: String = cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+    let dir = root.join("projects").join(encoded);
+    let mut traces = vec![super::trace::read(&dir.join(format!("{id}.jsonl")), format!("{id}.jsonl")).await?];
+    for path in super::trace::files(&dir.join(id).join("subagents"), 2).await? {
+        if path.extension().is_some_and(|e| e == "jsonl") {
+            let name = path.strip_prefix(&dir)?.to_string_lossy().replace('\\', "/");
+            traces.push(super::trace::read(&path, name).await?);
+        }
+    }
+    Ok(traces)
+}
+
 #[cfg(test)]
 mod permission_tests {
     use super::*;
@@ -1305,5 +1323,22 @@ mod permission_tests {
         assert_eq!(old.permission_mode, PermissionMode::Yolo);
         let approvals: LaunchSpec = serde_json::from_value(json!({"harness":"codex","permission_mode":"approvals"})).unwrap();
         assert_eq!(approvals.permission_mode, PermissionMode::Approvals);
+    }
+}
+
+#[cfg(test)]
+mod trace_tests {
+    use super::*;
+    #[tokio::test]
+    async fn native_trace_keeps_conversation_and_subagent_formats() {
+        let tmp = super::super::trace::tests::Temp::new();
+        let native = b"{\"type\":\"assistant\",\"message\":{\"content\":[]},\"uuid\":\"native\"}\n";
+        tmp.write("projects/-my-project/session.jsonl", native);
+        tmp.write("projects/-my-project/session/subagents/agent-child.jsonl", native);
+        tmp.write("projects/-my-project/other.jsonl", b"{}\n");
+        let files = trace_files(&tmp.0, "/my/project", "session").await.unwrap();
+        assert_eq!(files.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["session.jsonl", "session/subagents/agent-child.jsonl"]);
+        assert!(files.iter().all(|f| f.data == native));
+        assert!(trace_files(&tmp.0, "/my/project", "missing").await.is_err());
     }
 }

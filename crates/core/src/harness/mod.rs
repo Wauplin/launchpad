@@ -3,6 +3,7 @@ pub mod acp;
 pub mod claude;
 pub mod codex;
 pub mod opencode;
+pub mod trace;
 
 use crate::{
     App,
@@ -133,6 +134,10 @@ pub fn registration(id: HarnessKind) -> &'static Registration {
 #[async_trait]
 pub trait Harness: Send + Sync {
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>>;
+    /// Original persisted trace, in this harness's native format. No Launchpad event conversion.
+    async fn native_trace(&self, _app: &App, _session: &Session) -> Result<Vec<trace::TraceFile>> {
+        bail!("native trace export is not supported")
+    }
     async fn models(&self, _app: &App) -> Result<Vec<ModelInfo>> {
         Ok(vec![])
     }

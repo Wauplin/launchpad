@@ -117,6 +117,11 @@ impl super::Harness for Adapter {
             tool_child: |tool| tool["rawInput"]["subagent_type"].is_string(),
         }).await
     }
+    async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<super::trace::TraceFile>> {
+        let id = super::trace::conversation(session)?;
+        let env = super::trace::environment(app, session)?;
+        export_trace(&env, id).await
+    }
     async fn models(&self, app: &App) -> Result<Vec<ModelInfo>> {
         let output = crate::procs::output(&app.env, "opencode", &["models"], None).await?;
         Ok(output
@@ -150,6 +155,14 @@ impl super::Harness for Adapter {
     }
 }
 
+async fn export_trace(env: &crate::shellenv::UserEnv, id: &str) -> Result<Vec<super::trace::TraceFile>> {
+    let raw = crate::procs::output(env, "opencode", &["export", id], None).await?;
+    anyhow::ensure!(raw.len() <= 256 * 1024 * 1024, "native OpenCode export exceeds 256 MiB");
+    // Validate, but retain the native export exactly rather than wrapping its messages.
+    let _: serde_json::Value = serde_json::from_str(&raw)?;
+    Ok(vec![super::trace::TraceFile { name: format!("{id}.json"), data: raw.into_bytes() }])
+}
+
 /// Native ACP extension; older versions project attributed child updates into session/update.
 fn child_update(message: &serde_json::Value) -> Option<super::acp::ChildUpdate> {
     let p = &message["params"];
@@ -171,4 +184,23 @@ fn child_update(message: &serde_json::Value) -> Option<super::acp::ChildUpdate> 
             status: None, update: Some(p["update"].clone()), error: None,
         })
     } else { None }
+}
+
+#[cfg(all(test, unix))]
+mod trace_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    #[tokio::test]
+    async fn native_trace_uses_opencode_export_without_launchpad_wrapping() {
+        let tmp = super::super::trace::tests::Temp::new();
+        tmp.write("opencode", b"#!/bin/sh\n[ \"$1\" = export ] && [ \"$2\" = ses_native ] || exit 1\nprintf '%s' '{\"info\":{\"id\":\"ses_native\"},\"messages\":[]}'\n");
+        std::fs::set_permissions(tmp.0.join("opencode"), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let env = crate::shellenv::UserEnv::resolve().await.with(&[("PATH".into(), tmp.0.to_string_lossy().into_owned())]);
+        let files = export_trace(&env, "ses_native").await.unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].name, "ses_native.json");
+        assert_eq!(files[0].data, br#"{"info":{"id":"ses_native"},"messages":[]}"#);
+        tmp.write("opencode", b"#!/bin/sh\nprintf '%s' 'invalid export'\n");
+        assert!(export_trace(&env, "ses_native").await.is_err());
+    }
 }

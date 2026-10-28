@@ -1164,6 +1164,11 @@ impl super::Harness for Adapter {
         };
         start(app, &server, &threads, spec, sink).await
     }
+    async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<super::trace::TraceFile>> {
+        let id = super::trace::conversation(session)?;
+        let root = super::trace::root(app, session, "CODEX_HOME", ".codex").await?;
+        trace_files(&root, id).await
+    }
     async fn models(&self, _app: &App) -> Result<Vec<ModelInfo>> {
         models(&self.server).await
     }
@@ -1350,6 +1355,20 @@ fn project_trust_override(cwd: &str) -> String {
     )
 }
 
+async fn trace_files(root: &std::path::Path, id: &str) -> Result<Vec<super::trace::TraceFile>> {
+    let mut traces = vec![];
+    for folder in ["sessions", "archived_sessions"] {
+        for path in super::trace::files(&root.join(folder), 3).await? {
+            let name = path.file_name().unwrap().to_string_lossy();
+            if name.starts_with("rollout-") && (name.ends_with(&format!("-{id}.jsonl")) || name.contains(&format!("-{id}_"))) && name.ends_with(".jsonl") {
+                traces.push(super::trace::read(&path, name.into_owned()).await?);
+            }
+        }
+    }
+    anyhow::ensure!(!traces.is_empty(), "native Codex rollout not found");
+    Ok(traces)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1490,5 +1509,20 @@ mod tests {
                 Some("trusted")
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod trace_tests {
+    use super::*;
+    #[tokio::test]
+    async fn native_trace_finds_rollouts_continuations_and_archives_only_for_this_thread() {
+        let tmp = super::super::trace::tests::Temp::new();
+        let native = b"{\"timestamp\":\"2026-10-28T00:00:00Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"thread\"}}\n";
+        for path in ["sessions/2026/10/28/rollout-time-thread.jsonl", "sessions/2026/10/28/rollout-time-thread_continuation.jsonl", "archived_sessions/rollout-old-thread.jsonl", "sessions/2026/10/28/rollout-time-other.jsonl"] { tmp.write(path, native); }
+        let files = trace_files(&tmp.0, "thread").await.unwrap();
+        assert_eq!(files.len(), 3);
+        assert!(files.iter().all(|f| f.data == native && !f.name.contains("other")));
+        assert!(trace_files(&tmp.0, "missing").await.is_err());
     }
 }
