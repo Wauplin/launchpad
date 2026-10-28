@@ -45,9 +45,29 @@ pub async fn check(env: &UserEnv) -> (crate::signin::SignInCheck, Option<String>
     (c, user)
 }
 
-fn destination(bucket: &str, user: &str, folder: &str, harness: &str, id: &str) -> String {
+// Names are user-editable. Escape separators and percent signs so each stays one distinct segment.
+fn name_segment(name: &str) -> String {
+    if name.is_empty() { return "_".into(); }
+    if matches!(name, "." | "..") { return name.replace('.', "%2E"); }
+    let mut segment = String::new();
+    for c in name.chars() {
+        if matches!(c, '/' | '\\' | '%' | '?' | '#') || c.is_control() {
+            for byte in c.to_string().bytes() {
+                use std::fmt::Write;
+                write!(segment, "%{byte:02X}").unwrap();
+            }
+        } else {
+            segment.push(c);
+        }
+    }
+    segment
+}
+
+fn destination(bucket: &str, user: &str, machine: &str, workspace: &str, folder: &str, harness: &str, id: &str) -> String {
     let bucket = if bucket.contains('/') { bucket.to_owned() } else { format!("{user}/{bucket}") };
-    format!("hf://buckets/{bucket}/{folder}/{harness}/{id}")
+    let workspace = name_segment(workspace);
+    let folder = name_segment(folder);
+    format!("hf://buckets/{bucket}/{machine}/{workspace}/{folder}/{harness}/{id}")
 }
 
 pub(crate) async fn upload(app: &App) -> Result<()> {
@@ -62,11 +82,22 @@ pub(crate) async fn upload(app: &App) -> Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
         Err(e) => return Err(e.into()),
     };
+    // Resolve current names every pass; renames naturally get new destination-keyed cursors.
+    let workspaces = crate::workspace::list(app).await?;
+    let projects = crate::projects::list(app).await?;
     let mut created = false;
     for session in app.sessions.list() {
         // Disabling or changing the destination stops this pass before the next session.
         if app.config.get().trace_backup != config { break; }
-        let dest = destination(&config.bucket, &user, &config.folder, session.harness.as_str(), &session.id);
+        let workspace_id = match &session.launch_spec.target {
+            crate::model::Target::Assistant { workspace_id } => workspace_id.as_deref(),
+            _ => session.launch_spec.workspace_id.as_deref(),
+        };
+        let workspace = workspace_id.and_then(|id| workspaces.iter().find(|w| w.id == id))
+            .map(|w| w.name.as_str()).unwrap_or("Everything");
+        let folder = session.project_id.as_deref().and_then(|id| projects.iter().find(|p| p.id == id))
+            .map(|p| p.name.as_str()).unwrap_or(if session.project_id.is_some() { "Removed folder" } else { "Scratch folder" });
+        let dest = destination(&config.bucket, &user, &config.folder, workspace, folder, session.harness.as_str(), &session.id);
         let after = cursors.get(&dest).copied().unwrap_or(0);
         if session.last_seq <= after { continue; }
         let id = session.id.clone();
@@ -123,9 +154,17 @@ pub fn spawn(app: &App) {
 mod tests {
     use super::*;
     #[test]
-    fn destinations_include_account_machine_harness_and_session() {
-        assert_eq!(destination("launchpad-traces", "alice", "laptop", "codex", "session"), "hf://buckets/alice/launchpad-traces/laptop/codex/session");
-        assert_eq!(destination("team/traces", "alice", "desktop", "claude", "id"), "hf://buckets/team/traces/desktop/claude/id");
+    fn destinations_include_account_machine_workspace_folder_harness_and_session() {
+        assert_eq!(destination("launchpad-traces", "alice", "laptop", "Work", "Launchpad", "codex", "session"), "hf://buckets/alice/launchpad-traces/laptop/Work/Launchpad/codex/session");
+        assert_eq!(destination("team/traces", "alice", "desktop", "Personal", "Notes", "claude", "id"), "hf://buckets/team/traces/desktop/Personal/Notes/claude/id");
+    }
+    #[test]
+    fn names_stay_in_distinct_path_segments() {
+        assert_eq!(name_segment("My workspace"), "My workspace");
+        assert_eq!(name_segment("a/b\\c%?#"), "a%2Fb%5Cc%25%3F%23");
+        assert_eq!(name_segment("a%2Fb"), "a%252Fb");
+        assert_eq!(name_segment(".."), "%2E%2E");
+        assert_eq!(name_segment(""), "_");
     }
     #[test]
     fn defaults_and_invalid_paths() {

@@ -48,18 +48,18 @@ export function HuggingFaceView() {
           <SettingRow label="Bucket" hint="A bucket of your account, or namespace/name. A missing bucket is created private; an existing bucket keeps its visibility." scope="all">
             <SavedInput label="Bucket" className="font-mono text-xs" value={backup.bucket} onSave={(v) => patch({ trace_backup_bucket: v.trim() })} />
           </SettingRow>
-          <SettingRow label="Folder" hint="Defaults to this machine’s name. Use one folder per machine." scope="all">
-            <SavedInput label="Folder" className="font-mono text-xs" value={backup.folder} onSave={(v) => patch({ trace_backup_folder: v.trim() })} />
+          <SettingRow label="Machine folder" hint="Defaults to this machine’s name. Use one folder per machine." scope="all">
+            <SavedInput label="Machine folder" className="font-mono text-xs" value={backup.folder} onSave={(v) => patch({ trace_backup_folder: v.trim() })} />
           </SettingRow>
-          <SettingRow label="Destination" hint="One folder per harness and session, with session.json and events-<first sequence>.jsonl files.">
-            <code className="font-mono text-xs break-all">hf://buckets/{bucket}/{backup.folder}/&lt;harness&gt;/&lt;session ID&gt;/</code>
+          <SettingRow label="Destination" hint="Grouped by workspace, folder, harness and session, with session.json and events-<first sequence>.jsonl files.">
+            <code className="font-mono text-xs break-all">hf://buckets/{bucket}/{backup.folder}/&lt;workspace name&gt;/&lt;folder name&gt;/&lt;harness&gt;/&lt;session ID&gt;/</code>
           </SettingRow>
           {backup.enabled && (
             <SettingRow label="Status" hint="Checks for new events every minute. Failures retry automatically and never block agents.">
               {q.data?.error ? <ErrorState className="w-full" error={q.data.error} /> : <span className="text-[13px] text-ink-2">{q.data?.last_upload ? `Last upload ${formatAge(q.data.last_upload)} ago` : "Nothing uploaded since Launchpad started"}</span>}
             </SettingRow>
           )}
-          <p className="m-0 text-[12px] text-ink-3">Turning backup off or archiving a session leaves uploaded files in the bucket. Local traces stay the source of truth.</p>
+          <p className="m-0 text-[12px] text-ink-3">Renaming a workspace or folder reuploads its traces to the new location; you can clean up the old copies in your bucket. Turning backup off or archiving a session leaves uploaded files in the bucket. Local traces stay the source of truth.</p>
         </>}
       </Card>
     </SettingsPage>

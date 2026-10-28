@@ -2,6 +2,8 @@
 
 Status: implementation and acceptance tracker (updated 2026-10-15). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
 
+Trace backup layout (2026-10-28, built; awaiting daily use): Hugging Face backup paths now include current workspace and registered folder names between machine and harness. Renames reupload to the new destination and leave bucket cleanup to the owner; Settings and the README describe the layout.
+
 ## How to read this
 
 - Phases are ordered by value and by risk. Each one ends with something you use every day, so the app replaces part of your current workflow as early as possible.
