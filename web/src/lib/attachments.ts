@@ -1,4 +1,4 @@
-import { daemonUrl } from "./connection.ts";
+import { daemonAsset, daemonUrl } from "./connection.ts";
 import type { FileAttachment } from "@/gen/FileAttachment";
 import type { ClipboardEvent } from "react";
 
@@ -80,7 +80,7 @@ async function upload(file: File): Promise<string> {
 /** Image source for an attachment: a data URL, or the daemon URL of an uploaded image. */
 export function attachmentSrc(dataUrl: string): string {
   const m = /^upload:(image\/[a-z0-9.+-]+);([0-9a-f]{64})$/.exec(dataUrl);
-  return m ? daemonUrl(`/api/uploads/${m[2]}?type=${encodeURIComponent(m[1])}`) : dataUrl.startsWith("/api/") ? daemonUrl(dataUrl) : dataUrl;
+  return m ? daemonAsset(`/api/uploads/${m[2]}?type=${encodeURIComponent(m[1])}`) : dataUrl.startsWith("/api/") ? daemonAsset(dataUrl) : dataUrl;
 }
 
 export const isImageAttachment = (dataUrl: string) => dataUrl.startsWith("data:image/") || dataUrl.startsWith("upload:image/");

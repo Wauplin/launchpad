@@ -1,4 +1,4 @@
-import { daemonUrl } from "@/lib/connection";
+import { daemonAsset } from "@/lib/connection";
 import { PhoneActions } from "@/mobile/PhoneHeader";
 // Code viewer (sketch S7, ARCHITECTURE.md section 8.1): one source at a time (a working tree or a git
 // revision), a file tree, tabs, colored code with changed-line bars, find in file (Ctrl+F) and
@@ -489,7 +489,7 @@ function saveFile(root: string, rev: string | null, path: string) {
   const w = window as unknown as { __launchpadDesktop?: boolean; __launchpadDownloaded?: (path: string, ok: boolean) => void };
   if (w.__launchpadDesktop) w.__launchpadDownloaded = (saved, ok) => (ok ? toast(saved ? `Saved to ${saved}` : "Download finished") : toast("The download failed"));
   const a = document.createElement("a");
-  a.href = daemonUrl(downloadUrl(root, rev, path));
+  a.href = daemonAsset(downloadUrl(root, rev, path));
   a.download = basename(path);
   document.body.append(a);
   a.click();

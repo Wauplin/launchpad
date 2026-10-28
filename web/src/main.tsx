@@ -12,6 +12,7 @@ import { logToDaemon } from "@/lib/api";
 import { registerServiceWorker } from "@/lib/push";
 import { connectEvents } from "@/lib/ws";
 import { useComposer } from "@/stores/composer";
+import { isDemo } from "@/demo/mode";
 // Reads `?ws=` before anything else rewrites the address.
 import "@/stores/workspace";
 import "./styles.css";
@@ -29,10 +30,12 @@ const queryClient = new QueryClient({
     queries: { refetchOnWindowFocus: false, retry: 1, staleTime: 30_000 },
   },
 });
-void useComposer.getState().restore();
+// Demo mode answers every request in the browser (src/demo/); its chunk loads only then.
+const demo = isDemo ? import("@/demo/boot").then((m) => m.bootDemo(queryClient)) : Promise.resolve();
+void demo.then(() => useComposer.getState().restore());
 // Notification clicks open their route in this window through the router.
 let navigateTo: ((url: string) => void) | null = null;
-registerServiceWorker((url) => (navigateTo ? navigateTo(url) : location.assign(url)));
+if (!isDemo) registerServiceWorker((url) => (navigateTo ? navigateTo(url) : location.assign(url)));
 
 window.addEventListener("error", (e) => logToDaemon(`uncaught: ${e.message} at ${e.filename}:${e.lineno}`, "error"));
 window.addEventListener("unhandledrejection", (e) => logToDaemon(`unhandled rejection: ${String(e.reason)}`, "error"));
@@ -41,7 +44,7 @@ window.addEventListener("unhandledrejection", (e) => logToDaemon(`unhandled reje
 watchLayout();
 const entry: Promise<Entry> = isPhone ? import("@/mobile/entry").then((m) => m.entry) : import("@/app/desktop").then((m) => m.entry);
 // Browser tabs draw from the last saved lists while the daemon answers (lib/offlineCache.ts).
-const cache = isDesktopShell ? Promise.resolve() : restoreCache(queryClient).then(() => persistCache(queryClient));
+const cache = isDemo ? demo : isDesktopShell ? Promise.resolve() : restoreCache(queryClient).then(() => persistCache(queryClient));
 // Restore cached lists before the first socket resync invalidates them.
 void cache.then(() => connectEvents(queryClient));
 void Promise.all([entry, cache]).then(([pages]) => {

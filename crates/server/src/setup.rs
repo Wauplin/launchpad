@@ -1,7 +1,7 @@
 //! Host setup helpers used from a browser: sign-in checks (Settings → Profiles) and Clone from GitHub.
 use crate::{Server, error::{ApiError, ApiResult}};
 use axum::{Json, Router, extract::State, routing::get};
-use launchpad_core::{model::Project, project_clone, signin, workspace};
+use launchpad_core::{model::Project, onboarding, project_clone, signin, workspace};
 use serde::Deserialize;
 
 pub fn router() -> Router<Server> {
@@ -9,6 +9,7 @@ pub fn router() -> Router<Server> {
         .route("/api/setup/sign-in", get(sign_in))
         .route("/api/setup/trace-backup", get(trace_backup))
         .route("/api/projects/clone", get(clone_suggestions).post(clone))
+        .route("/api/onboarding", get(onboarding).patch(patch_onboarding))
 }
 
 async fn sign_in(State(s): State<Server>) -> Json<Vec<signin::SignInCheck>> {
@@ -39,4 +40,12 @@ async fn trace_backup(State(s): State<Server>) -> Json<serde_json::Value> {
     let (check, account) = launchpad_core::trace_backup::check(&s.app.env).await;
     let state = s.app.trace_backup.0.read().unwrap().clone();
     Json(serde_json::json!({"check": check, "account": account, "error": state.error, "last_upload": state.last_upload}))
+}
+
+async fn onboarding(State(s): State<Server>) -> ApiResult<onboarding::OnboardingState> {
+    Ok(Json(onboarding::get(&s.app).await?))
+}
+
+async fn patch_onboarding(State(s): State<Server>, Json(p): Json<onboarding::Patch>) -> ApiResult<onboarding::OnboardingState> {
+    Ok(Json(onboarding::patch(&s.app, p).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }

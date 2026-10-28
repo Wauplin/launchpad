@@ -1,0 +1,2 @@
+// Demo routes: settings.
+export {};

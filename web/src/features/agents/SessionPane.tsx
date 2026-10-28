@@ -22,7 +22,7 @@ import type { Session } from "@/gen/Session";
 import { HarnessMark, useHarnessInfo } from "@/components/HarnessMark";
 import { CodeLinksContext, ShellCodeContext, type CodeLinks } from "@/components/Markdown";
 import { citationPath } from "@/lib/fileCitations";
-import { daemonUrl } from "@/lib/connection";
+import { daemonAsset } from "@/lib/connection";
 import { downloadUrl, pathResolver, useCodeFiles } from "@/features/code/lib";
 import { useMessageDrafts } from "@/stores/messages";
 import { isDone, isRunning, sessionPlace } from "@/lib/sessionStatus";
@@ -167,7 +167,7 @@ function useCodeLinks(s: { id: string; project_id: string | null; cwd: string } 
         return {
           path, line: null,
           href: `/projects/${encodeURIComponent(project_id)}/code?root=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}&session=${encodeURIComponent(id)}`,
-          downloadHref: daemonUrl(downloadUrl(cwd, null, path)),
+          downloadHref: daemonAsset(downloadUrl(cwd, null, path)),
         };
       },
       commits: {

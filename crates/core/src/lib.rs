@@ -19,6 +19,7 @@ pub mod inbox;
 pub mod items;
 pub mod model;
 pub mod notify;
+pub mod onboarding;
 pub mod operations;
 pub mod paths;
 pub mod predrafts;
@@ -213,6 +214,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     hosts::HostStatus::export_all(&cfg)?;
     hosts::sshconfig::SshConfigHost::export_all(&cfg)?;
     proposals::Proposal::export_all(&cfg)?;
+    onboarding::OnboardingState::export_all(&cfg)?;
     Ok(())
 }
 

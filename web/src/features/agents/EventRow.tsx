@@ -1,4 +1,4 @@
-import { daemonUrl } from "@/lib/connection";
+import { daemonAsset } from "@/lib/connection";
 // One display row of a session (see rows.ts). Memoized on the row version.
 
 import { useQuery } from "@tanstack/react-query";
@@ -242,7 +242,7 @@ export const EventRow = memo(
             {row.text}
             {row.instructions && <Instructions blocks={row.instructions} className={row.text ? "mt-1.5" : ""} />}
             {row.presets && <Instructions label={`Presets: ${row.presets.map((p) => p.label).join(" · ")}`} blocks={row.presets.map((p) => p.text.trim())} className={row.text ? "mt-1.5" : ""} />}
-            <div className="flex flex-wrap gap-2">{row.images.map((image, i) => <a key={i} href={image.data_url.startsWith("/api/") ? daemonUrl(image.data_url) : image.data_url} download={image.name} title={`Save ${image.name}`}><img src={image.data_url.startsWith("/api/") ? daemonUrl(image.data_url) : image.data_url} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-md border border-line" /></a>)}</div>
+            <div className="flex flex-wrap gap-2">{row.images.map((image, i) => <a key={i} href={image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url} download={image.name} title={`Save ${image.name}`}><img src={image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-md border border-line" /></a>)}</div>
             {row.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
           </div>
         );

@@ -6,6 +6,34 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#f4f6f9" />
     <script>
+      // Demo mode (src/demo/): `?demo=<chapter>` enters it, the tab's window.name keeps it across reloads. Storage
+      // becomes memory only (seeded with a read-only copy of theme, zoom and layout) and every request waits for
+      // the in-browser demo daemon, so nothing reaches the real daemon or the browser's storage.
+      (function () {
+        var params = new URLSearchParams(location.search);
+        var entry = params.get("demo");
+        if (entry === null && window.name.indexOf("lp-demo:") !== 0) return;
+        if (entry !== null) window.name = "lp-demo:" + (entry === "1" ? "" : entry);
+        window.__lpDemo = { chapter: window.name.slice(8), realFetch: window.fetch.bind(window) };
+        function memory(seed) {
+          var data = {};
+          for (var k in seed) if (seed[k] !== null) data[k] = String(seed[k]);
+          return {
+            get length() { return Object.keys(data).length; },
+            key: function (i) { return Object.keys(data)[i] ?? null; },
+            getItem: function (k) { return Object.prototype.hasOwnProperty.call(data, k) ? data[k] : null; },
+            setItem: function (k, v) { data[k] = String(v); },
+            removeItem: function (k) { delete data[k]; },
+            clear: function () { data = {}; },
+          };
+        }
+        var seed = {};
+        try { ["launchpad-theme", "launchpad-zoom", "launchpad-layout"].forEach(function (k) { seed[k] = localStorage.getItem(k); }); } catch (e) { /* No storage. */ }
+        Object.defineProperty(window, "localStorage", { value: memory(seed), configurable: true });
+        Object.defineProperty(window, "sessionStorage", { value: memory({}), configurable: true });
+        var ready = new Promise(function (resolve) { window.__lpDemo.ready = resolve; });
+        window.fetch = function (input, init) { return ready.then(function (d) { return d.fetch(input, init); }); };
+      })();
       try {
         document.documentElement.dataset.theme = localStorage.getItem("launchpad-theme") === "dark" ? "dark" : "light";
       } catch { document.documentElement.dataset.theme = "light"; }
