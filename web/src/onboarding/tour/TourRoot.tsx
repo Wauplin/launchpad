@@ -18,8 +18,21 @@ type Box = { top: number; left: number; width: number; height: number };
 const PAD = 6;
 const CARD_W = 340;
 
-/** CSS zoom of the page (lib/zoom.ts sets it on <html>). Rects are measured in zoomed pixels, styles are not. */
+/** CSS zoom of the page (lib/zoom.ts sets it on <html>): one style pixel covers `zoom()` window pixels. */
 const zoom = () => Number(document.documentElement.style.zoom || getComputedStyle(document.documentElement).zoom || 1) || 1;
+
+/** Rect pixels per style pixel. Engines disagree on whether getBoundingClientRect under a root CSS zoom reports
+ *  zoomed pixels (Chrome) or style pixels (WebKitGTK), so measure a fixed 1000 px probe instead of guessing. */
+let probe: HTMLDivElement | null = null;
+function rectScale(): number {
+  if (!probe?.isConnected) {
+    probe = document.createElement("div");
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText = "position:fixed;top:0;left:0;width:1000px;height:0;visibility:hidden;pointer-events:none";
+    document.body.appendChild(probe);
+  }
+  return probe.getBoundingClientRect().width / 1000 || 1;
+}
 
 export function anchorElement(step: Step | undefined): HTMLElement | null {
   if (!step?.anchor) return null;
@@ -32,8 +45,7 @@ export function anchorElement(step: Step | undefined): HTMLElement | null {
 function measure(el: HTMLElement | null): Box | null {
   if (!el) return null;
   const r = el.getBoundingClientRect();
-  const z = zoom();
-  // Chrome and WebKit report rects in the zoomed coordinate space of fixed elements on <html>; divide once.
+  const z = rectScale();
   return { top: r.top / z - PAD, left: r.left / z - PAD, width: r.width / z + 2 * PAD, height: r.height / z + 2 * PAD };
 }
 
