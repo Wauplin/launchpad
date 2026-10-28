@@ -39,7 +39,8 @@ function steps() {
 test("every step anchor exists as a data-tour attribute", () => {
   const anchors = new Set([...appText.matchAll(/data-tour="([^"]+)"/g)].map((m) => m[1]));
   for (const m of appText.matchAll(/tour="([^"]+)"/g)) anchors.add(m[1]);
-  for (const m of appText.matchAll(/data-tour=\{"([^"]+)"\}/g)) anchors.add(m[1]);
+  // Conditional anchors: every quoted name inside `data-tour={…}`.
+  for (const m of appText.matchAll(/data-tour=\{([^}]*)\}/g)) for (const q of m[1].matchAll(/"([^"]+)"/g)) anchors.add(q[1]);
   const missing = steps().filter((s) => s.anchor && !anchors.has(s.anchor)).map((s) => `${s.id} → ${s.anchor}`);
   assert.deepEqual(missing, [], `steps whose anchor has no data-tour attribute:\n${missing.join("\n")}`);
 });

@@ -42,7 +42,7 @@ export function DevicesView() {
   }, [qc]);
   const remaining = pair ? Math.max(0, Math.ceil((pair.expires_at * 1000 - now) / 1000)) : 0;
   return <SettingsPage title="Devices" intro="Browsers paired with this daemon. Each one has full access.">
-    <Card title="Pair a device" end={<button className="btn btn-sm btn-primary" disabled={busy !== null} onClick={() => void createPair()}>Create pairing link</button>}>
+    <Card title="Pair a device" end={<button className="btn btn-sm btn-primary" disabled={busy !== null} data-tour="devices.pair" onClick={() => void createPair()}>Create pairing link</button>}>
       <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">Scan the QR code, or open the link in another browser. <span className="text-ink-3" title="Give that browser a name to finish pairing. Each link works once and expires after five minutes."><Icon name="info" size={13} /></span></p>
       <ReversePairing disabled={busy !== null} />
       <HttpsSetup disabled={busy !== null} onBusy={(active) => setBusy(active ? "https" : null)} onPair={setPair} />

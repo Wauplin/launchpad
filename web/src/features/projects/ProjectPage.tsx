@@ -41,10 +41,10 @@ export function ProjectPage() {
   const tab = (useSearch({ strict: false }) as { tab?: string }).tab === "settings" ? "settings" : "overview";
   const setTab = (t: "overview" | "settings") => void navigate({ to: "/projects/$id", params: { id }, search: (t === "settings" ? { tab: t } : {}) as never, replace: true });
   if (!p) return <Empty fill icon="folder">This folder is not registered in Launchpad.</Empty>;
-  const tabs = <Tabs label="Folder views" value={tab} onChange={setTab} items={[{ id: "overview", label: "Overview" }, { id: "settings", label: "Settings", icon: "sliders" }]} />;
+  const tabs = <Tabs tour="folder.tabs" label="Folder views" value={tab} onChange={setTab} items={[{ id: "overview", label: "Overview" }, { id: "settings", label: "Settings", icon: "sliders" }]} />;
   return (
     <div className="h-full overflow-y-auto">
-      <div className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
+      <div data-tour="folder.page" className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
         {phone ? <PhoneHeader title={p.name} onBack={() => void navigate({ to: "/projects" })} backLabel="Back to folders" primary={<LaunchButton ctx={{ projectId: p.id }} />} subtitle={`${sessions.filter(isRunning).length} running · ${sessions.filter(needsYou).length} waiting · ${predrafts.filter((d) => !d.archived && !d.published_url && !d.merged).length} Local PR`} actions={
           <div className="ml-auto flex gap-1.5">
             {p.gh_repo && (

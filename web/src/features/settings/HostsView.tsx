@@ -180,6 +180,7 @@ export function HostsView() {
   const patch = usePatchConfig();
   return (
     <SettingsPage
+      tour="settings.machines"
       title="Machines"
       intro="This computer and the SSH hosts where folders live and agents run."
       info="Agents, worktrees, terminals, Changes and Files of a folder run on its host; this daemon keeps the agent list, quotas, schedules and GitHub. A turn continues on the host when this computer sleeps, and its output catches up when the connection returns. Scheduled launches and crons wait while this computer sleeps."

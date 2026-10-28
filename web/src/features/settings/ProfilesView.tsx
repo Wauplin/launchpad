@@ -213,6 +213,7 @@ export function ProfilesView() {
 
   return (
     <SettingsPage
+      tour="settings.profiles"
       title="Profiles"
       intro="Each profile is one way to run an agent: a harness, what pays for it, and defaults."
       info="The composer lists your profiles. Subscription profiles get quota meters and protection, one per login, so several accounts of one harness work side by side; pay-as-you-go profiles get cost and spending limits only when reliable model pricing is available. Each profile has its own Save."

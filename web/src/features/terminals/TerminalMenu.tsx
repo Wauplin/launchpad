@@ -76,7 +76,7 @@ export function TerminalMenu({ cwd, label = "Terminal", icon = "term", small, ph
       label="Open a shell in"
       className={`inline-flex ${className}`}
       trigger={({ open: menuOpen, toggle }) => (
-        <span className="inline-flex">
+        <span className="inline-flex" data-tour="terminal.menu">
           <button type="button" className={`btn ${size} rounded-r-none`} disabled={disabled} title={title ?? (cwd ? `Open a shell in ${cwd}` : "Open a shell")} onClick={() => (cwd ? void open.folder(cwd) : toggle())}>
             <Icon name={icon} size={small ? 12 : 14} />
             {label}

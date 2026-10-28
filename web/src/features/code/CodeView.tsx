@@ -429,7 +429,7 @@ function FileView({ project, root, rev, path, line, letter, reveal }: { project:
         {f && !phone && <FileMeta f={f} letter={letter} />}
         <span className="ml-auto flex items-center gap-1">
           {isText && (
-            <button className={`btn btn-sm ${findOpen ? "border-teal! bg-teal-soft!" : ""}`} title="Find in this file (Ctrl+F)" onClick={openFind}>
+            <button className={`btn btn-sm ${findOpen ? "border-teal! bg-teal-soft!" : ""}`} title="Find in this file (Ctrl+F)" data-tour="code.find" onClick={openFind}>
               <Icon name="search" size={12} />
               Find {!phone && <span className="rounded border border-line px-1 font-mono text-[10px] text-ink-3">Ctrl+F</span>}
             </button>

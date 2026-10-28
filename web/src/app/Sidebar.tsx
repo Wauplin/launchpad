@@ -126,7 +126,7 @@ function WorkspaceMenu({ workspace }: { workspace: Workspace | null }) {
   };
   return (
     <Popover width={260} align="right" trigger={({ open, toggle }) => (
-      <button className="iconbtn size-[22px]!" aria-label="Workspace actions" title="Workspace actions" aria-expanded={open} onClick={() => { setMode("menu"); toggle(); }}><Icon name="more" size={14} /></button>
+      <button className="iconbtn size-[22px]!" data-tour="sidebar.workspace-menu" aria-label="Workspace actions" title="Workspace actions" aria-expanded={open} onClick={() => { setMode("menu"); toggle(); }}><Icon name="more" size={14} /></button>
     )}>
       {(close) => mode !== "menu" ? (
         <form className="grid gap-2 p-1.5" onSubmit={(e) => { e.preventDefault(); void submit(close); }}>
@@ -211,7 +211,7 @@ export function Sidebar() {
       </NavItem>
       </nav>
       <SideLabel end={<>
-        <button className="iconbtn size-[22px]!" title={`Add folders${scope.workspace ? ` to ${scope.workspace.name}` : ""}`} aria-label="Add folders" onClick={showAdd}><Icon name="plus" size={13} /></button>
+        <button className="iconbtn size-[22px]!" title={`Add folders${scope.workspace ? ` to ${scope.workspace.name}` : ""}`} aria-label="Add folders" data-tour="sidebar.add-folder" onClick={showAdd}><Icon name="plus" size={13} /></button>
         <WorkspaceMenu workspace={scope.workspace} />
       </>}>{scope.workspace?.name ?? "Everything"}</SideLabel>
       {folders.length === 0 && <button className="mx-[9px] my-1 text-left text-[12px] text-teal-ink hover:underline" onClick={showAdd}>+ Add folder</button>}

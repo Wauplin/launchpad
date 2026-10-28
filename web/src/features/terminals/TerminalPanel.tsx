@@ -48,7 +48,7 @@ export function TerminalPanel({ phone, open, scale, children }: {
     sessionStorage.setItem(KEY, String(next));
   };
   return (
-    <section ref={panel} className={`flex flex-col border-t border-line bg-paper ${phone ? "min-h-0 flex-1" : "min-h-0 flex-none"}`} style={{ height: phone ? undefined : visibleHeight, display: open ? undefined : "none" }} aria-label="Terminals">
+    <section ref={panel} data-tour="terminal.dock" className={`flex flex-col border-t border-line bg-paper ${phone ? "min-h-0 flex-1" : "min-h-0 flex-none"}`} style={{ height: phone ? undefined : visibleHeight, display: open ? undefined : "none" }} aria-label="Terminals">
       {!phone && <div
         role="separator"
         aria-label="Resize terminal"

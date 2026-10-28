@@ -198,7 +198,7 @@ export function AskView() {
     />
   );
   const cards = (
-    <section className="flex min-h-0 flex-col gap-2 overflow-y-auto p-3">
+    <section data-tour="ask.proposals" className="flex min-h-0 flex-col gap-2 overflow-y-auto p-3">
       <div className="flex flex-wrap items-center gap-2">
         <FilterChips label="Proposals shown">
           <FilterChip active={filter === "open"} count={waiting.length} onClick={() => setFilter("open")}>Waiting</FilterChip>
@@ -210,7 +210,7 @@ export function AskView() {
     </section>
   );
   const chat = thread
-    ? <div className="relative min-h-0 flex-1"><SessionPane chat key={thread.id} sessionId={thread.id} onClear={() => void navigate({ to: "/agents" })} /></div>
+    ? <div data-tour="ask.chat" className="relative min-h-0 flex-1"><SessionPane chat key={thread.id} sessionId={thread.id} onClear={() => void navigate({ to: "/agents" })} /></div>
     : phone
       // Phone: the intro at the top and the field above the bottom tabs, like the session message box.
       ? <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">

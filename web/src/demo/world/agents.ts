@@ -116,6 +116,9 @@ export function agentsWorld() {
   const state: AgentsState = { sessions: [], events: {}, sessionGit: {}, agentWorktrees: [], proposals: [], taskOutputs: {}, dormant: {} };
   const add = (b: Build) => {
     let events = b.events ?? [];
+    // The typed text is the start of the first message (the trace folds what compose.rs appended).
+    const first = events[0];
+    if (!b.spec?.text && first?.kind === "user_message") b = { ...b, spec: { ...b.spec, text: first.text.split(`\n\n${SUMMARY_INSTRUCTION}`)[0] } };
     if (b.worktree && b.project) {
       const wt = taskWorktree(b.id, b.project, b.worktree, clock.ago(b.minutesAgo));
       state.agentWorktrees.push(wt);

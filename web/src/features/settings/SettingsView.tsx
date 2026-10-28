@@ -39,7 +39,7 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
 ];
 
 /** The layout of every Settings page: grouped navigation on the left (a scrolling row on phones), one title, one short intro. */
-export function SettingsPage({ title, intro, info, actions, children }: { title?: string; intro?: React.ReactNode; info?: string; actions?: React.ReactNode; children: React.ReactNode }) {
+export function SettingsPage({ title, intro, info, actions, children, tour }: { title?: string; intro?: React.ReactNode; info?: string; actions?: React.ReactNode; children: React.ReactNode; tour?: string }) {
   const phone = usePhone();
   const nav = phone ? (
     <nav className="phone-tabs flex gap-1.5" aria-label="Settings pages">
@@ -64,7 +64,7 @@ export function SettingsPage({ title, intro, info, actions, children }: { title?
     <div className="h-full overflow-y-auto">
       <div className={`phone-page-content mx-auto grid max-w-[1080px] gap-5 p-6 ${phone ? "grid-cols-[minmax(0,1fr)]" : "grid-cols-[180px_minmax(0,1fr)]"}`}>
         {nav}
-        <div className="grid min-w-0 content-start gap-4">
+        <div className="grid min-w-0 content-start gap-4" data-tour={tour}>
           {title && (
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="m-0 text-[18px] font-semibold">{title}</h1>
@@ -170,6 +170,7 @@ export function PresetsView() {
   };
   return (
     <SettingsPage
+      tour="settings.presets"
       title="Presets"
       intro="Instructions added to prompts, in this order."
       info="Every preset is offered in the composer, the session message box and Send later. Saved to config.toml, which you can also edit by hand."

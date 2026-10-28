@@ -67,7 +67,7 @@ function ReadyChip({ t, s }: { t: Thread; s: Suggestion }) {
 
 const ThreadRow = memo(function ThreadRow({ t, selected, projects, ready, select, act, busy }: { t: Thread; selected: boolean; projects: Project[]; ready: Suggestion | undefined; select: (t: Thread) => void; act: (t: Thread, action: string) => void; busy: boolean }) {
   const phone = usePhone();
-  return <div className={`flex ${phone ? "h-[72px]" : "h-14"} items-center gap-2 border-b border-line-2 px-3 ${selected ? "bg-select" : "hover:bg-chrome"}`}>
+  return <div data-tour="inbox.row" data-tour-id={t.id} className={`flex ${phone ? "h-[72px]" : "h-14"} items-center gap-2 border-b border-line-2 px-3 ${selected ? "bg-select" : "hover:bg-chrome"}`}>
     <button className="flex min-w-0 flex-1 items-start gap-2 text-left" onClick={() => select(t)} title={t.title} aria-current={selected || undefined}>
       <span className={`mt-1.5 size-2 flex-none rounded-full ${t.unread ? "bg-work" : "bg-transparent"}`} aria-label={t.unread ? "Unread" : undefined} />
       <span className="min-w-0 flex-1">

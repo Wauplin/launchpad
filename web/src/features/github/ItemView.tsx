@@ -211,7 +211,7 @@ function Controls({ item, act, busy }: { item: Item; act: (action: string, body:
     <div className="grid gap-3">
       <Section title="Status">
         <div className="flex flex-wrap items-center gap-2"><Badge tone={state.tone} icon={state.icon}>{state.label}</Badge>{!open && !item.merged && <button className="btn btn-sm" disabled={busy} onClick={() => void act("state", { kind: isPr ? "pr" : "issue", state: "open", state_reason: "reopened" })}>Reopen</button>}</div>
-        {isPr && open && <div className="grid gap-2 rounded-lg border border-line bg-paper p-3">
+        {isPr && open && <div data-tour="item.merge" className="grid gap-2 rounded-lg border border-line bg-paper p-3">
           <span className={`flex items-start gap-1.5 ${ready ? "text-gh-open" : "text-attn"}`}><Icon name={ready ? "okcircle" : "alert"} size={13} className="mt-px flex-none" />{ready ? "Ready to merge" : blocker(item)}</span>
           {allowed.length > 1 && <FilterChips label="Merge method">{allowed.map(([m, , label]) => <FilterChip key={m} active={actual === m} onClick={() => setMethod(m)}>{label}</FilterChip>)}</FilterChips>}
           <ConfirmButton tone="publish" small={false} className={`w-full justify-center ${ready ? "btn-primary" : ""}`} disabled={busy || item.isDraft || item.mergeable !== "MERGEABLE" || !allowed.length}
@@ -323,7 +323,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
     {isPr && item && <span className="font-mono">{item.headRefName} → {item.baseRefName} · {item.headRefOid?.slice(0, 7)}</span>}
     {synced}
   </>;
-  const tabs = isPr ? <Tabs label="Pull request views" value={tab} onChange={setTab} items={[{ id: "conversation", label: "Conversation" }, { id: "files", label: "Changes", count: current.length || undefined, title: current.length ? `${current.length} line comments for your next review` : undefined }, { id: "threads", label: "Review threads", count: item?.reviewThreads?.nodes.length || undefined }]} /> : undefined;
+  const tabs = isPr ? <Tabs tour="item.tabs" label="Pull request views" value={tab} onChange={setTab} items={[{ id: "conversation", label: "Conversation" }, { id: "files", label: "Changes", count: current.length || undefined, title: current.length ? `${current.length} line comments for your next review` : undefined }, { id: "threads", label: "Review threads", count: item?.reviewThreads?.nodes.length || undefined }]} /> : undefined;
   return <div className="flex h-full flex-col">
     {phone ? <>
       <PhoneHeader title={item?.title ?? `#${number}`} subtitle={<span className="flex flex-wrap items-center gap-1.5">{meta}</span>} primary={isPr ? agentReview : launch} actions={<>{isPr && launch}{item && <AddContext refItem={reference(repo, item, isPr ? "pr" : "issue")} />}<button className="btn btn-sm" onClick={openOnGitHub}>Open on GitHub</button><button className="btn btn-sm" disabled={refreshing} onClick={() => void refresh()}>Refresh</button></>} details={item && <Controls key={item.updatedAt} item={item} act={act} busy={busy} />} />
