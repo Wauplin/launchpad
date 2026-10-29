@@ -95,3 +95,22 @@ test("AI auto approval is remembered per profile and survives new drafts", async
   draft().start();
   assert.equal(draft().spec.permission_mode, "auto");
 });
+
+test("existing worktree choices require a reusable primary folder and account for every linked agent", async () => {
+  const { reusableWorktrees } = await import("../src/features/launch/worktreeChoices.ts");
+  const source = { id: "original", cwd: "/repo/task", status: "waiting", launch_spec: { target: { kind: "project" } } };
+  const info = { path: source.cwd, exists: true, worktree: { id: "task", branch: "lp/task", project_id: "project", primary: true, state: "active", merged: null, sessions: [source.id, "followup"] } };
+  const choices = (entry = info, sessions = [source]) => reusableWorktrees([entry], sessions, "project");
+  assert.equal(choices()[0].source.id, source.id);
+  assert.equal(choices()[0].busy, false);
+  for (const status of ["starting", "working", "background", "in_terminal", "quota_paused"]) {
+    assert.equal(choices(info, [source, { ...source, id: "followup", status }])[0].busy, true);
+  }
+  assert.deepEqual(reusableWorktrees([info], [source], "other-project"), []);
+  assert.deepEqual(choices({ ...info, exists: false }), []);
+  for (const patch of [{ primary: false }, { state: "removed" }, { state: "discarded" }, { state: "predraft" }, { state: "handed_off" }, { merged: {} }]) {
+    assert.deepEqual(choices({ ...info, worktree: { ...info.worktree, ...patch } }), []);
+  }
+  assert.deepEqual(choices(info, [{ ...source, cwd: "/repo" }]), []);
+  assert.deepEqual(choices(info, [{ ...source, launch_spec: { target: { kind: "browser" } } }]), []);
+});

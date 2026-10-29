@@ -808,7 +808,11 @@ impl Sessions {
                 }
                 Target::SessionFolder { session_id } => {
                     let source = self.get(session_id).context("source session no longer exists")?;
-                    crate::worktrees::join(app, session_id, &id).await?;
+                    let joined = crate::worktrees::join(app, session_id, &id).await?;
+                    worktrees.extend(joined.into_iter().filter(|w| w.state == crate::worktrees::WorktreeState::Active).map(|w| {
+                        let path = crate::worktrees::folder(&w);
+                        (w, path)
+                    }));
                     (preview.cwd.clone().context("source session folder missing")?, source.project_id)
                 }
                 Target::None => unreachable!(),

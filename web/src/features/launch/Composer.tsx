@@ -22,6 +22,8 @@ import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
 import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
+import type { WorktreeInfo } from "@/gen/WorktreeInfo";
+import { reusableWorktrees } from "./worktreeChoices";
 import { HarnessMark, useHarnessName, useHarnesses, useHarnessInfo } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
@@ -308,7 +310,11 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const [showOptions, setShowOptions] = useState(false);
   const items = (spec.attachments ?? []).length + spec.github_refs.length + (spec.files ?? []).length + spec.context_projects.length + (spec.agent_traces ?? []).length;
 
-  const targetId = spec.target.kind === "project" || spec.target.kind === "predraft" ? spec.target.project_id : null;
+  const localPrs = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts"), enabled: open });
+  const taskWorktrees = useQuery({ queryKey: ["worktrees"], queryFn: () => api.get<WorktreeInfo[]>("/api/worktrees"), enabled: open && !browserOnly });
+  const existing = spec.target.kind === "existing_predraft" ? localPrs.data?.find((p) => p.id === (spec.target as { predraft_id: string }).predraft_id) : undefined;
+  const source = spec.target.kind === "session_folder" ? sessions?.find((s) => s.id === (spec.target as { session_id: string }).session_id) : undefined;
+  const targetId = spec.target.kind === "project" || spec.target.kind === "predraft" ? spec.target.project_id : existing?.project_id ?? source?.project_id ?? null;
   const targetBranches = useQuery({
     queryKey: ["branches", targetId],
     queryFn: () => api.get<{ current: string | null; branches: string[] }>(`/api/projects/${targetId}/branches`),
@@ -318,9 +324,9 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   });
   // Worktrees need a Git repository with a commit; other folders run in place.
   const gitTarget = !!targetId && !targetBranches.isError;
-  const localPrs = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts"), enabled: open });
-  const existing = spec.target.kind === "existing_predraft" ? localPrs.data?.find((p) => p.id === (spec.target as { predraft_id: string }).predraft_id) : undefined;
-  const source = spec.target.kind === "session_folder" ? sessions?.find((s) => s.id === (spec.target as { session_id: string }).session_id) : undefined;
+  const worktreeChoices = reusableWorktrees(taskWorktrees.data ?? [], sessions ?? [], targetId);
+  const selectedWorktree = worktreeChoices.find((w) => w.path === source?.cwd);
+  const existingPrChoices = (localPrs.data ?? []).filter((p) => p.project_id === targetId && !p.archived && !p.published_url && !p.merged && !p.pushed_head);
   const recentSessions = (sessions ?? []).filter(scope.hasSession);
   const hosts = useHosts();
   // Recent folders of this workspace, newest first, as one-tap target chips.
@@ -388,7 +394,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const hostStatus = targetHost ? (hosts.find((h) => h.host.id === targetHost) ?? null) : null;
   const hostProfile = (p: Profile | null) => (p ? profileOnHost(hostStatus, p) : null);
   const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Machines` : hostProfile(profile)?.ok === false ? hostProfile(profile)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context folders must be on the same machine as the folder" : null;
-  const blocker = hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const blocker = selectedWorktree?.busy ? "Stop the active agent before using this worktree" : hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
@@ -491,7 +497,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const effortLabel = spec.effort ?? profile?.effort ?? defaults?.effort ?? null;
   const worktreeMode = spec.target.kind === "project" && !!spec.worktree && gitTarget;
   // Only values that differ from the defaults show in the option line; a new worktree is the default for Git folders.
-  const runIn = spec.target.kind === "session_folder" ? "previous agent’s folder" : spec.target.kind === "predraft" ? "new Local PR" : spec.target.kind === "existing_predraft" ? "existing Local PR" : worktreeMode ? null : spec.target.kind === "project" && gitTarget ? "checkout" : null;
+  const runIn = spec.target.kind === "session_folder" ? (selectedWorktree ? `worktree · ${selectedWorktree.branch}` : "previous agent’s folder") : spec.target.kind === "predraft" ? "new Local PR" : spec.target.kind === "existing_predraft" ? "existing Local PR" : worktreeMode ? null : spec.target.kind === "project" && gitTarget ? "checkout" : null;
   const baseLabel = spec.worktree?.base ?? targetBranches.data?.current ?? "current branch";
   const billingText = !supportsCost && harness?.capabilities.cost ? costUnavailableMessage : payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${profile!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
   const presetLabels = (config?.presets ?? []).filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
@@ -572,9 +578,25 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             {recentFolders.filter((p) => p.id !== target?.id).length > 0 && <div className="mt-1.5 flex flex-wrap gap-1">{recentFolders.filter((p) => p.id !== target?.id).slice(0, 3).map((p) => <button key={p.id} className="lp-chip h-[22px]! px-2! text-[11px]!" title={`Run in ${p.name}`} onClick={() => set((s) => withFolder(s, p))}>{p.name}</button>)}</div>}
           </Field>
           <Field label="Run in" tour="composer.runin">
-            {target ? <select className="field-input h-8 w-full" aria-label="Run in" value={worktreeMode ? "worktree" : spec.target.kind} onChange={(e) => { const v = e.target.value; set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, include_changes: false, merge_when_done: false }) : v === "project" ? null : s.worktree })); }}>
-              {spec.target.kind === "session_folder" && <option value="session_folder">Previous agent’s folder</option>}{existing && <option value="existing_predraft">Local PR: {existing.title}</option>}{gitTarget && <option value="worktree">New worktree</option>}<option value="project">{gitTarget ? "Checkout" : "Folder (no Git)"}</option>{gitTarget && <option value="predraft">New Local PR</option>}
+            {target ? <select className="field-input h-8 w-full" aria-label="Run in" value={selectedWorktree ? `worktree:${selectedWorktree.id}` : worktreeMode ? "worktree" : existing ? `predraft:${existing.id}` : spec.target.kind} onChange={(e) => {
+              const v = e.target.value;
+              const worktree = worktreeChoices.find((w) => v === `worktree:${w.id}`);
+              const predraft = existingPrChoices.find((p) => v === `predraft:${p.id}`);
+              if (worktree) set((s) => ({ ...s, target: { kind: "session_folder", session_id: worktree.source.id }, worktree: null }));
+              else if (predraft) set((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: predraft.id }, worktree: null }));
+              else if (v === "worktree" || v === "project" || v === "predraft") set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, include_changes: false, merge_when_done: false }) : null }));
+            }}>
+              {spec.target.kind === "session_folder" && !selectedWorktree && <option value="session_folder">Previous agent’s folder</option>}
+              {gitTarget && <option value="worktree">New worktree</option>}
+              <option value="project">{gitTarget ? "Checkout" : "Folder (no Git)"}</option>
+              {gitTarget && <option value="predraft">New Local PR</option>}
+              {!!worktreeChoices.length && <optgroup label="Existing worktrees">{worktreeChoices.map((w) => <option key={w.id} value={`worktree:${w.id}`} disabled={w.busy}>{w.branch}{w.busy ? " · Agent active" : ""}</option>)}</optgroup>}
+              {existing && !existingPrChoices.some((p) => p.id === existing.id) && <option value={`predraft:${existing.id}`} disabled>Local PR: {existing.title} · Unavailable</option>}
+              {!!existingPrChoices.length && <optgroup label="Existing Local PRs">{existingPrChoices.map((p) => <option key={p.id} value={`predraft:${p.id}`}>{p.title}</option>)}</optgroup>}
             </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "A new scratch folder" : "—"}</div>}
+            {taskWorktrees.isFetching && !taskWorktrees.data && target && <div className="mt-1 text-xs text-ink-3">Loading existing worktrees…</div>}
+            {taskWorktrees.isError && target && <div className="mt-1 text-xs text-danger-ink">Could not load existing worktrees. <button className="underline" onClick={() => void taskWorktrees.refetch()}>Retry</button></div>}
+            {existing && <div className="mt-1 break-all text-xs text-ink-3">{existing.root}</div>}
             {spec.target.kind === "session_folder" && <div className="mt-1 break-all text-xs text-ink-3">{source?.cwd ?? "Source session unavailable"}</div>}
             {target && spec.target.kind === "project" && !worktreeMode && <div className="mt-1 text-xs text-ink-3">{gitTarget ? <TargetCheckout projectId={target.id} /> : "Runs in the folder"}</div>}
             {worktreeMode && <div className="mt-1 text-xs text-ink-3" title="Launchpad creates a new branch and folder before the agent starts; your checkout is not modified.">Your checkout stays untouched</div>}

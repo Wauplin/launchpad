@@ -378,8 +378,14 @@ pub(crate) async fn leave(app: &App, session_id: &str) -> Result<()> {
 /// A continuation with another agent works in the same worktrees.
 pub async fn join(app: &App, source_session: &str, session_id: &str) -> Result<Vec<TaskWorktree>> {
     let _lock = app.worktree_lock.lock().await;
+    let worktrees = for_session(app, source_session).await?;
+    for w in &worktrees {
+        if let Some(reason) = idle_agent_reason(app, w, false) {
+            bail!("cannot continue in this worktree: {reason}");
+        }
+    }
     let mut joined = vec![];
-    for mut w in for_session(app, source_session).await? {
+    for mut w in worktrees {
         if !w.sessions.iter().any(|s| s == session_id) {
             w.sessions.push(session_id.to_string());
             save(app, &w).await?;

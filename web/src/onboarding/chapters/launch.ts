@@ -38,7 +38,7 @@ export const launch: Chapter = {
     {
       id: "launch.where", anchor: "composer.runin",
       title: "Folder and Run in",
-      body: "The agent works in a folder. In a Git folder it gets its own worktree: a new branch and folder, so your checkout stays untouched. When done chooses between keeping the branch for review and merging it.",
+      body: "The agent works in a folder. In a Git folder it gets its own worktree: a new branch and folder, so your checkout stays untouched. Choose an existing worktree or Local PR in Run in for follow-up work. For a new worktree, When done chooses between keeping the branch for review and merging it.",
       enter: () => { const s = useComposer.getState().spec; if (s.target.kind === "none") useComposer.getState().update((x) => ({ ...x, target: { kind: "project", project_id: P.storefront } })); },
     },
     {
