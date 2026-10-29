@@ -129,14 +129,14 @@ function GitHubLinkForm({ onAdd, onDone }: { onAdd: (r: GitHubRef) => void; onDo
 }
 
 /** The "+ Add context" popover: one menu for projects, GitHub links, agent traces and recent contexts. */
-function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject, onGitHub, onTrace }: {
+function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject, onGitHub, onToggleTrace }: {
   projects: Project[];
   recent: { key: string; label: string; add: () => void }[];
   sessions: Session[];
   selectedTraces: AgentTraceRef[];
   onProject: (p: Project) => void;
   onGitHub: (r: GitHubRef) => void;
-  onTrace: (t: AgentTraceRef) => void;
+  onToggleTrace: (t: AgentTraceRef) => void;
 }) {
   const [mode, setMode] = useState<"menu" | "project" | "github" | "trace">("menu");
   return (
@@ -153,7 +153,7 @@ function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject,
         const back = <MenuItem icon={<Icon name="chev" size={13} className="rotate-90" />} label="Back" onClick={() => setMode("menu")} />;
         if (mode === "project") return <>{back}<ProjectPicker projects={projects} hasProject={() => true} temporary={false} emptyMessage="No other folder." onPick={(p) => { if (p) { onProject(p); close(); } }} /></>;
         if (mode === "github") return <>{back}<GitHubLinkForm onAdd={onGitHub} onDone={close} /></>;
-        if (mode === "trace") return <>{back}<AgentTracePicker sessions={sessions} selected={selectedTraces} onPick={(t) => { onTrace(t); close(); }} /></>;
+        if (mode === "trace") return <>{back}<AgentTracePicker sessions={sessions} selected={selectedTraces} onToggle={onToggleTrace} /><div className="flex items-center justify-between px-2 pt-1 text-xs text-ink-3"><span>{selectedTraces.length} selected</span><button className="btn btn-sm btn-primary" onClick={close}>Done</button></div></>;
         return (
           <>
             <MenuItem icon={<Icon name="folder" size={13} />} label="Folder…" detail="Another folder as read-only context" onClick={() => setMode("project")} />
@@ -650,7 +650,10 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             selectedTraces={spec.agent_traces ?? []}
             onProject={addProjectContext}
             onGitHub={(r) => set((s) => (s.github_refs.some((g) => g.url === r.url) ? s : { ...s, github_refs: [...s.github_refs, r] }))}
-            onTrace={(trace) => set((s) => ({ ...s, agent_traces: [...(s.agent_traces ?? []), trace] }))}
+            onToggleTrace={(trace) => set((s) => {
+              const traces = s.agent_traces ?? [];
+              return { ...s, agent_traces: traces.some((t) => t.session_id === trace.session_id) ? traces.filter((t) => t.session_id !== trace.session_id) : [...traces, trace] };
+            })}
           />
         </div>
 
