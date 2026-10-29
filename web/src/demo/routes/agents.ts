@@ -1,6 +1,7 @@
 // Sessions, their events and the agent actions (`/api/sessions/*`). Messages and answers continue prerecorded
 // scenarios (`player.ts`); every mutation publishes the same bus events as the daemon (`sessions`, `session/<id>`).
 
+import type { MessageContext } from "@/gen/MessageContext";
 import type { EarlierFacts } from "@/gen/EarlierFacts";
 import type { PermissionMode } from "@/gen/PermissionMode";
 import type { Session } from "@/gen/Session";
@@ -301,7 +302,20 @@ export function sendMessage(s: Session, text: string, clientId: string, files: {
 
 route("POST", "/api/sessions/:id/input", (r) => {
   const s = found(r.params.id);
-  const text = String(r.body?.text ?? "");
+  let text = String(r.body?.text ?? "");
+  const context = r.body?.context as MessageContext | undefined;
+  const lines: string[] = [];
+  for (const c of context?.context_projects ?? []) {
+    const project = world.projects.find((p) => p.id === c.project_id);
+    if (!project) throw new DemoError(400, "context project no longer exists");
+    lines.push(`- Reference project: ${project.path}. Read it, but do not modify it.`);
+  }
+  for (const g of context?.github_refs ?? []) lines.push(`- ${g.title ?? g.repo}: ${g.url}`);
+  for (const t of context?.agent_traces ?? []) {
+    const source = found(t.session_id);
+    lines.push(`- Reference agent trace: ${source.title}, through event ${t.through_seq}.`);
+  }
+  if (lines.length) text = [text.trim(), `Context:\n${lines.join("\n")}`].filter(Boolean).join("\n\n");
   const files = (r.body?.files ?? []) as { name: string }[];
   if (!text.trim() && !files.length) throw new DemoError(400, "the message is empty");
   if (s.open_question) throw new DemoError(400, "Answer the open question first.");

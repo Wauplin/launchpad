@@ -4,7 +4,7 @@
 use crate::config::Preset;
 use crate::model::{FileRef, GitHubRef, LaunchSpec};
 
-/// Initial launch only; follow-up and steering messages are sent verbatim.
+/// Initial launch only; follow-up and steering messages never receive this instruction.
 pub fn append_initial_summary_instruction(prompt: &mut String) {
     // An instruction alone must not turn an empty draft into a launchable task.
     if prompt.trim().is_empty() {

@@ -35,7 +35,7 @@ export const answering: Chapter = {
     {
       id: "answering.reply", anchor: "session.reply",
       title: "Reply",
-      body: "When the agent is Done, send the next message here. Presets add your usual instructions with one click. Enter sends; Shift+Enter adds a line.",
+      body: "When the agent is Done, send the next message here. Add context attaches read-only folders, GitHub links or another agent’s trace. Presets add your usual instructions with one click. Enter sends; Shift+Enter adds a line.",
       enter: () => clickAnchor("session.views", "trace"),
     },
     {

@@ -1,8 +1,9 @@
 // Unsent text of each session's message box. Kept outside the box, so the code viewer can add a
 // `path:405-411` reference to a session and the text survives switching views. Persisted in this
 // browser's local storage, so a reload (or a phone discarding the tab) keeps unsent replies.
-// The presets chosen for the next message are kept the same way.
+// Presets and context chosen for the next message are kept the same way.
 
+import type { MessageContext } from "@/gen/MessageContext";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -10,6 +11,8 @@ type Drafts = {
   drafts: Record<string, string>;
   /** Preset IDs to append to the next message of each session. */
   presets: Record<string, string[]>;
+  contexts: Record<string, MessageContext>;
+  setContext: (id: string, context: MessageContext) => void;
   set: (id: string, text: string) => void;
   setPresets: (id: string, presets: string[]) => void;
   /** Adds text after what is already typed. */
@@ -29,6 +32,14 @@ export const useMessageDrafts = create<Drafts>()(
     (set, get) => ({
       drafts: {},
       presets: {},
+      contexts: {},
+      setContext: (id, context) => {
+        void useMessageDrafts.persist.rehydrate();
+        const next = { ...get().contexts };
+        if (context.context_projects.length || context.github_refs.length || context.agent_traces.length) next[id] = context;
+        else delete next[id];
+        set({ contexts: next });
+      },
       set: (id, text) => { void useMessageDrafts.persist.rehydrate(); set({ drafts: withText(get().drafts, id, text) }); },
       setPresets: (id, presets) => {
         void useMessageDrafts.persist.rehydrate();
@@ -43,7 +54,7 @@ export const useMessageDrafts = create<Drafts>()(
         set({ drafts: withText(get().drafts, id, cur && !/\s$/.test(cur) ? `${cur} ${text}` : `${cur}${text}`) });
       },
     }),
-    { name: "launchpad-message-drafts", partialize: (s) => ({ drafts: s.drafts, presets: s.presets }) },
+    { name: "launchpad-message-drafts", partialize: (s) => ({ drafts: s.drafts, presets: s.presets, contexts: s.contexts }) },
   ),
 );
 

@@ -369,6 +369,15 @@ pub enum PermissionMode {
     Auto,
 }
 
+/// Context attached to one follow-up message. Folders are always read-only references.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[serde(default)]
+pub struct MessageContext {
+    pub context_projects: Vec<ContextProject>,
+    pub github_refs: Vec<GitHubRef>,
+    pub agent_traces: Vec<AgentTraceRef>,
+}
+
 /// What to launch (ARCHITECTURE.md, section 9.7).
 #[derive(Clone, Debug, Serialize, Deserialize, TS, Default)]
 #[serde(default)]

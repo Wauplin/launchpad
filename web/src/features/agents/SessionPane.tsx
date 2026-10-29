@@ -47,6 +47,7 @@ import { Sheet } from "@/mobile/Sheet";
 import { WorktreeCard, useSessionWorktrees, WorktreeChip } from "./Worktrees";
 import { usePhone } from "@/lib/phone";
 import { PresetButton, PresetChips, usePresets } from "./MessagePresets";
+import { EMPTY_CONTEXT, hasMessageContext, MessageContextPicker } from "./MessageContext";
 import { withPresets } from "@/lib/presets";
 
 function act(id: string, action: string) {
@@ -66,11 +67,16 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
   // Presets go with messages, not with answers to an open question.
   const presets = ask ? [] : (selectedPresets ?? []).filter((id) => allPresets.some((p) => p.id === id));
   const setPresets = (ids: string[]) => setStoredPresets(sessionId, ids);
+  const storedContext = useMessageDrafts((s) => s.contexts[sessionId]);
+  const context = ask ? EMPTY_CONTEXT : storedContext ?? EMPTY_CONTEXT;
+  const setStoredContext = useMessageDrafts((s) => s.setContext);
+  const setContext = (value: typeof context) => setStoredContext(sessionId, value);
   const message = ask ? text.trim() : withPresets(text, presets, allPresets);
   const [busy, setBusy] = useState(false);
   const [delivery, setDelivery] = useState<"sending" | "delivered" | "uncertain" | "failed" | null>(null);
   const attachments = useMessageAttachments(acceptsImages);
   const { files, reading, readingRef } = attachments;
+  const payload = { text: message, files, ...(hasMessageContext(context) ? { context } : {}) };
   const fileRef = useRef<HTMLInputElement>(null);
   const addFiles = (input: File[] | Promise<File[]>) => {
     if (disabled || busy) return;
@@ -85,21 +91,21 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
   }, [text, ref]);
   const send = async () => {
     const t = message;
-    if ((!t && !files.length) || busy || disabled || reading || ask?.permission) return;
+    if ((!t && !files.length && !hasMessageContext(context)) || busy || disabled || reading || ask?.permission) return;
     setBusy(true);
     setDelivery("sending");
     try {
       if (ask) {
         // A typed answer to the open question.
         await api.post(`/api/sessions/${sessionId}/answer`, { request_id: ask.request_id, answers: Array(ask.count).fill(t || "See the attachments in my next message.") });
-        if (files.length) await api.post(`/api/sessions/${sessionId}/input`, { text: t, files });
+        if (files.length) await api.post(`/api/sessions/${sessionId}/input`, payload);
       } else {
-        await api.post(`/api/sessions/${sessionId}/input`, { text: t, files });
+        await api.post(`/api/sessions/${sessionId}/input`, payload);
       }
       setDelivery("delivered");
       onSent();
       setText("");
-      if (!ask) setPresets([]);
+      if (!ask) { setPresets([]); setContext(EMPTY_CONTEXT); }
       attachments.clear();
     } catch (e) {
       setDelivery(e instanceof ApiError && e.operationCompleted ? "failed" : "uncertain");
@@ -113,7 +119,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
       <input ref={fileRef} type="file" multiple hidden onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
       {delivery && <div role="status" className="mb-1 text-[12px] text-ink-3">{delivery === "sending" ? "Sending…" : delivery === "delivered" ? "Delivered" : delivery === "failed" ? "Attempt failed. Check the trace before starting a new attempt." : "Delivery not confirmed. Retry the same message to check its result."}</div>}
-      {delivery === "uncertain" && <button className="btn btn-sm mb-1" disabled={busy} onClick={() => void abandonOperation(`/api/sessions/${sessionId}/input`, { text: message, files }).then(() => setDelivery(null)).catch(toastError)}>I checked the trace — start a new attempt</button>}
+      {delivery === "uncertain" && <button className="btn btn-sm mb-1" disabled={busy} onClick={() => void abandonOperation(`/api/sessions/${sessionId}/input`, payload).then(() => setDelivery(null)).catch(toastError)}>I checked the trace — start a new attempt</button>}
       {reading && <div className="mb-1 text-[12px] text-ink-3">Reading attachments…</div>}
       {!ask && <PresetChips selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
       <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
@@ -142,10 +148,11 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
         <button className="iconbtn" title={`Attach files or images (you can also drop files${acceptsImages ? " or paste a screenshot" : ""}). ${ATTACH_LIMITS}`} aria-label="Attach files or images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
           <Icon name="clip" size={14} />
         </button>
-        <button className="iconbtn border-line! bg-paper" title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : "Send"} disabled={disabled || busy || reading || (!message && !files.length)} onClick={() => void send()}>
+        <button className="iconbtn border-line! bg-paper" title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : "Send"} disabled={disabled || busy || reading || (!message && !files.length && !hasMessageContext(context))} onClick={() => void send()}>
           <Icon name="send" size={14} />
         </button>
       </div>
+      {!ask && <div className="mt-1.5"><MessageContextPicker sessionId={sessionId} value={context} onChange={setContext} disabled={disabled || busy || reading} /></div>}
     </div>
   );
 }

@@ -404,6 +404,8 @@ struct Input {
     /// Images or other files; files are copied to the session's attachment folder.
     #[serde(default)]
     files: Vec<launchpad_core::model::FileAttachment>,
+    #[serde(default)]
+    context: launchpad_core::model::MessageContext,
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
@@ -411,7 +413,7 @@ fn bad(e: anyhow::Error) -> ApiError {
 }
 
 async fn input(State(s): State<Server>, Path(id): Path<String>, headers: axum::http::HeaderMap, Json(b): Json<Input>) -> ApiResult<Value> {
-    if b.text.trim().is_empty() && b.images.is_empty() && b.files.is_empty() {
+    if b.text.trim().is_empty() && b.images.is_empty() && b.files.is_empty() && b.context.context_projects.is_empty() && b.context.github_refs.is_empty() && b.context.agent_traces.is_empty() {
         return Err(ApiError::bad_request("the message is empty"));
     }
     let mut b = b;
@@ -420,11 +422,8 @@ async fn input(State(s): State<Server>, Path(id): Path<String>, headers: axum::h
     let (text, images) = launchpad_core::attachments::for_message(&s.app, &id, &b.text, &b.files).await.map_err(bad)?;
     b.text = text;
     b.images.extend(images);
-    if let Some(client_id) = headers.get("Idempotency-Key").and_then(|v| v.to_str().ok()) {
-        s.app.sessions.send_with_id(&s.app, &id, &b.text, b.images, client_id.to_owned()).await.map_err(bad)?;
-    } else {
-        s.app.sessions.send(&s.app, &id, &b.text, b.images).await.map_err(bad)?;
-    }
+    let client_id = headers.get("Idempotency-Key").and_then(|v| v.to_str().ok()).map(str::to_owned);
+    s.app.sessions.send_with_context(&s.app, &id, &b.text, b.images, b.context, client_id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 

@@ -104,6 +104,16 @@ test("message and layout writes include changes from another window", async () =
   localStorage.setItem("launchpad-message-drafts", JSON.stringify({ state: { drafts: { other: "unsent elsewhere" } }, version: 0 }));
   useMessageDrafts.getState().set("here", "local text");
   assert.deepEqual(useMessageDrafts.getState().drafts, { other: "unsent elsewhere", here: "local text" });
+  const context = { context_projects: [{ project_id: "reference", branch: null, editable: false }], github_refs: [], agent_traces: [{ session_id: "source", through_seq: 12 }] };
+  useMessageDrafts.getState().setContext("here", context);
+  useMessageDrafts.getState().set("here", "updated text");
+  assert.deepEqual(JSON.parse(localStorage.getItem("launchpad-message-drafts")).state.contexts.here, context);
+  // Another window's unsent context survives clearing this session after delivery.
+  const storedMessages = JSON.parse(localStorage.getItem("launchpad-message-drafts"));
+  storedMessages.state.contexts.other = context;
+  localStorage.setItem("launchpad-message-drafts", JSON.stringify(storedMessages));
+  useMessageDrafts.getState().setContext("here", { context_projects: [], github_refs: [], agent_traces: [] });
+  assert.deepEqual(useMessageDrafts.getState().contexts, { other: context });
   event("storage", { key: "launchpad-message-drafts" });
   const { useLayout } = await import("../src/stores/layout.ts");
   localStorage.setItem("launchpad.layout", JSON.stringify({ state: { pinned: ["other"] }, version: 0 }));

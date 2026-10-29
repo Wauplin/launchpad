@@ -185,6 +185,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     analytics::AgentRun::export_all(&cfg)?;
     signin::SignInCheck::export_all(&cfg)?;
     model::Session::export_all(&cfg)?;
+    model::MessageContext::export_all(&cfg)?;
     model::SessionProcess::export_all(&cfg)?;
     model::SessionEvent::export_all(&cfg)?;
     session_pages::SessionEventPage::export_all(&cfg)?;
