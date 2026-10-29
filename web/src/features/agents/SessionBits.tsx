@@ -47,7 +47,7 @@ export function statusInfo(s: Session): { label: string; style: keyof typeof STY
     case "interrupted":
       return { label: "Interrupted", style: "int", icon: "alert" };
     case "error":
-      return { label: "Failed", style: "err", icon: "xcircle" };
+      return s.capacity_retry_at != null ? { label: "Automatic retry pending", style: "bg", icon: "clock" } : { label: "Failed", style: "err", icon: "xcircle" };
   }
 }
 

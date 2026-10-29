@@ -186,6 +186,9 @@ pub fn spawn(app: &App) {
     let app = app.clone();
     tokio::spawn(async move {
         loop {
+            if let Err(e) = app.sessions.check_capacity_retries(&app).await {
+                tracing::warn!("capacity retry guard: {e:#}");
+            }
             if let Err(e) = app.sessions.check_quotas(&app).await {
                 tracing::warn!("quota guard: {e:#}");
             }

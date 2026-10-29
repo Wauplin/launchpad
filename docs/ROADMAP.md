@@ -1,10 +1,12 @@
 # Launchpad roadmap
 
-Status: implementation and acceptance tracker (updated 2026-10-15). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
+Status: implementation and acceptance tracker (updated 2026-10-29). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
 
 Native trace backup (2026-10-28, built; awaiting daily use): Claude conversation/subagent JSONL, Codex rollouts and OpenCode native JSON exports are backed up without schema conversion, alongside full Launchpad run metadata and event sidecars. Changed snapshots upload independently of event cursors; unavailable native files or hosts do not block other sessions.
 
 Trace backup layout (2026-10-28, built; awaiting daily use): Hugging Face backups use `<folder name>/<harness>/<session>/` directly under the bucket, grouping the same folder name across machines and workspaces. Machine-folder configuration is removed; only folder renames change destinations. Settings and the README describe the layout.
+
+Automatic model capacity retries (2026-10-29, built; awaiting daily use): provider capacity/overload failures resume after five minutes, with a persisted lifetime limit of five attempts, manual cancellation and a pending UI indicator. Other failures remain manual; uncertain claimed attempts are never replayed. See [retry-operations.md](retry-operations.md).
 
 ## How to read this
 

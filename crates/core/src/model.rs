@@ -156,6 +156,13 @@ pub struct Session {
     pub launch_spec: LaunchSpec,
     #[serde(default)]
     pub quota_pause: Option<QuotaPause>,
+    /// Lifetime automatic capacity retries claimed for this session (never reset by manual input).
+    #[serde(default)]
+    pub capacity_retry_count: u8,
+    /// Pending automatic continuation deadline, Unix milliseconds.
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub capacity_retry_at: Option<i64>,
     /// When a focused window last showed the session (Unix ms, 0: never). Unseen while older than `status_since`.
     #[ts(type = "number")]
     pub seen_at: i64,

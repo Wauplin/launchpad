@@ -48,3 +48,11 @@ Validation for group 10: all 82 Rust tests, all 11 browser operation tests on No
 The middleware holds a per-operation-ID lock through dispatch and durable completion. Concurrent retries of one ID still replay its completed response, while unrelated Launch, Send and GitHub publication requests proceed independently. Weak lock entries are reclaimed after their last user leaves. Claims left unresolved after a crash or uncertain delivery remain blocked.
 
 Validation for group 1: all 89 Rust tests, all 11 browser operation tests on Node 24.14.1, UI typecheck/build and `git diff --check` passed. Regression coverage includes independent operation IDs, background shutdown ownership, commands retained across turns and an escaped setup descendant retaining an output pipe. Live SSH reconnection and GitHub publication were not exercised.
+
+## Automatic model capacity retries
+
+A terminal session failure whose latest provider error says the model is at capacity or overloaded schedules the same continuation as the owner's Resume action. Tool failures, quota/rate limits, authentication and other errors do not qualify. `CAPACITY_RETRY_DELAY_MS` in `sessions.rs` sets the five-minute delay; `MAX_CAPACITY_RETRIES` caps automatic attempts at five over the session's lifetime. Manual input does not replenish this allowance.
+
+The deadline and attempt count live on the session in `state.db`, independently of scheduled follow-ups (which send an owner-written message). The daemon's periodic guard checks the deadline and waits for outstanding work to settle. It takes the same action/work locks as manual Resume, clears the deadline and persists the incremented count before continuing. Pending deadlines survive restart; a claim interrupted by a crash is never replayed. Existing quota, cost, worktree and terminal guards still apply. A guard/startup failure leaves a notice for manual inspection; only another explicit capacity error can schedule the next attempt.
+
+Manual Resume, sending input, Stop or Archive cancel the pending deadline. Session lists show “Automatic retry pending”; the session pane shows the next attempt and local scheduled time. Repeated provider error notifications do not postpone the deadline or consume extra attempts. Regression tests use isolated databases and fake harnesses, with no live model calls.

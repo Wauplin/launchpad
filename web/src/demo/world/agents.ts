@@ -84,6 +84,7 @@ export function demoSession(b: Build, log: Record<string, SessionEvent[]>, event
     open_question: false, model: MODELS[b.harness] ?? null, effort: b.harness === "codex" ? "medium" : null, prompt: `${typed}\n\n${SUMMARY_INSTRUCTION}`,
     usage: usage(Math.max(2, Math.round(events.length / 2))), started_at: started, ended_at: null, last_seq: events.length,
     launch_spec: defaultSpec({ harness: b.harness, profile: PROFILE[b.harness] ?? null, target: b.project ? { kind: "project", project_id: b.project } : { kind: "temp" }, text: typed, workspace_id: workspaceOf(b.project), ...b.spec }),
+    capacity_retry_count: 0, capacity_retry_at: null,
     quota_pause: null, seen_at: b.seen === false ? 0 : lastTs + 30_000,
     last_message: last && last.kind === "assistant_message" ? last.text.split("\n").find((l) => l.trim())?.replace(/[*_`#]/g, "").slice(0, 400) ?? null : null,
     ...b.patch,

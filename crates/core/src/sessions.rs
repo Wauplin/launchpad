@@ -5,13 +5,22 @@
 //! Adapters report through a [`Sink`], which numbers events, stores them, pushes them over the
 //! WebSocket and keeps the session record (status, usage, cost) up to date.
 
+/// Wait between capacity failures and automatic continuation attempts.
+pub const CAPACITY_RETRY_DELAY_MS: i64 = 5 * 60_000;
+pub const MAX_CAPACITY_RETRIES: u8 = 5;
+
+fn is_capacity_error(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("model is at capacity") || message.contains("overloaded")
+}
+
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
 
 use crate::App;
@@ -212,7 +221,7 @@ impl Sessions {
                 let mut st = c.prepare(
                     "SELECT id, harness, harness_session_id, project_id, cwd, title, status, status_since, open_question, model,
                             effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json, quota_pause_json, title_pending,
-                            seen_at, last_message, archived_done
+                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at
                      FROM session",
                 )?;
                 let rows = st
@@ -236,6 +245,8 @@ impl Sessions {
                             title_pending,
                             status: SessionStatus::parse(&r.get::<_, String>(6)?),
                             archived_done: r.get(22)?,
+                            capacity_retry_count: r.get(23)?,
+                            capacity_retry_at: r.get(24)?,
                             status_since: r.get(7)?,
                             live: false,
                             open_question: r.get::<_, i64>(8)? != 0,
@@ -425,12 +436,12 @@ impl Sessions {
         db.enqueue(move |c| {
             c.execute(
                 "INSERT INTO session (id, harness, harness_session_id, project_id, cwd, title, status, status_since,
-                    open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
+                    open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)
                  ON CONFLICT (id) DO UPDATE SET harness_session_id = ?3, project_id = ?4, cwd = ?5, title = ?6, status = ?7,
                     status_since = ?8, open_question = ?9, model = ?10, effort = ?11, cost_usd = ?14, usage_json = ?15,
                     ended_at = ?17, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20,
-                    seen_at = ?21, archived_done = ?23",
+                    seen_at = ?21, archived_done = ?23, capacity_retry_count = ?24, capacity_retry_at = ?25",
                 params![
                     s.id,
                     s.harness.as_str(),
@@ -455,6 +466,8 @@ impl Sessions {
                     s.seen_at,
                     s.last_message,
                     s.archived_done,
+                    s.capacity_retry_count,
+                    s.capacity_retry_at,
                 ],
             )?;
             Ok(())
@@ -858,6 +871,8 @@ impl Sessions {
                 last_seq: 0,
                 launch_spec: spec.clone(),
                 quota_pause: None,
+                capacity_retry_count: 0,
+                capacity_retry_at: None,
                 seen_at: 0,
                 last_message: None,
             };
@@ -1090,6 +1105,39 @@ impl Sessions {
         sink.emit(EventBody::UserMessage { text: text.into(), client_id, queued: true, images }).await;
         sink.set_status(SessionStatus::QuotaPaused).await;
         sink.emit(EventBody::Notice { text: format!("{} input held until a fresh quota reading confirms included quota availability.", s.harness.display()) }).await;
+        Ok(())
+    }
+
+    /// Durable claim before sending, serialized with owner actions. An uncertain send is never replayed.
+    pub(crate) async fn check_capacity_retries(&self, app: &App) -> Result<()> {
+        for pending in self.list().into_iter().filter(|s| s.capacity_retry_at.is_some_and(|at| at <= now_ms())) {
+            let _action = self.inner.actions.lock().await;
+            let _guard = self.allow_work().await;
+            let Some(s) = self.get(&pending.id) else { continue };
+            if s.capacity_retry_at.is_none_or(|at| at > now_ms()) { continue; }
+            if self.is_busy(&s) { continue; }
+            let eligible = s.status == SessionStatus::Error && s.capacity_retry_count < MAX_CAPACITY_RETRIES;
+            self.update(app, &s.id, |s| {
+                s.capacity_retry_at = None;
+                if eligible { s.capacity_retry_count += 1; }
+            }).await?;
+            if !eligible { continue; }
+            let sink = self.sink(app, &s.id);
+            sink.emit(EventBody::Notice { text: format!("Retrying automatically after model capacity failure (attempt {}/{}).", s.capacity_retry_count + 1, MAX_CAPACITY_RETRIES) }).await;
+            if let Err(e) = self.resume_locked(app, &s.id, false, true).await {
+                let message = format!("{e:#}");
+                // Reattachment may fail before a turn starts and before the adapter can
+                // report a new status. Only an explicit capacity error earns another retry.
+                if is_capacity_error(&message) {
+                    self.update(app, &s.id, |s| {
+                        if s.status == SessionStatus::Error && s.capacity_retry_at.is_none() && s.capacity_retry_count < MAX_CAPACITY_RETRIES {
+                            s.capacity_retry_at = Some(now_ms() + CAPACITY_RETRY_DELAY_MS);
+                        }
+                    }).await?;
+                }
+                sink.emit(EventBody::Notice { text: format!("Automatic capacity retry could not continue: {message}. If no retry is pending, inspect the trace and resume manually.") }).await;
+            }
+        }
         Ok(())
     }
 
@@ -1390,6 +1438,7 @@ impl Sessions {
     /// Caller holds the action and work locks, including during permission changes.
     async fn send_locked(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>) -> Result<()> {
         self.ensure_shutdown_finished(id)?;
+        self.update(app, id, |s| s.capacity_retry_at = None).await?;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(!self.setup_running(id), "Wait for the worktree setup to finish; the agent starts afterwards.");
         if mode != InputMode::Manual && (s.status.is_running() || s.open_question || s.status == SessionStatus::InTerminal || s.quota_pause.is_some()) {
@@ -1481,6 +1530,7 @@ impl Sessions {
     pub async fn interrupt(&self, app: &App, id: &str) -> Result<()> {
         crate::browser::revoke_session(app, id).await?;
         let _action = self.inner.actions.lock().await;
+        self.update(app, id, |s| s.capacity_retry_at = None).await?;
         // An owner Stop takes precedence over a pending cost-limit interruption.
         self.inner.budget_interrupts.lock().unwrap().remove(id);
         let setup = self.inner.setups.lock().unwrap().remove(id);
@@ -1571,6 +1621,7 @@ impl Sessions {
 
     /// Caller holds the session action lock (for atomic worktree discard).
     pub(crate) async fn close_locked(&self, app: &App, id: &str) -> Result<()> {
+        self.update(app, id, |s| s.capacity_retry_at = None).await?;
         crate::browser::revoke_session(app, id).await?;        let setup = self.inner.setups.lock().unwrap().remove(id);
         if let Some(task) = setup { self.wait_for_shutdown(id, async move { task.stop().await; Ok(()) }).await?; }
         self.inner.manual_quota_retries.lock().unwrap().remove(id);
@@ -1598,6 +1649,12 @@ impl Sessions {
     pub async fn resume(&self, app: &App, id: &str, close_terminal: bool, continue_turn: bool) -> Result<()> {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
+        self.update(app, id, |s| s.capacity_retry_at = None).await?;
+        self.resume_locked(app, id, close_terminal, continue_turn).await
+    }
+
+    /// Caller holds the action and work locks, just like manual Resume.
+    async fn resume_locked(&self, app: &App, id: &str, close_terminal: bool, continue_turn: bool) -> Result<()> {
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(!s.status.is_running() && !s.open_question && self.live(id).is_none_or(|l| l.ready_for_turn()), "Wait for the current turn, question and outstanding commands to finish.");
         anyhow::ensure!(s.quota_pause.is_none(), "Use Resume with paid usage to continue a quota-paused session.");
@@ -1903,10 +1960,25 @@ impl Sink {
         if before.status == status {
             return;
         }
+        let capacity_failure = if status == SessionStatus::Error && before.status != SessionStatus::Closed && !manual_stop && !budget_stop {
+            let id = self.id.clone();
+            self.app.state_db.call(move |c| {
+                let json: Option<String> = c.query_row(
+                    "SELECT json FROM session_event WHERE session_id = ?1 AND kind IN ('error', 'turn_end', 'status') ORDER BY seq DESC LIMIT 1",
+                    [id], |r| r.get(0)).optional()?;
+                Ok(json.and_then(|json| serde_json::from_str::<EventBody>(&json).ok())
+                    .is_some_and(|body| matches!(body, EventBody::Error { message } | EventBody::TurnEnd { error: Some(message), .. } if is_capacity_error(&message))))
+            }).await.unwrap_or(false)
+        } else { false };
         let _ = self
             .sessions
             .update(&self.app, &self.id, |s| {
                 if s.quota_pause.as_ref().is_some_and(|p| p.phase != QuotaPausePhase::Resuming) && status != SessionStatus::QuotaPaused { return; }
+                // Owner Archive/Resume may have won while the failure detail was read.
+                if status == SessionStatus::Error && s.status != before.status { return; }
+                s.capacity_retry_at = if capacity_failure && s.capacity_retry_count < MAX_CAPACITY_RETRIES {
+                    Some(now_ms() + CAPACITY_RETRY_DELAY_MS)
+                } else { None };
                 s.change_status(status);
                 s.status_since = now_ms();
                 if status.is_running() { s.ended_at = None; }

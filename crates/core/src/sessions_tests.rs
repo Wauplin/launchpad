@@ -389,6 +389,9 @@ async fn accepted_proposals_close_only_their_author_and_keep_results_retry_safe(
     assert!(proposals::accept(&app, &proposal.id).await.is_err());
     assert_eq!(app.sessions.get("author").unwrap().status, SessionStatus::Waiting);
 
+    // The thread stays open while earlier failed/uncertain cards still need attention.
+    proposals::dismiss(&app, "failed").await.unwrap();
+    proposals::dismiss(&app, "uncertain").await.unwrap();
     proposal.id = "recovered".into();
     proposal.body = ProposalBody::Launch { spec: original.launch_spec };
     store(&app, &proposal).await;
@@ -435,4 +438,123 @@ async fn proposal_replacements_validate_notify_and_reject_stale_owner_actions() 
         proposals::dismiss(&app, &next.id)
     );
     assert_ne!(replacement.is_ok(), dismissed.is_ok());
+}
+
+#[test]
+fn capacity_errors_are_specific() {
+    for message in ["Selected model is at capacity. Please try a different model.", "Model is overloaded", "Server is overloaded", "overloaded_error", "Overloaded", "The model is currently overloaded"] {
+        assert!(super::is_capacity_error(message), "{message}");
+    }
+    for message in ["rate limit exceeded", "quota exceeded", "authentication failed", "context capacity exceeded", "tool failed", "network timeout"] {
+        assert!(!super::is_capacity_error(message), "{message}");
+    }
+}
+
+struct CapacityRetryHarness(std::sync::Mutex<Vec<String>>);
+#[async_trait::async_trait]
+impl super::LiveSession for CapacityRetryHarness {
+    async fn send(&self, text: &str, _: &str, _: &[crate::model::ImageAttachment]) -> anyhow::Result<()> {
+        self.0.lock().unwrap().push(text.into());
+        Ok(())
+    }
+    async fn interrupt(&self) -> anyhow::Result<()> { Ok(()) }
+    fn ready_for_turn(&self) -> bool { true }
+    fn turn_active(&self) -> bool { false }
+    async fn answer(&self, _: &str, _: Vec<String>) -> anyhow::Result<()> { Ok(()) }
+    async fn stop(&self) -> anyhow::Result<()> { Ok(()) }
+}
+
+#[tokio::test]
+async fn capacity_retry_persists_resumes_once_and_stops_at_limit() {
+    use crate::model::SessionStatus;
+    let (_fixture, app) = fixture().await;
+    let sink = app.sessions.sink(&app, "test");
+    sink.fail("Selected model is at capacity. Please try a different model.").await;
+    let scheduled = app.sessions.get("test").unwrap();
+    let at = scheduled.capacity_retry_at.unwrap();
+    assert!(at >= crate::util::now_ms() + super::CAPACITY_RETRY_DELAY_MS - 1000);
+    assert_eq!(scheduled.capacity_retry_count, 0);
+    // Duplicate error notifications must not move the deadline or consume attempts.
+    sink.fail("model is at capacity").await;
+    assert_eq!(app.sessions.get("test").unwrap().capacity_retry_at, Some(at));
+    app.sessions.load(&app).await.unwrap();
+    assert_eq!(app.sessions.get("test").unwrap().capacity_retry_at, Some(at));
+    let live = std::sync::Arc::new(CapacityRetryHarness(Default::default()));
+    app.sessions.inner.live.lock().unwrap().insert("test".into(), (0, live.clone()));
+    app.sessions.update(&app, "test", |s| s.harness_session_id = Some("native".into())).await.unwrap();
+    app.sessions.check_capacity_retries(&app).await.unwrap();
+    assert!(live.0.lock().unwrap().is_empty());
+    for attempt in 1..=super::MAX_CAPACITY_RETRIES {
+        app.sessions.update(&app, "test", |s| s.capacity_retry_at = Some(0)).await.unwrap();
+        app.sessions.check_capacity_retries(&app).await.unwrap();
+        app.sessions.check_capacity_retries(&app).await.unwrap();
+        let s = app.sessions.get("test").unwrap();
+        assert_eq!(s.capacity_retry_count, attempt);
+        assert_eq!(s.capacity_retry_at, None);
+        assert_eq!(s.status, SessionStatus::Working);
+        assert_eq!(live.0.lock().unwrap().len(), attempt as usize);
+        sink.fail("model is at capacity").await;
+        assert_eq!(app.sessions.get("test").unwrap().capacity_retry_at.is_some(), attempt < super::MAX_CAPACITY_RETRIES);
+    }
+    assert!(live.0.lock().unwrap().iter().all(|text| text == "Continue the unfinished turn."));
+    app.sessions.load(&app).await.unwrap();
+    assert_eq!(app.sessions.get("test").unwrap().capacity_retry_count, super::MAX_CAPACITY_RETRIES);
+    assert_eq!(app.sessions.get("test").unwrap().capacity_retry_at, None);
+}
+
+#[tokio::test]
+async fn capacity_retry_cancels_on_owner_actions_and_unrelated_failures() {
+    use crate::model::SessionStatus;
+    let (_fixture, app) = fixture().await;
+    let live = std::sync::Arc::new(CapacityRetryHarness(Default::default()));
+    app.sessions.inner.live.lock().unwrap().insert("test".into(), (0, live.clone()));
+    app.sessions.update(&app, "test", |s| s.harness_session_id = Some("native".into())).await.unwrap();
+    let sink = app.sessions.sink(&app, "test");
+    sink.fail("model is at capacity").await;
+    app.sessions.resume(&app, "test", false, true).await.unwrap();
+    assert_eq!(app.sessions.get("test").unwrap().capacity_retry_at, None);
+    sink.fail("network timeout").await;
+    assert_eq!(app.sessions.get("test").unwrap().capacity_retry_at, None);
+    sink.set_status(SessionStatus::Working).await;
+    sink.fail("model is at capacity").await;
+    app.sessions.send(&app, "test", "owner message", vec![]).await.unwrap();
+    assert_eq!(app.sessions.get("test").unwrap().capacity_retry_at, None);
+    sink.fail("model is at capacity").await;
+    app.sessions.close(&app, "test").await.unwrap();
+    app.sessions.load(&app).await.unwrap();
+    assert_eq!(app.sessions.get("test").unwrap().capacity_retry_at, None);
+    assert_eq!(app.sessions.get("test").unwrap().status, SessionStatus::Closed);
+    app.sessions.check_capacity_retries(&app).await.unwrap();
+    assert_eq!(live.0.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn capacity_retry_uses_original_task_and_respects_cost_guard() {
+    use crate::model::*;
+    let (_fixture, app) = fixture().await;
+    let live = std::sync::Arc::new(CapacityRetryHarness(Default::default()));
+    app.sessions.inner.live.lock().unwrap().insert("test".into(), (0, live.clone()));
+    app.sessions.update(&app, "test", |s| { s.prompt = "original task".into(); s.harness_session_id = None; }).await.unwrap();
+    let sink = app.sessions.sink(&app, "test");
+    // Claude reports failed turns with TurnEnd rather than a separate Error event.
+    sink.emit(EventBody::TurnEnd { duration_ms: None, interrupted: false, error: Some("model is overloaded".into()) }).await;
+    sink.set_status(SessionStatus::Error).await;
+    assert!(app.sessions.get("test").unwrap().capacity_retry_at.is_some());
+    app.sessions.update(&app, "test", |s| s.capacity_retry_at = Some(0)).await.unwrap();
+    app.sessions.check_capacity_retries(&app).await.unwrap();
+    assert_eq!(*live.0.lock().unwrap(), vec!["original task"]);
+    sink.fail("model is at capacity").await;
+    app.sessions.update(&app, "test", |s| {
+        s.capacity_retry_at = Some(0);
+        s.launch_spec.budget_usd = Some(1.0);
+        s.usage.cost_usd = Some(1.0);
+        s.usage.cost_unavailable = false;
+    }).await.unwrap();
+    app.sessions.check_capacity_retries(&app).await.unwrap();
+    assert_eq!(live.0.lock().unwrap().len(), 1);
+    assert_eq!(app.sessions.get("test").unwrap().capacity_retry_at, None);
+    // A crash after claiming but before dispatch must not replay the attempt.
+    app.sessions.load(&app).await.unwrap();
+    app.sessions.check_capacity_retries(&app).await.unwrap();
+    assert_eq!(live.0.lock().unwrap().len(), 1);
 }
