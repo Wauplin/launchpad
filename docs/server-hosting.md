@@ -60,3 +60,7 @@ Then clone or add projects: Projects → **Clone from GitHub** clones a reposito
 - **Links.** In a browser tab, GitHub links open in that browser, and Open in new tab replaces the desktop shell's new windows.
 - **Flaky networks.** The UI pings the daemon, replays missed updates after reconnecting, resumes terminals from the last byte received and keeps unsent replies. Proxies must allow long-lived WebSockets on `/ws` and `/api/terminals/*/ws`.
 - **Attachments.** Files upload once to the daemon; photos larger than 1.5 MB, larger than 2,048 px or in other formats are converted to JPEG in the browser first.
+
+## Hugging Face Spaces (experimental)
+
+The [Space connector components](../deploy/hf-space/README.md) are isolated from normal server packaging. They are not yet a deployable runtime: startup fails closed while HF app-visibility verification and the live isolation/recovery gates remain unresolved. See the [implementation and acceptance status](../deploy/hf-space/docs/acceptance.md) before provisioning a Space. Normal headless installations continue to use this guide and device pairing.

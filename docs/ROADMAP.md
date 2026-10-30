@@ -38,6 +38,8 @@ Automatic model capacity retries (2026-10-29, built; awaiting daily use): provid
 
 | OB | Onboarding: demo tour and setup checklist (2026-10-28) | A new user learns Launchpad on demo data, then gets this machine ready without redoing what is already set up | Built; awaiting daily use |
 
+HF Space connector (2026-10-31, partial): generic trace destination prefix built; isolated startup policy, streaming gateway, credential AEAD and verified bucket/SQLite snapshot primitives plus a locked startup shell live in `deploy/hf-space/`. This is not a runnable Launchpad Space yet. P0 is blocked on authoritative private-versus-protected app visibility; process isolation, recovery projectors/orchestration, provider setup, image/release/update/rollback and live daily-use gates remain pending. See `deploy/hf-space/docs/acceptance.md`.
+
 Agents keep the Status column up to date (Next, In progress, Done) and note what is done in each phase section.
 
 Codex status correction (2026-10-14, built; awaiting updated-app daily use): background output stays Background, the trace/composer identify background work, command cards remain pending across turn ends, and Stop explains the native limitation when only background commands remain.
