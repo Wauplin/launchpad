@@ -483,6 +483,24 @@ button {
 .lp-phone .session-views .btn[aria-pressed="true"] { border-bottom-color: var(--color-teal); color: var(--color-teal-ink); }
 .lp-phone .session-detail-sheet { overflow-wrap: anywhere; }
 
+/* Keep attachments outside the scrolling prompt so no line can pass under the button. */
+.lp-phone .composer-prompt {
+  border: 1.5px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-paper);
+}
+.lp-phone .composer-prompt:focus-within {
+  border-color: var(--color-teal);
+  box-shadow: 0 0 0 3px var(--color-teal-soft);
+}
+.lp-phone .composer-prompt > textarea {
+  border: 0;
+  padding: 12px;
+  font-size: 16px;
+  line-height: 24px;
+  box-shadow: none;
+}
+
 /* Center one line beside the 44 px actions; keep the last line aligned as it grows. */
 .lp-phone .session-message-input > textarea {
   min-height: 44px;

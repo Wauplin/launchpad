@@ -447,7 +447,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       )}
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-3">
-        <div className="relative" data-tour="composer.prompt">
+        <div className="composer-prompt relative" data-tour="composer.prompt">
           <PromptField
             disabled={launching || readingAttachments}
             onPaste={(e) => { if (launching || attachmentRead.current) return; const files = pastedImages(e); if (files) void addAttachments(files); }}
@@ -463,7 +463,9 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
 
           />
           <input ref={attachmentInput} type="file" multiple hidden onChange={(e) => { void addAttachments(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
-          <button className="iconbtn absolute right-1.5 bottom-1.5 bg-paper!" disabled={launching || readingAttachments} aria-label="Attach files or images" title={`Attach files or images${isPhone ? "" : "; you can also drop files or paste a screenshot"}. Up to 8 files, 5 MB each, 20 MB total.`} onClick={() => attachmentInput.current?.click()}><Icon name="clip" size={14} /></button>
+          <div className={isPhone ? "flex justify-end border-t border-line-2 px-1 py-1" : "contents"}>
+            <button className={isPhone ? "btn btn-ghost text-[13px]" : "iconbtn absolute right-1.5 bottom-1.5 bg-paper!"} disabled={launching || readingAttachments} aria-label="Attach files or images" title={`Attach files or images${isPhone ? "" : "; you can also drop files or paste a screenshot"}. Up to 8 files, 5 MB each, 20 MB total.`} onClick={() => attachmentInput.current?.click()}><Icon name="clip" size={14} />{isPhone && "Attach files or images"}</button>
+          </div>
         </div>
         {(readingAttachments || (spec.attachments ?? []).length > 0 || unsupportedImages) && <div>
           {readingAttachments && <div className="text-[12px] text-ink-3">Reading attachments…</div>}
