@@ -48,8 +48,8 @@ export function HuggingFaceView() {
           <SettingRow label="Bucket" hint="A bucket of your account, or namespace/name. A missing bucket is created private; an existing bucket keeps its visibility." scope="all">
             <SavedInput label="Bucket" className="font-mono text-xs" value={backup.bucket} onSave={(v) => patch({ trace_backup_bucket: v.trim() })} />
           </SettingRow>
-          <SettingRow label="Destination" hint="Grouped by folder, harness and session across all workspaces and machines, with original harness trace files, launchpad.json and launchpad-events-<first sequence>.jsonl sidecars.">
-            <code className="font-mono text-xs break-all">hf://buckets/{bucket}/&lt;folder name&gt;/&lt;harness&gt;/&lt;session ID&gt;/</code>
+          <SettingRow label="Destination" hint="Grouped by folder and sorted by session start time (UTC) across all workspaces and machines, with original harness trace files, launchpad.json and launchpad-events-<first sequence>.jsonl sidecars.">
+            <code className="font-mono text-xs break-all">hf://buckets/{bucket}/&lt;folder name&gt;/&lt;ISO datetime&gt;-&lt;session ID&gt;/</code>
           </SettingRow>
           {backup.enabled && (
             <SettingRow label="Status" hint="Checks for changed native traces, run metadata and new events every minute. Failures retry automatically and never block agents.">

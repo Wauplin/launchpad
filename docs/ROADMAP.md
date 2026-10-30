@@ -2,7 +2,7 @@
 
 Status: implementation and acceptance tracker (updated 2026-10-29). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design behind each item and [design/sketches.html](design/sketches.html) for the UI.
 
-Native trace backup (2026-10-28, built; awaiting daily use): Claude conversation/subagent JSONL, Codex rollouts and OpenCode native JSON exports are backed up without schema conversion, alongside full Launchpad run metadata and event sidecars. Changed snapshots upload independently of event cursors; unavailable native files or hosts do not block other sessions.
+Native trace backup (2026-10-28, built; awaiting daily use): Claude conversation/subagent JSONL, Codex rollouts and OpenCode native JSON exports are backed up without schema conversion, alongside full Launchpad run metadata and event sidecars. Destinations group by folder, with UTC ISO session start timestamps before session UUIDs and no harness directory. Changed snapshots upload independently of event cursors; unavailable native files or hosts do not block other sessions.
 
 Trace backup layout (2026-10-28, built; awaiting daily use): Hugging Face backups use `<folder name>/<harness>/<session>/` directly under the bucket, grouping the same folder name across machines and workspaces. Machine-folder configuration is removed; only folder renames change destinations. Settings and the README describe the layout.
 
