@@ -1,3 +1,4 @@
+import { delegatedAccess } from "./deployment";
 // Installable app and Web Push on this browser. The service worker is `web/public/sw.js`; the daemon
 // keeps one subscription per endpoint, owned by this paired browser (`/api/push`). Revoking the
 // browser in Settings → Devices deletes its subscriptions.
@@ -28,6 +29,7 @@ export type PushSupport =
   | "unsupported";
 
 export function pushSupport(): PushSupport {
+  if (delegatedAccess()) return "unsupported";
   if (isDesktopShell()) return "desktop";
   if (!window.isSecureContext) return "insecure";
   if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return isIos() ? "ios-home-screen" : "unsupported";
@@ -36,6 +38,7 @@ export function pushSupport(): PushSupport {
 
 /** Registers the service worker (installable app, offline shell, push) and follows notification clicks. */
 export function registerServiceWorker(navigate: (url: string) => void) {
+  if (delegatedAccess()) return;
   if (isDesktopShell() || !window.isSecureContext || !("serviceWorker" in navigator)) return;
   navigator.serviceWorker.addEventListener("message", (event: MessageEvent) => {
     const data = event.data as { type?: string; url?: string } | null;

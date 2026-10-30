@@ -1,3 +1,4 @@
+import { delegatedAccess } from "@/lib/deployment";
 import { usePhone, layoutChoice, setLayoutChoice, type LayoutChoice } from "@/lib/phone";
 // Settings: a grouped navigation (This device · Agents · Machines & access · Maintenance) and one title per page.
 // Fields save when they change and show "Saved" inline; only the profile editor keeps an explicit Save.
@@ -41,13 +42,14 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
 /** The layout of every Settings page: grouped navigation on the left (a scrolling row on phones), one title, one short intro. */
 export function SettingsPage({ title, intro, info, actions, children, tour }: { title?: string; intro?: React.ReactNode; info?: string; actions?: React.ReactNode; children: React.ReactNode; tour?: string }) {
   const phone = usePhone();
+  const groups = SETTINGS_NAV.map((g) => ({ ...g, items: g.items.filter((e) => !delegatedAccess() || e.to !== "/settings/devices") }));
   const nav = phone ? (
     <nav className="phone-tabs flex gap-1.5" aria-label="Settings pages">
-      {SETTINGS_NAV.flatMap((g) => g.items).map((e) => <Link key={e.to} to={e.to} className="btn" activeOptions={{ exact: !!e.exact }} activeProps={{ "aria-pressed": true } as never}>{e.label}</Link>)}
+      {groups.flatMap((g) => g.items).map((e) => <Link key={e.to} to={e.to} className="btn" activeOptions={{ exact: !!e.exact }} activeProps={{ "aria-pressed": true } as never}>{e.label}</Link>)}
     </nav>
   ) : (
     <nav className="sticky top-0 grid content-start gap-3 self-start pt-1" aria-label="Settings pages">
-      {SETTINGS_NAV.map((g) => (
+      {groups.map((g) => (
         <div key={g.group} className="grid gap-0.5">
           <div className="seclabel px-2 pb-1">{g.group}</div>
           {g.items.map((e) => (

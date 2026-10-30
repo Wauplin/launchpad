@@ -1,3 +1,4 @@
+import { delegatedAccess } from "@/lib/deployment";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -16,6 +17,11 @@ type Device = { id: string; name: string; created_at: number; expires_at: number
 type Pair = { url: string; svg: string; expires_at: number; warning: string | null };
 
 export function DevicesView() {
+  if (delegatedAccess()) return <SettingsPage title="Access"><Card title="Managed by your host"><p className="text-sm text-ink-2">Access to this workspace is provided by its hosting gateway. Every admitted visitor has full Launchpad access. Manage who can connect in your host’s settings.</p></Card></SettingsPage>;
+  return <PairedDevicesView />;
+}
+
+function PairedDevicesView() {
   const qc = useQueryClient();
   const devices = useQuery({ queryKey: ["devices"], queryFn: () => api.get<Device[]>("/api/devices"), refetchInterval: 5000 });
   const [pair, setPair] = useState<Pair | null>(null);

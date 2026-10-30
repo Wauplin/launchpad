@@ -6,6 +6,10 @@ from dataclasses import dataclass
 import aiohttp
 
 
+class MissingBucket(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class Deployment:
     space: str
@@ -36,6 +40,7 @@ async def verify(deployment, token):
         if space.get("id", "").lower() != deployment.space.lower():
             raise ValueError("Space identity did not match")
         async with session.get(f"https://huggingface.co/api/buckets/{deployment.bucket}", headers=headers) as r:
+            if r.status == 404: raise MissingBucket("Create a private backup bucket to continue. Existing buckets are never changed.")
             r.raise_for_status()
             bucket = await r.json()
         if bucket.get("private") is not True:

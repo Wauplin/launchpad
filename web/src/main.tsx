@@ -1,3 +1,4 @@
+import { loadDeployment } from "@/lib/deployment";
 import { SaveStatus } from "@/components/SaveStatus";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
@@ -35,7 +36,8 @@ const demo = isDemo ? import("@/demo/boot").then((m) => m.bootDemo(queryClient))
 void demo.then(() => useComposer.getState().restore());
 // Notification clicks open their route in this window through the router.
 let navigateTo: ((url: string) => void) | null = null;
-if (!isDemo) registerServiceWorker((url) => (navigateTo ? navigateTo(url) : location.assign(url)));
+const deployment = demo.then(() => loadDeployment());
+if (!isDemo) void deployment.then(() => registerServiceWorker((url) => (navigateTo ? navigateTo(url) : location.assign(url))));
 
 window.addEventListener("error", (e) => logToDaemon(`uncaught: ${e.message} at ${e.filename}:${e.lineno}`, "error"));
 window.addEventListener("unhandledrejection", (e) => logToDaemon(`unhandled rejection: ${String(e.reason)}`, "error"));
@@ -47,7 +49,7 @@ const entry: Promise<Entry> = isPhone ? import("@/mobile/entry").then((m) => m.e
 const cache = isDemo ? demo : isDesktopShell ? Promise.resolve() : restoreCache(queryClient).then(() => persistCache(queryClient));
 // Restore cached lists before the first socket resync invalidates them.
 void cache.then(() => connectEvents(queryClient));
-void Promise.all([entry, cache]).then(([pages]) => {
+void Promise.all([entry, cache, deployment]).then(([pages]) => {
   const router = makeRouter(pages);
   navigateTo = (url) => router.history.push(url);
   // Demo recordings (videos, screenshots) drive the router without a page load.
