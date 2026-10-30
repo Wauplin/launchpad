@@ -11,7 +11,6 @@ import type { Profile } from "@/gen/Profile";
 import type { SignInCheck } from "@/gen/SignInCheck";
 import type { SshConfigHost } from "@/gen/SshConfigHost";
 import type { TerminalInfo } from "@/gen/TerminalInfo";
-import type { WeeklyReset } from "@/gen/WeeklyReset";
 import { clock } from "../daemon";
 import { P, ROOT, USER } from "./ids";
 
@@ -109,19 +108,6 @@ function agentRuns(): AgentRun[] {
   return runs.sort((a, b) => a.started_at - b.started_at);
 }
 
-/** Weekly quota resets of the two subscription logins over the last eight weeks (`GET /api/quota-history`). */
-function quotaHistory(): WeeklyReset[] {
-  const rand = seeded(11);
-  const out: WeeklyReset[] = [];
-  for (const [harness, offsetDays] of [["claude", 2.3], ["codex", 4.6]] as const) {
-    for (let week = 0; week < 8; week++) {
-      const observed = clock.ago((offsetDays + week * 7) * 24 * 60);
-      out.push({ harness, observed_at: observed, previous_at: observed - Math.round((10 + rand() * 80) * 60_000), previous_percent: Math.round(45 + rand() * 50), used_percent: Math.round(rand() * 3) });
-    }
-  }
-  return out.sort((a, b) => a.observed_at - b.observed_at);
-}
-
 const seconds = (ms: number) => Math.floor(ms / 1000);
 
 export function settingsWorld() {
@@ -145,7 +131,7 @@ export function settingsWorld() {
     { alias: "gpu-box", hostname: "gpu-box.lan", user: "demo", proxy_jump: null },
     { alias: "build-runner", hostname: "10.0.4.17", user: "ci", proxy_jump: "bastion" },
   ];
-  return { harnesses, harnessDefaults, routerModels, devices, terminals, githubCheck: gh, traceBackup, sshConfig, agentRuns: agentRuns(), quotaHistory: quotaHistory(), homeFolder: HOME };
+  return { harnesses, harnessDefaults, routerModels, devices, terminals, githubCheck: gh, traceBackup, sshConfig, agentRuns: agentRuns(), homeFolder: HOME };
 }
 
 /** Preflight checks of a connected demo host (`POST /api/hosts/{id}/checks`), with one entry per profile that has an environment. */

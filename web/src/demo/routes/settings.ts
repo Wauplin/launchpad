@@ -147,7 +147,6 @@ const inRange = (req: DemoRequest) => {
   if (!(from >= 0) || !(until > from) || until - from > 32 * 86_400_000) throw new DemoError(400, "Select a calendar month");
   return (t: number) => t >= from && t < until;
 };
-route("GET", "/api/quota-history", (req) => { const ok = inRange(req); return world.quotaHistory.filter((r) => ok(r.observed_at)); });
 route("GET", "/api/analytics/runs", (req) => { const ok = inRange(req); return world.agentRuns.filter((r) => ok(r.started_at)); });
 
 // ---------------------------------------------------------------- machines (SSH hosts)

@@ -152,7 +152,9 @@ const STATE_MIGRATIONS: &[&str] = &[
     "DELETE FROM quota_weekly_reset
         WHERE previous_percent - used_percent < 10.0
           AND NOT (used_percent <= 1.0 AND previous_percent >= 5.0);",
-
+    // 8: remove retired weekly reset analytics and its persisted baselines.
+    "DROP TABLE quota_weekly_reset;
+    DROP TABLE quota_weekly_reading;",
 ];
 
 pub fn open_state(path: &Path) -> Result<Db> {
@@ -269,6 +271,34 @@ pub fn open_cache(path: &Path) -> Result<Db> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn removes_weekly_quota_history_from_existing_databases() {
+        let path = std::env::temp_dir().join(format!("launchpad-quota-removal-{}.db", uuid::Uuid::new_v4()));
+        {
+            let conn = super::open(&path).unwrap();
+            for sql in &super::STATE_MIGRATIONS[..7] {
+                conn.execute_batch(sql).unwrap();
+            }
+            conn.execute_batch("INSERT INTO quota_weekly_reading VALUES ('codex', 1, 50, 100);
+                INSERT INTO quota_weekly_reset VALUES ('codex', 2, 1, 50, 0);").unwrap();
+            conn.pragma_update(None, "user_version", 7).unwrap();
+        }
+        for _ in 0..2 {
+            let db = super::open_state(&path).unwrap();
+            db.call(|conn| {
+                let tables: i64 = conn.query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE name IN ('quota_weekly_reading', 'quota_weekly_reset', 'quota_weekly_reset_time')",
+                    [], |r| r.get(0),
+                )?;
+                assert_eq!(tables, 0);
+                let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+                assert_eq!(version, super::STATE_MIGRATIONS.len() as i64);
+                Ok(())
+            }).await.unwrap();
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[tokio::test]
     async fn archived_completion_backfill_uses_the_latest_turn_and_survives_reopen() {
         let path = std::env::temp_dir().join(format!("launchpad-archive-{}.db", uuid::Uuid::new_v4()));
