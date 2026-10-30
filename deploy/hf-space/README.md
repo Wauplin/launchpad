@@ -6,7 +6,7 @@ The [approved technical report](https://wauplin-launchpad-spaces-technical-repor
 
 ## Implemented
 
-- `supervisor/policy.py`: exact deployment identity/origin validation and startup-only Space/bucket privacy checks. Public, protected, absent or ambiguous visibility fails closed. No polling, visibility mutations, fencing or replica leases.
+- `supervisor/policy.py`: exact deployment identity/origin validation and startup-only Space/bucket privacy checks. Public and absent visibility fail closed; protected is accepted by owner decision. No polling, visibility mutations, fencing or replica leases.
 - `gateway/proxy.py`: reusable streaming bearer proxy for HTTP, bus and terminal WebSockets. Validates Host and mutation/upgrade Origin, rejects cross-site browser requests and ambiguous paths, strips supplied credentials and proxy identity headers, blocks pairing/devices/desktop/push routes, and never sends the internal bearer to a browser.
 - `gateway/shell.html` and `shell.js`: responsive startup/locked screen, system light/dark appearance, keyboard focus, status refresh, Hub Settings links and compact Space controls. No credentials, local storage, analytics or daemon requests. The iframe integration is reserved for subsequent admission work; this supervisor never reports ready.
 - `vault/codec.py`: AES-256-GCM credential envelopes with fresh nonces and HKDF keys per generation. Installation, format, generation, object kind and key identity are authenticated. Wrong keys and corrupt objects raise; nothing overwrites an old vault automatically.
@@ -14,11 +14,9 @@ The [approved technical report](https://wauplin-launchpad-spaces-technical-repor
 - `backup/snapshot.py`: SQLite online backup, explicit schema projector and VACUUM/integrity checks. No raw database or full-home upload fallback.
 - General Launchpad config: `trace_backup.prefix` (empty by default), config PATCH, Settings editor and demo fixtures. The Space's eventual configuration is bucket `namespace/name` plus prefix `traces`, never a bucket ID containing `/traces`.
 
-## Current blocker
+## Temporary visibility policy
 
-HF's normal Space-info API reports `private: true` for a protected Space, although protected apps are public. On 2026-10-31, requesting `expand[]=visibility` or `expand[]=protected` returned HTTP 400; the API listed neither as supported. The startup verifier currently requires an explicit `visibility: "private"` field and therefore deliberately refuses the current ambiguous response. This is an unresolved platform contract, not a missing token or a reason to weaken authentication. See [platform evidence and remaining gates](docs/acceptance.md).
-
-Do not replace this with `private == true`, an owner checkbox or an undocumented fallback. An alternative ingress probe needs an explicitly reviewed acceptance contract and actual private/protected deployment checks.
+The owner explicitly accepts protected Spaces as private for this connector (2026-10-31). Startup accepts HF's `private: true` for the Space; public/unknown Spaces and public/unknown buckets remain rejected. Protected apps can be publicly accessible: this mode delegates access to HF's actual ingress behavior. The one policy decision in `supervisor/policy.py` can be tightened when Hub exposes a reliable distinction. Checks happen once at startup, not per request or upload.
 
 ## Read-only checks
 

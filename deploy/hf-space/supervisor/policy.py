@@ -1,4 +1,4 @@
-"""Startup-only deployment policy. Never infer app privacy from repo privacy."""
+"""Startup-only deployment policy; owner-approved private/protected compatibility."""
 import re
 import time
 from dataclasses import dataclass
@@ -21,18 +21,18 @@ class Deployment:
 
 
 async def verify(deployment, token):
-    """Fail closed when HF does not expose authoritative three-state visibility.
+    """Owner-approved temporary policy: HF private=true includes protected Spaces.
 
-    `private: true` alone is deliberately insufficient: protected reports it too.
-    No owner assertion or anonymous reachability heuristic may bypass this gate.
+    Keep this decision here so a future Hub visibility fix needs one change.
+    Public and unknown responses, and public/unknown buckets, remain rejected.
     """
     headers = {"Authorization": f"Bearer {token}"}
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
         async with session.get(f"https://huggingface.co/api/spaces/{deployment.space}", headers=headers) as r:
             r.raise_for_status()
             space = await r.json()
-        if space.get("visibility") != "private":
-            raise ValueError("HF did not confirm private app visibility. Public, protected and unknown status are blocked.")
+        if space.get("private") is not True:
+            raise ValueError("HF did not confirm private/protected repository visibility. Public and unknown status are blocked.")
         if space.get("id", "").lower() != deployment.space.lower():
             raise ValueError("Space identity did not match")
         async with session.get(f"https://huggingface.co/api/buckets/{deployment.bucket}", headers=headers) as r:
