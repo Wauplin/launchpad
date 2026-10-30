@@ -1,3 +1,5 @@
 aiohttp==3.13.3
 cryptography==46.0.5
 huggingface_hub==2.0.0
+
+tomlkit==0.14.0

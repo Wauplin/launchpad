@@ -11,6 +11,7 @@ class Bucket:
     def __init__(self, bucket, environment):
         self.root = f"hf://buckets/{bucket}"
         self.environment = environment
+        self.bucket_id = bucket
 
     def copy(self, source, destination):
         # Never include command output: auth failures can contain sensitive metadata.
@@ -18,6 +19,10 @@ class Bucket:
                                 env=self.environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
         if result.returncode:
             raise RuntimeError("Bucket transfer failed; check access and available capacity")
+
+    def exists(self, name):
+        from huggingface_hub import HfApi
+        return bool(list(HfApi(token=self.environment['HF_TOKEN']).get_bucket_paths_info(self.bucket_id, [name])))
 
     def read(self, name):
         with tempfile.TemporaryDirectory() as directory:
