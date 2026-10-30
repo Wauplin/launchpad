@@ -243,3 +243,22 @@ route("POST", "/api/worktrees/:id/:action", ({ params }) => {
   publishWorktree(i);
   return refreshInfo(i);
 });
+
+// Prompt discovery stays entirely within the in-memory demo world.
+route("GET", "/api/prompt/files", ({ query }) => {
+  const root = query.get("root"), q = (query.get("q") ?? "").toLowerCase();
+  const roots = root ? [openSource(root)] : world.projects.map((p) => openSource(p.path));
+  const hits = roots.flatMap((src) => {
+    const paths = new Set(Object.keys(src.files));
+    for (const p of [...paths]) for (let i = p.indexOf("/"); i >= 0; i = p.indexOf("/", i + 1)) paths.add(p.slice(0, i + 1));
+    return [...paths].filter((p) => p.toLowerCase().includes(q)).slice(0, root ? 40 : 8).map((path) => ({ project_id: src.projectId, project: world.projects.find((p) => p.id === src.projectId)?.name ?? "Folder", root: src.root, path, directory: path.endsWith("/") }));
+  });
+  return { hits: hits.slice(0, 80), unavailable: [], truncated: hits.length > 80 };
+});
+route("GET", "/api/prompt/skills", ({ query }) => {
+  const root = query.get("root");
+  return { hits: [
+    { name: "review", description: "Review the current changes", path: `${root ?? "/home/demo"}/.agents/skills/review`, source: root ? "Project" : "Global" },
+    { name: "launchpad", description: "Work with local Launchpad tasks", path: "/home/demo/.agents/skills/launchpad", source: "Global" },
+  ], warnings: [] };
+});

@@ -46,6 +46,7 @@ pub mod trace_backup;
 mod titles;
 pub mod util;
 pub mod profiles;
+pub mod prompt_context;
 pub mod session_git;
 pub mod workspace;
 pub mod worktrees;
@@ -204,6 +205,8 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     terminals::TerminalFolders::export_all(&cfg)?;
     code::CodeSources::export_all(&cfg)?;
     code::FileList::export_all(&cfg)?;
+    prompt_context::PathResults::export_all(&cfg)?;
+    prompt_context::SkillResults::export_all(&cfg)?;
     code::CodeFile::export_all(&cfg)?;
     code::SearchResult::export_all(&cfg)?;
     code::CommitInfo::export_all(&cfg)?;

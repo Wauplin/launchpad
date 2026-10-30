@@ -7,7 +7,7 @@ import { HostLabel } from "@/components/HostLabel";
 import { hostOf, linkLabel, useHosts } from "@/lib/hosts";
 
 // Match characters in order, preferring contiguous matches and shorter gaps.
-function matchScore(value: string, query: string): number | null {
+export function matchScore(value: string, query: string): number | null {
   const text = value.toLowerCase();
   const contiguous = text.indexOf(query);
   if (contiguous >= 0) return contiguous / Math.max(text.length, 1);

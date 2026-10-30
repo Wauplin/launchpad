@@ -258,7 +258,7 @@ async fn promote(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<
 // ---------------------------------------------------------------- launch
 
 async fn preview(State(s): State<Server>, Json(spec): Json<LaunchSpec>) -> ApiResult<Preview> {
-    Ok(Json(s.app.sessions.preview(&s.app, &spec).await?))
+    Ok(Json(s.app.sessions.preview(&s.app, &spec).await.map_err(bad)?))
 }
 
 #[derive(Deserialize)]
@@ -413,7 +413,7 @@ fn bad(e: anyhow::Error) -> ApiError {
 }
 
 async fn input(State(s): State<Server>, Path(id): Path<String>, headers: axum::http::HeaderMap, Json(b): Json<Input>) -> ApiResult<Value> {
-    if b.text.trim().is_empty() && b.images.is_empty() && b.files.is_empty() && b.context.context_projects.is_empty() && b.context.github_refs.is_empty() && b.context.agent_traces.is_empty() {
+    if b.text.trim().is_empty() && b.images.is_empty() && b.files.is_empty() && b.context.context_projects.is_empty() && b.context.github_refs.is_empty() && b.context.agent_traces.is_empty() && b.context.skills.is_empty() {
         return Err(ApiError::bad_request("the message is empty"));
     }
     let mut b = b;

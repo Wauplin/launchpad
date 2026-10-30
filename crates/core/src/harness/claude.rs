@@ -917,6 +917,10 @@ pub const REGISTRATION: super::Registration = super::Registration {
 pub struct Adapter;
 #[async_trait]
 impl super::Harness for Adapter {
+    fn skill_locations(&self) -> Vec<crate::prompt_context::SkillLocation> {
+        use crate::prompt_context::SkillLocation;
+        vec![SkillLocation::project(".claude/skills"), SkillLocation::config("CLAUDE_CONFIG_DIR", ".claude", "skills"), SkillLocation::project(".agents/skills"), SkillLocation::home(".agents/skills")]
+    }
     fn sign_in_program(&self) -> &'static str {
         "claude"
     }

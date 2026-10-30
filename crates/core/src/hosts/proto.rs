@@ -132,7 +132,7 @@ pub enum FsOp {
     ReadDir { path: String },
     Copy { from: String, to: String },
     /// Files of a folder that is not a Git repository (code viewer).
-    Walk { root: String },
+    Walk { root: String, #[serde(default)] directories: bool },
     /// Disk usage of each folder, in bytes.
     DiskUsage { paths: Vec<String> },
     /// Ensures the Launchpad skill is installed for agents on the host.

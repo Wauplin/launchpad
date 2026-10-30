@@ -15,6 +15,7 @@ mod routes;
 mod setup;
 mod suggestions;
 mod proposals;
+mod prompt_context;
 mod terminals;
 mod tailnet;
 mod worktrees;
@@ -71,6 +72,7 @@ pub(crate) fn router(server: Server) -> Router {
         .merge(review_state::router())
         .merge(suggestions::router())
         .merge(proposals::router())
+        .merge(prompt_context::router())
         .merge(terminals::router())
         .merge(worktrees::router())
         .merge(setup::router())

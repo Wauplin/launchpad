@@ -7,6 +7,7 @@ import { isExtension } from "../lib/connection.ts";
 import { storageAllowed } from "../lib/clientStorage.ts";
 import { useSaveStatus } from "../lib/saveStatus.ts";
 import { create } from "zustand";
+import { reconcile } from "../lib/promptDocument.ts";
 import type { AgentTraceRef } from "@/gen/AgentTraceRef";
 import type { ContextProject } from "@/gen/ContextProject";
 import type { FileRef } from "@/gen/FileRef";
@@ -27,6 +28,8 @@ export const emptySpec = (): LaunchSpec => ({
   // New drafts run in a new task worktree; "Project checkout" sets this to null.
   worktree: { base: null, include_changes: false, merge_when_done: false },
   text: "",
+  mentions: [],
+  skills: [],
   presets: [],
   context_projects: [],
   github_refs: [],
@@ -280,7 +283,7 @@ export const useComposer = create<Composer>((set, get) => ({
   },
   update: (f) => {
     const previous = get().spec;
-    let spec = f(previous);
+    let spec = reconcile(previous, f(previous));
     if (spec.permission_mode !== previous.permission_mode && spec.harness === previous.harness && spec.profile === previous.profile) {
       permissionChoices[runKey(spec.harness, spec.profile)] = { mode: spec.permission_mode, selectedAt: Date.now() };
       try { localStorage.setItem("launchpad-permission-modes", JSON.stringify(permissionChoices)); } catch { /* Session history still retains launched choices. */ }

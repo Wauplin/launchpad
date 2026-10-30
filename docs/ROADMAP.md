@@ -46,6 +46,8 @@ Menu icon alignment (2026-10-14, built; awaiting device daily use): shared menu 
 
 Phone session reply alignment (2026-10-14, built; awaiting device daily use): centered single-line text beside 44 px attachment/send controls, explicit 16 px phone text, and bottom-aligned multiline replies with non-shrinking actions.
 
+Prompt autocomplete (2026-10-30, built; awaiting visual/device daily use): shared launch/reply suggestions, scoped or global path search, adapter/profile/host-aware skill roots, persistent context occurrence identities and bidirectional chip removal. UI build/typecheck, strict Clippy, Rust and focused UI regressions passed; isolated HTTP and initial/follow-up skill checks passed for Claude, Codex and OpenCode. Browser and SSH end-to-end acceptance remains.
+
 ## Managed worktrees
 
 Built on 2026-10-11, awaiting daily use ([managed-worktrees-plan.md](managed-worktrees-plan.md)):
@@ -89,7 +91,7 @@ Done means: a week of daily use with worktrees as the default, without lost work
 ## Phase 1: launch and run agents
 
 - **Projects:** registry, "Scan projects root" discovery, descriptions, pinning, repo ↔ project mapping.
-- **Composer:** harness toggle, project picker, free text, user-defined presets with a settings editor, context projects with a branch picker (local branches), GitHub links added with a "+ GitHub link" field (title fetched), model and effort pickers showing "Default (…)" with a refresh icon beside the Model field and Refresh models inside its menu, prompt preview, Launch button, unsent drafts kept. In the prompt, `@` suggests projects and `#` suggests issues and PRs (only at the start of a word).
+- **Composer:** harness toggle, project picker, free text, user-defined presets with a settings editor, context projects with a branch picker (local branches), GitHub links added with a "+ GitHub link" field (title fetched), model and effort pickers showing "Default (…)" with a refresh icon beside the Model field and Refresh models inside its menu, prompt preview, Launch button, unsent drafts kept. Launch and reply prompts complete `@` file/folder paths, `/` adapter-owned skills and `#` project/trace/GitHub context at word boundaries, with persisted mention identities, chip reconciliation and document undo/redo.
 - **Delayed starts:** Now, or any combination (all must be met) of a duration, a local date and time, all selected running or scheduled agents Done, and a reported Claude/Codex 5h or weekly quota reset; durable local queue and Scheduled group with Start now and Cancel.
 - **Cron agents:** a 5-field cron schedule with optional conditions (previous run finished, minimum quota left), a separate Cron group, and Run now, Edit schedule, Pause/Resume and Delete.
 - **Direct launcher:** Launch buttons open the composer sidebar with the latest launched profile and its own last successfully launched model and effort, shared across projects and workspaces. Existing drafts preserve their choices when reopened or given context. The 2026-10-11 fix was checked with the UI build and the dev app: switching all three harnesses and three variants, restoring five used harness/variant defaults from saved sessions, and preserving draft choices across project changes and reloads.
@@ -110,7 +112,7 @@ Done means: a week of daily use with worktrees as the default, without lost work
 
 - Built on 2026-10-02, and checked against the real CLIs (Claude Haiku and Codex GPT-6-Luna) through the API and the UI:
   - Projects: registry, "Scan projects root" (149 repositories in 48 ms), descriptions, pinning, add by path, repo → project mapping (origin, then upstream).
-  - Composer: harness toggle, project picker (or a new temporary folder), prompt with `@` and `#` suggestions, context projects with a branch picker, "+ GitHub link" with the title fetched, user-defined presets and their settings editor, model and effort pickers showing "Default (…)" with force refresh controls added on 2026-10-10 (an icon button beside the Model field and Refresh models inside its menu) (verified with real Claude/Codex discovery in an isolated dev daemon and Chrome), live prompt preview, "Open after launch", draft kept on the daemon.
+  - Composer: harness toggle, project picker (or a new temporary folder), prompt with `@`, `/` and `#` suggestions, context projects with a branch picker, "+ GitHub link" with the title fetched, user-defined presets and their settings editor, model and effort pickers showing "Default (…)" with force refresh controls added on 2026-10-10 (an icon button beside the Model field and Refresh models inside its menu) (verified with real Claude/Codex discovery in an isolated dev daemon and Chrome), live prompt preview, "Open after launch", draft kept on the daemon.
   - Direct launcher on the top bar, projects and notifications, with the latest launched harness, model and effort selections remembered.
   - Temporary projects: create, delete with a second click, promote (the folder, the Claude transcripts and the session folders move).
   - Adapters: Claude and Codex, normalized events in `state.db`, WebSocket streaming with replay after a reconnect.

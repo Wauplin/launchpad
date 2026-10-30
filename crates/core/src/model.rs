@@ -373,15 +373,38 @@ pub enum PermissionMode {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct MessageContext {
+    pub mentions: Vec<PromptMention>,
+    pub skills: Vec<SkillRef>,
     pub context_projects: Vec<ContextProject>,
     pub github_refs: Vec<GitHubRef>,
     pub agent_traces: Vec<AgentTraceRef>,
+}
+
+/// A selected prompt occurrence. Offsets are UTF-16 units, matching textarea selection APIs.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct PromptMention {
+    pub id: String,
+    pub start: u32,
+    pub end: u32,
+    pub text: String,
+    pub key: String,
+    /// True when the attachment exists only because of mentions, not a manual picker selection.
+    pub owned: bool,
+}
+
+/// A skill explicitly selected by the owner, resolved again before delivery.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct SkillRef {
+    pub name: String,
+    pub path: String,
 }
 
 /// What to launch (ARCHITECTURE.md, section 9.7).
 #[derive(Clone, Debug, Serialize, Deserialize, TS, Default)]
 #[serde(default)]
 pub struct LaunchSpec {
+    pub mentions: Vec<PromptMention>,
+    pub skills: Vec<SkillRef>,
     pub permission_mode: PermissionMode,
     /// Permit additional paid usage after included subscription quotas are exhausted.
     pub allow_paid_usage: bool,

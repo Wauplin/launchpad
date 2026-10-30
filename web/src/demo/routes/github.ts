@@ -407,3 +407,7 @@ route("POST", "/api/review-state/import", ({ body }) => {
   publish("review-state", "changed", { key: null, updated_at: clock.now(), origin: null });
   return { imported: entries.length };
 });
+route("GET", "/api/prompt/github", ({ query }) => {
+  const q = (query.get("q") ?? "").toLowerCase();
+  return Object.entries(world.ghItems).filter(([key, item]) => `${key} ${item.title}`.toLowerCase().includes(q)).slice(0, 30).map(([key, item]): GitHubRef => ({ url: item.url, kind: kindOf(item), repo: key.slice(0, key.lastIndexOf("#")), number: item.number, title: item.title }));
+});

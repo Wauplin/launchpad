@@ -27,7 +27,8 @@ pub struct ContextInfo {
 /// Order: free text, then context, then presets (in the order defined in settings).
 pub fn render_prompt(spec: &LaunchSpec, context: &[ContextInfo], presets: &[Preset]) -> String {
     let mut parts: Vec<String> = Vec::new();
-    let text = spec.text.trim();
+    let delivered = crate::prompt_context::delivery_text(spec);
+    let text = delivered.trim();
     if !text.is_empty() {
         parts.push(text.to_string());
     }

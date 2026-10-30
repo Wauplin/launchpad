@@ -232,13 +232,16 @@ pub async fn read_dir(p: impl AsRef<Path>) -> Result<Vec<DirEntry>> {
 }
 
 /// Files of a folder that is not a Git repository (code viewer).
-pub async fn walk(root: impl AsRef<Path>) -> Result<Vec<String>> {
+pub async fn walk(root: impl AsRef<Path>) -> Result<Vec<String>> { walk_paths(root, false).await }
+
+/// Include folders (with trailing slash), including empty folders, respecting ignore files.
+pub async fn walk_paths(root: impl AsRef<Path>, directories: bool) -> Result<Vec<String>> {
     let root = root.as_ref();
     match split(root) {
-        Some((host, path)) => parse(remote(&host, FsOp::Walk { root: path }).await?),
+        Some((host, path)) => parse(remote(&host, FsOp::Walk { root: path, directories }).await?),
         None => {
             let root = root.to_path_buf();
-            Ok(tokio::task::spawn_blocking(move || crate::code::walk(&root)).await?)
+            Ok(tokio::task::spawn_blocking(move || crate::code::walk_paths(&root, directories)).await?)
         }
     }
 }

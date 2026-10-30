@@ -48,6 +48,7 @@ import { WorktreeCard, useSessionWorktrees, WorktreeChip } from "./Worktrees";
 import { usePhone } from "@/lib/phone";
 import { PresetButton, PresetChips, usePresets } from "./MessagePresets";
 import { EMPTY_CONTEXT, hasMessageContext, MessageContextPicker } from "./MessageContext";
+import { PromptField } from "@/features/launch/PromptField";
 import { withPresets } from "@/lib/presets";
 
 function act(id: string, action: string) {
@@ -58,6 +59,10 @@ type PendingAsk = { request_id: string; count: number; permission: boolean } | n
 
 /** The session message box; Now cards on the phone reuse it for Reply. */
 export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, dropImages, inputRef: ref, onSent }: { acceptsImages: boolean; sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null>; inputRef: React.RefObject<HTMLTextAreaElement | null>; onSent: () => void }) {
+  const promptSession = useSession(sessionId);
+  const promptProjects = useProjects().data ?? [];
+  const promptProject = promptProjects.find((p) => p.id === promptSession?.project_id);
+  const setDocument = useMessageDrafts((s) => s.setDocument);
   const text = useMessageDrafts((s) => s.drafts[sessionId] ?? "");
   const setDraft = useMessageDrafts((s) => s.set);
   const setText = (t: string) => setDraft(sessionId, t);
@@ -123,10 +128,14 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
       {reading && <div className="mb-1 text-[12px] text-ink-3">Reading attachments…</div>}
       {!ask && <PresetChips selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
       <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
-        <textarea
-          ref={ref}
-          rows={1}
-          value={text}
+        <PromptField
+          compact inputRef={ref}
+          document={{ ...EMPTY_CONTEXT, ...context, text }}
+          onDocumentChange={(doc) => ask ? setText(doc.text) : setDocument(sessionId, doc)}
+          root={promptSession?.cwd ?? null} harness={promptSession?.harness ?? null} profile={promptSession?.launch_spec.profile ?? null}
+          repo={promptProject?.gh_repo ?? promptProject?.gh_upstream ?? null} projectId={promptSession?.project_id} sessionId={sessionId}
+          noFolders={!!promptSession && (promptSession.launch_spec.target.kind === "assistant" || (promptSession.launch_spec.target.kind === "browser" && !promptSession.launch_spec.target.project_id))}
+          autocomplete={!ask && !!promptSession} onSend={() => void send()}
           disabled={disabled || busy || reading}
           onPaste={(e) => {
             if (!acceptsImages || disabled || busy || readingRef.current) return;
@@ -134,15 +143,6 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
             if (pasted) addFiles(pasted);
           }}
           placeholder={placeholder}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            // Enter sends, Shift+Enter adds a new line, like in the terminal.
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-          className="max-h-40 min-h-5 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none disabled:opacity-60"
         />
         {!ask && <PresetButton selected={presets} onChange={setPresets} disabled={disabled || busy || reading} />}
         <button className="iconbtn" title={`Attach files or images (you can also drop files${acceptsImages ? " or paste a screenshot" : ""}). ${ATTACH_LIMITS}`} aria-label="Attach files or images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>

@@ -28,7 +28,7 @@ export const launch: Chapter = {
     {
       id: "launch.prompt", anchor: "composer.prompt",
       title: "Prompt first",
-      body: "Write the task like you would for a colleague. @ picks a folder, # picks an issue or PR as context. Agents also get the instruction to end with a short summary.",
+      body: "Write the task like you would for a colleague. @ completes file and folder paths, / finds skills for the selected profile, and # adds a project, GitHub item or agent trace as context. Deleting a selected # mention removes its context chip. Agents also get the instruction to end with a short summary.",
       tryIt: {
         text: "write a prompt, or use the example.",
         done: () => useComposer.getState().spec.text.trim().length > 10,

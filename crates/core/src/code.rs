@@ -561,13 +561,16 @@ pub async fn files(app: &App, src: &Source) -> Result<FileList> {
 }
 
 /// A folder that is not a git repository: hidden and ignored files are skipped.
-pub(crate) fn walk(root: &Path) -> Vec<String> {
+pub(crate) fn walk_paths(root: &Path, directories: bool) -> Vec<String> {
     let mut out = Vec::new();
     for entry in ignore::WalkBuilder::new(root).require_git(false).build().flatten() {
-        if entry.file_type().is_some_and(|t| t.is_file())
+        if entry.file_type().is_some_and(|t| t.is_file() || directories && t.is_dir())
             && let Ok(rel) = entry.path().strip_prefix(root)
         {
-            out.push(rel.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"));
+            if rel.as_os_str().is_empty() { continue; }
+            let mut path = rel.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/");
+            if entry.file_type().is_some_and(|t| t.is_dir()) { path.push('/'); }
+            out.push(path);
             if out.len() >= 200_000 {
                 break;
             }
@@ -929,6 +932,20 @@ pub async fn commit(app: &App, src: &Source) -> Result<CommitInfo> {
     names.sort_by_key(|n| *n != "origin");
     let github = names.iter().find_map(|n| remotes.iter().find(|(r, _)| r == n).and_then(|(_, url)| crate::git::github_repo(url)));
     Ok(CommitInfo { sha: Some(sha), github })
+}
+
+/// Filename completion without computing working-tree diffs. Ignore-aware walking includes empty
+/// folders; ls-files also includes tracked dotfiles and tracked files covered by ignore rules.
+pub async fn prompt_paths(app: &App, src: &Source) -> Result<Vec<String>> {
+    let mut paths: std::collections::BTreeSet<String> = crate::hostfs::walk_paths(&src.root, true).await?.into_iter().collect();
+    if src.git {
+        for path in split_z(&run_raw(&app.env, &src.root, &["ls-files", "--cached", "--deduplicate", "-z"]).await?) {
+            if !paths.contains(&path) && crate::hostfs::is_file(src.root.join(&path)).await { paths.insert(path); }
+        }
+    }
+    let parents: Vec<_> = paths.iter().flat_map(|p| p.match_indices('/').map(|(i, _)| p[..=i].to_string())).collect();
+    paths.extend(parents);
+    Ok(paths.into_iter().take(200_000).collect())
 }
 
 #[cfg(test)]

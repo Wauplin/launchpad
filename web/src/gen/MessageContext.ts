@@ -2,8 +2,10 @@
 import type { AgentTraceRef } from "./AgentTraceRef";
 import type { ContextProject } from "./ContextProject";
 import type { GitHubRef } from "./GitHubRef";
+import type { PromptMention } from "./PromptMention";
+import type { SkillRef } from "./SkillRef";
 
 /**
  * Context attached to one follow-up message. Folders are always read-only references.
  */
-export type MessageContext = { context_projects: Array<ContextProject>, github_refs: Array<GitHubRef>, agent_traces: Array<AgentTraceRef>, };
+export type MessageContext = { mentions: Array<PromptMention>, skills: Array<SkillRef>, context_projects: Array<ContextProject>, github_refs: Array<GitHubRef>, agent_traces: Array<AgentTraceRef>, };

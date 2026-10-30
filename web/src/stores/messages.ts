@@ -5,6 +5,7 @@
 
 import type { MessageContext } from "@/gen/MessageContext";
 import { create } from "zustand";
+import { emptyContext, reconcile, type PromptDocument } from "../lib/promptDocument.ts";
 import { persist } from "zustand/middleware";
 
 type Drafts = {
@@ -14,6 +15,7 @@ type Drafts = {
   contexts: Record<string, MessageContext>;
   setContext: (id: string, context: MessageContext) => void;
   set: (id: string, text: string) => void;
+  setDocument: (id: string, doc: PromptDocument) => void;
   setPresets: (id: string, presets: string[]) => void;
   /** Adds text after what is already typed. */
   append: (id: string, text: string) => void;
@@ -27,20 +29,38 @@ function withText(drafts: Record<string, string>, id: string, text: string): Rec
   return next;
 }
 
+/** Keep empty contexts out of storage and preserve the sparse representation of older drafts. */
+function withContext(contexts: Record<string, MessageContext>, id: string, doc: PromptDocument): Record<string, MessageContext> {
+  const { text: _text, mentions, skills, ...context } = doc;
+  const next = { ...contexts };
+  if (context.context_projects.length || context.github_refs.length || context.agent_traces.length || skills?.length) {
+    next[id] = { ...context, ...(mentions?.length ? { mentions } : {}), ...(skills?.length ? { skills } : {}) } as MessageContext;
+  } else delete next[id];
+  return next;
+}
+
 export const useMessageDrafts = create<Drafts>()(
   persist(
     (set, get) => ({
       drafts: {},
       presets: {},
       contexts: {},
+      setDocument: (id, doc) => {
+        void useMessageDrafts.persist.rehydrate();
+        set({ drafts: withText(get().drafts, id, doc.text), contexts: withContext(get().contexts, id, doc) });
+      },
       setContext: (id, context) => {
         void useMessageDrafts.persist.rehydrate();
-        const next = { ...get().contexts };
-        if (context.context_projects.length || context.github_refs.length || context.agent_traces.length) next[id] = context;
-        else delete next[id];
-        set({ contexts: next });
+        const previous = { ...emptyContext(), ...(get().contexts[id] ?? {}), text: get().drafts[id] ?? "" };
+        const doc = reconcile(previous, { ...context, text: previous.text });
+        set({ drafts: withText(get().drafts, id, doc.text), contexts: withContext(get().contexts, id, doc) });
       },
-      set: (id, text) => { void useMessageDrafts.persist.rehydrate(); set({ drafts: withText(get().drafts, id, text) }); },
+      set: (id, text) => {
+        void useMessageDrafts.persist.rehydrate();
+        const previous = { ...emptyContext(), ...(get().contexts[id] ?? {}), text: get().drafts[id] ?? "" };
+        const doc = reconcile(previous, { ...previous, text });
+        set({ drafts: withText(get().drafts, id, doc.text), contexts: withContext(get().contexts, id, doc) });
+      },
       setPresets: (id, presets) => {
         void useMessageDrafts.persist.rehydrate();
         const next = { ...get().presets };

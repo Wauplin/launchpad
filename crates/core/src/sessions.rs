@@ -638,9 +638,15 @@ impl Sessions {
                 anyhow::ensure!(on == host, "Context project {} is on {} but the agent runs on {}: Launchpad does not copy projects between machines.", p.name, on.as_deref().unwrap_or("this computer"), host.as_deref().unwrap_or("this computer"));
                 add_dirs.push(p.path.clone());
                 context.push(ContextInfo { path: p.path, description: p.description, branch: cp.branch.clone(), editable: cp.editable, own_worktree: cp.editable && !in_checkout });
-            }
+            } else { anyhow::bail!("Context folder no longer exists; remove it and select it again"); }
         }
+        crate::prompt_context::validate_mentions(&spec.text, &spec.mentions)?;
         let mut prompt = render_prompt(spec, &context, &config.presets);
+        if !spec.skills.is_empty() {
+            anyhow::ensure!(!spec.target.browser_only() && !matches!(spec.target, Target::Assistant { .. }), "This session cannot use filesystem skills");
+            let harness = spec.harness.context("Pick a harness for selected skills")?;
+            prompt.push_str(&crate::prompt_context::render_skills(app, harness, spec, cwd.as_deref()).await?);
+        }
         let mut traces = Vec::new();
         for trace in &spec.agent_traces {
             let source = self.get(&trace.session_id).context("context agent no longer exists")?;
@@ -1430,10 +1436,11 @@ impl Sessions {
     pub async fn send_with_context(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, context: MessageContext, client_id: Option<String>) -> Result<()> {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
-        if context.context_projects.is_empty() && context.github_refs.is_empty() && context.agent_traces.is_empty() {
+        if context.context_projects.is_empty() && context.github_refs.is_empty() && context.agent_traces.is_empty() && context.skills.is_empty() {
             return self.send_locked(app, id, text, images, InputMode::Manual, client_id).await;
         }
         let session = self.get(id).context("no such session")?;
+        anyhow::ensure!(context.skills.is_empty() || (!session.launch_spec.target.browser_only() && !matches!(session.launch_spec.target, Target::Assistant { .. })), "This session cannot use filesystem skills");
         let mut folders = Vec::new();
         for cp in &context.context_projects {
             anyhow::ensure!(!session.launch_spec.target.browser_only() && !matches!(session.launch_spec.target, Target::Assistant { .. }), "This session cannot attach project folders");
@@ -1448,8 +1455,10 @@ impl Sessions {
             anyhow::ensure!(trace.through_seq > 0 && trace.through_seq <= source.last_seq, "invalid context trace sequence");
             traces.push((source, trace.through_seq));
         }
-        let spec = LaunchSpec { text: text.into(), github_refs: context.github_refs, ..Default::default() };
+        crate::prompt_context::validate_mentions(text, &context.mentions)?;
+        let spec = LaunchSpec { text: text.into(), github_refs: context.github_refs, mentions: context.mentions, skills: context.skills, profile: session.launch_spec.profile.clone(), ..Default::default() };
         let mut prompt = render_prompt(&spec, &folders, &[]);
+        prompt.push_str(&crate::prompt_context::render_skills(app, session.harness, &spec, Some(&session.cwd)).await?);
         if !traces.is_empty() {
             if !prompt.is_empty() { prompt.push_str("\n\n"); }
             if matches!(session.launch_spec.target, Target::Browser { .. }) {

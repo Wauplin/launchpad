@@ -1129,6 +1129,10 @@ pub struct Adapter {
 }
 #[async_trait]
 impl super::Harness for Adapter {
+    fn skill_locations(&self) -> Vec<crate::prompt_context::SkillLocation> {
+        use crate::prompt_context::SkillLocation;
+        vec![SkillLocation::project(".agents/skills"), SkillLocation::home(".agents/skills"), SkillLocation::config("CODEX_HOME", ".codex", "skills"), SkillLocation::config("CODEX_HOME", ".codex", "skills/.system")]
+    }
     fn sign_in_program(&self) -> &'static str {
         "codex"
     }

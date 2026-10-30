@@ -133,7 +133,7 @@ pub(crate) fn fs_op(op: FsOp) -> std::result::Result<serde_json::Value, ErrorInf
             json!(entries)
         }).map_err(|e| err(e, &path)),
         FsOp::Copy { from, to } => std::fs::copy(&from, &to).map(|n| json!(n)).map_err(|e| err(e, &from)),
-        FsOp::Walk { root } => Ok(json!(crate::code::walk(Path::new(&root)))),
+        FsOp::Walk { root, directories } => Ok(json!(crate::code::walk_paths(Path::new(&root), directories))),
         FsOp::DiskUsage { paths } => {
             fn walk(p: &Path) -> u64 {
                 let Ok(meta) = std::fs::symlink_metadata(p) else { return 0 };

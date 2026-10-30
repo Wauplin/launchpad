@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "test:sessions": "node --experimental-strip-types --test tests/sessionStore.test.mjs",
-    "test:composer": "node --experimental-strip-types --test tests/composer.test.mjs",
+    "test:composer": "node --experimental-strip-types --test tests/composer.test.mjs tests/promptDocument.test.mjs",
     "test:operations": "node --experimental-strip-types --test tests/operations.test.mjs",
     "test:attachments": "node --experimental-strip-types --test tests/attachments.test.mjs",
     "test:terminals": "node --experimental-strip-types --test tests/terminals.test.mjs",

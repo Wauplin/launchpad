@@ -36,6 +36,7 @@ import { useZoomScale } from "@/lib/zoom";
 import { rememberProjectCompletion, rememberedRun, rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { ProjectPicker } from "./ProjectPicker";
+import { SkillChips } from "./SkillChips";
 import { AddContextMenu } from "./AddContextMenu";
 import { DelaySelector, conditionsError } from "./DelaySelector";
 import { CronSelector, DEFAULT_CRON, type CronDraft } from "./CronSelector";
@@ -450,18 +451,16 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           <PromptField
             disabled={launching || readingAttachments}
             onPaste={(e) => { if (launching || attachmentRead.current) return; const files = pastedImages(e); if (files) void addAttachments(files); }}
-            value={spec.text}
-            onChange={(text) => set((s) => ({ ...s, text }))}
-            projects={sorted}
+            document={{ text: spec.text, mentions: spec.mentions, skills: spec.skills, context_projects: spec.context_projects, github_refs: spec.github_refs, agent_traces: spec.agent_traces }}
+            onDocumentChange={(doc) => set((s) => ({ ...s, ...doc }))}
+            root={existing?.root ?? source?.cwd ?? target?.path ?? null}
+            harness={spec.harness}
+            profile={spec.profile}
             repo={repo}
-            onPickProject={addProjectContext}
-            onPickItem={(it) =>
-              set((s) =>
-                s.github_refs.some((g) => g.url === it.url)
-                  ? s
-                  : { ...s, github_refs: [...s.github_refs, { url: it.url, kind: it.kind, repo: it.repo, number: it.number, title: it.title }] },
-              )
-            }
+            projectId={target?.id}
+            relativePaths={!spec.worktree}
+            noFolders={browserOnly || spec.target.kind === "assistant"}
+
           />
           <input ref={attachmentInput} type="file" multiple hidden onChange={(e) => { void addAttachments(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
           <button className="iconbtn absolute right-1.5 bottom-1.5 bg-paper!" disabled={launching || readingAttachments} aria-label="Attach files or images" title={`Attach files or images${isPhone ? "" : "; you can also drop files or paste a screenshot"}. Up to 8 files, 5 MB each, 20 MB total.`} onClick={() => attachmentInput.current?.click()}><Icon name="clip" size={14} /></button>
@@ -547,10 +546,10 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
 
         <div className="flex flex-wrap items-center gap-1.5">
           {(spec.agent_traces ?? []).map((trace) => (
-            <span key={trace.session_id} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-[7px] border border-line bg-chrome px-2 text-xs">
+            <span key={`${trace.session_id}:${trace.through_seq}`} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-[7px] border border-line bg-chrome px-2 text-xs">
               <Icon name="agents" size={13} />
               <span className="min-w-0 truncate" title={`Stored trace through event #${trace.through_seq} · ${trace.session_id}`}>Trace · {sessions?.find((s) => s.id === trace.session_id)?.title ?? "Missing agent"}</span>
-              <button title="Remove agent trace" className="text-ink-3 hover:text-ink" onClick={() => set((s) => ({ ...s, agent_traces: s.agent_traces.filter((t) => t.session_id !== trace.session_id) }))}><Icon name="x" size={12} /></button>
+              <button title="Remove agent trace" className="text-ink-3 hover:text-ink" onClick={() => set((s) => ({ ...s, agent_traces: s.agent_traces.filter((t) => t.session_id !== trace.session_id || t.through_seq !== trace.through_seq) }))}><Icon name="x" size={12} /></button>
             </span>
           ))}
           {spec.github_refs.map((g) => {
@@ -564,6 +563,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               </span>
             );
           })}
+          <SkillChips skills={spec.skills} disabled={launching} onRemove={(path) => set((s) => ({ ...s, skills: (s.skills ?? []).filter((v) => v.path !== path) }))} />
           {(spec.files ?? []).map((f, i) => (
             <span key={`${f.root}\n${f.rev}\n${f.path}\n${f.start_line}-${f.end_line}`} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-[7px] border border-line bg-chrome px-2 text-xs" title={`${f.root}/${f.path}${f.rev ? ` at ${f.rev}` : ""}`}>
               <Icon name="file" size={13} />

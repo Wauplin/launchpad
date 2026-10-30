@@ -133,6 +133,13 @@ pub fn registration(id: HarnessKind) -> &'static Registration {
 
 #[async_trait]
 pub trait Harness: Send + Sync {
+    /// Ordered roots, highest priority first. Resolve profile configuration on the execution host.
+    fn skill_locations(&self) -> Vec<crate::prompt_context::SkillLocation> { vec![] }
+    /// Explicit invocation works in streamed input as well as initial launches, without TUI parsing.
+    fn skill_instruction(&self, name: &str, path: &str) -> String {
+        format!("Use the selected skill {name:?}: read {:?} and follow its instructions. Resolve supporting resources relative to that skill folder.", Path::new(path).join("SKILL.md"))
+    }
+
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>>;
     /// Original persisted trace, in this harness's native format. No Launchpad event conversion.
     async fn native_trace(&self, _app: &App, _session: &Session) -> Result<Vec<trace::TraceFile>> {
