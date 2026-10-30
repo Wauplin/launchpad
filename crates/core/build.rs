@@ -25,7 +25,10 @@ fn main() {
     {
         println!("cargo:rerun-if-changed={path}");
     }
-    let commit = git(&["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".into());
+    println!("cargo:rerun-if-env-changed=LAUNCHPAD_BUILD_COMMIT");
+    let packaged_commit = std::env::var("LAUNCHPAD_BUILD_COMMIT").ok()
+        .filter(|v| v.len() == 40 && v.bytes().all(|b| b.is_ascii_hexdigit()));
+    let commit = git(&["rev-parse", "HEAD"]).or(packaged_commit).unwrap_or_else(|| "unknown".into());
     println!("cargo:rustc-env=LAUNCHPAD_COMMIT={commit}");
     let worktrees = git(&["worktree", "list", "--porcelain"]).unwrap_or_default();
     let main = worktrees.split("\n\n").find_map(|block| {

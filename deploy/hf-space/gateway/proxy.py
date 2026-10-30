@@ -7,7 +7,7 @@ from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
        "te", "trailer", "transfer-encoding", "upgrade"}
 IDENTITY = {"authorization", "cookie", "host", "forwarded", "origin"}
-BLOCKED = ("/auth", "/api/devices", "/api/push", "/api/open", "/api/window")
+BLOCKED = ("/auth", "/api/devices", "/api/push", "/api/open", "/api/window", "/api/setup/fix")
 
 
 def canonical_path(raw):

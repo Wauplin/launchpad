@@ -14,7 +14,7 @@ def environment():
     return {'HOME': str(HOME), 'USER': 'agent', 'LOGNAME': 'agent', 'SHELL': '/bin/bash',
             'PATH': '/usr/local/bin:/usr/bin:/bin', 'LANG': 'C.UTF-8', 'TERM': 'xterm-256color',
             'CODEX_HOME': str(HOME / '.codex'), 'HF_HOME': str(HOME / '.cache/huggingface'),
-            'BROWSER': '/bin/true', 'GH_BROWSER': '/bin/true', 'LAUNCHPAD_DELEGATED_ACCESS': 'true'}
+            'BROWSER': '/bin/true', 'GH_BROWSER': '/bin/true', 'LAUNCHPAD_DELEGATED_ACCESS': 'true', 'LAUNCHPAD_EXTERNAL_SETUP':'/_space/shell?setup=1'}
 
 
 def demote():
@@ -65,3 +65,22 @@ async def stop(process):
         await process.wait()
     except ProcessLookupError:
         await process.wait()
+
+
+async def stop_agent_children():
+    """Container-only cleanup: the agent UID owns no control-plane processes."""
+    uid=pwd.getpwnam('agent').pw_uid
+    def owned(pid):
+        try: return Path(f'/proc/{pid}').stat().st_uid == uid
+        except FileNotFoundError: return False
+    pids=[int(p.name) for p in Path('/proc').iterdir() if p.name.isdigit() and owned(p.name)]
+    for pid in pids:
+        try: os.kill(pid,signal.SIGTERM)
+        except ProcessLookupError: pass
+    for _ in range(20):
+        if not any(owned(pid) for pid in pids): return
+        await asyncio.sleep(.1)
+    for pid in pids:
+        if owned(pid):
+            try: os.kill(pid,signal.SIGKILL)
+            except ProcessLookupError: pass

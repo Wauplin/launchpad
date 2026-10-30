@@ -1,3 +1,4 @@
+import { externalSetup } from "@/lib/deployment";
 // The setup checklist (onboarding plan, section 8): detect first, never redo. Each item shows what was found and
 // where; a satisfied item shows "Already set up" and never offers a fix. Missing parts offer the daemon's fixed
 // command (Copy, Run in terminal), a small form or a link. Checks run when the list opens, on Check again and when
@@ -205,6 +206,7 @@ function SettingsLink({ to, children }: { to: string; children: ReactNode }) {
 /** One missing part: what is missing, and its fixed command with Copy and Run in terminal. */
 function PartRow({ item, part, host }: { item: string; part: MissingPart; host: string | null }) {
   const terminal = useOpenTerminal();
+  if (!host && externalSetup()) return <div className="grid gap-1.5 rounded-lg border border-line p-3"><b>{part.label}</b><a className="btn btn-sm" href={externalSetup()!} target="_top">Connect in hosting controls</a></div>;
   return (
     <div className="grid gap-1.5 rounded-lg border border-line-2 bg-chrome p-2.5">
       <div className="text-[13px] font-semibold">{part.label}</div>
@@ -282,7 +284,7 @@ function ProfileStep({ item, host, onDone }: { item: SetupItem; host: string | n
       return (
         <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line-2 bg-chrome p-2.5 text-[13px]">
           <span className="min-w-0 flex-1"><b>{profile?.name ?? id}</b>{p.detail && <span className="text-[12px] text-ink-3"> · {p.detail}</span>}</span>
-          <ConfirmButton tone="publish" icon="term" consequence="Opens a visible terminal with the agent's sign-in command." confirmLabel="Sign in" onConfirm={() => terminal.profileSetup(id, host)}>Sign in</ConfirmButton>
+          {!host && externalSetup() ? <a className="btn btn-sm" href={externalSetup()!} target="_top">Connect in hosting controls</a> : <ConfirmButton tone="publish" icon="term" consequence="Opens a visible terminal with the agent's sign-in command." confirmLabel="Sign in" onConfirm={() => terminal.profileSetup(id, host)}>Sign in</ConfirmButton>}
         </div>
       );
     })}

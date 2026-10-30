@@ -1,0 +1,47 @@
+name: Hugging Face Space runtime
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - name: Build headless runtime
+        run: docker buildx build --platform linux/amd64 --load --build-arg LAUNCHPAD_REVISION=$(git rev-parse HEAD) -t launchpad-space:check -f deploy/hf-space/Dockerfile .
+      - name: Check isolated startup
+        run: |
+          docker run -d --name launchpad-space-check --network none -e SPACE_ID=example/launchpad -e SPACE_HOST=example-launchpad.hf.space launchpad-space:check
+          trap 'docker rm -f launchpad-space-check' EXIT
+          for i in $(seq 1 30); do
+            if docker exec launchpad-space-check python -m supervisor.health; then break; fi
+            sleep 1
+          done
+          docker exec launchpad-space-check python -m supervisor.health
+          docker exec launchpad-space-check sh -c 'test -f schema.json && test -f /usr/local/bin/launchpad && test -d /src/skills'
+          docker exec launchpad-space-check sh -c 'codex --version && claude --version && opencode --version && gh --version && hf --version'
+          docker exec launchpad-space-check python -c "from supervisor.processes import environment; assert 'LP_SPACE_MANAGEMENT_TOKEN' not in environment(); assert 'LP_SPACE_BACKUP_KEY' not in environment()"
+      - name: Publish image and release files
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          image=ghcr.io/wauplin/launchpad-hf-space
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker tag launchpad-space:check "$image:${{ github.sha }}"
+          docker push "$image:${{ github.sha }}"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$image:${{ github.sha }}")
+          python3 -m venv /tmp/space-release-env
+          /tmp/space-release-env/bin/pip install -r deploy/hf-space/requirements.txt
+          cd deploy/hf-space
+          /tmp/space-release-env/bin/python -m supervisor.package_release --image "$digest" --revision "$(git rev-parse HEAD)" --output /tmp/space-release
+          cd ../..
+          gh release upload "${{ github.event.release.tag_name }}" /tmp/space-release/* --clobber

@@ -66,7 +66,9 @@ def roots():
         with sqlite3.connect(f'file:{DATA}/state.db?mode=ro', uri=True) as db:
             for (value,) in db.execute('SELECT path FROM project'):
                 path = Path(value)
-                if path.is_absolute() and path.is_relative_to(HOME): result.append(path)
+                if path.is_absolute():
+                    if not path.is_relative_to(HOME): raise ValueError('Move local folders inside /home/agent before backing up this machine')
+                    result.append(path)
     if CONFIG.exists():
         config = tomlkit.parse(CONFIG.read_text()).unwrap()
         for profile in config.get('profiles', []):
@@ -92,7 +94,7 @@ def credential_bytes(path):
         return copy.read_bytes()
 
 
-def capture(approved, release):
+def capture(approved, release, clean=False):
     secrets = {'references': {}, 'files': {}, 'present': []}
     ordinary = {}
     with tempfile.TemporaryDirectory() as directory:
@@ -108,6 +110,8 @@ def capture(approved, release):
         archive = io.BytesIO()
         with tarfile.open(fileobj=archive, mode='w:gz', dereference=False) as tar:
             for name, path in files_under(roots()):
+                if clean and '.git' in Path(name).parts and (path.name.endswith('.lock') or any(part in ('MERGE_HEAD','CHERRY_PICK_HEAD','rebase-merge','rebase-apply') for part in Path(name).parts)):
+                    raise ValueError('A Git operation is in progress; finish it before maintenance')
                 if path.parent == DATA and path.name in EXCLUDED: continue
                 if path == CONFIG: continue
                 if path.is_symlink():
@@ -156,6 +160,7 @@ def unpack(data):
         for member in members:
             if member.isfile():
                 atomic(HOME/member.name, tar.extractfile(member).read())
+                os.chmod(HOME/member.name,0o700 if member.mode & 0o111 else 0o600)
         for member in members:
             if member.issym():
                 target = HOME/member.name

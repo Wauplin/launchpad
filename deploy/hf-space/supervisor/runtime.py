@@ -9,7 +9,7 @@ import aiohttp
 import tomlkit
 
 from backup.machine import atomic, CONFIG, DATA
-from supervisor.processes import HOME, spawn, stop
+from supervisor.processes import HOME, spawn, stop, stop_agent_children
 
 
 class Runtime:
@@ -57,5 +57,7 @@ class Runtime:
         return not any(t.get('alive') for t in terminals)
 
     async def close(self):
-        await stop(self.process)
+        if self.process:
+            await stop(self.process)
+            await stop_agent_children()
         self.process = None

@@ -34,7 +34,7 @@ fn browser_config(s: &Server) -> Config {
     s.app.config.get()
 }
 async fn get_config(State(s): State<Server>) -> Json<Value> {
-    Json(json!({"config": browser_config(&s), "error": s.app.config.error(), "remote": s.auth.remote(), "delegated": std::env::var("LAUNCHPAD_DELEGATED_ACCESS").as_deref() == Ok("true")}))
+    Json(json!({"config": browser_config(&s), "error": s.app.config.error(), "remote": s.auth.remote(), "delegated": std::env::var("LAUNCHPAD_DELEGATED_ACCESS").as_deref() == Ok("true"), "external_setup": std::env::var("LAUNCHPAD_EXTERNAL_SETUP").ok().filter(|s| s.starts_with('/') && !s.starts_with("//") && !s.contains('\\'))}))
 }
 
 async fn put_config(State(s): State<Server>, Json(config): Json<Config>) -> ApiResult<Value> {
@@ -52,7 +52,7 @@ async fn put_config(State(s): State<Server>, Json(config): Json<Config>) -> ApiR
         // Host checks include each profile with its own environment.
         launchpad_core::hosts::preflight::recheck_all(&s.app);
     }
-    Ok(Json(json!({"config": browser_config(&s), "error": null, "remote": s.auth.remote(), "delegated": std::env::var("LAUNCHPAD_DELEGATED_ACCESS").as_deref() == Ok("true")})))
+    Ok(Json(json!({"config": browser_config(&s), "error": null, "remote": s.auth.remote(), "delegated": std::env::var("LAUNCHPAD_DELEGATED_ACCESS").as_deref() == Ok("true"), "external_setup": std::env::var("LAUNCHPAD_EXTERNAL_SETUP").ok().filter(|s| s.starts_with('/') && !s.starts_with("//") && !s.contains('\\'))})))
 }
 
 // General settings only send fields the owner edited; merge against the current host config.
@@ -98,7 +98,7 @@ async fn patch_general_config(State(s): State<Server>, Json(patch): Json<General
     }
     config.validate().map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
     s.app.config.save(config)?;
-    Ok(Json(json!({"config": browser_config(&s), "error": null, "remote": s.auth.remote(), "delegated": std::env::var("LAUNCHPAD_DELEGATED_ACCESS").as_deref() == Ok("true")})))
+    Ok(Json(json!({"config": browser_config(&s), "error": null, "remote": s.auth.remote(), "delegated": std::env::var("LAUNCHPAD_DELEGATED_ACCESS").as_deref() == Ok("true"), "external_setup": std::env::var("LAUNCHPAD_EXTERNAL_SETUP").ok().filter(|s| s.starts_with('/') && !s.starts_with("//") && !s.contains('\\'))})))
 }
 
 #[derive(Deserialize)]

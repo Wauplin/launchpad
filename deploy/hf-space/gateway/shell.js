@@ -1,5 +1,5 @@
 const el = id => document.getElementById(id);
-let state, busy = false, checks = [], toolLoaded = false, toasted, lastRoute;
+let state, busy = false, checks = [], toolLoaded = false, profiles = [], toasted, lastRoute;
 function toast(text) { el('toast').textContent=text;el('toast').hidden=false;clearTimeout(toasted);toasted=setTimeout(()=>el('toast').hidden=true,7000); }
 function age(at) { if(!at)return 'Not yet verified';const seconds=Math.max(0,Math.floor(Date.now()/1000-at));return seconds<60?`${seconds}s ago`:`${Math.floor(seconds/60)} min ago`; }
 async function json(path, options) { const response=await fetch(path,{cache:'no-store',...options});const value=await response.json();if(!response.ok)throw new Error(value.error||'The service is reconnecting. Try again shortly.');return value; }
@@ -13,16 +13,16 @@ function route(value){try{const url=new URL(value,location.origin);return url.or
 function renderTools(){
  const node=el('tools');node.replaceChildren();
  for(const [id,name] of [['codex','Codex'],['claude','Claude Code'],['opencode','OpenCode'],['github','GitHub']]) {
-  const check=checks.find(c=>c.id===id&&!c.profile);const connected=check?.signed_in===true;
+  const check=checks.find(c=>c.id===id&&!c.profile);const available=profiles.some(p=>p.harness===id);const connected=check?.signed_in===true||available;
   const row=document.createElement('div');row.className='tool';
   const text=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('p');title.textContent=name;
   detail.textContent=connected?`${check.detail||'Connected'} · ${state.backup?.credentials_at?'Credential backup '+age(state.backup.credentials_at):'Backup pending'}`:check?.cli_found===false?'Not installed in this image':'Ready to connect';
-  text.append(title,detail);const button=document.createElement('button');button.textContent=connected&&id!=='github'?'Create profile':connected?'Reconnect':'Connect';
-  button.onclick=()=>action(connected&&id!=='github'?'profile':'login',{tool:id}).then(()=>connected?loadTools():null);
+  text.append(title,detail);const button=document.createElement('button');button.textContent=available?'Open Launchpad':connected&&id!=='github'?'Create profile':connected?'Reconnect':'Connect';
+  button.onclick=()=>available?el('controls').close():action(connected&&id!=='github'?'profile':'login',{tool:id}).then(()=>connected?loadTools():null);
   row.append(text,button);node.append(row);
  }
 }
-async function loadTools(){try{checks=(await json('/_space/tools')).checks;toolLoaded=true;renderTools();}catch(error){toast(error.message);}}
+async function loadTools(){try{const value=await json('/_space/tools');checks=value.checks;profiles=value.profiles;toolLoaded=true;renderTools();}catch(error){toast(error.message);}}
 async function refresh(){
  try{
   state=await json('/_space/status');el('settings').href=el('hub').href=state.settings;
@@ -45,7 +45,7 @@ async function refresh(){
 }
 el('open-controls').onclick=()=>{el('controls').showModal();if(state?.ready)loadTools();};el('close-controls').onclick=()=>el('controls').close();
 el('create-bucket').onclick=()=>action('create-bucket');el('retry').onclick=refresh;el('create-key').onclick=()=>action('bootstrap-key');el('check-tools').onclick=loadTools;
-document.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>action(button.dataset.action));
+document.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>available?el('controls').close():action(button.dataset.action));
 el('hf-form').onsubmit=event=>{event.preventDefault();const token=el('hf-token').value;el('hf-token').value='';action('hf-token',{token});};
 el('login-form').onsubmit=event=>{event.preventDefault();const value=el('login-input').value;el('login-input').value='';action('login-input',{value});};
 el('ssh').onclick=async()=>{const value=await action('ssh-key');if(value?.public_key){el('public-key').hidden=false;el('public-key').textContent=value.public_key;}};
@@ -54,3 +54,9 @@ el('workspace').addEventListener('load',()=>{try{lastRoute=route(el('workspace')
 window.addEventListener('popstate',()=>{const next=route(new URLSearchParams(location.search).get('route')||'/agents');if(next!==lastRoute){lastRoute=next;el('workspace').src=next;}});
 setInterval(()=>{if(document.visibilityState!=='visible')return;if(el('controls').open||!state?.ready)refresh();try{if(state?.ready){const next=route(el('workspace').contentWindow.location.href);if(next!==lastRoute){lastRoute=next;history.pushState({},'',`/_space/shell?route=${encodeURIComponent(next)}`);}}}catch{}},2000);
 refresh().then(()=>{if(new URLSearchParams(location.search).has('setup')&&state?.ready){el('controls').showModal();loadTools();}});
+
+el('api-tool').onchange=()=>{if(el('api-tool').value!=='opencode')el('api-provider').value=el('api-tool').value==='claude'?'anthropic':'openai';};
+el('api-form').onsubmit=event=>{event.preventDefault();const key=el('api-key').value;el('api-key').value='';action('api-key',{tool:el('api-tool').value,provider:el('api-provider').value,key,paid:el('api-paid').checked}).then(()=>loadTools());};
+el('ssh-form').onsubmit=event=>{event.preventDefault();const private_key=el('ssh-private').value;el('ssh-private').value='';action('ssh-import',{private_key}).then(value=>{if(value?.public_key){el('public-key').hidden=false;el('public-key').textContent=value.public_key;}});};
+
+el('rotate-key').onclick=()=>action('rotate-key',{confirmed:true});

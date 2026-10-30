@@ -1,3 +1,4 @@
+import { externalSetup } from "@/lib/deployment";
 // Settings → Profiles: how Launchpad runs each coding agent (a harness, the login or key that pays for it, and its
 // defaults), saved in config.toml. Variable descriptions, defaults and templates come from the adapters
 // (`GET /api/harnesses`); sign-in status comes from this computer (`/api/setup/sign-in`) and each host's checks.
@@ -507,7 +508,7 @@ function WorksOn({ draft: d, machines }: { draft: Draft; machines: Machine[] }) 
               <b className="font-[650]">{m.label}</b>
               <span className="min-w-0 flex-1 truncate text-ink-3" title={m.detail}>{m.detail}</span>
               {m.reachable && m.installed === false && <button className="btn btn-sm" title="Runs the official install command in a visible terminal" onClick={() => void terminal.profileSetup(d.id, m.host, true)}><Icon name="term" size={12} />Install</button>}
-              {m.reachable && m.installed !== false && m.signedIn !== true && <button className="btn btn-sm" title="Runs the sign-in command with this profile's environment in a visible terminal" onClick={() => void terminal.profileSetup(d.id, m.host)}><Icon name="term" size={12} />Sign in</button>}
+              {m.reachable && m.installed !== false && m.signedIn !== true && (!m.host && externalSetup() ? <a className="btn btn-sm" href={externalSetup()!} target="_top">Connect in hosting controls</a> : <button className="btn btn-sm" title="Runs the sign-in command with this profile's environment in a visible terminal" onClick={() => void terminal.profileSetup(d.id, m.host)}><Icon name="term" size={12} />Sign in</button>)}
             </span>
             {m.command && m.installed !== false && m.signedIn !== true && (
               <span className="flex flex-wrap items-center gap-2 pl-4">

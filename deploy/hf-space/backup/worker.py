@@ -57,7 +57,7 @@ class Recovery:
     async def checkpoint(self, clean=False):
         async with self.lock:
             if self.reconnect: raise ValueError('Reconnect credentials before creating a new checkpoint')
-            files, secrets = await asyncio.to_thread(capture, self.schema, self.release)
+            files, secrets = await asyncio.to_thread(capture, self.schema, self.release, clean)
             metadata = dict(self.release, clean=clean)
             manifest = await asyncio.to_thread(self.bucket.commit, files, self.vault, secrets, self.installation, metadata)
             self.generation = manifest['generation']
@@ -81,16 +81,30 @@ class Recovery:
             self.credentials_at = time.time()
 
     async def run(self):
-        last_full = 0
-        while True:
-            try:
-                await self.credentials()
-                if time.monotonic() - last_full >= 60:
-                    await self.checkpoint()
-                    last_full = time.monotonic()
-            except Exception:
-                self.error = 'Backup delayed. Check bucket access and capacity; retry is automatic.'
-            await asyncio.sleep(5)
+        from watchfiles import awatch
+        from providers.roots import credential
+        changed = asyncio.Event()
+        async def observe():
+            async for events in awatch(HOME,debounce=1000,step=200,ignore_permission_denied=True):
+                if any(credential(str(__import__('pathlib').Path(path).relative_to(HOME))) for _,path in events):
+                    changed.set()
+        observer=asyncio.create_task(observe())
+        last_full=0
+        try:
+            while True:
+                try:
+                    await self.credentials()
+                    if time.monotonic()-last_full >= 60:
+                        await self.checkpoint()
+                        last_full=time.monotonic()
+                except Exception:
+                    self.error='Backup delayed. Check bucket access and capacity; retry is automatic.'
+                try: await asyncio.wait_for(changed.wait(),5)
+                except asyncio.TimeoutError: pass
+                changed.clear()
+        finally:
+            observer.cancel()
+            await asyncio.gather(observer,return_exceptions=True)
 
     def status(self):
         return {'checkpoint_at':self.checkpoint_at,'credentials_at':self.credentials_at,

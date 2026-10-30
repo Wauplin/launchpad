@@ -41,52 +41,57 @@ async def serve():
     updater = None
     csrf = secrets.token_urlsafe(32)
     actions = asyncio.Lock()
-    try:
-        if not token: raise ValueError('Add LP_SPACE_MANAGEMENT_TOKEN in Space Secrets, then restart.')
-        state['policy'] = await verify(deployment,token)
-        prepare()
-        release = json.loads((ROOT/'release.json').read_text())
-        state['release'] = release
-        key = os.environ.get('LP_SPACE_BACKUP_KEY')
-        if not key:
-            state['needs_key'] = True
-            state['message'] = 'Protect your credentials with a dedicated Space Secret. Create the key below; the Space will restart.'
-        else:
-            control_env = {'HOME':str(CONTROL),'PATH':'/usr/local/bin:/usr/bin:/bin','HF_TOKEN':token,'LANG':'C.UTF-8'}
-            bucket = Bucket(deployment.bucket,control_env)
-            vault = Vault(key,str(uuid.uuid4()))
-            schema = json.loads((ROOT/'schema.json').read_text())['state_schema']
-            recovery = Recovery(bucket,vault,schema,release,vault.installation)
-            generation = os.environ.get('LP_SPACE_RESTORE_GENERATION') or None
-            restore_request = os.environ.get('LP_SPACE_RESTORE_REQUEST',generation)
-            if restore_request:
-                from backup.store import safe_name
-                safe_name(restore_request)
-                if '/' in restore_request: raise ValueError('Invalid restore request')
-                if await asyncio.to_thread(bucket.exists,f'backups/restores/{restore_request}.json'): generation = None
-            await recovery.recover(generation)
-            from supervisor.updates import Updates
-            updater = Updates(deployment,token,runtime,recovery,release)
-            await updater.load_rollback()
-            await runtime.start()
-            proxy.token = runtime.token
-            await proxy.start(None)
-            if not recovery.reconnect:
-                await recovery.checkpoint()
-                if generation: await asyncio.to_thread(bucket.put,f'backups/restores/{restore_request}.json',json.dumps({'generation':generation,'restored_at':time.time()}).encode())
-            state['ready'] = True
-            state['message'] = 'Your workspace is ready. Connect a tool to get started.'
-            worker = asyncio.create_task(recovery.run())
-            updater.task = asyncio.create_task(updater.watch())
-    except MissingBucket as error:
-        state['needs_bucket'] = True
-        state['message'] = str(error)
-    except ValueError as error:
-        state['message'] = str(error)
-        await runtime.close()
-    except Exception:
-        state['message'] = 'Startup could not complete. Check Space Secrets, bucket access and the pinned image; existing backups are preserved.'
-        await runtime.close()
+    mutations = asyncio.Lock()
+    async def initialize():
+        nonlocal recovery, worker, updater
+        try:
+            if not token: raise ValueError('Add LP_SPACE_MANAGEMENT_TOKEN in Space Secrets, then restart.')
+            state['policy'] = await verify(deployment,token)
+            prepare()
+            release = json.loads((ROOT/'release.json').read_text())
+            state['release'] = release
+            key = os.environ.get('LP_SPACE_BACKUP_KEY')
+            if not key:
+                state['needs_key'] = True
+                state['message'] = 'Protect your credentials with a dedicated Space Secret. Create the key below; the Space will restart.'
+            else:
+                control_env = {'HOME':str(CONTROL),'PATH':'/usr/local/bin:/usr/bin:/bin','HF_TOKEN':token,'LANG':'C.UTF-8'}
+                bucket = Bucket(deployment.bucket,control_env)
+                vault = Vault(key,str(uuid.uuid4()))
+                from vault.rotate import recover_rotation
+                await recover_rotation(bucket,vault)
+                schema = json.loads((ROOT/'schema.json').read_text())['state_schema']
+                recovery = Recovery(bucket,vault,schema,release,vault.installation)
+                generation = os.environ.get('LP_SPACE_RESTORE_GENERATION') or None
+                restore_request = os.environ.get('LP_SPACE_RESTORE_REQUEST',generation)
+                if restore_request:
+                    from backup.store import safe_name
+                    safe_name(restore_request)
+                    if '/' in restore_request: raise ValueError('Invalid restore request')
+                    if await asyncio.to_thread(bucket.exists,f'backups/restores/{restore_request}.json'): generation = None
+                await recovery.recover(generation)
+                from supervisor.updates import Updates
+                updater = Updates(deployment,token,runtime,recovery,release)
+                await updater.load_rollback()
+                await runtime.start()
+                proxy.token = runtime.token
+                await proxy.start(None)
+                if not recovery.reconnect:
+                    await recovery.checkpoint()
+                    if generation: await asyncio.to_thread(bucket.put,f'backups/restores/{restore_request}.json',json.dumps({'generation':generation,'restored_at':time.time()}).encode())
+                state['ready'] = True
+                state['message'] = 'Your workspace is ready. Connect a tool to get started.'
+                worker = asyncio.create_task(recovery.run())
+                updater.task = asyncio.create_task(updater.watch())
+        except MissingBucket as error:
+            state['needs_bucket'] = True
+            state['message'] = str(error)
+        except ValueError as error:
+            state['message'] = str(error)
+            await runtime.close()
+        except Exception:
+            state['message'] = 'Startup could not complete. Check Space Secrets, bucket access and the pinned image; existing backups are preserved.'
+            await runtime.close()
 
     @web.middleware
     async def boundaries(request,handler):
@@ -97,6 +102,8 @@ async def serve():
         try: response = await handler(request)
         except ValueError as error: response = web.json_response({'error':str(error)},status=409)
         except (aiohttp.ClientError, asyncio.TimeoutError): response = web.json_response({'error':'The service could not complete this action. Try again.'},status=503)
+        except web.HTTPException: raise
+        except Exception: response = web.json_response({'error':'This action could not complete. Check Hub access and retry from Space controls.'},status=503)
         if not response.prepared:
             response.headers['Cache-Control'] = 'no-store'
             response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -115,7 +122,8 @@ async def serve():
         if not state['ready']: raise ValueError('Finish startup first')
         checks = await runtime.api('GET','/api/setup/sign-in')
         hf = await runtime.api('GET','/api/setup/trace-backup')
-        return web.json_response({'checks':checks,'hf':hf})
+        profiles = (await runtime.api('GET','/api/config'))['config']['profiles']
+        return web.json_response({'checks':checks,'hf':hf,'profiles':[{'id':p['id'],'harness':p['harness'],'name':p['name']} for p in profiles]})
 
     async def action(request):
         nonlocal worker
@@ -152,6 +160,16 @@ async def serve():
                 except Exception: raise ValueError('HF could not verify that token') from None
                 atomic(HOME/'.cache/huggingface/token',value.encode())
                 await recovery.credentials()
+            elif kind == 'api-key':
+                if body.get('paid') is not True: raise ValueError('Confirm that API usage is billed separately')
+                from providers.keys import api_profile
+                await api_profile(runtime,body.get('tool'),body.get('provider'),body.get('key'))
+                await recovery.credentials()
+            elif kind == 'ssh-import':
+                from providers.keys import import_ssh
+                public = await import_ssh(body.get('private_key'))
+                await recovery.credentials()
+                return web.json_response({'public_key':public,'message':'SSH key imported and backed up.'})
             elif kind == 'ssh-key':
                 public = await ssh_key()
                 await recovery.credentials()
@@ -169,18 +187,24 @@ async def serve():
             elif kind == 'reconnect':
                 recovery.reconnect = False
                 await recovery.checkpoint()
-            elif kind in ('restart','prepare-update','rollback'):
+            elif kind in ('restart','prepare-update','rollback','rotate-key'):
                 if logins.status()['running']: raise ValueError('Finish or cancel authorization first')
-                if not await runtime.idle(): raise ValueError('Agents or terminals are active. Stop them in Launchpad, then try again.')
                 runtime.maintenance = True
                 try:
+                    async with mutations:
+                        if not await runtime.idle(): raise ValueError('Agents or terminals are active. Stop them in Launchpad, then try again.')
                     await runtime.close()
                     checkpoint = await recovery.checkpoint(clean=True)
-                    if kind == 'prepare-update': await updater.apply(checkpoint)
+                    if kind == 'rotate-key':
+                        if body.get('confirmed') is not True: raise ValueError('Confirm credential key rotation first')
+                        from vault.rotate import rotate
+                        await rotate(recovery,HfApi(token=token),deployment.space)
+                        await asyncio.to_thread(HfApi(token=token).restart_space,deployment.space)
+                    elif kind == 'prepare-update': await updater.apply(checkpoint)
                     elif kind == 'rollback': await updater.rollback(body.get('confirmed') is True)
                     else: await asyncio.to_thread(HfApi(token=token).restart_space,deployment.space)
                 except Exception:
-                    await runtime.start()
+                    if runtime.process is None: await runtime.start()
                     proxy.token = runtime.token
                     runtime.maintenance = False
                     raise
@@ -210,7 +234,13 @@ async def serve():
                 raise ValueError('Change the Space backup destination in Hub Variables and restart to verify it')
             # Config is bounded JSON, unlike the streaming upload/download routes.
             return web.json_response(await runtime.api(request.method,path,body))
+        if path.startswith('/api/profiles/') and path.endswith('/setup'):
+            raise ValueError('Connect tools through Space controls so authorization output stays temporary')
         if path == '/sw.js': raise web.HTTPNotFound()
+        if request.method not in ('GET','HEAD','OPTIONS'):
+            async with mutations:
+                if runtime.maintenance: raise web.HTTPServiceUnavailable(text='Maintenance is in progress')
+                return await proxy.handle(request)
         return await proxy.handle(request)
 
     app = web.Application(middlewares=[boundaries],client_max_size=1024*1024)
@@ -223,11 +253,14 @@ async def serve():
     runner = web.AppRunner(app,access_log=None)
     await runner.setup()
     await web.TCPSite(runner,'0.0.0.0',7860).start()
+    boot = asyncio.create_task(initialize())
     ended = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM,signal.SIGINT): loop.add_signal_handler(sig,ended.set)
     try: await ended.wait()
     finally:
+        boot.cancel()
+        await asyncio.gather(boot,return_exceptions=True)
         await runner.cleanup()
         for task in (worker, updater.task if updater else None):
             if task: task.cancel()

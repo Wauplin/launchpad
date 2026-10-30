@@ -1,0 +1,9 @@
+.git
+**/node_modules
+**/target
+web/dist
+extension/dist
+**/__pycache__
+**/.venv
+.worktrees
+.claude
