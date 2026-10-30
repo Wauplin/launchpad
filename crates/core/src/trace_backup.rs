@@ -65,14 +65,15 @@ pub(crate) fn name_segment(name: &str) -> String {
     segment
 }
 
-fn destination(bucket: &str, user: &str, folder: &str, started_at: i64, id: &str) -> Result<String> {
+fn destination(bucket: &str, prefix: &str, user: &str, folder: &str, started_at: i64, id: &str) -> Result<String> {
     let bucket = if bucket.contains('/') { bucket.to_owned() } else { format!("{user}/{bucket}") };
     let folder = name_segment(folder);
     let started_at = chrono::DateTime::from_timestamp_millis(started_at)
         .context("invalid session start time")?
         .format("%Y%m%d_%H%M");
     let id = id.replace('-', "");
-    Ok(format!("hf://buckets/{bucket}/{folder}/{started_at}_{id}"))
+    let prefix = if prefix.is_empty() { String::new() } else { format!("{prefix}/") };
+    Ok(format!("hf://buckets/{bucket}/{prefix}{folder}/{started_at}_{id}"))
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -126,7 +127,7 @@ pub(crate) async fn upload(app: &App) -> Result<()> {
             .map(|w| w.name.as_str()).unwrap_or("Everything");
         let folder = session.project_id.as_deref().and_then(|id| projects.iter().find(|p| p.id == id))
             .map(|p| p.name.as_str()).unwrap_or(if session.project_id.is_some() { "Removed folder" } else { "Scratch folder" });
-        let dest = destination(&config.bucket, &user, folder, session.started_at, &session.id)?;
+        let dest = destination(&config.bucket, &config.prefix, &user, folder, session.started_at, &session.id)?;
         let cursor = cursors.entry(dest.clone()).or_default();
         let after = cursor.events;
         let id = session.id.clone();
@@ -248,16 +249,16 @@ mod tests {
     #[test]
     fn destinations_group_by_folder_and_sort_by_session_start_time() {
         let start = 1_793_363_696_789; // 2026-10-30T12:34:56.789Z
-        assert_eq!(destination("launchpad-traces", "alice", "Launchpad", start, "session").unwrap(), "hf://buckets/alice/launchpad-traces/Launchpad/20261030_1234_session");
-        assert_eq!(destination("team/traces", "alice", "Notes", 0, "id").unwrap(), "hf://buckets/team/traces/Notes/19700101_0000_id");
-        let earlier = destination("traces", "alice", "Folder/Name", start, "z").unwrap();
-        let later = destination("traces", "alice", "Folder/Name", start + 60_000, "a").unwrap();
+        assert_eq!(destination("launchpad-traces", "", "alice", "Launchpad", start, "session").unwrap(), "hf://buckets/alice/launchpad-traces/Launchpad/20261030_1234_session");
+        assert_eq!(destination("team/traces", "", "alice", "Notes", 0, "id").unwrap(), "hf://buckets/team/traces/Notes/19700101_0000_id");
+        let earlier = destination("traces", "", "alice", "Folder/Name", start, "z").unwrap();
+        let later = destination("traces", "", "alice", "Folder/Name", start + 60_000, "a").unwrap();
         assert!(earlier < later);
         let uuid = "a25e3b16-6d72-478d-9e25-b281f76d8825";
-        assert_eq!(destination("traces", "alice", "Notes", start, uuid).unwrap(), "hf://buckets/alice/traces/Notes/20261030_1234_a25e3b166d72478d9e25b281f76d8825");
-        assert_eq!(destination("traces", "alice", "Notes", start, uuid).unwrap(), destination("traces", "alice", "Notes", start - 56_789, uuid).unwrap());
+        assert_eq!(destination("traces", "", "alice", "Notes", start, uuid).unwrap(), "hf://buckets/alice/traces/Notes/20261030_1234_a25e3b166d72478d9e25b281f76d8825");
+        assert_eq!(destination("traces", "", "alice", "Notes", start, uuid).unwrap(), destination("traces", "", "alice", "Notes", start - 56_789, uuid).unwrap());
         assert!(earlier.contains("/Folder%2FName/"));
-        assert!(destination("traces", "alice", "Notes", i64::MAX, "id").is_err());
+        assert!(destination("traces", "", "alice", "Notes", i64::MAX, "id").is_err());
     }
     #[test]
     fn names_stay_in_distinct_path_segments() {

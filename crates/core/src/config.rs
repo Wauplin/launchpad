@@ -142,11 +142,13 @@ pub struct GitHub {
 pub struct TraceBackup {
     pub enabled: bool,
     pub bucket: String,
+    /// Relative destination inside the bucket; empty keeps the bucket-root layout.
+    pub prefix: String,
 }
 
 impl Default for TraceBackup {
     fn default() -> Self {
-        Self { enabled: false, bucket: "launchpad-traces".into() }
+        Self { enabled: false, bucket: "launchpad-traces".into(), prefix: String::new() }
     }
 }
 
@@ -157,6 +159,7 @@ impl TraceBackup {
                 && !s.starts_with('-') && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
         }
         anyhow::ensure!(self.bucket.split('/').count() <= 2 && self.bucket.split('/').all(component), "Bucket must be a name or namespace/name using letters, digits, dots, dashes or underscores");
+        anyhow::ensure!(self.prefix.is_empty() || (self.prefix.len() <= 512 && self.prefix.split('/').all(component)), "Prefix must be a relative path of nonempty names using letters, digits, dots, dashes or underscores, without traversal");
         Ok(())
     }
 }

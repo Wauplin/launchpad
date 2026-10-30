@@ -48,8 +48,11 @@ export function HuggingFaceView() {
           <SettingRow label="Bucket" hint="A bucket of your account, or namespace/name. A missing bucket is created private; an existing bucket keeps its visibility." scope="all">
             <SavedInput label="Bucket" className="font-mono text-xs" value={backup.bucket} onSave={(v) => patch({ trace_backup_bucket: v.trim() })} />
           </SettingRow>
+          <SettingRow label="Prefix" hint="Optional folder inside the bucket, such as traces. Changing it uploads to the new location and keeps existing copies." scope="all">
+            <SavedInput label="Prefix" className="font-mono text-xs" value={backup.prefix} onSave={(v) => patch({ trace_backup_prefix: v.trim() })} />
+          </SettingRow>
           <SettingRow label="Destination" hint="Grouped by folder and sorted by session start time (UTC) across all workspaces and machines, with original harness trace files, launchpad.json and launchpad-events-<first sequence>.jsonl sidecars.">
-            <code className="min-w-0 max-w-full whitespace-normal break-all font-mono text-xs">hf://buckets/{bucket}/&lt;folder name&gt;/YYYYMMDD_HHMM_&lt;session UUID without hyphens&gt;/</code>
+            <code className="min-w-0 max-w-full whitespace-normal break-all font-mono text-xs">hf://buckets/{bucket}/{backup.prefix ? `${backup.prefix}/` : ""}&lt;folder name&gt;/YYYYMMDD_HHMM_&lt;session UUID without hyphens&gt;/</code>
           </SettingRow>
           {backup.enabled && (
             <SettingRow label="Status" hint="Uploads local traces and imports new or changed traces every minute. Failures retry automatically and never block agents.">
