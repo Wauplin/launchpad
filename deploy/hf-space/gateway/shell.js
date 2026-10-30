@@ -16,7 +16,7 @@ function renderTools(){
   const check=checks.find(c=>c.id===id&&!c.profile);const available=profiles.some(p=>p.harness===id);const connected=check?.signed_in===true||available;
   const row=document.createElement('div');row.className='tool';
   const text=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('p');title.textContent=name;
-  detail.textContent=connected?`${check.detail||'Connected'} · ${state.backup?.credentials_at?'Credential backup '+age(state.backup.credentials_at):'Backup pending'}`:check?.cli_found===false?'Not installed in this image':'Ready to connect';
+  detail.textContent=connected?`${check.detail||'Connected'} · ${state.backup?.credentials_at&&!state.backup.credentials_pending?'Credential backup '+age(state.backup.credentials_at):'Backup pending'}`:check?.cli_found===false?'Not installed in this image':'Ready to connect';
   text.append(title,detail);const button=document.createElement('button');button.textContent=available?'Open Launchpad':connected&&id!=='github'?'Create profile':connected?'Reconnect':'Connect';
   button.onclick=()=>available?el('controls').close():action(connected&&id!=='github'?'profile':'login',{tool:id}).then(()=>connected?loadTools():null);
   row.append(text,button);node.append(row);

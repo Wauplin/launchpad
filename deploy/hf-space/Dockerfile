@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,targe
 
 FROM node:24.14.1-bookworm-slim@sha256:b506e7321f176aae77317f99d67a24b272c1f09f1d10f1761f2773447d8da26c AS runtime
 ARG LAUNCHPAD_REVISION=source-build
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv git openssh-client ripgrep ca-certificates curl tini build-essential && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv libdbus-1-3 git openssh-client ripgrep ca-certificates curl tini build-essential && rm -rf /var/lib/apt/lists/*
 RUN npm install -g @openai/codex@0.166.0 @anthropic-ai/claude-code@2.1.311 opencode-ai@1.18.35
 ARG GH_VERSION=2.100.0
 RUN curl -fsSL https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz -o /tmp/gh_${GH_VERSION}_linux_amd64.tar.gz && curl -fsSL https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_checksums.txt -o /tmp/gh-checksums && cd /tmp && sha256sum --ignore-missing -c gh-checksums && tar xzf gh_${GH_VERSION}_linux_amd64.tar.gz --strip-components=2 -C /usr/local/bin gh_${GH_VERSION}_linux_amd64/bin/gh && rm gh_${GH_VERSION}_linux_amd64.tar.gz gh-checksums

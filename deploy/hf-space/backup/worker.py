@@ -21,6 +21,7 @@ class Recovery:
         self.credential_hash = None
         self.credential_generation = None
         self.reconnect = False
+        self.pending_credentials = False
 
     async def recover(self, generation=None):
         if generation is None:
@@ -47,10 +48,10 @@ class Recovery:
             from providers.roots import credential
             previous = set(payload.get('files', {})) | set(credential_snapshot())
             for name in previous - set(provider_files):
-                if credential(name): (HOME/name).unlink(missing_ok=True)
+                if credential(name) or '.git' in __import__('pathlib').Path(name).parts: (HOME/name).unlink(missing_ok=True)
             from base64 import b64decode
             for name, data in provider_files.items():
-                if name != '.config/launchpad/config.toml' and not credential(name): raise ValueError('Unregistered credential root')
+                if name != '.config/launchpad/config.toml' and not credential(name) and '.git' not in __import__('pathlib').Path(name).parts: raise ValueError('Unregistered credential root')
                 atomic(HOME/name, b64decode(data, validate=True))
         self.generation = generation
 
@@ -68,9 +69,12 @@ class Recovery:
     async def credentials(self):
         async with self.lock:
             if self.reconnect: return
+            self.pending_credentials = True
             files = await asyncio.to_thread(credential_snapshot)
             digest = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
-            if digest == self.credential_hash: return
+            if digest == self.credential_hash:
+                self.pending_credentials = False
+                return
             generation = uuid.uuid4().hex
             sealed = self.vault.seal(generation, {'files': files})
             self.vault.open(generation, sealed)
@@ -79,6 +83,7 @@ class Recovery:
             self.credential_hash = digest
             self.credential_generation = generation
             self.credentials_at = time.time()
+            self.pending_credentials = False
 
     async def run(self):
         from watchfiles import awatch
@@ -108,4 +113,4 @@ class Recovery:
 
     def status(self):
         return {'checkpoint_at':self.checkpoint_at,'credentials_at':self.credentials_at,
-                'generation':self.generation,'error':self.error,'reconnect':self.reconnect}
+                'generation':self.generation,'error':self.error,'reconnect':self.reconnect,'credentials_pending':self.pending_credentials}

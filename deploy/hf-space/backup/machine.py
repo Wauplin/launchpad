@@ -15,7 +15,7 @@ import tomlkit
 from backup.projection import config_split, config_join, project_db, restore_db, REF
 from backup.snapshot import materialize, sqlite_snapshot
 from backup.store import safe_name
-from providers.roots import credential, NATIVE, ROOTS
+from providers.roots import credential, NATIVE, ROOTS, classify_git, PROTECTED_GIT
 from supervisor.processes import HOME, own
 
 DATA = HOME / '.local/share/launchpad'
@@ -79,6 +79,7 @@ def roots():
                     if not path.is_absolute() or not path.is_relative_to(HOME):
                         raise ValueError('Profile credential roots must remain inside the agent home')
                     result.append(path)
+    classify_git(result)
     return result
 
 
@@ -165,6 +166,9 @@ def unpack(data):
             if member.issym():
                 target = HOME/member.name
                 target.parent.mkdir(parents=True, exist_ok=True)
+                for parent in [target.parent,*target.parent.parents]:
+                    if parent == HOME: break
+                    own(parent,True)
                 if target.exists() or target.is_symlink(): target.unlink()
                 target.symlink_to(member.linkname)
                 os.lchown(target, __import__('pwd').getpwnam('agent').pw_uid, __import__('pwd').getpwnam('agent').pw_gid)
@@ -187,6 +191,6 @@ def restore(files, payload, lost_key=False):
         from base64 import b64decode
         for name, data in payload['files'].items():
             safe_name(name)
-            if not credential(name): raise ValueError('Unregistered credential destination')
+            if not credential(name) and '.git' not in Path(name).parts: raise ValueError('Unregistered credential destination')
             atomic(HOME/name, b64decode(data, validate=True))
     # Browser credentials and PTYs deliberately do not survive a machine restore.

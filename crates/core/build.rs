@@ -8,7 +8,7 @@ fn git(args: &[&str]) -> Option<String> {
 }
 
 fn main() {
-    let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+    let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..").canonicalize().expect("repository root");
     // Git emits the actual paths, including linked worktree metadata.
     for name in ["HEAD", "refs/heads/main", "packed-refs", "index"] {
         if let Some(path) = git(&["rev-parse", "--path-format=absolute", "--git-path", name]) {
