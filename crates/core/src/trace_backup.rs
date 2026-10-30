@@ -69,8 +69,9 @@ fn destination(bucket: &str, user: &str, folder: &str, started_at: i64, id: &str
     let folder = name_segment(folder);
     let started_at = chrono::DateTime::from_timestamp_millis(started_at)
         .context("invalid session start time")?
-        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    Ok(format!("hf://buckets/{bucket}/{folder}/{started_at}-{id}"))
+        .format("%Y%m%d_%H%M");
+    let id = id.replace('-', "");
+    Ok(format!("hf://buckets/{bucket}/{folder}/{started_at}_{id}"))
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -239,11 +240,14 @@ mod tests {
     #[test]
     fn destinations_group_by_folder_and_sort_by_session_start_time() {
         let start = 1_793_363_696_789; // 2026-10-30T12:34:56.789Z
-        assert_eq!(destination("launchpad-traces", "alice", "Launchpad", start, "session").unwrap(), "hf://buckets/alice/launchpad-traces/Launchpad/2026-10-30T12:34:56.789Z-session");
-        assert_eq!(destination("team/traces", "alice", "Notes", 0, "id").unwrap(), "hf://buckets/team/traces/Notes/1970-01-01T00:00:00.000Z-id");
+        assert_eq!(destination("launchpad-traces", "alice", "Launchpad", start, "session").unwrap(), "hf://buckets/alice/launchpad-traces/Launchpad/20261030_1234_session");
+        assert_eq!(destination("team/traces", "alice", "Notes", 0, "id").unwrap(), "hf://buckets/team/traces/Notes/19700101_0000_id");
         let earlier = destination("traces", "alice", "Folder/Name", start, "z").unwrap();
-        let later = destination("traces", "alice", "Folder/Name", start + 1, "a").unwrap();
+        let later = destination("traces", "alice", "Folder/Name", start + 60_000, "a").unwrap();
         assert!(earlier < later);
+        let uuid = "a25e3b16-6d72-478d-9e25-b281f76d8825";
+        assert_eq!(destination("traces", "alice", "Notes", start, uuid).unwrap(), "hf://buckets/alice/traces/Notes/20261030_1234_a25e3b166d72478d9e25b281f76d8825");
+        assert_eq!(destination("traces", "alice", "Notes", start, uuid).unwrap(), destination("traces", "alice", "Notes", start - 56_789, uuid).unwrap());
         assert!(earlier.contains("/Folder%2FName/"));
         assert!(destination("traces", "alice", "Notes", i64::MAX, "id").is_err());
     }
