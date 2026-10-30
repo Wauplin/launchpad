@@ -9,6 +9,7 @@ import { useProjects, useSessions } from "@/lib/queries";
 import { hostOf } from "@/lib/hosts";
 import { useScope } from "@/lib/workspace";
 import { useZoomScale } from "@/lib/zoom";
+import { usePhone } from "@/lib/phone";
 import { editText, insertMention, replaceText, PromptHistory, type ContextPick, type PromptDocument } from "@/lib/promptDocument";
 import type { PathResults } from "@/gen/PathResults";
 import type { SkillResults } from "@/gen/SkillResults";
@@ -39,6 +40,7 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   const [debounced, setDebounced] = useState("");
   const [position, setPosition] = useState<CSSProperties>({});
   const id = useId(), scale = useZoomScale(), scope = useScope();
+  const phone = usePhone();
   const projects = useProjects().data ?? [], sessions = useSessions().data ?? [];
   const history = useRef(new PromptHistory(doc));
   const identity = `${sessionId ?? "launch"}:${scope.workspace?.id ?? "all"}:${autocomplete}`;
@@ -147,9 +149,14 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
       }}
       onSelect={detect} onCompositionStart={() => { composing.current = true; setMention(null); }} onCompositionEnd={() => { composing.current = false; detect(); }} onBlur={() => setMention(null)}
       onKeyDown={(e) => {
-        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+        // Some keyboards omit isComposing on the key that finishes a composition.
+        // Leave every shortcut to the IME until its compositionend has arrived.
+        if (composing.current || e.nativeEvent.isComposing || e.keyCode === 229) return;
         if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) { e.preventDefault(); restore(e.shiftKey || e.key.toLowerCase() === "y"); return; }
         if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+        // Phone keyboards (including voice typing) use Enter for line breaks.
+        // Delivery is explicit through the adjacent Send button on phones.
+        if (phone && e.key === "Enter") { setMention(null); return; }
         if (mention) {
           if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setMention(null); return; }
           if ((e.key === "ArrowDown" || e.key === "ArrowUp") && rows.length) { e.preventDefault(); setSelected((active + (e.key === "ArrowDown" ? 1 : rows.length - 1)) % rows.length); return; }
