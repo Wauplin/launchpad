@@ -73,6 +73,7 @@ class Updates:
         if not self.candidate: raise ValueError('No newer release is available')
         if expected != self.candidate['image']: raise ValueError('The available release changed. Review the new candidate before updating.')
         head = await asyncio.to_thread(self.api.space_info,self.deployment.space)
+        if not re.fullmatch(r'[0-9a-f]{40}',head.sha or ''): raise ValueError('HF did not return an exact repository revision; nothing was changed')
         previous = await self.read_file('Dockerfile')
         image = self.installed.get('image')
         managed = re.sub(r'ENV LP_SPACE_RESTORE_(?:GENERATION|REQUEST)=[a-f0-9]{32}\n','',previous)
@@ -100,7 +101,9 @@ class Updates:
         await self.load_rollback()
         record=self.rollback_record
         if not record: raise ValueError('No pre-update restore point exists')
+        if not re.fullmatch(r'[0-9a-f]{32}',record.get('generation','')): raise ValueError('Invalid pre-update recovery generation')
         head=await asyncio.to_thread(self.api.space_info,self.deployment.space)
+        if not re.fullmatch(r'[0-9a-f]{40}',head.sha or ''): raise ValueError('HF did not return an exact repository revision; nothing was changed')
         operations=[CommitOperationAdd(path_in_repo='Dockerfile',path_or_fileobj=io.BytesIO((dockerfile(record['image'])+f"ENV LP_SPACE_RESTORE_GENERATION={record['generation']}\nENV LP_SPACE_RESTORE_REQUEST={uuid.uuid4().hex}\n").encode()))]
         try:
             await asyncio.to_thread(self.api.create_commit,self.deployment.space,operations,repo_type='space',parent_commit=head.sha,commit_message='Roll back Launchpad image and pre-update data')
