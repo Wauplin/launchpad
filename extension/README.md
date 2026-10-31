@@ -1,6 +1,6 @@
 # Launchpad for Chrome
 
-Start an agent on the tabs you choose, watch it work and approve what matters. The side panel is a small chat built for this, with its own components; it shares only Launchpad's logo and colors. Everything technical (trace, costs, model, follow-ups, schedules, presets) stays in Launchpad, one click away with **Open in Launchpad**. The daemon owns tasks and browser grants; the extension never calls a model API. The design review and sketches are in the [protected report](https://huggingface.co/spaces/Wauplin/launchpad-chrome-extension-redesign).
+Start an agent on the tabs you choose, watch it work and approve what matters. The side panel is a small chat built for this, with its own components; it shares only Launchpad's logo and colors. Everything technical (trace, costs, model, follow-ups, schedules, presets) stays in Launchpad, one click away with **Open in Launchpad**. The daemon owns tasks and browser grants; the extension never calls a model API.
 
 ## Install
 
@@ -52,10 +52,8 @@ Browser-only tasks: Claude disables built-in tools and other MCP servers. Codex 
 
 The worker uses the existing event socket with replay, 25-second pings, reconnection and an alarm. Chrome omits SameSite cookies on extension WebSocket upgrades, so the extension first requests a 30-second, single-use upgrade ticket using its authenticated cookie. Tickets work only on `/ws` from the pinned extension origin and inherit device revocation. Ordinary browser cookies and origin checks stay unchanged.
 
-See [E0 findings and verification](../docs/spikes/chrome-extension-e0.md). Daily use on real signed-in sites, native messaging on macOS/Windows/Chromium snap, and the under-three-second warm response target still need validation.
+Daily use on real signed-in sites, native messaging on macOS/Windows/Chromium snap, and the under-three-second warm response target still need validation.
 
 ## Uncertain actions
 
 The daemon writes an action claim before dispatch. The worker consumes the request ID before input, and replayed events must still belong to a live, device-bound broker call. Errors, crashes, interrupted calls or a lost response retain the claim and block further actions, including after daemon restart. The panel asks “Did the last action go through?”. Check the page yourself (**Show the tab**), then click **I checked — continue** and tell the agent what you saw. Continue never retries the previous input. Same-origin inspection can follow navigation; a new site needs an explicit page grant. Never repeat Submit merely because its reply was lost. Pause/Stop, device disconnection, quota pauses and turn end detach the debugger; already dispatched input may have reached the site.
-
-See [E2 implementation and verification](../docs/spikes/chrome-extension-e2.md).

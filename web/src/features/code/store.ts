@@ -1,4 +1,4 @@
-// Code viewer UI state (ARCHITECTURE.md, section 8.1): open tabs, expanded folders and the last
+// Code viewer UI state: open tabs, expanded folders and the last
 // position of each file, for each source, plus the last place visited in each project. Kept in
 // localStorage; nothing goes to the daemon.
 

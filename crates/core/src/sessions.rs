@@ -1,4 +1,4 @@
-//! Session manager (ARCHITECTURE.md, section 9): the registry of sessions, their event log, and the
+//! Session manager: the registry of sessions, their event log, and the
 //! routing of input to the harness adapters.
 //!
 //! Every session is kept in memory (a few hundred records) and written through to `state.db`.

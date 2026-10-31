@@ -1,4 +1,4 @@
-//! Integrated terminals (ARCHITECTURE.md, 6.5): shells and harness TUIs in a PTY owned by the daemon.
+//! Integrated terminals: shells and harness TUIs in a PTY owned by the daemon.
 //!
 //! Output stays in memory (1 MB per terminal) and goes to each viewer over its own WebSocket, never
 //! through the global bus, which only carries list changes. Restarting the daemon ends every terminal.

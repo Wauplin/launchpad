@@ -1,4 +1,4 @@
-//! Turns a launch spec into the prompt sent to the agent (ARCHITECTURE.md, section 9.7).
+//! Turns a launch spec into the prompt sent to the agent.
 //! Deterministic: the composer preview and the launch use the same function.
 
 use crate::config::Preset;

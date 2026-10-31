@@ -1,4 +1,4 @@
-//! Task worktrees owned by Launchpad (docs/managed-worktrees-plan.md). The daemon creates them before an
+//! Task worktrees owned by Launchpad. The daemon creates them before an
 //! agent starts, the same way for every harness, and owns merging, hand-off, promotion, cleanup and
 //! restoration. Agents only commit on their branch; Git operations that need waiting run here, without
 //! spending agent turns.

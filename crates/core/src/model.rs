@@ -45,7 +45,7 @@ impl<'de> Deserialize<'de> for HarnessKind {
     }
 }
 
-/// Session states, the same for every harness (ARCHITECTURE.md, section 9.1).
+/// Session states, the same for every harness.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionStatus {
@@ -407,7 +407,7 @@ pub struct SkillRef {
     pub path: String,
 }
 
-/// What to launch (ARCHITECTURE.md, section 9.7).
+/// What to launch.
 #[derive(Clone, Debug, Serialize, Deserialize, TS, Default)]
 #[serde(default)]
 pub struct LaunchSpec {

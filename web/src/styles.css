@@ -1,7 +1,7 @@
 @import "github-markdown-css/github-markdown-light.css";
 @import "tailwindcss";
 
-/* Design tokens from docs/design/sketches.html. Light and device-local dark palettes. */
+/* Design tokens. Light and device-local dark palettes. */
 @theme {
   --color-board: #e6eaf0;
   --color-paper: #ffffff;

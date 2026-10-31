@@ -12,7 +12,7 @@ import type { Target } from "./Target";
 import type { WorktreeOptions } from "./WorktreeOptions";
 
 /**
- * What to launch (ARCHITECTURE.md, section 9.7).
+ * What to launch.
  */
 export type LaunchSpec = { mentions: Array<PromptMention>, skills: Array<SkillRef>, permission_mode: PermissionMode,
 /**

@@ -1,4 +1,4 @@
-//! Project registry (ARCHITECTURE.md, section 8): registered folders, discovery in the projects root,
+//! Project registry: registered folders, discovery in the projects root,
 //! the repo → project mapping, and temporary projects.
 
 use std::path::{Path, PathBuf};

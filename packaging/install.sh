@@ -7,7 +7,7 @@
 #
 # --headless (Linux only) installs a server: the daemon and CLI only, without the desktop shell, the .desktop
 # and autostart entries or the icons. It enables lingering so the systemd user unit starts at boot and keeps
-# running after logout. See docs/server-hosting.md.
+# running after logout. See docs/remote-access.md.
 #
 # Usage: packaging/install.sh [--force] [--prebuilt] [--headless]
 set -euo pipefail
@@ -136,7 +136,7 @@ done
 if curl -sf http://127.0.0.1:7317/api/health >/dev/null 2>&1; then
   if [ "$HEADLESS" -eq 1 ]; then
     echo "Launchpad installed (headless). The daemon runs on http://127.0.0.1:7317 and starts at boot (logs: journalctl --user -u launchpad -f)."
-    echo "Expose it through Tailscale Serve or an identity-aware proxy; see docs/server-hosting.md."
+    echo "Expose it through Tailscale Serve or an identity-aware proxy; see docs/remote-access.md."
   else
     if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
       setsid "$BIN/launchpad-desktop" --hidden >/dev/null 2>&1 < /dev/null &

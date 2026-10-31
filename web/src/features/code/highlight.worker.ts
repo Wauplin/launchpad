@@ -1,4 +1,4 @@
-// Shiki in a Web Worker (ARCHITECTURE.md, section 8.1): the code renders as plain text first and gets
+// Shiki in a Web Worker: the code renders as plain text first and gets
 // its colors when this answers. Grammars load on demand, one chunk per language.
 
 import { createHighlighterCore } from "shiki/core";

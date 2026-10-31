@@ -1,4 +1,4 @@
-//! Code viewer (ARCHITECTURE.md, section 8.1): sources, file lists with change letters, file contents
+//! Code viewer: sources, file lists with change letters, file contents
 //! with changed line ranges, and `git grep` search. Read only.
 //!
 //! Path checks (section 14): a root is a registered project or one of its git worktrees, a path is

@@ -1,4 +1,4 @@
-// Code lines (ARCHITECTURE.md, section 8.1): TanStack Virtual with a fixed row height, no wrapping,
+// Code lines: TanStack Virtual with a fixed row height, no wrapping,
 // plain text until the Shiki worker answers. Bars next to the numbers mark the changed lines; a click
 // on a number selects a line, a drag or a shift-click extends the selection.
 

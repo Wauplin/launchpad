@@ -1,4 +1,4 @@
-// Spike 4: WebKitGTK performance check (docs/spikes/4-webkitgtk.md).
+// Spike 4: WebKitGTK performance check.
 // A virtualized 5,000-line diff and a 2,000-event session with realistic DOM weight, and an
 // automatic scroll benchmark that measures frame times. Open /dev/perf?auto=1 to run everything
 // and write the results to the daemon log.

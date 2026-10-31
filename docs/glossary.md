@@ -1,6 +1,6 @@
 # UI glossary
 
-One word per concept, and one concept per word, in every button, tooltip, toast, phone header and empty state. Code identifiers (`project`, `predraft`, `suggestion`, `code`) stay as they are. Source: the UX consistency review of 2026-10-27 (`https://wauplin-launchpad-ux-consistency-review.static.hf.space`).
+One word per concept, and one concept per word, in every button, tooltip, toast, phone header and empty state. Code identifiers (`project`, `predraft`, `suggestion`, `code`) stay as they are.
 
 | Use | Instead of | Meaning |
 | --- | --- | --- |

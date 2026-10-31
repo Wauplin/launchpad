@@ -1,5 +1,4 @@
 //! Claude Code adapter: one `claude -p` process per session, stream-json on stdin and stdout.
-//! The exact behavior is recorded in docs/spikes/1-claude-stream-json.md.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};

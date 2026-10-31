@@ -2,7 +2,7 @@
 
 A headless Launchpad in a private Docker Space, with a small control plane in front of it: browser-only setup, a private backup bucket, a separate encrypted credential vault and explicit image updates. Everything Space-specific lives in this folder; Launchpad itself only gained generic hooks (trace prefix, delegated-access presentation, packaged commit).
 
-Status: built and checked locally against a real private Space and bucket (see [acceptance](docs/acceptance.md)). The main update channel is published by CI after merge/push; its first run requires the GHCR package to be public (see below).
+Status: built and checked locally against a real private Space and bucket. The main update channel is published by CI after merge/push; its first run requires the GHCR package to be public (see below).
 
 ## What the owner does
 

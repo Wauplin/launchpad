@@ -1,4 +1,4 @@
-//! Onboarding progress (`docs/ARCHITECTURE.md`, section 17): one row per daemon in `state.db`, so a second
+//! Onboarding progress: one row per daemon in `state.db`, so a second
 //! browser does not show the welcome again. It records the welcome answer, the tour chapters seen and the
 //! dismissed onboarding items (banner, setup checklist entries). It is the only thing the demo mode writes.
 

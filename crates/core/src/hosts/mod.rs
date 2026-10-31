@@ -1,4 +1,4 @@
-//! SSH hosts (docs/ssh-hosts-plan.md): machines reached with the system `ssh` where projects live and
+//! SSH hosts: machines reached with the system `ssh` where projects live and
 //! agents run. The daemon stays the only brain; a Launchpad helper on each host (the same binary,
 //! uploaded and version-matched by the daemon) owns the harness and terminal processes there.
 //!

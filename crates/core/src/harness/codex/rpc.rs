@@ -1,7 +1,7 @@
 //! Client for `codex app-server`: JSON-RPC over stdio, one JSON object per line, no `"jsonrpc"` field.
 //!
 //! One process is shared by every Codex session and by the quota monitor. It is started on first use
-//! and started again after it exits. See docs/spikes/3-codex-app-server.md.
+//! and started again after it exits.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};

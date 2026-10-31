@@ -1,4 +1,4 @@
-//! Workspaces (ARCHITECTURE.md, section 9.1.2): named sets of projects. A window shows one workspace at a
+//! Workspaces: named sets of projects. A window shows one workspace at a
 //! time; its agents, scheduled launches, crons and inbox threads are the ones of its projects.
 
 use anyhow::{Context, Result, bail};

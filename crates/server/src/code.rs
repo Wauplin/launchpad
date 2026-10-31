@@ -1,4 +1,4 @@
-//! Code viewer routes (ARCHITECTURE.md, section 8.1). Every request names its source (`root`, and `rev`
+//! Code viewer routes. Every request names its source (`root`, and `rev`
 //! for a revision); `launchpad_core::code::open` checks it before anything is read.
 
 use axum::Json;

@@ -1,4 +1,4 @@
-// Icon sprite, copied from docs/design/sketches.html. Render <IconSprite /> once, then <Icon name="…" />.
+// Icon sprite. Render <IconSprite /> once, then <Icon name="…" />.
 
 export type IconName =
   | "issue"

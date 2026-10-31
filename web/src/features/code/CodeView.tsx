@@ -1,6 +1,6 @@
 import { daemonAsset } from "@/lib/connection";
 import { PhoneActions } from "@/mobile/PhoneHeader";
-// Code viewer (sketch S7, ARCHITECTURE.md section 8.1): one source at a time (a working tree or a git
+// Code viewer (sketch S7): one source at a time (a working tree or a git
 // revision), a file tree, tabs, colored code with changed-line bars, find in file (Ctrl+F) and
 // search in the project. Selected lines become agent context. Read only.
 

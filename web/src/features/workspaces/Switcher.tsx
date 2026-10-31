@@ -1,4 +1,4 @@
-// Workspaces (ARCHITECTURE.md, 9.1.2): the top bar switcher. Up to three workspaces are visible buttons;
+// Workspaces: the top bar switcher. Up to three workspaces are visible buttons;
 // with more, one menu keeps the top bar on one row. The sidebar's workspace menu creates, renames and deletes them.
 
 import { Icon } from "@/components/Icon";
