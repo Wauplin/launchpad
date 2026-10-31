@@ -61,6 +61,6 @@ Then clone or add projects: Projects → **Clone from GitHub** clones a reposito
 - **Flaky networks.** The UI pings the daemon, replays missed updates after reconnecting, resumes terminals from the last byte received and keeps unsent replies. Proxies must allow long-lived WebSockets on `/ws` and `/api/terminals/*/ws`.
 - **Attachments.** Files upload once to the daemon; photos larger than 1.5 MB, larger than 2,048 px or in other formats are converted to JPEG in the browser first.
 
-## Hugging Face Spaces (experimental)
+## Hugging Face Spaces
 
-The [Space connector components](../deploy/hf-space/README.md) are isolated from normal server packaging. They are not yet a deployable runtime: startup fails closed while HF app-visibility verification and the live isolation/recovery gates remain unresolved. See the [implementation and acceptance status](../deploy/hf-space/docs/acceptance.md) before provisioning a Space. Normal headless installations continue to use this guide and device pairing.
+The [Space connector](../deploy/hf-space/README.md) packages a headless runtime with browser setup, recovery and explicit image updates, separately from normal server packaging. It is built and locally checked; [live deployment acceptance](../deploy/hf-space/docs/acceptance.md) remains. Its owner-approved temporary startup policy accepts private and protected Spaces. Normal headless installations continue to use this guide and device pairing.

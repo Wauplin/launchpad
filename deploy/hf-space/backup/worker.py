@@ -4,9 +4,10 @@ import hashlib
 import json
 import time
 import uuid
+from pathlib import Path
 
-from backup.machine import capture, credential_snapshot, restore, atomic, CONFIG
-from supervisor.processes import CONTROL, HOME
+from backup.machine import capture, credential_snapshot, restore, atomic
+from supervisor.processes import HOME
 
 
 class Recovery:
@@ -61,10 +62,10 @@ class Recovery:
             from providers.roots import credential
             previous=set(payload.get('files',{})) | set(credential_snapshot())
             for name in previous-set(provider_files):
-                if credential(name) or '.git' in __import__('pathlib').Path(name).parts: (HOME/name).unlink(missing_ok=True)
+                if credential(name) or '.git' in Path(name).parts: (HOME/name).unlink(missing_ok=True)
             from base64 import b64decode
             for name,data in provider_files.items():
-                if name!='.config/launchpad/config.toml' and not credential(name) and '.git' not in __import__('pathlib').Path(name).parts: raise ValueError('Unregistered credential root')
+                if name!='.config/launchpad/config.toml' and not credential(name) and '.git' not in Path(name).parts: raise ValueError('Unregistered credential root')
                 atomic(HOME/name,b64decode(data,validate=True))
         self.generation = generation
         self.restore_seconds=time.monotonic()-started
@@ -106,7 +107,7 @@ class Recovery:
         changed = asyncio.Event()
         async def observe():
             async for events in awatch(HOME,debounce=1000,step=200,ignore_permission_denied=True):
-                if any(credential(str(__import__('pathlib').Path(path).relative_to(HOME))) for _,path in events):
+                if any(credential(str(Path(path).relative_to(HOME))) for _,path in events):
                     changed.set()
         observer=asyncio.create_task(observe())
         last_full=0

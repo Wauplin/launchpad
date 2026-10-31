@@ -30,11 +30,17 @@ async fn status(State(s): State<Server>) -> Json<Status> {
     Json(s.app.status.get())
 }
 
-fn browser_config(s: &Server) -> Config {
-    s.app.config.get()
+fn config_response(s: &Server, error: Option<String>) -> Value {
+    json!({
+        "config": s.app.config.get(), "error": error, "remote": s.auth.remote(),
+        "delegated": std::env::var("LAUNCHPAD_DELEGATED_ACCESS").as_deref() == Ok("true"),
+        "managed_trace_destination": std::env::var_os("LAUNCHPAD_TRACE_BACKUP_BUCKET").is_some(),
+        "external_setup": std::env::var("LAUNCHPAD_EXTERNAL_SETUP").ok()
+            .filter(|s| s.starts_with('/') && !s.starts_with("//") && !s.contains('\\'))
+    })
 }
 async fn get_config(State(s): State<Server>) -> Json<Value> {
-    Json(json!({"config": browser_config(&s), "error": s.app.config.error(), "remote": s.auth.remote(), "delegated": std::env::var("LAUNCHPAD_DELEGATED_ACCESS").as_deref() == Ok("true"), "external_setup": std::env::var("LAUNCHPAD_EXTERNAL_SETUP").ok().filter(|s| s.starts_with('/') && !s.starts_with("//") && !s.contains('\\'))}))
+    Json(config_response(&s, s.app.config.error()))
 }
 
 async fn put_config(State(s): State<Server>, Json(config): Json<Config>) -> ApiResult<Value> {
@@ -52,7 +58,7 @@ async fn put_config(State(s): State<Server>, Json(config): Json<Config>) -> ApiR
         // Host checks include each profile with its own environment.
         launchpad_core::hosts::preflight::recheck_all(&s.app);
     }
-    Ok(Json(json!({"config": browser_config(&s), "error": null, "remote": s.auth.remote(), "delegated": std::env::var("LAUNCHPAD_DELEGATED_ACCESS").as_deref() == Ok("true"), "external_setup": std::env::var("LAUNCHPAD_EXTERNAL_SETUP").ok().filter(|s| s.starts_with('/') && !s.starts_with("//") && !s.contains('\\'))})))
+    Ok(Json(config_response(&s, None)))
 }
 
 // General settings only send fields the owner edited; merge against the current host config.
@@ -98,7 +104,7 @@ async fn patch_general_config(State(s): State<Server>, Json(patch): Json<General
     }
     config.validate().map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
     s.app.config.save(config)?;
-    Ok(Json(json!({"config": browser_config(&s), "error": null, "remote": s.auth.remote(), "delegated": std::env::var("LAUNCHPAD_DELEGATED_ACCESS").as_deref() == Ok("true"), "external_setup": std::env::var("LAUNCHPAD_EXTERNAL_SETUP").ok().filter(|s| s.starts_with('/') && !s.starts_with("//") && !s.contains('\\'))})))
+    Ok(Json(config_response(&s, None)))
 }
 
 #[derive(Deserialize)]

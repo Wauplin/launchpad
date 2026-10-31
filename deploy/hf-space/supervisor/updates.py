@@ -6,6 +6,8 @@ import os
 import random
 import re
 import time
+import uuid
+from pathlib import Path
 
 import aiohttp
 from huggingface_hub import HfApi, CommitOperationAdd
@@ -60,7 +62,7 @@ class Updates:
     async def read_file(self,name):
         from huggingface_hub import hf_hub_download
         path = await asyncio.to_thread(hf_hub_download,self.deployment.space,name,repo_type='space',token=self.api.token,force_download=True)
-        return __import__('pathlib').Path(path).read_text()
+        return Path(path).read_text()
 
     async def apply(self,checkpoint):
         await self.check()
@@ -89,5 +91,5 @@ class Updates:
         record=self.rollback_record
         if not record: raise ValueError('No pre-update restore point exists')
         head=await asyncio.to_thread(self.api.space_info,self.deployment.space)
-        operations=[CommitOperationAdd(path_in_repo='Dockerfile',path_or_fileobj=io.BytesIO((dockerfile(record['image'])+f"ENV LP_SPACE_RESTORE_GENERATION={record['generation']}\nENV LP_SPACE_RESTORE_REQUEST={__import__('uuid').uuid4().hex}\n").encode()))]
+        operations=[CommitOperationAdd(path_in_repo='Dockerfile',path_or_fileobj=io.BytesIO((dockerfile(record['image'])+f"ENV LP_SPACE_RESTORE_GENERATION={record['generation']}\nENV LP_SPACE_RESTORE_REQUEST={uuid.uuid4().hex}\n").encode()))]
         await asyncio.to_thread(self.api.create_commit,self.deployment.space,operations,repo_type='space',parent_commit=head.sha,commit_message='Roll back Launchpad image and pre-update data')

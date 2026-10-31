@@ -14,7 +14,7 @@ import aiohttp
 from aiohttp import web
 from huggingface_hub import HfApi
 
-from backup.machine import CONFIG, atomic
+from backup.machine import atomic
 from backup.store import Bucket
 from backup.worker import Recovery
 from gateway.proxy import Proxy

@@ -1,4 +1,4 @@
-import { loadDeployment } from "@/lib/deployment";
+import { delegatedAccess, loadDeployment } from "@/lib/deployment";
 import { SaveStatus } from "@/components/SaveStatus";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
@@ -54,6 +54,11 @@ void Promise.all([entry, cache, deployment]).then(([pages]) => {
   navigateTo = (url) => router.history.push(url);
   // Demo recordings (videos, screenshots) drive the router without a page load.
   if (isDemo) window.__lpDemo!.navigate = navigateTo;
+  if (delegatedAccess() && window.parent !== window) {
+    const notifyHost = () => window.parent.postMessage({ type: "launchpad-route", route: router.history.location.href }, location.origin);
+    router.history.subscribe(notifyHost);
+    notifyHost();
+  }
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>

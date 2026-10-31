@@ -1,5 +1,5 @@
 """Version 1 credential registry. Paths are relative to the stable agent home."""
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 ROOTS = ('.codex/auth.json', '.codex/config.toml', '.claude/settings.json', '.claude/settings.local.json', '.config/opencode', '.claude/.credentials.json', '.claude.json',
          '.local/share/opencode/auth.json', '.config/gh', '.cache/huggingface/token',
@@ -34,7 +34,7 @@ def classify_git(paths):
             dirs[:]=[d for d in dirs if d not in ('node_modules','target','.venv','.cache','__pycache__')]
             if '.git' not in dirs: continue
             dirs.remove('.git')
-            prefix=str((__import__('pathlib').Path(directory)/'.git').relative_to(HOME))
+            prefix=str((Path(directory)/'.git').relative_to(HOME))
             if prefix in seen: continue
             seen.add(prefix)
             result=subprocess.run(['git','--no-pager','-C',directory,'log','--all','--format=','--name-only','--',
@@ -42,6 +42,6 @@ def classify_git(paths):
                 stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=20)
             if result.stdout.strip(): PROTECTED_GIT.add(prefix)
             elif result.returncode==0: PROTECTED_GIT.discard(prefix)
-            elif not any(p.is_file() for p in (__import__('pathlib').Path(directory)/'.git/objects').rglob('*')):
+            elif not any(p.is_file() for p in (Path(directory)/'.git/objects').rglob('*')):
                 pass # An empty repository has no history to classify.
             else: raise ValueError('Git history could not be classified; recovery upload paused')

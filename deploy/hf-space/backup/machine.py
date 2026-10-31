@@ -1,5 +1,6 @@
 """Recoverable local files plus separately sealed credentials, at stable paths."""
-import hashlib
+import base64
+import pwd
 import io
 import json
 import os
@@ -15,7 +16,7 @@ import tomlkit
 from backup.projection import config_split, config_join, project_db, restore_db, REF
 from backup.snapshot import materialize, sqlite_snapshot
 from backup.store import safe_name
-from providers.roots import credential, NATIVE, ROOTS, classify_git, PROTECTED_GIT
+from providers.roots import credential, NATIVE, ROOTS, classify_git
 from supervisor.processes import HOME, own
 
 DATA = HOME / '.local/share/launchpad'
@@ -122,7 +123,7 @@ def capture(approved, release, clean=False):
                         raise ValueError('A workspace symlink leaves the backed-up home; checkpoint paused')
                 if credential(name):
                     if path.is_symlink(): raise ValueError('Credential symlinks need a registered local file')
-                    secrets['files'][name] = __import__('base64').b64encode(credential_bytes(path)).decode()
+                    secrets['files'][name] = base64.b64encode(credential_bytes(path)).decode()
                     secrets['present'].append(name)
                 elif path.is_file() or path.is_symlink():
                     # Tool-native SQLite files are snapshotted through the online API too.
@@ -176,7 +177,7 @@ def unpack(data):
                     own(parent,True)
                 if target.exists() or target.is_symlink(): target.unlink()
                 target.symlink_to(member.linkname)
-                os.lchown(target, __import__('pwd').getpwnam('agent').pw_uid, __import__('pwd').getpwnam('agent').pw_gid)
+                os.lchown(target, pwd.getpwnam('agent').pw_uid, pwd.getpwnam('agent').pw_gid)
 
 
 def restore(files, payload, lost_key=False):

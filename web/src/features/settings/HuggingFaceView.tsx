@@ -1,3 +1,4 @@
+import { managedTraceDestination, externalSetup } from "@/lib/deployment";
 // Settings → Hugging Face: the hf CLI of this computer and the optional trace backup to a bucket.
 
 import { useQuery } from "@tanstack/react-query";
@@ -29,6 +30,7 @@ export function HuggingFaceView() {
   return (
     <SettingsPage tour="settings.trace-sync" title="Hugging Face" intro="Sync agent traces between Launchpad instances through a Hugging Face bucket, using the CLI of this computer.">
       <ConfigError />
+      {externalSetup() && <a className="btn w-fit no-underline" href={externalSetup()!} target="_top">Connect in hosting controls</a>}
       <Card title="Hugging Face CLI" end={<button className="btn btn-sm" disabled={q.isFetching} onClick={() => void q.refetch()}><Icon name="refresh" size={12} />Check again</button>}>
         {q.isPending ? <Loading /> : q.isError ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : c && (
           <CliCheckRow check={c} icon="huggingface" command={c.cli_found ? c.command : null}>
@@ -46,10 +48,10 @@ export function HuggingFaceView() {
             {!backup.enabled && ready === false && <span className="text-[12px] text-ink-3">Install the CLI and sign in first.</span>}
           </SettingRow>
           <SettingRow label="Bucket" hint="A bucket of your account, or namespace/name. A missing bucket is created private; an existing bucket keeps its visibility." scope="all">
-            <SavedInput label="Bucket" className="font-mono text-xs" value={backup.bucket} onSave={(v) => patch({ trace_backup_bucket: v.trim() })} />
+            {managedTraceDestination() ? <code className="text-xs">{backup.bucket} · Managed by this host</code> : <SavedInput label="Bucket" className="font-mono text-xs" value={backup.bucket} onSave={(v) => patch({ trace_backup_bucket: v.trim() })} />}
           </SettingRow>
           <SettingRow label="Prefix" hint="Optional folder inside the bucket, such as traces. Changing it uploads to the new location and keeps existing copies." scope="all">
-            <SavedInput label="Prefix" className="font-mono text-xs" value={backup.prefix} onSave={(v) => patch({ trace_backup_prefix: v.trim() })} />
+            {managedTraceDestination() ? <code className="text-xs">{backup.prefix || "Bucket root"} · Managed by this host</code> : <SavedInput label="Prefix" className="font-mono text-xs" value={backup.prefix} onSave={(v) => patch({ trace_backup_prefix: v.trim() })} />}
           </SettingRow>
           <SettingRow label="Destination" hint="Grouped by folder and sorted by session start time (UTC) across all workspaces and machines, with original harness trace files, launchpad.json and launchpad-events-<first sequence>.jsonl sidecars.">
             <code className="min-w-0 max-w-full whitespace-normal break-all font-mono text-xs">hf://buckets/{bucket}/{backup.prefix ? `${backup.prefix}/` : ""}&lt;folder name&gt;/YYYYMMDD_HHMM_&lt;session UUID without hyphens&gt;/</code>

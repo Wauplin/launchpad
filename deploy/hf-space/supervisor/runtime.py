@@ -1,9 +1,6 @@
 """Daemon lifecycle and exact loopback-only management client."""
 import asyncio
-import json
 import secrets
-import time
-from pathlib import Path
 
 import aiohttp
 import tomlkit

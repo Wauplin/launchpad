@@ -51,8 +51,8 @@ el('login-form').onsubmit=event=>{event.preventDefault();const value=el('login-i
 el('ssh').onclick=async()=>{const value=await action('ssh-key');if(value?.public_key){el('public-key').hidden=false;el('public-key').textContent=value.public_key;}};
 el('confirm-rollback').onclick=()=>action('rollback',{confirmed:true});
 el('workspace').addEventListener('load',()=>{try{lastRoute=route(el('workspace').contentWindow.location.href);}catch{}});
-window.addEventListener('popstate',()=>{const next=route(new URLSearchParams(location.search).get('route')||'/agents');if(next!==lastRoute){lastRoute=next;el('workspace').src=next;}});
-setInterval(()=>{if(document.visibilityState!=='visible')return;if(el('controls').open||!state?.ready)refresh();try{if(state?.ready){const next=route(el('workspace').contentWindow.location.href);if(next!==lastRoute){lastRoute=next;history.pushState({},'',`/_space/shell?route=${encodeURIComponent(next)}`);}}}catch{}},2000);
+window.addEventListener('message',event=>{if(event.origin!==location.origin||event.source!==el('workspace').contentWindow||event.data?.type!=='launchpad-route')return;lastRoute=route(event.data.route);history.replaceState({},'',`/_space/shell?route=${encodeURIComponent(lastRoute)}`);});
+setInterval(()=>{if(document.visibilityState!=='visible')return;if(el('controls').open||!state?.ready)refresh();try{if(state?.ready){const next=route(el('workspace').contentWindow.location.href);if(next!==lastRoute){lastRoute=next;history.replaceState({},'',`/_space/shell?route=${encodeURIComponent(next)}`);}}}catch{}},2000);
 refresh().then(()=>{if(new URLSearchParams(location.search).has('setup')&&state?.ready){el('controls').showModal();loadTools();}});
 
 el('api-tool').onchange=()=>{if(el('api-tool').value!=='opencode')el('api-provider').value=el('api-tool').value==='claude'?'anthropic':'openai';};
