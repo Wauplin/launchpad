@@ -28,7 +28,7 @@ Launchpad is a desktop app to launch, follow and review coding agents (Claude Co
 | **Profiles** | Run each harness with a subscription login, an API key or another provider (for example the Hugging Face router). Several accounts work side by side. [Read more](docs/agents.md#profiles) |
 | **Worktrees** | New agents run in a dedicated worktree and branch. Launchpad merges the branch when you ask, and sends conflicts back to the agent. [Read more](docs/agents.md#worktrees-and-merging) |
 | **Scheduling** | Start later, after other agents finish, when a quota resets, or on a cron schedule. [Read more](docs/agents.md#scheduling) |
-| **Ask Launchpad** | Describe work in plain words. An assistant proposes launches, messages and crons as cards that you start with one click. [Read more](docs/agents.md#ask-launchpad) |
+| **Ask Launchpad** | Describe work in plain words. An assistant proposes launches, messages and crons as cards that you start with one click. Choose presets for Ask Launchpad, agent composer / steering, or both. [Read more](docs/agents.md#ask-launchpad) |
 | **GitHub** | Inbox triage, issues, pull requests, diffs, reviews and merges, with local PRs and agent suggestions. [Read more](docs/github.md) |
 | **Terminals and files** | Integrated terminals for shells and harness TUIs, and a read-only file viewer with syntax colors. [Read more](docs/agents.md#terminals-and-files) |
 | **Phone and remote access** | Pair a phone with a QR code, use it over Tailscale, get Web Push notifications. [Read more](docs/remote-access.md) |

@@ -28,7 +28,7 @@ export const settings: Chapter = {
     {
       id: "settings.presets", route: "/settings/presets", anchor: "settings.presets",
       title: "Presets",
-      body: "Presets are instructions you add to a launch or a message with one click, like “Write tests”. Launchpad ships none: you write your own.",
+      body: "Presets are instructions you add to a launch or a message with one click, like “Write tests”. Choose availability in Ask Launchpad, agent composer / steering, or both. Launchpad ships none: you write your own.",
     },
     {
       id: "settings.devices", route: "/settings/devices", anchor: "devices.pair",

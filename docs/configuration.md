@@ -58,6 +58,8 @@ notify = true                       # desktop and Web Push notifications
 keep = 15                           # clean task worktrees of idle agents kept on disk (0: keep all)
 ```
 
+Each `[[presets]]` entry has `id`, `label`, `text` and two independent availability flags: `ask_launchpad` (defaults to `false`) and `agent` (defaults to `true`). Enable either or both in Settings → Presets. Agent availability covers the composer, steering and Send later.
+
 The daemon watches the file and applies most changes live. Changes to `[server]` need a daemon restart.
 
 ### Profiles

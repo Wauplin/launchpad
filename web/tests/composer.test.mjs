@@ -116,3 +116,21 @@ test("existing worktree choices require a reusable primary folder and account fo
   assert.deepEqual(choices(info, [{ ...source, cwd: "/repo" }]), []);
   assert.deepEqual(choices(info, [{ ...source, launch_spec: { target: { kind: "browser" } } }]), []);
 });
+
+
+test("preset availability excludes stale selections while preserving settings order", async () => {
+  const { availablePresets, withPresets } = await import("../src/lib/presets.ts");
+  const presets = [
+    { id: "ask", text: "Implement with Claude, then review with Codex.", ask_launchpad: true, agent: false },
+    { id: "both", text: "Keep it concise.", ask_launchpad: true, agent: true },
+    { id: "agent", text: "Run the checks.", ask_launchpad: false, agent: true },
+    { id: "off", text: "Hidden.", ask_launchpad: false, agent: false },
+    { id: "legacy", text: "Existing preset." },
+  ];
+  const selected = ["legacy", "off", "agent", "both", "ask", "deleted"];
+  assert.equal(withPresets("Fix it", selected, availablePresets(presets, "ask_launchpad")), "Fix it\n\nImplement with Claude, then review with Codex. Keep it concise.");
+  assert.equal(withPresets("Fix it", selected, availablePresets(presets, "agent")), "Fix it\n\nKeep it concise. Run the checks. Existing preset.");
+  assert.equal(withPresets("", ["ask"], availablePresets(presets, "ask_launchpad")), presets[0].text);
+  presets[0].ask_launchpad = false;
+  assert.equal(withPresets("", ["ask"], availablePresets(presets, "ask_launchpad")), "");
+});

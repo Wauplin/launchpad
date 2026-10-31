@@ -24,7 +24,7 @@ export const ask: Chapter = {
     {
       id: "ask.question", route: "/ask", anchor: "session.reply",
       title: "Ask in plain words",
-      body: "Ask what needs you, or describe work. The assistant answers in the thread and writes proposal cards for what it suggests.",
+      body: "Ask what needs you, or describe work. The assistant answers in the thread and writes proposal cards for what it suggests. Use Presets for reusable instructions; choose Ask Launchpad availability in Settings → Presets.",
       tryIt: { text: "ask “What needs me today?”.", done: () => proposal()?.state === "proposed", doIt: () => api.post(`/api/sessions/${THREAD}/input`, { text: "What needs me today?" }) },
     },
     {

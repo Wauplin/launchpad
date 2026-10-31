@@ -1,6 +1,8 @@
 // Agents (sketch S3): sessions grouped by state, Needs you first, showing one session at a time.
 // Clicking a session opens its conversation. The window's workspace narrows every group.
 
+import { PresetButton, PresetChips, usePresets } from "./MessagePresets";
+import { withPresets } from "@/lib/presets";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -199,12 +201,19 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedu
 function AskLaunchpadField() {
   const navigate = useNavigate();
   const [text, setText] = useState("");
-  const send = () => { if (text.trim()) void navigate({ to: "/ask", search: { q: text.trim() } }); };
+  const [presets, setPresets] = useState<string[]>([]);
+  const allPresets = usePresets("ask_launchpad");
+  const message = withPresets(text, presets, allPresets);
+  const send = () => { if (message) void navigate({ to: "/ask", search: { q: message } }); };
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5 focus-within:border-teal">
-      <Icon name="spark" size={14} className="text-teal-ink" />
-      <input className="min-w-0 flex-1 bg-transparent text-[13px] outline-none" aria-label="Ask Launchpad" placeholder="Ask Launchpad… (it proposes, you confirm)" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
-      <button className="iconbtn" aria-label="Send to Ask Launchpad" title="Send" disabled={!text.trim()} onClick={send}><Icon name="send" size={13} /></button>
+    <div>
+      <PresetChips surface="ask_launchpad" selected={presets} onChange={setPresets} className="mb-1.5" />
+      <div className="flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5 focus-within:border-teal">
+        <Icon name="spark" size={14} className="text-teal-ink" />
+        <input className="min-w-0 flex-1 bg-transparent text-[13px] outline-none" aria-label="Ask Launchpad" placeholder="Ask Launchpad… (it proposes, you confirm)" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
+        <PresetButton surface="ask_launchpad" selected={presets} onChange={setPresets} />
+        <button className="iconbtn" aria-label="Send to Ask Launchpad" title="Send" disabled={!message} onClick={send}><Icon name="send" size={13} /></button>
+      </div>
     </div>
   );
 }

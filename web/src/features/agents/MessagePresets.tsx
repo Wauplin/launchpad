@@ -7,17 +7,19 @@ import { Icon } from "@/components/Icon";
 import { Popover } from "@/components/Popover";
 import { usePhone } from "@/lib/phone";
 import { useConfig } from "@/lib/queries";
+import { availablePresets, type PresetSurface } from "@/lib/presets";
 import type { Preset } from "@/gen/Preset";
 
 const NONE: Preset[] = [];
 
-export function usePresets(): Preset[] {
-  return useConfig().data?.config.presets ?? NONE;
+export function usePresets(surface?: PresetSurface): Preset[] {
+  const presets = useConfig().data?.config.presets ?? NONE;
+  return surface ? availablePresets(presets, surface) : presets;
 }
 
 /** An icon button for message boxes, or a labeled `Presets` button for forms with `labeled`. */
-export function PresetButton({ selected, onChange, disabled, labeled = false }: { selected: string[]; onChange: (ids: string[]) => void; disabled?: boolean; labeled?: boolean }) {
-  const presets = usePresets();
+export function PresetButton({ selected, onChange, disabled, labeled = false, surface = "agent" }: { selected: string[]; onChange: (ids: string[]) => void; disabled?: boolean; labeled?: boolean; surface?: PresetSurface }) {
+  const presets = usePresets(surface);
   const phone = usePhone();
   const navigate = useNavigate();
   const count = presets.filter((p) => selected.includes(p.id)).length;
@@ -84,8 +86,8 @@ export function PresetButton({ selected, onChange, disabled, labeled = false }: 
 }
 
 /** The chosen presets as chips; clicking one removes it. Renders nothing when none is chosen. */
-export function PresetChips({ selected, onChange, disabled, className = "" }: { selected: string[]; onChange: (ids: string[]) => void; disabled?: boolean; className?: string }) {
-  const chosen = usePresets().filter((p) => selected.includes(p.id));
+export function PresetChips({ selected, onChange, disabled, className = "", surface = "agent" }: { selected: string[]; onChange: (ids: string[]) => void; disabled?: boolean; className?: string; surface?: PresetSurface }) {
+  const chosen = usePresets(surface).filter((p) => selected.includes(p.id));
   if (!chosen.length) return null;
   return (
     <div className={`flex flex-wrap items-center gap-1.5 ${className}`}>

@@ -66,7 +66,8 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
   const text = useMessageDrafts((s) => s.drafts[sessionId] ?? "");
   const setDraft = useMessageDrafts((s) => s.set);
   const setText = (t: string) => setDraft(sessionId, t);
-  const allPresets = usePresets();
+  const presetSurface = promptSession?.launch_spec.target.kind === "assistant" ? "ask_launchpad" : "agent";
+  const allPresets = usePresets(presetSurface);
   const selectedPresets = useMessageDrafts((s) => s.presets[sessionId]);
   const setStoredPresets = useMessageDrafts((s) => s.setPresets);
   // Presets go with messages, not with answers to an open question.
@@ -126,7 +127,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
       {delivery && <div role="status" className="mb-1 text-[12px] text-ink-3">{delivery === "sending" ? "Sending…" : delivery === "delivered" ? promptSession?.quota_pause ? "Queued for when the agent resumes" : "Delivered" : delivery === "failed" ? "Attempt failed. Check the trace before starting a new attempt." : "Delivery not confirmed. Retry the same message to check its result."}</div>}
       {delivery === "uncertain" && <button className="btn btn-sm mb-1" disabled={busy} onClick={() => void abandonOperation(`/api/sessions/${sessionId}/input`, payload).then(() => setDelivery(null)).catch(toastError)}>I checked the trace — start a new attempt</button>}
       {reading && <div className="mb-1 text-[12px] text-ink-3">Reading attachments…</div>}
-      {!ask && <PresetChips selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
+      {!ask && <PresetChips surface={presetSurface} selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
       <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
         <PromptField
           compact inputRef={ref}
@@ -144,7 +145,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
           }}
           placeholder={placeholder}
         />
-        {!ask && <PresetButton selected={presets} onChange={setPresets} disabled={disabled || busy || reading} />}
+        {!ask && <PresetButton surface={presetSurface} selected={presets} onChange={setPresets} disabled={disabled || busy || reading} />}
         <button className="iconbtn" title={`Attach files or images (you can also drop files${acceptsImages ? " or paste a screenshot" : ""}). ${ATTACH_LIMITS}`} aria-label="Attach files or images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
           <Icon name="clip" size={14} />
         </button>

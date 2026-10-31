@@ -189,6 +189,16 @@ pub struct Preset {
     pub id: String,
     pub label: String,
     pub text: String,
+    /// Available in Ask Launchpad messages.
+    #[serde(default)]
+    pub ask_launchpad: bool,
+    /// Available in agent launches, steering and scheduled follow-ups.
+    #[serde(default = "preset_agent_default")]
+    pub agent: bool,
+}
+
+fn preset_agent_default() -> bool {
+    true
 }
 
 impl Default for Config {
@@ -500,6 +510,8 @@ text = "Review the changes."
                 id: "draft-pr".into(),
                 label: "My review".into(),
                 text: "Review the changes.".into(),
+                ask_launchpad: false,
+                agent: true,
             }]
         );
     }
