@@ -102,6 +102,7 @@ def files_under(roots):
         else: continue
         for path in candidates:
             relative = str(path.relative_to(HOME))
+            if relative == '.agents/skills/launchpad' and path.is_symlink() and path.resolve() == Path('/src/skills/launchpad'): continue
             if not path.resolve().is_relative_to(HOME): raise ValueError('A source path leaves the registered agent home')
             mode=path.lstat().st_mode
             if not (stat.S_ISREG(mode) or stat.S_ISLNK(mode)): continue
@@ -111,7 +112,7 @@ def files_under(roots):
 
 
 def roots():
-    result = [HOME/'projects', DATA, *[HOME/p for p in NATIVE], *[HOME/p for p in ROOTS]]
+    result = [HOME/'projects', HOME/'.agents', DATA, *[HOME/p for p in NATIVE], *[HOME/p for p in ROOTS]]
     if (DATA/'state.db').exists():
         with sqlite3.connect(f'file:{DATA}/state.db?mode=ro', uri=True) as db:
             for (value,) in db.execute('SELECT path FROM project'):

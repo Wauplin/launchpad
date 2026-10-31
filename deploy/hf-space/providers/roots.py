@@ -3,7 +3,7 @@ from pathlib import Path, PurePosixPath
 
 ROOTS = ('.codex/auth.json', '.codex/config.toml', '.claude/settings.json', '.claude/settings.local.json', '.config/opencode', '.claude/.credentials.json', '.claude.json',
          '.local/share/opencode/auth.json', '.config/gh', '.cache/huggingface/token',
-         '.cache/huggingface/stored_tokens', '.ssh', '.git-credentials', '.gitconfig')
+         '.cache/huggingface/stored_tokens', '.ssh', '.git-credentials', '.gitconfig', '.config/git')
 NATIVE = ('.codex', '.claude', '.local/share/opencode', '.config/opencode')
 CONFIG_ROOTS = set(NATIVE)
 
