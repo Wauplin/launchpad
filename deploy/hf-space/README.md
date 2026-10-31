@@ -2,7 +2,7 @@
 
 A headless Launchpad in a private Docker Space, with a small control plane in front of it: browser-only setup, a private backup bucket, a separate encrypted credential vault and explicit image updates. Everything Space-specific lives in this folder; Launchpad itself only gained generic hooks (trace prefix, delegated-access presentation, packaged commit).
 
-Status: built and checked locally against a real private Space and bucket (see [acceptance](docs/acceptance.md)). Not yet published: the release channel needs a public image and manifest first (see "Releases").
+Status: built and checked locally against a real private Space and bucket (see [acceptance](docs/acceptance.md)). The main update channel is published by CI after merge/push; its first run requires the GHCR package to be public (see below).
 
 ## What the owner does
 
@@ -58,9 +58,13 @@ A backup failure never blocks startup: the bar shows "Backup delayed" and the wo
 
 ## Releases and updates
 
-`release.json` → `channel` names the release manifest URL and the image repository; both must be **publicly readable**, because duplicated Spaces fetch the manifest and pull the image anonymously. Today they point at GitHub releases and GHCR of `Wauplin/launchpad`, which is a private repository: update checks report "Update check unavailable" and a template built on that image cannot be pulled. Before publishing, either make the repository and its GHCR package public, or point `channel` at a public location.
+Every push to `main` triggers `.github/workflows/hf-space.yml`: build the image, smoke-check isolated startup, push an immutable GHCR image, verify anonymous pulls, then publish `hf-space-release.json` and `hf-space-template.zip` on the `hf-space-channel` artifact branch. No GitHub release or version tag is needed: the exact main commit is the version. Superseded queued builds do not publish, and failed builds leave the previous working channel intact. Manual dispatch on main can retry publication.
 
-`.github/workflows/hf-space.yml` builds and smoke-checks the image on manual dispatch; publishing a GitHub release also pushes the image, uploads the manifest and template zip, and (with `HF_SPACE_TEMPLATE` and `HF_SPACE_TEMPLATE_TOKEN`) refreshes the public template Space.
+`release.json` → `channel` names the public raw manifest URL and official image repository. **Make the `launchpad-hf-space` GHCR package public once** in its package settings; a public GitHub repo does not automatically make packages public. CI refuses to advertise an image that anonymous clients cannot inspect. The workflow needs Contents and Packages write permissions. Optional `HF_SPACE_TEMPLATE` (repository variable) and `HF_SPACE_TEMPLATE_TOKEN` (secret) refresh the public duplicate template after publication; otherwise download the template zip from `hf-space-channel`.
+
+Running Spaces check automatically at startup and roughly every six hours (with jitter), with **Check now** in Space settings. A persistent **Update available · Review** button opens the candidate commit, tool changes and **Update and restart** confirmation. Checks only advertise a different commit; they never apply updates automatically. A failed check preserves the last candidate and reports that the check is unavailable.
+
+Existing source-built Spaces and images using the old release-only URL need a one-time migration: after the first successful channel build, download the template zip and replace the Space Dockerfile with its managed digest-pinned Dockerfile in Hub, then rebuild. Save a current backup and stop agents/terminals first. Source-built Dockerfiles cannot use image rollback and are deliberately refused by the updater. Subsequent updates use the owner-approved flow below.
 
 Updates need a click in Space settings, idle agents and terminals, and a verified clean checkpoint; then the managed Dockerfile is replaced at the expected parent revision. If the new build does not come back within five minutes, the restarting page offers **Roll back the update**, which restores the previous image and its pre-update checkpoint. Edited Dockerfiles are never overwritten.
 

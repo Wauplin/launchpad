@@ -78,8 +78,10 @@ pub(crate) async fn download(app: &App) -> Result<()> {
     // One listing avoids a failing request for every local folder not yet in the bucket.
     let entries: Vec<Entry> = serde_json::from_str(&hf(&app.env, &["buckets", "list", &format!("hf://buckets/{bucket}"), "--recursive", "--format", "json"], None).await?)?;
     let mut runs: BTreeMap<String, Files> = BTreeMap::new();
+    let prefix = if config.prefix.is_empty() { String::new() } else { format!("{}/", config.prefix) };
     for e in entries {
-        let Some((dir, file)) = e.path.rsplit_once('/') else { continue };
+        let Some(relative) = e.path.strip_prefix(&prefix) else { continue };
+        let Some((dir, file)) = relative.rsplit_once('/') else { continue };
         let Some((folder, run)) = dir.split_once('/') else { continue };
         if run.contains('/') || !projects.iter().any(|p| name_segment(&p.name) == folder) { continue; }
         if file != "launchpad.json" && !(file.starts_with("launchpad-events-") && file.ends_with(".jsonl")) { continue; }
@@ -95,7 +97,7 @@ pub(crate) async fn download(app: &App) -> Result<()> {
         let Some((_, id)) = run.rsplit_once('_') else { continue };
         let Ok(id) = uuid::Uuid::parse_str(id) else { continue };
         let id = id.to_string();
-        let source = format!("hf://buckets/{bucket}/{dir}");
+        let source = format!("hf://buckets/{bucket}/{prefix}{dir}");
         let project = projects.iter().find(|p| name_segment(&p.name) == folder).unwrap();
         if app.sessions.get(&id).is_some_and(|s| s.imported_from.is_none() || s.project_id.as_deref() != Some(&project.id)) { continue; }
         let result = async {

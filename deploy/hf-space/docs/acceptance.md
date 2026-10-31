@@ -30,9 +30,15 @@ No real provider sign-in was completed, no HF agent token was connected (trace e
 
 Deployed privately as `Wauplin/launchpad` (built from source). Fixed after owner feedback: the GitHub step of the finish page never showed its terminal (and a second click failed); Space settings stopped updating while the sign-in terminal had focus. gh's two default prompts are now answered automatically, so GitHub sign-in shows only Open sign-in page and the one-time code (checked live, then cancelled). Setup pages and Space settings have a Text size control (100–150%) that shares `launchpad-zoom` with the app, which follows live.
 
+## Main-commit update channel (2026-10-31)
+
+The public repository now supplies a main-commit channel instead of waiting for GitHub releases. Every main push builds and smoke-checks the runtime; CI verifies anonymous GHCR access before publishing the immutable image manifest and duplicate-template zip on `hf-space-channel`. Running managed Spaces check at startup and about every six hours, and show a separate update prompt even when a backup warning is present. Owners review the commit and confirm before maintenance. Source-built Spaces get a template download and one-time migration instructions instead of an unusable update button.
+
+Checked for this change: eight isolated Python updater regressions; manifest/template generation and first/repeated publication scripts against a throwaway local bare remote; workflow YAML and shell syntax; Chrome fixture for the visible prompt, review drawer, second-click confirmation and exact image request; strict workspace Clippy, all 130 Rust tests, UI typecheck/build and four tour guardrails. Tests use local fixtures and mocked Hub mutations; no real Space was updated or restarted, and the new Docker image/Actions workflow has not been built or executed in the cloud by this task.
+
 ## Still required before publishing
 
-- Make the release channel public: `Wauplin/launchpad` is private, so the manifest and GHCR image in `release.json` cannot be read by duplicated Spaces. Either publish the repository and its GHCR package or point `channel` elsewhere, then cut a release.
+- First channel publication: push main to trigger CI (or dispatch on main), make the `launchpad-hf-space` GHCR package public, and rerun if its anonymous-read check failed. Configure `HF_SPACE_TEMPLATE` and `HF_SPACE_TEMPLATE_TOKEN` for automatic duplicate-template refresh. Migrate the existing source-built Space to the resulting managed Dockerfile once; no GitHub release is required.
 - On a real Space: Hub iframe and direct URL, provider sign-ins to completion, HF agent token and trace export to `traces/`, secret-change restarts, update and rollback, a 24–72 hour soak on paid CPU with sleep off.
 - Large workspaces: archives are built in memory and uploaded whole; measure RAM and upload time with a representative repository.
 - Not in scope: multiple replicas, remote use of the Chrome extension, outbound SSH on port 22, discovering secrets in arbitrary files, an offline recovery key.

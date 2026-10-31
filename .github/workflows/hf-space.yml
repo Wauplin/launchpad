@@ -1,12 +1,17 @@
 name: Hugging Face Space runtime
 on:
   workflow_dispatch:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+# One channel publisher at a time; superseded builds must never replace the main channel.
+concurrency:
+  group: hf-space-main
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
   runtime:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -15,6 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
+      - name: Check Space updater regressions
+        run: |
+          python3 -m venv /tmp/space-release-env
+          /tmp/space-release-env/bin/pip install -r deploy/hf-space/requirements.txt
+          cd deploy/hf-space
+          /tmp/space-release-env/bin/python -m unittest discover -s tests -v
       - name: Build headless runtime
         run: docker buildx build --platform linux/amd64 --load --build-arg LAUNCHPAD_REVISION=$(git rev-parse HEAD) -t launchpad-space:check -f deploy/hf-space/Dockerfile .
       - name: Check isolated startup
@@ -29,31 +40,65 @@ jobs:
           docker exec launchpad-space-check sh -c 'test -f schema.json && test -f gateway/vendor/xterm.js && test -f /usr/local/bin/launchpad && test -d /src/skills'
           docker exec launchpad-space-check sh -c 'codex --version && claude --version && opencode --version && gh --version && hf --version && uv --version'
           docker exec launchpad-space-check python -c "from supervisor.processes import environment; assert 'LP_SPACE_MANAGEMENT_TOKEN' not in environment(); assert 'LP_SPACE_BACKUP_KEY' not in environment()"
-      - name: Publish image and release files
-        if: github.event_name == 'release'
+      - name: Check channel head
+        id: channel
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ "$(gh api repos/${{ github.repository }}/commits/main --jq .sha)" = "${{ github.sha }}" ]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish immutable main image
+        if: steps.channel.outputs.current == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           image=$(python3 -c "import json; print(json.load(open('deploy/hf-space/release.json'))['channel']['image'])")
           echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker tag launchpad-space:check "$image:${{ github.sha }}"
           docker push "$image:${{ github.sha }}"
           digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$image:${{ github.sha }}")
-          python3 -m venv /tmp/space-release-env
-          /tmp/space-release-env/bin/pip install -r deploy/hf-space/requirements.txt
+          # Duplicated Spaces pull anonymously, even though this repository is public.
+          docker logout ghcr.io
+          if ! docker manifest inspect "$digest" >/dev/null; then
+            echo '::error::Make the launchpad-hf-space GHCR package public before publishing the update channel.'
+            exit 1
+          fi
           cd deploy/hf-space
-          /tmp/space-release-env/bin/python -m supervisor.package_release --image "$digest" --revision "$(git rev-parse HEAD)" --notes "https://github.com/Wauplin/launchpad/releases/tag/$RELEASE_TAG" --output /tmp/space-release
+          /tmp/space-release-env/bin/python -m supervisor.package_release --image "$digest" --revision "$(git rev-parse HEAD)" --notes "https://github.com/Wauplin/launchpad/commit/${{ github.sha }}" --output /tmp/space-release
           cd ../..
-          gh release upload "$RELEASE_TAG" /tmp/space-release/* --clobber
+      - name: Publish main channel manifest and template
+        if: steps.channel.outputs.current == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A regular artifact branch keeps binaries/manifests out of main and needs no GitHub release.
+          if git ls-remote --exit-code origin refs/heads/hf-space-channel; then
+            git fetch origin refs/heads/hf-space-channel:refs/remotes/origin/hf-space-channel
+          fi
+          if git show-ref --verify --quiet refs/remotes/origin/hf-space-channel; then
+            git worktree add /tmp/space-channel origin/hf-space-channel
+          else
+            git worktree add --detach /tmp/space-channel
+            git -C /tmp/space-channel checkout --orphan hf-space-channel
+            git -C /tmp/space-channel rm -rf .
+          fi
+          cp /tmp/space-release/* /tmp/space-channel/
+          git -C /tmp/space-channel config user.name 'github-actions[bot]'
+          git -C /tmp/space-channel config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C /tmp/space-channel add hf-space-release.json hf-space-template.zip
+          if ! git -C /tmp/space-channel diff --cached --quiet; then
+            git -C /tmp/space-channel commit -m "Publish Space runtime ${{ github.sha }}"
+          fi
+          git -C /tmp/space-channel push origin HEAD:refs/heads/hf-space-channel
       - name: Refresh public duplicate template
-        if: github.event_name == 'release'
+        if: steps.channel.outputs.current == 'true'
         env:
           HF_TOKEN: ${{ secrets.HF_SPACE_TEMPLATE_TOKEN }}
           HF_SPACE_TEMPLATE: ${{ vars.HF_SPACE_TEMPLATE }}
         run: |
           if [ -z "$HF_TOKEN" ] || [ -z "$HF_SPACE_TEMPLATE" ]; then
-            echo "HF template publishing is not configured; the template zip remains a release asset."
+            echo "HF template publishing is not configured; the template zip remains available on hf-space-channel."
             exit 0
           fi
           /tmp/space-release-env/bin/python - <<'PY'

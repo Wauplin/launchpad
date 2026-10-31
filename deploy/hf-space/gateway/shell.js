@@ -240,13 +240,13 @@ function render() {
 }
 
 function renderBar() {
+  $("available-update").hidden = !state.update?.candidate;
   const chip = $("bar-status");
   const backup = state.backup || {};
   chip.className = "chip";
   if (state.maintenance) { chip.classList.add("attn"); chip.textContent = "Maintenance in progress"; }
   else if (backup.reconnect) { chip.classList.add("attn"); chip.textContent = "Reconnect your accounts"; }
   else if (backup.error) { chip.classList.add("attn"); chip.textContent = "Backup delayed"; }
-  else if (state.update?.candidate) { chip.classList.add("work"); chip.textContent = "Update available"; }
   else chip.textContent = backup.checkpoint_at ? `Backed up ${ago(backup.checkpoint_at)}` : "Backup pending";
   $("bar-space").textContent = state.space.id;
 }
@@ -704,19 +704,26 @@ function updatesSection() {
   const check = h("button", { type: "button", class: "small" }, "Check now");
   check.addEventListener("click", () => action("check-updates", {}, check));
   const c = u.candidate;
-  return h("section", {},
+  const managedImage = Boolean(u.installed?.image);
+  return h("section", { id: "updates-section" },
     h("h3", {}, "Updates"),
+    h("p", { class: "muted small-text" }, "Checks main automatically about every six hours. Each new commit becomes available after its runtime build passes. Updates only run when you confirm."),
     h("div", { class: "lines" },
       h("div", {}, h("span", {}, "Launchpad"), h("span", { class: "mono" }, (release.launchpad || "unknown").slice(0, 12))),
       h("div", {}, h("span", {}, "Space connector"), h("span", {}, release.adapter || "unknown")),
       h("div", {}, h("span", {}, "Last check"), h("span", {}, u.error || (u.checked_at ? ago(u.checked_at) : "Not checked yet")))),
     c ? h("div", { class: "notice ok" },
-      h("p", {}, h("b", {}, `Launchpad ${c.launchpad.slice(0, 12)} · connector ${c.adapter}`)),
+      h("p", {}, h("b", {}, `A new version is available: ${c.launchpad.slice(0, 12)}`)),
+      h("p", {}, "Would you like to update Launchpad?"),
       h("pre", {}, Object.entries(c.tools).map(([k, v]) => `${k}: ${release.tools?.[k] || "—"} → ${v}`).join("\n")),
-      h("p", { class: "small-text" }, "Stop agents and close terminals first. Launchpad saves a verified backup, then the Space rebuilds and reconnects this page."),
+      h("p", { class: "small-text" }, managedImage
+        ? "Stop agents and close terminals first. Launchpad saves a verified backup, then the Space rebuilds and reconnects this page."
+        : "This Space was built from source. Back up now and stop agents and terminals, then replace its Dockerfile in Hub with the one in the template download. This one-time setup enables future confirmed updates."),
       h("div", { class: "row" },
-        confirmButton("Update and restart", "Confirm update", (b) => action("prepare-update", { image: c.image, confirmed: true }, b), "primary small"),
-        typeof c.notes === "string" && c.notes.startsWith("https://") ? external(c.notes, "Release notes", "button small") : null)) : null,
+        managedImage
+          ? confirmButton("Update and restart", "Confirm update", (b) => action("prepare-update", { image: c.image, confirmed: true }, b), "primary small")
+          : external("https://github.com/Wauplin/launchpad/raw/refs/heads/hf-space-channel/hf-space-template.zip", "Download managed template", "button primary small"),
+        typeof c.notes === "string" && c.notes.startsWith("https://") ? external(c.notes, "View commit", "button small") : null)) : null,
     h("div", { class: "row" }, check));
 }
 
@@ -776,6 +783,7 @@ $("app").addEventListener("load", () => {
   try { syncRoute($("app").contentWindow.location.href); } catch { /* Cross-origin pages are not ours. */ }
 });
 
+$("available-update").addEventListener("click", () => { openPanel(); $("updates-section")?.scrollIntoView({ block: "start" }); });
 $("open-panel").addEventListener("click", openPanel);
 $("bar-status").addEventListener("click", openPanel);
 $("close-panel").addEventListener("click", () => $("panel").close());

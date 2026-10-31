@@ -26,7 +26,7 @@ CPU Basic can sleep and disk is ephemeral across rebuilds. Choose paid CPU and d
 
 ## Update
 
-Space settings checks the upstream release manifest approximately every six hours. Updates require an explicit click, idle agents/terminals and a verified clean checkpoint. The managed Dockerfile contains only an immutable runtime image reference. Keep custom files beside it; edited Dockerfiles are never overwritten automatically. Releases include separate Launchpad and connector versions plus pinned tool versions.
+Launchpad checks the main update channel at startup and approximately every six hours. Every new main commit becomes a version after its runtime build passes; no GitHub release is required. The bar shows **Update available · Review** when a newer version is ready, and **Check now** in Space settings checks immediately. Updates require an explicit click, idle agents/terminals and a verified clean checkpoint. The managed Dockerfile contains only an immutable runtime image reference. Keep custom files beside it; edited Dockerfiles are never overwritten automatically. The update review includes separate Launchpad and connector versions plus pinned tool versions.
 
 Restart, rebuild, update, restore and credential reconnection are separate actions. Stop active work before controlled maintenance. External Hub changes can still interrupt work.
 

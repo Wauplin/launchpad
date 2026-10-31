@@ -8,7 +8,7 @@ from supervisor.updates import dockerfile
 parser=argparse.ArgumentParser()
 parser.add_argument('--image',required=True)
 parser.add_argument('--revision',required=True)
-parser.add_argument('--notes',default='https://github.com/Wauplin/launchpad/releases')
+parser.add_argument('--notes',default='https://github.com/Wauplin/launchpad/commits/main')
 parser.add_argument('--output',required=True,type=Path)
 args=parser.parse_args()
 root=Path(__file__).resolve().parents[1]

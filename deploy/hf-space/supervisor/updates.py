@@ -48,7 +48,7 @@ class Updates:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
             async with session.get(MANIFEST,headers={'If-None-Match':self.etag} if self.etag else {}) as response:
                 if response.status == 304:
-                    self.checked_at=time.time();return
+                    self.checked_at=time.time();self.error=None;return
                 response.raise_for_status()
                 raw = await response.content.read(128*1024+1)
                 if len(raw)>128*1024: raise ValueError('Release manifest exceeds the size limit')
@@ -56,7 +56,7 @@ class Updates:
                 dockerfile(data['image'])
                 if not re.fullmatch('[0-9a-f]{40}',data.get('launchpad','')): raise ValueError('Release lacks an exact Launchpad revision')
                 if not isinstance(data.get('adapter'),str) or not isinstance(data.get('tools'),dict): raise ValueError('Release metadata is incomplete')
-                self.candidate = data if data['image'] != self.installed.get('image') else None
+                self.candidate = data if data['launchpad'] != self.installed.get('launchpad') else None
                 self.etag=response.headers.get('ETag')
                 self.checked_at=time.time();self.error=None
 
@@ -74,7 +74,8 @@ class Updates:
     async def apply(self,checkpoint,expected):
         await self.check()
         if not self.candidate: raise ValueError('No newer release is available')
-        if expected != self.candidate['image']: raise ValueError('The available release changed. Review the new candidate before updating.')
+        candidate = dict(self.candidate)
+        if expected != candidate['image']: raise ValueError('The available release changed. Review the new candidate before updating.')
         head = await asyncio.to_thread(self.api.space_info,self.deployment.space)
         if not re.fullmatch(r'[0-9a-f]{40}',head.sha or ''): raise ValueError('HF did not return an exact repository revision; nothing was changed')
         previous = await self.read_file('Dockerfile')
@@ -83,10 +84,10 @@ class Updates:
         if not image or managed != dockerfile(image):
             raise ValueError('The managed Dockerfile has custom changes. Compare it with the release template in Hub before updating.')
         record = {'image':image,'generation':checkpoint['generation'],'revision':head.sha,
-                  'candidate':self.candidate['image'],'at':time.time()}
+                  'candidate':candidate['image'],'at':time.time()}
         # Durable before the repo commit, so recovery is possible even if rebuild interrupts us.
         await asyncio.to_thread(self.recovery.bucket.put,'backups/update.json',json.dumps(record).encode())
-        operations=[CommitOperationAdd(path_in_repo='Dockerfile',path_or_fileobj=io.BytesIO(dockerfile(self.candidate['image']).encode()))]
+        operations=[CommitOperationAdd(path_in_repo='Dockerfile',path_or_fileobj=io.BytesIO(dockerfile(candidate['image']).encode()))]
         try:
             await asyncio.to_thread(self.api.create_commit,self.deployment.space,operations,repo_type='space',parent_commit=head.sha,commit_message='Update Launchpad runtime image')
         except Exception as error:
