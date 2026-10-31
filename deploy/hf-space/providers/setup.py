@@ -46,6 +46,7 @@ class Logins:
         self.deadline = None
         self.result = None
         self.sockets = set()
+        self.answered = set()
         self.on_exit = on_exit
         self.lock = asyncio.Lock()
 
@@ -66,6 +67,7 @@ class Logins:
                 data['cli_auth_credentials_store'] = 'file'
                 atomic(config, tomlkit.dumps(data).encode())
             self.output = b''
+            self.answered = set()
             self.tool, self.profile, self.result = tool, profile, None
             master, slave = pty.openpty()
             self.resize(master, 24, 100)
@@ -122,6 +124,7 @@ class Logins:
                     break
                 self.output = (self.output + data)[-LIMIT:]
                 await self.broadcast(data)
+                self.answer_defaults()
             await self.process.wait()
             if self.result is None:
                 self.result = 'completed' if self.process.returncode == 0 else 'failed'
@@ -133,6 +136,17 @@ class Logins:
                 await socket.close()
             if self.on_exit:
                 await self.on_exit(self.tool, self.profile, self.result)
+
+    def answer_defaults(self):
+        """gh asks two questions whose defaults are what we want (use the sign-in for Git, open the browser);
+        press Enter for the owner so only the code and the sign-in page remain."""
+        if self.tool != 'github' or self.master is None:
+            return
+        tail = ANSI.sub('', self.output[-400:].decode(errors='replace'))
+        for prompt in ('Authenticate Git with your GitHub credentials? (Y/n)', 'Press Enter to open'):
+            if prompt in tail and prompt not in self.answered:
+                self.answered.add(prompt)
+                os.write(self.master, b'\r')
 
     async def attach(self, socket):
         """Replay the bounded buffer, then stream; text frames are keystrokes or a resize."""

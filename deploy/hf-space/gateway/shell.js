@@ -31,7 +31,7 @@ const TOOLS = {
   github: {
     name: "GitHub",
     blurb: "Clone private repositories, review pull requests and use the Inbox.",
-    hint: "Press Enter to accept each default, then open the sign-in page and enter the code.",
+    hint: "Open the sign-in page and enter the code. Git over HTTPS uses this sign-in too.",
   },
 };
 const AGENTS = ["huggingface", "claude", "codex", "opencode"];
