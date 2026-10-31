@@ -90,12 +90,15 @@ async def ssh_key():
         process = await spawn('ssh-keygen','-t','ed25519','-N','','-C','Launchpad Space','-f',str(path))
         if await process.wait(): raise ValueError('SSH key generation failed')
     if not path.with_suffix('.pub').exists(): raise ValueError('Existing key has no public file; import or repair it manually')
-    return path.with_suffix('.pub').read_text()
+    from backup.machine import home_open
+    return home_open(path.with_suffix('.pub')).read().decode()
 
 
 def public_details(public):
     import hashlib
     import base64
-    blob=base64.b64decode(public.split()[1],validate=True)
+    parts=public.split()
+    if len(parts)<2 or parts[0] not in ('ssh-ed25519','ssh-rsa','ecdsa-sha2-nistp256','ecdsa-sha2-nistp384','ecdsa-sha2-nistp521'): raise ValueError('Invalid SSH public key')
+    blob=base64.b64decode(parts[1],validate=True)
     fingerprint='SHA256:'+base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip('=')
     return {'public_key':public,'fingerprint':fingerprint}

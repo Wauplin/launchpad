@@ -5,15 +5,16 @@ ROOTS = ('.codex/auth.json', '.codex/config.toml', '.claude/settings.json', '.cl
          '.local/share/opencode/auth.json', '.config/gh', '.cache/huggingface/token',
          '.cache/huggingface/stored_tokens', '.ssh', '.git-credentials', '.gitconfig')
 NATIVE = ('.codex', '.claude', '.local/share/opencode', '.config/opencode')
+CONFIG_ROOTS = set(NATIVE)
 
 
 def credential(name):
     parts = PurePosixPath(name).parts
     # Known workspace secret files, including copies in registered profile roots.
-    if any(p == '.env' or p.startswith('.env.') or p in ('auth.json', '.credentials.json', 'id_ed25519', 'id_rsa') for p in parts): return True
+    if any(p == '.env' or p.startswith('.env.') or p in ('auth.json', '.credentials.json', 'id_ed25519', 'id_rsa', '.git-credentials', 'stored_tokens') for p in parts): return True
     if any(name == p or name.startswith(p+'/') for p in PROTECTED_GIT): return True
     if '.git' in parts and ('logs' in parts or parts[-1]=='config'): return True
-    if PurePosixPath(name).name in ('config.toml','settings.json','settings.local.json'): return True
+    if PurePosixPath(name).name in ('config.toml','settings.json','settings.local.json') and any(name.startswith(root+'/') for root in CONFIG_ROOTS): return True
     if name.endswith('/.git/config'): return True
     if name.endswith(('.pem', '.key', '.p12', '.pfx')): return True
     return any(name == root or name.startswith(root + '/') for root in ROOTS)
@@ -37,8 +38,11 @@ def classify_git(paths):
             prefix=str((Path(directory)/'.git').relative_to(HOME))
             if prefix in seen: continue
             seen.add(prefix)
+            relative=str(Path(directory).relative_to(HOME))
+            patterns=['.env','.env.*','*.pem','*.key','*.p12','*.pfx','*auth.json','*credentials*','id_ed25519','id_rsa','stored_tokens']
+            if any(relative==root or relative.startswith(root+'/') or root.startswith(relative+'/') for root in CONFIG_ROOTS): patterns += ['config.toml','settings.json','settings.local.json']
             result=subprocess.run(['git','--no-pager','-C',directory,'log','--all','--format=','--name-only','--',
-                '.env','.env.*','*.pem','*.key','*auth.json','*credentials*'],env=environment(),preexec_fn=demote,
+                *patterns],env=environment(),preexec_fn=demote,
                 stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=20)
             if result.stdout.strip(): PROTECTED_GIT.add(prefix)
             elif result.returncode==0: PROTECTED_GIT.discard(prefix)

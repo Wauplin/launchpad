@@ -25,9 +25,14 @@ def demote():
 
 
 def own(path, directory=False):
-    user = pwd.getpwnam('agent')
-    os.chown(path, user.pw_uid, user.pw_gid)
-    os.chmod(path, 0o700 if directory else 0o600)
+    user=pwd.getpwnam('agent')
+    flags=os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    if directory: flags |= os.O_DIRECTORY
+    fd=os.open(path,flags)
+    try:
+        os.fchown(fd,user.pw_uid,user.pw_gid)
+        os.fchmod(fd,0o700 if directory else 0o600)
+    finally: os.close(fd)
 
 
 def prepare():

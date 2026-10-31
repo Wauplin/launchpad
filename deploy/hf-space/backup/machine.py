@@ -16,7 +16,7 @@ import tomlkit
 from backup.projection import config_split, config_join, project_db, restore_db, REF
 from backup.snapshot import materialize, sqlite_snapshot
 from backup.store import safe_name
-from providers.roots import credential, NATIVE, ROOTS, classify_git
+from providers.roots import credential, NATIVE, ROOTS, classify_git, CONFIG_ROOTS
 from supervisor.processes import HOME, own
 
 DATA = HOME / '.local/share/launchpad'
@@ -26,22 +26,63 @@ NATIVE_RUNTIME = {HOME/name for name in NATIVE}
 SKIP_DIRS = {'node_modules', 'target', '__pycache__', '.venv', '.cache', '.npm'}
 
 
+def secure_parent(path):
+    """Open owned directory descriptors without following agent-controlled symlinks."""
+    parts=Path(path).relative_to(HOME).parts
+    if not parts or any(part in ('.','..') for part in parts): raise ValueError('Invalid agent path')
+    user=pwd.getpwnam('agent')
+    flags=os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    current=os.open(HOME,flags)
+    try:
+        for part in parts[:-1]:
+            try: child=os.open(part,flags,dir_fd=current)
+            except FileNotFoundError:
+                os.mkdir(part,0o700,dir_fd=current)
+                child=os.open(part,flags,dir_fd=current)
+            os.fchown(child,user.pw_uid,user.pw_gid)
+            os.fchmod(child,0o700)
+            os.close(current)
+            current=child
+        return current,parts[-1]
+    except BaseException:
+        os.close(current)
+        raise
+
+
+def home_open(path):
+    """Read agent files through no-follow descriptors, including every parent."""
+    parts=Path(path).relative_to(HOME).parts
+    if not parts or any(part in ('.','..') for part in parts): raise ValueError('Invalid agent path')
+    flags=os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    current=os.open(HOME,flags)
+    try:
+        for part in parts[:-1]:
+            child=os.open(part,flags,dir_fd=current)
+            os.close(current)
+            current=child
+        fd=os.open(parts[-1],os.O_RDONLY | os.O_NOFOLLOW,dir_fd=current)
+        return os.fdopen(fd,'rb')
+    finally: os.close(current)
+
+
 def atomic(path, data):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.is_symlink() or not path.resolve().is_relative_to(HOME):
-        raise ValueError('Restore path leaves the agent home')
-    for parent in [path.parent, *path.parent.parents]:
-        if parent == HOME: break
-        own(parent, True)
-    temporary = path.with_name(path.name + '.lp-restore')
-    with temporary.open('wb') as f:
-        os.chmod(temporary, 0o600)
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    own(temporary)
-    os.replace(temporary, path)
+    parent,name=secure_parent(path)
+    temporary='.lp-restore-'+uuid.uuid4().hex
+    try:
+        fd=os.open(temporary,os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,0o600,dir_fd=parent)
+        user=pwd.getpwnam('agent')
+        with os.fdopen(fd,'wb') as f:
+            os.fchown(f.fileno(),user.pw_uid,user.pw_gid)
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        # Replacing a leaf symlink replaces the link itself, never its target.
+        os.replace(temporary,name,src_dir_fd=parent,dst_dir_fd=parent)
+        os.fsync(parent)
+    finally:
+        try: os.unlink(temporary,dir_fd=parent)
+        except FileNotFoundError: pass
+        os.close(parent)
 
 
 def files_under(roots):
@@ -57,6 +98,7 @@ def files_under(roots):
         else: continue
         for path in candidates:
             relative = str(path.relative_to(HOME))
+            if not path.resolve().is_relative_to(HOME): raise ValueError('A source path leaves the registered agent home')
             if relative not in seen:
                 seen.add(relative)
                 yield relative, path
@@ -73,22 +115,24 @@ def roots():
                     if not path.is_relative_to(HOME): raise ValueError('Move local folders inside /home/agent before backing up this machine')
                     result.append(path)
     if CONFIG.exists():
-        config = tomlkit.parse(CONFIG.read_text()).unwrap()
+        config = tomlkit.parse(home_open(CONFIG).read().decode()).unwrap()
         for profile in config.get('profiles', []):
             for key in ('CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'OPENCODE_DATA_DIR', 'HF_HOME'):
                 value = profile.get('env', {}).get(key)
                 if value:
-                    path = Path(value.replace('~', str(HOME), 1))
+                    path = Path(value.replace('${HOME}',str(HOME)).replace('~', str(HOME), 1))
+                    if path == HOME: raise ValueError('Use a dedicated provider folder rather than the whole agent home')
                     if not path.is_absolute() or not path.is_relative_to(HOME):
                         raise ValueError('Profile credential roots must remain inside the agent home')
                     result.append(path)
                     NATIVE_RUNTIME.add(path)
+                    CONFIG_ROOTS.add(str(path.relative_to(HOME)))
     classify_git(result)
     return result
 
 
 def is_sqlite(path):
-    with path.open('rb') as f: return f.read(16) == b'SQLite format 3\x00'
+    with home_open(path) as f: return f.read(16) == b'SQLite format 3\x00'
 
 
 def signature(path):
@@ -99,7 +143,7 @@ def signature(path):
 def credential_bytes(path):
     before=signature(path)
     if not is_sqlite(path):
-        data=path.read_bytes()
+        data=home_open(path).read()
         if signature(path)!=before: raise ValueError('Credentials changed while being captured; retry shortly')
         if path.suffix=='.json': json.loads(data)
         if path.name=='config.toml': tomlkit.parse(data.decode())
@@ -124,7 +168,7 @@ def capture(approved, release, clean=False):
             cache = Path(directory)/'cache.db'
             sqlite_snapshot(DATA/'cache.db', cache)
             ordinary['state/cache.db'] = cache.read_bytes()
-        if CONFIG.exists(): ordinary['config/config.toml'] = config_split(CONFIG.read_text(), secrets['references'])
+        if CONFIG.exists(): ordinary['config/config.toml'] = config_split(home_open(CONFIG).read().decode(), secrets['references'])
         archive = io.BytesIO()
         with tarfile.open(fileobj=archive, mode='w:gz', dereference=False) as tar:
             for name, path in files_under(sources):
@@ -151,10 +195,10 @@ def capture(approved, release, clean=False):
                         if path.is_symlink(): tar.add(path,arcname=name,recursive=False)
                         else:
                             info=tarfile.TarInfo(name); stat=path.stat();info.size=stat.st_size;info.mode=stat.st_mode & 0o777;info.mtime=stat.st_mtime
-                            with path.open('rb') as f: tar.addfile(info,f)
+                            with home_open(path) as f: tar.addfile(info,f)
         if any(signature(path)!=value for path,value in credential_stats.items()): raise ValueError('Credentials changed during checkpoint; retry shortly')
         ordinary['workspaces/home.tar.gz'] = archive.getvalue()
-    ordinary['state/runtime.json'] = json.dumps({'format':1,'release':release,'at':time.time(),'directories':[str(path.relative_to(HOME)) for path in sources if path.is_dir() and path != HOME]}).encode()
+    ordinary['state/runtime.json'] = json.dumps({'format':1,'release':release,'at':time.time(),'provider_directories':sorted(CONFIG_ROOTS),'directories':[str(path.relative_to(HOME)) for path in sources if path.is_dir() and path != HOME]}).encode()
     return ordinary, secrets
 
 
@@ -167,7 +211,7 @@ def credential_snapshot():
             signatures[path]=signature(path)
             files[name] = b64encode(credential_bytes(path)).decode()
     # Config also holds literal API keys; never upload its bytes outside the vault.
-    if CONFIG.exists(): files['.config/launchpad/config.toml'] = b64encode(CONFIG.read_bytes()).decode()
+    if CONFIG.exists(): files['.config/launchpad/config.toml'] = b64encode(home_open(CONFIG).read()).decode()
     if any(signature(path)!=value for path,value in signatures.items()): raise ValueError('Credentials changed during capture; retry shortly')
     return files
 
@@ -194,17 +238,24 @@ def unpack(data, directories):
         for member in members:
             if member.issym():
                 target = HOME/member.name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                for parent in [target.parent,*target.parent.parents]:
-                    if parent == HOME: break
-                    own(parent,True)
-                if target.exists() or target.is_symlink(): target.unlink()
-                target.symlink_to(member.linkname)
-                os.lchown(target, pwd.getpwnam('agent').pw_uid, pwd.getpwnam('agent').pw_gid)
+                parent,name=secure_parent(target)
+                try:
+                    try: os.unlink(name,dir_fd=parent)
+                    except FileNotFoundError: pass
+                    os.symlink(member.linkname,name,dir_fd=parent)
+                    user=pwd.getpwnam('agent')
+                    os.chown(name,user.pw_uid,user.pw_gid,dir_fd=parent,follow_symlinks=False)
+                finally: os.close(parent)
+        for member in members:
+            if member.issym() and not (HOME/member.name).resolve().is_relative_to(HOME):
+                raise ValueError('Archive symlink chain leaves the registered home')
 
 
 def restore(files, payload, lost_key=False):
     metadata=json.loads(files['state/runtime.json'])
+    for directory in metadata.get('provider_directories',[]):
+        safe_name(directory)
+        CONFIG_ROOTS.add(directory)
     directories=metadata['directories']
     for directory in directories: safe_name(directory)
     unpack(files['workspaces/home.tar.gz'],directories)

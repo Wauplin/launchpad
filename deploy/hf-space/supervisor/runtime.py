@@ -5,7 +5,7 @@ import secrets
 import aiohttp
 import tomlkit
 
-from backup.machine import atomic, CONFIG, DATA
+from backup.machine import atomic, CONFIG, DATA, home_open
 from supervisor.processes import HOME, spawn, stop, stop_agent_children
 
 
@@ -17,7 +17,7 @@ class Runtime:
         self.maintenance = False
 
     def configure(self):
-        config = tomlkit.parse(CONFIG.read_text()).unwrap() if CONFIG.exists() else {}
+        config = tomlkit.parse(home_open(CONFIG).read().decode()).unwrap() if CONFIG.exists() else {}
         config['server'] = {'bind':'127.0.0.1','public_origin':self.deployment.origin,'auto_tailnet':False}
         config['trace_backup'] = {'enabled':True,'bucket':self.deployment.bucket,'prefix':'traces'}
         config['projects_root'] = str(HOME/'projects')
