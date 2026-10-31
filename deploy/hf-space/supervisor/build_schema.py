@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from backup.projection import fingerprint
+from backup.projection import fingerprint, project_db
 
 with tempfile.TemporaryDirectory() as directory:
     env={'HOME':directory,'PATH':os.environ['PATH'],'LAUNCHPAD_PORT':'17319'}
@@ -21,6 +21,7 @@ with tempfile.TemporaryDirectory() as directory:
                     with sqlite3.connect(db) as connection:
                         connection.execute('SELECT archived_done FROM session LIMIT 1')
                         schema=fingerprint(connection)
+                        project_db(connection,schema,{})
                     Path('schema.json').write_text(json.dumps({'state_schema':schema}))
                     break
                 except sqlite3.OperationalError: pass

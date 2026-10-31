@@ -21,6 +21,7 @@ from supervisor.processes import HOME, own
 DATA = HOME / '.local/share/launchpad'
 CONFIG = HOME / '.config/launchpad/config.toml'
 EXCLUDED = {'token', 'vapid.json', 'state.db', 'state.db-wal', 'state.db-shm', 'cache.db', 'cache.db-wal', 'cache.db-shm'}
+NATIVE_RUNTIME = {HOME/name for name in NATIVE}
 SKIP_DIRS = {'node_modules', 'target', '__pycache__', '.venv', '.cache', '.npm'}
 
 
@@ -49,7 +50,7 @@ def files_under(roots):
         elif root.is_dir():
             candidates = []
             for directory, dirs, names in os.walk(root, followlinks=False):
-                dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+                dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not (root in NATIVE_RUNTIME and d in ('tmp','debug','log','logs'))]
                 candidates.extend(Path(directory) / n for n in names)
                 candidates.extend(Path(directory) / d for d in dirs if (Path(directory)/d).is_symlink())
         else: continue
@@ -79,6 +80,7 @@ def roots():
                     if not path.is_absolute() or not path.is_relative_to(HOME):
                         raise ValueError('Profile credential roots must remain inside the agent home')
                     result.append(path)
+                    NATIVE_RUNTIME.add(path)
     classify_git(result)
     return result
 
@@ -130,7 +132,10 @@ def capture(approved, release, clean=False):
                         info = tarfile.TarInfo(name); info.size = native.stat().st_size; info.mode = 0o600
                         with native.open('rb') as f: tar.addfile(info, f)
                     elif not name.endswith(('-wal', '-shm')):
-                        tar.add(path, arcname=name, recursive=False)
+                        if path.is_symlink(): tar.add(path,arcname=name,recursive=False)
+                        else:
+                            info=tarfile.TarInfo(name); stat=path.stat();info.size=stat.st_size;info.mode=stat.st_mode & 0o777;info.mtime=stat.st_mtime
+                            with path.open('rb') as f: tar.addfile(info,f)
         ordinary['workspaces/home.tar.gz'] = archive.getvalue()
     ordinary['state/runtime.json'] = json.dumps({'format':1,'release':release,'at':time.time()}).encode()
     return ordinary, secrets

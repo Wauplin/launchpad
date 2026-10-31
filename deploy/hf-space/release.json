@@ -1,5 +1,12 @@
 {
   "adapter": "0.1.0",
   "launchpad": "source-build",
-  "tools": {"codex":"0.166.0","claude":"2.1.311","opencode":"1.18.35","gh":"2.100.0","hf":"2.0.0"}
+  "tools": {
+    "codex": "0.166.0",
+    "claude": "2.1.311",
+    "opencode": "1.18.35",
+    "gh": "2.100.0",
+    "hf": "2.0.0",
+    "uv": "0.13.6"
+  }
 }

@@ -31,7 +31,7 @@ class Runtime:
 
     async def start(self):
         self.configure()
-        self.process = await spawn('/usr/local/bin/launchpad','daemon')
+        self.process = await spawn('/usr/local/bin/launchpad','daemon',extra={'LAUNCHPAD_TRACE_BACKUP_BUCKET':self.deployment.bucket,'LAUNCHPAD_TRACE_BACKUP_PREFIX':'traces'})
         for _ in range(120):
             if self.process.returncode is not None: raise ValueError('Launchpad exited during startup; inspect the image and restored data')
             try:

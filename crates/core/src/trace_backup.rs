@@ -101,6 +101,12 @@ fn metadata(session: &crate::model::Session, workspace: &str, folder: &str) -> R
 pub(crate) async fn upload(app: &App) -> Result<()> {
     let config = app.config.get().trace_backup;
     if !config.enabled { return Ok(()); }
+    // A managed host can pin the destination for this process, including file-based config edits.
+    if let Ok(bucket) = std::env::var("LAUNCHPAD_TRACE_BACKUP_BUCKET") {
+        let prefix = std::env::var("LAUNCHPAD_TRACE_BACKUP_PREFIX").unwrap_or_default();
+        anyhow::ensure!(config.bucket == bucket && config.prefix == prefix,
+            "This host manages the trace destination; restore its configured bucket and prefix or restart through host setup");
+    }
     config.validate()?;
     let user = account(&app.env).await?;
     let bucket = if config.bucket.contains('/') { config.bucket.clone() } else { format!("{user}/{}", config.bucket) };

@@ -49,8 +49,10 @@ def prepare():
         own(config)
 
 
-async def spawn(*args, stdin=None, stdout=None):
-    return await asyncio.create_subprocess_exec(*args, cwd=HOME, env=environment(),
+async def spawn(*args, stdin=None, stdout=None, extra=None):
+    child_env=environment()
+    child_env.update(extra or {})
+    return await asyncio.create_subprocess_exec(*args, cwd=HOME, env=child_env,
         preexec_fn=demote, start_new_session=True, stdin=stdin or asyncio.subprocess.DEVNULL,
         stdout=stdout or asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.STDOUT)
 

@@ -62,7 +62,9 @@ def project_db(db, approved, secrets):
     for (table,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall():
         quote = lambda name: '"' + name.replace('"', '""') + '"'
         columns = [row[1] for row in db.execute(f'PRAGMA table_info({quote(table)})') if 'TEXT' in row[2].upper()]
+        if table in ('browser_device','push_subscription'): continue
         for column in columns:
+            if SENSITIVE.search(column): raise ValueError('A raw credential column needs an adapter projection before this schema can be backed up')
             for rowid, value in db.execute(f'SELECT rowid,{quote(column)} FROM {quote(table)} WHERE {quote(column)} IS NOT NULL').fetchall():
                 if not isinstance(value, str) or not value.lstrip().startswith(('{', '[')): continue
                 try: parsed = json.loads(value)

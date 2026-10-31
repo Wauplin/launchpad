@@ -113,7 +113,9 @@ async def serve():
         return response
 
     async def status(request):
-        data = dict(state,csrf=csrf,backup=recovery.status() if recovery else None,
+        import shutil
+        disk=shutil.disk_usage(HOME)
+        data = dict(state,csrf=csrf,disk={'free':disk.free,'total':disk.total},backup=recovery.status() if recovery else None,
                     login=logins.status(),maintenance=runtime.maintenance)
         data['update'] = updater.status() if updater else None
         return web.json_response(data)
@@ -136,6 +138,9 @@ async def serve():
                 await asyncio.to_thread(HfApi(token=token).create_bucket,deployment.bucket,private=True)
                 await asyncio.to_thread(HfApi(token=token).restart_space,deployment.space)
                 return web.json_response({'message':'Private bucket created. The Space is restarting to verify it.'})
+            if kind == 'generate-key':
+                if not state['needs_key']: raise ValueError('An encryption key is already configured')
+                return web.json_response({'backup_key':base64.b64encode(os.urandom(32)).decode()})
             if kind == 'bootstrap-key':
                 if not state['needs_key']: raise ValueError('An encryption key is already configured')
                 key = base64.b64encode(os.urandom(32)).decode()

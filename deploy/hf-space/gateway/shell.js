@@ -26,14 +26,14 @@ async function loadTools(){try{const value=await json('/_space/tools');checks=va
 async function refresh(){
  try{
   state=await json('/_space/status');el('settings').href=el('hub').href=state.settings;
-  el('startup-message').textContent=state.message;el('create-key').hidden=!state.needs_key;el('create-bucket').hidden=!state.needs_bucket;
+  el('startup-message').textContent=state.message;el('create-key').hidden=!state.needs_key;el('manual-key').hidden=!state.needs_key;el('create-bucket').hidden=!state.needs_bucket;
   el('title').textContent=state.needs_key?'Keep your credentials safe.':'Your Space is getting ready.';
   el('bar-status').textContent=state.ready?(state.backup?.error?'Backup delayed':'Recovery '+age(state.backup?.checkpoint_at)):'Startup paused';
   document.body.classList.toggle('ready',state.ready);
   if(state.ready&&!el('workspace').getAttribute('src')){lastRoute=route(new URLSearchParams(location.search).get('route')||'/agents');el('workspace').src=lastRoute;}
-  const runtime=state.policy?.runtime||{};el('hosting').textContent=`${runtime.hardware?.current||'Hardware reported by Hub'} · Sleep ${runtime.gcTimeout===-1?'off':runtime.gcTimeout?runtime.gcTimeout+'s':'setting in Hub'} · Startup verified ${age(state.policy?.checked_at)}`;
+  const runtime=state.policy?.runtime||{};el('hosting').textContent=`${runtime.hardware?.current||'Hardware reported by Hub'} · Sleep ${runtime.gcTimeout===-1?'off':runtime.gcTimeout?runtime.gcTimeout+'s':'setting in Hub'} · ${Math.round((state.disk?.free||0)/1073741824)} GiB free · Startup verified ${age(state.policy?.checked_at)}`;
   el('backup').textContent=state.backup?`${state.backup.error||'Automatic recovery is running.'} Checkpoint: ${age(state.backup.checkpoint_at)}. Credentials: ${age(state.backup.credentials_at)}.`:'Recovery starts after the backup key is configured.';
-  el('reconnect-panel').hidden=!state.backup?.reconnect;
+  el('reconnect-panel').hidden=!state.backup?.reconnect;el('reconnect-reason').textContent=state.backup?.reconnect_reason||'Credentials need attention.';
   el('version').textContent=`Launchpad ${(state.release.launchpad||'unknown').slice(0,12)} · Connector ${state.release.adapter||'unknown'}`;
   const update=state.update;el('update').hidden=!update?.candidate;el('rollback').hidden=!update?.rollback;
   el('update-status').textContent=update?.error||`Last release check: ${age(update?.checked_at)}`;
@@ -60,3 +60,6 @@ el('api-form').onsubmit=event=>{event.preventDefault();const key=el('api-key').v
 el('ssh-form').onsubmit=event=>{event.preventDefault();const private_key=el('ssh-private').value;el('ssh-private').value='';action('ssh-import',{private_key}).then(value=>{if(value?.public_key){el('public-key').hidden=false;el('public-key').textContent=value.public_key;}});};
 
 el('rotate-key').onclick=()=>action('rotate-key',{confirmed:true});
+
+el('generate-key').onclick=async()=>{const value=await action('generate-key');if(value?.backup_key){el('backup-key').value=value.backup_key;el('generated-key').hidden=false;}};
+el('copy-key').onclick=()=>navigator.clipboard.writeText(el('backup-key').value).then(()=>toast('Key copied. Save it as LP_SPACE_BACKUP_KEY in Hub Secrets.')).catch(()=>toast('Clipboard unavailable. Select the generated value and copy it.'));

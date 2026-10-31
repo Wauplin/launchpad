@@ -33,6 +33,7 @@ jobs:
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           image=ghcr.io/wauplin/launchpad-hf-space
           echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -42,6 +43,27 @@ jobs:
           python3 -m venv /tmp/space-release-env
           /tmp/space-release-env/bin/pip install -r deploy/hf-space/requirements.txt
           cd deploy/hf-space
-          /tmp/space-release-env/bin/python -m supervisor.package_release --image "$digest" --revision "$(git rev-parse HEAD)" --output /tmp/space-release
+          /tmp/space-release-env/bin/python -m supervisor.package_release --image "$digest" --revision "$(git rev-parse HEAD)" --notes "https://github.com/Wauplin/launchpad/releases/tag/$RELEASE_TAG" --output /tmp/space-release
           cd ../..
-          gh release upload "${{ github.event.release.tag_name }}" /tmp/space-release/* --clobber
+          gh release upload "$RELEASE_TAG" /tmp/space-release/* --clobber
+      - name: Refresh public duplicate template
+        if: github.event_name == 'release'
+        env:
+          HF_TOKEN: ${{ secrets.HF_SPACE_TEMPLATE_TOKEN }}
+          HF_SPACE_TEMPLATE: ${{ vars.HF_SPACE_TEMPLATE }}
+        run: |
+          if [ -z "$HF_TOKEN" ] || [ -z "$HF_SPACE_TEMPLATE" ]; then
+            echo "HF template publishing is not configured; the template zip remains a release asset."
+            exit 0
+          fi
+          /tmp/space-release-env/bin/python - <<'PY'
+          import os, tempfile, zipfile
+          from huggingface_hub import HfApi
+          api=HfApi(token=os.environ['HF_TOKEN'])
+          repo=os.environ['HF_SPACE_TEMPLATE']
+          api.create_repo(repo_id=repo, repo_type='space', space_sdk='docker', private=False, exist_ok=True)
+          with tempfile.TemporaryDirectory() as directory:
+              with zipfile.ZipFile('/tmp/space-release/hf-space-template.zip') as archive:
+                  archive.extractall(directory)
+              api.upload_folder(repo_id=repo, repo_type='space', folder_path=directory, commit_message='Update Launchpad duplicate template')
+          PY
