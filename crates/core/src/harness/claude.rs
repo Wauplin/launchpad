@@ -62,6 +62,8 @@ struct State {
     msg_blocks: HashMap<String, usize>,
     stopping: bool,
     turn_running: bool,
+    /// Native synthetic limit message, retained until the terminal result arrives.
+    quota_rejection: Option<String>,
     cwd: String,
     /// Cost this process has reported so far. `total_cost_usd` counts from its own start, so only
     /// the increase is added to the saved session total (which other writers, such as the title
@@ -211,7 +213,11 @@ impl LiveSession for ClaudeSession {
             let media_type = header.strip_prefix("data:").and_then(|h| h.strip_suffix(";base64")).context("invalid image media type")?;
             content.push(json!({"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}));
         }
-        self.state.lock().unwrap().turn_running = true;
+        {
+            let mut state = self.state.lock().unwrap();
+            state.turn_running = true;
+            state.quota_rejection = None;
+        }
         self.write(&json!({
             "type": "user",
             "uuid": client_id,
@@ -342,6 +348,15 @@ fn result_usage(us: &mut Usage, msg: &Value, cost_delta: Option<f64>) {
     }
 }
 
+fn quota_error(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    ["you've hit your limit", "you've hit your usage limit", "you've hit your weekly limit",
+        "you've hit your individual spend limit", "you've hit your organization spend limit",
+        "usage limit reached", "quota exceeded", "credit balance is too low",
+        "rate limit exceeded", "rate limit reached"]
+        .iter().any(|pattern| message.contains(pattern))
+}
+
 async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<ClaudeSession>, msg: &Value) {
     if unknown_model_cost(msg) { sink.root().update_usage(|u| { u.cost_unavailable = true; u.cost_usd = None; }).await; }
     match msg["type"].as_str().unwrap_or("") {
@@ -358,6 +373,10 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
         }
         "assistant" => {
             let m = &msg["message"];
+            if matches!(msg["error"].as_str(), Some("rate_limit" | "billing_error")) {
+                let text = text_of(&m["content"]);
+                st.lock().unwrap().quota_rejection = Some(text);
+            }
             let msg_id = m["id"].as_str().unwrap_or("");
             if let Some(model) = m["model"].as_str() {
                 sink.set_model(model).await;
@@ -423,7 +442,10 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
             } else {
                 None
             };
-            let interrupted = msg["subtype"] == "error_during_execution";
+            let rejection = st.lock().unwrap().quota_rejection.take()
+                .or_else(|| error.as_ref().filter(|e| quota_error(e)).cloned());
+            let error = if rejection.is_some() { None } else { error };
+            let interrupted = rejection.is_some() || msg["subtype"] == "error_during_execution";
             sink.emit(EventBody::TurnEnd { duration_ms: msg["duration_ms"].as_i64(), interrupted, error: error.clone() }).await;
             // Only the increase since this process last reported is new spending.
             let reported = msg["total_cost_usd"].as_f64().filter(|c| c.is_finite() && *c >= 0.0);
@@ -446,6 +468,10 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
             .await;
             let background = { let state = st.lock().unwrap(); !state.background.is_empty() || agents_busy(&state) };
             if !st.lock().unwrap().questions.is_empty() {
+                return;
+            }
+            if let Some(message) = rejection {
+                sink.quota_rejected(&message).await;
                 return;
             }
             sink.set_status(if error.is_some() { SessionStatus::Error }

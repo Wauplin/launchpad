@@ -49,6 +49,10 @@ The middleware holds a per-operation-ID lock through dispatch and durable comple
 
 Validation for group 1: all 89 Rust tests, all 11 browser operation tests on Node 24.14.1, UI typecheck/build and `git diff --check` passed. Regression coverage includes independent operation IDs, background shutdown ownership, commands retained across turns and an escaped setup descendant retaining an output pipe. Live SSH reconnection and GitHub publication were not exercised.
 
+## Provider quota rejections
+
+Claude terminal quota and billing rejections (including individual spend limits) end as Quota paused, with the provider's explanation preserved, rather than Failed. These limits can be separate from the monitored 5-hour and weekly windows, so available usage meters do not automatically retry a rejected turn. The owner can retry with subscription only, resume with paid usage, or stop the pause. Manual retries send a continuation asking the agent to inspect current state before repeating actions. Monitor-triggered included-quota pauses retain their normal automatic continuation behavior. A rejection received while a continuation is being sent must survive the send completing.
+
 ## Automatic model capacity retries
 
 A terminal session failure whose latest provider error says the model is at capacity or overloaded schedules the same continuation as the owner's Resume action. Tool failures, quota/rate limits, authentication and other errors do not qualify. `CAPACITY_RETRY_DELAY_MS` in `sessions.rs` sets the five-minute delay; `MAX_CAPACITY_RETRIES` caps automatic attempts at five over the session's lifetime. Manual input does not replenish this allowance.

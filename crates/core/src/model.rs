@@ -605,7 +605,7 @@ pub struct QuotaPause {
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum QuotaPausePhase { Pausing, Paused, Resuming, NeedsAttention }
+pub enum QuotaPausePhase { Pausing, Paused, Resuming, NeedsAttention, ProviderLimited }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct QuotaBlock {

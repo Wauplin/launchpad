@@ -1200,7 +1200,9 @@ impl Sessions {
                 self.update(app, &s.id, |s| { if let Some(p) = &mut s.quota_pause { p.phase = QuotaPausePhase::Pausing; } }).await?;
                 if let Some(l) = self.live(&s.id) { let _ = l.interrupt().await; }
             }
-            if matches!(p.phase, QuotaPausePhase::NeedsAttention | QuotaPausePhase::Resuming) { continue; }
+            // A provider's spending/billing limit is independent of the included-quota
+            // meters. Its explanation stays visible and only an owner retry can clear it.
+            if matches!(p.phase, QuotaPausePhase::NeedsAttention | QuotaPausePhase::Resuming | QuotaPausePhase::ProviderLimited) { continue; }
             if self.live(&s.id).is_some_and(|l| !l.ready_for_turn()) { continue; }
             if p.phase == QuotaPausePhase::Pausing {
                 self.update(app, &s.id, |s| { if let Some(p) = &mut s.quota_pause { p.phase = QuotaPausePhase::Paused; } }).await?;
@@ -1372,7 +1374,7 @@ impl Sessions {
         ensure_budget(app, &s)?;
         anyhow::ensure!(!s.open_question && self.live(id).is_none_or(|l| l.ready_for_turn()), "Wait for the interrupted turn and outstanding commands to finish.");
         if manual {
-            anyhow::ensure!(p.phase == QuotaPausePhase::Paused, "Wait for the interrupted turn to finish; a claimed continuation needs inspection before retrying.");
+            anyhow::ensure!(matches!(p.phase, QuotaPausePhase::Paused | QuotaPausePhase::ProviderLimited), "Wait for the interrupted turn to finish; a claimed continuation needs inspection before retrying.");
             anyhow::ensure!(!s.launch_spec.allow_paid_usage, "Paid usage is already allowed for this session.");
         } else if !paid {
             anyhow::ensure!(p.phase == QuotaPausePhase::Paused && {
@@ -1411,8 +1413,11 @@ impl Sessions {
         }.await;
         match result {
             Ok(()) => {
-                let resumed = self.update(app, id, |s| s.quota_pause = None).await?;
-                if !paid && !manual && !fallback && !self.is_watched(id) {
+                let resumed = self.update(app, id, |s| {
+                    // A fast provider rejection may already have paused this new turn.
+                    if s.quota_pause.as_ref().is_some_and(|p| p.phase == QuotaPausePhase::Resuming) { s.quota_pause = None; }
+                }).await?;
+                if resumed.quota_pause.is_none() && !paid && !manual && !fallback && !self.is_watched(id) {
                     crate::notify::session(app, &resumed, crate::notify::SessionNotification::QuotaResumed);
                 }
                 Ok(())
@@ -2126,6 +2131,34 @@ impl Sink {
     pub async fn fail(&self, message: &str) {
         self.emit(EventBody::Error { message: message.to_string() }).await;
         self.set_status(SessionStatus::Error).await;
+    }
+
+    /// A terminal provider limit is a recoverable pause, even when the usage monitor
+    /// still reports capacity (individual/organization spending limits are separate).
+    pub async fn quota_rejected(&self, message: &str) {
+        self.emit(EventBody::Notice { text: format!("Provider quota limit reached: {message}") }).await;
+        if self.agent_id.is_some() {
+            self.set_status(SessionStatus::Interrupted).await;
+            return;
+        }
+        if self.instance != 0 && self.sessions.inner.live.lock().unwrap().get(&self.id).is_none_or(|(instance, _)| *instance != self.instance) { return; }
+        if self.sessions.inner.quota_stops.lock().unwrap().contains(&self.id) { return; }
+        if self.stop_requested() {
+            self.set_status(SessionStatus::Stopped).await;
+            return;
+        }
+        let _ = self.sessions.update(&self.app, &self.id, |s| {
+            // This turn's input was delivered. Retry with a continuation, rather
+            // than replaying a previously held prompt or its attachments.
+            s.quota_pause = Some(QuotaPause {
+                phase: QuotaPausePhase::ProviderLimited,
+                blockers: crate::quota::blockers(&self.app, s.harness, &s.launch_spec),
+                message: "Continue the interrupted task from where you stopped; check the current state before repeating actions.".into(),
+                images: vec![], client_id: None, error: Some(message.to_string()),
+            });
+            s.capacity_retry_at = None;
+        }).await;
+        self.set_status(SessionStatus::QuotaPaused).await;
     }
 
     pub async fn exited(&self, error: Option<String>) {
