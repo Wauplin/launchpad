@@ -57,3 +57,28 @@ async def import_ssh(private):
         return value
     finally:
         temporary.unlink(missing_ok=True);public.unlink(missing_ok=True)
+
+
+async def hf_profile(runtime,token):
+    """Reuse core's HF provider template instead of copying harness-specific setup."""
+    url='https://router.huggingface.co/v1/models'
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+            async with session.get(url,headers={'Authorization':f'Bearer {token}'}) as response:
+                if response.status!=200: raise ValueError('HF token saved, but model access could not be verified. Enable Inference Providers permission and retry.')
+                catalog=await response.json()
+                if not catalog.get('data'): raise ValueError('HF token saved; no inference models are currently available for this account.')
+    except aiohttp.ClientError: raise ValueError('HF token saved, but the model catalog is unavailable. Retry profile creation later.') from None
+    config=(await runtime.api('GET','/api/config'))['config']
+    profiles=config.setdefault('profiles',[])
+    if any(p.get('models_url')==url for p in profiles): return
+    descriptors=await runtime.api('GET','/api/harnesses')
+    selected=next(((h,t) for h in descriptors for t in h['profile_templates'] if t.get('models_url')==url),None)
+    if not selected: raise ValueError('This Launchpad release has no HF provider template. Use native OpenCode authorization with Hugging Face instead.')
+    harness,template=selected
+    profile_id=next((f'hf-{i}' for i in range(1,1000) if all(p['id']!=f'hf-{i}' for p in profiles)),None)
+    if not profile_id: raise ValueError('Too many profiles')
+    profiles.append({'id':profile_id,'name':'Hugging Face','harness':harness['id'],
+        'env':dict(template['env']),'billing':template['billing'],'models_url':template['models_url'],
+        'spend_limits':[],'send_credentials':False})
+    await runtime.api('PUT','/api/config',config)

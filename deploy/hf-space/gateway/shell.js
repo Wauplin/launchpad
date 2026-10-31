@@ -46,7 +46,7 @@ async function refresh(){
 el('open-controls').onclick=()=>{el('controls').showModal();if(state?.ready)loadTools();};el('close-controls').onclick=()=>el('controls').close();
 el('create-bucket').onclick=()=>action('create-bucket');el('retry').onclick=refresh;el('create-key').onclick=()=>action('bootstrap-key');el('check-tools').onclick=loadTools;
 document.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>available?el('controls').close():action(button.dataset.action));
-el('hf-form').onsubmit=event=>{event.preventDefault();const token=el('hf-token').value;el('hf-token').value='';action('hf-token',{token}).then(()=>loadTools());};
+el('hf-form').onsubmit=event=>{event.preventDefault();const token=el('hf-token').value;el('hf-token').value='';action('hf-token',{token,create_profile:el('hf-profile').checked}).then(()=>loadTools());};
 el('login-form').onsubmit=event=>{event.preventDefault();const value=el('login-input').value;el('login-input').value='';action('login-input',{value});};
 el('ssh').onclick=async()=>{const value=await action('ssh-key');if(value?.public_key){el('public-key').hidden=false;el('public-key').textContent=(value.fingerprint?value.fingerprint+'\n':'')+value.public_key;publicKey=value.public_key;el('copy-public').hidden=false;}};
 el('confirm-rollback').onclick=()=>action('rollback',{confirmed:true});
@@ -65,3 +65,5 @@ el('generate-key').onclick=async()=>{const value=await action('generate-key');if
 el('copy-key').onclick=()=>navigator.clipboard.writeText(el('backup-key').value).then(()=>toast('Key copied. Save it as LP_SPACE_BACKUP_KEY in Hub Secrets.')).catch(()=>toast('Clipboard unavailable. Select the generated value and copy it.'));
 
 el('copy-public').onclick=()=>navigator.clipboard.writeText(publicKey||'').then(()=>toast('Public key copied')).catch(()=>toast('Select the public key above and copy it.'));
+
+el('open-hf').onclick=()=>{el('hf-connection').open=true;el('hf-token').focus();};

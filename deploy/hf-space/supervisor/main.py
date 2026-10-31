@@ -165,6 +165,9 @@ async def serve():
                 try: await asyncio.to_thread(HfApi(token=value).whoami)
                 except Exception: raise ValueError('HF could not verify that token') from None
                 atomic(HOME/'.cache/huggingface/token',value.encode())
+                if body.get('create_profile') is True:
+                    from providers.keys import hf_profile
+                    await hf_profile(runtime,value)
                 await recovery.credentials()
             elif kind == 'api-key':
                 if body.get('paid') is not True: raise ValueError('Confirm that API usage is billed separately')

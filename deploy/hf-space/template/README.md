@@ -17,7 +17,7 @@ A personal coding-agent machine you can open from any browser. All visitors admi
 1. Make this Space **Private**. The owner's temporary connector policy also accepts Protected; protected apps may be publicly accessible.
 2. In Settings → Secrets, add `LP_SPACE_MANAGEMENT_TOKEN`: an HF token with access to this Space, its settings/secrets and your backup bucket. Keep this separate from the HF token your agents will use.
 3. Open the app. It offers to create a private backup bucket (defaults to the same namespace/name as this Space) and protect credentials with a new `LP_SPACE_BACKUP_KEY` Secret. These owner-clicked steps restart the Space. Existing bucket visibility is never changed.
-4. Connect Codex, Claude Code or OpenCode using its authorization instructions. Create its profile, then open Launchpad to add or clone a folder. GitHub and the other tools can be connected later in Space controls.
+4. **Connect Hugging Face** creates an HF inference profile from your agent token (Inference Providers permission required; usage is billed through HF), so another chat subscription is optional. Or connect Codex, Claude Code or OpenCode using its authorization instructions. Create its profile, then open Launchpad to add or clone a folder. GitHub and the other tools can be connected later in Space controls.
 
 For an existing bucket, set Variable `LP_SPACE_BUCKET=namespace/name` before starting. Choose a dedicated private bucket per installation. Backups use `backups/`, `credentials/` and `traces/`. Connect a separate HF agent token to enable the existing trace exporter. You can browse native trace files directly in the private bucket.
 

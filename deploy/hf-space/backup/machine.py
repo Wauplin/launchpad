@@ -69,6 +69,7 @@ def roots():
             for (value,) in db.execute('SELECT path FROM project'):
                 path = Path(value)
                 if path.is_absolute():
+                    if path == HOME: raise ValueError('Register a dedicated folder rather than the whole agent home')
                     if not path.is_relative_to(HOME): raise ValueError('Move local folders inside /home/agent before backing up this machine')
                     result.append(path)
     if CONFIG.exists():
@@ -112,6 +113,7 @@ def credential_bytes(path):
 def capture(approved, release, clean=False):
     secrets = {'references': {}, 'files': {}, 'present': []}
     credential_stats={}
+    sources=roots()
     ordinary = {}
     with tempfile.TemporaryDirectory() as directory:
         state = Path(directory)/'state.db'
@@ -125,7 +127,7 @@ def capture(approved, release, clean=False):
         if CONFIG.exists(): ordinary['config/config.toml'] = config_split(CONFIG.read_text(), secrets['references'])
         archive = io.BytesIO()
         with tarfile.open(fileobj=archive, mode='w:gz', dereference=False) as tar:
-            for name, path in files_under(roots()):
+            for name, path in files_under(sources):
                 if clean and '.git' in Path(name).parts and (path.name.endswith('.lock') or any(part in ('MERGE_HEAD','CHERRY_PICK_HEAD','rebase-merge','rebase-apply') for part in Path(name).parts)):
                     raise ValueError('A Git operation is in progress; finish it before maintenance')
                 if path.parent == DATA and path.name in EXCLUDED: continue
@@ -152,7 +154,7 @@ def capture(approved, release, clean=False):
                             with path.open('rb') as f: tar.addfile(info,f)
         if any(signature(path)!=value for path,value in credential_stats.items()): raise ValueError('Credentials changed during checkpoint; retry shortly')
         ordinary['workspaces/home.tar.gz'] = archive.getvalue()
-    ordinary['state/runtime.json'] = json.dumps({'format':1,'release':release,'at':time.time()}).encode()
+    ordinary['state/runtime.json'] = json.dumps({'format':1,'release':release,'at':time.time(),'directories':[str(path.relative_to(HOME)) for path in sources if path.is_dir() and path != HOME]}).encode()
     return ordinary, secrets
 
 
@@ -170,12 +172,15 @@ def credential_snapshot():
     return files
 
 
-def unpack(data):
+def unpack(data, directories):
     # Validate ALL members before writing; never use extractall.
     with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as tar:
         members = tar.getmembers()
         for member in members:
             safe_name(member.name)
+            if not any(member.name.startswith(root+'/') for root in directories): raise ValueError('Unregistered archive destination')
+            if credential(member.name): raise ValueError('Credential file found in an ordinary archive')
+            if Path(member.name).parent == DATA.relative_to(HOME) and Path(member.name).name in EXCLUDED: raise ValueError('Control state found in an ordinary archive')
             destination = HOME/member.name
             if not destination.resolve().is_relative_to(HOME): raise ValueError('Unsafe archive destination')
             if member.issym():
@@ -199,7 +204,10 @@ def unpack(data):
 
 
 def restore(files, payload, lost_key=False):
-    unpack(files['workspaces/home.tar.gz'])
+    metadata=json.loads(files['state/runtime.json'])
+    directories=metadata['directories']
+    for directory in directories: safe_name(directory)
+    unpack(files['workspaces/home.tar.gz'],directories)
     for name in ('state.db', 'cache.db'):
         if 'state/'+name in files:
             atomic(DATA/name, files['state/'+name])
