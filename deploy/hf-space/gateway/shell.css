@@ -139,7 +139,7 @@ label { display: block; font-size: 12px; font-weight: 600; color: var(--ink-2); 
 .bar-brand { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 13px; color: var(--ink); text-decoration: none; }
 .bar-space { color: var(--ink-2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .bar-button { margin-left: auto; }
-.bar-button { min-height: 28px; padding: 3px 10px; font-size: 12px; font-weight: 600; background: transparent; border-color: transparent; color: var(--ink-2); }
+.bar-button { min-height: 26px; padding: 2px 10px; font-size: 12px; font-weight: 600; background: var(--paper); border-color: var(--line); color: var(--ink); }
 .bar-button:hover { background: var(--sunk); }
 .chip {
   min-height: 24px; padding: 1px 9px; font-size: 12px; font-weight: 500;

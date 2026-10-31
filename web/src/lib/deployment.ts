@@ -22,3 +22,14 @@ export function connectionSetup(profile: string): string | null {
   url.searchParams.set("route", location.pathname + location.search + location.hash);
   return url.pathname + url.search;
 }
+
+/** Opens the host's settings panel. Inside the Space shell (our parent frame) this asks it to open its drawer;
+ * a `target="_top"` link would try to navigate the Hub page that embeds the Space, which browsers block. */
+export function openSpaceSettings(profile?: string) {
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: "launchpad-space-settings", profile: profile ?? null }, location.origin);
+    return;
+  }
+  const url = profile ? connectionSetup(profile) : setupUrl;
+  if (url) location.assign(url);
+}

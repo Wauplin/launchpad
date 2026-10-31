@@ -6,6 +6,8 @@
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
+// A profile that needs a sign-in: from the URL, or sent by the app ("Sign in from Space settings").
+let requestedProfile = params.get("profile");
 
 const TOKEN_URL = "https://huggingface.co/settings/tokens/new?tokenType=write";
 const TOOLS = {
@@ -456,7 +458,7 @@ function connectFlow(tool, primary = false) {
   if (tool === "huggingface") return hfForm(primary);
   const login = state.login || {};
   const mine = login.tool === tool;
-  const profile = connections?.profiles.find((p) => p.id === (mine ? login.profile : params.get("profile")));
+  const profile = connections?.profiles.find((p) => p.id === (mine ? login.profile : requestedProfile));
   const title = `Sign in to ${info.name}${profile ? ` for profile ${profile.name}` : ""}`;
   if (!mine) {
     const start = h("button", { type: "button", class: primary ? "primary" : "" }, `Sign in to ${info.name}`);
@@ -620,7 +622,7 @@ function renderPanel() {
 
 function accountsSection() {
   const login = state.login || {};
-  const wanted = params.get("profile");
+  const wanted = requestedProfile;
   const rows = (connections?.connections || []).map((c) => {
     const info = TOOLS[c.id];
     const button = h("button", { type: "button", class: "small" }, c.connected ? "Reconnect" : "Connect");
@@ -761,8 +763,12 @@ function syncRoute(route) {
 }
 
 window.addEventListener("message", (event) => {
-  if (event.origin !== location.origin || event.source !== $("app").contentWindow || event.data?.type !== "launchpad-route") return;
-  syncRoute(event.data.route);
+  if (event.origin !== location.origin || event.source !== $("app").contentWindow) return;
+  if (event.data?.type === "launchpad-route") syncRoute(event.data.route);
+  if (event.data?.type === "launchpad-space-settings") {
+    requestedProfile = typeof event.data.profile === "string" ? event.data.profile : null;
+    openPanel();
+  }
 });
 $("app").addEventListener("load", () => {
   try { syncRoute($("app").contentWindow.location.href); } catch { /* Cross-origin pages are not ours. */ }
