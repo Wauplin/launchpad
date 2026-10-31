@@ -26,6 +26,10 @@ Real image, real private throwaway Space and bucket on the owner's account, TLS 
 
 No real provider sign-in was completed, no HF agent token was connected (trace export was not exercised), and no update or rollback ran. The throwaway Space and bucket were deleted afterwards.
 
+## Deployed check (2026-10-31)
+
+Deployed privately as `Wauplin/launchpad` (built from source). Fixed after owner feedback: the GitHub step of the finish page never showed its terminal (and a second click failed); Space settings stopped updating while the sign-in terminal had focus. gh's two default prompts are now answered automatically, so GitHub sign-in shows only Open sign-in page and the one-time code (checked live, then cancelled). Setup pages and Space settings have a Text size control (100–150%) that shares `launchpad-zoom` with the app, which follows live.
+
 ## Still required before publishing
 
 - Make the release channel public: `Wauplin/launchpad` is private, so the manifest and GHCR image in `release.json` cannot be read by duplicated Spaces. Either publish the repository and its GHCR package or point `channel` elsewhere, then cut a release.
