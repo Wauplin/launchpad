@@ -605,7 +605,9 @@ function openPanel() {
 function renderPanel() {
   // Rebuilding while a form has focus would drop typed text; skip until focus leaves.
   const active = document.activeElement;
-  if (active && $("panel").contains(active) && /INPUT|TEXTAREA|SELECT/.test(active.tagName)) return;
+  // The sign-in terminal's hidden textarea is not a form field: keep updating around it.
+  if (active && $("panel").contains(active) && /INPUT|TEXTAREA|SELECT/.test(active.tagName)
+      && !active.classList.contains("xterm-helper-textarea")) return;
   const login = state.login || {};
   const key = JSON.stringify([state.stage, state.backup, state.update, state.maintenance, connections, login, Math.floor(Date.now() / 30000)]);
   if (key === lastPanelRender) return;
