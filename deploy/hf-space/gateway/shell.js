@@ -35,7 +35,7 @@ async function refresh(){
   el('backup').textContent=state.backup?`${state.backup.error||'Automatic recovery is running.'} Checkpoint: ${age(state.backup.checkpoint_at)}. Credentials: ${age(state.backup.credentials_at)}.`:'Recovery starts after the backup key is configured.';
   el('reconnect-panel').hidden=!state.backup?.reconnect;el('reconnect-reason').textContent=state.backup?.reconnect_reason||'Credentials need attention.';
   el('version').textContent=`Launchpad ${(state.release.launchpad||'unknown').slice(0,12)} · Connector ${state.release.adapter||'unknown'}`;
-  const update=state.update;el('update').hidden=!update?.candidate;el('rollback').hidden=!update?.rollback;
+  const update=state.update;el('image-details').textContent=`Installed: ${update?.installed?.image||'Local source image'}\nCandidate: ${update?.candidate?.image||'None checked'}\n${update?.candidate?.database||'Updates require a matching clean recovery checkpoint.'}`;el('update').hidden=!update?.candidate;el('rollback').hidden=!update?.rollback;
   el('update-status').textContent=update?.error||`Last release check: ${age(update?.checked_at)}`;
   if(update?.candidate){el('candidate').textContent=`Available: Launchpad ${update.candidate.launchpad.slice(0,12)} · Connector ${update.candidate.adapter}`;el('tool-changes').textContent=Object.entries(update.candidate.tools).map(([k,v])=>`${k}: ${state.release.tools?.[k]||'—'} → ${v}`).join('\n');const notes=update.candidate.notes;el('release-notes').href=typeof notes==='string'&&notes.startsWith('https://github.com/Wauplin/launchpad/')?notes:'https://github.com/Wauplin/launchpad/releases';}
   const login=state.login;if(login?.result==='completed'&&lastLoginResult!=='completed'&&el('controls').open)void loadTools();lastLoginResult=login?.result;el('login-panel').hidden=!login?.tool;
@@ -45,7 +45,7 @@ async function refresh(){
 }
 el('open-controls').onclick=()=>{el('controls').showModal();if(state?.ready)loadTools();};el('close-controls').onclick=()=>el('controls').close();
 el('create-bucket').onclick=()=>action('create-bucket');el('retry').onclick=refresh;el('create-key').onclick=()=>action('bootstrap-key');el('check-tools').onclick=loadTools;
-document.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>available?el('controls').close():action(button.dataset.action));
+document.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>available?el('controls').close():action(button.dataset.action,button.dataset.action==='prepare-update'?{image:state.update?.candidate?.image}:{}));
 el('hf-form').onsubmit=event=>{event.preventDefault();const token=el('hf-token').value;el('hf-token').value='';action('hf-token',{token,create_profile:el('hf-profile').checked}).then(()=>loadTools());};
 el('login-form').onsubmit=event=>{event.preventDefault();const value=el('login-input').value;el('login-input').value='';action('login-input',{value});};
 el('ssh').onclick=async()=>{const value=await action('ssh-key');if(value?.public_key){el('public-key').hidden=false;el('public-key').textContent=(value.fingerprint?value.fingerprint+'\n':'')+value.public_key;publicKey=value.public_key;el('copy-public').hidden=false;}};

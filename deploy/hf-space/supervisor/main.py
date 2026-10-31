@@ -192,6 +192,7 @@ async def serve():
                 if harness not in ('codex','claude','opencode'): raise ValueError('Choose an agent tool')
                 await runtime.api('POST','/api/setup/profile-from-login',{'harness':harness})
                 await recovery.credentials()
+            elif kind == 'check-updates': await updater.check()
             elif kind == 'backup': await recovery.checkpoint()
             elif kind == 'reconnect':
                 recovery.reconnect = False
@@ -211,7 +212,7 @@ async def serve():
                         from vault.rotate import rotate
                         await rotate(recovery,HfApi(token=token),deployment.space)
                         await asyncio.to_thread(HfApi(token=token).restart_space,deployment.space)
-                    elif kind == 'prepare-update': await updater.apply(checkpoint)
+                    elif kind == 'prepare-update': await updater.apply(checkpoint,body.get('image'))
                     elif kind == 'rollback': await updater.rollback(body.get('confirmed') is True)
                     else: await asyncio.to_thread(HfApi(token=token).restart_space,deployment.space)
                 except Exception as error:

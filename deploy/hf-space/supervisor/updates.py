@@ -68,9 +68,10 @@ class Updates:
         path = await asyncio.to_thread(hf_hub_download,self.deployment.space,name,repo_type='space',token=self.api.token,force_download=True)
         return Path(path).read_text()
 
-    async def apply(self,checkpoint):
+    async def apply(self,checkpoint,expected):
         await self.check()
         if not self.candidate: raise ValueError('No newer release is available')
+        if expected != self.candidate['image']: raise ValueError('The available release changed. Review the new candidate before updating.')
         head = await asyncio.to_thread(self.api.space_info,self.deployment.space)
         previous = await self.read_file('Dockerfile')
         image = self.installed.get('image')
