@@ -376,7 +376,8 @@ async fn main() -> Result<()> {
             body["kind"] = serde_json::Value::String(kind);
             let session_id = session_id.or_else(|| std::env::var("LAUNCHPAD_SESSION_ID").ok());
             let created = Client::new(&paths)?.json("POST", "/api/proposals", Some(serde_json::json!({"title": title, "note": note, "replaces": replaces, "body": body, "session_id": session_id}))).await?;
-            println!("Proposal {} saved. The owner starts it from the Ask page.", created["id"].as_str().unwrap_or("?"));
+            println!("Proposal {} saved (state: {}).", created["id"].as_str().unwrap_or("?"), created["state"].as_str().unwrap_or("unknown"));
+            if let Some(error) = created["error"].as_str() { println!("Error: {error}"); }
             Ok(())
         }
         Command::Trace { session_id, through } => {

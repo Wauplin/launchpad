@@ -42,6 +42,8 @@ pub struct Assistant {
     pub profile: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// Automatically accept new actionable proposals from assistant threads.
+    pub auto_mode: bool,
 }
 
 /// Network front door. File edits require restart; pairing can apply verified HTTPS live.

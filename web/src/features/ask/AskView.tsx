@@ -41,12 +41,16 @@ function useAssistant() {
 function AssistantOptions({ close }: { close: () => void }) {
   const qc = useQueryClient();
   const { profiles, current, models, model } = useAssistant();
-  const save = async (patch: Record<string, string>) => {
+  const auto = useConfig().data?.config.assistant.auto_mode ?? false;
+  const save = async (patch: Record<string, string | boolean>) => {
     close();
-    try { qc.setQueryData(["config"], await api.patch<ConfigResponse>("/api/config", patch)); toast("The next thread uses it"); } catch (e) { toastError(e); }
+    try { qc.setQueryData(["config"], await api.patch<ConfigResponse>("/api/config", patch)); toast("Ask settings saved"); } catch (e) { toastError(e); }
   };
   return <>
-    <div className="seclabel px-2 pt-1 pb-0.5">Assistant profile (new threads)</div>
+    <div className="seclabel px-2 pt-1 pb-0.5">Proposal mode</div>
+    <MenuItem label="Manual" detail="Review each proposal before it starts" active={!auto} onClick={() => void save({ assistant_auto_mode: false })} />
+    <MenuItem label="Auto" detail="New proposals start immediately, including messages and crons" active={auto} onClick={() => void save({ assistant_auto_mode: true })} />
+    <div className="seclabel border-t border-line-2 px-2 pt-2 pb-0.5">Assistant profile (new threads)</div>
     {profiles.map((p) => <MenuItem key={p.id} label={p.name} detail={p.billing === "pay_as_you_go" ? "Pay as you go" : "Subscription"} active={p.id === current?.id} onClick={() => void save({ assistant_profile: p.id, assistant_model: "", assistant_effort: "" })} />)}
     <div className="seclabel border-t border-line-2 px-2 pt-2 pb-0.5">Model (a fast model keeps replies quick)</div>
     <MenuItem label={`Default${current?.model ? ` (${current.model})` : ""}`} detail={current ? `Default of ${current.name}` : undefined} active={!model} onClick={() => void save({ assistant_model: "", assistant_effort: "" })} />
@@ -60,9 +64,10 @@ function AssistantOptions({ close }: { close: () => void }) {
 
 function AssistantSettings() {
   const { current, modelName } = useAssistant();
+  const auto = useConfig().data?.config.assistant.auto_mode ?? false;
   return (
     <Popover align="right" width={300} trigger={({ open, toggle }) => (
-      <button className="btn btn-sm max-w-[280px]" aria-expanded={open} title="The profile and model of the assistant (new threads)" onClick={toggle}>{current && <HarnessMark harness={current.harness} size={13} />}<span className="min-w-0 truncate">{current?.name ?? "No profile"}{modelName ? ` · ${modelName}` : ""}</span><Icon name="chev" size={11} className="shrink-0" /></button>
+      <button className="btn btn-sm max-w-[280px]" aria-expanded={open} title="The profile and model of the assistant (new threads)" onClick={toggle}>{current && <HarnessMark harness={current.harness} size={13} />}<span className="min-w-0 truncate">{current?.name ?? "No profile"}{modelName ? ` · ${modelName}` : ""} · {auto ? "Auto" : "Manual"}</span><Icon name="chev" size={11} className="shrink-0" /></button>
     )}>
       {(close) => <AssistantOptions close={close} />}
     </Popover>
@@ -72,10 +77,11 @@ function AssistantSettings() {
 /** Phone: one row with the Chat · Proposals tabs and a ⋯ menu (assistant model, New thread, composer). */
 function PhoneAskBar({ pane, setPane, waiting, thread, newThread }: { pane: "chat" | "cards"; setPane: (p: "chat" | "cards") => void; waiting: number; thread: boolean; newThread: () => void }) {
   const { current, modelName } = useAssistant();
+  const auto = useConfig().data?.config.assistant.auto_mode ?? false;
   return (
     <div className="flex shrink-0 items-center gap-1 border-b border-line px-3 pt-1">
       <Tabs className="min-w-0 flex-1" label="Ask views" value={pane} onChange={setPane} items={[{ id: "chat", label: "Chat" }, { id: "cards", label: "Proposals", count: waiting || undefined }]} />
-      <PhoneActions label="Ask Launchpad actions" closeOnAction={false} details={<p className="m-0 text-[12px] text-ink-3">Assistant: {current?.name ?? "no profile"}{modelName ? ` · ${modelName}` : ""}. Proposals start only when you tap them; nothing reaches GitHub.</p>}>
+      <PhoneActions label="Ask Launchpad actions" closeOnAction={false} details={<p className="m-0 text-[12px] text-ink-3">Assistant: {current?.name ?? "no profile"}{modelName ? ` · ${modelName}` : ""}. {auto ? "Auto mode: new proposals start immediately" : "Manual mode: proposals wait for your tap"}; nothing reaches GitHub.</p>}>
         {(close: () => void) => <>
           {thread && <MenuItem icon={<Icon name="plus" size={16} />} label="New thread" detail="Archive this thread; it stays resumable in Agents" onClick={() => { close(); newThread(); }} />}
           <MenuItem icon={<Icon name="play" size={16} />} label="Open the composer" detail="Launch an agent yourself" onClick={() => { close(); useComposer.getState().start(); }} />
@@ -128,6 +134,7 @@ function AskField({ onSend, busy, autoFocus, phone }: { onSend: (text: string, a
 
 export function AskView() {
   const phone = usePhone();
+  const auto = useConfig().data?.config.assistant.auto_mode ?? false;
   const qc = useQueryClient();
   const navigate = useNavigate();
   const workspace = useWorkspace((s) => s.current) ?? null;
@@ -190,7 +197,7 @@ export function AskView() {
     <PageHeader
       icon={<Icon name="spark" size={18} className="text-teal-ink" />}
       title="Ask Launchpad"
-      meta={<>{scope.workspace?.name ?? "Everything"} · proposals start only when you tap them · {needs} need you · {running} running</>}
+      meta={<>{scope.workspace?.name ?? "Everything"} · {auto ? "auto mode: new proposals start immediately" : "manual mode: proposals wait for your tap"} · {needs} need you · {running} running</>}
       actions={<>
         <AssistantSettings />
         {thread && <button className="btn btn-sm" title="Archive this thread and start a new one" onClick={() => void newThread()}><Icon name="plus" size={12} />New thread</button>}
@@ -214,14 +221,14 @@ export function AskView() {
     : phone
       // Phone: the intro at the top and the field above the bottom tabs, like the session message box.
       ? <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
-          <p className="m-0 text-[13px] text-ink-2">Describe work in plain words. The assistant reads your folders, agents, inbox and quotas, then proposes launches, messages, schedules and crons. Nothing starts until you tap it; nothing reaches GitHub.</p>
+          <p className="m-0 text-[13px] text-ink-2">Describe work in plain words. The assistant reads your folders, agents, inbox and quotas, then proposes launches, messages, schedules and crons. {auto ? "Auto mode starts new proposals immediately." : "Proposals wait for your tap."} Nothing reaches GitHub.</p>
           {resumePrevious}
           {busy && <Loading what="the assistant" />}
           <div className="mt-auto grid gap-2"><AskField phone onSend={ask} busy={busy} /></div>
         </div>
       : <div className="grid min-h-0 flex-1 place-items-center p-6">
         <div className="grid w-full max-w-[560px] gap-3">
-          <p className="m-0 text-[13px] text-ink-2">Describe work in plain words. The assistant reads your folders, agents, inbox and quotas, then proposes launches, messages, schedules and crons as cards. Nothing starts until you tap it; nothing reaches GitHub.</p>
+          <p className="m-0 text-[13px] text-ink-2">Describe work in plain words. The assistant reads your folders, agents, inbox and quotas, then proposes launches, messages, schedules and crons as cards. {auto ? "Auto mode starts new proposals immediately." : "Proposals wait for your tap."} Nothing reaches GitHub.</p>
           <AskField onSend={ask} busy={busy} autoFocus />
           {resumePrevious}
           {busy && <Loading what="the assistant" />}

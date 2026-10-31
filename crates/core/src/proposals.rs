@@ -1,4 +1,4 @@
-//! Ask Launchpad: inert proposals written by the assistant session, started only by an owner click.
+//! Ask Launchpad: proposals written by the assistant session, accepted manually or in auto mode.
 //! Like agent suggestions, the agent drafts and the owner publishes. Accepting claims the proposal
 //! durably before acting; a claim interrupted by a crash becomes Uncertain and is never retried
 //! automatically. Launches use the session ID chosen at proposal time, so a finished launch is found
@@ -112,13 +112,13 @@ pub async fn instruction(app: &App, workspace_id: Option<&str>, cli: &str) -> St
     let ws_arg = workspace_id.map(|id| format!(" --workspace {id}")).unwrap_or_default();
     let cmd = if cfg!(windows) { format!("$env:LAUNCHPAD_TOKEN='{token}'; {cli}") } else { format!("LAUNCHPAD_TOKEN={token} {cli}") };
     format!(
-        "You are Ask Launchpad, the owner's assistant inside Launchpad, scoped to {ws}. You turn requests into proposals that the owner starts with one tap. You never start agents, send messages, schedule, publish or post to GitHub yourself, and you do not edit files.\n\n\
+        "You are Ask Launchpad, the owner's assistant inside Launchpad, scoped to {ws}. You turn requests into proposals. Depending on the owner’s auto mode setting, actionable proposals may start immediately or wait for a tap. You never start agents, send messages, schedule, publish or post to GitHub yourself, and you do not edit files.\n\n\
 Read Launchpad state with these read-only commands (JSON output):\n\
 - `{cmd} folders list{ws_arg}`\n- `{cmd} sessions list{ws_arg}` and `{cmd} sessions show <session-id>`\n- `{cmd} profiles list` (profiles and the quota of each subscription login)\n- `{cmd} presets list`\n- `{cmd} inbox list{ws_arg}`\n- `{cmd} schedules list{ws_arg}`\n- `{cmd} proposals list{ws_arg}` (proposal ids, titles, states and contents)\n- `{cmd} trace <session-id>` for an agent's full trace\n\n\
 Write proposals with `{cmd} propose <launch|message|schedule|cron|status> --title \"…\" [--note \"…\"] [--replaces <proposal-id>] --spec-file <file.json>`. The JSON file holds:\n\
 - launch: {{\"spec\": <launch spec>}}\n- message: {{\"session_id\": \"…\", \"text\": \"…\"}}\n- schedule: {{\"spec\": <launch spec>, \"conditions\": [{{\"kind\": \"in\", \"minutes\": 30}} | {{\"kind\": \"at\", \"at\": <unix ms>}} | {{\"kind\": \"agents\", \"session_ids\": [\"…\"]}} | {{\"kind\": \"quota\", \"harness\": \"claude\", \"window\": \"five_hour\"}}]}}\n- cron: {{\"spec\": <launch spec>, \"schedule\": \"0 9 * * 1\", \"conditions\": []}}\n- status: {{\"session_ids\": [\"…\"]}}\n\
-A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"target\": {{\"kind\": \"project\", \"project_id\": \"<folder id>\"}} or {{\"kind\": \"temp\"}}, \"worktree\": {{\"base\": null, \"include_changes\": false, \"merge_when_done\": false}} for Git folders (null for the checkout), \"github_refs\": [], \"presets\": [<preset ids>]}}; other fields take their defaults. Launchpad validates each proposal with the launch preview and refuses invalid ones; read the error and fix the file. Paid usage stays off. Prefer one proposal per independent task, a message proposal to steer an existing agent, a status proposal to answer \"what needs me\", and a schedule with a quota condition for work that should wait for quota. Crons always need the owner's tap.\n\n\
-When refining an earlier waiting proposal, find it with `proposals list` and use `--replaces <proposal-id>` so only the refined card waits. Only proposed or failed cards in this workspace can be replaced; starting, started, dismissed, uncertain and already replaced cards cannot. Tell the owner which card was replaced. The note on the new card is optional.\n\nAnswer in short sentences. After proposing, tell the owner what each card does; they can accept it directly in the thread. Accepting a proposal keeps this thread open while other proposals from it remain unfinished. Accepting the last remaining proposal closes it; the next request starts fresh, and the owner can resume this conversation."
+A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"target\": {{\"kind\": \"project\", \"project_id\": \"<folder id>\"}} or {{\"kind\": \"temp\"}}, \"worktree\": {{\"base\": null, \"include_changes\": false, \"merge_when_done\": false}} for Git folders (null for the checkout), \"github_refs\": [], \"presets\": [<preset ids>]}}; other fields take their defaults. Launchpad validates each proposal with the launch preview and refuses invalid ones; read the error and fix the file. Paid usage stays off. Prefer one proposal per independent task, a message proposal to steer an existing agent, a status proposal to answer \"what needs me\", and a schedule with a quota condition for work that should wait for quota. When auto mode is enabled, actionable proposals, including crons, start immediately; otherwise they need the owner's tap.\n\n\
+When refining an earlier waiting proposal, find it with `proposals list` and use `--replaces <proposal-id>` so only the refined card waits. Only proposed or failed cards in this workspace can be replaced; starting, started, dismissed, uncertain and already replaced cards cannot. Tell the owner which card was replaced. The note on the new card is optional.\n\nAnswer in short sentences. After proposing, tell the owner what each card does and check its returned state. In manual mode they can accept it in the thread. Automatically accepted proposals keep the thread open; manual acceptance of the last unfinished proposal closes it."
     )
 }
 
@@ -193,6 +193,14 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     let stored = p.clone();
     app.state_db.call(move |db| store_created(db, &stored, c.replaces.as_deref())).await?;
     app.bus.publish("proposals", "changed", serde_json::to_value(&p)?);
+    drop(_lock);
+    // Only proposals authored by an assistant thread are eligible. Status cards are informational.
+    if app.config.get().assistant.auto_mode
+        && p.session_id.as_deref().and_then(|id| app.sessions.get(id)).is_some_and(|s| s.launch_spec.target.is_assistant())
+        && !matches!(p.body, ProposalBody::Status { .. })
+    {
+        return accept_inner(app, &p.id, false).await;
+    }
     Ok(p)
 }
 
@@ -219,11 +227,17 @@ static ACCEPT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Owner click: claim, act, record the result. `body` may replace the proposal's spec (edited in the card).
 pub async fn accept(app: &App, id: &str) -> Result<Proposal> {
+    accept_inner(app, id, true).await
+}
+
+async fn accept_inner(app: &App, id: &str, close_thread: bool) -> Result<Proposal> {
     let mut p = {
         let _lock = ACCEPT.lock().await;
         let mut p = get(app, id).await?;
         match p.state {
-            ProposalState::Proposed | ProposalState::Failed => {}
+            ProposalState::Proposed => {}
+            ProposalState::Failed if close_thread => {}
+            ProposalState::Failed => return Ok(p),
             ProposalState::Started => return Ok(p),
             ProposalState::Uncertain => bail!("Delivery not confirmed. Check Agents before starting a new attempt."),
             ProposalState::Starting => bail!("This proposal is already starting"),
@@ -267,7 +281,7 @@ pub async fn accept(app: &App, id: &str) -> Result<Proposal> {
     }
     p.updated_at = now_ms();
     save(app, &p).await?;
-    close_accepted_thread(app, &p).await?;
+    if close_thread { close_accepted_thread(app, &p).await?; }
     Ok(p)
 }
 
@@ -373,7 +387,7 @@ pub fn remember_model(app: &App, session: &crate::model::Session) -> Result<()> 
         return Ok(());
     }
     let mut config = app.config.get();
-    let next = crate::config::Assistant { profile: session.launch_spec.profile.clone(), model: session.model.clone(), effort: session.effort.clone() };
+    let next = crate::config::Assistant { profile: session.launch_spec.profile.clone(), model: session.model.clone(), effort: session.effort.clone(), auto_mode: config.assistant.auto_mode };
     if config.assistant == next {
         return Ok(());
     }

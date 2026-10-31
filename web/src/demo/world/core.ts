@@ -44,7 +44,7 @@ export function coreWorld() {
       { id: "codex-plus", name: "Codex · Plus", harness: "codex", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], send_credentials: false },
       { id: "opencode-router", name: "OpenCode · HF router", harness: "opencode", env: { OPENAI_API_KEY: "${HF_TOKEN}" }, model: "open-labs/open-coder-70b", effort: null, billing: "pay_as_you_go", budget_usd: null, models_url: "https://router.example.com/v1/models", spend_limits: [{ usd: 5, hours: 24 }], send_credentials: false },
     ],
-    assistant: { profile: null, model: null, effort: null },
+    assistant: { profile: null, model: null, effort: null, auto_mode: false },
   };
   const status: Status = {
     env: "demo",

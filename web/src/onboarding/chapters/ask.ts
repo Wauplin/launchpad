@@ -13,7 +13,7 @@ const proposal = () => world.proposals.find((p) => p.id === TODAY_PROPOSAL);
 
 export const ask: Chapter = {
   ...meta("ask"),
-  learned: ["Ask Launchpad keeps one thread per workspace and reads its state", "It answers with proposals: launches, messages, schedules and crons", "Nothing starts without your click; Edit sends a proposal to the composer"],
+  learned: ["Ask Launchpad keeps one thread per workspace and reads its state", "It answers with proposals: launches, messages, schedules and crons", "Manual mode waits for your click; auto mode starts new proposals; Edit sends a proposal to the composer"],
   setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {

@@ -72,6 +72,7 @@ struct GeneralPatch {
     assistant_profile: Option<String>,
     assistant_model: Option<String>,
     assistant_effort: Option<String>,
+    assistant_auto_mode: Option<bool>,
 }
 async fn patch_general_config(State(s): State<Server>, Json(patch): Json<GeneralPatch>) -> ApiResult<Value> {
     let mut config = s.app.config.get();
@@ -86,6 +87,7 @@ async fn patch_general_config(State(s): State<Server>, Json(patch): Json<General
     if let Some(value) = patch.assistant_profile { config.assistant.profile = Some(value).filter(|v| !v.is_empty()); }
     if let Some(value) = patch.assistant_model { config.assistant.model = Some(value).filter(|v| !v.is_empty()); }
     if let Some(value) = patch.assistant_effort { config.assistant.effort = Some(value).filter(|v| !v.is_empty()); }
+    if let Some(value) = patch.assistant_auto_mode { config.assistant.auto_mode = value; }
     if let Some(value) = patch.browser {
         if s.auth.remote() {
             return Err(crate::error::ApiError::bad_request("Edit [commands] in config.toml on the host"));
