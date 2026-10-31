@@ -1142,7 +1142,7 @@ impl Sessions {
         let client_id = uuid::Uuid::new_v4().to_string();
         self.update(app, id, |s| s.quota_pause = Some(QuotaPause {
             phase: QuotaPausePhase::Paused, blockers: crate::quota::blockers(app, s.harness, &s.launch_spec),
-            message: text.into(), images: images.clone(), client_id: Some(client_id.clone()), error: None,
+            message: text.into(), images: images.clone(), client_id: Some(client_id.clone()), error: None, messages: vec![],
         })).await?;
         let sink = self.sink(app, id);
         sink.emit(EventBody::UserMessage { text: text.into(), client_id, queued: true, images }).await;
@@ -1211,7 +1211,7 @@ impl Sessions {
                 if s.open_question { continue; }
                 self.update(app, &s.id, |s| s.quota_pause = Some(QuotaPause {
                     phase: QuotaPausePhase::Pausing, blockers, message: "Continue the interrupted task from where you stopped; check the current state before repeating actions.".into(),
-                    images: vec![], client_id: None, error: None,
+                    images: vec![], client_id: None, error: None, messages: vec![],
                 })).await?;
                 self.sink(app, &s.id).set_status(SessionStatus::QuotaPaused).await;
                 self.sink(app, &s.id).emit(EventBody::Notice { text: "Included quota exhausted. Pausing until quota is available; interruption is best effort and commands may still finish.".into() }).await;
@@ -1444,7 +1444,17 @@ impl Sessions {
             }
             sink.emit(EventBody::Notice { text: if paid { "Continuing with paid usage allowed" } else if fallback { "Last known 5-hour reset passed by one minute; retrying automatically with subscription-only protection while quota is unconfirmed. Paid credits may still be used if included quota is exhausted." } else if manual { "Continuing with subscription-only protection despite an unconfirmed quota reading; paid credits may still be used if the included quota is exhausted." } else { "Quota available; continuing automatically" }.into() }).await;
             sink.set_status(SessionStatus::Working).await;
-            live.send(&p.message, &client_id, &p.images).await?;
+            let mut text = p.message.clone();
+            let mut images = p.images.clone();
+            for message in &p.messages {
+                text.push_str("\n\n");
+                text.push_str(&message.text);
+                images.extend(message.images.iter().cloned());
+            }
+            live.send(&text, &client_id, &images).await?;
+            for message in &p.messages {
+                sink.emit(EventBody::MessageDelivered { client_id: message.client_id.clone() }).await;
+            }
             if p.client_id.is_some() { sink.emit(EventBody::MessageDelivered { client_id }).await; }
             Ok::<(), anyhow::Error>(())
         }.await;
@@ -1567,7 +1577,20 @@ impl Sessions {
         if s.status == SessionStatus::InTerminal {
             bail!("the session is open in a terminal: re-attach it first");
         }
-        anyhow::ensure!(s.quota_pause.is_none(), "This session is quota paused. Use a Resume button or Stop first.");
+        if let Some(pause) = &s.quota_pause {
+            anyhow::ensure!(matches!(pause.phase, QuotaPausePhase::Pausing | QuotaPausePhase::Paused | QuotaPausePhase::ProviderLimited),
+                "The quota continuation needs inspection or is already resuming. Wait or Stop before sending input.");
+            let client_id = client_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            self.update(app, id, |s| {
+                s.quota_pause.as_mut().unwrap().messages.push(QuotaMessage {
+                    text: text.into(), images: images.clone(), client_id: client_id.clone(),
+                });
+            }).await?;
+            self.sink(app, id).emit(EventBody::UserMessage {
+                text: text.into(), client_id, queued: true, images,
+            }).await;
+            return Ok(());
+        }
         ensure_budget(app, &s)?;
         let protected = crate::quota::protected(app, s.harness, &s.launch_spec);
         if mode == InputMode::FollowUpAutomatic && protected && !crate::quota::available(&crate::quota::reading_for(app, s.harness, &s.launch_spec), now_ms()) {
@@ -2196,14 +2219,21 @@ impl Sink {
             return;
         }
         let _ = self.sessions.update(&self.app, &self.id, |s| {
-            // This turn's input was delivered. Retry with a continuation, rather
-            // than replaying a previously held prompt or its attachments.
-            s.quota_pause = Some(QuotaPause {
-                phase: QuotaPausePhase::ProviderLimited,
-                blockers: crate::quota::blockers(&self.app, s.harness, &s.launch_spec),
-                message: "Continue the interrupted task from where you stopped; check the current state before repeating actions.".into(),
-                images: vec![], client_id: None, error: Some(message.to_string()),
-            });
+            if let Some(pause) = s.quota_pause.as_mut().filter(|p| matches!(p.phase, QuotaPausePhase::Pausing | QuotaPausePhase::Paused | QuotaPausePhase::ProviderLimited)) {
+                // A provider rejection can arrive after the quota guard interrupted
+                // the turn and the owner already queued steering. Keep unsent input.
+                pause.phase = QuotaPausePhase::ProviderLimited;
+                pause.error = Some(message.to_string());
+            } else {
+                // This turn's input was delivered. Retry with a continuation, rather
+                // than replaying a previously held prompt or its attachments.
+                s.quota_pause = Some(QuotaPause {
+                    phase: QuotaPausePhase::ProviderLimited,
+                    blockers: crate::quota::blockers(&self.app, s.harness, &s.launch_spec),
+                    message: "Continue the interrupted task from where you stopped; check the current state before repeating actions.".into(),
+                    images: vec![], client_id: None, error: Some(message.to_string()), messages: vec![],
+                });
+            }
             s.capacity_retry_at = None;
         }).await;
         self.set_status(SessionStatus::QuotaPaused).await;

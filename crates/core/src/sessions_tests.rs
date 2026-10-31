@@ -198,7 +198,7 @@ async fn quota_reset_fallback_sends_once_and_restores_protection_on_new_evidence
         s.quota_pause = Some(QuotaPause {
             phase: QuotaPausePhase::Paused,
             blockers: crate::quota::blockers(&app, s.harness, &s.launch_spec),
-            message: "held task".into(), images: vec![], client_id: Some("held".into()), error: None,
+            message: "held task".into(), images: vec![], client_id: Some("held".into()), error: None, messages: vec![],
         });
     }).await.unwrap();
     // The reset survives persistence/reload, even though status is only in memory.
@@ -589,4 +589,78 @@ async fn imported_trace_recovery_preserves_questions_and_blocks_remote_execution
     imported.title = "Foreign title".into();
     app.sessions.import_trace(&app, imported, vec![], "{}".into()).await.unwrap();
     assert_eq!(app.sessions.get("test").unwrap().title, "task");
+}
+
+#[tokio::test]
+async fn quota_steering_survives_restart_with_order_attachments_and_queued_events() {
+    use crate::model::*;
+    let (_fixture, app) = fixture().await;
+    app.sessions.hold_input(&app, "test", "held task", vec![]).await.unwrap();
+    let image = ImageAttachment { name: "shot.png".into(), data_url: "data:image/png;base64,AQ==".into() };
+    app.sessions.send_with_id(&app, "test", "Focus on tests", vec![image], "steer-1".into()).await.unwrap();
+    app.sessions.send_with_id(&app, "test", "Also update docs", vec![], "steer-2".into()).await.unwrap();
+    let light = app.sessions.get("test").unwrap().light();
+    assert!(light.quota_pause.unwrap().messages[0].images[0].data_url.is_empty());
+    app.sessions.load(&app).await.unwrap();
+    let pause = app.sessions.get("test").unwrap().quota_pause.unwrap();
+    assert_eq!(pause.messages.len(), 2);
+    assert!(!pause.messages[0].images[0].data_url.is_empty());
+    assert_eq!(pause.messages[0].text, "Focus on tests");
+    assert_eq!(pause.messages[1].text, "Also update docs");
+    let events = app.sessions.events(&app, "test", 0).await.unwrap();
+    for id in ["steer-1", "steer-2"] {
+        assert_eq!(events.iter().filter(|e| matches!(&e.body, EventBody::UserMessage {client_id, queued: true, ..} if client_id == id)).count(), 1);
+        assert!(!events.iter().any(|e| matches!(&e.body, EventBody::MessageDelivered {client_id} if client_id == id)));
+    }
+}
+
+#[tokio::test]
+async fn quota_stop_discards_steering_and_uncertain_claim_rejects_more_input() {
+    use crate::model::*;
+    let (_fixture, app) = fixture().await;
+    app.sessions.hold_input(&app, "test", "held task", vec![]).await.unwrap();
+    app.sessions.send(&app, "test", "Change direction", vec![]).await.unwrap();
+    app.sessions.update(&app, "test", |s| s.quota_pause.as_mut().unwrap().phase = QuotaPausePhase::Resuming).await.unwrap();
+    assert!(app.sessions.send(&app, "test", "Too late", vec![]).await.is_err());
+    app.sessions.update(&app, "test", |s| s.quota_pause.as_mut().unwrap().phase = QuotaPausePhase::NeedsAttention).await.unwrap();
+    assert!(app.sessions.send(&app, "test", "Uncertain", vec![]).await.is_err());
+    assert_eq!(app.sessions.get("test").unwrap().quota_pause.unwrap().messages.len(), 1);
+    app.sessions.interrupt(&app, "test").await.unwrap();
+    app.sessions.load(&app).await.unwrap();
+    assert!(app.sessions.get("test").unwrap().quota_pause.is_none());
+}
+
+#[tokio::test]
+async fn quota_steering_queues_while_pausing_and_provider_limited_without_live_input_support() {
+    use crate::model::*;
+    let (_fixture, app) = fixture().await;
+    app.sessions.hold_input(&app, "test", "Continue the interrupted task", vec![]).await.unwrap();
+    for phase in [QuotaPausePhase::Pausing, QuotaPausePhase::ProviderLimited] {
+        app.sessions.update(&app, "test", |s| {
+            s.harness = HarnessKind::new("opencode");
+            let p = s.quota_pause.as_mut().unwrap();
+            p.phase = phase;
+            p.client_id = None;
+        }).await.unwrap();
+        app.sessions.send(&app, "test", "Owner steering", vec![]).await.unwrap();
+    }
+    assert_eq!(app.sessions.get("test").unwrap().quota_pause.unwrap().messages.len(), 2);
+}
+
+#[tokio::test]
+async fn provider_quota_rejection_preserves_unsent_steering_but_does_not_replay_sent_input() {
+    use crate::model::*;
+    let (_fixture, app) = fixture().await;
+    app.sessions.hold_input(&app, "test", "held task", vec![]).await.unwrap();
+    app.sessions.send(&app, "test", "Owner steering", vec![]).await.unwrap();
+    let sink = app.sessions.sink(&app, "test");
+    sink.quota_rejected("Provider limit").await;
+    let pause = app.sessions.get("test").unwrap().quota_pause.unwrap();
+    assert_eq!(pause.phase, QuotaPausePhase::ProviderLimited);
+    assert_eq!(pause.messages[0].text, "Owner steering");
+    app.sessions.update(&app, "test", |s| s.quota_pause.as_mut().unwrap().phase = QuotaPausePhase::Resuming).await.unwrap();
+    sink.quota_rejected("Provider limit again").await;
+    let pause = app.sessions.get("test").unwrap().quota_pause.unwrap();
+    assert!(pause.messages.is_empty());
+    assert!(pause.client_id.is_none());
 }

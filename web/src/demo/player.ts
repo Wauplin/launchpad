@@ -339,11 +339,12 @@ function* exec(op: Op, c: Ctx, out: Out, resumed = false): Generator<Pause, stri
       if (!resumed) {
         out.emit({ kind: "notice", text: "Included quota exhausted. Pausing until quota is available; interruption is best effort and commands may still finish." });
         out.emit({ kind: "turn_end", duration_ms: null, interrupted: true, error: null });
-        out.status("quota_paused", { quota_pause: { phase: "paused", blockers: [{ window: "5-hour", resets_at: Math.floor(until / 1000) }], message: "Continue the unfinished turn.", images: [], client_id: null, error: null } });
+        out.status("quota_paused", { quota_pause: { phase: "paused", blockers: [{ window: "5-hour", resets_at: Math.floor(until / 1000) }], message: "Continue the unfinished turn.", images: [], client_id: null, error: null, messages: [] } });
       }
       const s = c.w.sessions.find((x) => x.id === c.sessionId);
       const reset = s?.quota_pause?.blockers[0]?.resets_at;
       yield { wait: "quota", until: reset != null ? reset * 1000 : until };
+      for (const message of s?.quota_pause?.messages ?? []) out.emit({ kind: "message_delivered", client_id: message.client_id });
       out.patch({ quota_pause: null });
       out.emit({ kind: "notice", text: "Fresh quota available in both windows. Continuing the paused turn." });
       out.emit({ kind: "user_message", text: "Continue the unfinished turn.", client_id: c.id("c"), queued: false, images: [] });

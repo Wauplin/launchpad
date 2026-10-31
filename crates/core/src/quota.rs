@@ -206,7 +206,7 @@ mod tests {
         let pause = crate::model::QuotaPause {
             phase: crate::model::QuotaPausePhase::Paused,
             blockers: vec![QuotaBlock { window: "5-hour".into(), resets_at: Some(1000) }],
-            message: "continue".into(), images: vec![], client_id: None, error: None,
+            message: "continue".into(), images: vec![], client_id: None, error: None, messages: vec![],
         };
         let mut s = QuotaStatus {
             quota_at: Some(900_000), quota_error: Some("unknown".into()),

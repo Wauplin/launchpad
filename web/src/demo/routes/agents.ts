@@ -318,6 +318,14 @@ route("POST", "/api/sessions/:id/input", (r) => {
   if (lines.length) text = [text.trim(), `Context:\n${lines.join("\n")}`].filter(Boolean).join("\n\n");
   const files = (r.body?.files ?? []) as { name: string }[];
   if (!text.trim() && !files.length) throw new DemoError(400, "the message is empty");
+  if (s.quota_pause) {
+    if (!["pausing", "paused", "provider_limited"].includes(s.quota_pause.phase)) throw new DemoError(400, "Wait or inspect the quota continuation before messaging.");
+    const client_id = r.headers.get("Idempotency-Key") ?? `c-${s.last_seq + 1}`;
+    const message = { text: files.length ? `${text}\n\nAttached files:\n${files.map((f) => `- ${f.name}`).join("\n")}` : text, images: [], client_id };
+    updateSession(s.id, { quota_pause: { ...s.quota_pause, messages: [...(s.quota_pause.messages ?? []), message] } });
+    appendEvent(s.id, { kind: "user_message", ...message, queued: true });
+    return { ok: true };
+  }
   if (s.open_question) throw new DemoError(400, "Answer the open question first.");
   sendMessage(s, text, r.headers.get("Idempotency-Key") ?? `c-${s.last_seq + 1}`, files);
   return { ok: true };

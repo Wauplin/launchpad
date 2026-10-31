@@ -60,3 +60,10 @@ A terminal session failure whose latest provider error says the model is at capa
 The deadline and attempt count live on the session in `state.db`, independently of scheduled follow-ups (which send an owner-written message). The daemon's periodic guard checks the deadline and waits for outstanding work to settle. It takes the same action/work locks as manual Resume, clears the deadline and persists the incremented count before continuing. Pending deadlines survive restart; a claim interrupted by a crash is never replayed. Existing quota, cost, worktree and terminal guards still apply. A guard/startup failure leaves a notice for manual inspection; only another explicit capacity error can schedule the next attempt.
 
 Manual Resume, sending input, Stop or Archive cancel the pending deadline. Session lists show “Automatic retry pending”; the session pane shows the next attempt and local scheduled time. Repeated provider error notifications do not postpone the deadline or consume extra attempts. Regression tests use isolated databases and fake harnesses, with no live model calls.
+
+
+## Steering during quota pauses
+
+The session reply field accepts owner messages while quota is pausing, paused or provider-limited. Each message and its attachments are stored in the pending quota continuation and shown as queued in the trace. Automatic, subscription-only and paid resumptions append these messages in submission order to the existing continuation and send one turn, then mark each queued message delivered. This works even for harnesses that cannot accept input during an active turn: queuing never calls the harness.
+
+The queue survives daemon restarts. Stop and Archive discard it with the pending continuation. Resuming and needs-attention claims reject more input, preserving the rule that uncertain delivery requires inspection before retrying. Existing quota, spending, idle-boundary and worktree checks still gate resumption.

@@ -202,6 +202,9 @@ impl Session {
         }
         if let Some(pause) = &mut s.quota_pause {
             for image in &mut pause.images { image.data_url.clear(); }
+            for message in &mut pause.messages {
+                for image in &mut message.images { image.data_url.clear(); }
+            }
         }
         s
     }
@@ -606,6 +609,16 @@ pub struct QuotaPause {
     /// Existing queued input, or None for an interrupted turn's continuation message.
     pub client_id: Option<String>,
     pub error: Option<String>,
+    /// Owner steering, delivered with the continuation in submission order.
+    #[serde(default)]
+    pub messages: Vec<QuotaMessage>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct QuotaMessage {
+    pub text: String,
+    pub images: Vec<ImageAttachment>,
+    pub client_id: String,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]

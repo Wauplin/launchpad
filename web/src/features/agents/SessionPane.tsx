@@ -123,7 +123,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
     <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5" data-tour="session.reply">
       <input ref={fileRef} type="file" multiple hidden onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
-      {delivery && <div role="status" className="mb-1 text-[12px] text-ink-3">{delivery === "sending" ? "Sending…" : delivery === "delivered" ? "Delivered" : delivery === "failed" ? "Attempt failed. Check the trace before starting a new attempt." : "Delivery not confirmed. Retry the same message to check its result."}</div>}
+      {delivery && <div role="status" className="mb-1 text-[12px] text-ink-3">{delivery === "sending" ? "Sending…" : delivery === "delivered" ? promptSession?.quota_pause ? "Queued for when the agent resumes" : "Delivered" : delivery === "failed" ? "Attempt failed. Check the trace before starting a new attempt." : "Delivery not confirmed. Retry the same message to check its result."}</div>}
       {delivery === "uncertain" && <button className="btn btn-sm mb-1" disabled={busy} onClick={() => void abandonOperation(`/api/sessions/${sessionId}/input`, payload).then(() => setDelivery(null)).catch(toastError)}>I checked the trace — start a new attempt</button>}
       {reading && <div className="mb-1 text-[12px] text-ink-3">Reading attachments…</div>}
       {!ask && <PresetChips selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
@@ -148,7 +148,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
         <button className="iconbtn" title={`Attach files or images (you can also drop files${acceptsImages ? " or paste a screenshot" : ""}). ${ATTACH_LIMITS}`} aria-label="Attach files or images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
           <Icon name="clip" size={14} />
         </button>
-        <button className="iconbtn border-line! bg-paper" title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : "Send"} disabled={disabled || busy || reading || (!message && !files.length && !hasMessageContext(context))} onClick={() => void send()}>
+        <button className="iconbtn border-line! bg-paper" title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : promptSession?.quota_pause ? "Queue for resume" : "Send"} disabled={disabled || busy || reading || (!message && !files.length && !hasMessageContext(context))} onClick={() => void send()}>
           <Icon name="send" size={14} />
         </button>
       </div>
@@ -308,8 +308,11 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
   const showChanges = (main: boolean) => { setGitMain(main); setView("changes"); };
   const onlyMain = (git.data?.files.length ?? 0) === 0 && mainChanges > 0;
   const archive = () => void act(s.id, "close");
-  const placeholder =
-    s.status === "in_terminal"
+  const quotaPaused = s.status === "quota_paused";
+  const quotaMessageBlocked = quotaPaused && !["pausing", "paused", "provider_limited"].includes(s.quota_pause?.phase ?? "");
+  const placeholder = quotaPaused
+    ? quotaMessageBlocked ? "Wait for resumption or inspect the quota pause before messaging" : "Queue a message for when the agent resumes"
+    : s.status === "in_terminal"
       ? "Open in the terminal: re-attach it to continue here"
       : s.open_question
         ? `Answer or message ${name}`
@@ -453,7 +456,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
       {s.live && processes.isError && <div role="alert" className="px-3 py-2 text-xs text-danger">{String(processes.error)} <button className="btn btn-sm" onClick={() => void processes.refetch()}>Retry</button></div>}
       {hasProcesses && !processesOpen && !running && <div className="flex items-center gap-2 px-3 py-2 text-xs text-ink-3">Background commands are still running.<button className="btn btn-sm" onClick={() => setView("processes")}>View processes</button></div>}
       {processesOpen && <ProcessesPanel sessionId={s.id} processes={runningProcesses} refresh={() => processes.refetch()} />}
-      {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} canMessage={s.status !== "in_terminal" && s.status !== "quota_paused" && !(running && !harness?.capabilities.messages_while_running)} />}
+      {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} canMessage={s.status !== "in_terminal" && !quotaMessageBlocked && !(running && !harness?.capabilities.messages_while_running)} />}
       <CodeLinksContext.Provider value={codeLinks}>
       <ShellCodeContext.Provider value={s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id ? null : s.cwd}>
       {childrenOpen && log && <SubagentsPanel key={s.id} log={log} agents={children} sessionId={s.id} live={s.live} back={() => setView("trace")} />}
@@ -520,7 +523,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
       </div>
       </ShellCodeContext.Provider>
       </CodeLinksContext.Provider>
-      {!s.imported_from && !childrenOpen && <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={s.open_question && ask?.permission ? "Choose a decision on the approval card." : placeholder} disabled={!!(s.open_question && ask?.permission) || s.status === "in_terminal" || s.status === "quota_paused" || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={s.open_question && s.live ? ask : null} />}
+      {!s.imported_from && !childrenOpen && <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={!quotaPaused && s.open_question && ask?.permission ? "Choose a decision on the approval card." : placeholder} disabled={!!(!quotaPaused && s.open_question && ask?.permission) || s.status === "in_terminal" || quotaMessageBlocked || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={!quotaPaused && s.open_question && s.live ? ask : null} />}
     </div>
   );
 }
