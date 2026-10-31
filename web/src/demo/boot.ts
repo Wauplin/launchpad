@@ -3,10 +3,11 @@
 
 import type { QueryClient } from "@tanstack/react-query";
 import { isPhone } from "@/lib/phone";
-import { demoFetch, FakeSocket } from "./daemon";
+import { clock, demoFetch, FakeSocket } from "./daemon";
 import { demoAsset } from "./assets";
-import { exitDemo } from "./mode";
-import { resetWorld } from "./world";
+import { demoChapter, exitDemo } from "./mode";
+import { resetWorld, world } from "./world";
+import { continueQuota, skipToEnd } from "./player";
 import "./routes";
 
 let queryClient: QueryClient | null = null;
@@ -14,8 +15,8 @@ let queryClient: QueryClient | null = null;
 export const demoQueryClient = () => queryClient!;
 
 export async function bootDemo(qc: QueryClient) {
-  // The tour and the demo exist only in the desktop layout.
-  if (isPhone) { exitDemo("/now"); return new Promise<never>(() => {}); }
+  // The tour and the demo exist only in the desktop layout; `?demo=phone` explores the phone shell (for screenshots and videos).
+  if (isPhone && demoChapter() !== "phone") { exitDemo("/now"); return new Promise<never>(() => {}); }
   queryClient = qc;
   resetWorld();
   const Real = window.WebSocket;
@@ -30,6 +31,8 @@ export async function bootDemo(qc: QueryClient) {
   // No permission prompt, no Web Push: notifications stay in the page.
   if ("Notification" in window) Object.defineProperty(window, "Notification", { value: Object.assign(function () {}, { permission: "denied", requestPermission: async () => "denied" }), configurable: true });
   window.__lpDemo!.asset = demoAsset;
+  // Scripted recordings (videos, screenshots) move the demo clock and finish runs like the tour does.
+  window.__lpDemo!.control = { world: () => world, clock, continueQuota, skipToEnd };
   document.title = "Launchpad (demo)";
   new MutationObserver(() => { if (document.title !== "Launchpad (demo)") document.title = "Launchpad (demo)"; }).observe(document.querySelector("title")!, { childList: true });
   const url = new URL(location.href);

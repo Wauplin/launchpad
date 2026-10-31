@@ -27,8 +27,11 @@ window.addEventListener("storage", (event) => {
   if (event.storageArea === localStorage && (event.key === key || event.key === null)) useZoom.setState({ zoom: read() });
 });
 
+/** Demo recordings (videos, screenshots) render the normal layout in a larger viewport at a higher zoom. */
+export const recordingZoom = () => (window.__lpDemo ? window.__lpRecordingZoom : undefined);
+
 /** Scale of the root `zoom` in this window: the phone shell always uses 100%. */
 export const useZoomScale = () => {
   const zoom = useZoom((z) => z.zoom);
-  return isPhone ? 1 : zoomScale(zoom);
+  return recordingZoom() ?? (isPhone ? 1 : zoomScale(zoom));
 };

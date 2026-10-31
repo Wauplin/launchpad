@@ -42,7 +42,9 @@
         var layout = localStorage.getItem("launchpad-layout");
         var phone = layout === "phone" || (layout !== "desktop" && !window.__launchpadDesktop && matchMedia("(max-width: 719px)").matches);
         var zoom = [100, 110, 120, 135, 150][Number(localStorage.getItem("launchpad-zoom") ?? 2)] ?? 120;
-        document.documentElement.style.zoom = phone ? "1" : String(zoom / 100);
+        // Demo recordings may render the normal layout at a higher resolution (window.__lpRecordingZoom, src/lib/zoom.ts).
+        var rec = window.__lpDemo && window.__lpRecordingZoom;
+        document.documentElement.style.zoom = rec ? String(rec) : phone ? "1" : String(zoom / 100);
         if (phone) document.documentElement.classList.add("lp-phone");
       } catch { /* The app applies it after loading. */ }
       if (document.documentElement.dataset.theme === "dark") document.querySelector('meta[name="theme-color"]').content = "#161b22";

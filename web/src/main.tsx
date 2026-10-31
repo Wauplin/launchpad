@@ -50,6 +50,8 @@ void cache.then(() => connectEvents(queryClient));
 void Promise.all([entry, cache]).then(([pages]) => {
   const router = makeRouter(pages);
   navigateTo = (url) => router.history.push(url);
+  // Demo recordings (videos, screenshots) drive the router without a page load.
+  if (isDemo) window.__lpDemo!.navigate = navigateTo;
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>

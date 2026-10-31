@@ -3,7 +3,9 @@
 
 declare global {
   interface Window {
-    __lpDemo?: { chapter: string; realFetch: typeof fetch; ready: (daemon: { fetch: typeof fetch }) => void; asset?: (path: string) => string };
+    /** Root zoom for demo recordings (src/lib/zoom.ts), set by the recording script before the page loads. */
+    __lpRecordingZoom?: number;
+    __lpDemo?: { chapter: string; realFetch: typeof fetch; ready: (daemon: { fetch: typeof fetch }) => void; asset?: (path: string) => string; navigate?: (url: string) => void; control?: Record<string, unknown> };
   }
 }
 

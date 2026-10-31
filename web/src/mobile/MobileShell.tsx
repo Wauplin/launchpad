@@ -2,6 +2,7 @@
 // time, and five bottom tabs (Now · Agents · Ask · Review · Inbox). Same daemon, rules and feature components
 // as the desktop shell; only the frame differs. Every action stays a visible button.
 
+import { recordingZoom } from "@/lib/zoom";
 import { lazy, Suspense } from "react";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
@@ -109,7 +110,7 @@ export function MobileShell() {
   useWorkspaceSync();
   useLayoutEffect(() => {
     document.documentElement.classList.add("lp-phone");
-    document.documentElement.style.zoom = "1";
+    document.documentElement.style.zoom = String(recordingZoom() ?? 1);
   }, []);
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [menu, setMenu] = useState(false);
@@ -123,7 +124,7 @@ export function MobileShell() {
   const viewport = useTerminalViewport(terminals);
   const workspaceName = scope.workspace?.name ?? "Everything";
   return (
-    <div className="flex h-dvh flex-col bg-paper pt-[env(safe-area-inset-top)]" style={viewport ? { position: "fixed", insetInline: 0, top: viewport.top, height: viewport.height } : undefined}>
+    <div className="flex h-dvh flex-col bg-paper pt-[env(safe-area-inset-top)]" style={viewport ? { position: "fixed", insetInline: 0, top: viewport.top, height: viewport.height } : recordingZoom() ? { height: `calc(100dvh / ${recordingZoom()})` } : undefined}>
       <IconSprite />
       {/* Equal side columns keep every section title centered on the viewport. */}
       <header className="grid min-h-12 flex-none grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-chrome px-2">
