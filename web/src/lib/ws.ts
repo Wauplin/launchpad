@@ -13,7 +13,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { Session } from "@/gen/Session";
 import type { SessionEvent } from "@/gen/SessionEvent";
 import { idleMs, isUserActive, onUserInput } from "./activity";
-import { reloadSessionLogs, useSessionLogs } from "./sessionStore";
+import { catchUpSyncedTrace, reloadSessionLogs, useSessionLogs } from "./sessionStore";
 
 export type BusEvent = { bus: number; seq: number; topic: string; type: string; payload: unknown };
 type Listener = (ev: BusEvent) => void;
@@ -152,6 +152,7 @@ export function connectEvents(queryClient: QueryClient) {
     } else if (topic === "sessions") {
       if (ev.type === "updated") {
         const s = ev.payload as Session;
+        void catchUpSyncedTrace(s);
         const previous = queryClient.getQueryData<Session[]>(["sessions"])?.find((p) => p.id === s.id);
         if (previous?.status !== s.status) void queryClient.invalidateQueries({ queryKey: ["predrafts"] });
         rememberSuccessfulSession(s);

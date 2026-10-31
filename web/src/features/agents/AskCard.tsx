@@ -62,11 +62,11 @@ export function AskCard({ row, sessionId, live, hint = "Or type another answer b
         </div>
       ))}
       {!answered && row.questions.some((q) => q.multi_select) && (
-        <button className="btn btn-sm btn-primary justify-self-start" disabled={busy} onClick={() => void send(row.questions.map((_, i) => (picked[i] ?? []).join(", ")))}>
+        <button className="btn btn-sm btn-primary justify-self-start" disabled={busy || !live} onClick={() => void send(row.questions.map((_, i) => (picked[i] ?? []).join(", ")))}>
           Send answer
         </button>
       )}
-      {!answered && <div className="text-[12px] text-ink-3">{live ? row.questions.some((q) => q.permission) ? "Waiting for your decision. Only the buttons above approve or deny this operation." : hint : "This request is no longer active. Resume the session to continue."}</div>}
+      {!answered && <div className="text-[12px] text-ink-3">{live ? row.questions.some((q) => q.permission) ? "Waiting for your decision. Only the buttons above approve or deny this operation." : hint : "This request is no longer active here."}</div>}
     </div>
   );
 }

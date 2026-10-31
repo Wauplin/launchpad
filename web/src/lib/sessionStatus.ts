@@ -3,7 +3,7 @@ import type { Session } from "@/gen/Session";
 export const sessionPlace = (s: Session, project: string) => s.launch_spec.target.kind !== "browser" ? project : s.launch_spec.target.project_id ? `${project} · Browser` : "Browser";
 export const isDone = (s: Session) => s.status === "waiting";
 /** Archived Done sessions still satisfy scheduled agent dependencies. */
-export const dependencyDone = (s: Session) => isDone(s) || (s.status === "closed" && s.archived_done);
+export const dependencyDone = (s: Session) => s.imported_from ? s.archived_done : isDone(s) || (s.status === "closed" && s.archived_done);
 export const isRunning = (s: Session) => ["starting", "working", "background"].includes(s.status);
 
 export const isQuotaPaused = (s: Session) => s.status === "quota_paused";

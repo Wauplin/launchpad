@@ -11,6 +11,11 @@ export const settings: Chapter = {
   learned: ["A profile is one way to run an agent: a harness and what pays for it", "Each subscription login has its own quota meters; pay-as-you-go profiles can have spending limits", "Presets add your usual instructions", "Pair a phone with a QR code; SSH machines run agents elsewhere"],
   steps: [
     {
+      id: "settings.trace-sync", route: "/settings/huggingface", anchor: "settings.trace-sync",
+      title: "Traces across instances",
+      body: "Use the same Hugging Face bucket on your laptop and Space to sync traces for folders with matching names. Synced traces are read only; New agent here starts a local follow-up. Workspaces, logins, settings and worktrees stay separate.",
+    },
+    {
       id: "settings.profiles", route: "/settings/profiles", anchor: "settings.profiles",
       title: "Profiles",
       body: "One profile per way to pay: a subscription login, an API key or another provider. Subscription profiles get quota meters and protection, one per login, so several accounts work side by side.",

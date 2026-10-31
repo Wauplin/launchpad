@@ -27,6 +27,7 @@ export const STYLES = {
 };
 
 export function statusInfo(s: Session): { label: string; style: keyof typeof STYLES; icon: IconName | null } {
+  if (s.imported_from) return { label: "Synced trace", style: "done", icon: "agents" };
   switch (s.status) {
     case "starting":
       return { label: "Starting", style: "work", icon: null };

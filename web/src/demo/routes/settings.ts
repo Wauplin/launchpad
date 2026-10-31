@@ -107,7 +107,8 @@ route("PATCH", "/api/config", ({ body }) => {
   const opt = (v: string | undefined, old: string | null) => (v === undefined ? old : v || null);
   if (p.trace_backup_enabled !== undefined) {
     c.trace_backup.enabled = p.trace_backup_enabled;
-    // Nothing is uploaded in the demo; the status line still looks like a working backup.
+    // The demo simulates both directions without reaching a real bucket.
+    world.traceBackup.last_sync = p.trace_backup_enabled ? clock.now() : world.traceBackup.last_sync;
     world.traceBackup.last_upload = p.trace_backup_enabled ? clock.now() : world.traceBackup.last_upload;
   }
   if (p.trace_backup_bucket !== undefined) c.trace_backup.bucket = p.trace_backup_bucket;

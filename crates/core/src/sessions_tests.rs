@@ -558,3 +558,35 @@ async fn capacity_retry_uses_original_task_and_respects_cost_guard() {
     app.sessions.check_capacity_retries(&app).await.unwrap();
     assert_eq!(live.0.lock().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn imported_trace_recovery_preserves_questions_and_blocks_remote_execution() {
+    use crate::model::{EventBody, SessionEvent};
+    let (_fixture, app) = fixture().await;
+    let mut imported = app.sessions.get("test").unwrap();
+    imported.id = "remote-trace".into();
+    imported.imported_from = Some("hf://buckets/user/traces/project/run".into());
+    imported.title_pending = false;
+    imported.last_seq = 0;
+    let question = SessionEvent {
+        session_id: imported.id.clone(), seq: 1, ts: 1,
+        body: EventBody::AskUser { request_id: "source-question".into(), questions: vec![] },
+    };
+    app.sessions.import_trace(&app, imported.clone(), vec![question], "{}".into()).await.unwrap();
+    assert_eq!(app.sessions.get(&imported.id).unwrap().last_seq, 1);
+    assert!(app.sessions.resume(&app, &imported.id, false, false).await.is_err());
+    assert!(app.sessions.send(&app, &imported.id, "hello", vec![]).await.is_err());
+    assert!(app.sessions.open_terminal(&app, &imported.id).await.is_err());
+    let restarted = crate::App { sessions: super::Sessions::new(), ..app.clone() };
+    restarted.sessions.load(&restarted).await.unwrap();
+    let events = restarted.sessions.events(&restarted, &imported.id, 0).await.unwrap();
+    assert_eq!(events.len(), 1, "recovery must not synthesize an answer to a foreign question");
+    assert!(matches!(events[0].body, EventBody::AskUser { .. }));
+    assert!(restarted.sessions.get(&imported.id).unwrap().imported_from.is_some());
+    assert!(restarted.sessions.resume(&restarted, &imported.id, false, false).await.is_err());
+    // Importing the UUID of a locally owned session cannot replace it.
+    imported.id = "test".into();
+    imported.title = "Foreign title".into();
+    app.sessions.import_trace(&app, imported, vec![], "{}".into()).await.unwrap();
+    assert_eq!(app.sessions.get("test").unwrap().title, "task");
+}

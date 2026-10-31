@@ -1,4 +1,5 @@
 import { openExternal } from "@/lib/platform";
+import { FollowUpAgent } from "./FollowUpAgent";
 import { WorktreeSteps, useSessionWorktrees } from "./Worktrees";
 import { useHarnessInfo, useHarnessName } from "@/components/HarnessMark";
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -31,6 +32,7 @@ import { Instructions } from "./EventRow";
 
 export function StateBand({ session: s, children }: { session: Session; children?: ReactNode }) {
   const { style } = statusInfo(s);
+  if (s.imported_from) return <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-xs text-ink-3"><b>Synced trace</b><span>Follow up with a new local agent</span>{children}</div>;
   const label = s.status === "waiting" ? s.open_question ? "Question" : "Done" : s.status === "quota_paused" ? "Quota paused" : s.status === "closed" ? "Archived" : s.status === "error" ? "Failed" : s.status === "stopped" ? "Stopped" : s.status === "in_terminal" ? "In terminal" : "Interrupted";
   const icon = s.status === "waiting" ? s.open_question ? "alert" : "okcircle" : s.status === "closed" ? "archive" : s.status === "stopped" ? "stop" : s.status === "error" ? "xcircle" : "refresh";
   const at = s.status === "closed" ? s.ended_at ?? s.status_since : s.status_since;
@@ -137,14 +139,14 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   else if (tokens) metadata.push(["Tokens", compact(tokens)]);
   const contextShare = s.usage.context_tokens != null && s.usage.context_window ? `${Math.round(100 * s.usage.context_tokens / s.usage.context_window)}% context` : null;
   if (s.launch_spec.profile) metadata.push(["Harness", <ProfileLabel session={s} />]);
-  if (supportsCost) metadata.push(["Cost limit", <CostLimit session={s} />]);
-  else if (costCapability?.capabilities.cost) metadata.push(["Cost management", <span className="text-attn">{costUnavailableMessage}</span>]);
-  metadata.push(["Model", <span className="inline-flex flex-wrap items-center gap-2"><ModelSwitch session={s} />{contextShare}</span>]);
-  if (useHarnessInfo(s.harness)?.capabilities.permission_modes) metadata.push(["Permissions", <PermissionSwitch session={s} />]);
-  metadata.push(["Paid usage", <PaidUsageToggle session={s} />]);
+  if (!s.imported_from && supportsCost) metadata.push(["Cost limit", <CostLimit session={s} />]);
+  else if (!s.imported_from && costCapability?.capabilities.cost) metadata.push(["Cost management", <span className="text-attn">{costUnavailableMessage}</span>]);
+  metadata.push(["Model", s.imported_from ? s.model ?? "Not reported" : <span className="inline-flex flex-wrap items-center gap-2"><ModelSwitch session={s} />{contextShare}</span>]);
+  if (useHarnessInfo(s.harness)?.capabilities.permission_modes && !s.imported_from) metadata.push(["Permissions", <PermissionSwitch session={s} />]);
+  if (!s.imported_from) metadata.push(["Paid usage", <PaidUsageToggle session={s} />]);
   if (s.launch_spec.target.kind === "browser") metadata.push(["Browser access", `Tabs shared from the Chrome extension · ${s.launch_spec.target.act ? "Act: can click and type" : "Read only"}`]);
-  if (s.launch_spec.target.kind !== "browser" || s.launch_spec.target.project_id) metadata.push(["Folder", s.cwd]);
-  if (git.data) metadata.push(["Branch", `${git.data.branch} · ${git.data.files.length ? `${git.data.files.length} uncommitted files` : "clean"}${git.data.unpushed_commits == null ? "" : git.data.unpushed_commits ? ` · ${git.data.unpushed_commits} commits absent from cached remote refs` : " · present in cached remote refs"}`]);
+  if (s.launch_spec.target.kind !== "browser" || s.launch_spec.target.project_id) metadata.push([s.imported_from ? "Local folder" : "Folder", s.cwd]);
+  if (git.data) metadata.push([s.imported_from ? "Local branch" : "Branch", `${git.data.branch} · ${git.data.files.length ? `${git.data.files.length} uncommitted files` : "clean"}${git.data.unpushed_commits == null ? "" : git.data.unpushed_commits ? ` · ${git.data.unpushed_commits} commits absent from cached remote refs` : " · present in cached remote refs"}`]);
   if (changes) metadata.push(["Changes", `${changes.files} tracked files compared with main${changes.additions == null ? "" : ` · +${changes.additions} −${changes.deletions}`}`]);
   const context = [...s.launch_spec.github_refs.map((r) => `${r.repo}${r.number ? ` #${r.number}` : ""} · ${r.kind}`), ...s.launch_spec.context_projects.map((r) => `${projects.find((p) => p.id === r.project_id)?.name ?? r.project_id}${r.branch ? ` (${r.branch})` : ""}`), ...s.launch_spec.files.map((r) => `${r.path}${r.start_line ? `:${r.start_line}${r.end_line ? `–${r.end_line}` : ""}` : ""}`), ...s.launch_spec.presets];
   if (context.length) metadata.push(["Context", context.join(" · ")]);
@@ -164,8 +166,9 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
     {pendingQuestions.length > 0 && <Section title="Needs your decision">{pendingQuestions.map((question) => <AskCard key={question.request_id} row={question} sessionId={s.id} live={s.live} />)}</Section>}
     <Section title="Run"><dl className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">{metadata.map(([key, value]) => <Fragment key={key}><dt className="text-ink-3">{key}</dt><dd className="break-words whitespace-pre-wrap">{value}</dd></Fragment>)}</dl></Section>
     <Section title="Task · first prompt"><Fold lines={4} label="Show full task"><div className="whitespace-pre-wrap">{split ? split.typed : prompt}</div>{split && <Instructions blocks={split.instructions} className="mt-1" />}</Fold></Section>
-    {final && <Section title={s.status === "stopped" || unfinished ? "Last agent message" : "Final message"} actions={<><button className="btn btn-sm" onClick={() => void copyText(final.text).then(() => toast("Copied"))}>Copy</button><button className="btn btn-sm" onClick={() => void copyText(renderedText(finalRef.current, final.text)).then(() => toast("Copied as text"))}>Copy as text</button></>}><Fold lines={30} label="Show full message"><div ref={finalRef}><Markdown text={final.text} runShell /></div></Fold></Section>}
+    {final && <Section title={s.imported_from || s.status === "stopped" || unfinished ? "Last agent message" : "Final message"} actions={<><button className="btn btn-sm" onClick={() => void copyText(final.text).then(() => toast("Copied"))}>Copy</button><button className="btn btn-sm" onClick={() => void copyText(renderedText(finalRef.current, final.text)).then(() => toast("Copied as text"))}>Copy as text</button></>}><Fold lines={30} label="Show full message"><div ref={finalRef}><Markdown text={final.text} runShell /></div></Fold></Section>}
     <Section title="Next steps">
+      {s.imported_from ? <FollowUpAgent session={s} /> : <>
       <WorktreeSteps session={s} />
       {!(worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && !localPr) && (localPr && !localPr.published_url && !localPr.merged || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== "main" && !refs.some((r) => r.kind === "pr")) && s.project_id && <NextStep source="Git" text={localPr ? `This agent prepared a Local PR${localPr.title ? `: ${localPr.title}` : ""}.` : (git.data?.unpushed_commits ?? 0) > 0 ? `${git.data!.unpushed_commits} commits are absent from cached remote refs.` : "No PR is linked to this session."} button={localPr ? "Review & publish" : "Open Local PR"} onClick={openPr} disabled={busy} />}
       {drafts.map((d) => <NextStep key={d.id} source={d.target.kind === "predraft" ? "Local" : "GitHub"} text={`This agent drafted a ${d.kind} ${d.target.kind === "predraft" ? "on its Local PR" : `on ${d.target.repo} #${d.target.number}`}${d.status === "draft" ? "" : ": publication was attempted, check GitHub"}.`} button="Review & post" onClick={() => { const t = d.target; if (t.kind === "predraft") void navigate({ to: "/predrafts/$id", params: { id: t.id } }); else { const [owner, repo] = t.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(t.number) } }); } }} />)}
@@ -174,6 +177,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
       {refs.map((r, i) => <NextStep key={i} source="GitHub" text={r.title ?? `Linked ${r.kind}${r.number ? ` #${r.number}` : ""}.`} button={`Open ${r.number ? `#${r.number}` : r.kind}`} onClick={() => { if (r.number && r.repo.includes("/")) { const [owner, repo] = r.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(r.number) } }); } else openExternal(r.url); }} />)}
       {!scheduling && <p className="pt-2 text-xs text-ink-3">{followUp ? "A message is already scheduled for this session." : s.status === "quota_paused" ? null : <button className="text-teal-ink hover:underline" title="A message delivered later to this same session" onClick={() => setScheduling(true)}>Send later…</button>}</p>}
       {scheduling && <div className="grid gap-3 border-t border-line py-3"><b className="text-xs">Send later · same session, new message</b><textarea className="field-input min-h-20" aria-label="Message to send later" placeholder="Message to send later…" value={message} onChange={(e) => setMessage(e.target.value)} /><div className="grid gap-1.5"><div><PresetButton labeled selected={followUpPresets} onChange={setFollowUpPresets} /></div><PresetChips selected={followUpPresets} onChange={setFollowUpPresets} /></div><DelaySelector conditions={conditions} harness={s.harness} profile={s.launch_spec.profile} onChange={setConditions} onValidityChange={setValid} /><p className="text-xs text-ink-3">If this session is running, in a terminal or awaiting an answer at that time, the message stays queued until it is ready.</p><div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !followUpMessage || !conditions.length || !valid} onClick={() => void run(async () => { await api.post(`/api/sessions/${s.id}/follow-up`, { message: followUpMessage, conditions }); setScheduling(false); setMessage(""); setFollowUpPresets([]); })}>Schedule</button><button className="btn btn-sm" onClick={() => setScheduling(false)}>Cancel</button></div></div>}
+      </>}
     </Section>
   </div>;
 }
@@ -190,6 +194,7 @@ export function PaidUsageToggle({ session: s, badge = false }: { session: Sessio
     try { await api.post(`/api/sessions/${s.id}/paid-usage`, { allow: value }); } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   const off = <button className="btn btn-sm" disabled={busy} title="Pause this session at included quota limits again" onClick={() => void set(false)}>Use subscription only</button>;
+  if (s.imported_from) return badge ? null : <span>Reported by the source instance</span>;
   if (profile?.billing === "pay_as_you_go") return badge ? null : <span>Pay as you go: subscription quotas are not monitored for {profile.name}. {supportsCost ? "Use the cost limit." : costUnavailableMessage}</span>;
   if (!supportsQuota) return badge ? null : <span>Native provider billing settings apply. Subscription quotas are not monitored by Launchpad.</span>;
   if (badge) return allow ? <span className="inline-flex items-center gap-1.5 rounded bg-attn-soft px-1.5 py-0.5 font-semibold text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]">Paid usage on{off}</span> : null;
@@ -218,6 +223,7 @@ export function CostLimit({ session: s, badge = false }: { session: Session; bad
     setBusy(true);
     try { await api.post(`/api/sessions/${s.id}/budget`, { budget_usd }); close(); } catch (e) { toastError(e); } finally { setBusy(false); }
   };
+  if (s.imported_from) return null;
   if (!supportsCost) return badge ? null : <span className="text-attn">{costUnavailableMessage}</span>;
   if (badge && limit == null) return null;
   const label = limit == null ? "No limit" : `${usd(spent)} of ${usd(limit)}${reached ? " · limit reached" : ""}`;
@@ -270,7 +276,7 @@ export function PermissionSwitch({ session: s }: { session: Session }) {
 export function RunSettingsChip({ session: s, open }: { session: Session; open: () => void }) {
   const supported = useHarnessInfo(s.harness)?.capabilities.permission_modes;
   const mode = s.launch_spec.permission_mode;
-  if (!supported || !mode || mode === "yolo") return null;
+  if (s.imported_from || !supported || !mode || mode === "yolo") return null;
   return <button className="inline-flex h-5 items-center gap-1 rounded-[5px] border border-line-2 bg-chrome px-1.5 text-[11px] text-ink-2 hover:bg-sunk" title="Run settings: edit them in Summary → Run" onClick={open}><Icon name="sliders" size={11} />{PERMISSIONS.find((p) => p.id === mode)?.label}</button>;
 }
 

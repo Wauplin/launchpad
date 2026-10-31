@@ -201,6 +201,8 @@ CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_
         .query_map([], |r| r.get::<_, String>(1))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     if !device_columns.iter().any(|c| c == "last_seen_at") { conn.execute_batch("ALTER TABLE browser_device ADD COLUMN last_seen_at INTEGER;")?; }
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS trace_import_cursor (source TEXT PRIMARY KEY, json TEXT NOT NULL);")?;
+    if !has("imported_from") { conn.execute_batch("ALTER TABLE session ADD COLUMN imported_from TEXT;")?; }
     if !has("capacity_retry_count") { conn.execute_batch("ALTER TABLE session ADD COLUMN capacity_retry_count INTEGER NOT NULL DEFAULT 0;")?; }
     if !has("capacity_retry_at") { conn.execute_batch("ALTER TABLE session ADD COLUMN capacity_retry_at INTEGER;")?; }
     if !has("quota_pause_json") { conn.execute_batch("ALTER TABLE session ADD COLUMN quota_pause_json TEXT;")?; }

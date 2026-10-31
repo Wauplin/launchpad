@@ -10,12 +10,13 @@ pub struct BackupState {
     pub error: Option<String>,
     /// When the last chunk was uploaded (ms since the epoch); `None` since startup.
     pub last_upload: Option<i64>,
+    pub last_sync: Option<i64>,
 }
 
 #[derive(Clone, Default)]
 pub struct BackupStatus(pub Arc<RwLock<BackupState>>);
 
-async fn hf(env: &UserEnv, args: &[&str], data: Option<Vec<u8>>) -> Result<String> {
+pub(crate) async fn hf(env: &UserEnv, args: &[&str], data: Option<Vec<u8>>) -> Result<String> {
     let mut cmd = crate::procs::command(env, "hf", None);
     cmd.args(args).stdin(Io::Null).stderr(Io::Null);
     if let Some(data) = data { cmd.stdin_bytes(data); }
@@ -47,7 +48,7 @@ pub async fn check(env: &UserEnv) -> (crate::signin::SignInCheck, Option<String>
 }
 
 // Names are user-editable. Escape separators and percent signs so each stays one distinct segment.
-fn name_segment(name: &str) -> String {
+pub(crate) fn name_segment(name: &str) -> String {
     if name.is_empty() { return "_".into(); }
     if matches!(name, "." | "..") { return name.replace('.', "%2E"); }
     let mut segment = String::new();
@@ -114,6 +115,7 @@ pub(crate) async fn upload(app: &App) -> Result<()> {
     let mut created = false;
     let mut first_error = None;
     for session in app.sessions.list() {
+        if session.imported_from.is_some() { continue; }
         // Disabling or changing the destination stops this pass before the next session.
         if app.config.get().trace_backup != config { break; }
         let workspace_id = match &session.launch_spec.target {
@@ -181,10 +183,16 @@ pub fn spawn(app: &App) {
     let app = app.clone();
     tokio::spawn(async move {
         loop {
-            let result = upload(&app).await;
+            let upload = upload(&app).await;
+            // Import still runs when one local native trace is unavailable.
+            let download = crate::trace_sync::download(&app).await;
+            if download.is_ok() && app.config.get().trace_backup.enabled {
+                app.trace_backup.0.write().unwrap().last_sync = Some(crate::util::now_ms());
+            }
+            let result = upload.and(download);
             let error = result.err().map(|e| {
                 tracing::warn!("Hugging Face trace backup failed; retrying in 60 seconds: {e:#}");
-                "Trace backup incomplete. Check hf auth whoami, bucket write access, native trace files and SSH hosts. Missing or cleaned-up native traces cannot be reconstructed; other sessions continue backing up. Retrying automatically; agents are unaffected.".to_string()
+                "Trace sync incomplete. Check hf auth whoami, bucket read/write access, native trace files and SSH hosts. Missing or cleaned-up native traces cannot be reconstructed; other sessions continue backing up. Retrying automatically; agents are unaffected.".to_string()
             });
             app.trace_backup.0.write().unwrap().error = error;
             tokio::time::sleep(Duration::from_secs(60)).await;

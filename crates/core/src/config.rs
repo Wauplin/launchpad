@@ -242,7 +242,7 @@ browser = "xdg-open"
 poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
 [trace_backup]
-enabled = false                    # optional Hugging Face bucket export
+enabled = false                    # optional Hugging Face trace sync
 bucket = "launchpad-traces"
 
 [agents]

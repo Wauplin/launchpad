@@ -320,7 +320,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
             : `Message ${name}`;
 
   // The one primary action, depending on the state.
-  const primary = running || s.status === "quota_paused" ? (
+  const primary = s.imported_from ? <FollowUpAgent session={s} /> : running || s.status === "quota_paused" ? (
     <button className="btn btn-sm border-gh-closed! bg-danger! text-white!" title={s.status === "quota_paused" ? "Stop: cancel automatic continuation" : "Stop: interrupt the agent"} onClick={() => void act(s.id, "interrupt")}>
       <Icon name="stop" size={12} />Stop
     </button>
@@ -364,7 +364,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
             <input autoFocus aria-label="Session title" className="field-input min-w-0 flex-1 basis-32 text-[13px] font-[650]" maxLength={100} value={title} disabled={savingTitle} onChange={(e) => setTitle(e.target.value)} />
             <button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, { title: title.trim() }); setRenaming(false); } catch (e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button>
             <button className="btn btn-sm" disabled={savingTitle} onClick={() => setRenaming(false)}>Cancel</button>
-          </div> : <button className="session-title min-w-0 flex-1 truncate text-left text-[13px] font-[650] hover:text-teal-ink" title={`${s.title} · Click to edit`} aria-label={`Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
+          </div> : <button className="session-title min-w-0 flex-1 truncate text-left text-[13px] font-[650] hover:text-teal-ink" disabled={!!s.imported_from} title={s.imported_from ? s.title : `${s.title} · Click to edit`} aria-label={s.imported_from ? s.title : `Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
             {isPinned && <span className="mr-1 text-teal-ink" title="Pinned">★</span>}{s.title}
           </button>}
           {phone
@@ -406,7 +406,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
           <div className="session-actions ml-auto flex flex-wrap items-center gap-1">
             {!phone && <>
               <span data-tour="session.primary" className="inline-flex">{primary}</span>
-              <FollowUpAgent session={s} />
+              {!s.imported_from && <FollowUpAgent session={s} />}
               {!(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <TerminalMenu cwd={s.cwd} small />}
             </>}
             <Popover viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={phone ? "iconbtn" : "btn btn-sm"} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}>{phone ? <Icon name="more" size={20} /> : <>More<Icon name="chev" size={12} /></>}</button>}>
@@ -417,10 +417,10 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
                   {!(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder (the checkout when its worktree is gone)" onClick={() => { close(); void openTerminal.folder(s.cwd); }} />}
                 </>}
                 {s.status === "in_terminal" && tui && <MenuItem icon={<Icon name="term" size={14} />} label="Show TUI tab" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}
-                {s.launch_spec.target.kind !== "browser" && !running && s.status !== "in_terminal" && s.status !== "quota_paused" && harness?.capabilities.terminal && <MenuItem icon={<Icon name="term" size={14} />} label={`Continue in ${name} TUI`} detail="In the terminal dock, outside quota protection; Re-attach brings it back" onClick={() => { close(); void openTerminal.tui(s.id); }} />}
+                {!s.imported_from && s.launch_spec.target.kind !== "browser" && !running && s.status !== "in_terminal" && s.status !== "quota_paused" && harness?.capabilities.terminal && <MenuItem icon={<Icon name="term" size={14} />} label={`Continue in ${name} TUI`} detail="In the terminal dock, outside quota protection; Re-attach brings it back" onClick={() => { close(); void openTerminal.tui(s.id); }} />}
                 {s.project_id && <MenuItem icon={<Icon name="folder" size={14} />} label="Browse files" detail="Read the folder in Files" onClick={() => { close(); void navigate({ to: "/projects/$id/code", params: { id: s.project_id! }, search: { root: s.cwd, session: s.id } }); }} />}
                 <MenuItem icon={<Icon name="agents" size={14} />} label="Use trace as context" detail="Reference this trace in a new agent's prompt" disabled={s.last_seq === 0} onClick={() => { close(); useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] }); }} />
-                {s.status !== "closed" && !archivePrimary && <MenuItem icon={<Icon name="archive" size={14} />} label="Archive" detail="It stays resumable" onClick={() => { close(); archive(); }} />}
+                {!s.imported_from && s.status !== "closed" && !archivePrimary && <MenuItem icon={<Icon name="archive" size={14} />} label="Archive" detail="It stays resumable" onClick={() => { close(); archive(); }} />}
                 <MenuItem icon={<span className="text-teal-ink">{isPinned ? "★" : "☆"}</span>} label={isPinned ? "Unpin session" : "Pin session"} onClick={() => { close(); togglePin(s.id); }} />
               </>}
             </Popover>
@@ -448,6 +448,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
       {s.capacity_retry_at != null && <div role="status" className="flex flex-wrap items-center gap-2 border-b border-line bg-teal-soft px-3 py-2 text-xs text-teal-ink">
         <Icon name="clock" size={16} />Model at capacity · automatic retry {s.capacity_retry_count + 1} scheduled for {new Date(s.capacity_retry_at).toLocaleTimeString()}. Resume now or archive to cancel.
       </div>}
+      {s.imported_from && <div className="border-b border-line bg-teal-soft px-3 py-2 text-xs text-teal-ink">Synced trace · read only. New agent here starts a local conversation using this trace. Its original process and worktree stay on the source instance.</div>}
       {s.launch_spec.target.kind === "browser" && <div className="border-b border-line bg-teal-soft px-3 py-1 text-xs text-teal-ink">Browser task · tabs shared from the Chrome extension · {s.launch_spec.target.act ? "Act" : "Read"}</div>}
       {s.live && processes.isError && <div role="alert" className="px-3 py-2 text-xs text-danger">{String(processes.error)} <button className="btn btn-sm" onClick={() => void processes.refetch()}>Retry</button></div>}
       {hasProcesses && !processesOpen && !running && <div className="flex items-center gap-2 px-3 py-2 text-xs text-ink-3">Background commands are still running.<button className="btn btn-sm" onClick={() => setView("processes")}>View processes</button></div>}
@@ -519,7 +520,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
       </div>
       </ShellCodeContext.Provider>
       </CodeLinksContext.Provider>
-      {!childrenOpen && <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={s.open_question && ask?.permission ? "Choose a decision on the approval card." : placeholder} disabled={!!(s.open_question && ask?.permission) || s.status === "in_terminal" || s.status === "quota_paused" || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={s.open_question && s.live ? ask : null} />}
+      {!s.imported_from && !childrenOpen && <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={s.open_question && ask?.permission ? "Choose a decision on the approval card." : placeholder} disabled={!!(s.open_question && ask?.permission) || s.status === "in_terminal" || s.status === "quota_paused" || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={s.open_question && s.live ? ask : null} />}
     </div>
   );
 }

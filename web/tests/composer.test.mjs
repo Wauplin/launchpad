@@ -52,6 +52,8 @@ test("scheduled dependencies accept completed archives without making archived a
   const { dependencyDone, isDone, needsYou } = await import("../src/lib/sessionStatus.ts");
   const session = { status: "waiting", archived_done: false, seen_at: 0, status_since: 1, open_question: false };
   assert.equal(dependencyDone(session), true);
+  assert.equal(dependencyDone({ ...session, imported_from: "hf://buckets/demo/traces/run" }), false);
+  assert.equal(dependencyDone({ ...session, imported_from: "hf://buckets/demo/traces/run", archived_done: true }), true);
   session.status = "closed";
   assert.equal(dependencyDone(session), false);
   session.archived_done = true;

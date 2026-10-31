@@ -44,7 +44,7 @@ async fn clone(State(s): State<Server>, Json(b): Json<Clone>) -> ApiResult<Proje
 async fn trace_backup(State(s): State<Server>) -> Json<serde_json::Value> {
     let (check, account) = launchpad_core::trace_backup::check(&s.app.env).await;
     let state = s.app.trace_backup.0.read().unwrap().clone();
-    Json(serde_json::json!({"check": check, "account": account, "error": state.error, "last_upload": state.last_upload}))
+    Json(serde_json::json!({"check": check, "account": account, "error": state.error, "last_upload": state.last_upload, "last_sync": state.last_sync}))
 }
 
 async fn onboarding(State(s): State<Server>) -> ApiResult<onboarding::OnboardingState> {

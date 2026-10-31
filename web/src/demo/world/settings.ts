@@ -17,7 +17,7 @@ import { P, ROOT, USER } from "./ids";
 /** A paired browser, as `GET /api/devices` returns it (Unix seconds). */
 export type DemoDevice = { id: string; name: string; created_at: number; expires_at: number; last_seen_at: number | null; push: boolean; current: boolean };
 /** `GET /api/setup/trace-backup`. */
-export type DemoTraceBackup = { check: SignInCheck; account: string | null; error: string | null; last_upload: number | null };
+export type DemoTraceBackup = { check: SignInCheck; account: string | null; error: string | null; last_upload: number | null; last_sync: number | null };
 
 export const HOME = "/home/demo";
 
@@ -125,7 +125,7 @@ export function settingsWorld() {
   const gh: SignInCheck = { id: "github", profile: null, name: "GitHub CLI", cli_found: true, signed_in: true, detail: `Logged in to github.com account ${USER}`, command: "gh auth login" };
   const traceBackup: DemoTraceBackup = {
     check: { id: "huggingface", profile: null, name: "Hugging Face CLI", cli_found: true, signed_in: true, detail: `Account ${USER}`, command: "hf auth login" },
-    account: USER, error: null, last_upload: null,
+    account: USER, error: null, last_upload: null, last_sync: clock.ago(1),
   };
   const sshConfig: SshConfigHost[] = [
     { alias: "gpu-box", hostname: "gpu-box.lan", user: "demo", proxy_jump: null },

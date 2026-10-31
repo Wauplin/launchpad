@@ -7,6 +7,10 @@ import type { Usage } from "./Usage";
 
 export type Session = { id: string, harness: HarnessKind,
 /**
+ * Bucket source of a read-only trace owned by another Launchpad instance.
+ */
+imported_from?: string,
+/**
  * Opaque native conversation ID, interpreted only by its adapter.
  */
 harness_session_id: string | null, project_id: string | null, cwd: string, title: string, status: SessionStatus,

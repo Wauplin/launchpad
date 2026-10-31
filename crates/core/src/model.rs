@@ -123,6 +123,10 @@ pub struct Usage {
 pub struct Session {
     pub id: String,
     pub harness: HarnessKind,
+    /// Bucket source of a read-only trace owned by another Launchpad instance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub imported_from: Option<String>,
     /// Opaque native conversation ID, interpreted only by its adapter.
     pub harness_session_id: Option<String>,
     pub project_id: Option<String>,
@@ -173,6 +177,7 @@ pub struct Session {
 impl Session {
     /// Archiving a completed turn must not block delayed launches waiting for it.
     pub fn dependency_done(&self) -> bool {
+        if self.imported_from.is_some() { return self.archived_done; }
         self.status.is_done() || (self.status == SessionStatus::Closed && self.archived_done)
     }
 

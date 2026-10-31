@@ -5,6 +5,7 @@
 
 import { create } from "zustand";
 import type { EarlierFacts } from "@/gen/EarlierFacts";
+import type { Session } from "@/gen/Session";
 import type { SessionEvent } from "@/gen/SessionEvent";
 import type { SessionEventPage } from "@/gen/SessionEventPage";
 import { api } from "./api.ts";
@@ -144,4 +145,10 @@ function settle(log: SessionLog, fresh: SessionEvent[]): SessionLog {
 export function reloadSessionLogs(onlyIncomplete = false) {
   const { logs, load } = useSessionLogs.getState();
   Object.keys(logs).filter((id) => !onlyIncomplete || !logs[id].loaded || logs[id].error).forEach((id) => void load(id));
+}
+
+/** Bucket imports announce their cursor; only viewers with this trace loaded fetch its new events. */
+export function catchUpSyncedTrace(s: Pick<Session, "id" | "imported_from" | "last_seq">): Promise<void> | undefined {
+  const { logs, load } = useSessionLogs.getState();
+  if (s.imported_from && logs[s.id] && logs[s.id].lastSeq < s.last_seq) return load(s.id);
 }

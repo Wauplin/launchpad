@@ -221,7 +221,7 @@ impl Sessions {
                 let mut st = c.prepare(
                     "SELECT id, harness, harness_session_id, project_id, cwd, title, status, status_since, open_question, model,
                             effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json, quota_pause_json, title_pending,
-                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at
+                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, imported_from
                      FROM session",
                 )?;
                 let rows = st
@@ -236,6 +236,7 @@ impl Sessions {
                         let title_pending = r.get::<_, Option<bool>>(19)?.unwrap_or_else(||
                             spec.harness.is_some() && !spec.text.trim().is_empty() && title == title_from(&spec.text, ""));
                         Ok(Session {
+                            imported_from: r.get(25)?,
                             id: r.get(0)?,
                             harness: HarnessKind::parse(&r.get::<_, String>(1)?).ok_or_else(|| rusqlite::Error::InvalidParameterName("unregistered stored harness".into()))?,
                             harness_session_id: r.get(2)?,
@@ -271,6 +272,7 @@ impl Sessions {
         {
             let mut recs = self.inner.records.lock().unwrap();
             for mut s in rows {
+                if s.imported_from.is_some() { recs.insert(s.id.clone(), s); continue; }
                 let mut changed = false;
                 if !crate::profiles::supports_cost(app, s.harness, &s.launch_spec, s.model.as_deref()) && crate::harness::registration(s.harness).descriptor.capabilities.cost {
                     changed = !s.usage.cost_unavailable;
@@ -309,6 +311,7 @@ impl Sessions {
             Ok(by_session)
         }).await?;
         for s in self.list() {
+            if s.imported_from.is_some() { continue; }
             let pending = unanswered_requests(&decisions.remove(&s.id).unwrap_or_default());
             let sink = self.sink(app, &s.id);
             for request_id in pending {
@@ -397,6 +400,7 @@ impl Sessions {
     }
 
     pub async fn rename(&self, app: &App, id: &str, title: &str) -> Result<Session> {
+        self.ensure_local(id)?;
         let title = title.trim();
         anyhow::ensure!(!title.is_empty() && title.chars().count() <= 100 && !title.contains(['\n', '\r']), "Use a title of 1 to 100 characters on one line.");
         self.update(app, id, |s| { s.title = title.to_string(); s.title_pending = false; }).await
@@ -431,47 +435,72 @@ impl Sessions {
         })
     }
 
+    fn ensure_local(&self, id: &str) -> Result<()> {
+        let s = self.get(id).context("no such session")?;
+        anyhow::ensure!(s.imported_from.is_none(), "This trace belongs to another Launchpad instance. Use New agent here to follow up locally.");
+        Ok(())
+    }
+
     fn persist(db: &crate::db::Db, s: &Session) -> impl std::future::Future<Output = Result<()>> + use<> {
         let s = s.clone();
-        db.enqueue(move |c| {
-            c.execute(
-                "INSERT INTO session (id, harness, harness_session_id, project_id, cwd, title, status, status_since,
-                    open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)
-                 ON CONFLICT (id) DO UPDATE SET harness_session_id = ?3, project_id = ?4, cwd = ?5, title = ?6, status = ?7,
-                    status_since = ?8, open_question = ?9, model = ?10, effort = ?11, cost_usd = ?14, usage_json = ?15,
-                    ended_at = ?17, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20,
-                    seen_at = ?21, archived_done = ?23, capacity_retry_count = ?24, capacity_retry_at = ?25",
-                params![
-                    s.id,
-                    s.harness.as_str(),
-                    s.harness_session_id,
-                    s.project_id,
-                    s.cwd,
-                    s.title,
-                    s.status.as_str(),
-                    s.status_since,
-                    s.open_question as i64,
-                    s.model,
-                    s.effort,
-                    serde_json::to_string(&s.launch_spec)?,
-                    s.prompt,
-                    s.usage.cost_usd,
-                    serde_json::to_string(&s.usage)?,
-                    s.started_at,
-                    s.ended_at,
-                    s.last_seq,
-                    s.quota_pause.as_ref().map(serde_json::to_string).transpose()?,
-                    s.title_pending,
-                    s.seen_at,
-                    s.last_message,
-                    s.archived_done,
-                    s.capacity_retry_count,
-                    s.capacity_retry_at,
-                ],
-            )?;
-            Ok(())
-        })
+        db.enqueue(move |c| Self::store(c, &s))
+    }
+
+    pub(crate) fn store(c: &rusqlite::Connection, s: &Session) -> Result<()> {
+        c.execute(
+            "INSERT INTO session (id, harness, harness_session_id, project_id, cwd, title, status, status_since,
+                open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, imported_from)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)
+             ON CONFLICT (id) DO UPDATE SET harness_session_id = ?3, project_id = ?4, cwd = ?5, title = ?6, status = ?7,
+                status_since = ?8, open_question = ?9, model = ?10, effort = ?11, cost_usd = ?14, usage_json = ?15,
+                ended_at = ?17, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20,
+                seen_at = ?21, archived_done = ?23, capacity_retry_count = ?24, capacity_retry_at = ?25, imported_from = ?26",
+            params![
+                s.id,
+                s.harness.as_str(),
+                s.harness_session_id,
+                s.project_id,
+                s.cwd,
+                s.title,
+                s.status.as_str(),
+                s.status_since,
+                s.open_question as i64,
+                s.model,
+                s.effort,
+                serde_json::to_string(&s.launch_spec)?,
+                s.prompt,
+                s.usage.cost_usd,
+                serde_json::to_string(&s.usage)?,
+                s.started_at,
+                s.ended_at,
+                s.last_seq,
+                s.quota_pause.as_ref().map(serde_json::to_string).transpose()?,
+                s.title_pending,
+                s.seen_at,
+                s.last_message,
+                s.archived_done,
+                s.capacity_retry_count,
+                s.capacity_retry_at,
+                s.imported_from,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Commit a remote snapshot and its event chunks before exposing it to viewers.
+    pub(crate) async fn import_trace(&self, app: &App, mut session: Session, events: Vec<SessionEvent>, cursor: String) -> Result<()> {
+        let _action = self.action_lock().await;
+        if let Some(current) = self.get(&session.id) {
+            if current.imported_from.is_none() || current.project_id != session.project_id { return Ok(()); }
+            session.seen_at = current.seen_at.max(session.status_since);
+        }
+        let stored = session.clone();
+        let last_seq = app.state_db.call(move |c| crate::trace_sync::store(c, stored, events, cursor)).await?;
+        session.last_seq = last_seq;
+        self.inner.records.lock().unwrap().insert(session.id.clone(), session.clone());
+        app.bus.publish("sessions", "updated", serde_json::to_value(session.light())?);
+        self.publish_counts(app);
+        Ok(())
     }
 
     /// Applies a change to a session record, stores it, and pushes it to the UI.
@@ -492,6 +521,7 @@ impl Sessions {
 
     /// A focused window showed the session: it no longer needs you until its status changes again.
     pub async fn mark_seen(&self, app: &App, id: &str) -> Result<Session> {
+        let _action = self.action_lock().await;
         let s = self.get(id).context("no such session")?;
         if s.seen_at >= s.status_since { return Ok(s); }
         let s = self.update(app, id, |s| s.seen_at = now_ms().max(s.status_since)).await?;
@@ -501,6 +531,7 @@ impl Sessions {
 
     /// Returns a completed session to Needs you without changing its run state.
     pub async fn mark_unread(&self, app: &App, id: &str) -> Result<Session> {
+        let _action = self.action_lock().await;
         let s = self.update(app, id, |s| {
             if matches!(s.status, SessionStatus::Waiting | SessionStatus::Error | SessionStatus::Interrupted) {
                 s.seen_at = s.status_since.saturating_sub(1);
@@ -860,6 +891,7 @@ impl Sessions {
             if !matches!(spec.target, Target::Browser { .. }) { preview.prompt.push_str(&format!("\n\n{}", crate::suggestions::instruction(app, &id, &cwd))); }
             let now = now_ms();
             let session = Session {
+                imported_from: None,
                 id: id.clone(),
                 harness,
                 harness_session_id: None,
@@ -1042,6 +1074,7 @@ impl Sessions {
     /// Starts a process for a session that has none (resume).
     /// An idle process waiting for model, effort or permission changes is replaced.
     async fn reattach(&self, app: &App, id: &str) -> Result<Arc<dyn LiveSession>> {
+        self.ensure_local(id)?;
         self.ensure_shutdown_finished(id)?;
         let s = self.get(id).context("no such session")?;
         if let Some(l) = self.live(id) {
@@ -1243,6 +1276,7 @@ impl Sessions {
 
     /// Toggles paid usage for one session. Turning it off puts the session back under quota protection at the next guard check.
     pub async fn set_paid_usage(&self, app: &App, id: &str, allow: bool) -> Result<Session> {
+        self.ensure_local(id)?;
         let _action = self.inner.actions.lock().await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.quota,
@@ -1258,6 +1292,7 @@ impl Sessions {
 
     /// Sets or removes the cost limit of one session. A running turn above the new limit is interrupted by the guard.
     pub async fn set_budget(&self, app: &App, id: &str, budget_usd: Option<f64>) -> Result<Session> {
+        self.ensure_local(id)?;
         let _action = self.inner.actions.lock().await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(budget_usd.is_none() || (!s.usage.cost_unavailable && crate::profiles::supports_cost(app, s.harness, &s.launch_spec, s.model.as_deref())), "{}", crate::harness::COST_UNAVAILABLE);
@@ -1274,6 +1309,7 @@ impl Sessions {
 
     /// Reconfigure the same native conversation at an idle boundary, then continue an interrupted task.
     pub async fn set_permissions(&self, app: &App, id: &str, mode: PermissionMode) -> Result<Session> {
+        self.ensure_local(id)?;
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
         self.ensure_shutdown_finished(id)?;
@@ -1335,6 +1371,7 @@ impl Sessions {
 
     /// Changes model and effort through the live adapter, or resumes a replacement process once idle.
     pub async fn set_model(&self, app: &App, id: &str, model: Option<String>, effort: Option<String>) -> Result<Session> {
+        self.ensure_local(id)?;
         let _action = self.inner.actions.lock().await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(s.status != SessionStatus::InTerminal, "The session is open in a terminal: re-attach it first.");
@@ -1439,6 +1476,7 @@ impl Sessions {
     /// Resolve follow-up context under the same lock as delivery. No launch-only instructions
     /// or worktree creation: additional folders remain read-only references.
     pub async fn send_with_context(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, context: MessageContext, client_id: Option<String>) -> Result<()> {
+        self.ensure_local(id)?;
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
         if context.context_projects.is_empty() && context.github_refs.is_empty() && context.agent_traces.is_empty() && context.skills.is_empty() {
@@ -1489,10 +1527,12 @@ impl Sessions {
     }
 
     pub async fn send_follow_up(&self, app: &App, id: &str, text: &str, automatic: bool) -> Result<()> {
+        self.ensure_local(id)?;
         self.send_inner(app, id, text, vec![], if automatic { InputMode::FollowUpAutomatic } else { InputMode::FollowUpManual }, None).await
     }
 
     pub async fn send_with_id(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, client_id: String) -> Result<()> {
+        self.ensure_local(id)?;
         self.send_inner(app, id, text, images, InputMode::Manual, Some(client_id)).await
     }
 
@@ -1504,6 +1544,7 @@ impl Sessions {
 
     /// Caller holds the action and work locks, including during permission changes.
     async fn send_locked(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>) -> Result<()> {
+        self.ensure_local(id)?;
         self.ensure_shutdown_finished(id)?;
         self.update(app, id, |s| s.capacity_retry_at = None).await?;
         let s = self.get(id).context("no such session")?;
@@ -1582,6 +1623,7 @@ impl Sessions {
     }
 
     pub async fn terminate_process(&self, app: &App, id: &str, thread: &str, process: &str) -> Result<()> {
+        self.ensure_local(id)?;
         let live = {
             let _action = self.inner.actions.lock().await;
             self.live(id).context("the session has no running process")?
@@ -1595,6 +1637,7 @@ impl Sessions {
     }
 
     pub async fn interrupt(&self, app: &App, id: &str) -> Result<()> {
+        self.ensure_local(id)?;
         crate::browser::revoke_session(app, id).await?;
         let _action = self.inner.actions.lock().await;
         self.update(app, id, |s| s.capacity_retry_at = None).await?;
@@ -1631,6 +1674,7 @@ impl Sessions {
     }
 
     pub async fn answer(&self, app: &App, id: &str, request_id: &str, answers: Vec<String>) -> Result<()> {
+        self.ensure_local(id)?;
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
@@ -1688,6 +1732,7 @@ impl Sessions {
 
     /// Caller holds the session action lock (for atomic worktree discard).
     pub(crate) async fn close_locked(&self, app: &App, id: &str) -> Result<()> {
+        if self.get(id).is_some_and(|s| s.imported_from.is_some()) { return Ok(()); }
         self.update(app, id, |s| s.capacity_retry_at = None).await?;
         crate::browser::revoke_session(app, id).await?;        let setup = self.inner.setups.lock().unwrap().remove(id);
         if let Some(task) = setup { self.wait_for_shutdown(id, async move { task.stop().await; Ok(()) }).await?; }
@@ -1714,6 +1759,7 @@ impl Sessions {
     /// A session without a native conversation receives its original task and launch images.
     /// With `close_terminal`, an integrated terminal still running the session's TUI is closed first.
     pub async fn resume(&self, app: &App, id: &str, close_terminal: bool, continue_turn: bool) -> Result<()> {
+        self.ensure_local(id)?;
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
         self.update(app, id, |s| s.capacity_retry_at = None).await?;
@@ -1722,6 +1768,7 @@ impl Sessions {
 
     /// Caller holds the action and work locks, just like manual Resume.
     async fn resume_locked(&self, app: &App, id: &str, close_terminal: bool, continue_turn: bool) -> Result<()> {
+        self.ensure_local(id)?;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(!s.status.is_running() && !s.open_question && self.live(id).is_none_or(|l| l.ready_for_turn()), "Wait for the current turn, question and outstanding commands to finish.");
         anyhow::ensure!(s.quota_pause.is_none(), "Use Resume with paid usage to continue a quota-paused session.");
@@ -1765,6 +1812,7 @@ impl Sessions {
 
     /// Hands the session to its harness TUI in an integrated terminal.
     pub async fn open_terminal(&self, app: &App, id: &str) -> Result<crate::terminals::TerminalInfo> {
+        self.ensure_local(id)?;
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;

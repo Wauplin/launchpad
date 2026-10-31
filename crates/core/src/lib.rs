@@ -42,6 +42,7 @@ pub mod review_state;
 pub mod suggestions;
 pub mod terminals;
 pub mod trace_backup;
+pub(crate) mod trace_sync;
 mod titles;
 pub mod util;
 pub mod profiles;
