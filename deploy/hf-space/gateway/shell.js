@@ -145,6 +145,31 @@ function confirmButton(label, confirmLabel, run, cls = "") {
   return button;
 }
 
+// ---------- text size ----------
+
+// Same key and positions as Launchpad (web/src/lib/zoom.ts); the app in the iframe follows through storage events.
+const ZOOMS = [100, 110, 120, 135, 150];
+function zoomPosition() {
+  try {
+    const n = Number(localStorage.getItem("launchpad-zoom") ?? 2);
+    return Number.isInteger(n) && n >= 0 && n <= 4 ? n : 2;
+  } catch { return 2; }
+}
+
+function setZoom(position) {
+  try { localStorage.setItem("launchpad-zoom", String(position)); } catch { /* This page still changes. */ }
+  if (!matchMedia("(max-width: 719px)").matches) document.documentElement.style.setProperty("--zoom", String(ZOOMS[position] / 100));
+  lastSetupRender = lastPanelRender = "";
+  render();
+}
+
+function textSize() {
+  const current = zoomPosition();
+  return h("div", { class: "sizes", role: "group", "aria-label": "Text size" },
+    h("span", {}, "Text size"),
+    ZOOMS.map((value, i) => h("button", { type: "button", "aria-pressed": String(i === current), onclick: () => setZoom(i) }, `${value}%`)));
+}
+
 // ---------- status polling ----------
 
 async function refresh() {
@@ -240,6 +265,8 @@ function page(title, lead, step, ...body) {
   $("steps").replaceChildren(...(step ? steps(step) : []));
   $("steps").hidden = !step;
   $("stage-body").replaceChildren(...body.flat().filter(Boolean));
+  document.querySelector(".brand .sizes")?.remove();
+  document.querySelector(".brand").append(textSize());
 }
 
 const logsUrl = () => `${state.space.url}?logs=container`;
@@ -247,7 +274,7 @@ const logsUrl = () => `${state.space.url}?logs=container`;
 function renderSetup() {
   // Polling re-renders only when something visible changed, so typed text and focus survive.
   const login = state.login || {};
-  const key = JSON.stringify([restarting, slowRestart(), state.stage, state.message, state.needs_bucket, state.needs_key, connections, selected,
+  const key = JSON.stringify([restarting, slowRestart(), zoomPosition(), state.stage, state.message, state.needs_bucket, state.needs_key, connections, selected,
     login.tool, login.profile, login.result, login.running, login.link, login.code, finished]);
   if (key === lastSetupRender) return;
   lastSetupRender = key;
@@ -583,7 +610,9 @@ function renderPanel() {
   const key = JSON.stringify([state.stage, state.backup, state.update, state.maintenance, connections, login, Math.floor(Date.now() / 30000)]);
   if (key === lastPanelRender) return;
   lastPanelRender = key;
-  $("panel-body").replaceChildren(accountsSection(), backupSection(), updatesSection(), spaceSection());
+  $("panel-body").replaceChildren(accountsSection(), backupSection(), updatesSection(), spaceSection(),
+    matchMedia("(max-width: 719px)").matches ? null : h("section", {}, h("h3", {}, "This device"), textSize(),
+      h("p", { class: "muted small-text", style: "margin-top:8px" }, "Applies to Launchpad and this page in this browser. Also in Launchpad → Settings → Appearance.")));
   remountTerminal();
 }
 

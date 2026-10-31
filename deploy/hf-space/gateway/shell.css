@@ -153,7 +153,8 @@ label { display: block; font-size: 12px; font-weight: 600; color: var(--ink-2); 
 #app { display: block; width: 100%; height: calc(100dvh - 36px); border: 0; background: var(--board); }
 
 /* Setup page */
-.setup { min-height: 100dvh; display: flex; justify-content: center; padding: 7vh 20px 48px; }
+.setup, .panel-body, .panel-head { zoom: var(--zoom, 1.2); }
+.setup { min-height: calc(100dvh / var(--zoom, 1.2)); display: flex; justify-content: center; padding: 7vh 20px 48px; }
 .setup-inner { width: min(640px, 100%); }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; margin-bottom: 28px; }
 .brand-tag { font-weight: 500; font-size: 12px; color: var(--ink-3); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
@@ -265,3 +266,11 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.55 var(--mono
   .panel-body { padding: 4px 16px 32px; }
   .term { height: 220px; }
 }
+
+/* Text size: the same device-local setting as Launchpad's Settings → Appearance. */
+.brand .sizes { margin-left: auto; }
+.sizes { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--line-2); border-radius: 999px; background: var(--chrome); font-weight: 500; }
+.sizes > span { font-size: 11px; color: var(--ink-3); padding: 0 6px 0 8px; }
+.sizes button { min-height: 24px; padding: 1px 8px; border: 0; border-radius: 999px; background: none; font-size: 11px; font-weight: 600; color: var(--ink-2); }
+.sizes button[aria-pressed="true"] { background: var(--paper); color: var(--teal-ink); box-shadow: 0 0 0 1px var(--line); }
+@media (max-width: 719px) { .sizes { display: none; } }
