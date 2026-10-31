@@ -14,7 +14,7 @@ COMMANDS = {
     'codex': ('codex','login','--device-auth'),
     'claude': ('claude','auth','login'),
     'opencode': ('opencode','auth','login'),
-    'github': ('gh','auth','login','--hostname','github.com','--git-protocol','https','--web'),
+    'github': ('gh','auth','login','--hostname','github.com','--git-protocol','https','--web','--scopes','repo,read:org,notifications'),
 }
 ANSI = re.compile(r'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))')
 
