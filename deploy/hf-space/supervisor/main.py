@@ -18,7 +18,7 @@ from backup.machine import atomic
 from backup.store import Bucket
 from backup.worker import Recovery
 from gateway.proxy import Proxy
-from providers.setup import Logins, ssh_key
+from providers.setup import Logins, ssh_key, public_details
 from supervisor.policy import Deployment, verify, MissingBucket
 from supervisor.processes import CONTROL, HOME, prepare, environment, spawn
 from supervisor.runtime import Runtime
@@ -153,6 +153,7 @@ async def serve():
                 await updater.rollback(body.get('confirmed') is True)
                 return web.json_response({'message':'Rollback requested. Wait for the Space to rebuild.'})
             if not state['ready']: raise ValueError('Finish startup first')
+            if runtime.maintenance: raise ValueError('Maintenance is in progress. Wait for the Space to reconnect.')
             if kind == 'login':
                 if runtime.maintenance: raise ValueError('Maintenance is in progress')
                 await logins.start(body.get('tool'))
@@ -174,11 +175,11 @@ async def serve():
                 from providers.keys import import_ssh
                 public = await import_ssh(body.get('private_key'))
                 await recovery.credentials()
-                return web.json_response({'public_key':public,'message':'SSH key imported and backed up.'})
+                return web.json_response(dict(public_details(public),message='SSH key imported and backed up.'))
             elif kind == 'ssh-key':
                 public = await ssh_key()
                 await recovery.credentials()
-                return web.json_response({'public_key':public,'message':'Add this public key to your Git host. Outbound SSH port 22 may be unavailable; prefer Git HTTPS.'})
+                return web.json_response(dict(public_details(public),message='Add this public key to your Git host. Outbound SSH port 22 may be unavailable; prefer Git HTTPS.'))
             elif kind == 'setup-git':
                 process = await spawn('gh','auth','setup-git','--hostname','github.com')
                 if await process.wait(): raise ValueError('GitHub CLI could not configure HTTPS Git; connect GitHub first')
@@ -198,6 +199,8 @@ async def serve():
                 try:
                     async with mutations:
                         if not await runtime.idle(): raise ValueError('Agents or terminals are active. Stop them in Launchpad, then try again.')
+                    recovery.paused = True
+                    async with recovery.lock: pass
                     await runtime.close()
                     checkpoint = await recovery.checkpoint(clean=True)
                     if kind == 'rotate-key':
@@ -208,7 +211,13 @@ async def serve():
                     elif kind == 'prepare-update': await updater.apply(checkpoint)
                     elif kind == 'rollback': await updater.rollback(body.get('confirmed') is True)
                     else: await asyncio.to_thread(HfApi(token=token).restart_space,deployment.space)
-                except Exception:
+                except Exception as error:
+                    from supervisor.updates import UncertainMaintenance
+                    if runtime.process is None and (kind == 'rotate-key' or isinstance(error,UncertainMaintenance)):
+                        state['ready'] = False
+                        state['message'] = str(error)
+                        raise
+                    recovery.paused = False
                     if runtime.process is None: await runtime.start()
                     proxy.token = runtime.token
                     runtime.maintenance = False

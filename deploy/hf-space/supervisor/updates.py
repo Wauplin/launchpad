@@ -21,6 +21,10 @@ def dockerfile(image):
     return f'# Managed by Launchpad Space controls. Put custom files beside this file.\nFROM {image}\nENV LP_SPACE_IMAGE={image}\n'
 
 
+class UncertainMaintenance(ValueError):
+    pass
+
+
 class Updates:
     def __init__(self,deployment,token,runtime,recovery,installed):
         self.deployment,self.runtime,self.recovery = deployment,runtime,recovery
@@ -78,7 +82,12 @@ class Updates:
         # Durable before the repo commit, so recovery is possible even if rebuild interrupts us.
         await asyncio.to_thread(self.recovery.bucket.put,'backups/update.json',json.dumps(record).encode())
         operations=[CommitOperationAdd(path_in_repo='Dockerfile',path_or_fileobj=io.BytesIO(dockerfile(self.candidate['image']).encode()))]
-        await asyncio.to_thread(self.api.create_commit,self.deployment.space,operations,repo_type='space',parent_commit=head.sha,commit_message='Update Launchpad runtime image')
+        try:
+            await asyncio.to_thread(self.api.create_commit,self.deployment.space,operations,repo_type='space',parent_commit=head.sha,commit_message='Update Launchpad runtime image')
+        except Exception as error:
+            response=getattr(error,'response',None)
+            if response is not None and 400 <= response.status_code < 500: raise ValueError('HF refused the repository update; refresh the Space revision and try again') from None
+            raise UncertainMaintenance('Repository update outcome is uncertain. Inspect Hub commits before another update or rollback.') from None
         self.rollback_record=record
 
     async def load_rollback(self):
@@ -92,4 +101,9 @@ class Updates:
         if not record: raise ValueError('No pre-update restore point exists')
         head=await asyncio.to_thread(self.api.space_info,self.deployment.space)
         operations=[CommitOperationAdd(path_in_repo='Dockerfile',path_or_fileobj=io.BytesIO((dockerfile(record['image'])+f"ENV LP_SPACE_RESTORE_GENERATION={record['generation']}\nENV LP_SPACE_RESTORE_REQUEST={uuid.uuid4().hex}\n").encode()))]
-        await asyncio.to_thread(self.api.create_commit,self.deployment.space,operations,repo_type='space',parent_commit=head.sha,commit_message='Roll back Launchpad image and pre-update data')
+        try:
+            await asyncio.to_thread(self.api.create_commit,self.deployment.space,operations,repo_type='space',parent_commit=head.sha,commit_message='Roll back Launchpad image and pre-update data')
+        except Exception as error:
+            response=getattr(error,'response',None)
+            if response is not None and 400 <= response.status_code < 500: raise ValueError('HF refused the repository update; refresh the Space revision and try again') from None
+            raise UncertainMaintenance('Repository update outcome is uncertain. Inspect Hub commits before another update or rollback.') from None

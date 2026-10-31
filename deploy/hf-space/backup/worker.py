@@ -15,6 +15,7 @@ class Recovery:
         self.bucket, self.vault, self.schema, self.release = bucket, vault, schema, release
         self.installation = installation
         self.lock = asyncio.Lock()
+        self.paused = False
         self.checkpoint_at = None
         self.credentials_at = None
         self.generation = None
@@ -46,10 +47,12 @@ class Recovery:
             payload=self.vault.open(manifest['credentials'],envelope)
             if await asyncio.to_thread(self.bucket.exists,'credentials/latest.json'):
                 latest=json.loads(await asyncio.to_thread(self.bucket.read,'credentials/latest.json'))
-                safe_name(latest['generation'])
-                if '/' in latest['generation']: raise ValueError('Invalid credential generation')
-                sealed=await asyncio.to_thread(self.bucket.read,f"credentials/{latest['generation']}/vault.aead")
-                provider_files=self.vault.open(latest['generation'],sealed)['files']
+                if latest.get('captured_at',0) <= manifest.get('captured_at',0): latest = None
+                if latest is not None: safe_name(latest['generation'])
+                if latest is not None:
+                    if '/' in latest['generation']: raise ValueError('Invalid credential generation')
+                    sealed=await asyncio.to_thread(self.bucket.read,f"credentials/{latest['generation']}/vault.aead")
+                    provider_files=self.vault.open(latest['generation'],sealed)['files']
         except Exception as error:
             from cryptography.exceptions import InvalidTag
             self.reconnect=True
@@ -75,7 +78,7 @@ class Recovery:
             if self.reconnect: raise ValueError('Reconnect credentials before creating a new checkpoint')
             files, secrets = await asyncio.to_thread(capture, self.schema, self.release, clean)
             metadata = dict(self.release, clean=clean)
-            manifest = await asyncio.to_thread(self.bucket.commit, files, self.vault, secrets, self.installation, metadata)
+            manifest = await asyncio.to_thread(self.bucket.commit, files, self.vault, secrets, self.installation, metadata, time.time())
             self.generation = manifest['generation']
             self.last_bytes=manifest['bytes']
             self.checkpoint_at = time.time()
@@ -92,10 +95,11 @@ class Recovery:
                 self.pending_credentials = False
                 return
             generation = uuid.uuid4().hex
-            sealed = self.vault.seal(generation, {'files': files})
+            captured_at=time.time()
+            sealed = self.vault.seal(generation, {'files': files,'captured_at':captured_at})
             self.vault.open(generation, sealed)
             await asyncio.to_thread(self.bucket.put, f'credentials/{generation}/vault.aead', sealed)
-            await asyncio.to_thread(self.bucket.put, 'credentials/latest.json', json.dumps({'generation':generation}).encode())
+            await asyncio.to_thread(self.bucket.put, 'credentials/latest.json', json.dumps({'generation':generation,'captured_at':captured_at}).encode())
             self.credential_hash = digest
             self.credential_generation = generation
             self.credentials_at = time.time()
@@ -113,9 +117,12 @@ class Recovery:
         last_full=0
         try:
             while True:
+                if self.paused:
+                    await asyncio.sleep(1)
+                    continue
                 try:
                     await self.credentials()
-                    if time.monotonic()-last_full >= 60:
+                    if not self.paused and time.monotonic()-last_full >= 60:
                         await self.checkpoint()
                         last_full=time.monotonic()
                 except Exception:

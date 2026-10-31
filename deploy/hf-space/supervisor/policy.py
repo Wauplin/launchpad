@@ -18,7 +18,7 @@ class Deployment:
 
     def __post_init__(self):
         for name in (self.space, self.bucket):
-            if not re.fullmatch(r"[\w.-]+/[\w.-]+", name, flags=re.ASCII):
+            if not re.fullmatch(r"[\w.-]+/[\w.-]+", name, flags=re.ASCII) or any(p in (".", "..") for p in name.split("/")):
                 raise ValueError("Use an exact namespace/name for Space and bucket")
         if not re.fullmatch(r"https://[a-z0-9-]+\.hf\.space", self.origin):
             raise ValueError("Use the exact HTTPS hf.space origin without a trailing slash")

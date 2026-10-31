@@ -38,7 +38,7 @@ class Bucket:
         if self.read(name) != data:
             raise RuntimeError("Bucket read-back did not match; checkpoint was not committed")
 
-    def commit(self, files, vault, payload, installation, release):
+    def commit(self, files, vault, payload, installation, release, captured_at=0):
         generation = uuid.uuid4().hex
         sealed = vault.seal(generation, payload)
         if vault.open(generation, sealed) != payload:
@@ -50,7 +50,7 @@ class Bucket:
             self.put(f"backups/{generation}/{name}", data)
             entries[name] = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
         manifest = {"format": 1, "installation": installation, "generation": generation,
-                    "release": release, "credentials": generation, "files": entries, "bytes":len(sealed)+sum(len(data) for data in files.values())}
+                    "release": release, "captured_at":captured_at, "credentials": generation, "files": entries, "bytes":len(sealed)+sum(len(data) for data in files.values())}
         data = json.dumps(manifest, sort_keys=True).encode()
         self.put(f"backups/{generation}/manifest.json", data)
         self.put("backups/latest.json", json.dumps({"generation": generation, "sha256": hashlib.sha256(data).hexdigest()}).encode())

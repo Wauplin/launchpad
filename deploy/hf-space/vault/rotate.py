@@ -20,7 +20,7 @@ async def rotate(recovery,api,space):
             complete=json.loads(await asyncio.to_thread(bucket.read,'credentials/rotation-complete.json')) if await asyncio.to_thread(bucket.exists,'credentials/rotation-complete.json') else {}
             if pending.get('rotation')!=complete.get('rotation') or complete.get('new_key_id')!=recovery.vault.key_id:
                 raise ValueError('A previous key change needs inspection in Hub; do not repeat an uncertain rotation')
-        await asyncio.to_thread(bucket.put,'credentials/rotation-pending.json',json.dumps({'rotation':rotation,'key_id':recovery.vault.key_id}).encode())
+        await asyncio.to_thread(bucket.put,'credentials/rotation-pending.json',json.dumps({'rotation':rotation,'key_id':recovery.vault.key_id,'old_backup':json.loads(old_latest),'old_credentials':json.loads(old_credentials) if old_credentials else None}).encode())
         key=base64.b64encode(os.urandom(32)).decode()
         new=Vault(key,recovery.installation)
         # Snapshot the object list before writing any new generation.
@@ -47,10 +47,10 @@ async def rotate(recovery,api,space):
                 envelope=await asyncio.to_thread(bucket.read,f"credentials/{manifest['credentials']}/vault.aead")
                 if json.loads(envelope).get('key_id') != recovery.vault.key_id: continue
                 payload=recovery.vault.open(manifest['credentials'],envelope)
-                await asyncio.to_thread(bucket.commit,files,new,payload,recovery.installation,manifest['release'])
+                await asyncio.to_thread(bucket.commit,files,new,payload,recovery.installation,manifest['release'],manifest.get('captured_at',0))
             if old_credentials:
                 source=json.loads(old_credentials)['generation']
-                await asyncio.to_thread(bucket.put,'credentials/latest.json',json.dumps({'generation':mapping[source]}).encode())
+                await asyncio.to_thread(bucket.put,'credentials/latest.json',json.dumps(dict(json.loads(old_credentials),generation=mapping[source])).encode())
             await asyncio.to_thread(bucket.put,'credentials/rotation-pending.json',json.dumps({'rotation':rotation,'key_id':recovery.vault.key_id,'new_key_id':new.key_id,'old_backup':json.loads(old_latest),'old_credentials':json.loads(old_credentials) if old_credentials else None,'new_backup':json.loads(await asyncio.to_thread(bucket.read,'backups/latest.json')),'new_credentials':json.loads(await asyncio.to_thread(bucket.read,'credentials/latest.json')) if old_credentials else None}).encode())
             # This mutation may restart the container. Both complete key generations already exist.
             await asyncio.to_thread(api.add_space_secret,space,'LP_SPACE_BACKUP_KEY',key)

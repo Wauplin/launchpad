@@ -90,8 +90,19 @@ def is_sqlite(path):
     with path.open('rb') as f: return f.read(16) == b'SQLite format 3\x00'
 
 
+def signature(path):
+    value=path.stat()
+    return value.st_ino,value.st_size,value.st_mtime_ns
+
+
 def credential_bytes(path):
-    if not is_sqlite(path): return path.read_bytes()
+    before=signature(path)
+    if not is_sqlite(path):
+        data=path.read_bytes()
+        if signature(path)!=before: raise ValueError('Credentials changed while being captured; retry shortly')
+        if path.suffix=='.json': json.loads(data)
+        if path.name=='config.toml': tomlkit.parse(data.decode())
+        return data
     with tempfile.TemporaryDirectory() as directory:
         copy = Path(directory)/'credential.db'
         sqlite_snapshot(path, copy)
@@ -100,6 +111,7 @@ def credential_bytes(path):
 
 def capture(approved, release, clean=False):
     secrets = {'references': {}, 'files': {}, 'present': []}
+    credential_stats={}
     ordinary = {}
     with tempfile.TemporaryDirectory() as directory:
         state = Path(directory)/'state.db'
@@ -123,6 +135,7 @@ def capture(approved, release, clean=False):
                         raise ValueError('A workspace symlink leaves the backed-up home; checkpoint paused')
                 if credential(name):
                     if path.is_symlink(): raise ValueError('Credential symlinks need a registered local file')
+                    credential_stats[path]=signature(path)
                     secrets['files'][name] = base64.b64encode(credential_bytes(path)).decode()
                     secrets['present'].append(name)
                 elif path.is_file() or path.is_symlink():
@@ -137,6 +150,7 @@ def capture(approved, release, clean=False):
                         else:
                             info=tarfile.TarInfo(name); stat=path.stat();info.size=stat.st_size;info.mode=stat.st_mode & 0o777;info.mtime=stat.st_mtime
                             with path.open('rb') as f: tar.addfile(info,f)
+        if any(signature(path)!=value for path,value in credential_stats.items()): raise ValueError('Credentials changed during checkpoint; retry shortly')
         ordinary['workspaces/home.tar.gz'] = archive.getvalue()
     ordinary['state/runtime.json'] = json.dumps({'format':1,'release':release,'at':time.time()}).encode()
     return ordinary, secrets
@@ -145,10 +159,14 @@ def capture(approved, release, clean=False):
 def credential_snapshot():
     from base64 import b64encode
     files = {}
+    signatures={}
     for name, path in files_under(roots()):
-        if credential(name) and not path.is_symlink(): files[name] = b64encode(credential_bytes(path)).decode()
+        if credential(name) and not path.is_symlink():
+            signatures[path]=signature(path)
+            files[name] = b64encode(credential_bytes(path)).decode()
     # Config also holds literal API keys; never upload its bytes outside the vault.
     if CONFIG.exists(): files['.config/launchpad/config.toml'] = b64encode(CONFIG.read_bytes()).decode()
+    if any(signature(path)!=value for path,value in signatures.items()): raise ValueError('Credentials changed during capture; retry shortly')
     return files
 
 

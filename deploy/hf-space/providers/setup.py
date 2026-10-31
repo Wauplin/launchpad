@@ -91,3 +91,11 @@ async def ssh_key():
         if await process.wait(): raise ValueError('SSH key generation failed')
     if not path.with_suffix('.pub').exists(): raise ValueError('Existing key has no public file; import or repair it manually')
     return path.with_suffix('.pub').read_text()
+
+
+def public_details(public):
+    import hashlib
+    import base64
+    blob=base64.b64decode(public.split()[1],validate=True)
+    fingerprint='SHA256:'+base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip('=')
+    return {'public_key':public,'fingerprint':fingerprint}
