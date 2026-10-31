@@ -1,5 +1,5 @@
 const el = id => document.getElementById(id);
-let state, busy = false, checks = [], toolLoaded = false, profiles = [], publicKey = null, lastLoginResult = null, lastStatus = 0, selectedProfile = new URLSearchParams(location.search).get('profile')||'', toasted, lastRoute;
+let state, busy = false, checks = [], toolLoaded = false, profiles = [], publicKey = null, lastLoginResult = null, lastStatus = 0, setupShown = false, selectedProfile = new URLSearchParams(location.search).get('profile')||'', toasted, lastRoute;
 function toast(text) { el('toast').textContent=text;el('toast').hidden=false;clearTimeout(toasted);toasted=setTimeout(()=>el('toast').hidden=true,7000); }
 function age(at) { if(!at)return 'Not yet verified';const seconds=Math.max(0,Math.floor(Date.now()/1000-at));return seconds<60?`${seconds}s ago`:`${Math.floor(seconds/60)} min ago`; }
 async function json(path, options) { const response=await fetch(path,{cache:'no-store',...options});const value=await response.json();if(!response.ok)throw new Error(value.error||'The service is reconnecting. Try again shortly.');return value; }
@@ -41,6 +41,7 @@ async function refresh(){
   const login=state.login;el('login-profile').disabled=!!login?.running;if(login?.result==='completed'&&lastLoginResult!=='completed'&&el('controls').open)void loadTools();lastLoginResult=login?.result;el('login-panel').hidden=!login?.tool;
   if(login?.tool){el('login-profile').disabled=login.running;el('login-title').textContent=`Connect ${login.tool} · ${profiles.find(p=>p.id===login.profile)?.name||'Default login'}${login.result?' · '+login.result:''}`;el('login-output').textContent=login.output;el('login-links').replaceChildren();for(const match of login.output.matchAll(/https:\/\/[^\s<>\x1b]+/g)){try{const url=new URL(match[0]);const a=document.createElement('a');a.href=url.href;a.target='_blank';a.rel='noreferrer';a.className='button';a.textContent='Open authorization page ↗';el('login-links').append(a);}catch{}}}
   if(toolLoaded)renderTools();
+  if(state.ready&&!setupShown&&(state.needs_tools||state.backup?.reconnect||new URLSearchParams(location.search).has('setup'))){setupShown=true;if(!el('controls').open)el('controls').showModal();void loadTools();}
  }catch(error){toast(error.message);}
 }
 el('open-controls').onclick=()=>{el('controls').showModal();if(state?.ready)loadTools();};el('close-controls').onclick=()=>el('controls').close();
@@ -53,7 +54,7 @@ el('confirm-rollback').onclick=()=>action('rollback',{confirmed:true});
 el('workspace').addEventListener('load',()=>{try{lastRoute=route(el('workspace').contentWindow.location.href);}catch{}});
 window.addEventListener('message',event=>{if(event.origin!==location.origin||event.source!==el('workspace').contentWindow||event.data?.type!=='launchpad-route')return;lastRoute=route(event.data.route);history.replaceState({},'',`/_space/shell?route=${encodeURIComponent(lastRoute)}`);});
 setInterval(()=>{if(document.visibilityState!=='visible')return;if(el('controls').open||!state?.ready||Date.now()-lastStatus>=15000)refresh();try{if(state?.ready){const next=route(el('workspace').contentWindow.location.href);if(next!==lastRoute){lastRoute=next;history.replaceState({},'',`/_space/shell?route=${encodeURIComponent(next)}`);}}}catch{}},2000);
-refresh().then(()=>{if(new URLSearchParams(location.search).has('setup')&&state?.ready){el('controls').showModal();loadTools();}});
+refresh();
 
 el('api-tool').onchange=()=>{if(el('api-tool').value!=='opencode')el('api-provider').value=el('api-tool').value==='claude'?'anthropic':'openai';};
 el('api-form').onsubmit=event=>{event.preventDefault();const key=el('api-key').value;el('api-key').value='';action('api-key',{tool:el('api-tool').value,provider:el('api-provider').value,key,paid:el('api-paid').checked}).then(()=>loadTools());};

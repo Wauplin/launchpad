@@ -84,6 +84,7 @@ async def serve():
                 if not recovery.reconnect:
                     await recovery.checkpoint()
                     if generation: await asyncio.to_thread(bucket.put,f'backups/restores/{restore_request}.json',json.dumps({'generation':generation,'restored_at':time.time()}).encode())
+                state['needs_tools'] = not (await runtime.api('GET','/api/config'))['config']['profiles']
                 state['ready'] = True
                 state['message'] = 'Your workspace is ready. Connect a tool to get started.'
                 worker = asyncio.create_task(recovery.run())
@@ -130,6 +131,7 @@ async def serve():
         checks = await runtime.api('GET','/api/setup/sign-in')
         hf = await runtime.api('GET','/api/setup/trace-backup')
         profiles = (await runtime.api('GET','/api/config'))['config']['profiles']
+        state['needs_tools'] = not profiles
         return web.json_response({'checks':checks,'hf':hf,'profiles':[{'id':p['id'],'harness':p['harness'],'name':p['name']} for p in profiles]})
 
     async def action(request):
