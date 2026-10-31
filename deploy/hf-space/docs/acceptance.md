@@ -36,6 +36,14 @@ The public repository now supplies a main-commit channel instead of waiting for 
 
 Checked for this change: eight isolated Python updater regressions; manifest/template generation and first/repeated publication scripts against a throwaway local bare remote; workflow YAML and shell syntax; Chrome fixture for the visible prompt, review drawer, second-click confirmation and exact image request; strict workspace Clippy, all 130 Rust tests, UI typecheck/build and four tour guardrails. Tests use local fixtures and mocked Hub mutations; no real Space was updated or restarted, and the new Docker image/Actions workflow has not been built or executed in the cloud by this task.
 
+## Deployment refresh (2026-10-31)
+
+Updated the private `Wauplin/launchpad` Space from source revision `79025f9c8a2211944659c5e37c488004a64cca7e`, at Hub commit `8d5fc7c24807a984ae134e466c5c0854da3b8365`. Before uploading, the running Space passed the updater's idle checks (no busy agents, live terminals or sign-in), and a full backup completed without errors (`7b604f2b4962493daa3585db9ee8acb4`).
+
+The exact source revision built successfully in Docker locally. Its isolated, network-disabled startup passed the health check, schema/assets checks and all six pinned CLI version checks. All eight Python updater regressions passed. The smoke-test container was removed afterwards. The Hub build also succeeded. The live shell reached `ready`, both the shell and `/api/status` reported the exact revision, and the existing waiting session, six projects, profile context and connections endpoints were recovered successfully. A post-startup backup completed without errors or pending credentials. The new channel URL is installed, but checks correctly report it unavailable until publication.
+
+GitHub Actions currently refuses to start jobs because of the account's payment/spending limit (reported on [CI run 41217995704](https://github.com/Wauplin/launchpad/actions/runs/41217995704)). The immutable image and `hf-space-channel` therefore remain unpublished. This refresh preserves the source-build deployment; enabling in-app updates still requires a successful channel publication and the one-time managed Dockerfile migration described in the deployment README. Automatic checks do not automatically apply updates: the owner confirms them.
+
 ## Still required before publishing
 
 - First channel publication: push main to trigger CI (or dispatch on main), make the `launchpad-hf-space` GHCR package public, and rerun if its anonymous-read check failed. Configure `HF_SPACE_TEMPLATE` and `HF_SPACE_TEMPLATE_TOKEN` for automatic duplicate-template refresh. Migrate the existing source-built Space to the resulting managed Dockerfile once; no GitHub release is required.
