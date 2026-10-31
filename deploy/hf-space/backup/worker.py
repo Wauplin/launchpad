@@ -27,6 +27,9 @@ class Recovery:
         self.reconnect = False
         self.reconnect_reason = None
         self.pending_credentials = False
+        self.manifest = None  # Last committed or restored manifest; unchanged objects are referenced from it.
+        self.workspace_at = 0.0
+        self.payload_digest = None
 
     async def recover(self, generation=None):
         started=time.monotonic()
@@ -71,14 +74,24 @@ class Recovery:
                 if name!='.config/launchpad/config.toml' and not credential(name) and '.git' not in Path(name).parts: raise ValueError('Unregistered credential root')
                 atomic(HOME/name,b64decode(data,validate=True))
         self.generation = generation
+        self.manifest = manifest
+        self.workspace_at = time.monotonic()
         self.restore_seconds=time.monotonic()-started
 
-    async def checkpoint(self, clean=False):
+    async def checkpoint(self, clean=False, full=False):
         async with self.lock:
             if self.reconnect: raise ValueError('Reconnect credentials before creating a new checkpoint')
-            files, secrets = await asyncio.to_thread(capture, self.schema, self.release, clean)
+            # Workspaces are archived every five minutes (and for clean checkpoints); state every minute.
+            workspace = clean or full or self.manifest is None or time.monotonic() - self.workspace_at >= 300
+            files, secrets = await asyncio.to_thread(capture, self.schema, self.release, clean, workspace)
+            digest = hashlib.sha256(json.dumps(secrets, sort_keys=True).encode()).hexdigest()
+            reuse = self.manifest['credentials'] if self.manifest and digest == self.payload_digest else None
             metadata = dict(self.release, clean=clean)
-            manifest = await asyncio.to_thread(self.bucket.commit, files, self.vault, secrets, self.installation, metadata, time.time())
+            manifest = await asyncio.to_thread(self.bucket.commit, files, self.vault, secrets, self.installation, metadata,
+                                               time.time(), self.manifest, reuse)
+            if workspace: self.workspace_at = time.monotonic()
+            self.manifest = manifest
+            self.payload_digest = digest
             self.generation = manifest['generation']
             self.last_bytes=manifest['bytes']
             self.checkpoint_at = time.time()
@@ -126,8 +139,8 @@ class Recovery:
                         await self.checkpoint()
                         last_full=time.monotonic()
                 except Exception:
-                    self.error='Backup delayed. Check bucket access and capacity; retry is automatic.'
-                try: await asyncio.wait_for(changed.wait(),5)
+                    self.error='The last attempt failed. Check bucket access and capacity; retrying automatically.'
+                try: await asyncio.wait_for(changed.wait(),30)
                 except asyncio.TimeoutError: pass
                 changed.clear()
         finally:

@@ -21,6 +21,21 @@ def credential(name):
 
 
 PROTECTED_GIT = set()
+# Repository -> refs signature of its last classification; history only changes when refs move.
+_classified = {}
+
+
+def refs_signature(git):
+    """Cheap change key for a repository's history: mtimes of HEAD, packed refs, reflog and ref folders."""
+    import os
+    values=[]
+    for name in ('HEAD','packed-refs','logs/HEAD','FETCH_HEAD'):
+        try: values.append((name,os.stat(git/name).st_mtime_ns))
+        except OSError: pass
+    for directory,_,_ in os.walk(git/'refs'):
+        try: values.append((directory,os.stat(directory).st_mtime_ns))
+        except OSError: pass
+    return tuple(values)
 
 
 def classify_git(paths):
@@ -39,13 +54,18 @@ def classify_git(paths):
             if prefix in seen: continue
             seen.add(prefix)
             relative=str(Path(directory).relative_to(HOME))
-            patterns=['.env','.env.*','*.pem','*.key','*.p12','*.pfx','*auth.json','*credentials*','id_ed25519','id_rsa','stored_tokens']
+            key=refs_signature(Path(directory)/'.git')
+            if _classified.get(prefix, (None,))[0] == key: continue
+            # Templates such as .env.example are meant to be committed and hold no secrets.
+            patterns=['.env','.env.*',':!*.example',':!*.sample',':!*.template',':!*.dist','*.pem','*.key','*.p12','*.pfx',
+                      '*auth.json','*credentials.json','.credentials*','credentials','id_ed25519','id_rsa','stored_tokens']
             if any(relative==root or relative.startswith(root+'/') or root.startswith(relative+'/') for root in CONFIG_ROOTS): patterns += ['config.toml','settings.json','settings.local.json']
             result=subprocess.run(['git','--no-pager','-C',directory,'log','--all','--format=','--name-only','--',
                 *patterns],env=environment(),preexec_fn=demote,
                 stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=20)
             if result.stdout.strip(): PROTECTED_GIT.add(prefix)
             elif result.returncode==0: PROTECTED_GIT.discard(prefix)
+            if result.returncode==0: _classified[prefix]=(key,)
             elif not any(p.is_file() for p in (Path(directory)/'.git/objects').rglob('*')):
                 pass # An empty repository has no history to classify.
             else: raise ValueError('Git history could not be classified; recovery upload paused')

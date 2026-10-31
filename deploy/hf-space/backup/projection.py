@@ -12,7 +12,10 @@ REF = '__lp_space_credential__'
 
 
 def fingerprint(db):
-    schema = db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name").fetchall()
+    """Tables and their typed columns. Ignores CREATE text, which differs between fresh and migrated databases."""
+    quote = lambda name: '"' + name.replace('"', '""') + '"'
+    tables = [name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+    schema = [[table, sorted([row[1], row[2].upper()] for row in db.execute(f'PRAGMA table_info({quote(table)})'))] for table in tables]
     return hashlib.sha256(json.dumps(schema).encode()).hexdigest()
 
 
@@ -80,8 +83,16 @@ def restore_db(path, secrets, missing=False):
             q = lambda name: '"' + name.replace('"', '""') + '"'
             for column in [r[1] for r in db.execute(f'PRAGMA table_info({q(table)})') if 'TEXT' in r[2].upper()]:
                 for rowid, value in db.execute(f'SELECT rowid,{q(column)} FROM {q(table)}').fetchall():
-                    if isinstance(value, str) and REF in value:
-                        db.execute(f'UPDATE {q(table)} SET {q(column)}=? WHERE rowid=?', (json.dumps(join(json.loads(value), secrets, missing)), rowid))
+                    # Only JSON values can hold references; prose that mentions the marker stays untouched.
+                    if not isinstance(value, str) or REF not in value or not value.lstrip().startswith(('{', '[')):
+                        continue
+                    try:
+                        parsed = json.loads(value)
+                    except ValueError:
+                        continue
+                    joined = join(parsed, secrets, missing)
+                    if joined != parsed:
+                        db.execute(f'UPDATE {q(table)} SET {q(column)}=? WHERE rowid=?', (json.dumps(joined), rowid))
 
 
 if __name__ == '__main__':

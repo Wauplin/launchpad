@@ -1,6 +1,10 @@
 {
   "adapter": "0.1.0",
   "launchpad": "source-build",
+  "channel": {
+    "manifest": "https://github.com/Wauplin/launchpad/releases/latest/download/hf-space-release.json",
+    "image": "ghcr.io/wauplin/launchpad-hf-space"
+  },
   "tools": {
     "codex": "0.166.0",
     "claude": "2.1.311",

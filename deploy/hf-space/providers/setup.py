@@ -1,95 +1,177 @@
-"""Fixed ephemeral login processes. Never create Launchpad sessions or log output."""
+"""Fixed sign-in processes in an ephemeral PTY. Never create Launchpad sessions or log output."""
 import asyncio
 import errno
+import fcntl
+import json
 import os
 import pty
 import re
-import signal
+import struct
 import termios
 import time
+
+import aiohttp
 
 from supervisor.processes import spawn, stop, HOME, own
 
 COMMANDS = {
-    'codex': ('codex','login','--device-auth'),
-    'claude': ('claude','auth','login'),
-    'opencode': ('opencode','auth','login'),
-    'github': ('gh','auth','login','--hostname','github.com','--git-protocol','https','--web','--scopes','repo,read:org,notifications'),
+    'codex': ('codex', 'login', '--device-auth'),
+    'claude': ('claude', 'auth', 'login'),
+    'opencode': ('opencode', 'auth', 'login'),
+    'github': ('gh', 'auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web',
+               '--scopes', 'repo,read:org,notifications'),
 }
-ANSI = re.compile(r'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))')
+HARNESSES = ('codex', 'claude', 'opencode')
+ANSI = re.compile(r'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])')
+URL = re.compile(r'https://[^\s<>"\x1b\x07]+')
+# One-time device codes printed by gh ("ABCD-1234") and Codex ("ABCD-12345").
+CODE = re.compile(r'\b[A-Z0-9]{4}-[A-Z0-9]{4,5}\b')
+LIMIT = 64 * 1024
 
 
 class Logins:
-    def __init__(self):
+    """One sign-in process at a time in a real PTY, streamed to browser terminals.
+
+    Output stays in this bounded memory buffer and the connected sockets; it is never logged,
+    persisted or turned into a Launchpad session.
+    """
+
+    def __init__(self, on_exit=None):
         self.process = None
         self.tool = None
         self.profile = None
-        self.output = ''
+        self.output = b''
         self.master = None
         self.task = None
         self.deadline = None
         self.result = None
+        self.sockets = set()
+        self.on_exit = on_exit
         self.lock = asyncio.Lock()
 
     async def start(self, tool, extra=None, profile=None):
-        if tool not in COMMANDS: raise ValueError('Choose a supported tool')
+        if tool not in COMMANDS:
+            raise ValueError('Choose a supported tool')
         async with self.lock:
-            if self.process and self.process.returncode is None: raise ValueError('Finish or cancel the current connection first')
+            if self.process and self.process.returncode is None:
+                raise ValueError('Finish or cancel the current sign-in first')
+            if self.task:
+                await self.task
             if tool == 'codex':
                 from pathlib import Path
-                from backup.machine import atomic, home_open
                 import tomlkit
-                config=Path((extra or {}).get('CODEX_HOME',str(HOME/'.codex')))/'config.toml'
-                data=tomlkit.parse(home_open(config).read().decode()) if config.exists() else tomlkit.document()
-                data['cli_auth_credentials_store']='file'
-                atomic(config,tomlkit.dumps(data).encode())
-            self.output = ''; self.tool = tool; self.profile = profile; self.result = None
+                from backup.machine import atomic, home_open
+                config = Path((extra or {}).get('CODEX_HOME', str(HOME / '.codex'))) / 'config.toml'
+                data = tomlkit.parse(home_open(config).read().decode()) if config.exists() else tomlkit.document()
+                data['cli_auth_credentials_store'] = 'file'
+                atomic(config, tomlkit.dumps(data).encode())
+            self.output = b''
+            self.tool, self.profile, self.result = tool, profile, None
             master, slave = pty.openpty()
-            attrs = termios.tcgetattr(slave)
-            attrs[3] &= ~termios.ECHO
-            termios.tcsetattr(slave, termios.TCSANOW, attrs)
-            try: self.process = await spawn(*COMMANDS[tool], stdin=slave, stdout=slave, extra=extra)
+            self.resize(master, 24, 100)
+            try:
+                self.process = await spawn(*COMMANDS[tool], stdin=slave, stdout=slave, extra=extra)
             except BaseException:
-                os.close(master); raise
-            finally: os.close(slave)
+                os.close(master)
+                raise
+            finally:
+                os.close(slave)
             self.master = master
             os.set_blocking(master, False)
-            self.deadline = time.time()+900
+            self.deadline = time.time() + 900
             self.task = asyncio.create_task(self.read())
 
-    async def read(self):
-        try:
-            while self.process and self.process.returncode is None:
-                if time.time() > self.deadline:
-                    await stop(self.process); self.result = 'expired'; break
-                try:
-                    data = os.read(self.master, 8192)
-                    if data: self.output = (self.output+data.decode(errors='replace'))[-24000:]
-                except BlockingIOError: pass
-                except OSError as error:
-                    if error.errno != errno.EIO: raise
-                await asyncio.sleep(.1)
-            if self.result is None: self.result = 'completed' if self.process.returncode == 0 else 'failed'
-        finally:
-            if self.master is not None: os.close(self.master); self.master = None
+    @staticmethod
+    def resize(fd, rows, cols):
+        rows, cols = max(5, min(int(rows), 200)), max(20, min(int(cols), 400))
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
 
-    async def input(self, value):
-        if self.master is None: raise ValueError('This authorization has ended')
-        if not isinstance(value,str) or len(value)>4096 or '\n' in value or '\r' in value: raise ValueError('Enter a single authorization response')
-        os.write(self.master,(value+'\n').encode())
+    async def broadcast(self, data):
+        for socket in list(self.sockets):
+            try:
+                await socket.send_bytes(data)
+            except Exception:
+                self.sockets.discard(socket)
+
+    async def read(self):
+        loop = asyncio.get_running_loop()
+        readable = asyncio.Event()
+        loop.add_reader(self.master, readable.set)
+        try:
+            while True:
+                if time.time() > self.deadline:
+                    await stop(self.process)
+                    self.result = 'expired'
+                    break
+                try:
+                    await asyncio.wait_for(readable.wait(), 1)
+                except asyncio.TimeoutError:
+                    if self.process.returncode is not None:
+                        break
+                    continue
+                readable.clear()
+                try:
+                    data = os.read(self.master, 65536)
+                except BlockingIOError:
+                    continue
+                except OSError as error:
+                    if error.errno != errno.EIO:
+                        raise
+                    break
+                if not data:
+                    break
+                self.output = (self.output + data)[-LIMIT:]
+                await self.broadcast(data)
+            await self.process.wait()
+            if self.result is None:
+                self.result = 'completed' if self.process.returncode == 0 else 'failed'
+        finally:
+            loop.remove_reader(self.master)
+            os.close(self.master)
+            self.master = None
+            for socket in list(self.sockets):
+                await socket.close()
+            if self.on_exit:
+                await self.on_exit(self.tool, self.profile, self.result)
+
+    async def attach(self, socket):
+        """Replay the bounded buffer, then stream; text frames are keystrokes or a resize."""
+        if self.output:
+            await socket.send_bytes(self.output)
+        if self.master is None:
+            return
+        self.sockets.add(socket)
+        try:
+            async for message in socket:
+                if message.type != aiohttp.WSMsgType.TEXT or self.master is None:
+                    continue
+                data = json.loads(message.data)
+                if 'input' in data and isinstance(data['input'], str) and len(data['input']) <= 65536:
+                    os.write(self.master, data['input'].encode())
+                elif 'rows' in data and 'cols' in data:
+                    self.resize(self.master, data['rows'], data['cols'])
+        finally:
+            self.sockets.discard(socket)
 
     def status(self):
-        text = ANSI.sub('',self.output).replace('\r','')
-        # Only the transient setup view receives this bounded buffer. It is never persisted.
-        return {'tool':self.tool,'profile':self.profile,'output':text,'expires_at':self.deadline,'result':self.result,
-                'running':bool(self.process and self.process.returncode is None)}
+        text = ANSI.sub('', self.output.decode(errors='replace')).replace('\r', '')
+        links = list(dict.fromkeys(URL.findall(text)))
+        codes = CODE.findall(text)
+        # Only the setup view receives these values. They are never persisted.
+        return {'tool': self.tool, 'profile': self.profile, 'expires_at': self.deadline, 'result': self.result,
+                'running': bool(self.process and self.process.returncode is None),
+                'link': links[-1] if links else None, 'code': codes[-1] if codes else None}
 
     async def close(self):
         await stop(self.process)
         if self.task:
-            await self.task
+            try:
+                await self.task
+            except Exception:
+                pass  # A failed reader must not take down its caller (the daemon watcher, shutdown).
             self.task = None
-        self.output = ''; self.tool = None; self.profile = None; self.result = None
+        self.output = b''
+        self.tool = self.profile = self.result = None
 
 
 async def ssh_key():

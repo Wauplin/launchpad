@@ -14,26 +14,25 @@ A personal coding-agent machine you can open from any browser. All visitors admi
 
 ## Start here
 
-1. Make this Space **Private**. The owner's temporary connector policy also accepts Protected; protected apps may be publicly accessible.
-2. In Settings → Secrets, add `LP_SPACE_MANAGEMENT_TOKEN`: an HF token with access to this Space, its settings/secrets and your backup bucket. Keep this separate from the HF token your agents will use.
-3. Open the app. It offers to create a private backup bucket (defaults to the same namespace/name as this Space) and protect credentials with a new `LP_SPACE_BACKUP_KEY` Secret. These owner-clicked steps restart the Space. Existing bucket visibility is never changed.
-4. **Connect Hugging Face** creates an HF inference profile from your agent token (Inference Providers permission required; usage is billed through HF), so another chat subscription is optional. Or connect Codex, Claude Code or OpenCode using its authorization instructions. Create its profile, then open Launchpad to add or clone a folder. GitHub and the other tools can be connected later in Space controls.
+1. Keep this Space **Private**: everyone who can open it controls your agents and their sign-ins.
+2. Open the app and paste a Hugging Face **write** token. Launchpad saves it as a Space secret, creates a private backup bucket and an encryption key, then restarts the Space once (about a minute).
+3. Connect your first agent: your Hugging Face account (open models through Inference Providers), Claude Code, Codex, OpenCode or an API key. Then optionally GitHub.
 
-For an existing bucket, set Variable `LP_SPACE_BUCKET=namespace/name` before starting. Choose a dedicated private bucket per installation. Backups use `backups/`, `credentials/` and `traces/`. Connect a separate HF agent token to enable the existing trace exporter. You can browse native trace files directly in the private bucket.
+To use an existing bucket, set the Variable `LP_SPACE_BUCKET=namespace/name` first. Backups use `backups/`, `credentials/` and `traces/` in that bucket; you can browse files and native agent traces on the Hub.
 
 ## Keep it running
 
-CPU Basic can sleep and disk is ephemeral across rebuilds. Choose paid CPU and disable sleep for unattended sessions; consult current HF pricing and account eligibility in Settings. Running processes and PTYs never survive a rebuild. Backups preserve files, Git state, native resume state and settings, with credentials encrypted separately. Recovery and credential statuses are shown independently in Space controls. Keep projects inside `/home/agent` so they are recoverable. Use Git HTTPS by default; outbound port 22 may be blocked.
+CPU Basic can sleep and disk is ephemeral across rebuilds. Choose paid CPU and disable sleep for unattended sessions; consult current HF pricing and account eligibility in Settings. Running processes and PTYs never survive a rebuild. Backups preserve files, Git state, native resume state and settings, with credentials encrypted separately. Backup and sign-in states are shown in Space settings. Keep projects inside `/home/agent` so they are recoverable. Use Git HTTPS by default; outbound port 22 may be blocked.
 
 ## Update
 
-Space controls checks the upstream release manifest approximately every six hours. Updates require an explicit click, idle agents/terminals and a verified clean checkpoint. The managed Dockerfile contains only an immutable runtime image reference. Keep custom files beside it; edited Dockerfiles are never overwritten automatically. Releases include separate Launchpad and connector versions plus pinned tool versions.
+Space settings checks the upstream release manifest approximately every six hours. Updates require an explicit click, idle agents/terminals and a verified clean checkpoint. The managed Dockerfile contains only an immutable runtime image reference. Keep custom files beside it; edited Dockerfiles are never overwritten automatically. Releases include separate Launchpad and connector versions plus pinned tool versions.
 
 Restart, rebuild, update, restore and credential reconnection are separate actions. Stop active work before controlled maintenance. External Hub changes can still interrupt work.
 
 ## Recover without the app
 
-If an update cannot boot, Space controls remains available and offers **Roll back image & data** when it can read the update record. If the control plane itself cannot boot, open `backups/update.json` in your private bucket: it records the prior `image` and `generation`. Revert the Space's Dockerfile to that image and append:
+If an update does not come back within five minutes, the restarting page offers **Roll back image & data** when it can read the update record. If the control plane itself cannot boot, open `backups/update.json` in your private bucket: it records the prior `image` and `generation`. Revert the Space's Dockerfile to that image and append:
 
 ```dockerfile
 ENV LP_SPACE_RESTORE_GENERATION=<generation from update.json>

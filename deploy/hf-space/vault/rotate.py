@@ -41,13 +41,16 @@ async def rotate(recovery,api,space):
                 mapping[original]=generation
             current=json.loads(old_latest)['generation']
             manifests.sort(key=lambda name:name==f'backups/{current}/manifest.json')
+            # New manifests reference the existing ordinary objects; only credentials are re-encrypted.
+            from backup.store import object_path
             for path in manifests:
                 generation=path.split('/')[1]
-                manifest,files=await asyncio.to_thread(bucket.restore,generation)
-                envelope=await asyncio.to_thread(bucket.read,f"credentials/{manifest['credentials']}/vault.aead")
-                if json.loads(envelope).get('key_id') != recovery.vault.key_id: continue
-                payload=recovery.vault.open(manifest['credentials'],envelope)
-                await asyncio.to_thread(bucket.commit,files,new,payload,recovery.installation,manifest['release'],manifest.get('captured_at',0))
+                manifest=json.loads(await asyncio.to_thread(bucket.read,path))
+                if manifest.get('credentials') not in mapping: continue
+                files={name:dict(entry,path=object_path(generation,name,entry)) for name,entry in manifest['files'].items()}
+                rotated=dict(manifest,generation=uuid.uuid4().hex,credentials=mapping[manifest['credentials']],files=files)
+                await asyncio.to_thread(bucket.put_manifest,rotated)
+                if generation==current: recovery.manifest=rotated
             if old_credentials:
                 source=json.loads(old_credentials)['generation']
                 await asyncio.to_thread(bucket.put,'credentials/latest.json',json.dumps(dict(json.loads(old_credentials),generation=mapping[source])).encode())

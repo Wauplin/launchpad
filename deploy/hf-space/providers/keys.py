@@ -36,27 +36,25 @@ async def import_ssh(private):
     destination=HOME/'.ssh/id_ed25519'
     if destination.exists(): raise ValueError('An SSH key already exists; existing keys are never overwritten')
     temporary=HOME/'.ssh/.import-key'
-    public=HOME/'.ssh/.import-public'
     atomic(temporary,private.encode())
-    # Native validation writes only the public result to a bounded temporary file.
+    # Native validation as the agent user; the public key comes back on a pipe, never through an agent path.
     from supervisor.processes import demote, environment
     try:
-        with public.open('wb') as output:
-            process=await asyncio.create_subprocess_exec('ssh-keygen','-y','-P','','-f',str(temporary),
-                env=environment(),preexec_fn=demote,start_new_session=True,stdin=asyncio.subprocess.DEVNULL,
-                stdout=output,stderr=asyncio.subprocess.DEVNULL)
-            try: code=await asyncio.wait_for(process.wait(),10)
-            except asyncio.TimeoutError:
-                from supervisor.processes import stop
-                await stop(process);raise ValueError('Key validation timed out') from None
-        if code: raise ValueError('Key validation failed. Encrypted keys require an interactive SSH agent and are not imported here.')
-        value=public.read_text().strip()
+        process=await asyncio.create_subprocess_exec('ssh-keygen','-y','-P','','-f',str(temporary),
+            env=environment(),preexec_fn=demote,start_new_session=True,stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.DEVNULL)
+        try: output,_=await asyncio.wait_for(process.communicate(),10)
+        except asyncio.TimeoutError:
+            from supervisor.processes import stop
+            await stop(process);raise ValueError('Key validation timed out') from None
+        if process.returncode: raise ValueError('Key validation failed. Encrypted keys require an interactive SSH agent and are not imported here.')
+        value=output[:16384].decode(errors='replace').strip()
         if not value.startswith(('ssh-ed25519 ','ssh-rsa ','ecdsa-')): raise ValueError('Unsupported key type')
         atomic(destination,private.encode())
         atomic(destination.with_suffix('.pub'),(value+'\n').encode())
         return value
     finally:
-        temporary.unlink(missing_ok=True);public.unlink(missing_ok=True)
+        temporary.unlink(missing_ok=True)
 
 
 async def hf_profile(runtime,token):

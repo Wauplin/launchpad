@@ -61,7 +61,7 @@ class Runtime:
         self.process = None
 
 
-async def watch_daemon(runtime,state,get_recovery,logins,actions):
+async def watch_daemon(runtime, state, stage, get_recovery, logins, actions):
     """Keep the control plane usable when the daemon exits; never replay work."""
     def failed():
         return state['ready'] and not runtime.maintenance and (runtime.process is None or runtime.process.returncode is not None)
@@ -69,13 +69,13 @@ async def watch_daemon(runtime,state,get_recovery,logins,actions):
         if failed():
             async with actions:
                 if failed():
-                    state['ready']=False
-                    state['runtime_failed']=True
-                    state['message']='Launchpad stopped unexpectedly. Restart it below; uncertain agent turns are never replayed automatically.'
-                    recovery=get_recovery()
-                    if recovery: recovery.paused=True
+                    stage('stopped', 'Launchpad stopped unexpectedly. Restart it to continue; unfinished agent turns are never replayed automatically.')
+                    recovery = get_recovery()
+                    if recovery:
+                        recovery.paused = True
                     await logins.close()
                     await runtime.close()
                     if recovery:
-                        async with recovery.lock: pass
+                        async with recovery.lock:
+                            pass
         await asyncio.sleep(1)

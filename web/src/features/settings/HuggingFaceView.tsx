@@ -30,7 +30,7 @@ export function HuggingFaceView() {
   return (
     <SettingsPage tour="settings.trace-sync" title="Hugging Face" intro="Sync agent traces between Launchpad instances through a Hugging Face bucket, using the CLI of this computer.">
       <ConfigError />
-      {externalSetup() && <a className="btn w-fit no-underline" href={externalSetup()!} target="_top">Connect in hosting controls</a>}
+      {externalSetup() && <a className="btn w-fit no-underline" href={externalSetup()!} target="_top">Connect Hugging Face in Space settings</a>}
       <Card title="Hugging Face CLI" end={<button className="btn btn-sm" disabled={q.isFetching} onClick={() => void q.refetch()}><Icon name="refresh" size={12} />Check again</button>}>
         {q.isPending ? <Loading /> : q.isError ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : c && (
           <CliCheckRow check={c} icon="huggingface" command={c.cli_found ? c.command : null}>

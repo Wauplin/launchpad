@@ -1,6 +1,8 @@
 """Recoverable local files plus separately sealed credentials, at stable paths."""
 import base64
+import gzip
 import pwd
+import re
 import io
 import json
 import os
@@ -24,7 +26,11 @@ DATA = HOME / '.local/share/launchpad'
 CONFIG = HOME / '.config/launchpad/config.toml'
 EXCLUDED = {'token', 'vapid.json', 'state.db', 'state.db-wal', 'state.db-shm', 'cache.db', 'cache.db-wal', 'cache.db-shm'}
 NATIVE_RUNTIME = {HOME/name for name in NATIVE}
-SKIP_DIRS = {'node_modules', 'target', '__pycache__', '.venv', '.cache', '.npm'}
+# Rebuildable directories: dependency installs, build output and tool caches.
+SKIP_DIRS = {'node_modules', 'target', '__pycache__', '.venv', 'venv', '.cache', '.npm', '.tmp', '.mypy_cache',
+             '.pytest_cache', '.ruff_cache', '.gradle', '.next', '.turbo'}
+# Inside tool-native folders (~/.codex, ~/.claude…): temporary files, logs and plugin caches.
+NATIVE_SKIP = {'tmp', '.tmp', 'debug', 'log', 'logs', 'cache', 'shell-snapshots', 'statsig'}
 
 
 def secure_parent(path):
@@ -96,16 +102,23 @@ def files_under(roots):
         elif root.is_dir():
             candidates = []
             for directory, dirs, names in os.walk(root, followlinks=False):
-                dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not (root in NATIVE_RUNTIME and d in ('tmp','debug','log','logs'))]
-                candidates.extend(Path(directory) / n for n in names)
+                dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not (root in NATIVE_RUNTIME and d in NATIVE_SKIP)]
+                # Tool logs (Codex logs_N.sqlite, *.log) change constantly and are not needed to resume work.
+                candidates.extend(Path(directory) / n for n in names
+                                  if not (root in NATIVE_RUNTIME and (re.match(r'logs?_\d+\.sqlite', n) or n.endswith('.log'))))
                 candidates.extend(Path(directory) / d for d in dirs if (Path(directory)/d).is_symlink())
         else: continue
         for path in candidates:
             relative = str(path.relative_to(HOME))
             if relative == '.agents/skills/launchpad' and path.is_symlink() and path.resolve() == Path('/src/skills/launchpad'): continue
-            if not path.resolve().is_relative_to(HOME): raise ValueError('A source path leaves the registered agent home')
-            mode=path.lstat().st_mode
+            try:
+                mode = path.lstat().st_mode
+            except FileNotFoundError:
+                continue
             if not (stat.S_ISREG(mode) or stat.S_ISLNK(mode)): continue
+            # Links are archived as links, wherever they point (venv interpreters, dangling links). A regular
+            # file reached through a linked parent folder is not ours to back up.
+            if stat.S_ISREG(mode) and not path.resolve().is_relative_to(HOME): continue
             if relative not in seen:
                 seen.add(relative)
                 yield relative, path
@@ -118,8 +131,8 @@ def roots():
             for (value,) in db.execute('SELECT path FROM project'):
                 path = Path(value)
                 if path.is_absolute():
-                    if path == HOME: raise ValueError('Register a dedicated folder rather than the whole agent home')
-                    if not path.is_relative_to(HOME): raise ValueError('Move local folders inside /home/agent before backing up this machine')
+                    # Folders outside the agent home (or the whole home) cannot be restored at stable paths; skip them.
+                    if path == HOME or not path.is_relative_to(HOME): continue
                     result.append(path)
     if CONFIG.exists():
         config = tomlkit.parse(home_open(CONFIG).read().decode()).unwrap()
@@ -148,22 +161,31 @@ def signature(path):
 
 
 def credential_bytes(path):
-    before=signature(path)
-    if not is_sqlite(path):
-        data=home_open(path).read()
-        if signature(path)!=before: raise ValueError('Credentials changed while being captured; retry shortly')
-        if path.suffix=='.json': json.loads(data)
-        if path.name=='config.toml': tomlkit.parse(data.decode())
+    """Read one credential file consistently; tools rewrite some (like .claude.json) often, so retry briefly."""
+    if is_sqlite(path):
+        with tempfile.TemporaryDirectory() as directory:
+            copy = Path(directory)/'credential.db'
+            sqlite_snapshot(path, copy)
+            return copy.read_bytes()
+    for _ in range(10):
+        before=signature(path)
+        with home_open(path) as f: data=f.read()
+        if signature(path)!=before:
+            time.sleep(0.2)
+            continue
+        try:
+            if path.suffix=='.json': json.loads(data)
+            if path.name=='config.toml': tomlkit.parse(data.decode())
+        except ValueError:
+            time.sleep(0.2)  # Caught mid-write by a tool that does not replace atomically.
+            continue
         return data
-    with tempfile.TemporaryDirectory() as directory:
-        copy = Path(directory)/'credential.db'
-        sqlite_snapshot(path, copy)
-        return copy.read_bytes()
+    raise ValueError('A credential file keeps changing; the next backup retries')
 
 
-def capture(approved, release, clean=False):
+def capture(approved, release, clean=False, workspace=True):
+    """Ordinary objects and the credential payload. Without `workspace`, files are only scanned for credentials."""
     secrets = {'references': {}, 'files': {}, 'present': []}
-    credential_stats={}
     sources=roots()
     ordinary = {}
     with tempfile.TemporaryDirectory() as directory:
@@ -177,49 +199,65 @@ def capture(approved, release, clean=False):
             ordinary['state/cache.db'] = cache.read_bytes()
         if CONFIG.exists(): ordinary['config/config.toml'] = config_split(home_open(CONFIG).read().decode(), secrets['references'])
         archive = io.BytesIO()
-        with tarfile.open(fileobj=archive, mode='w:gz', dereference=False) as tar:
+        # gzip mtime 0 and a fixed member order keep an unchanged workspace byte-identical, so it is not re-uploaded.
+        with gzip.GzipFile(fileobj=archive, mode='wb', mtime=0, compresslevel=6) as compressed, \
+                tarfile.open(fileobj=compressed if workspace else io.BytesIO(), mode='w', dereference=False) as tar:
             for name, path in files_under(sources):
                 if clean and '.git' in Path(name).parts and (path.name.endswith('.lock') or any(part in ('MERGE_HEAD','CHERRY_PICK_HEAD','rebase-merge','rebase-apply') for part in Path(name).parts)):
                     raise ValueError('A Git operation is in progress; finish it before maintenance')
                 if path.parent == DATA and path.name in EXCLUDED: continue
                 if path == CONFIG: continue
-                if path.is_symlink():
-                    if not path.resolve().is_relative_to(HOME):
-                        raise ValueError('A workspace symlink leaves the backed-up home; checkpoint paused')
                 if credential(name):
-                    if path.is_symlink(): raise ValueError('Credential symlinks need a registered local file')
-                    credential_stats[path]=signature(path)
+                    if path.is_symlink():
+                        # The link target is backed up on its own if it is a registered file.
+                        continue
                     secrets['files'][name] = base64.b64encode(credential_bytes(path)).decode()
                     secrets['present'].append(name)
-                elif path.is_file() or path.is_symlink():
+                elif not workspace:
+                    continue
+                elif path.is_symlink():
+                    tar.add(path, arcname=name, recursive=False)
+                elif path.is_file():
                     # Tool-native SQLite files are snapshotted through the online API too.
-                    if path.is_file() and is_sqlite(path):
+                    if is_sqlite(path):
                         native = Path(directory)/('native-'+uuid.uuid4().hex)
-                        sqlite_snapshot(path, native)
+                        try:
+                            sqlite_snapshot(path, native)
+                        except (sqlite3.DatabaseError, ValueError):
+                            # A damaged tool-native database (logs, caches) must not stop every backup.
+                            print(f'Skipped unreadable SQLite file in backup: {name}', flush=True)
+                            continue
                         info = tarfile.TarInfo(name); info.size = native.stat().st_size; info.mode = 0o600
                         with native.open('rb') as f: tar.addfile(info, f)
                     elif not name.endswith(('-wal', '-shm')):
-                        if path.is_symlink(): tar.add(path,arcname=name,recursive=False)
-                        else:
-                            info=tarfile.TarInfo(name); stat=path.stat();info.size=stat.st_size;info.mode=stat.st_mode & 0o777;info.mtime=stat.st_mtime
-                            with home_open(path) as f: tar.addfile(info,f)
-        if any(signature(path)!=value for path,value in credential_stats.items()): raise ValueError('Credentials changed during checkpoint; retry shortly')
-        ordinary['workspaces/home.tar.gz'] = archive.getvalue()
-    ordinary['state/runtime.json'] = json.dumps({'format':1,'release':release,'at':time.time(),'provider_directories':sorted(CONFIG_ROOTS),'directories':[str(path.relative_to(HOME)) for path in sources if path.is_dir() and path != HOME]}).encode()
+                        info=tarfile.TarInfo(name); st=path.stat();info.size=st.st_size;info.mode=st.st_mode & 0o777;info.mtime=st.st_mtime
+                        with home_open(path) as f: tar.addfile(info,f)
+        if workspace: ordinary['workspaces/home.tar.gz'] = archive.getvalue()
+    ordinary['state/runtime.json'] = json.dumps({'format':1,'release':release,'provider_directories':sorted(CONFIG_ROOTS),'directories':[str(path.relative_to(HOME)) for path in sources if path.is_dir() and path != HOME]}).encode()
     return ordinary, secrets
 
 
+_credential_cache = {}
+
+
 def credential_snapshot():
+    """Every registered credential file, base64-encoded. Unchanged files (same inode, size, mtime) are not re-read."""
     from base64 import b64encode
     files = {}
-    signatures={}
+    seen = set()
     for name, path in files_under(roots()):
         if credential(name) and not path.is_symlink():
-            signatures[path]=signature(path)
-            files[name] = b64encode(credential_bytes(path)).decode()
+            seen.add(path)
+            current = signature(path)
+            cached = _credential_cache.get(path)
+            if not cached or cached[0] != current:
+                cached = (current, b64encode(credential_bytes(path)).decode())
+                _credential_cache[path] = cached
+            files[name] = cached[1]
+    for path in set(_credential_cache) - seen:
+        del _credential_cache[path]
     # Config also holds literal API keys; never upload its bytes outside the vault.
     if CONFIG.exists(): files['.config/launchpad/config.toml'] = b64encode(home_open(CONFIG).read()).decode()
-    if any(signature(path)!=value for path,value in signatures.items()): raise ValueError('Credentials changed during capture; retry shortly')
     return files
 
 
@@ -233,15 +271,17 @@ def unpack(data, directories):
             if credential(member.name): raise ValueError('Credential file found in an ordinary archive')
             if Path(member.name).parent == DATA.relative_to(HOME) and Path(member.name).name in EXCLUDED: raise ValueError('Control state found in an ordinary archive')
             destination = HOME/member.name
-            if not destination.resolve().is_relative_to(HOME): raise ValueError('Unsafe archive destination')
-            if member.issym():
-                target = destination.parent/member.linkname
-                if not target.resolve().is_relative_to(HOME): raise ValueError('Unsafe archive symlink')
-            elif not member.isfile(): raise ValueError('Unsupported archive member')
+            if not destination.parent.resolve().is_relative_to(HOME): raise ValueError('Unsafe archive destination')
+            # Links may point anywhere (restores write through no-follow descriptors, never through links).
+            if not member.issym() and not member.isfile(): raise ValueError('Unsupported archive member')
         for member in members:
             if member.isfile():
-                atomic(HOME/member.name, tar.extractfile(member).read())
+                data = tar.extractfile(member).read()
+                atomic(HOME/member.name, data)
                 os.chmod(HOME/member.name,0o700 if member.mode & 0o111 else 0o600)
+                if data.startswith(b'SQLite format 3\x00'):
+                    # A stale local WAL would be replayed over the restored snapshot and corrupt it.
+                    for suffix in ('-wal', '-shm', '-journal'): (HOME/(member.name+suffix)).unlink(missing_ok=True)
         for member in members:
             if member.issym():
                 target = HOME/member.name
@@ -253,9 +293,6 @@ def unpack(data, directories):
                     user=pwd.getpwnam('agent')
                     os.chown(name,user.pw_uid,user.pw_gid,dir_fd=parent,follow_symlinks=False)
                 finally: os.close(parent)
-        for member in members:
-            if member.issym() and not (HOME/member.name).resolve().is_relative_to(HOME):
-                raise ValueError('Archive symlink chain leaves the registered home')
 
 
 def restore(files, payload, lost_key=False):

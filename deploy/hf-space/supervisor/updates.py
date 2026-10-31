@@ -12,8 +12,11 @@ from pathlib import Path
 import aiohttp
 from huggingface_hub import HfApi, CommitOperationAdd
 
-MANIFEST = 'https://github.com/Wauplin/launchpad/releases/latest/download/hf-space-release.json'
-IMAGE = re.compile(r'ghcr\.io/wauplin/launchpad-hf-space@sha256:[0-9a-f]{64}')
+# Where releases come from: one place to change, in release.json (`channel`). Both must be publicly readable,
+# since duplicated Spaces pull the image and fetch the manifest anonymously.
+CHANNEL = json.loads((Path(__file__).resolve().parents[1] / 'release.json').read_text())['channel']
+MANIFEST = CHANNEL['manifest']
+IMAGE = re.compile(re.escape(CHANNEL['image']) + r'@sha256:[0-9a-f]{64}')
 
 
 def dockerfile(image):

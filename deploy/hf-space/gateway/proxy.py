@@ -43,7 +43,9 @@ class Proxy:
         if request.method not in ("GET", "HEAD") or request.headers.get("Upgrade"):
             if request.headers.getall("Origin", []) != [self.origin]:
                 raise web.HTTPForbidden(text="Use the Space origin")
-        if request.headers.get("Sec-Fetch-Site") == "cross-site":
+        # The Hub page embeds the Space in a cross-site iframe: allow top-level/iframe page loads only.
+        navigation = request.method in ("GET", "HEAD") and request.headers.get("Sec-Fetch-Mode") == "navigate"
+        if request.headers.get("Sec-Fetch-Site") == "cross-site" and not navigation:
             raise web.HTTPForbidden(text="Cross-site requests are disabled")
         return canonical_path(request.raw_path)
 

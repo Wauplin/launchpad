@@ -26,7 +26,7 @@ jobs:
             sleep 1
           done
           docker exec launchpad-space-check python -m supervisor.health
-          docker exec launchpad-space-check sh -c 'test -f schema.json && test -f /usr/local/bin/launchpad && test -d /src/skills'
+          docker exec launchpad-space-check sh -c 'test -f schema.json && test -f gateway/vendor/xterm.js && test -f /usr/local/bin/launchpad && test -d /src/skills'
           docker exec launchpad-space-check sh -c 'codex --version && claude --version && opencode --version && gh --version && hf --version && uv --version'
           docker exec launchpad-space-check python -c "from supervisor.processes import environment; assert 'LP_SPACE_MANAGEMENT_TOKEN' not in environment(); assert 'LP_SPACE_BACKUP_KEY' not in environment()"
       - name: Publish image and release files
@@ -35,7 +35,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          image=ghcr.io/wauplin/launchpad-hf-space
+          image=$(python3 -c "import json; print(json.load(open('deploy/hf-space/release.json'))['channel']['image'])")
           echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker tag launchpad-space:check "$image:${{ github.sha }}"
           docker push "$image:${{ github.sha }}"

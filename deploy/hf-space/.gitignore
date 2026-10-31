@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 .venv/
+# Copied from web/node_modules by the Dockerfile.
+gateway/vendor/

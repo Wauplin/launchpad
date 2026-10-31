@@ -4,7 +4,7 @@ WORKDIR /src/web
 COPY web/package.json web/pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 COPY web/ ./
-RUN pnpm build
+RUN pnpm build && mkdir /xterm && cp -L node_modules/@xterm/xterm/lib/xterm.js node_modules/@xterm/xterm/css/xterm.css node_modules/@xterm/addon-fit/lib/addon-fit.js /xterm/
 
 FROM rust:1.93.1-bookworm@sha256:7c4ae649a84014c467d79319bbf17ce2632ae8b8be123ac2fb2ea5be46823f31 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends cmake clang && rm -rf /var/lib/apt/lists/*
@@ -30,6 +30,8 @@ RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r /op
 COPY --from=build /launchpad /usr/local/bin/launchpad
 COPY --from=build /rust-dependencies.json /opt/space/sbom/rust.json
 COPY deploy/hf-space/ /opt/space/
+# The sign-in terminal reuses the app's pinned xterm build.
+COPY --from=web /xterm/ /opt/space/gateway/vendor/
 COPY skills /src/skills
 ENV PATH=/opt/venv/bin:/usr/local/bin:/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /opt/space
