@@ -38,4 +38,5 @@ RUN python -c "import json; from pathlib import Path; p=Path('release.json'); d=
 RUN python -c "import json, importlib.metadata; d=json.load(open('release.json')); assert importlib.metadata.version('huggingface_hub')==d['tools']['hf']; assert importlib.metadata.version('uv')==d['tools']['uv']" && python -m supervisor.build_schema && python -m pip list --format=json > /opt/space/sbom/python.json && npm list -g --json > /opt/space/sbom/node.json && dpkg-query -W > /opt/space/sbom/debian.txt
 EXPOSE 7860
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s CMD python -m supervisor.health
+USER root
 ENTRYPOINT ["/usr/bin/tini","--","python","-m","supervisor.main"]

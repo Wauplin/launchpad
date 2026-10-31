@@ -29,7 +29,7 @@ The image builds the UI before the daemon, uses pinned Node/Rust base digests, i
 
 HF supplies `SPACE_ID` and `SPACE_HOST`. Required Secret: `LP_SPACE_MANAGEMENT_TOKEN`. Optional Secret: `LP_SPACE_BACKUP_KEY` (base64 of 32 random bytes; setup creates it). Optional Variable: `LP_SPACE_BUCKET=namespace/name`; otherwise the Space ID is used. Change destinations through Hub Variables and restart. The exact origin is `https://SPACE_HOST`; Host/Origin checks intentionally reject direct localhost browser access.
 
-The control plane runs as root inside the container. The daemon, providers, Git and shells run as the separate `agent` user in `/home/agent` with an allowlisted environment. Supervisor files are root-only under `/run/launchpad-space`. Management credentials, vault keys and platform secrets are excluded from daemon/agent environments. Agent tools legitimately can read their own live provider credentials; this is not a hostile-code sandbox.
+The image explicitly selects `USER root`: a disposable private HF Docker probe confirmed UID 0 and successful demotion to UID 1000 on CPU Basic, then was deleted. The control plane runs as root inside the container. The daemon, providers, Git and shells run as the separate `agent` user in `/home/agent` with an allowlisted environment. Supervisor files are root-only under `/run/launchpad-space`. Management credentials, vault keys and platform secrets are excluded from daemon/agent environments. Agent tools legitimately can read their own live provider credentials; this is not a hostile-code sandbox.
 
 ## Recovery contract
 
@@ -47,7 +47,7 @@ New browser launches/replies pause when ordinary recovery falls over ten minutes
 
 ## Releases and maintenance
 
-`.github/workflows/hf-space.yml` builds and smoke-checks the image on manual dispatch; publishing a GitHub Release additionally publishes its immutable GHCR image, release manifest and template zip. Optional repository variable `HF_SPACE_TEMPLATE` and secret `HF_SPACE_TEMPLATE_TOKEN` refresh a public HF duplicate template automatically. Without them, the zip remains available as a release asset. No task-time publication occurs.
+`.github/workflows/hf-space.yml` builds and smoke-checks the image on manual dispatch; publishing a GitHub Release additionally publishes its immutable GHCR image, release manifest and template zip. Optional repository variable `HF_SPACE_TEMPLATE` and secret `HF_SPACE_TEMPLATE_TOKEN` refresh a public HF duplicate template automatically, including a display-only landing page with a Duplicate button. The copied template-ID variable identifies only the original Space; duplicates enter normal setup. Without them, the zip remains available as a release asset. No task-time publication occurs.
 
 `release.json` is the single native CLI version source; keep its HF/uv entries aligned with their pinned Python requirements (the build checks this). Rust/UI changes stay in Launchpad. Provider pins, login flows, credential roots, recovery formats, HF policy, shell and image/update orchestration stay here. Bump the adapter version independently when its contract changes. The generic core integration is limited to trace prefixes/managed destinations, explicit delegated-access presentation metadata and packaged commit identity. Native authentication and Ask's restricted bearer remain unchanged.
 

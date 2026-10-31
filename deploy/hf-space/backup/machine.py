@@ -5,6 +5,7 @@ import io
 import json
 import os
 import sqlite3
+import stat
 import tarfile
 import tempfile
 import time
@@ -60,7 +61,10 @@ def home_open(path):
             child=os.open(part,flags,dir_fd=current)
             os.close(current)
             current=child
-        fd=os.open(parts[-1],os.O_RDONLY | os.O_NOFOLLOW,dir_fd=current)
+        fd=os.open(parts[-1],os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,dir_fd=current)
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            os.close(fd)
+            raise ValueError('Only regular agent files can be read')
         return os.fdopen(fd,'rb')
     finally: os.close(current)
 
@@ -99,6 +103,8 @@ def files_under(roots):
         for path in candidates:
             relative = str(path.relative_to(HOME))
             if not path.resolve().is_relative_to(HOME): raise ValueError('A source path leaves the registered agent home')
+            mode=path.lstat().st_mode
+            if not (stat.S_ISREG(mode) or stat.S_ISLNK(mode)): continue
             if relative not in seen:
                 seen.add(relative)
                 yield relative, path

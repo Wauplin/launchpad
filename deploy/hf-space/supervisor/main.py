@@ -45,6 +45,11 @@ async def serve():
     async def initialize():
         nonlocal recovery, worker, updater
         try:
+            if os.environ.get('LP_SPACE_TEMPLATE_ID','').lower()==deployment.space.lower():
+                state['template'] = True
+                state['duplicate_url'] = f'https://huggingface.co/spaces/{deployment.space}?duplicate=true'
+                state['message'] = 'Duplicate this template into a private Space, then add your management token. No agents or backups run in this public template.'
+                return
             if not token: raise ValueError('Add LP_SPACE_MANAGEMENT_TOKEN in Space Secrets, then restart.')
             state['policy'] = await verify(deployment,token)
             prepare()

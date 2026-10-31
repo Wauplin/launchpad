@@ -26,8 +26,8 @@ async function loadTools(){try{const value=await json('/_space/tools');checks=va
 async function refresh(){
  try{
   state=await json('/_space/status');el('settings').href=el('hub').href=state.settings;
-  el('startup-message').textContent=state.message;el('create-key').hidden=!state.needs_key;el('manual-key').hidden=!state.needs_key;el('create-bucket').hidden=!state.needs_bucket;
-  el('title').textContent=state.needs_key?'Keep your credentials safe.':'Your Space is getting ready.';
+  el('startup-message').textContent=state.message;el('duplicate').hidden=!state.template;el('duplicate').href=state.duplicate_url||state.settings;el('settings').hidden=!!state.template;el('create-key').hidden=!state.needs_key;el('manual-key').hidden=!state.needs_key;el('create-bucket').hidden=!state.needs_bucket;
+  el('title').textContent=state.template?'Your agents. Your own Space.':state.needs_key?'Keep your credentials safe.':'Your Space is getting ready.';
   el('bar-status').textContent=state.maintenance?'Maintenance · reconnecting':state.ready?(state.backup?.error?'Backup delayed':'Recovery '+age(state.backup?.checkpoint_at)):'Startup paused';
   document.body.classList.toggle('ready',state.ready);
   if(state.ready&&!el('workspace').getAttribute('src')){lastRoute=route(new URLSearchParams(location.search).get('route')||'/agents');el('workspace').src=lastRoute;}

@@ -66,4 +66,5 @@ jobs:
               with zipfile.ZipFile('/tmp/space-release/hf-space-template.zip') as archive:
                   archive.extractall(directory)
               api.upload_folder(repo_id=repo, repo_type='space', folder_path=directory, commit_message='Update Launchpad duplicate template')
+          api.add_space_variable(repo_id=repo, key='LP_SPACE_TEMPLATE_ID', value=repo)
           PY

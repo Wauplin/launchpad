@@ -17,9 +17,11 @@ A synthetic repository deliberately committed a credential filename. Capture sea
 
 Pinned Python dependency checks passed for config/SQLite splitting and rejoining, removal of secret bytes from the materialized database, preservation of numeric token counts and authenticated credential envelopes. Python compilation, shell JavaScript syntax, release-workflow YAML parsing, UI typecheck/production build, existing trace regressions and tour/demo guardrails are part of validation. No new unit tests were added. A read-only authenticated HF check accepted the protected report Space and rejected a deliberately absent bucket; it created or changed no resource.
 
+A disposable private CPU Basic Space tested the actual HF runtime with `USER root`: it reported UID/EUID 0, permitted a child to drop to UID 1000, and answered an authenticated direct-app request with HTTP 200. It contained only a synthetic UID probe, with no Launchpad data, bucket, provider login or Secrets. The task-created Space was deleted and its absence confirmed. The runtime Dockerfile now explicitly selects the same user configuration. No paid hardware was provisioned.
+
 ## Live acceptance still required
 
-Publish the branch/release through the owner's normal workflow, configure the optional public template publisher, and deploy a dedicated Space/bucket before performing cloud checks. This task does not push or publish its branch, provision paid hardware, authorize real providers or mutate production.
+Publish the branch/release through the owner's normal workflow, configure the optional public template publisher, and deploy a dedicated Space/bucket before performing cloud checks. This task does not push or publish its branch, provision paid hardware, authorize real providers or mutate production. The temporary platform probe described above was removed.
 
 Exercise actual HF ingress on Hub/direct URLs, collaborators and anonymous visitors under the accepted protected policy; provider browser authorization/expiry/cancel/reconnect; remote bucket restore and corruption/key-loss recovery; secret-mutation restarts; actual image update and rollback; private Hub rendering of Claude/Codex traces (OpenCode viewer support is not claimed); Git/SSH port behavior; and a 24–72 hour paid-CPU/sleep-off soak with schedules, quota/cost stops, bucket outages and forced restarts. Measure upload duration, memory, RPO and RTO rather than treating the configured cadence as a guarantee.
 
