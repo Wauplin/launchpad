@@ -630,7 +630,9 @@ function accountsSection() {
       if (c.id === "huggingface") { selected = selected === "huggingface" ? null : "huggingface"; lastPanelRender = ""; renderPanel(); }
       else startLogin(c.id, null, button);
     });
-    const detail = c.connected ? (c.detail ? `Connected · ${c.detail}` : "Connected") : c.profile ? "Profile saved · not signed in" : "Not connected";
+    // Drop file locations such as "(/home/agent/.config/gh/hosts.yml)": they only make the line longer.
+    const account = c.detail?.replace(/\s*\((?:\/|~\/)[^)]*\)/g, "").trim();
+    const detail = c.connected ? (account ? `Connected · ${account}` : "Connected") : c.profile ? "Profile saved · not signed in" : "Not connected";
     return h("div", { class: "item" },
       h("span", { class: `state-dot${c.connected ? " on" : c.profile ? " warn" : ""}` }),
       h("div", { class: "grow" }, h("b", {}, info.name), h("span", { title: detail }, detail)),
