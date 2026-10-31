@@ -14,3 +14,11 @@ export async function loadDeployment() {
     setupUrl = value.external_setup?.startsWith("/") && !value.external_setup.startsWith("//") ? value.external_setup : null;
   } catch { /* Offline browsers retain the normal shell until they reconnect. */ }
 }
+
+export function connectionSetup(profile: string): string | null {
+  if (!setupUrl) return null;
+  const url = new URL(setupUrl, location.origin);
+  url.searchParams.set("profile", profile);
+  url.searchParams.set("route", location.pathname + location.search + location.hash);
+  return url.pathname + url.search;
+}

@@ -1,5 +1,5 @@
 const el = id => document.getElementById(id);
-let state, busy = false, checks = [], toolLoaded = false, profiles = [], publicKey = null, lastLoginResult = null, toasted, lastRoute;
+let state, busy = false, checks = [], toolLoaded = false, profiles = [], publicKey = null, lastLoginResult = null, lastStatus = 0, selectedProfile = new URLSearchParams(location.search).get('profile')||'', toasted, lastRoute;
 function toast(text) { el('toast').textContent=text;el('toast').hidden=false;clearTimeout(toasted);toasted=setTimeout(()=>el('toast').hidden=true,7000); }
 function age(at) { if(!at)return 'Not yet verified';const seconds=Math.max(0,Math.floor(Date.now()/1000-at));return seconds<60?`${seconds}s ago`:`${Math.floor(seconds/60)} min ago`; }
 async function json(path, options) { const response=await fetch(path,{cache:'no-store',...options});const value=await response.json();if(!response.ok)throw new Error(value.error||'The service is reconnecting. Try again shortly.');return value; }
@@ -13,22 +13,22 @@ function route(value){try{const url=new URL(value,location.origin);return url.or
 function renderTools(){
  const node=el('tools');node.replaceChildren();
  for(const [id,name] of [['codex','Codex'],['claude','Claude Code'],['opencode','OpenCode'],['github','GitHub']]) {
-  const check=checks.find(c=>c.id===id&&!c.profile);const available=profiles.some(p=>p.harness===id);const connected=check?.signed_in===true||checks.some(c=>c.id===id&&c.profile&&c.signed_in===true);
+  const selected=profiles.find(p=>p.id===selectedProfile&&p.harness===id);const check=(selected&&checks.find(c=>c.id===id&&c.profile===selected.id))||checks.find(c=>c.id===id&&!c.profile);const available=profiles.some(p=>p.harness===id);const connected=check?.signed_in===true||(!selected&&checks.some(c=>c.id===id&&c.profile&&c.signed_in===true));
   const row=document.createElement('div');row.className='tool';
-  const text=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('p');title.textContent=name;
-  detail.textContent=connected?`${check.detail||'Connected'} · ${state.backup?.credentials_at&&!state.backup.credentials_pending?'Credential backup '+age(state.backup.credentials_at):'Backup pending'}`:available?'Profile exists · Check or reconnect if authorization expired':check?.cli_found===false?'Not installed in this image':'Ready to connect';
+  const text=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('p');title.textContent=selected?`${name} · ${selected.name}`:name;
+  detail.textContent=connected?`${check?.detail||'Connected'} · ${state.backup?.credentials_at&&!state.backup.credentials_pending?'Credential backup '+age(state.backup.credentials_at):'Backup pending'}`:available?'Profile exists · Check or reconnect if authorization expired':check?.cli_found===false?'Not installed in this image':'Ready to connect';
   text.append(title,detail);const button=document.createElement('button');button.textContent=available?'Open Launchpad':connected&&id!=='github'?'Create profile':connected?'Reconnect':'Connect';
-  button.onclick=()=>available?el('controls').close():action(connected&&id!=='github'?'profile':'login',{tool:id}).then(()=>connected?loadTools():null);
-  const actions=document.createElement('div');actions.className='actions';actions.append(button);row.append(text,actions);if(available){const reconnect=document.createElement('button');reconnect.textContent='Reconnect';reconnect.onclick=()=>action('login',{tool:id});actions.append(reconnect);}node.append(row);
+  button.onclick=()=>available?el('controls').close():action(connected&&id!=='github'?'profile':'login',{tool:id,profile:selected?.id}).then(()=>connected?loadTools():null);
+  const actions=document.createElement('div');actions.className='actions';actions.append(button);row.append(text,actions);if(available){const reconnect=document.createElement('button');reconnect.textContent='Reconnect';reconnect.onclick=()=>action('login',{tool:id,profile:selected?.id});actions.append(reconnect);}node.append(row);
  }
 }
-async function loadTools(){try{const value=await json('/_space/tools');checks=value.checks;profiles=value.profiles;el('hf-state').textContent=value.hf?.check?.signed_in===true?`Connected as ${value.hf.account||'your HF account'}`:'HF agent CLI is not signed in.';toolLoaded=true;renderTools();}catch(error){toast(error.message);}}
+async function loadTools(){try{const value=await json('/_space/tools');checks=value.checks;profiles=value.profiles;el('login-profile').replaceChildren();const def=document.createElement('option');def.value='';def.textContent='Default logins';el('login-profile').append(def);for(const p of profiles){const option=document.createElement('option');option.value=p.id;option.textContent=p.name;el('login-profile').append(option);}el('login-profile').value=selectedProfile;el('hf-state').textContent=value.hf?.check?.signed_in===true?`Connected as ${value.hf.account||'your HF account'}`:'HF agent CLI is not signed in.';toolLoaded=true;renderTools();}catch(error){toast(error.message);}}
 async function refresh(){
  try{
-  state=await json('/_space/status');el('settings').href=el('hub').href=state.settings;
-  el('startup-message').textContent=state.message;el('duplicate').hidden=!state.template;el('duplicate').href=state.duplicate_url||state.settings;el('settings').hidden=!!state.template;el('create-key').hidden=!state.needs_key;el('manual-key').hidden=!state.needs_key;el('create-bucket').hidden=!state.needs_bucket;
+  state=await json('/_space/status');lastStatus=Date.now();el('restart-daemon').hidden=!state.runtime_failed;el('settings').href=el('hub').href=state.settings;
+  el('startup-message').textContent=state.message;el('duplicate').hidden=!state.template;el('duplicate').href=state.duplicate_url||state.settings;el('settings').hidden=!!state.template;el('open-controls').hidden=!!state.template;if(state.template&&el('controls').open)el('controls').close();el('create-key').hidden=!state.needs_key;el('manual-key').hidden=!state.needs_key;if(!state.needs_key){el('backup-key').value='';el('generated-key').hidden=true;}el('create-bucket').hidden=!state.needs_bucket;
   el('title').textContent=state.template?'Your agents. Your own Space.':state.needs_key?'Keep your credentials safe.':'Your Space is getting ready.';
-  el('bar-status').textContent=state.maintenance?'Maintenance · reconnecting':state.ready?(state.backup?.error?'Backup delayed':'Recovery '+age(state.backup?.checkpoint_at)):'Startup paused';
+  el('bar-status').textContent=state.template?'Ready to duplicate':state.maintenance?'Maintenance · reconnecting':state.ready?(state.backup?.error?'Backup delayed':'Recovery '+age(state.backup?.checkpoint_at)):'Startup paused';
   document.body.classList.toggle('ready',state.ready);
   if(state.ready&&!el('workspace').getAttribute('src')){lastRoute=route(new URLSearchParams(location.search).get('route')||'/agents');el('workspace').src=lastRoute;}
   const runtime=state.policy?.runtime||{};el('hosting').textContent=`${runtime.hardware?.current||'Hardware reported by Hub'} · Sleep ${runtime.gcTimeout===-1?'off':runtime.gcTimeout?runtime.gcTimeout+'s':'setting in Hub'} · ${Math.round((state.disk?.free||0)/1073741824)} GiB free · Startup verified ${age(state.policy?.checked_at)}`;
@@ -38,8 +38,8 @@ async function refresh(){
   const update=state.update;el('image-details').textContent=`Installed: ${update?.installed?.image||'Local source image'}\nCandidate: ${update?.candidate?.image||'None checked'}\n${update?.candidate?.database||'Updates require a matching clean recovery checkpoint.'}`;el('update').hidden=!update?.candidate;el('rollback').hidden=!update?.rollback;
   el('update-status').textContent=update?.error||`Last release check: ${age(update?.checked_at)}`;
   if(update?.candidate){el('candidate').textContent=`Available: Launchpad ${update.candidate.launchpad.slice(0,12)} · Connector ${update.candidate.adapter}`;el('tool-changes').textContent=Object.entries(update.candidate.tools).map(([k,v])=>`${k}: ${state.release.tools?.[k]||'—'} → ${v}`).join('\n');const notes=update.candidate.notes;el('release-notes').href=typeof notes==='string'&&notes.startsWith('https://github.com/Wauplin/launchpad/')?notes:'https://github.com/Wauplin/launchpad/releases';}
-  const login=state.login;if(login?.result==='completed'&&lastLoginResult!=='completed'&&el('controls').open)void loadTools();lastLoginResult=login?.result;el('login-panel').hidden=!login?.tool;
-  if(login?.tool){el('login-title').textContent=`Connect ${login.tool}${login.result?' · '+login.result:''}`;el('login-output').textContent=login.output;el('login-links').replaceChildren();for(const match of login.output.matchAll(/https:\/\/[^\s<>\x1b]+/g)){try{const url=new URL(match[0]);const a=document.createElement('a');a.href=url.href;a.target='_blank';a.rel='noreferrer';a.className='button';a.textContent='Open authorization page ↗';el('login-links').append(a);}catch{}}}
+  const login=state.login;el('login-profile').disabled=!!login?.running;if(login?.result==='completed'&&lastLoginResult!=='completed'&&el('controls').open)void loadTools();lastLoginResult=login?.result;el('login-panel').hidden=!login?.tool;
+  if(login?.tool){el('login-profile').disabled=login.running;el('login-title').textContent=`Connect ${login.tool} · ${profiles.find(p=>p.id===login.profile)?.name||'Default login'}${login.result?' · '+login.result:''}`;el('login-output').textContent=login.output;el('login-links').replaceChildren();for(const match of login.output.matchAll(/https:\/\/[^\s<>\x1b]+/g)){try{const url=new URL(match[0]);const a=document.createElement('a');a.href=url.href;a.target='_blank';a.rel='noreferrer';a.className='button';a.textContent='Open authorization page ↗';el('login-links').append(a);}catch{}}}
   if(toolLoaded)renderTools();
  }catch(error){toast(error.message);}
 }
@@ -52,7 +52,7 @@ el('ssh').onclick=async()=>{const value=await action('ssh-key');if(value?.public
 el('confirm-rollback').onclick=()=>action('rollback',{confirmed:true});
 el('workspace').addEventListener('load',()=>{try{lastRoute=route(el('workspace').contentWindow.location.href);}catch{}});
 window.addEventListener('message',event=>{if(event.origin!==location.origin||event.source!==el('workspace').contentWindow||event.data?.type!=='launchpad-route')return;lastRoute=route(event.data.route);history.replaceState({},'',`/_space/shell?route=${encodeURIComponent(lastRoute)}`);});
-setInterval(()=>{if(document.visibilityState!=='visible')return;if(el('controls').open||!state?.ready)refresh();try{if(state?.ready){const next=route(el('workspace').contentWindow.location.href);if(next!==lastRoute){lastRoute=next;history.replaceState({},'',`/_space/shell?route=${encodeURIComponent(next)}`);}}}catch{}},2000);
+setInterval(()=>{if(document.visibilityState!=='visible')return;if(el('controls').open||!state?.ready||Date.now()-lastStatus>=15000)refresh();try{if(state?.ready){const next=route(el('workspace').contentWindow.location.href);if(next!==lastRoute){lastRoute=next;history.replaceState({},'',`/_space/shell?route=${encodeURIComponent(next)}`);}}}catch{}},2000);
 refresh().then(()=>{if(new URLSearchParams(location.search).has('setup')&&state?.ready){el('controls').showModal();loadTools();}});
 
 el('api-tool').onchange=()=>{if(el('api-tool').value!=='opencode')el('api-provider').value=el('api-tool').value==='claude'?'anthropic':'openai';};
@@ -67,3 +67,7 @@ el('copy-key').onclick=()=>navigator.clipboard.writeText(el('backup-key').value)
 el('copy-public').onclick=()=>navigator.clipboard.writeText(publicKey||'').then(()=>toast('Public key copied')).catch(()=>toast('Select the public key above and copy it.'));
 
 el('open-hf').onclick=()=>{el('hf-connection').open=true;el('hf-token').focus();};
+
+el('restart-daemon').onclick=()=>action('restart-daemon');
+
+el('login-profile').onchange=()=>{selectedProfile=el('login-profile').value;renderTools();};

@@ -21,7 +21,7 @@ from gateway.proxy import Proxy
 from providers.setup import Logins, ssh_key, public_details
 from supervisor.policy import Deployment, verify, MissingBucket
 from supervisor.processes import CONTROL, HOME, prepare, environment, spawn
-from supervisor.runtime import Runtime
+from supervisor.runtime import Runtime, watch_daemon
 from vault.codec import Vault
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -154,6 +154,19 @@ async def serve():
                 except Exception:
                     raise ValueError('Could not save the key. Add LP_SPACE_BACKUP_KEY as a base64-encoded 32-byte random key in Hub Secrets, then restart.') from None
                 return web.json_response({'message':'Encryption key saved. Wait for the Space to restart, then refresh.'})
+            if not state['ready'] and kind == 'restart-daemon' and state.get('runtime_failed'):
+                try:
+                    await runtime.start()
+                    proxy.token=runtime.token
+                    await recovery.checkpoint()
+                except Exception:
+                    await runtime.close()
+                    raise
+                recovery.paused=False
+                state['runtime_failed']=False
+                state['ready']=True
+                state['message']='Launchpad restarted from local state.'
+                return web.json_response({'message':state['message']})
             if not state['ready'] and kind == 'rollback' and updater:
                 await updater.rollback(body.get('confirmed') is True)
                 return web.json_response({'message':'Rollback requested. Wait for the Space to rebuild.'})
@@ -161,7 +174,9 @@ async def serve():
             if runtime.maintenance: raise ValueError('Maintenance is in progress. Wait for the Space to reconnect.')
             if kind == 'login':
                 if runtime.maintenance: raise ValueError('Maintenance is in progress')
-                await logins.start(body.get('tool'))
+                from providers.setup import profile_login
+                extra=await profile_login(runtime,body.get('tool'),body.get('profile'))
+                await logins.start(body.get('tool'),extra=extra,profile=body.get('profile'))
             elif kind == 'login-input': await logins.input(body.get('value'))
             elif kind == 'login-cancel': await logins.close()
             elif kind == 'hf-token':
@@ -277,13 +292,15 @@ async def serve():
     await runner.setup()
     await web.TCPSite(runner,'0.0.0.0',7860).start()
     boot = asyncio.create_task(initialize())
+    watcher = asyncio.create_task(watch_daemon(runtime,state,lambda:recovery,logins,actions))
     ended = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM,signal.SIGINT): loop.add_signal_handler(sig,ended.set)
     try: await ended.wait()
     finally:
         boot.cancel()
-        await asyncio.gather(boot,return_exceptions=True)
+        watcher.cancel()
+        await asyncio.gather(boot,watcher,return_exceptions=True)
         await runner.cleanup()
         for task in (worker, updater.task if updater else None):
             if task: task.cancel()

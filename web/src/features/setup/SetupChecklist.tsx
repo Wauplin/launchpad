@@ -1,4 +1,4 @@
-import { externalSetup } from "@/lib/deployment";
+import { externalSetup, connectionSetup } from "@/lib/deployment";
 // The setup checklist (onboarding plan, section 8): detect first, never redo. Each item shows what was found and
 // where; a satisfied item shows "Already set up" and never offers a fix. Missing parts offer the daemon's fixed
 // command (Copy, Run in terminal), a small form or a link. Checks run when the list opens, on Check again and when
@@ -284,7 +284,7 @@ function ProfileStep({ item, host, onDone }: { item: SetupItem; host: string | n
       return (
         <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line-2 bg-chrome p-2.5 text-[13px]">
           <span className="min-w-0 flex-1"><b>{profile?.name ?? id}</b>{p.detail && <span className="text-[12px] text-ink-3"> · {p.detail}</span>}</span>
-          {!host && externalSetup() ? <a className="btn btn-sm" href={externalSetup()!} target="_top">Connect in hosting controls</a> : <ConfirmButton tone="publish" icon="term" consequence="Opens a visible terminal with the agent's sign-in command." confirmLabel="Sign in" onConfirm={() => terminal.profileSetup(id, host)}>Sign in</ConfirmButton>}
+          {!host && externalSetup() ? <a className="btn btn-sm" href={connectionSetup(id)!} target="_top">Connect in hosting controls</a> : <ConfirmButton tone="publish" icon="term" consequence="Opens a visible terminal with the agent's sign-in command." confirmLabel="Sign in" onConfirm={() => terminal.profileSetup(id, host)}>Sign in</ConfirmButton>}
         </div>
       );
     })}
