@@ -163,7 +163,10 @@ async function refresh() {
   if (!restarting) restartingSince = 0;
   else if (!restartingSince) restartingSince = Date.now();
   const wasConnect = state?.stage === "connect";
+  const finishedLogin = next.login?.result === "completed" && state?.login?.result !== "completed";
   state = next;
+  // A finished sign-in changes what is connected: reload the list so the page shows it.
+  if (finishedLogin) void loadConnections();
   if (state.stage === "connect") onboarding = true;
   if (wasConnect && state.stage === "ready" && onboarding) connections = null;
   render();
@@ -393,7 +396,7 @@ function finish() {
       h("p", {}, TOOLS.github.blurb, " Git over HTTPS then uses this sign-in too."),
       github?.connected
         ? h("p", { class: "result ok" }, "✓ GitHub is connected", github.detail ? ` · ${github.detail}` : "")
-        : flow?.tool === "github" ? connectFlow("github", true) : h("button", { type: "button", onclick: (e) => startLogin("github", null, e.currentTarget) }, "Connect GitHub"),
+        : state.login?.tool === "github" ? connectFlow("github", true) : h("button", { type: "button", onclick: (e) => startLogin("github", null, e.currentTarget) }, "Connect GitHub"),
       h("div", { class: "actions" }, open)));
   remountTerminal();
 }
