@@ -5,18 +5,21 @@ import { emptySpec, useComposer } from "@/stores/composer";
 import { world } from "@/demo/world";
 import { P } from "@/demo/world/ids";
 import { isPlaying, skipToEnd } from "@/demo/player";
-import { anchor, clickAnchor, navigate, waitFor } from "./helpers";
+import { anchor, clickAnchor, navigate, typeInto, waitFor } from "./helpers";
 import { meta } from "./meta";
 
 export const EXAMPLE_PROMPT = "Fix the flaky checkout test in storefront: it fails about one CI run in ten.";
 
-let before = 0;
+let before = 0, mentionsBefore = 0;
+/** Accepted # and / picks: each one adds a mention, even when its context is already attached. */
+const mentionCount = () => useComposer.getState().spec.mentions?.length ?? 0;
+const suggestion = () => document.querySelector<HTMLButtonElement>('[aria-label="Prompt suggestions"] [role=option]:not(:disabled)');
 /** The session this chapter launched, once it exists. */
 const launched = () => world.sessions.length > before ? world.sessions.find((s) => s.prompt.startsWith(EXAMPLE_PROMPT.slice(0, 20)) && s.started_at > 0 && !s.id.startsWith("demo-s-")) ?? null : null;
 
 export const launch: Chapter = {
   ...meta("launch"),
-  learned: ["Launch opens the composer, prompt first", "A new worktree keeps your checkout untouched", "The option line shows the profile and only what differs from the defaults", "Trace shows the run; Summary its outcome and next steps"],
+  learned: ["Launch opens the composer, prompt first", "@, / and # in the prompt suggest files, skills and context", "A new worktree keeps your checkout untouched", "The option line shows the profile and only what differs from the defaults", "Trace shows the run; Summary its outcome and next steps"],
   setup: () => { before = world.sessions.length; },
   steps: [
     {
@@ -28,7 +31,7 @@ export const launch: Chapter = {
     {
       id: "launch.prompt", anchor: "composer.prompt",
       title: "Prompt first",
-      body: "Write the task like you would for a colleague. @ completes file and folder paths, / finds skills for the selected profile, and # adds a project, GitHub item or agent trace as context. Deleting a selected # mention removes its context chip. Agents also get the instruction to end with a short summary.",
+      body: "Write the task like you would for a colleague. Agents also get the instruction to end with a short summary of what they did.",
       tryIt: {
         text: "write a prompt, or use the example.",
         done: () => useComposer.getState().spec.text.trim().length > 10,
@@ -36,9 +39,27 @@ export const launch: Chapter = {
       },
     },
     {
+      id: "launch.mentions", anchor: "composer.prompt",
+      title: "@, / and # suggestions",
+      body: "@ suggests files and folders, / the skills of the selected profile, and # context: a folder, a GitHub issue or PR, or an agent's trace. Picking one adds a context chip; deleting the mention removes it.",
+      enter: () => { mentionsBefore = mentionCount(); },
+      tryIt: {
+        text: "type # in the prompt and pick a suggestion.",
+        done: () => mentionCount() > mentionsBefore,
+        doIt: async () => {
+          const el = anchor("composer.prompt")?.querySelector("textarea");
+          if (!el) return;
+          el.focus();
+          typeInto(el, `${el.value.trimEnd()} #`);
+          el.setSelectionRange(el.value.length, el.value.length);
+          (await waitFor(suggestion))?.click();
+        },
+      },
+    },
+    {
       id: "launch.where", anchor: "composer.runin",
       title: "Folder and Run in",
-      body: "The agent works in a folder. In a Git folder it gets its own worktree: a new branch and folder, so your checkout stays untouched. Choose an existing worktree or Local PR in Run in for follow-up work. For a new worktree, When done chooses between keeping the branch for review and merging it.",
+      body: "In a Git folder the agent gets its own worktree, a new branch and folder, so your checkout stays untouched. Run in can also reuse a worktree or Local PR. When done keeps the branch for review or merges it.",
       enter: () => { const s = useComposer.getState().spec; if (s.target.kind === "none") useComposer.getState().update((x) => ({ ...x, target: { kind: "project", project_id: P.storefront } })); },
     },
     {

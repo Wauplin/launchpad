@@ -165,7 +165,8 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
         }
         if (e.key === "Enter" && !e.shiftKey && onSend) { e.preventDefault(); onSend(); }
       }} />
-    {mention && createPortal(<div ref={panel} className="fixed z-[70] flex flex-col overflow-hidden rounded-lg border border-line bg-paper p-1 shadow-xl" style={position}>
+    {/* Above the tour overlay (z-index 80), so a Try it step can show and pick suggestions. */}
+    {mention && createPortal(<div ref={panel} className="fixed z-[85] flex flex-col overflow-hidden rounded-lg border border-line bg-paper p-1 shadow-xl" style={position}>
       <div id={id} role="listbox" aria-label="Prompt suggestions" ref={scroll} className="min-h-0 overflow-y-auto" style={{ height: Math.min(rows.length * 48, 240) }}>
         <div className="relative" style={{ height: virtual.getTotalSize() }}>{virtual.getVirtualItems().map((row) => <div key={rows[row.index].id} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${row.start}px)` }}><SuggestionRow id={`${id}-${row.index}`} item={rows[row.index]} active={row.index === active} onPick={() => pick(row.index)} /></div>)}</div>
       </div>

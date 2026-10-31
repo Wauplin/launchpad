@@ -5,7 +5,7 @@ export type ChapterMeta = { id: string; title: string; time: string; essentials:
 
 export const CHAPTER_META: ChapterMeta[] = [
   { id: "layout", title: "Welcome & layout", time: "0:30", essentials: true },
-  { id: "launch", title: "Launch an agent", time: "1:00", essentials: true },
+  { id: "launch", title: "Launch an agent", time: "1:15", essentials: true },
   { id: "answering", title: "Agents & answering", time: "0:45", essentials: true },
   { id: "review", title: "Review the work", time: "0:45", essentials: true },
   { id: "github", title: "GitHub inbox & PRs", time: "1:15", essentials: false },
