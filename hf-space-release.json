@@ -1,6 +1,6 @@
 {
   "adapter": "0.1.0",
-  "launchpad": "77eed49093247c0542e0365de84dc96368109760",
+  "launchpad": "1582a31c70b2ad7c94f28f664635a8fe939de3e0",
   "channel": {
     "manifest": "https://raw.githubusercontent.com/Wauplin/launchpad/hf-space-channel/hf-space-release.json",
     "image": "ghcr.io/wauplin/launchpad-hf-space"
@@ -13,7 +13,7 @@
     "hf": "2.0.0",
     "uv": "0.13.6"
   },
-  "image": "ghcr.io/wauplin/launchpad-hf-space@sha256:85d92017ac94e52c60e72fe69f2d19be47586303b0663fd088df3d72f04ac2b5",
-  "notes": "https://github.com/Wauplin/launchpad/commit/77eed49093247c0542e0365de84dc96368109760",
+  "image": "ghcr.io/wauplin/launchpad-hf-space@sha256:7e283883f397deacc344a1ca6ec2edda4bdbae88c180c9612cf3d86a36d2d586",
+  "notes": "https://github.com/Wauplin/launchpad/commit/1582a31c70b2ad7c94f28f664635a8fe939de3e0",
   "database": "Full pre-update checkpoint required; rollback restores the matching data."
 }
