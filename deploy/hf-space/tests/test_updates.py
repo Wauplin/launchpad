@@ -77,7 +77,8 @@ class UpdateChecks(unittest.IsolatedAsyncioTestCase):
         image = self.updater.installed['image']
         self.updater.api.space_info.return_value = SimpleNamespace(sha='d' * 40)
         self.updater.read_file = AsyncMock(return_value=updates.dockerfile(image))
-        await self.updater.apply({'checkpoint': 'c' * 32}, self.manifest['image'])
+        agents = [{'id': 's1', 'title': 'Fix the build'}]
+        await self.updater.apply({'checkpoint': 'c' * 32}, self.manifest['image'], agents)
         call = self.updater.api.create_commit.call_args
         self.assertEqual(call.kwargs['parent_commit'], 'd' * 40)
         content = call.args[1][0].path_or_fileobj.getvalue().decode()
@@ -86,6 +87,11 @@ class UpdateChecks(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.updater.rollback_record['checkpoint'], 'c' * 32)
         # The fixed pre-update restore point is written before the update record and the Dockerfile commit.
         self.updater.recovery.bucket.save_pre_update.assert_called_once()
+        # The resume list is durable before the commit, so the next boot can resume the stopped agents.
+        stored = json.loads(self.updater.recovery.bucket.put.call_args.args[1])
+        self.assertEqual(stored['agents'], agents)
+        self.assertRegex(stored['request'], '^[0-9a-f]{32}$')
+        self.assertEqual(stored['to'], 'b' * 40)
 
     async def test_background_check_cannot_replace_the_reviewed_image_mid_update(self):
         expected = self.manifest['image']

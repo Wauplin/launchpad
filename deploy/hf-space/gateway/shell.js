@@ -261,11 +261,17 @@ $("bar-fold").addEventListener("click", () => setBarCollapsed(true));
 $("bar-tab").addEventListener("click", () => setBarCollapsed(false));
 
 function renderBar() {
-  $("available-update").hidden = !state.update?.candidate;
+  $("available-update").hidden = !state.update?.candidate || Boolean(state.update?.progress);
   const chip = $("bar-status");
   const backup = state.backup || {};
   chip.className = "chip";
-  if (state.maintenance) { chip.classList.add("attn"); chip.textContent = "Maintenance in progress"; }
+  const update = state.update || {};
+  const result = update.result;
+  if (update.progress) { chip.classList.add("work"); chip.textContent = "Updating Launchpad…"; }
+  else if (result?.pending?.length) { chip.classList.add("work"); chip.textContent = `Resuming ${plural(result.pending.length, "agent")}…`; }
+  else if (result && (result.outcome !== "updated" || result.failed?.length)) { chip.classList.add("attn"); chip.textContent = result.outcome === "updated" ? `Updated · ${plural(result.failed.length, "agent")} not resumed` : result.outcome === "failed" ? "Update failed" : "Update rolled back"; }
+  else if (result) { chip.textContent = `Updated${result.resumed?.length ? ` · ${plural(result.resumed.length, "agent")} resumed` : ""}`; }
+  else if (state.maintenance) { chip.classList.add("attn"); chip.textContent = "Maintenance in progress"; }
   else if (backup.reconnect) { chip.classList.add("attn"); chip.textContent = "Reconnect your accounts"; }
   else if (backup.error) { chip.classList.add("attn"); chip.textContent = "Backup delayed"; }
   else chip.textContent = backup.checkpoint_at ? `Backed up ${ago(backup.checkpoint_at)}` : "Backup pending";
@@ -306,6 +312,7 @@ function renderSetup() {
     return page("Restarting your Space", null, null,
       h("div", { class: "card" },
         h("div", { class: "waiting" }, h("span", { class: "spinner" }), h("b", {}, state?.message || "Your Space is restarting.")),
+        state?.update?.progress ? updateSteps("restarting", state.update.progress.agents?.length) : null,
         h("p", { class: "muted small-text", style: "margin-top:10px" }, "This usually takes one to two minutes. This page reconnects on its own."),
         h("div", { class: "actions" }, external(logsUrl(), "Open Space logs")),
         slowRestart() ? h("div", {},
@@ -788,6 +795,67 @@ function backupSection() {
     h("p", { class: "muted small-text", style: "margin-top:10px" }, "~/projects is written to the bucket as you work. Launchpad state and agent history are saved every minute (latest copy only). Running commands and terminal screens cannot be restored after a restart."));
 }
 
+// ---------- updates ----------
+
+const REPO = "https://github.com/Wauplin/launchpad";
+const isRevision = (value) => /^[0-9a-f]{40}$/.test(value || "");
+const short = (value) => (isRevision(value) ? value.slice(0, 12) : value || "unknown");
+const changesUrl = (from, to) => (isRevision(from) && isRevision(to) ? `${REPO}/compare/${from}...${to}` : null);
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const UPDATE_STEPS = [
+  ["stopping", "Stop running agents"],
+  ["saving", "Save and verify a backup"],
+  ["updating", "Switch the Space to the new version"],
+  ["restarting", "Restart the Space"],
+  ["resuming", "Resume the stopped agents"],
+];
+
+/** The update steps with the current one spinning; `agents` drops the agent steps when none run. */
+function updateSteps(current, agents) {
+  const index = UPDATE_STEPS.findIndex(([key]) => key === current);
+  return h("ol", { class: "update-steps" },
+    UPDATE_STEPS.filter(([key]) => agents || (key !== "stopping" && key !== "resuming")).map(([key, label]) => {
+      const i = UPDATE_STEPS.findIndex(([k]) => k === key);
+      return h("li", { class: i < index ? "done" : i === index ? "current" : "" },
+        i < index ? h("span", { class: "dot" }, "✓") : i === index ? h("span", { class: "spinner" }) : h("span", { class: "dot" }), label);
+    }));
+}
+
+/** Opens a session in the app frame. */
+function openSession(id) {
+  if ($("update-dialog").open) $("update-dialog").close();
+  $("panel").close();
+  lastRoute = `/agents?session=${encodeURIComponent(id)}`;
+  $("app").src = lastRoute;
+}
+
+function agentList(agents, withError = false) {
+  return h("ul", { class: "agent-list" }, agents.map((a) => h("li", {},
+    state.ready ? h("button", { type: "button", class: "link", onclick: () => openSession(a.id) }, a.title) : h("span", {}, a.title),
+    withError && a.error ? h("span", { class: "muted" }, ` · ${a.error}`) : null)));
+}
+
+/** The last update outcome: what changed and which agents resumed. */
+function updateResult(r) {
+  const failed = r.failed || [];
+  const pending = r.pending || [];
+  const ok = r.outcome === "updated" && !failed.length;
+  const headline = {
+    updated: `Updated to ${short(r.to)}.`,
+    rolled_back: `The update was rolled back: ${short(r.from)} is running again with its pre-update backup.`,
+    failed: `The update did not run: ${r.error || "unknown error"}. The current version keeps running.`,
+  }[r.outcome] || r.error || "Launchpad restarted after an update, on an unexpected image. Check the Space logs.";
+  const dismiss = h("button", { type: "button", class: "small" }, "Dismiss");
+  dismiss.addEventListener("click", () => action("dismiss-update", {}, dismiss));
+  return h("div", { class: `notice ${ok ? "ok" : "attn"}` },
+    h("p", {}, ok ? h("b", {}, headline) : h("strong", {}, headline)),
+    pending.length ? h("div", { class: "waiting small-text", style: "margin-top:8px" }, h("span", { class: "spinner" }), `Resuming ${plural(pending.length, "agent")}…`) : null,
+    r.resumed?.length ? h("div", { class: "small-text" }, h("p", { style: "margin-top:8px" }, `Resumed ${plural(r.resumed.length, "agent")} in the same sessions:`), agentList(r.resumed)) : null,
+    r.finished?.length ? h("div", { class: "small-text" }, h("p", { style: "margin-top:8px" }, "Finished their turn before the stop, nothing to resume:"), agentList(r.finished)) : null,
+    failed.length ? h("div", { class: "small-text" }, h("p", { style: "margin-top:8px" }, h("strong", {}, `${plural(failed.length, "agent")} did not resume. `), "Open each one and click Resume:"), agentList(failed, true)) : null,
+    pending.length ? null : h("div", { class: "row", style: "margin-top:10px" }, dismiss));
+}
+
 function updatesSection() {
   const u = state.update || {};
   const release = state.release || {};
@@ -795,26 +863,69 @@ function updatesSection() {
   check.addEventListener("click", () => action("check-updates", {}, check));
   const c = u.candidate;
   const managedImage = Boolean(u.installed?.image);
+  const progress = u.progress;
+  const changes = c && changesUrl(release.launchpad, c.launchpad);
+  const update = h("button", { type: "button", class: "primary small" }, "Update…");
+  update.addEventListener("click", () => openUpdateDialog(c));
   return h("section", { id: "updates-section" },
     h("h3", {}, "Updates"),
-    h("p", { class: "muted small-text" }, "Checks main automatically about every six hours. Each new commit becomes available after its runtime build passes. Updates only run when you confirm."),
     h("div", { class: "lines" },
-      h("div", {}, h("span", {}, "Launchpad"), h("span", { class: "mono" }, (release.launchpad || "unknown").slice(0, 12))),
-      h("div", {}, h("span", {}, "Space connector"), h("span", {}, release.adapter || "unknown")),
-      h("div", {}, h("span", {}, "Last check"), h("span", {}, u.error || (u.checked_at ? ago(u.checked_at) : "Not checked yet")))),
-    c ? h("div", { class: "notice ok" },
-      h("p", {}, h("b", {}, `A new version is available: ${c.launchpad.slice(0, 12)}`)),
-      h("p", {}, "Would you like to update Launchpad?"),
-      h("pre", {}, Object.entries(c.tools).map(([k, v]) => `${k}: ${release.tools?.[k] || "—"} → ${v}`).join("\n")),
-      h("p", { class: "small-text" }, managedImage
-        ? "Stop agents and close terminals first. Launchpad saves a verified backup, then the Space rebuilds and reconnects this page."
-        : "This Space was built from source. Back up now and stop agents and terminals, then replace its Dockerfile in Hub with the one in the template download. This one-time setup enables future confirmed updates."),
+      h("div", {}, h("span", {}, "Installed"), h("span", { class: "mono" }, short(release.launchpad))),
+      h("div", {}, h("span", {}, "Available"), c ? h("span", { class: "mono" }, short(c.launchpad)) : h("span", {}, u.checked_at ? "Up to date" : "Not checked yet")),
+      h("div", {}, h("span", {}, "Last check"), h("span", {}, u.error || (u.checked_at ? ago(u.checked_at) : "Not checked yet"))),
+      h("div", {}, h("span", {}, "Space connector"), h("span", {}, release.adapter || "unknown"))),
+    progress ? h("div", { class: "notice" },
+      h("p", {}, h("b", {}, `Updating to ${short(progress.to)}`)),
+      updateSteps(progress.step, progress.agents?.length),
+      progress.agents?.length ? h("p", { class: "muted small-text" }, `${plural(progress.agents.length, "agent")} will resume after the restart.`) : null) : null,
+    u.result ? updateResult(u.result) : null,
+    c && !progress ? h("div", { class: "notice ok" },
+      h("p", {}, h("b", {}, `A new version is available: ${short(c.launchpad)}`)),
+      managedImage ? null : h("p", { class: "small-text" }, "This Space was built from source. Back up now and stop agents and terminals, then replace its Dockerfile in Hub with the one in the template download. This one-time setup enables future updates."),
       h("div", { class: "row" },
-        managedImage
-          ? confirmButton("Update and restart", "Confirm update", (b) => action("prepare-update", { image: c.image, confirmed: true }, b), "primary small")
-          : external("https://github.com/Wauplin/launchpad/raw/refs/heads/hf-space-channel/hf-space-template.zip", "Download managed template", "button primary small"),
-        typeof c.notes === "string" && c.notes.startsWith("https://") ? external(c.notes, "View commit", "button small") : null)) : null,
+        managedImage ? update : external(`${REPO}/raw/refs/heads/hf-space-channel/hf-space-template.zip`, "Download managed template", "button primary small"),
+        changes ? external(changes, "View changes", "button small") : typeof c.notes === "string" && c.notes.startsWith("https://") ? external(c.notes, "View commit", "button small") : null)) : null,
+    h("p", { class: "muted small-text" }, "Checks for a new version at startup and about every six hours. Updates only run when you confirm."),
     h("div", { class: "row" }, check));
+}
+
+/** Confirmation: says exactly what the update does with the agents running right now. */
+async function openUpdateDialog(candidate) {
+  const dialog = $("update-dialog");
+  const body = $("update-dialog-body");
+  const release = state.release || {};
+  body.replaceChildren(h("div", { class: "waiting muted" }, h("span", { class: "spinner" }), "Checking running agents…"));
+  if (!dialog.open) dialog.showModal();
+  const plan = await action("update-plan");
+  if (!plan) { dialog.close(); return; }
+  const running = plan.running || [];
+  const tools = Object.entries(candidate.tools || {}).filter(([k, v]) => release.tools?.[k] !== v);
+  const cancel = h("button", { type: "button" }, "Cancel");
+  cancel.addEventListener("click", () => dialog.close());
+  const confirm = h("button", { type: "button", class: "primary" }, running.length ? `Stop ${plural(running.length, "agent")} and update` : "Update and restart");
+  confirm.disabled = plan.blockers.length > 0;
+  confirm.addEventListener("click", async () => {
+    if (await action("prepare-update", { image: candidate.image, confirmed: true }, confirm)) dialog.close();
+  });
+  const changes = changesUrl(release.launchpad, candidate.launchpad);
+  body.replaceChildren(...[
+    h("div", { class: "lines" },
+      h("div", {}, h("span", {}, "Installed"), h("span", { class: "mono" }, short(release.launchpad))),
+      h("div", {}, h("span", {}, "New version"), h("span", { class: "mono" }, short(candidate.launchpad))),
+      tools.map(([k, v]) => h("div", {}, h("span", {}, k), h("span", { class: "mono" }, `${release.tools?.[k] || "—"} → ${v}`)))),
+    changes ? h("p", { class: "small-text" }, external(changes, "View the changes on GitHub", "")) : null,
+    h("h3", {}, "What happens"),
+    h("ol", { class: "plan" },
+      running.length
+        ? h("li", {}, `Stop ${plural(running.length, "running agent")}, like the Stop button:`, agentList(running))
+        : h("li", {}, "No agent is running, so none needs to be stopped."),
+      h("li", {}, "Save a backup of Launchpad state and check it."),
+      h("li", {}, "Switch the Space to the new version and restart it. This usually takes one to two minutes; Launchpad is unavailable meanwhile and this page reconnects on its own."),
+      running.length ? h("li", {}, "Resume the same agents automatically, in their own sessions with their full context. Each one receives “Continue the unfinished turn.”") : null),
+    plan.terminals ? h("div", { class: "notice attn small-text" }, h("strong", {}, `${plural(plan.terminals, "open terminal")} will close. `), "Commands running in them stop and their screens are not restored.") : null,
+    plan.blockers.length ? h("div", { class: "notice attn small-text" }, h("strong", {}, "Cannot update yet. "), plan.blockers.map((b) => h("p", {}, b))) : null,
+    h("p", { class: "muted small-text" }, "If something fails before the restart, nothing changes: the current version keeps running and the agents resume on it. If the new version does not start within five minutes, the restarting page offers a rollback to the current version and this backup. Agents that cannot resume are listed afterwards."),
+    h("div", { class: "actions" }, confirm, cancel)].filter(Boolean));
 }
 
 function spaceSection() {

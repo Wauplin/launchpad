@@ -257,6 +257,12 @@ async def serve():
             state['started_at'] = time.time()
             worker = asyncio.create_task(recovery.run())
             updater.task = asyncio.create_task(updater.watch())
+            try:
+                await updater.finish(runtime)
+            except Exception:
+                # The claim or the bucket failed: report it, never retry resumes on another boot.
+                traceback.print_exc()
+                updater.result = {'outcome': 'unknown', 'error': 'Could not read the last update record. Check stopped agents in Launchpad and resume them.'}
         except MissingBucket:
             state['needs_bucket'] = True
             state['needs_key'] = not os.environ.get('LP_SPACE_BACKUP_KEY')
@@ -307,6 +313,59 @@ async def serve():
                     backup=recovery.status() if recovery else None, login=logins.status(),
                     maintenance=runtime.maintenance, update=updater.status() if updater else None)
         return web.json_response(data)
+
+    async def update(image, agents):
+        """Owner-confirmed update: stop running agents, save a verified checkpoint, commit the new image.
+
+        The new boot resumes `agents` (see Updates.finish). If anything fails before the commit, Launchpad
+        restarts on the current version and the same agents resume right away.
+        """
+        from supervisor.updates import UncertainMaintenance, resume_agents, stop_agents
+        async with actions:
+            def step(name):
+                updater.progress = {'step': name, 'agents': agents, 'to': updater.candidate and updater.candidate['launchpad']}
+            try:
+                step('stopping')
+                await drain()
+                await stop_agents(runtime, [a['id'] for a in agents])
+                step('saving')
+                recovery.paused = True
+                async with recovery.lock:
+                    pass
+                await runtime.close()
+                checkpoint = await recovery.checkpoint(clean=True)
+                step('updating')
+                await updater.apply(checkpoint, image, agents)
+            except Exception as error:
+                if not isinstance(error, ValueError):
+                    traceback.print_exc()
+                message = str(error) if isinstance(error, ValueError) else human(error)
+                updater.progress = None
+                if runtime.process is None and isinstance(error, UncertainMaintenance):
+                    # The image may or may not change: keep everything stopped; the next boot resumes the agents.
+                    stage('error', message)
+                    return
+                result = {'outcome': 'failed', 'error': message, 'at': time.time(), 'resumed': [], 'finished': [], 'failed': [], 'pending': agents}
+                updater.result = result
+                recovery.paused = False
+                try:
+                    if runtime.process is None:
+                        await runtime.start()
+                    proxy.token = runtime.token
+                except Exception:
+                    traceback.print_exc()
+                    await runtime.close()
+                    result.update(pending=[], failed=[dict(a, error='Launchpad did not restart') for a in agents])
+                    stage('stopped', f'The update failed ({message}) and Launchpad could not restart. Restart it, then resume the stopped agents.')
+                    return
+                finally:
+                    runtime.maintenance = False
+                result.update(await resume_agents(runtime, agents), pending=[])
+                return
+            updater.progress = dict(updater.progress, step='restarting')
+            count = len(agents)
+            stage('restarting', 'Backup verified. Your Space is rebuilding with the new version.'
+                  + (f' {count} stopped agent{"s" if count != 1 else ""} will resume automatically.' if count else ''))
 
     async def connections(request):
         """One row per thing the owner can connect, computed from Launchpad's own sign-in checks."""
@@ -496,7 +555,33 @@ async def serve():
             elif kind == 'reconnect':
                 recovery.reconnect = False
                 await recovery.checkpoint()
-            elif kind in ('restart', 'prepare-update', 'rollback', 'rotate-key'):
+            elif kind == 'dismiss-update':
+                if updater.result and updater.result.get('pending'):
+                    raise ValueError('Wait until the agents have resumed')
+                updater.result = None
+            elif kind == 'update-plan':
+                from supervisor.updates import plan
+                return web.json_response(await plan(runtime))
+            elif kind == 'prepare-update':
+                from supervisor.updates import plan
+                if body.get('confirmed') is not True:
+                    raise ValueError('Confirm the update first')
+                if not updater.candidate or body.get('image') != updater.candidate['image']:
+                    raise ValueError('The available release changed. Review the new candidate before updating.')
+                if logins.status()['running']:
+                    raise ValueError('Finish or cancel the current sign-in first')
+                if state['clones']['running']:
+                    raise ValueError('Wait for the repositories to finish cloning first')
+                current = await plan(runtime)
+                if current['blockers']:
+                    raise ValueError(current['blockers'][0])
+                # Block new proxied mutations now; the update itself runs in the background and reports progress.
+                runtime.maintenance = True
+                updater.result = None
+                updater.progress = {'step': 'stopping', 'agents': current['running'], 'to': updater.candidate['launchpad']}
+                updater.run = asyncio.create_task(update(body['image'], current['running']))
+                return web.json_response({'message': 'Updating. Follow the progress in Space settings.'})
+            elif kind in ('restart', 'rollback', 'rotate-key'):
                 if body.get('confirmed') is not True:
                     raise ValueError('Confirm this action first')
                 if logins.status()['running']:
@@ -512,13 +597,11 @@ async def serve():
                     async with recovery.lock:
                         pass
                     await runtime.close()
-                    checkpoint = await recovery.checkpoint(clean=True)
+                    await recovery.checkpoint(clean=True)
                     if kind == 'rotate-key':
                         from vault.rotate import rotate
                         await rotate(recovery, HfApi(token=token), deployment.space)
                         await asyncio.to_thread(HfApi(token=token).restart_space, deployment.space)
-                    elif kind == 'prepare-update':
-                        await updater.apply(checkpoint, body.get('image'))
                     elif kind == 'rollback':
                         await updater.rollback(True)
                     else:
