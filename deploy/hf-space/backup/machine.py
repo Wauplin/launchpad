@@ -1,4 +1,8 @@
-"""Recoverable local files plus separately sealed credentials, at stable paths."""
+"""Recoverable agent state plus separately sealed credentials, at stable paths.
+
+`~/projects` is a live bucket volume and is never archived. The rest of the agent home that matters (Launchpad
+data, native harness folders, `~/.agents`) goes into one small archive; caches, logs and build output are skipped.
+"""
 import base64
 import gzip
 import pwd
@@ -20,9 +24,11 @@ from backup.projection import config_split, config_join, project_db, restore_db,
 from backup.snapshot import materialize, sqlite_snapshot
 from backup.store import safe_name
 from providers.roots import credential, NATIVE, ROOTS, classify_git, CONFIG_ROOTS
-from supervisor.processes import HOME, own
+from supervisor.processes import HOME, PROJECTS, own
 
 DATA = HOME / '.local/share/launchpad'
+ARCHIVE = 'home/agents.tar.gz'
+LEGACY_ARCHIVE = 'workspaces/home.tar.gz'
 CONFIG = HOME / '.config/launchpad/config.toml'
 EXCLUDED = {'token', 'vapid.json', 'state.db', 'state.db-wal', 'state.db-shm', 'cache.db', 'cache.db-wal', 'cache.db-shm'}
 NATIVE_RUNTIME = {HOME/name for name in NATIVE}
@@ -31,6 +37,19 @@ SKIP_DIRS = {'node_modules', 'target', '__pycache__', '.venv', 'venv', '.cache',
              '.pytest_cache', '.ruff_cache', '.gradle', '.next', '.turbo'}
 # Inside tool-native folders (~/.codex, ~/.claude…): temporary files, logs and plugin caches.
 NATIVE_SKIP = {'tmp', '.tmp', 'debug', 'log', 'logs', 'cache', 'shell-snapshots', 'statsig'}
+
+
+def mounted(path):
+    return Path(path).is_relative_to(PROJECTS) and os.path.ismount(PROJECTS)
+
+
+def settle(fd, user, mode, path):
+    """Own and restrict a descriptor. The bucket volume may not store owners or modes; that is not an error there."""
+    try:
+        os.fchown(fd,user.pw_uid,user.pw_gid)
+        os.fchmod(fd,mode)
+    except OSError:
+        if not mounted(path): raise
 
 
 def secure_parent(path):
@@ -46,8 +65,7 @@ def secure_parent(path):
             except FileNotFoundError:
                 os.mkdir(part,0o700,dir_fd=current)
                 child=os.open(part,flags,dir_fd=current)
-            os.fchown(child,user.pw_uid,user.pw_gid)
-            os.fchmod(child,0o700)
+            settle(child,user,0o700,path)
             os.close(current)
             current=child
         return current,parts[-1]
@@ -82,7 +100,7 @@ def atomic(path, data):
         fd=os.open(temporary,os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,0o600,dir_fd=parent)
         user=pwd.getpwnam('agent')
         with os.fdopen(fd,'wb') as f:
-            os.fchown(f.fileno(),user.pw_uid,user.pw_gid)
+            settle(f.fileno(),user,0o600,path)
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
@@ -125,15 +143,8 @@ def files_under(roots):
 
 
 def roots():
-    result = [HOME/'projects', HOME/'.agents', DATA, *[HOME/p for p in NATIVE], *[HOME/p for p in ROOTS]]
-    if (DATA/'state.db').exists():
-        with sqlite3.connect(f'file:{DATA}/state.db?mode=ro', uri=True) as db:
-            for (value,) in db.execute('SELECT path FROM project'):
-                path = Path(value)
-                if path.is_absolute():
-                    # Folders outside the agent home (or the whole home) cannot be restored at stable paths; skip them.
-                    if path == HOME or not path.is_relative_to(HOME): continue
-                    result.append(path)
+    # Folders live in ~/projects, the bucket volume. Folders registered elsewhere are not persisted.
+    result = [HOME/'.agents', DATA, *[HOME/p for p in NATIVE], *[HOME/p for p in ROOTS]]
     if CONFIG.exists():
         config = tomlkit.parse(home_open(CONFIG).read().decode()).unwrap()
         for profile in config.get('profiles', []):
@@ -144,6 +155,7 @@ def roots():
                     if path == HOME: raise ValueError('Use a dedicated provider folder rather than the whole agent home')
                     if not path.is_absolute() or not path.is_relative_to(HOME):
                         raise ValueError('Profile credential roots must remain inside the agent home')
+                    if path.is_relative_to(PROJECTS): continue
                     result.append(path)
                     NATIVE_RUNTIME.add(path)
                     CONFIG_ROOTS.add(str(path.relative_to(HOME)))
@@ -183,7 +195,7 @@ def credential_bytes(path):
     raise ValueError('A credential file keeps changing; the next backup retries')
 
 
-def capture(approved, release, clean=False, workspace=True):
+def capture(approved, release, workspace=True):
     """Ordinary objects and the credential payload. Without `workspace`, files are only scanned for credentials."""
     secrets = {'references': {}, 'files': {}, 'present': []}
     sources=roots()
@@ -199,12 +211,10 @@ def capture(approved, release, clean=False, workspace=True):
             ordinary['state/cache.db'] = cache.read_bytes()
         if CONFIG.exists(): ordinary['config/config.toml'] = config_split(home_open(CONFIG).read().decode(), secrets['references'])
         archive = io.BytesIO()
-        # gzip mtime 0 and a fixed member order keep an unchanged workspace byte-identical, so it is not re-uploaded.
+        # gzip mtime 0 and a fixed member order keep unchanged agent state byte-identical, so it is not re-uploaded.
         with gzip.GzipFile(fileobj=archive, mode='wb', mtime=0, compresslevel=6) as compressed, \
                 tarfile.open(fileobj=compressed if workspace else io.BytesIO(), mode='w', dereference=False) as tar:
             for name, path in files_under(sources):
-                if clean and '.git' in Path(name).parts and (path.name.endswith('.lock') or any(part in ('MERGE_HEAD','CHERRY_PICK_HEAD','rebase-merge','rebase-apply') for part in Path(name).parts)):
-                    raise ValueError('A Git operation is in progress; finish it before maintenance')
                 if path.parent == DATA and path.name in EXCLUDED: continue
                 if path == CONFIG: continue
                 if credential(name):
@@ -232,8 +242,8 @@ def capture(approved, release, clean=False, workspace=True):
                     elif not name.endswith(('-wal', '-shm')):
                         info=tarfile.TarInfo(name); st=path.stat();info.size=st.st_size;info.mode=st.st_mode & 0o777;info.mtime=st.st_mtime
                         with home_open(path) as f: tar.addfile(info,f)
-        if workspace: ordinary['workspaces/home.tar.gz'] = archive.getvalue()
-    ordinary['state/runtime.json'] = json.dumps({'format':1,'release':release,'provider_directories':sorted(CONFIG_ROOTS),'directories':[str(path.relative_to(HOME)) for path in sources if path.is_dir() and path != HOME]}).encode()
+        if workspace: ordinary[ARCHIVE] = archive.getvalue()
+    ordinary['state/runtime.json'] = json.dumps({'format':2,'release':release,'provider_directories':sorted(CONFIG_ROOTS),'directories':[str(path.relative_to(HOME)) for path in sources if path.is_dir() and path != HOME]}).encode()
     return ordinary, secrets
 
 
@@ -262,6 +272,7 @@ def credential_snapshot():
 
 
 def unpack(data, directories):
+    """Restore an archive. A format 1 archive also holds ~/projects: those files go into the bucket volume once."""
     # Validate ALL members before writing; never use extractall.
     with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as tar:
         members = tar.getmembers()
@@ -278,7 +289,12 @@ def unpack(data, directories):
             if member.isfile():
                 data = tar.extractfile(member).read()
                 atomic(HOME/member.name, data)
-                os.chmod(HOME/member.name,0o700 if member.mode & 0o111 else 0o600)
+                try:
+                    os.chmod(HOME/member.name,0o700 if member.mode & 0o111 else 0o600)
+                    # Keeping mtimes keeps the next archive byte-identical, so a restore is not uploaded again.
+                    os.utime(HOME/member.name,(member.mtime,member.mtime))
+                except OSError:
+                    if not mounted(HOME/member.name): raise
                 if data.startswith(b'SQLite format 3\x00'):
                     # A stale local WAL would be replayed over the restored snapshot and corrupt it.
                     for suffix in ('-wal', '-shm', '-journal'): (HOME/(member.name+suffix)).unlink(missing_ok=True)
@@ -289,9 +305,13 @@ def unpack(data, directories):
                 try:
                     try: os.unlink(name,dir_fd=parent)
                     except FileNotFoundError: pass
-                    os.symlink(member.linkname,name,dir_fd=parent)
                     user=pwd.getpwnam('agent')
-                    os.chown(name,user.pw_uid,user.pw_gid,dir_fd=parent,follow_symlinks=False)
+                    try:
+                        os.symlink(member.linkname,name,dir_fd=parent)
+                        os.chown(name,user.pw_uid,user.pw_gid,dir_fd=parent,follow_symlinks=False)
+                    except OSError:
+                        if not mounted(target): raise
+                        print(f'Skipped a symbolic link the projects volume does not support: {member.name}', flush=True)
                 finally: os.close(parent)
 
 
@@ -302,7 +322,9 @@ def restore(files, payload, lost_key=False):
         CONFIG_ROOTS.add(directory)
     directories=metadata['directories']
     for directory in directories: safe_name(directory)
-    unpack(files['workspaces/home.tar.gz'],directories)
+    if metadata.get('format',1) != 1 and any(d == 'projects' or d.startswith('projects/') for d in directories):
+        raise ValueError('Unregistered archive destination')
+    unpack(files.get(ARCHIVE) or files[LEGACY_ARCHIVE],directories)
     for name in ('state.db', 'cache.db'):
         if 'state/'+name in files:
             atomic(DATA/name, files['state/'+name])

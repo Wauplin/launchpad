@@ -6,7 +6,7 @@ The browser shell (gateway/shell.*) reads `GET /_space/status` and drives everyt
   template   the public duplicate template: offer Duplicate, run nothing
   token      no management token yet: paste one (saved as a Space Secret) or add it in Hub
   blocked    the Space or bucket failed the startup policy; only Hub can fix it
-  backups    bucket and/or encryption key missing: one click creates both and restarts
+  backups    bucket, encryption key or projects volume missing: one click creates them and restarts
   starting   checks passed, data is being restored and Launchpad is starting
   connect    Launchpad runs but no agent profile exists yet: connect a first agent
   ready      normal use: the app in an iframe under a slim status bar
@@ -22,6 +22,7 @@ import os
 import secrets
 import shutil
 import signal
+import subprocess
 import time
 import traceback
 import uuid
@@ -33,12 +34,12 @@ from aiohttp import web
 from huggingface_hub import HfApi
 
 from backup.machine import atomic
-from backup.store import Bucket, safe_name
+from backup.store import MANIFEST, Bucket, safe_name
 from backup.worker import Recovery
 from gateway.proxy import Proxy
 from providers.setup import HARNESSES, Logins, profile_login, public_details, ssh_key
 from supervisor.policy import Deployment, MissingBucket, Unverified, verify
-from supervisor.processes import CONTROL, HOME, prepare, spawn
+from supervisor.processes import CONTROL, HOME, PROJECTS, demote, environment, prepare, spawn
 from supervisor.runtime import Runtime, watch_daemon
 from vault.codec import Vault
 
@@ -55,6 +56,25 @@ STATIC = {
 }
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
        "frame-src 'self'; frame-ancestors 'self' https://huggingface.co; object-src 'none'; base-uri 'none'")
+
+
+def projects_volume(api, deployment):
+    """The Space volume that keeps ~/projects live in the bucket's `projects/` folder, beside the owner's others."""
+    from huggingface_hub import Volume
+    volumes = [v for v in (api.get_space_runtime(deployment.space).volumes or []) if v.mount_path != str(PROJECTS)]
+    return volumes + [Volume(type='bucket', source=deployment.bucket, mount_path=str(PROJECTS), path='projects')]
+
+
+def volume_configured(api, deployment):
+    return any(v.type == 'bucket' and v.mount_path == str(PROJECTS) and v.source.lower() == deployment.bucket.lower()
+               and (v.path or '').strip('/') == 'projects' for v in api.get_space_runtime(deployment.space).volumes or [])
+
+
+def projects_writable():
+    probe = f'.lp-write-check-{uuid.uuid4().hex}'
+    result = subprocess.run(['sh', '-c', 'touch "$1" && rm -f "$1"', 'sh', probe], cwd=PROJECTS, env=environment(),
+                            preexec_fn=demote, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+    return result.returncode == 0
 
 
 def human(error):
@@ -79,7 +99,7 @@ async def serve():
         'space': {'id': deployment.space, 'url': f'https://huggingface.co/spaces/{deployment.space}',
                   'settings': f'https://huggingface.co/spaces/{deployment.space}/settings'},
         'bucket': {'id': deployment.bucket, 'url': f'https://huggingface.co/buckets/{deployment.bucket}'},
-        'policy': None, 'needs_key': False, 'needs_bucket': False, 'release': {}, 'update': None,
+        'policy': None, 'needs_key': False, 'needs_bucket': False, 'needs_volume': False, 'release': {}, 'update': None,
         # Repositories cloned from Space settings, one at a time in the background.
         'clones': {'running': False, 'current': None, 'queue': [], 'done': [], 'failed': []},
     }
@@ -180,29 +200,39 @@ async def serve():
                 state['needs_key'] = True
                 stage('backups', 'Create the encrypted backup for your workspace.')
                 return
+            if not os.path.ismount(PROJECTS):
+                if await asyncio.to_thread(volume_configured, HfApi(token=token), deployment):
+                    stage('error', 'The projects volume is set in Space settings but is not mounted. Check the Space volumes on the Hub, then restart.')
+                    return
+                state['needs_volume'] = True
+                stage('backups', 'Keep your projects live in the backup bucket.')
+                return
+            if not await asyncio.to_thread(projects_writable):
+                stage('error', 'The agent user cannot write to the projects volume. Check the Space volumes on the Hub, then restart.')
+                return
             stage('starting', 'Restoring your workspace from the backup bucket.')
             control_env = {'HOME': str(CONTROL), 'PATH': '/usr/local/bin:/usr/bin:/bin', 'HF_TOKEN': token, 'LANG': 'C.UTF-8'}
             bucket = Bucket(deployment.bucket, control_env)
             vault = Vault(key, str(uuid.uuid4()))
-            from vault.rotate import recover_rotation
-            await recover_rotation(bucket, vault)
+            from vault.rotate import finish_rotation
+            await finish_rotation(bucket, vault)
             schema = json.loads((ROOT / 'schema.json').read_text())['state_schema']
             recovery = Recovery(bucket, vault, schema, release, vault.installation)
-            generation = os.environ.get('LP_SPACE_RESTORE_GENERATION') or None
-            restore_request = os.environ.get('LP_SPACE_RESTORE_REQUEST', generation)
+            checkpoint = os.environ.get('LP_SPACE_RESTORE_CHECKPOINT') or None
+            restore_request = os.environ.get('LP_SPACE_RESTORE_REQUEST', checkpoint)
             if restore_request:
                 safe_name(restore_request)
                 if '/' in restore_request:
                     raise ValueError('Invalid restore request')
-                if await asyncio.to_thread(bucket.exists, f'backups/restores/{restore_request}.json'):
-                    generation = None
-            await recovery.recover(generation)
-            if generation:
+                if await asyncio.to_thread(bucket.exists, f'space/restores/{restore_request}.json'):
+                    checkpoint = None
+            await recovery.recover(checkpoint)
+            if checkpoint:
                 # Acknowledge the one-shot restore right away and make it the latest checkpoint, so a later
                 # restart neither repeats it nor restores newer (migrated) data on this older image.
-                await asyncio.to_thread(bucket.put, 'backups/latest.json', json.dumps({'generation': generation}).encode())
-                await asyncio.to_thread(bucket.put, f'backups/restores/{restore_request}.json',
-                                        json.dumps({'generation': generation, 'restored_at': time.time()}).encode())
+                await asyncio.to_thread(bucket.put, MANIFEST, json.dumps(recovery.manifest, sort_keys=True).encode())
+                await asyncio.to_thread(bucket.put, f'space/restores/{restore_request}.json',
+                                        json.dumps({'checkpoint': checkpoint, 'restored_at': time.time()}).encode())
             from supervisor.updates import Updates
             updater = Updates(deployment, token, runtime, recovery, release)
             await updater.load_rollback()
@@ -314,7 +344,7 @@ async def serve():
         return socket
 
     async def bootstrap(body):
-        """One click: save the management token, create the bucket and the key, then restart once."""
+        """One click: save the management token, create the bucket, the key and the projects volume, then restart once."""
         management = token
         pasted = body.get('token')
         if pasted is not None:
@@ -344,6 +374,8 @@ async def serve():
                 key = base64.b64encode(os.urandom(32)).decode()
                 await asyncio.to_thread(api.add_space_secret, deployment.space, 'LP_SPACE_BACKUP_KEY', key,
                                         description='Launchpad credential encryption key. Never share or reuse it.')
+            if not os.path.ismount(PROJECTS):
+                await asyncio.to_thread(api.set_space_volumes, deployment.space, await asyncio.to_thread(projects_volume, api, deployment))
             if pasted is not None:
                 await asyncio.to_thread(api.add_space_secret, deployment.space, 'LP_SPACE_MANAGEMENT_TOKEN', management,
                                         description='Lets Launchpad manage this Space and its backup bucket.')

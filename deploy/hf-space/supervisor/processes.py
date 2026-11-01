@@ -6,6 +6,8 @@ import signal
 from pathlib import Path
 
 HOME = Path('/home/agent')
+# A live bucket volume (the bucket's `projects/` folder) once setup has added it to the Space.
+PROJECTS = HOME / 'projects'
 CONTROL = Path('/run/launchpad-space')
 
 
@@ -44,6 +46,8 @@ def prepare():
     own(HOME, True)
     for name in ('.config/launchpad', '.local/share/launchpad', 'projects', '.codex'):
         path = HOME / name
+        # The volume's owner and modes belong to the mount; startup checks that the agent can write to it.
+        if os.path.ismount(path): continue
         path.mkdir(parents=True, exist_ok=True)
         for parent in [path, *path.parents]:
             if parent == HOME: break

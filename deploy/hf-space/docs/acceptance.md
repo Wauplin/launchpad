@@ -50,3 +50,7 @@ GitHub Actions currently refuses to start jobs because of the account's payment/
 - On a real Space: Hub iframe and direct URL, provider sign-ins to completion, HF agent token and trace export to `traces/`, secret-change restarts, update and rollback, a 24–72 hour soak on paid CPU with sleep off.
 - Large workspaces: archives are built in memory and uploaded whole; measure RAM and upload time with a representative repository.
 - Not in scope: multiple replicas, remote use of the Chrome extension, outbound SSH on port 22, discovering secrets in arbitrary files, an offline recovery key.
+
+## Latest-only backups and projects volume (2026-11-01)
+
+Checked without a Space: a format 1 backup made by the previous code (temporary home, in-memory bucket) migrated into the new layout; the agent archive held only agent history (no projects, caches or credentials); an idle checkpoint wrote nothing; a change went to the other slot; a fresh disk restored the new format; a planned key rotation restored under the new key and refused a second uncertain rotation; a pre-update restore point rolled back state. Not checked: the real Space volume (mount permissions, symlinks, executable bits, Git speed on it), the setup click against the Hub and the image build.

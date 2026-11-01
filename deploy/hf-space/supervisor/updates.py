@@ -12,6 +12,8 @@ from pathlib import Path
 import aiohttp
 from huggingface_hub import HfApi, CommitOperationAdd
 
+from backup.store import UPDATE
+
 # Where releases come from: one place to change, in release.json (`channel`). Both must be publicly readable,
 # since duplicated Spaces pull the image and fetch the manifest anonymously.
 CHANNEL = json.loads((Path(__file__).resolve().parents[1] / 'release.json').read_text())['channel']
@@ -80,13 +82,14 @@ class Updates:
         if not re.fullmatch(r'[0-9a-f]{40}',head.sha or ''): raise ValueError('HF did not return an exact repository revision; nothing was changed')
         previous = await self.read_file('Dockerfile')
         image = self.installed.get('image')
-        managed = re.sub(r'ENV LP_SPACE_RESTORE_(?:GENERATION|REQUEST)=[a-f0-9]{32}\n','',previous)
+        managed = re.sub(r'ENV LP_SPACE_RESTORE_(?:CHECKPOINT|GENERATION|REQUEST)=[a-f0-9]{32}\n','',previous)
         if not image or managed != dockerfile(image):
             raise ValueError('The managed Dockerfile has custom changes. Compare it with the release template in Hub before updating.')
-        record = {'image':image,'generation':checkpoint['generation'],'revision':head.sha,
+        record = {'image':image,'checkpoint':checkpoint['checkpoint'],'revision':head.sha,
                   'candidate':candidate['image'],'at':time.time()}
         # Durable before the repo commit, so recovery is possible even if rebuild interrupts us.
-        await asyncio.to_thread(self.recovery.bucket.put,'backups/update.json',json.dumps(record).encode())
+        await asyncio.to_thread(self.recovery.bucket.save_pre_update,checkpoint,self.recovery.files)
+        await asyncio.to_thread(self.recovery.bucket.put,UPDATE,json.dumps(record).encode())
         operations=[CommitOperationAdd(path_in_repo='Dockerfile',path_or_fileobj=io.BytesIO(dockerfile(candidate['image']).encode()))]
         try:
             await asyncio.to_thread(self.api.create_commit,self.deployment.space,operations,repo_type='space',parent_commit=head.sha,commit_message='Update Launchpad runtime image')
@@ -97,18 +100,21 @@ class Updates:
         self.rollback_record=record
 
     async def load_rollback(self):
-        if await asyncio.to_thread(self.recovery.bucket.exists,'backups/update.json'):
-            self.rollback_record=json.loads(await asyncio.to_thread(self.recovery.bucket.read,'backups/update.json'))
+        bucket=self.recovery.bucket
+        # backups/update.json is the format 1 record: the image before the projects volume, with its own data.
+        record=await asyncio.to_thread(bucket.read_json,UPDATE) or await asyncio.to_thread(bucket.read_json,'backups/update.json')
+        if record: self.rollback_record=record
 
     async def rollback(self,confirmed):
         if not confirmed: raise ValueError('Confirm rollback: writes after the pre-update checkpoint will be lost')
         await self.load_rollback()
         record=self.rollback_record
         if not record: raise ValueError('No pre-update restore point exists')
-        if not re.fullmatch(r'[0-9a-f]{32}',record.get('generation','')): raise ValueError('Invalid pre-update recovery generation')
+        variable,value=('CHECKPOINT',record.get('checkpoint','')) if 'checkpoint' in record else ('GENERATION',record.get('generation',''))
+        if not re.fullmatch(r'[0-9a-f]{32}',value): raise ValueError('Invalid pre-update restore point')
         head=await asyncio.to_thread(self.api.space_info,self.deployment.space)
         if not re.fullmatch(r'[0-9a-f]{40}',head.sha or ''): raise ValueError('HF did not return an exact repository revision; nothing was changed')
-        operations=[CommitOperationAdd(path_in_repo='Dockerfile',path_or_fileobj=io.BytesIO((dockerfile(record['image'])+f"ENV LP_SPACE_RESTORE_GENERATION={record['generation']}\nENV LP_SPACE_RESTORE_REQUEST={uuid.uuid4().hex}\n").encode()))]
+        operations=[CommitOperationAdd(path_in_repo='Dockerfile',path_or_fileobj=io.BytesIO((dockerfile(record['image'])+f"ENV LP_SPACE_RESTORE_{variable}={value}\nENV LP_SPACE_RESTORE_REQUEST={uuid.uuid4().hex}\n").encode()))]
         try:
             await asyncio.to_thread(self.api.create_commit,self.deployment.space,operations,repo_type='space',parent_commit=head.sha,commit_message='Roll back Launchpad image and pre-update data')
         except Exception as error:

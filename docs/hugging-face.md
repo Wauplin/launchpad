@@ -34,7 +34,7 @@ hf://buckets/<namespace>/<bucket>/<folder name>/<YYYYMMDD_HHMM>_<session id>/
 
 ## Run Launchpad in a Space
 
-A private Docker Space runs a headless Launchpad with a small control plane in front of it: browser-only setup, encrypted credential backups to a private bucket, and explicit updates.
+A private Docker Space runs a headless Launchpad with a small control plane in front of it: browser-only setup, `~/projects` kept live in a private bucket, encrypted credential backups and explicit updates.
 
 ```mermaid
 flowchart LR
@@ -42,15 +42,15 @@ flowchart LR
     subgraph S[Private Docker Space]
         C["Control plane<br/>setup, backups, updates"] --> L["launchpad daemon<br/>agents, terminals"]
     end
-    C -->|"backups/, credentials/ (encrypted)"| K[(Private HF bucket)]
-    L -->|traces/| K
+    C -->|"space/ (latest state, credentials encrypted)"| K[(Private HF bucket)]
+    L -->|"projects/ (volume), traces/"| K
 ```
 
 ### Setup
 
 1. Create a private Docker Space from the template: duplicate the published template Space, or use `hf-space-template.zip` from the [`hf-space-channel`](https://github.com/Wauplin/launchpad/tree/hf-space-channel) branch. Keep it **Private**: everyone who can open the Space controls your agents.
 2. Choose paid CPU hardware and disable sleep if agents must run while the tab is closed. Free CPU Spaces sleep and lose running processes.
-3. Open the Space and paste a Hugging Face **write** token. Launchpad saves it as a Space secret, creates a private backup bucket and an encryption key, then restarts once (about a minute).
+3. Open the Space and paste a Hugging Face **write** token. Launchpad saves it as a Space secret, creates a private backup bucket, an encryption key and the `~/projects` volume, then restarts once (about a minute).
 4. **Connect your first agent**: your Hugging Face account (open models), Claude Code, Codex or OpenCode (their sign-in runs in a terminal on the page), or an API key. GitHub is offered next.
 5. **Clone your repositories** (optional): tick repositories to clone into `~/projects`. Each becomes a folder in Launchpad. When GitHub is connected, repositories with recent notifications come first, then your recently pushed ones. You can also type `owner/name`.
 
@@ -58,10 +58,12 @@ A bar above the app shows the Space name and the backup state. **Space settings*
 
 ### Backups
 
-- State is saved every minute when it changed, the workspace archive every five minutes, and a final checkpoint runs when the Space stops.
+- `~/projects` is a Space volume on the bucket's `projects/` folder: files are written to the bucket as you work, with no snapshots. Everything in it is stored, including `node_modules`, `target` and `.env` files, in readable form.
+- Launchpad's state, settings and agent history (`~/.claude`, `~/.codex`, OpenCode, `~/.agents`) are saved every minute when they changed, as one latest copy; caches and logs are skipped. A final save runs when the Space stops.
 - Credentials are encrypted (AES-256-GCM) with a key that only the control plane can read.
-- Keep projects inside `/home/agent`: other folders are not backed up. Rebuildable folders (`node_modules`, `target`, virtual environments) are skipped.
+- Keep folders in `~/projects`: other folders and other files in the home folder are lost on restart.
 - If no backup succeeded for ten minutes, new launches and replies pause.
+- Spaces set up before the projects volume show **Move projects and restart** once. After the restart, the old backup is restored a last time and its projects are written into the volume. The old `backups/` and `credentials/` folders are no longer used; you can delete them once the new setup works.
 
 ### Updates
 

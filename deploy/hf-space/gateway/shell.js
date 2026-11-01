@@ -378,18 +378,22 @@ function backups() {
         h("p", { class: "muted small-text", style: "margin-top:8px" }, "Add it as a secret named LP_SPACE_BACKUP_KEY in Space settings. This page forgets it when it closes."));
     },
   }, "Generate a key");
-  const create = h("button", { type: "button", class: "primary" }, "Create backups and restart");
+  const migrate = state.needs_volume && !state.needs_key && !state.needs_bucket;
+  const create = h("button", { type: "button", class: "primary" }, migrate ? "Move projects and restart" : "Create backups and restart");
   create.addEventListener("click", () => action("setup", {}, create));
-  page("Turn on encrypted backups",
-    "A Space loses its disk when it restarts or rebuilds. Launchpad saves your workspace to a private bucket every minute and restores it at startup.",
+  page(migrate ? "Keep your projects live in the bucket" : "Turn on encrypted backups",
+    migrate
+      ? "Launchpad now keeps ~/projects directly in the bucket's projects/ folder instead of uploading archives. After the restart, the latest backup is moved there once."
+      : "A Space loses its disk when it restarts or rebuilds. ~/projects lives directly in a private bucket, and Launchpad saves its own state there every minute.",
     "backups",
     h("div", { class: "card" },
       h("dl", { class: "facts", style: "margin-top:0" },
         h("dt", {}, "Bucket"), h("dd", {}, h("code", {}, state.bucket.id), state.needs_bucket ? " · created private" : " · already exists"),
-        h("dt", {}, "Readable"), h("dd", {}, "Files, Git history, settings and agent traces, so you can browse them on the Hub"),
+        h("dt", {}, "Projects"), h("dd", {}, h("code", {}, "~/projects"), " is mounted from the bucket's ", h("code", {}, "projects/"), " folder and saved as you work"),
+        h("dt", {}, "Readable"), h("dd", {}, "Projects, settings and agent traces, so you can browse them on the Hub. Only the latest copy is kept"),
         h("dt", {}, "Encrypted"), h("dd", {}, "Sign-ins, API keys and SSH keys, with a key kept in this Space's secrets")),
       h("div", { class: "actions" }, create),
-      h("p", { class: "muted small-text", style: "margin-top:12px" }, "The Space restarts once (about a minute). Existing buckets are never changed."),
+      h("p", { class: "muted small-text", style: "margin-top:12px" }, "The Space restarts once (about a minute). Existing files in the bucket are never deleted."),
       state.needs_key ? h("details", {}, h("summary", {}, "Save the encryption key yourself"),
         h("p", { class: "small-text muted", style: "margin-top:8px" }, "Use this if the token cannot save Space secrets."), generate, manual) : null));
 }
@@ -764,11 +768,12 @@ function backupSection() {
       reconnect) : null,
     b.error ? h("div", { class: "notice attn" }, h("strong", {}, "Backup delayed. "), b.error) : null,
     h("div", { class: "lines" },
-      h("div", {}, h("span", {}, "Workspace"), h("span", {}, b.checkpoint_at ? `Saved ${ago(b.checkpoint_at)}${b.bytes ? ` · ${bytes(b.bytes)}` : ""}` : "Not saved yet")),
+      h("div", {}, h("span", {}, "Projects"), h("span", {}, "Live in the bucket")),
+      h("div", {}, h("span", {}, "Agent state"), h("span", {}, b.checkpoint_at ? `Saved ${ago(b.checkpoint_at)}${b.bytes ? ` · ${bytes(b.bytes)}` : ""}` : "Not saved yet")),
       h("div", {}, h("span", {}, "Sign-ins"), h("span", {}, b.credentials_pending ? "Encrypting…" : b.credentials_at ? `Encrypted ${ago(b.credentials_at)}` : "Nothing to save yet")),
       h("div", {}, h("span", {}, "Agent traces"), h("span", {}, "Launchpad → Settings → Hugging Face"))),
     h("div", { class: "row" }, now, external(state.bucket.url, "Open bucket", "button small")),
-    h("p", { class: "muted small-text", style: "margin-top:10px" }, "Saved every minute to the private bucket. Running commands and terminal screens cannot be restored after a restart."));
+    h("p", { class: "muted small-text", style: "margin-top:10px" }, "~/projects is written to the bucket as you work. Launchpad state and agent history are saved every minute (latest copy only). Running commands and terminal screens cannot be restored after a restart."));
 }
 
 function updatesSection() {
