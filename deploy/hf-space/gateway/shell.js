@@ -9,11 +9,17 @@ const params = new URLSearchParams(location.search);
 // A profile that needs a sign-in: from the URL, or sent by the app ("Sign in from Space settings").
 let requestedProfile = params.get("profile");
 
-const TOKEN_URL = "https://huggingface.co/settings/tokens/new?tokenType=write";
+const HF_HINT = "Open the sign-in page, enter the code and approve access. This page continues when Hugging Face confirms.";
 const TOOLS = {
   huggingface: {
     name: "Hugging Face",
-    blurb: "Open models such as Qwen, Kimi, GLM and DeepSeek through Inference Providers, billed to your Hugging Face account.",
+    blurb: "Open models such as Qwen, Kimi, GLM and DeepSeek through Inference Providers, billed to your Hugging Face account. Launchpad also saves agent traces to your private bucket with this sign-in.",
+    hint: HF_HINT,
+  },
+  space: {
+    name: "Hugging Face",
+    blurb: "Lets this Space manage its own secrets, backup bucket and updates. Agents never see this sign-in.",
+    hint: HF_HINT,
   },
   claude: {
     name: "Claude Code",
@@ -252,7 +258,7 @@ function renderBar() {
 }
 
 function steps(current) {
-  const names = [["token", "Hugging Face token"], ["private", "Private Space"], ["backups", "Encrypted backups"], ["agent", "First agent"]];
+  const names = [["token", "Hugging Face sign-in"], ["private", "Private Space"], ["backups", "Encrypted backups"], ["agent", "First agent"]];
   const order = names.map(([key]) => key);
   const index = order.indexOf(current);
   return names.map(([key, label], i) =>
@@ -276,7 +282,7 @@ const logsUrl = () => `${state.space.url}?logs=container`;
 function renderSetup() {
   // Polling re-renders only when something visible changed, so typed text and focus survive.
   const login = state.login || {};
-  const key = JSON.stringify([restarting, slowRestart(), zoomPosition(), state.stage, state.message, state.needs_bucket, state.needs_key, connections, selected,
+  const key = JSON.stringify([restarting, slowRestart(), zoomPosition(), state.stage, state.message, state.needs_bucket, state.needs_key, state.signed_in_as, connections, selected,
     login.tool, login.profile, login.result, login.running, login.link, login.code, finished]);
   if (key === lastSetupRender) return;
   lastSetupRender = key;
@@ -310,34 +316,21 @@ function template() {
 }
 
 function token() {
-  const input = h("input", { type: "password", id: "token", placeholder: "hf_…", autocomplete: "off", spellcheck: "false", required: true });
-  const submit = h("button", { type: "submit", class: "primary" }, "Save and continue");
-  const form = h("form", {
-    onsubmit: async (event) => {
-      event.preventDefault();
-      const value = input.value.trim();
-      input.value = "";
-      await action("setup", { token: value }, submit);
-    },
-  },
-  h("label", { for: "token" }, "Paste the token"),
-  h("div", { class: "row" }, h("div", { class: "grow" }, input), submit));
+  const login = state.login || {};
+  const save = h("button", { type: "button", class: "primary" }, "Save and continue");
+  save.addEventListener("click", () => action("setup", {}, save));
   page("Connect this Space to Hugging Face",
-    "Launchpad needs a token with write access to create its private backup bucket and save an encryption key in this Space's secrets. Agents never see this token.",
+    "Sign in with your Hugging Face account so Launchpad can create its private backup bucket and save an encryption key in this Space's secrets. Agents never see this sign-in.",
     "token",
-    h("div", { class: "card" },
-      h("h2", {}, "Create a write token"),
-      h("p", {}, "Open the Hub, create a token of type Write, copy it and paste it below."),
-      h("div", { class: "actions", style: "margin-top:0" }, external(TOKEN_URL, "Create a token")),
-      form,
+    h("div", { class: login.tool === "space" && !state.signed_in_as ? "" : "card" },
+      /expired/.test(state.message || "") ? h("p", { class: "result fail" }, state.message) : null,
+      state.signed_in_as
+        ? h("div", {}, h("p", { class: "result ok" }, `✓ Signed in as ${state.signed_in_as}`), h("div", { class: "actions" }, save))
+        : connectFlow("space", true),
       h("p", { class: "muted small-text", style: "margin-top:12px" },
-        "Launchpad stores it as the ", h("code", {}, "LP_SPACE_MANAGEMENT_TOKEN"), " secret of this Space, creates the private bucket ",
-        h("code", {}, state.bucket.id), " and an encryption key, then restarts the Space once."),
-      h("details", {},
-        h("summary", {}, "Add the secret on the Hub instead"),
-        h("p", { class: "small-text muted", style: "margin-top:8px" },
-          "In Space settings → Variables and secrets, add a secret named ", h("code", {}, "LP_SPACE_MANAGEMENT_TOKEN"), " with the token. The Space restarts and continues here."),
-        external(`${state.space.settings}#secrets`, "Open Space settings", "button small"))));
+        "Launchpad stores the sign-in as the ", h("code", {}, "LP_SPACE_MANAGEMENT_TOKEN"), " secret of this Space and refreshes it automatically, creates the private bucket ",
+        h("code", {}, state.bucket.id), " and an encryption key, then restarts the Space once.")));
+  remountTerminal();
 }
 
 function blocked() {
@@ -381,7 +374,7 @@ function backups() {
       h("div", { class: "actions" }, create),
       h("p", { class: "muted small-text", style: "margin-top:12px" }, "The Space restarts once (about a minute). Existing buckets are never changed."),
       state.needs_key ? h("details", {}, h("summary", {}, "Save the encryption key yourself"),
-        h("p", { class: "small-text muted", style: "margin-top:8px" }, "Use this if the token cannot save Space secrets."), generate, manual) : null));
+        h("p", { class: "small-text muted", style: "margin-top:8px" }, "Use this if the sign-in cannot save Space secrets."), generate, manual) : null));
 }
 
 function starting() {
@@ -452,10 +445,9 @@ function error() {
 
 // ---------- sign-in flows ----------
 
-/** The sign-in UI for one tool: a token form for Hugging Face, a live terminal otherwise. */
+/** The sign-in UI for one tool: a button, then a live terminal with the sign-in page and the code. */
 function connectFlow(tool, primary = false) {
   const info = TOOLS[tool];
-  if (tool === "huggingface") return hfForm(primary);
   const login = state.login || {};
   const mine = login.tool === tool;
   const profile = connections?.profiles.find((p) => p.id === (mine ? login.profile : requestedProfile));
@@ -489,35 +481,12 @@ function connectFlow(tool, primary = false) {
 
 async function startLogin(tool, profile, button) {
   closeTerminal();
-  const value = await action("login", { tool, profile }, button);
+  const value = tool === "space" ? await action("space-login", {}, button) : await action("login", { tool, profile }, button);
   if (value) {
     lastSetupRender = lastPanelRender = "";
     render();
     $("flow")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
-}
-
-function hfForm(primary) {
-  const input = h("input", { type: "password", id: "hf-token", placeholder: "hf_…", autocomplete: "off", spellcheck: "false", required: true });
-  const profile = h("input", { type: "checkbox", id: "hf-profile", checked: true });
-  const submit = h("button", { type: "submit", class: primary ? "primary" : "" }, "Connect");
-  const hf = connections?.connections.find((c) => c.id === "huggingface");
-  return h("form", {
-    onsubmit: async (event) => {
-      event.preventDefault();
-      const token = input.value.trim();
-      input.value = "";
-      const ok = await action("hf-token", { token, create_profile: profile.checked }, submit);
-      if (ok) { await loadConnections(); toast("Hugging Face connected"); }
-    },
-  },
-  h("h2", {}, "Connect Hugging Face"),
-  hf?.connected ? h("p", { class: "result ok" }, `✓ Connected as ${hf.detail || "your account"}`) : null,
-  h("p", { class: "muted" }, "Paste a token with write access. Agents use it for Inference Providers, and Launchpad uses it to save agent traces to your private bucket. Use a different token than the Space token."),
-  h("div", { class: "actions", style: "margin-top:0" }, external(TOKEN_URL, "Create a token", "button small")),
-  h("label", { for: "hf-token" }, "Agent token"),
-  h("div", { class: "row" }, h("div", { class: "grow" }, input), submit),
-  h("label", { class: "check" }, profile, h("span", {}, "Add an agent profile for open models (Claude Code through Inference Providers; usage is billed to your Hugging Face account)")));
 }
 
 function apiKeyForm() {
@@ -626,10 +595,7 @@ function accountsSection() {
   const rows = (connections?.connections || []).map((c) => {
     const info = TOOLS[c.id];
     const button = h("button", { type: "button", class: "small" }, c.connected ? "Reconnect" : "Connect");
-    button.addEventListener("click", () => {
-      if (c.id === "huggingface") { selected = selected === "huggingface" ? null : "huggingface"; lastPanelRender = ""; renderPanel(); }
-      else startLogin(c.id, null, button);
-    });
+    button.addEventListener("click", () => startLogin(c.id, null, button));
     // Drop file locations such as "(/home/agent/.config/gh/hosts.yml)": they only make the line longer.
     const account = c.detail?.replace(/\s*\((?:\/|~\/)[^)]*\)/g, "").trim();
     const detail = c.connected ? (account ? `Connected · ${account}` : "Connected") : c.profile ? "Profile saved · not signed in" : "Not connected";
@@ -647,7 +613,6 @@ function accountsSection() {
       : null,
     connections ? h("div", { class: "list" }, rows) : h("div", { class: "waiting muted" }, h("span", { class: "spinner" }), "Checking sign-ins…"),
     login.tool ? connectFlow(login.tool) : null,
-    selected === "huggingface" && !login.tool ? h("div", { class: "flow" }, hfForm(false)) : null,
     h("details", {}, h("summary", {}, "Add a provider API key"), apiKeyForm()),
     h("details", {}, h("summary", {}, "SSH key"), sshBlock()));
 }

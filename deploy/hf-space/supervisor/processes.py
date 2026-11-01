@@ -62,6 +62,14 @@ async def spawn(*args, stdin=None, stdout=None, extra=None):
         stdout=stdout or asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.STDOUT)
 
 
+async def spawn_control(*args, home, stdin, stdout, extra=None):
+    """A root process with its own private home: only the Space's own Hub sign-in, never agent work."""
+    child_env = {'HOME': str(home), 'HF_HOME': str(home), 'PATH': '/usr/local/bin:/usr/bin:/bin',
+                 'LANG': 'C.UTF-8', 'TERM': 'xterm-256color', **(extra or {})}
+    return await asyncio.create_subprocess_exec(*args, cwd=home, env=child_env, start_new_session=True,
+        stdin=stdin, stdout=stdout, stderr=asyncio.subprocess.STDOUT)
+
+
 async def stop(process):
     if not process or process.returncode is not None: return
     try:

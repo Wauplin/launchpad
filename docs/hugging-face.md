@@ -50,7 +50,7 @@ flowchart LR
 
 1. Create a private Docker Space from the template: duplicate the published template Space, or use `hf-space-template.zip` from the [`hf-space-channel`](https://github.com/Wauplin/launchpad/tree/hf-space-channel) branch. Keep it **Private**: everyone who can open the Space controls your agents.
 2. Choose paid CPU hardware and disable sleep if agents must run while the tab is closed. Free CPU Spaces sleep and lose running processes.
-3. Open the Space and paste a Hugging Face **write** token. Launchpad saves it as a Space secret, creates a private backup bucket and an encryption key, then restarts once (about a minute).
+3. Open the Space and sign in to Hugging Face: the page runs `hf auth login` and shows a link and a code. Launchpad saves the sign-in as a Space secret and refreshes it automatically, creates a private backup bucket and an encryption key, then restarts once (about a minute).
 4. **Connect your first agent**: your Hugging Face account (open models), Claude Code, Codex or OpenCode (their sign-in runs in a terminal on the page), or an API key. GitHub is offered next.
 
 A bar above the app shows the Space name and the backup state. **Space settings** opens accounts, backups, updates and Space actions.

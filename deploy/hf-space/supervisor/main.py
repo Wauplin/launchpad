@@ -4,7 +4,7 @@ The browser shell (gateway/shell.*) reads `GET /_space/status` and drives everyt
 `POST /_space/action/<name>`. `stage` tells it which screen to show:
 
   template   the public duplicate template: offer Duplicate, run nothing
-  token      no management token yet: paste one (saved as a Space Secret) or add it in Hub
+  token      no Space sign-in yet, or it expired: sign in with `hf auth login` (saved as a Space Secret)
   blocked    the Space or bucket failed the startup policy; only Hub can fix it
   backups    bucket and/or encryption key missing: one click creates both and restarts
   starting   checks passed, data is being restored and Launchpad is starting
@@ -30,12 +30,13 @@ from urllib.parse import quote
 import aiohttp
 from aiohttp import web
 from huggingface_hub import HfApi
+from huggingface_hub.errors import DeviceCodeError
 
-from backup.machine import atomic
 from backup.store import Bucket, safe_name
 from backup.worker import Recovery
 from gateway.proxy import Proxy
-from providers.setup import HARNESSES, Logins, profile_login, public_details, ssh_key
+from providers.setup import HARNESSES, SPACE_LOGIN, Logins, profile_login, public_details, ssh_key
+from supervisor.management import SECRET, Management
 from supervisor.policy import Deployment, MissingBucket, Unverified, verify
 from supervisor.processes import CONTROL, HOME, prepare, spawn
 from supervisor.runtime import Runtime, watch_daemon
@@ -61,9 +62,9 @@ def human(error):
     response = getattr(error, 'response', None)
     code = getattr(response, 'status_code', None) or getattr(error, 'status', None)
     if code in (401, 403):
-        return 'Hugging Face refused the request. Check that the token has write access to this Space and your buckets.'
+        return 'Hugging Face refused the request. Check that your account can manage this Space and your buckets.'
     if code == 404:
-        return 'Hugging Face could not find this Space or bucket with the token.'
+        return 'Hugging Face could not find this Space or bucket with this sign-in.'
     if code == 429:
         return 'Hugging Face is rate limiting requests. Wait a minute and try again.'
     return 'Hugging Face could not complete the request. Try again in a moment.'
@@ -72,13 +73,14 @@ def human(error):
 async def serve():
     deployment = Deployment(os.environ['SPACE_ID'], os.environ.get('LP_SPACE_BUCKET', os.environ['SPACE_ID']),
                             'https://' + os.environ['SPACE_HOST'])
-    token = os.environ.get('LP_SPACE_MANAGEMENT_TOKEN', '')
+    management = Management(deployment.space, os.environ.get(SECRET, ''))
+    pending = None  # A finished Space sign-in waiting for Save and continue.
     state = {
         'boot': uuid.uuid4().hex, 'stage': 'starting', 'ready': False, 'message': 'Checking your Space.',
         'space': {'id': deployment.space, 'url': f'https://huggingface.co/spaces/{deployment.space}',
                   'settings': f'https://huggingface.co/spaces/{deployment.space}/settings'},
         'bucket': {'id': deployment.bucket, 'url': f'https://huggingface.co/buckets/{deployment.bucket}'},
-        'policy': None, 'needs_key': False, 'needs_bucket': False, 'release': {}, 'update': None,
+        'policy': None, 'needs_key': False, 'needs_bucket': False, 'release': {}, 'update': None, 'signed_in_as': None,
     }
     runtime = Runtime(deployment)
     proxy = Proxy(deployment.origin, '')
@@ -111,6 +113,20 @@ async def serve():
 
     async def signed_in(tool, profile, result):
         """After a successful sign-in, create the matching profile when none exists, then seal credentials."""
+        nonlocal pending
+        if tool == 'space':
+            # Keep the new sign-in in memory only until Save and continue writes it to the Space secret.
+            try:
+                if result == 'completed':
+                    pending = Management.from_login(deployment.space, SPACE_LOGIN)
+                    user = await asyncio.to_thread(HfApi(token=pending.token).whoami)
+                    state['signed_in_as'] = user.get('name')
+            except Exception:
+                traceback.print_exc()
+                pending = None
+            finally:
+                shutil.rmtree(SPACE_LOGIN, ignore_errors=True)
+            return
         if result != 'completed' or not state['ready']:
             return
         try:
@@ -118,6 +134,11 @@ async def serve():
                 profiles = (await runtime.api('GET', '/api/config'))['config']['profiles']
                 if not any(p['harness'] == tool for p in profiles):
                     await runtime.api('POST', '/api/setup/profile-from-login', {'harness': tool})
+            if tool == 'huggingface':
+                from backup.machine import home_open
+                from providers.keys import hf_profile
+                with home_open(HOME / '.cache/huggingface/token') as file:
+                    await hf_profile(runtime, file.read().decode().strip())
             await refresh_profiles()
         except Exception:
             pass  # The connection list still shows the login; the owner can retry from there.
@@ -141,10 +162,15 @@ async def serve():
                 state['duplicate_url'] = f'https://huggingface.co/spaces/{deployment.space}?duplicate=true'
                 stage('template', 'Duplicate this Space to get your own private Launchpad.')
                 return
-            if not token:
-                stage('token', 'Add a Hugging Face token so this Space can manage its own backups and secrets.')
+            if not management.token:
+                stage('token', 'Sign in with Hugging Face so this Space can manage its own backups and secrets.')
                 return
-            state['policy'] = await verify(deployment, token)
+            try:
+                await management.renew()
+            except DeviceCodeError:
+                stage('token', 'The Hugging Face sign-in of this Space expired. Sign in again to continue.')
+                return
+            state['policy'] = await verify(deployment, management.token)
             prepare()
             release = json.loads((ROOT / 'release.json').read_text())
             state['release'] = release
@@ -154,7 +180,8 @@ async def serve():
                 stage('backups', 'Create the encrypted backup for your workspace.')
                 return
             stage('starting', 'Restoring your workspace from the backup bucket.')
-            control_env = {'HOME': str(CONTROL), 'PATH': '/usr/local/bin:/usr/bin:/bin', 'HF_TOKEN': token, 'LANG': 'C.UTF-8'}
+            control_env = {'HOME': str(CONTROL), 'PATH': '/usr/local/bin:/usr/bin:/bin', 'HF_TOKEN': management.token, 'LANG': 'C.UTF-8'}
+            management.listeners.append(lambda value: control_env.update(HF_TOKEN=value))
             bucket = Bucket(deployment.bucket, control_env)
             vault = Vault(key, str(uuid.uuid4()))
             from vault.rotate import recover_rotation
@@ -177,7 +204,9 @@ async def serve():
                 await asyncio.to_thread(bucket.put, f'backups/restores/{restore_request}.json',
                                         json.dumps({'generation': generation, 'restored_at': time.time()}).encode())
             from supervisor.updates import Updates
-            updater = Updates(deployment, token, runtime, recovery, release)
+            updater = Updates(deployment, management.token, runtime, recovery, release)
+            management.listeners.append(lambda value: setattr(updater.api, 'token', value))
+            asyncio.create_task(management.watch())
             await updater.load_rollback()
             state['message'] = 'Starting Launchpad.'
             await runtime.start()
@@ -214,7 +243,7 @@ async def serve():
         except Exception:
             # The Space logs are the owner's only diagnostics; tracebacks carry no secret values.
             traceback.print_exc()
-            stage('error', 'Startup could not complete. Check the Space token and bucket access, then restart. Existing backups are preserved.')
+            stage('error', 'Startup could not complete. Check the Space sign-in and bucket access, then restart. Existing backups are preserved.')
             await runtime.close()
 
     @web.middleware
@@ -286,40 +315,33 @@ async def serve():
         await socket.close()
         return socket
 
-    async def bootstrap(body):
-        """One click: save the management token, create the bucket and the key, then restart once."""
-        management = token
-        pasted = body.get('token')
-        if pasted is not None:
-            if management:
-                raise ValueError('A management token is already configured')
-            if not isinstance(pasted, str) or not pasted.startswith('hf_') or len(pasted) > 4096:
-                raise ValueError('Paste a Hugging Face access token (it starts with hf_)')
-            management = pasted.strip()
+    async def bootstrap():
+        """One click: save the Space sign-in, create the bucket and the key, then restart once."""
+        signed = pending if state['stage'] == 'token' else management
+        if not signed or not signed.token:
+            raise ValueError('Sign in with Hugging Face first')
+        if signed is pending:
             try:
-                await verify(deployment, management, bucket=False)
+                await verify(deployment, signed.token, bucket=False)
             except Unverified:
                 raise
             except Exception as error:
                 raise ValueError(human(error)) from None
-        elif not management:
-            raise ValueError('Paste a Hugging Face access token first')
-        api = HfApi(token=management)
+        api = HfApi(token=signed.token)
         try:
-            if pasted is not None or state['needs_bucket']:
+            if signed is pending or state['needs_bucket']:
                 try:
                     await asyncio.to_thread(api.create_bucket, deployment.bucket, private=True)
                 except Exception as error:
                     if getattr(getattr(error, 'response', None), 'status_code', None) != 409:
                         raise
-                await verify(deployment, management)
+                await verify(deployment, signed.token)
             if not os.environ.get('LP_SPACE_BACKUP_KEY'):
                 key = base64.b64encode(os.urandom(32)).decode()
                 await asyncio.to_thread(api.add_space_secret, deployment.space, 'LP_SPACE_BACKUP_KEY', key,
                                         description='Launchpad credential encryption key. Never share or reuse it.')
-            if pasted is not None:
-                await asyncio.to_thread(api.add_space_secret, deployment.space, 'LP_SPACE_MANAGEMENT_TOKEN', management,
-                                        description='Lets Launchpad manage this Space and its backup bucket.')
+            if signed is pending:
+                await signed.save()
             await asyncio.to_thread(api.restart_space, deployment.space)
         except (ValueError, web.HTTPException):
             raise
@@ -337,12 +359,21 @@ async def serve():
             if kind == 'setup':
                 if state['stage'] not in ('token', 'backups'):
                     raise ValueError('Setup is already complete')
-                return web.json_response(await bootstrap(body))
-            if kind == 'restart-space' and state['stage'] in ('blocked', 'error', 'stopped', 'restarting') and token:
+                return web.json_response(await bootstrap())
+            if kind == 'space-login':
+                if state['stage'] != 'token':
+                    raise ValueError('This Space is already signed in')
+                state['signed_in_as'] = None
+                await logins.start('space')
+                return web.json_response({'ok': True})
+            if kind == 'login-cancel' and state['stage'] == 'token':
+                await logins.close()
+                return web.json_response({'ok': True})
+            if kind == 'restart-space' and state['stage'] in ('blocked', 'error', 'stopped', 'restarting') and management.token:
                 if body.get('confirmed') is not True:
                     raise ValueError('Confirm the restart first')
                 try:
-                    await asyncio.to_thread(HfApi(token=token).restart_space, deployment.space)
+                    await asyncio.to_thread(HfApi(token=management.token).restart_space, deployment.space)
                 except Exception as error:
                     raise ValueError(human(error)) from None
                 stage('restarting', 'Your Space is restarting.')
@@ -371,25 +402,12 @@ async def serve():
             if runtime.maintenance:
                 raise ValueError('Maintenance is in progress. Wait for the Space to reconnect.')
             if kind == 'login':
+                if body.get('tool') == 'space':
+                    raise ValueError('Choose a supported tool')
                 extra = await profile_login(runtime, body.get('tool'), body.get('profile'))
                 await logins.start(body.get('tool'), extra=extra, profile=body.get('profile'))
             elif kind == 'login-cancel':
                 await logins.close()
-            elif kind == 'hf-token':
-                value = body.get('token')
-                if not isinstance(value, str) or not value.strip().startswith('hf_') or len(value) > 4096:
-                    raise ValueError('Paste a Hugging Face access token (it starts with hf_)')
-                value = value.strip()
-                try:
-                    await asyncio.to_thread(HfApi(token=value).whoami)
-                except Exception:
-                    raise ValueError('Hugging Face did not accept this token') from None
-                atomic(HOME / '.cache/huggingface/token', value.encode())
-                if body.get('create_profile') is True:
-                    from providers.keys import hf_profile
-                    await hf_profile(runtime, value)
-                await refresh_profiles()
-                await recovery.credentials()
             elif kind == 'api-key':
                 if body.get('paid') is not True:
                     raise ValueError('Confirm that API usage is billed separately')
@@ -437,14 +455,14 @@ async def serve():
                     checkpoint = await recovery.checkpoint(clean=True)
                     if kind == 'rotate-key':
                         from vault.rotate import rotate
-                        await rotate(recovery, HfApi(token=token), deployment.space)
-                        await asyncio.to_thread(HfApi(token=token).restart_space, deployment.space)
+                        await rotate(recovery, HfApi(token=management.token), deployment.space)
+                        await asyncio.to_thread(HfApi(token=management.token).restart_space, deployment.space)
                     elif kind == 'prepare-update':
                         await updater.apply(checkpoint, body.get('image'))
                     elif kind == 'rollback':
                         await updater.rollback(True)
                     else:
-                        await asyncio.to_thread(HfApi(token=token).restart_space, deployment.space)
+                        await asyncio.to_thread(HfApi(token=management.token).restart_space, deployment.space)
                 except Exception as error:
                     from supervisor.updates import UncertainMaintenance
                     if runtime.process is None and (kind == 'rotate-key' or isinstance(error, UncertainMaintenance)):
