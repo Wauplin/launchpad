@@ -7,7 +7,7 @@ Status: built and checked locally against a real private Space and bucket. The m
 ## What the owner does
 
 1. Duplicate the template Space. Keep it **Private**. Pick CPU upgrade hardware to keep agents running with the tab closed (the free CPU sleeps after 48 hours without visits).
-2. Open the Space. Paste one Hugging Face **write** token and click **Save and continue**. Launchpad saves it as the `LP_SPACE_MANAGEMENT_TOKEN` secret, creates the private bucket (same name as the Space, or `LP_SPACE_BUCKET`), creates the `LP_SPACE_BACKUP_KEY` encryption secret, adds the bucket volume for `/home/agent/projects` (keeping other volumes) and restarts the Space once.
+2. Open the Space. Paste one Hugging Face **write** token and click **Save and continue**. Launchpad saves it as the `LP_SPACE_MANAGEMENT_TOKEN` secret, creates the private bucket (`<namespace>/launchpad`, or `LP_SPACE_BUCKET`), creates the `LP_SPACE_BACKUP_KEY` encryption secret, adds the bucket volume for `/home/agent/projects` (keeping other volumes) and restarts the Space once.
 3. **Connect your first agent**: Hugging Face (paste an agent token; open models billed to the HF account), Claude Code, Codex or OpenCode (their own sign-in, in a terminal on the page) or a provider API key. Launchpad creates the matching profile automatically. GitHub is offered next, optionally, then a repository picker that clones into `~/projects` and registers each clone as a folder (recent GitHub notifications first, then recently pushed repositories).
 4. Use Launchpad. A 36 px bar above the app shows the Space name and backup state; **Space settings** opens accounts, folders (the same repository picker), backups, updates and Space actions.
 
@@ -50,13 +50,15 @@ The control plane runs as root; the daemon, agents, Git and shells run as the `a
 
 Only the latest state is kept. Nothing in the bucket is versioned, and the connector never deletes bucket files.
 
-- `projects/`: a Space bucket volume mounted at `/home/agent/projects` (`set_space_volumes`, subfolder `projects`). Files persist as they are written; there is no snapshot or upload job. Everything there is stored, including dependency and build folders, `.env` files and `.git`, in readable form. Behavior (symlinks, executable bits, locking, speed) is the volume's. Startup refuses to run when the volume is configured but not mounted, or not writable by the `agent` user.
+The bucket defaults to `<namespace>/launchpad`, the same default as Launchpad's trace sync on other machines: `traces/` is shared with them, and everything the Space alone uses is under `space/`.
+
+- `space/projects/`: a Space bucket volume mounted at `/home/agent/projects` (`set_space_volumes`, subfolder `space/projects`). Files persist as they are written; there is no snapshot or upload job. Everything there is stored, including dependency and build folders, `.env` files and `.git`, in readable form. Behavior (symlinks, executable bits, locking, speed) is the volume's. Startup refuses to run when the volume is configured but not mounted, or not writable by the `agent` user.
 - `space/manifest.json` names the latest objects: credential-free SQLite snapshots (`state/`), the config projection (`config/`), `state/runtime.json`, `credentials/checkpoint.aead` (the credential references of exactly that state) and `home/agents.tar.gz`. A changed object is written to the slot (`space/a/` or `space/b/`) its previous version does not use, then the manifest is replaced, so the manifest never points at a partial object and at most two copies exist. An idle machine uploads nothing.
 - `home/agents.tar.gz` holds what agents need to resume outside `~/projects`: `~/.local/share/launchpad` (without databases and tokens), `~/.claude`, `~/.codex`, OpenCode data and config, `~/.agents` and profile folders. Caches, logs, tool temp folders, Codex log databases and rebuildable folders are skipped; credential files go to the vault. It is built in memory every five minutes when it changed (deterministic, so unchanged content is not re-uploaded).
 - `space/credentials.aead`: credential files, watched and reconciled every 30 seconds, overwritten in place. Vault objects are AES-256-GCM with HKDF keys bound to installation, seal ID and key identity; the seal ID travels in the object.
 - `space/pre-update/`: one restore point written before an image update and replaced by the next one. `space/update.json` records it for rollback.
 - `space/next/`: credential copies under a new key during a planned key change; startup uses them when the current copy is under another key.
-- `traces/`: Launchpad's own trace exporter, enabled once the Hugging Face agent token is connected.
+- `traces/`: Launchpad's own trace exporter (bucket and prefix are locked to these on the Space), enabled once the Hugging Face agent token is connected. Laptops and servers with default trace sync settings write and import here too.
 
 Other folders in `/home/agent` (caches, folders registered outside `~/projects`, shell history) are lost on restart.
 
@@ -82,6 +84,6 @@ Running Spaces check automatically at startup and roughly every six hours (with 
 
 Existing source-built Spaces and images using the old release-only URL need a one-time migration: after the first successful channel build, download the template zip and replace the Space Dockerfile with its managed digest-pinned Dockerfile in Hub, then rebuild. Save a current backup and stop agents/terminals first. Source-built Dockerfiles cannot use image rollback and are deliberately refused by the updater. Subsequent updates use the owner-approved flow below.
 
-Updates need a click in Space settings, idle agents and terminals, and a verified clean checkpoint, copied to `space/pre-update/`; then the managed Dockerfile is replaced at the expected parent revision. If the new build does not come back within five minutes, the restarting page offers **Roll back the update**, which restores the previous image and its pre-update Launchpad state (`projects/` is live and is not rolled back). Edited Dockerfiles are never overwritten.
+Updates need a click in Space settings, idle agents and terminals, and a verified clean checkpoint, copied to `space/pre-update/`; then the managed Dockerfile is replaced at the expected parent revision. If the new build does not come back within five minutes, the restarting page offers **Roll back the update**, which restores the previous image and its pre-update Launchpad state (`space/projects/` is live and is not rolled back). Edited Dockerfiles are never overwritten.
 
 See the [template README](template/README.md#recover-without-the-app) for recovery from the Hub when the app cannot start.

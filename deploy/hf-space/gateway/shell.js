@@ -383,13 +383,13 @@ function backups() {
   create.addEventListener("click", () => action("setup", {}, create));
   page(migrate ? "Keep your projects live in the bucket" : "Turn on encrypted backups",
     migrate
-      ? "Launchpad now keeps ~/projects directly in the bucket's projects/ folder instead of uploading archives. After the restart, the latest backup is moved there once."
+      ? "Launchpad now keeps ~/projects directly in the bucket (space/projects/) instead of uploading archives. After the restart, the latest backup is moved there once."
       : "A Space loses its disk when it restarts or rebuilds. ~/projects lives directly in a private bucket, and Launchpad saves its own state there every minute.",
     "backups",
     h("div", { class: "card" },
       h("dl", { class: "facts", style: "margin-top:0" },
         h("dt", {}, "Bucket"), h("dd", {}, h("code", {}, state.bucket.id), state.needs_bucket ? " · created private" : " · already exists"),
-        h("dt", {}, "Projects"), h("dd", {}, h("code", {}, "~/projects"), " is mounted from the bucket's ", h("code", {}, "projects/"), " folder and saved as you work"),
+        h("dt", {}, "Projects"), h("dd", {}, h("code", {}, "~/projects"), " is mounted from the bucket's ", h("code", {}, "space/projects/"), " folder and saved as you work"),
         h("dt", {}, "Readable"), h("dd", {}, "Projects, settings and agent traces, so you can browse them on the Hub. Only the latest copy is kept"),
         h("dt", {}, "Encrypted"), h("dd", {}, "Sign-ins, API keys and SSH keys, with a key kept in this Space's secrets")),
       h("div", { class: "actions" }, create),

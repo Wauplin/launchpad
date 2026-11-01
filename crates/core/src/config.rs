@@ -148,7 +148,8 @@ pub struct TraceBackup {
 
 impl Default for TraceBackup {
     fn default() -> Self {
-        Self { enabled: false, bucket: "launchpad-traces".into(), prefix: String::new() }
+        // The same `<account>/launchpad` bucket as a Launchpad Space, so laptops, servers and Spaces share traces.
+        Self { enabled: false, bucket: "launchpad".into(), prefix: "traces".into() }
     }
 }
 
@@ -256,7 +257,8 @@ poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
 [trace_backup]
 enabled = false                    # optional Hugging Face trace sync
-bucket = "launchpad-traces"
+bucket = "launchpad"                # <your account>/launchpad, shared with a Launchpad Space
+prefix = "traces"
 
 [agents]
 notify = true                       # completion, automatic stops and automatic quota resumption

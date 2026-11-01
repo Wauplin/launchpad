@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn destinations_group_by_folder_and_sort_by_session_start_time() {
         let start = 1_793_363_696_789; // 2026-10-30T12:34:56.789Z
-        assert_eq!(destination("launchpad-traces", "", "alice", "Launchpad", start, "session").unwrap(), "hf://buckets/alice/launchpad-traces/Launchpad/20261030_1234_session");
+        assert_eq!(destination("launchpad", "traces", "alice", "Launchpad", start, "session").unwrap(), "hf://buckets/alice/launchpad/traces/Launchpad/20261030_1234_session");
         assert_eq!(destination("team/traces", "", "alice", "Notes", 0, "id").unwrap(), "hf://buckets/team/traces/Notes/19700101_0000_id");
         let earlier = destination("traces", "", "alice", "Folder/Name", start, "z").unwrap();
         let later = destination("traces", "", "alice", "Folder/Name", start + 60_000, "a").unwrap();
@@ -278,7 +278,7 @@ mod tests {
     fn defaults_and_invalid_paths() {
         let mut c = crate::config::TraceBackup::default();
         assert!(!c.enabled);
-        assert_eq!(c.bucket, "launchpad-traces");
+        assert_eq!((c.bucket.as_str(), c.prefix.as_str()), ("launchpad", "traces"));
         c.validate().unwrap();
         for bad in ["", "../x", "--option", "a/b/c", "a b"] { c.bucket = bad.into(); assert!(c.validate().is_err()); }
         c.bucket = "team/traces".into();

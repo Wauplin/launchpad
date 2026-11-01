@@ -18,7 +18,7 @@ A personal coding-agent machine you can open from any browser. All visitors admi
 2. Open the app and paste a Hugging Face **write** token. Launchpad saves it as a Space secret, creates a private backup bucket, an encryption key and a volume that keeps `/home/agent/projects` in the bucket, then restarts the Space once (about a minute).
 3. Connect your first agent: your Hugging Face account (open models through Inference Providers), Claude Code, Codex, OpenCode or an API key. Then optionally GitHub.
 
-To use an existing bucket, set the Variable `LP_SPACE_BUCKET=namespace/name` first. Launchpad uses `projects/` (the live projects volume), `space/` (the latest state, credentials encrypted) and `traces/` in that bucket; you can browse files and native agent traces on the Hub.
+The bucket is `<your namespace>/launchpad`, the same default as Launchpad's trace sync on your other machines; to use another one, set the Variable `LP_SPACE_BUCKET=namespace/name` first. The Space keeps everything of its own under `space/` (the live projects volume in `space/projects/`, the latest state, credentials encrypted) and shares `traces/` with your other machines; you can browse files and native agent traces on the Hub.
 
 ## Keep it running
 
@@ -39,7 +39,7 @@ ENV LP_SPACE_RESTORE_CHECKPOINT=<checkpoint from update.json>
 ENV LP_SPACE_RESTORE_REQUEST=<a fresh UUID without hyphens>
 ```
 
-Commit in Hub to rebuild. This restores the pre-update Launchpad state from `space/pre-update/` and loses state written after it; `projects/` is live and is not rolled back. (An older `backups/update.json` with a `generation` uses `LP_SPACE_RESTORE_GENERATION` instead.) Restore requests are acknowledged once; ordinary later restarts use the latest verified checkpoint. Never run an older image against a newer migrated database by guesswork.
+Commit in Hub to rebuild. This restores the pre-update Launchpad state from `space/pre-update/` and loses state written after it; `space/projects/` is live and is not rolled back. (An older `backups/update.json` with a `generation` uses `LP_SPACE_RESTORE_GENERATION` instead.) Restore requests are acknowledged once; ordinary later restarts use the latest verified checkpoint. Never run an older image against a newer migrated database by guesswork.
 
 If the encryption key is lost, retain the private bucket and set a new base64-encoded 32-byte random `LP_SPACE_BACKUP_KEY` Secret in Hub. Startup recovers ordinary data and offers **Start reconnecting tools**. Reauthorize credentials; the old ciphertext is replaced by the next backup. Ordinary backups and traces remain readable without the old key. Do not reset the whole bucket. Incidental secrets in code, prompts and traces remain protected by bucket access, not by the credential vault.
 

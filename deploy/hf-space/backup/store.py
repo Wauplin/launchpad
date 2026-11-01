@@ -1,8 +1,8 @@
 """Read-back verified bucket objects. Only the latest state is kept: `space/manifest.json` and the objects it names.
 
 Changed objects alternate between two slots (`space/a/`, `space/b/`), so the committed manifest always points at
-complete objects while the next ones upload; nothing accumulates. `projects/` is the live Space volume and is never
-written here. `backups/` and `credentials/` are the read-only format 1 layout, used once to migrate.
+complete objects while the next ones upload; nothing accumulates. `space/projects/` is the live Space volume and is
+never written here. `traces/` belongs to Launchpad's trace exporter, shared with the owner's other machines. `backups/` and `credentials/` are the read-only format 1 layout, used once to migrate.
 """
 import hashlib
 import json
@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 
 ROOT = "space"
+VOLUME = f"{ROOT}/projects"
 MANIFEST = f"{ROOT}/manifest.json"
 CREDENTIALS = f"{ROOT}/credentials.aead"
 PRE_UPDATE = f"{ROOT}/pre-update"

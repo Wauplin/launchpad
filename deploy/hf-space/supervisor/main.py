@@ -34,7 +34,7 @@ from aiohttp import web
 from huggingface_hub import HfApi
 
 from backup.machine import atomic
-from backup.store import MANIFEST, Bucket, safe_name
+from backup.store import MANIFEST, VOLUME, Bucket, safe_name
 from backup.worker import Recovery
 from gateway.proxy import Proxy
 from providers.setup import HARNESSES, Logins, profile_login, public_details, ssh_key
@@ -59,15 +59,15 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
 
 
 def projects_volume(api, deployment):
-    """The Space volume that keeps ~/projects live in the bucket's `projects/` folder, beside the owner's others."""
+    """The Space volume that keeps ~/projects live in the bucket's `space/projects/` folder, beside the owner's others."""
     from huggingface_hub import Volume
     volumes = [v for v in (api.get_space_runtime(deployment.space).volumes or []) if v.mount_path != str(PROJECTS)]
-    return volumes + [Volume(type='bucket', source=deployment.bucket, mount_path=str(PROJECTS), path='projects')]
+    return volumes + [Volume(type='bucket', source=deployment.bucket, mount_path=str(PROJECTS), path=VOLUME)]
 
 
 def volume_configured(api, deployment):
     return any(v.type == 'bucket' and v.mount_path == str(PROJECTS) and v.source.lower() == deployment.bucket.lower()
-               and (v.path or '').strip('/') == 'projects' for v in api.get_space_runtime(deployment.space).volumes or [])
+               and (v.path or '').strip('/') == VOLUME for v in api.get_space_runtime(deployment.space).volumes or [])
 
 
 def projects_writable():
@@ -91,7 +91,8 @@ def human(error):
 
 
 async def serve():
-    deployment = Deployment(os.environ['SPACE_ID'], os.environ.get('LP_SPACE_BUCKET', os.environ['SPACE_ID']),
+    # `<namespace>/launchpad` is also the default trace bucket of Launchpad elsewhere: one bucket, `traces/` shared.
+    deployment = Deployment(os.environ['SPACE_ID'], os.environ.get('LP_SPACE_BUCKET', os.environ['SPACE_ID'].split('/')[0] + '/launchpad'),
                             'https://' + os.environ['SPACE_HOST'])
     token = os.environ.get('LP_SPACE_MANAGEMENT_TOKEN', '')
     state = {

@@ -143,7 +143,7 @@ export function agentsWorld() {
     id: "demo-s-synced", title: "Review the billing retry trace from my laptop", project: P.billing,
     harness: "codex", status: "waiting", minutesAgo: 180,
     spec: { profile: null, harness: null, workspace_id: null },
-    patch: { imported_from: "hf://buckets/demo/launchpad-traces/billing-api/20261030_1200_demo", live: false, harness_session_id: null },
+    patch: { imported_from: "hf://buckets/demo/launchpad/traces/billing-api/20261030_1200_demo", live: false, harness_session_id: null },
     events: [user("Review billing retry behavior"), { kind: "assistant_message", item_id: "synced-result", text: "The retry handler preserves the request ID. A local follow-up can add coverage for delayed responses." }],
   });
 
