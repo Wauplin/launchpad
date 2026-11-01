@@ -233,6 +233,8 @@ function render() {
   const showApp = state.stage === "ready" && !restarting && (!onboarding || finished);
   document.body.dataset.stage = restarting ? "restarting" : state.stage;
   $("bar").hidden = !showApp;
+  $("bar-tab").hidden = !showApp || !barCollapsed;
+  document.body.classList.toggle("bar-collapsed", showApp && barCollapsed);
   $("app").hidden = !showApp;
   $("setup").hidden = showApp;
   if (showApp) {
@@ -249,6 +251,15 @@ function render() {
   if ($("panel").open) renderPanel();
 }
 
+let barCollapsed = localStorage.getItem("lp-space-bar") === "collapsed";
+function setBarCollapsed(value) {
+  barCollapsed = value;
+  localStorage.setItem("lp-space-bar", value ? "collapsed" : "open");
+  render();
+}
+$("bar-fold").addEventListener("click", () => setBarCollapsed(true));
+$("bar-tab").addEventListener("click", () => setBarCollapsed(false));
+
 function renderBar() {
   $("available-update").hidden = !state.update?.candidate;
   const chip = $("bar-status");
@@ -259,6 +270,7 @@ function renderBar() {
   else if (backup.error) { chip.classList.add("attn"); chip.textContent = "Backup delayed"; }
   else chip.textContent = backup.checkpoint_at ? `Backed up ${ago(backup.checkpoint_at)}` : "Backup pending";
   $("bar-space").textContent = state.space.id;
+  $("bar-tab").classList.toggle("attn", chip.classList.contains("attn") || !!state.update?.candidate);
 }
 
 function steps(current) {
