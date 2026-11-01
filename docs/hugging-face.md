@@ -52,8 +52,9 @@ flowchart LR
 2. Choose paid CPU hardware and disable sleep if agents must run while the tab is closed. Free CPU Spaces sleep and lose running processes.
 3. Open the Space and paste a Hugging Face **write** token. Launchpad saves it as a Space secret, creates a private backup bucket and an encryption key, then restarts once (about a minute).
 4. **Connect your first agent**: your Hugging Face account (open models), Claude Code, Codex or OpenCode (their sign-in runs in a terminal on the page), or an API key. GitHub is offered next.
+5. **Clone your repositories** (optional): tick repositories to clone into `~/projects`. Each becomes a folder in Launchpad. When GitHub is connected, repositories with recent notifications come first, then your recently pushed ones. You can also type `owner/name`.
 
-A bar above the app shows the Space name and the backup state. **Space settings** opens accounts, backups, updates and Space actions.
+A bar above the app shows the Space name and the backup state. **Space settings** opens accounts, folders (the same repository picker), backups, updates and Space actions.
 
 ### Backups
 

@@ -39,12 +39,15 @@ class Runtime:
         await self.close()
         raise ValueError('Launchpad did not become ready')
 
-    async def api(self, method, path, body=None):
+    async def api(self, method, path, body=None, timeout=45, detail=False):
+        """`detail`: report Launchpad's own error text (for owner-typed input such as a repository name)."""
         headers = {'Host':self.deployment.origin.removeprefix('https://'), 'Origin':self.deployment.origin,
                    'Authorization':f'Bearer {self.token}'}
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=45)) as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
             async with session.request(method, 'http://127.0.0.1:7317'+path, headers=headers, json=body) as response:
-                if response.status >= 400: raise ValueError(f'Launchpad could not complete this action ({response.status})')
+                if response.status >= 400:
+                    error = (await response.json(content_type=None)).get('error') if detail and response.status < 500 else None
+                    raise ValueError(str(error)[:400] if error else f'Launchpad could not complete this action ({response.status})')
                 return await response.json()
 
     async def idle(self):

@@ -51,6 +51,10 @@ let routeLoaded = false;
 let lastRoute = null;
 let lastPanelRender = "";
 let lastSetupRender = "";
+let repos = null; // Clone suggestions [{ repo, notifications }], loaded on demand; null reloads.
+let reposLoading = false;
+const picked = new Set(); // Repositories ticked in the picker.
+let typedRepo = ""; // The "owner/name" field, kept across re-renders.
 
 // ---------- small helpers ----------
 
@@ -175,6 +179,7 @@ function textSize() {
 // ---------- status polling ----------
 
 async function refresh() {
+  lastPoll = Date.now();
   let next;
   try {
     next = await getJson("/_space/status");
@@ -190,21 +195,26 @@ async function refresh() {
   if (!restarting) restartingSince = 0;
   else if (!restartingSince) restartingSince = Date.now();
   const wasConnect = state?.stage === "connect";
+  const clonesFinished = state?.clones?.running && !next.clones?.running;
   const finishedLogin = next.login?.result === "completed" && state?.login?.result !== "completed";
   state = next;
   // A finished sign-in changes what is connected: reload the list so the page shows it.
   if (finishedLogin) void loadConnections();
+  // GitHub suggestions change after a GitHub sign-in; cloned repositories leave the list.
+  if ((finishedLogin && next.login?.tool === "github") || clonesFinished) repos = null;
   if (state.stage === "connect") onboarding = true;
   if (wasConnect && state.stage === "ready" && onboarding) connections = null;
   render();
 }
 
+let lastPoll = 0;
+/** Polls every 2 s while something is in progress, otherwise every 15 s; re-evaluated each tick so a new clone or sign-in speeds up at once. */
 function schedule() {
-  const fast = !state || restarting || !state.ready || $("panel").open || flow || state.login?.running;
   setTimeout(async () => {
-    if (document.visibilityState === "visible" || restarting) await refresh();
+    const fast = !state || restarting || !state.ready || $("panel").open || flow || state.login?.running || state.clones?.running;
+    if ((fast || Date.now() - lastPoll >= 15000) && (document.visibilityState === "visible" || restarting)) await refresh();
     schedule();
-  }, fast ? 2000 : 15000);
+  }, 2000);
 }
 
 async function loadConnections() {
@@ -277,7 +287,7 @@ function renderSetup() {
   // Polling re-renders only when something visible changed, so typed text and focus survive.
   const login = state.login || {};
   const key = JSON.stringify([restarting, slowRestart(), zoomPosition(), state.stage, state.message, state.needs_bucket, state.needs_key, connections, selected,
-    login.tool, login.profile, login.result, login.running, login.link, login.code, finished]);
+    login.tool, login.profile, login.result, login.running, login.link, login.code, finished, repos, state.clones]);
   if (key === lastSetupRender) return;
   lastSetupRender = key;
   if (restarting) {
@@ -419,14 +429,17 @@ function finish() {
   const github = connections?.connections.find((c) => c.id === "github");
   const agent = connections?.connections.find((c) => c.id !== "github" && (c.profile || c.connected));
   const open = h("button", { type: "button", class: "primary", onclick: () => { finished = true; render(); } }, "Open Launchpad");
-  page("You're all set", agent ? `${TOOLS[agent.id].name} is connected. One optional step remains.` : "Your first agent is connected.", null,
+  page("You're all set", agent ? `${TOOLS[agent.id].name} is connected. Two optional steps remain.` : "Your first agent is connected.", null,
     h("div", { class: "card" },
       h("h2", {}, "Connect GitHub (optional)"),
       h("p", {}, TOOLS.github.blurb, " Git over HTTPS then uses this sign-in too."),
       github?.connected
         ? h("p", { class: "result ok" }, "✓ GitHub is connected", github.detail ? ` · ${github.detail}` : "")
-        : state.login?.tool === "github" ? connectFlow("github", true) : h("button", { type: "button", onclick: (e) => startLogin("github", null, e.currentTarget) }, "Connect GitHub"),
-      h("div", { class: "actions" }, open)));
+        : state.login?.tool === "github" ? connectFlow("github", true) : h("button", { type: "button", onclick: (e) => startLogin("github", null, e.currentTarget) }, "Connect GitHub")),
+    h("div", { class: "card", style: "margin-top:14px" },
+      h("h2", {}, "Clone your repositories (optional)"),
+      repoPicker()),
+    h("div", { class: "row", style: "margin-top:16px" }, open));
   remountTerminal();
 }
 
@@ -611,10 +624,10 @@ function renderPanel() {
   if (active && $("panel").contains(active) && /INPUT|TEXTAREA|SELECT/.test(active.tagName)
       && !active.classList.contains("xterm-helper-textarea")) return;
   const login = state.login || {};
-  const key = JSON.stringify([state.stage, state.backup, state.update, state.maintenance, connections, login, Math.floor(Date.now() / 30000)]);
+  const key = JSON.stringify([state.stage, state.backup, state.update, state.maintenance, connections, login, repos, state.clones, Math.floor(Date.now() / 30000)]);
   if (key === lastPanelRender) return;
   lastPanelRender = key;
-  $("panel-body").replaceChildren(accountsSection(), backupSection(), updatesSection(), spaceSection(),
+  $("panel-body").replaceChildren(accountsSection(), h("section", { id: "folders-section" }, h("h3", {}, "Folders"), repoPicker()), backupSection(), updatesSection(), spaceSection(),
     matchMedia("(max-width: 719px)").matches ? null : h("section", {}, h("h3", {}, "This device"), textSize(),
       h("p", { class: "muted small-text", style: "margin-top:8px" }, "Applies to Launchpad and this page in this browser. Also in Launchpad → Settings → Appearance.")));
   remountTerminal();
@@ -650,6 +663,66 @@ function accountsSection() {
     selected === "huggingface" && !login.tool ? h("div", { class: "flow" }, hfForm(false)) : null,
     h("details", {}, h("summary", {}, "Add a provider API key"), apiKeyForm()),
     h("details", {}, h("summary", {}, "SSH key"), sshBlock()));
+}
+
+// ---------- repositories ----------
+
+async function loadRepos() {
+  if (reposLoading) return;
+  reposLoading = true;
+  const value = await action("repositories");
+  reposLoading = false;
+  repos = value?.repositories || [];
+  lastSetupRender = lastPanelRender = "";
+  render();
+}
+
+/** Pick repositories to clone into ~/projects; Launchpad adds each as a folder. Recent GitHub notifications rank first. */
+function repoPicker() {
+  if (repos === null && !reposLoading) void loadRepos();
+  const clones = state.clones || {};
+  const github = connections?.connections.find((c) => c.id === "github")?.connected;
+  const chosen = () => [...new Set([...picked, ...typedRepo.split(/[\s,]+/).filter((r) => r.includes("/"))])];
+  const submit = h("button", { type: "button", class: "primary small" });
+  const label = () => {
+    const count = chosen().length;
+    submit.textContent = count ? `Clone ${count} ${count === 1 ? "repository" : "repositories"}` : "Clone";
+    submit.disabled = !count || clones.running;
+  };
+  submit.addEventListener("click", async () => {
+    const list = chosen();
+    if (await action("clone", { repos: list }, submit)) {
+      for (const r of list) picked.delete(r);
+      typedRepo = "";
+      lastSetupRender = lastPanelRender = "";
+      render();
+    }
+  });
+  const typed = h("input", { type: "text", placeholder: "owner/name", autocomplete: "off", spellcheck: "false", "aria-label": "Other repository", value: typedRepo });
+  typed.addEventListener("input", () => { typedRepo = typed.value; label(); });
+  const rows = (repos || []).slice(0, 12).map((r) => {
+    const box = h("input", { type: "checkbox", checked: picked.has(r.repo), disabled: clones.running });
+    box.addEventListener("change", () => { if (box.checked) picked.add(r.repo); else picked.delete(r.repo); label(); });
+    return h("label", { class: "item pick" }, box,
+      h("div", { class: "grow" }, h("b", { class: "mono" }, r.repo),
+        r.notifications ? h("span", {}, `${r.notifications} recent notification${r.notifications === 1 ? "" : "s"}`) : null));
+  });
+  label();
+  const progress = clones.running
+    ? h("div", { class: "waiting small-text" }, h("span", { class: "spinner" }),
+      `Cloning ${clones.current || "…"}${clones.queue?.length ? ` · ${clones.queue.length} more` : ""}. Large repositories take a few minutes.`)
+    : null;
+  return h("div", {},
+    h("p", { class: "muted small-text" }, "Clones into ", h("code", {}, "~/projects"), " and adds each repository as a folder in Launchpad, ready for your first agent. ",
+      github ? "Repositories with recent GitHub notifications come first." : "Connect GitHub to see the repositories you work on; public repositories clone without it."),
+    reposLoading && repos === null ? h("div", { class: "waiting muted small-text" }, h("span", { class: "spinner" }), "Looking for your repositories…") : null,
+    rows.length ? h("div", { class: "list", style: "margin:10px 0" }, rows) : null,
+    repos && !rows.length && github ? h("p", { class: "muted small-text" }, "No repository found yet. Type one below.") : null,
+    h("label", {}, "Other repositories"),
+    h("div", { class: "row" }, h("div", { class: "grow" }, typed), submit),
+    progress,
+    (clones.done || []).map((d) => h("p", { class: "result ok small-text" }, `✓ ${d.repo}`, d.path ? h("span", { class: "muted" }, ` → ${d.path}`) : null)),
+    (clones.failed || []).map((f) => h("p", { class: "result fail small-text" }, `✗ ${f.repo}: ${f.error}`)));
 }
 
 function sshBlock() {

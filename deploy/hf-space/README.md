@@ -8,8 +8,8 @@ Status: built and checked locally against a real private Space and bucket. The m
 
 1. Duplicate the template Space. Keep it **Private**. Pick CPU upgrade hardware to keep agents running with the tab closed (the free CPU sleeps after 48 hours without visits).
 2. Open the Space. Paste one Hugging Face **write** token and click **Save and continue**. Launchpad saves it as the `LP_SPACE_MANAGEMENT_TOKEN` secret, creates the private bucket (same name as the Space, or `LP_SPACE_BUCKET`), creates the `LP_SPACE_BACKUP_KEY` encryption secret and restarts the Space once.
-3. **Connect your first agent**: Hugging Face (paste an agent token; open models billed to the HF account), Claude Code, Codex or OpenCode (their own sign-in, in a terminal on the page) or a provider API key. Launchpad creates the matching profile automatically. GitHub is offered next, optionally.
-4. Use Launchpad. A 36 px bar above the app shows the Space name and backup state; **Space settings** opens accounts, backups, updates and Space actions.
+3. **Connect your first agent**: Hugging Face (paste an agent token; open models billed to the HF account), Claude Code, Codex or OpenCode (their own sign-in, in a terminal on the page) or a provider API key. Launchpad creates the matching profile automatically. GitHub is offered next, optionally, then a repository picker that clones into `~/projects` and registers each clone as a folder (recent GitHub notifications first, then recently pushed repositories).
+4. Use Launchpad. A 36 px bar above the app shows the Space name and backup state; **Space settings** opens accounts, folders (the same repository picker), backups, updates and Space actions.
 
 Each step is detected, never redone: a Space that already has its secrets or bucket skips straight ahead. A Space that is public, or a bucket that is public, stops at a page that explains how to fix it in Hub settings.
 
@@ -28,7 +28,7 @@ Each step is detected, never redone: a Space that already has its secrets or buc
 | `release.json` | Connector version, release channel (manifest URL and image), pinned CLI versions |
 | `template/README.md` | The README of the duplicate template Space |
 
-The shell talks to the supervisor only through `GET /_space/status` (with a `stage` field: `template`, `token`, `blocked`, `backups`, `starting`, `connect`, `ready`, `stopped`, `error`, `restarting`), `GET /_space/connections`, the `/_space/login` terminal socket and `POST /_space/action/<name>` with the CSRF token from the status. Keep it that way: a new feature adds an action and a render function.
+The shell talks to the supervisor only through `GET /_space/status` (with a `stage` field: `template`, `token`, `blocked`, `backups`, `starting`, `connect`, `ready`, `stopped`, `error`, `restarting`), `GET /_space/connections`, the `/_space/login` terminal socket and `POST /_space/action/<name>` with the CSRF token from the status. Keep it that way: a new feature adds an action and a render function. Long work runs in the background and reports through the status (for example `clones` for the `clone` action), so the action lock is never held for minutes.
 
 ## Build and run
 

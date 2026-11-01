@@ -15,6 +15,7 @@ The browser shell (gateway/shell.*) reads `GET /_space/status` and drives everyt
 """
 import asyncio
 import base64
+import contextlib
 import hmac
 import json
 import os
@@ -79,6 +80,8 @@ async def serve():
                   'settings': f'https://huggingface.co/spaces/{deployment.space}/settings'},
         'bucket': {'id': deployment.bucket, 'url': f'https://huggingface.co/buckets/{deployment.bucket}'},
         'policy': None, 'needs_key': False, 'needs_bucket': False, 'release': {}, 'update': None,
+        # Repositories cloned from Space settings, one at a time in the background.
+        'clones': {'running': False, 'current': None, 'queue': [], 'done': [], 'failed': []},
     }
     runtime = Runtime(deployment)
     proxy = Proxy(deployment.origin, '')
@@ -91,19 +94,43 @@ async def serve():
     # requests never wait for each other (a slow clone must not block Stop).
     inflight = {'count': 0, 'idle': asyncio.Event()}
     inflight['idle'].set()
+    background = set()  # Strong references to fire-and-forget tasks.
 
     async def drain():
         await inflight['idle'].wait()
 
-    async def forward(request):
+    @contextlib.asynccontextmanager
+    async def mutation():
         inflight['count'] += 1
         inflight['idle'].clear()
         try:
-            return await proxy.handle(request)
+            yield
         finally:
             inflight['count'] -= 1
             if not inflight['count']:
                 inflight['idle'].set()
+
+    async def forward(request):
+        async with mutation():
+            return await proxy.handle(request)
+
+    async def clone_all():
+        """Clones the queued repositories into ~/projects through Launchpad, which registers each as a folder."""
+        clones = state['clones']
+        async with mutation():
+            try:
+                while clones['queue']:
+                    repo = clones['current'] = clones['queue'].pop(0)
+                    try:
+                        project = await runtime.api('POST', '/api/projects/clone', {'repo': repo}, timeout=16 * 60, detail=True)
+                        clones['done'].append({'repo': repo, 'path': project.get('path')})
+                    except ValueError as error:
+                        clones['failed'].append({'repo': repo, 'error': str(error)})
+                    except Exception:
+                        clones['failed'].append({'repo': repo, 'error': 'Launchpad did not answer. Check Folders in Launchpad before trying again.'})
+            finally:
+                clones['current'] = None
+                clones['running'] = False
 
     def stage(name, message):
         state['stage'], state['message'] = name, message
@@ -412,6 +439,22 @@ async def serve():
                     raise ValueError('Connect GitHub first, then try again')
                 await recovery.credentials()
                 return web.json_response({'message': 'Git now uses your GitHub sign-in for HTTPS.'})
+            elif kind == 'repositories':
+                suggestions = await runtime.api('POST', '/api/projects/clone/suggestions', {})
+                return web.json_response({'repositories': suggestions[:50]})
+            elif kind == 'clone':
+                repos = body.get('repos')
+                if (not isinstance(repos, list) or not 1 <= len(repos) <= 20
+                        or not all(isinstance(r, str) and 0 < len(r.strip()) <= 200 for r in repos)):
+                    raise ValueError('Choose up to 20 repositories to clone')
+                clones = state['clones']
+                if clones['running']:
+                    raise ValueError('Wait for the current clones to finish')
+                clones.update(running=True, queue=list(dict.fromkeys(r.strip() for r in repos)), done=[], failed=[])
+                task = asyncio.create_task(clone_all())
+                background.add(task)
+                task.add_done_callback(background.discard)
+                return web.json_response({'message': 'Cloning started. Folders appear in Launchpad as each clone finishes.'})
             elif kind == 'check-updates':
                 await updater.check()
             elif kind == 'backup':
@@ -425,6 +468,8 @@ async def serve():
                     raise ValueError('Confirm this action first')
                 if logins.status()['running']:
                     raise ValueError('Finish or cancel the current sign-in first')
+                if state['clones']['running']:
+                    raise ValueError('Wait for the repositories to finish cloning first')
                 runtime.maintenance = True
                 try:
                     await drain()

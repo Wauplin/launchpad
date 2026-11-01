@@ -198,6 +198,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     schedules::ScheduledLaunch::export_all(&cfg)?;
     crons::CronAgent::export_all(&cfg)?;
     github::GhItem::export_all(&cfg)?;
+    project_clone::CloneSuggestion::export_all(&cfg)?;
     inbox::InboxSnapshot::export_all(&cfg)?;
     inbox::ThreadPreview::export_all(&cfg)?;
     terminals::TerminalInfo::export_all(&cfg)?;

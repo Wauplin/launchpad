@@ -9,6 +9,7 @@ pub fn router() -> Router<Server> {
         .route("/api/setup/sign-in", get(sign_in))
         .route("/api/setup/trace-backup", get(trace_backup))
         .route("/api/projects/clone", get(clone_suggestions).post(clone))
+        .route("/api/projects/clone/suggestions", post(refresh_clone_suggestions))
         .route("/api/onboarding", get(onboarding).patch(patch_onboarding))
         .route("/api/setup/checklist", get(checklist))
         .route("/api/setup/checklist/summary", get(checklist_summary))
@@ -21,8 +22,12 @@ async fn sign_in(State(s): State<Server>) -> Json<Vec<signin::SignInCheck>> {
     Json(signin::check_all(&s.app).await)
 }
 
-async fn clone_suggestions(State(s): State<Server>) -> ApiResult<Vec<String>> {
+async fn clone_suggestions(State(s): State<Server>) -> ApiResult<Vec<project_clone::CloneSuggestion>> {
     Ok(Json(project_clone::suggestions(&s.app).await?))
+}
+
+async fn refresh_clone_suggestions(State(s): State<Server>) -> ApiResult<Vec<project_clone::CloneSuggestion>> {
+    Ok(Json(project_clone::refresh_suggestions(&s.app).await?))
 }
 
 #[derive(Deserialize)]

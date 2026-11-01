@@ -76,7 +76,9 @@ route("POST", "/api/projects", ({ body }) => {
   return register(String(body?.path ?? "").replace(/^~/, "/home/demo"), null, body?.workspace_id ?? null);
 });
 
-route("GET", "/api/projects/clone", () => [`${ORG}/analytics`, `${ORG}/design-system`, `${ORG}/infra`].filter((r) => !world.projects.some((p) => p.gh_repo === r)));
+const cloneSuggestions = () => [{ repo: `${ORG}/analytics`, notifications: 6 }, { repo: `${ORG}/design-system`, notifications: 2 }, { repo: `${ORG}/infra`, notifications: 0 }].filter((r) => !world.projects.some((p) => p.gh_repo === r.repo));
+route("GET", "/api/projects/clone", cloneSuggestions);
+route("POST", "/api/projects/clone/suggestions", cloneSuggestions);
 route("POST", "/api/projects/clone", ({ body }) => {
   const repo = String(body?.repo ?? "").replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "");
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new DemoError(400, "Expected owner/repo or a GitHub URL.");

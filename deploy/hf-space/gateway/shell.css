@@ -238,6 +238,8 @@ label { display: block; font-size: 12px; font-weight: 600; color: var(--ink-2); 
 .item:first-child { border-top: 0; }
 .item .grow b { display: block; font-size: 13px; }
 .item .grow span { display: block; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item.pick { cursor: pointer; font-weight: 400; margin: 0; }
+.item.pick input { margin: 0; flex: none; }
 .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
 .state-dot.on { background: var(--teal); }
 .state-dot.warn { background: var(--attn); }
