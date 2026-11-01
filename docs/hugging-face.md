@@ -67,6 +67,13 @@ A bar above the app shows the Space name and the backup state. **Space settings*
 
 ### Updates
 
-Every commit on `main` that passes the image build becomes a version. The Space checks for updates at startup and about every six hours; **Check now** in Space settings checks immediately. **Update available · Review** shows the change. Updates need your click, idle agents and terminals, and a verified backup. If the new version does not start within five minutes, **Roll back** restores the previous image and data.
+Every commit on `main` that passes the image build becomes a version. The Space checks for updates at startup and about every six hours; **Check now** in Space settings checks immediately. The Updates section shows the installed and available versions, with a link to the changes.
+
+**Update…** opens a confirmation that lists what will happen: the running agents are stopped (like the Stop button), open terminals close, a backup is saved and verified, the Space switches to the new version and restarts, and the stopped agents resume in their own sessions with “Continue the unfinished turn.”. Space settings shows each step while it runs, then the result: the new version, the resumed agents and any agent that could not resume (open it and click **Resume**).
+
+- If a step fails before the restart, the current version keeps running and the stopped agents resume on it.
+- If the new version does not start within five minutes, **Roll back** restores the previous image and its pre-update backup; agents that were not resumed yet resume on the previous version.
+- Agents resume only once, and not when the Space comes back more than one hour after the update.
+- Sessions paused for quota or open in a terminal block the update until you stop or close them.
 
 Developer details (layout, build, recovery without the app) are in [`deploy/hf-space/README.md`](../deploy/hf-space/README.md).

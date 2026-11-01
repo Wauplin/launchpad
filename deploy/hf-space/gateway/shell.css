@@ -285,3 +285,22 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.55 var(--mono
 .sizes button { min-height: 24px; padding: 1px 8px; border: 0; border-radius: 999px; background: none; font-size: 11px; font-weight: 600; color: var(--ink-2); }
 .sizes button[aria-pressed="true"] { background: var(--paper); color: var(--teal-ink); box-shadow: 0 0 0 1px var(--line); }
 @media (max-width: 719px) { .sizes { display: none; } }
+
+/* Update confirmation and progress */
+.modal {
+  zoom: var(--zoom, 1.2); width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh / var(--zoom, 1.2) - 32px); overflow: auto;
+  padding: 20px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow);
+}
+.modal::backdrop { background: rgb(9 13 18 / 45%); }
+.modal h2 { font-size: 18px; margin-bottom: 14px; }
+.modal h3 { font-size: 13px; margin: 14px 0 6px; }
+.modal .plan { margin: 0 0 12px; padding-left: 20px; display: grid; gap: 6px; font-size: 13px; }
+.agent-list { margin: 4px 0 0; padding-left: 18px; font-size: 12px; }
+.agent-list li { overflow-wrap: anywhere; }
+.link { min-height: 0; padding: 0; border: 0; background: none; color: var(--teal-ink); font: inherit; text-decoration: underline; cursor: pointer; }
+.update-steps { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; font-size: 13px; color: var(--ink-3); }
+.update-steps li { display: flex; align-items: center; gap: 8px; }
+.update-steps li.current { color: var(--ink); font-weight: 600; }
+.update-steps li.done { color: var(--teal-ink); }
+.update-steps .dot { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; font-size: 10px; }
+.update-steps li.done .dot { background: var(--teal); border-color: var(--teal); color: #fff; }

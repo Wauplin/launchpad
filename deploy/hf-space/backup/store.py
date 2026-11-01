@@ -18,6 +18,8 @@ MANIFEST = f"{ROOT}/manifest.json"
 CREDENTIALS = f"{ROOT}/credentials.aead"
 PRE_UPDATE = f"{ROOT}/pre-update"
 UPDATE = f"{ROOT}/update.json"
+# The last update whose stopped agents were resumed (or reported): claimed once, before any resume.
+RESUMED = f"{ROOT}/update-resumed.json"
 # Credential copies under a new key, written by a planned rotation before the Space secret changes.
 NEXT = f"{ROOT}/next"
 

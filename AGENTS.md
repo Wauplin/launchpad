@@ -119,7 +119,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 
 ### Hugging Face Space
 
-- The control plane talks to the shell only through `/_space/status`, `/_space/connections`, `/_space/login` and `POST /_space/action/<name>`. Updates need an owner click, idle agents and a verified checkpoint; edited Dockerfiles are never overwritten. See `deploy/hf-space/README.md`.
+- The control plane talks to the shell only through `/_space/status`, `/_space/connections`, `/_space/login` and `POST /_space/action/<name>`. Updates need an owner click and a verified checkpoint; they stop running agents first and the next boot resumes them once (claimed in `space/update-resumed.json` before resuming, never more than one hour late). Edited Dockerfiles are never overwritten. See `deploy/hf-space/README.md`.
 - The Space bucket defaults to `<namespace>/launchpad`, like trace sync elsewhere (bucket `launchpad`, prefix `traces`): `projects/` and `traces/` sit at the root for any machine, Space-only state stays under `space/`. `~/projects` is a bucket volume (`projects/`); never archive or upload it. Everything else is latest-only under `space/` (A/B slots, one manifest, one pre-update point): never add per-run generations, and the connector never deletes bucket files. Format 1 (`backups/`, `credentials/`) is read once to migrate. Python checks: `cd deploy/hf-space && python -m unittest discover -s tests`.
 
 ## UI rules
