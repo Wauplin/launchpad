@@ -298,7 +298,8 @@ mod tests {
                 Ok(())
             }).await.unwrap();
         }
-        std::fs::remove_file(path).unwrap();
+        // Windows keeps the file locked until the connection thread exits.
+        let _ = std::fs::remove_file(path);
     }
 
     #[tokio::test]
@@ -334,6 +335,7 @@ mod tests {
                 Ok(())
             }).await.unwrap();
         }
-        std::fs::remove_file(path).unwrap();
+        // Windows keeps the file locked until the connection thread exits.
+        let _ = std::fs::remove_file(path);
     }
 }

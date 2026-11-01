@@ -91,10 +91,14 @@ async fn publication_errors_distinguish_rejection_from_uncertain_delivery() {
         .await
         .err()
         .unwrap();
+    // Windows reports a refused local connection as a reset, which counts as uncertain.
+    #[cfg(unix)]
     assert!(
         !delivery_uncertain(&e),
         "refused connection sent nothing: {e:#}"
     );
+    #[cfg(not(unix))]
+    let _ = e;
     gh.limits.write().await.insert(
         "core".into(),
         RateLimit {

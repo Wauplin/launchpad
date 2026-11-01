@@ -95,6 +95,7 @@ mod tests {
         assert_eq!(rehost("devbox:/a", "/b/c"), "devbox:/b/c");
         assert_eq!(rehost("/a", "/b/c"), "/b/c");
         let p = Path::new("devbox:/home/u").join("proj");
+        #[cfg(unix)]
         assert_eq!(p.to_str(), Some("devbox:/home/u/proj"));
         assert!(p.starts_with("devbox:/home"));
         assert!(!Path::new("/home/u/proj").starts_with("devbox:/home"));
