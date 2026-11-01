@@ -6,7 +6,7 @@ import signal
 from pathlib import Path
 
 HOME = Path('/home/agent')
-# A live bucket volume (the bucket's `space/projects/` folder) once setup has added it to the Space.
+# A live bucket volume (the bucket's `projects/` folder) once setup has added it to the Space.
 PROJECTS = HOME / 'projects'
 CONTROL = Path('/run/launchpad-space')
 

@@ -59,7 +59,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
 
 
 def projects_volume(api, deployment):
-    """The Space volume that keeps ~/projects live in the bucket's `space/projects/` folder, beside the owner's others."""
+    """The Space volume that keeps ~/projects live in the bucket's `projects/` folder, beside the owner's others."""
     from huggingface_hub import Volume
     volumes = [v for v in (api.get_space_runtime(deployment.space).volumes or []) if v.mount_path != str(PROJECTS)]
     return volumes + [Volume(type='bucket', source=deployment.bucket, mount_path=str(PROJECTS), path=VOLUME)]

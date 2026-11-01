@@ -42,7 +42,7 @@ flowchart LR
     subgraph S[Private Docker Space]
         C["Control plane<br/>setup, backups, updates"] --> L["launchpad daemon<br/>agents, terminals"]
     end
-    C -->|"space/ (projects volume, latest state)"| K[("Private bucket<br/>&lt;account&gt;/launchpad")]
+    C -->|"projects/ (volume), space/ (latest state)"| K[("Private bucket<br/>&lt;account&gt;/launchpad")]
     L -->|"traces/ (shared with your other machines)"| K
 ```
 
@@ -58,7 +58,7 @@ A bar above the app shows the Space name and the backup state. **Space settings*
 
 ### Backups
 
-- `~/projects` is a Space volume on the bucket's `space/projects/` folder: files are written to the bucket as you work, with no snapshots. Everything in it is stored, including `node_modules`, `target` and `.env` files, in readable form.
+- `~/projects` is a Space volume on the bucket's `projects/` folder: files are written to the bucket as you work, with no snapshots. Everything in it is stored, including `node_modules`, `target` and `.env` files, in readable form.
 - Launchpad's state, settings and agent history (`~/.claude`, `~/.codex`, OpenCode, `~/.agents`) are saved every minute when they changed, as one latest copy; caches and logs are skipped. A final save runs when the Space stops.
 - Credentials are encrypted (AES-256-GCM) with a key that only the control plane can read.
 - Keep folders in `~/projects`: other folders and other files in the home folder are lost on restart.
