@@ -1,8 +1,9 @@
 // Add folder → Clone from GitHub: the daemon clones a repository into the folders root and registers it.
-// Suggestions come from repositories already in the GitHub cache; any owner/name can be typed.
+// Suggestions put repositories with recent GitHub notifications first, then recently pushed ones; any owner/name can be typed.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import type { CloneSuggestion } from "@/gen/CloneSuggestion";
 import type { Project } from "@/gen/Project";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
@@ -17,9 +18,10 @@ export function CloneFromGitHub({ root, host = null, addTo, onDone }: { root: st
   const qc = useQueryClient();
   const [repo, setRepo] = useState("");
   const [cloning, setCloning] = useState<string | null>(null);
-  const q = useQuery({ queryKey: ["clone-suggestions"], queryFn: () => api.get<string[]>("/api/projects/clone") });
+  // POST refreshes recent notifications and pushed repositories from GitHub (best effort), then reads the cache.
+  const q = useQuery({ queryKey: ["clone-suggestions"], queryFn: () => api.post<CloneSuggestion[]>("/api/projects/clone/suggestions", {}) });
   const typed = repo.trim();
-  const matches = (q.data ?? []).filter((r) => !typed || r.toLowerCase().includes(typed.toLowerCase()));
+  const matches = (q.data ?? []).filter((r) => !typed || r.repo.toLowerCase().includes(typed.toLowerCase()));
   const clone = async (name: string) => {
     setCloning(name);
     try {
@@ -48,14 +50,15 @@ export function CloneFromGitHub({ root, host = null, addTo, onDone }: { root: st
       </div>
       {cloning && <div className="text-xs text-ink-2">Cloning {cloning} on {host ?? "the daemon host"}. Large repositories can take a few minutes.</div>}
       <p className="text-xs text-ink-3">Uses <code className="font-mono">gh repo clone</code> with the GitHub CLI sign-in and Git protocol of {host ?? "the daemon host"} (<code className="font-mono">git clone</code> over HTTPS without the GitHub CLI).</p>
-      {q.isLoading && <div className="text-xs text-ink-3">Loading cached repositories…</div>}
-      {q.data && q.data.length === 0 && <div className="text-xs text-ink-3">No other repository in the GitHub cache yet. Type owner/name.</div>}
+      {q.isLoading && <div className="text-xs text-ink-3">Loading your repositories…</div>}
+      {q.data && q.data.length === 0 && <div className="text-xs text-ink-3">No other repository found on GitHub yet. Type owner/name.</div>}
       {matches.length > 0 && (
         <div className="grid rounded-md border border-line bg-paper">
           {matches.slice(0, SHOWN).map((r) => (
-            <div key={r} className="flex h-9 items-center gap-2 border-b border-line-2 px-3 text-[13px] last:border-0">
-              <span className="truncate font-mono text-[12px]">{r}</span>
-              <button className="btn btn-sm ml-auto" disabled={!!cloning} onClick={() => void clone(r)}>
+            <div key={r.repo} className="flex h-9 items-center gap-2 border-b border-line-2 px-3 text-[13px] last:border-0">
+              <span className="truncate font-mono text-[12px]">{r.repo}</span>
+              {r.notifications > 0 && <span className="shrink-0 text-[11px] text-ink-3">{r.notifications} recent notification{r.notifications === 1 ? "" : "s"}</span>}
+              <button className="btn btn-sm ml-auto" disabled={!!cloning} onClick={() => void clone(r.repo)}>
                 <Icon name="plus" size={12} />
                 Clone
               </button>

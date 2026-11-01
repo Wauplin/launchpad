@@ -1,10 +1,27 @@
-"""Immutable, read-back verified bucket commits. latest.json is only a hint."""
+"""Read-back verified bucket objects. Only the latest state is kept: `space/manifest.json` and the objects it names.
+
+Changed objects alternate between two slots (`space/a/`, `space/b/`), so the committed manifest always points at
+complete objects while the next ones upload; nothing accumulates. `projects/` is the live Space volume and is never
+written here. `traces/` belongs to Launchpad's trace exporter, shared with the owner's other machines. `backups/` and `credentials/` are the read-only format 1 layout, used once to migrate.
+"""
 import hashlib
 import json
 import subprocess
 import tempfile
 import uuid
 from pathlib import Path
+
+ROOT = "space"
+# At the bucket root, not under `space/`: any machine can sync or mount the same projects.
+VOLUME = "projects"
+MANIFEST = f"{ROOT}/manifest.json"
+CREDENTIALS = f"{ROOT}/credentials.aead"
+PRE_UPDATE = f"{ROOT}/pre-update"
+UPDATE = f"{ROOT}/update.json"
+# The last update whose stopped agents were resumed (or reported): claimed once, before any resume.
+RESUMED = f"{ROOT}/update-resumed.json"
+# Credential copies under a new key, written by a planned rotation before the Space secret changes.
+NEXT = f"{ROOT}/next"
 
 
 class Bucket:
@@ -32,6 +49,9 @@ class Bucket:
             self.copy(f"{self.root}/{name}", path, size)
             return path.read_bytes()
 
+    def read_json(self, name):
+        return json.loads(self.read(name)) if self.exists(name) else None
+
     def put(self, name, data):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "object"
@@ -40,52 +60,60 @@ class Bucket:
         if self.read(name, len(data)) != data:
             raise RuntimeError("Bucket read-back did not match; checkpoint was not committed")
 
-    def commit(self, files, vault, payload, installation, release, captured_at=0, previous=None, credentials=None):
-        """Write one generation: changed objects, then the manifest, then latest.json.
+    def commit(self, files, installation, release, captured_at=0, previous=None):
+        """Upload changed objects to the free slot, then replace the manifest. Unchanged state writes nothing.
 
-        `previous` is the last committed manifest: unchanged objects are referenced from it instead of being
-        uploaded again, and files missing from `files` (a workspace captured less often) are carried over.
-        `credentials` names an existing vault generation holding exactly `payload`; otherwise a new one is
-        sealed. Returns `previous` itself when nothing changed, so an idle machine writes nothing.
+        Files missing from `files` (the agent archive, captured less often) are carried over from `previous`.
         """
-        generation = uuid.uuid4().hex
-        old = (previous or {}).get("files", {})
-        entries = {}
-        for name, data in files.items():
-            safe_name(name)
-            digest = hashlib.sha256(data).hexdigest()
-            entry = old.get(name)
-            if entry and entry["sha256"] == digest and entry["bytes"] == len(data):
-                entries[name] = dict(entry, path=object_path(previous["generation"], name, entry))
-            else:
-                entries[name] = {"sha256": digest, "bytes": len(data), "path": f"backups/{generation}/{name}"}
-        for name, entry in old.items():
-            if name not in entries:
-                entries[name] = dict(entry, path=object_path(previous["generation"], name, entry))
-        if previous and credentials == previous.get("credentials") and entries == {
-                name: dict(entry, path=object_path(previous["generation"], name, entry)) for name, entry in old.items()}:
+        entries, uploads = plan(files, previous)
+        if previous and entries == previous.get("files"):
             return previous
-        if credentials is None:
-            credentials = generation
-            sealed = vault.seal(generation, payload)
-            if vault.open(generation, sealed) != payload:
-                raise RuntimeError("Credential verification failed")
-            self.put(f"credentials/{generation}/vault.aead", sealed)
-        for name, data in files.items():
-            if entries[name]["path"] == f"backups/{generation}/{name}":
-                self.put(entries[name]["path"], data)
-        manifest = {"format": 1, "installation": installation, "generation": generation,
-                    "release": release, "captured_at": captured_at, "credentials": credentials, "files": entries,
-                    "bytes": sum(entry["bytes"] for entry in entries.values())}
-        self.put_manifest(manifest)
+        for name in uploads:
+            self.put(entries[name]["path"], files[name])
+        manifest = {"format": 2, "installation": installation, "checkpoint": uuid.uuid4().hex, "release": release,
+                    "captured_at": captured_at, "files": entries, "bytes": sum(e["bytes"] for e in entries.values())}
+        self.put(MANIFEST, json.dumps(manifest, sort_keys=True).encode())
         return manifest
 
-    def put_manifest(self, manifest):
-        data = json.dumps(manifest, sort_keys=True).encode()
-        self.put(f"backups/{manifest['generation']}/manifest.json", data)
-        self.put("backups/latest.json", json.dumps({"generation": manifest["generation"], "sha256": hashlib.sha256(data).hexdigest()}).encode())
+    def latest(self):
+        manifest = self.read_json(MANIFEST)
+        if manifest is not None and manifest.get("format") != 2:
+            raise ValueError("Unsupported checkpoint format")
+        return manifest
 
-    def restore(self, generation):
+    def restore(self, manifest):
+        files = {}
+        for name, entry in manifest["files"].items():
+            data = self.read(object_path(name, entry), entry["bytes"])
+            if len(data) != entry["bytes"] or hashlib.sha256(data).hexdigest() != entry["sha256"]:
+                raise ValueError("Checkpoint checksum mismatch; restore aborted")
+            files[name] = data
+        return files
+
+    def save_pre_update(self, manifest, files):
+        """One fixed restore point for update rollback, replaced by the next update."""
+        entries = {}
+        for name, entry in manifest["files"].items():
+            data = files[name]
+            if hashlib.sha256(data).hexdigest() != entry["sha256"]:
+                raise ValueError("The pre-update checkpoint changed; try the update again")
+            entries[name] = dict(entry, path=f"{PRE_UPDATE}/{name}")
+            self.put(entries[name]["path"], data)
+        self.put(f"{PRE_UPDATE}/manifest.json", json.dumps(dict(manifest, files=entries), sort_keys=True).encode())
+
+    def pre_update(self, checkpoint):
+        manifest = self.read_json(f"{PRE_UPDATE}/manifest.json")
+        if not manifest or manifest.get("format") != 2 or manifest.get("checkpoint") != checkpoint:
+            raise ValueError("The requested pre-update checkpoint is not in the bucket")
+        return manifest
+
+    def legacy(self, generation=None):
+        """Format 1 (`backups/<generation>/`), read only to migrate an existing Space. None when absent."""
+        if generation is None:
+            pointer = self.read_json("backups/latest.json")
+            if pointer is None:
+                return None
+            generation = pointer["generation"]
         safe_name(generation)
         if "/" in generation:
             raise ValueError("Invalid generation")
@@ -95,18 +123,42 @@ class Bucket:
         files = {}
         for name, entry in manifest["files"].items():
             safe_name(name)
-            data = self.read(object_path(generation, name, entry), entry["bytes"])
+            path = entry.get("path") or f"backups/{generation}/{name}"
+            safe_name(path)
+            if not path.startswith("backups/") or not path.endswith("/" + name):
+                raise ValueError("Invalid checkpoint object path")
+            data = self.read(path, entry["bytes"])
             if len(data) != entry["bytes"] or hashlib.sha256(data).hexdigest() != entry["sha256"]:
                 raise ValueError("Checkpoint checksum mismatch; restore aborted")
             files[name] = data
         return manifest, files
 
 
-def object_path(generation, name, entry):
-    """Where a manifest entry's bytes live: its own generation, or an earlier one it references."""
-    path = entry.get("path") or f"backups/{generation}/{name}"
+def plan(files, previous):
+    """Manifest entries for `files` and the names to upload. A changed object goes to the slot its previous
+    version does not use, so the committed manifest never points at an object being overwritten."""
+    old = (previous or {}).get("files", {})
+    entries, uploads = {}, []
+    for name, data in files.items():
+        safe_name(name)
+        digest = hashlib.sha256(data).hexdigest()
+        entry = old.get(name)
+        if entry and entry["sha256"] == digest and entry["bytes"] == len(data):
+            entries[name] = entry
+            continue
+        slot = "b" if entry and entry.get("path", "").startswith(f"{ROOT}/a/") else "a"
+        entries[name] = {"sha256": digest, "bytes": len(data), "path": f"{ROOT}/{slot}/{name}"}
+        uploads.append(name)
+    for name, entry in old.items():
+        entries.setdefault(name, entry)
+    return entries, uploads
+
+
+def object_path(name, entry):
+    path = entry.get("path", "")
+    safe_name(name)
     safe_name(path)
-    if not path.startswith("backups/") or not path.endswith("/" + name):
+    if not path.startswith(ROOT + "/") or not path.endswith("/" + name):
         raise ValueError("Invalid checkpoint object path")
     return path
 

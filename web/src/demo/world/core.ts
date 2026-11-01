@@ -31,13 +31,14 @@ export function coreWorld() {
     server: { bind: "127.0.0.1", public_origin: null, auto_tailnet: true },
     commands: { browser: "" },
     github: { poll_interval_seconds: 60 },
-    trace_backup: { enabled: false, bucket: "launchpad-traces", prefix: "" },
+    trace_backup: { enabled: false, bucket: "launchpad", prefix: "traces" },
     agents: { notify: true },
     worktrees: { keep: 10 },
     presets: [
-      { id: "tests", label: "Write tests", text: "Add or update tests for the code you change, and run them before you finish." },
-      { id: "commits", label: "Small commits", text: "Commit in small, focused steps with clear messages." },
-      { id: "local-pr", label: "Open a Local PR when done", text: "When the task is done, open a Local PR with `launchpad pr create`." },
+      { id: "implement-review", label: "Implement, then review", text: "Please implement the feature using Claude, then launch a review using Codex.", ask_launchpad: true, agent: false },
+      { id: "tests", label: "Write tests", text: "Add or update tests for the code you change, and run them before you finish.", ask_launchpad: false, agent: true },
+      { id: "commits", label: "Small commits", text: "Commit in small, focused steps with clear messages.", ask_launchpad: false, agent: true },
+      { id: "local-pr", label: "Open a Local PR when done", text: "When the task is done, open a Local PR with `launchpad pr create`.", ask_launchpad: false, agent: true },
     ],
     profiles: [
       { id: "claude-max", name: "Claude · Max", harness: "claude", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], send_credentials: false },

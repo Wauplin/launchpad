@@ -58,7 +58,7 @@ function renderPrompt(spec: LaunchSpec, cwd: string): string {
   for (const a of spec.attachments) context.push(`- Attached ${a.data_url.startsWith("data:image/") || a.data_url.startsWith("upload:image/") ? "image" : "file (local copy provided at launch)"}: ${a.name}`);
   for (const t of spec.agent_traces) context.push(`- Trace of another agent: run \`launchpad trace ${t.session_id} --through ${t.through_seq}\` to read it.`);
   if (context.length) parts.push(`Context:\n${context.join("\n")}${spec.github_refs.length ? "\nUse `gh` to read issues, pull requests and comments." : ""}`);
-  const presets = world.config.presets.filter((p) => spec.presets.includes(p.id) && p.text.trim()).map((p) => p.text.trim()).join(" ");
+  const presets = world.config.presets.filter((p) => (spec.target.kind === "assistant" ? p.ask_launchpad : p.agent) && spec.presets.includes(p.id) && p.text.trim()).map((p) => p.text.trim()).join(" ");
   if (presets) parts.push(presets);
   if (spec.worktree) parts.push(`Launchpad worktree: you work in ${cwd}, a Git worktree on its own branch. Commit your changes there.${spec.worktree.merge_when_done ? " When the task is done, run `launchpad work finish` so Launchpad merges the branch." : ""}`);
   parts.push(SUMMARY_INSTRUCTION);

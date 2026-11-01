@@ -47,3 +47,22 @@ class Vault:
             raise ValueError("Credential key differs; reconnect tools or supply the original key")
         plain = self.cipher(generation).decrypt(decode(value["nonce"]), decode(value["ciphertext"]), self.context(generation))
         return json.loads(zlib.decompress(plain))
+
+    def seal_object(self, payload, seal=None):
+        """A self-contained envelope for objects overwritten in place: the seal ID travels with the ciphertext."""
+        seal = seal or os.urandom(16).hex()
+        return json.dumps(dict(json.loads(self.seal(seal, payload)), seal=seal)).encode()
+
+    def open_object(self, envelope):
+        seal = json.loads(envelope).get("seal")
+        if not isinstance(seal, str) or not seal:
+            raise ValueError("Unsupported credential format; existing vault was preserved")
+        return self.open(seal, envelope)
+
+
+def key_id(envelope):
+    return json.loads(envelope).get("key_id")
+
+
+def seal_id(envelope):
+    return json.loads(envelope).get("seal")

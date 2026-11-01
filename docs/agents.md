@@ -146,6 +146,8 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ![Ask Launchpad with two proposals](images/ask.webp)
 
+In **Settings → Presets**, check **Ask Launchpad**, **Agent composer / steering**, or both for each preset. The Presets button adds selected instructions after your message, in settings order, including the first Ask request and later messages. Agent availability includes launches, steering and Send later. Existing presets remain available to agents until you change their availability. For example, an Ask-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
+
 The assistant runs with a restricted token: it can read state and write proposals, nothing else. It never reaches GitHub.
 
 ## Workspaces

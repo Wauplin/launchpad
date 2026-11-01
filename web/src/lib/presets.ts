@@ -4,6 +4,13 @@
 
 import type { Preset } from "@/gen/Preset";
 
+export type PresetSurface = "agent" | "ask_launchpad";
+
+/** Older config files keep their presets available to agents only. */
+export function availablePresets(presets: Preset[], surface: PresetSurface): Preset[] {
+  return presets.filter((p) => surface === "agent" ? p.agent !== false : p.ask_launchpad === true);
+}
+
 /** The chosen presets in settings order, skipping deleted ones and empty texts. */
 export function chosenPresets(ids: string[], presets: Preset[]): Preset[] {
   return presets.filter((p) => ids.includes(p.id) && p.text.trim());

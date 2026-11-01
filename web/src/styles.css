@@ -573,7 +573,9 @@ button {
 .lp-phone .phone-preset > span button { min-height: 44px; }
 .lp-phone .phone-preset > input { grid-column: 2; grid-row: 1; min-width: 0; }
 .lp-phone .phone-preset > textarea { grid-column: 2 / 4; grid-row: 2; min-width: 0; }
-.lp-phone .phone-preset > .iconbtn { grid-column: 3; grid-row: 1; }
+.lp-phone .phone-preset > .preset-availability { grid-column: 2 / 4; grid-row: 3; }
+.lp-phone .phone-preset > .preset-availability label { min-height: 44px; }
+.lp-phone .phone-preset > .preset-delete { grid-column: 3; grid-row: 1; }
 .lp-phone .phone-save-bar { flex-wrap: wrap; bottom: 8px; }
 .lp-phone .predraft-header { padding: 0 12px; }
 .lp-phone .predraft-header .phone-page-header { border: 0; padding-inline: 0; }

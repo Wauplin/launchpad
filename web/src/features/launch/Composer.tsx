@@ -31,6 +31,7 @@ import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/q
 import { costUnavailableMessage, supportsModelCost, parseUsd, usd, usesModelReference, useProfileModels, useProfiles } from "@/lib/profiles";
 import { ModelSearch } from "@/components/ModelSearch";
 import { findModel, pickModel, ProviderPicker } from "@/components/ProviderPicker";
+import { availablePresets } from "@/lib/presets";
 import { announceImplicitAdd, specProject, useScope } from "@/lib/workspace";
 import { useZoomScale } from "@/lib/zoom";
 import { rememberProjectCompletion, rememberedRun, rememberSuccessfulSession, useComposer } from "@/stores/composer";
@@ -312,7 +313,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const budgetValid = !supportsCost || parseUsd(budgetInput) !== undefined;
   const missingProfile = !!spec.profile && !profile;
   // The daemon renders and checks the prompt at launch; Launch does not wait for a preview.
-  const hasPrompt = !!spec.text.trim() || items > 0 || spec.presets.length > 0;
+  const agentPresets = availablePresets(config?.presets ?? [], "agent");
+  const hasPrompt = !!spec.text.trim() || items > 0 || agentPresets.some((p) => spec.presets.includes(p.id) && p.text.trim());
   // The host follows from the project: harnesses missing or signed out there cannot launch.
   const targetHost = hostOf(target?.path);
   const hostStatus = targetHost ? (hosts.find((h) => h.host.id === targetHost) ?? null) : null;
@@ -424,7 +426,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const runIn = spec.target.kind === "session_folder" ? (selectedWorktree ? `worktree · ${selectedWorktree.branch}` : "previous agent’s folder") : spec.target.kind === "predraft" ? "new Local PR" : spec.target.kind === "existing_predraft" ? "existing Local PR" : worktreeMode ? null : spec.target.kind === "project" && gitTarget ? "checkout" : null;
   const baseLabel = spec.worktree?.base ?? targetBranches.data?.current ?? "current branch";
   const billingText = !supportsCost && harness?.capabilities.cost ? costUnavailableMessage : payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${profile!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
-  const presetLabels = (config?.presets ?? []).filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
+  const presetLabels = agentPresets.filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
 
   return (
     <aside data-tour="composer" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${!embedded && isPhone ? "fixed! inset-0 z-50 w-full! pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" : ""} ${embedded ? "absolute inset-0 z-40 w-full!" : overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
@@ -721,7 +723,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           </OptionRow>}
           <OptionRow label="Presets" end={<button className="ml-1 font-normal text-teal-ink hover:underline" onClick={() => void navigate({ to: "/settings/presets" })}>Edit</button>}>
             <div className="flex flex-wrap gap-1.5">
-              {(config?.presets ?? []).map((p) => {
+              {agentPresets.map((p) => {
                 const on = spec.presets.includes(p.id);
                 return (
                   <button
@@ -735,7 +737,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                   </button>
                 );
               })}
-              {config?.presets.length === 0 && <span className="pt-1.5 text-xs text-ink-3">No preset.</span>}
+              {agentPresets.length === 0 && <span className="pt-1.5 text-xs text-ink-3">No preset.</span>}
             </div>
           </OptionRow>
           {!supportsCost && harness?.capabilities.cost && <OptionRow label="Cost management"><span className="text-xs text-attn">{costUnavailableMessage}</span></OptionRow>}

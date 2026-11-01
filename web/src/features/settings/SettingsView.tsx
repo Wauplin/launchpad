@@ -175,8 +175,8 @@ export function PresetsView() {
       tour="settings.presets"
       title="Presets"
       intro="Instructions added to prompts, in this order."
-      info="Every preset is offered in the composer, the session message box and Send later. Saved to config.toml, which you can also edit by hand."
-      actions={<><SaveMark state={state} error={error} /><button className="btn btn-sm" onClick={() => save([...presets, { id: `preset-${Date.now().toString(36)}`, label: "new preset", text: "" }])}><Icon name="plus" size={12} />New preset</button></>}
+      info="Choose where each preset is available: Ask Launchpad, agent composer / steering (including Send later), or both. Saved to config.toml, which you can also edit by hand."
+      actions={<><SaveMark state={state} error={error} /><button className="btn btn-sm" onClick={() => save([...presets, { id: `preset-${Date.now().toString(36)}`, label: "new preset", text: "", ask_launchpad: false, agent: true }])}><Icon name="plus" size={12} />New preset</button></>}
     >
       <ConfigError />
       <Card title={`${presets.length} preset${presets.length === 1 ? "" : "s"}`}>
@@ -189,7 +189,11 @@ export function PresetsView() {
             </span>
             <input className="field-input h-[30px] text-[13px] font-semibold" aria-label="Preset name" value={p.label} onChange={(e) => edit(i, { label: e.target.value })} onBlur={() => save(presets)} />
             <textarea rows={2} className="field-input h-auto min-h-[30px] resize-y py-1.5 text-[13px]" aria-label="Preset text" value={p.text} placeholder="The sentence added to the prompt" onChange={(e) => edit(i, { text: e.target.value })} onBlur={() => save(presets)} />
-            <ConfirmButton icon="trash" title="Delete preset" consequence="Delete this preset?" confirmLabel="Delete" onConfirm={() => save(presets.filter((_, j) => j !== i))}>{""}</ConfirmButton>
+            <div className="preset-availability col-start-2 col-end-4 flex flex-wrap gap-x-5 gap-y-1 text-[12px]">
+              <label className="flex min-h-8 items-center gap-2"><input type="checkbox" checked={p.ask_launchpad === true} onChange={(e) => save(presets.map((x, j) => j === i ? { ...x, ask_launchpad: e.target.checked } : x))} />Ask Launchpad</label>
+              <label className="flex min-h-8 items-center gap-2"><input type="checkbox" checked={p.agent !== false} onChange={(e) => save(presets.map((x, j) => j === i ? { ...x, agent: e.target.checked } : x))} />Agent composer / steering</label>
+            </div>
+            <div className="preset-delete col-start-4 row-start-1"><ConfirmButton icon="trash" title="Delete preset" consequence="Delete this preset?" confirmLabel="Delete" onConfirm={() => save(presets.filter((_, j) => j !== i))}>{""}</ConfirmButton></div>
           </div>
         ))}
       </Card>

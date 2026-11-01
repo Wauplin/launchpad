@@ -49,7 +49,8 @@ poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
 [trace_backup]
 enabled = false                     # Hugging Face trace sync
-bucket = "launchpad-traces"
+bucket = "launchpad"                  # <your account>/launchpad, shared with a Launchpad Space
+prefix = "traces"
 
 [agents]
 notify = true                       # desktop and Web Push notifications
@@ -57,6 +58,8 @@ notify = true                       # desktop and Web Push notifications
 [worktrees]
 keep = 15                           # clean task worktrees of idle agents kept on disk (0: keep all)
 ```
+
+Each `[[presets]]` entry has `id`, `label`, `text` and two independent availability flags: `ask_launchpad` (defaults to `false`) and `agent` (defaults to `true`). Enable either or both in Settings → Presets. Agent availability covers the composer, steering and Send later.
 
 The daemon watches the file and applies most changes live. Changes to `[server]` need a daemon restart.
 

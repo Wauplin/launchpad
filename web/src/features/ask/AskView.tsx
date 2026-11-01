@@ -23,6 +23,8 @@ import { useComposer } from "@/stores/composer";
 import { useWorkspace } from "@/stores/workspace";
 import { isWaiting, visibleProposals } from "./proposalState";
 import { ProposalCard, useProposalList } from "./ProposalCard";
+import { PresetButton, PresetChips, usePresets } from "@/features/agents/MessagePresets";
+import { withPresets } from "@/lib/presets";
 import { SessionPane } from "@/features/agents/SessionPane";
 import { PhoneActions } from "@/mobile/PhoneHeader";
 import { ATTACH_LIMITS, AttachmentList, useMessageAttachments } from "@/features/agents/MessageAttachments";
@@ -97,6 +99,9 @@ const EXAMPLES = ["What needs me?", "Review the PRs waiting for me", "Summarize 
 
 function AskField({ onSend, busy, autoFocus, phone }: { onSend: (text: string, attachments: FileAttachment[]) => Promise<boolean>; busy: boolean; autoFocus?: boolean; phone?: boolean }) {
   const [text, setText] = useState("");
+  const [presets, setPresets] = useState<string[]>([]);
+  const allPresets = usePresets("ask_launchpad");
+  const message = withPresets(text, presets, allPresets);
   // The profile the next thread starts with decides whether images can be attached.
   const images = useHarnessInfo(useAssistant().current?.harness ?? null)?.capabilities.images ?? true;
   const attachments = useMessageAttachments(images);
@@ -105,8 +110,8 @@ function AskField({ onSend, busy, autoFocus, phone }: { onSend: (text: string, a
   const [dragging, setDragging] = useState(false);
   const blocked = busy || reading;
   const send = async () => {
-    if (blocked || (!text.trim() && !files.length)) return;
-    if (await onSend(text.trim(), files)) { setText(""); attachments.clear(); }
+    if (blocked || (!message && !files.length)) return;
+    if (await onSend(message, files)) { setText(""); setPresets([]); attachments.clear(); }
   };
   return (<>
     {phone && <div className="flex flex-wrap gap-1.5">{EXAMPLES.map((x) => <button key={x} className="btn btn-sm" disabled={busy} onClick={() => setText(x)}>{x}</button>)}</div>}
@@ -119,14 +124,16 @@ function AskField({ onSend, busy, autoFocus, phone }: { onSend: (text: string, a
       <input ref={fileRef} type="file" multiple hidden onChange={(e) => { void attachments.add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
       <AttachmentList files={files} disabled={blocked} onRemove={attachments.remove} />
       {reading && <div className="mb-1 text-[12px] text-ink-3">Reading attachments…</div>}
+      <PresetChips surface="ask_launchpad" selected={presets} onChange={setPresets} disabled={blocked} className="mb-1.5" />
       <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
         <textarea autoFocus={autoFocus} rows={2} value={text} disabled={blocked} aria-label="Ask Launchpad" placeholder={phone ? "Ask or describe work…" : "Ask or describe work… e.g. “Fix the flaky snapshot test in hub”, “Review the PRs waiting for me”, “What needs me?”"}
           onChange={(e) => setText(e.target.value)}
           onPaste={(e) => { if (!images || blocked || attachments.readingRef.current) return; const pasted = pastedImages(e); if (pasted) void attachments.add(pasted); }}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}
           className="max-h-40 min-h-10 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none" />
+        <PresetButton surface="ask_launchpad" selected={presets} onChange={setPresets} disabled={blocked} />
         <button className="iconbtn" title={`Attach files or images (you can also drop files${images ? " or paste a screenshot" : ""}). ${ATTACH_LIMITS}`} aria-label="Attach files or images" disabled={blocked} onClick={() => fileRef.current?.click()}><Icon name="clip" size={14} /></button>
-        <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={blocked || (!text.trim() && !files.length)} onClick={() => void send()}><Icon name="send" size={14} /></button>
+        <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={blocked || (!message && !files.length)} onClick={() => void send()}><Icon name="send" size={14} /></button>
       </div>
     </div>
   </>);

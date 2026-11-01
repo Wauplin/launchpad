@@ -6,7 +6,7 @@ The browser shell (gateway/shell.*) reads `GET /_space/status` and drives everyt
   template   the public duplicate template: offer Duplicate, run nothing
   token      no Space sign-in yet, or it expired: sign in with `hf auth login` (saved as a Space Secret)
   blocked    the Space or bucket failed the startup policy; only Hub can fix it
-  backups    bucket and/or encryption key missing: one click creates both and restarts
+  backups    bucket, encryption key or projects volume missing: one click creates them and restarts
   starting   checks passed, data is being restored and Launchpad is starting
   connect    Launchpad runs but no agent profile exists yet: connect a first agent
   ready      normal use: the app in an iframe under a slim status bar
@@ -15,12 +15,14 @@ The browser shell (gateway/shell.*) reads `GET /_space/status` and drives everyt
 """
 import asyncio
 import base64
+import contextlib
 import hmac
 import json
 import os
 import secrets
 import shutil
 import signal
+import subprocess
 import time
 import traceback
 import uuid
@@ -32,13 +34,13 @@ from aiohttp import web
 from huggingface_hub import HfApi
 from huggingface_hub.errors import DeviceCodeError
 
-from backup.store import Bucket, safe_name
+from backup.store import MANIFEST, VOLUME, Bucket, safe_name
 from backup.worker import Recovery
 from gateway.proxy import Proxy
 from providers.setup import HARNESSES, SPACE_LOGIN, Logins, profile_login, public_details, ssh_key
 from supervisor.management import SECRET, Management
 from supervisor.policy import Deployment, MissingBucket, Unverified, verify
-from supervisor.processes import CONTROL, HOME, prepare, spawn
+from supervisor.processes import CONTROL, HOME, PROJECTS, demote, environment, prepare, spawn
 from supervisor.runtime import Runtime, watch_daemon
 from vault.codec import Vault
 
@@ -57,6 +59,25 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
        "frame-src 'self'; frame-ancestors 'self' https://huggingface.co; object-src 'none'; base-uri 'none'")
 
 
+def projects_volume(api, deployment):
+    """The Space volume that keeps ~/projects live in the bucket's `projects/` folder, beside the owner's others."""
+    from huggingface_hub import Volume
+    volumes = [v for v in (api.get_space_runtime(deployment.space).volumes or []) if v.mount_path != str(PROJECTS)]
+    return volumes + [Volume(type='bucket', source=deployment.bucket, mount_path=str(PROJECTS), path=VOLUME)]
+
+
+def volume_configured(api, deployment):
+    return any(v.type == 'bucket' and v.mount_path == str(PROJECTS) and v.source.lower() == deployment.bucket.lower()
+               and (v.path or '').strip('/') == VOLUME for v in api.get_space_runtime(deployment.space).volumes or [])
+
+
+def projects_writable():
+    probe = f'.lp-write-check-{uuid.uuid4().hex}'
+    result = subprocess.run(['sh', '-c', 'touch "$1" && rm -f "$1"', 'sh', probe], cwd=PROJECTS, env=environment(),
+                            preexec_fn=demote, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+    return result.returncode == 0
+
+
 def human(error):
     """Short, owner-readable text for Hub errors; never echo request IDs or tokens."""
     response = getattr(error, 'response', None)
@@ -71,7 +92,8 @@ def human(error):
 
 
 async def serve():
-    deployment = Deployment(os.environ['SPACE_ID'], os.environ.get('LP_SPACE_BUCKET', os.environ['SPACE_ID']),
+    # `<namespace>/launchpad` is also the default trace bucket of Launchpad elsewhere: one bucket, `traces/` shared.
+    deployment = Deployment(os.environ['SPACE_ID'], os.environ.get('LP_SPACE_BUCKET', os.environ['SPACE_ID'].split('/')[0] + '/launchpad'),
                             'https://' + os.environ['SPACE_HOST'])
     management = Management(deployment.space, os.environ.get(SECRET, ''))
     pending = None  # A finished Space sign-in waiting for Save and continue.
@@ -80,7 +102,9 @@ async def serve():
         'space': {'id': deployment.space, 'url': f'https://huggingface.co/spaces/{deployment.space}',
                   'settings': f'https://huggingface.co/spaces/{deployment.space}/settings'},
         'bucket': {'id': deployment.bucket, 'url': f'https://huggingface.co/buckets/{deployment.bucket}'},
-        'policy': None, 'needs_key': False, 'needs_bucket': False, 'release': {}, 'update': None, 'signed_in_as': None,
+        'policy': None, 'needs_key': False, 'needs_bucket': False, 'needs_volume': False, 'release': {}, 'update': None, 'signed_in_as': None,
+        # Repositories cloned from Space settings, one at a time in the background.
+        'clones': {'running': False, 'current': None, 'queue': [], 'done': [], 'failed': []},
     }
     runtime = Runtime(deployment)
     proxy = Proxy(deployment.origin, '')
@@ -93,19 +117,43 @@ async def serve():
     # requests never wait for each other (a slow clone must not block Stop).
     inflight = {'count': 0, 'idle': asyncio.Event()}
     inflight['idle'].set()
+    background = set()  # Strong references to fire-and-forget tasks.
 
     async def drain():
         await inflight['idle'].wait()
 
-    async def forward(request):
+    @contextlib.asynccontextmanager
+    async def mutation():
         inflight['count'] += 1
         inflight['idle'].clear()
         try:
-            return await proxy.handle(request)
+            yield
         finally:
             inflight['count'] -= 1
             if not inflight['count']:
                 inflight['idle'].set()
+
+    async def forward(request):
+        async with mutation():
+            return await proxy.handle(request)
+
+    async def clone_all():
+        """Clones the queued repositories into ~/projects through Launchpad, which registers each as a folder."""
+        clones = state['clones']
+        async with mutation():
+            try:
+                while clones['queue']:
+                    repo = clones['current'] = clones['queue'].pop(0)
+                    try:
+                        project = await runtime.api('POST', '/api/projects/clone', {'repo': repo}, timeout=16 * 60, detail=True)
+                        clones['done'].append({'repo': repo, 'path': project.get('path')})
+                    except ValueError as error:
+                        clones['failed'].append({'repo': repo, 'error': str(error)})
+                    except Exception:
+                        clones['failed'].append({'repo': repo, 'error': 'Launchpad did not answer. Check Folders in Launchpad before trying again.'})
+            finally:
+                clones['current'] = None
+                clones['running'] = False
 
     def stage(name, message):
         state['stage'], state['message'] = name, message
@@ -179,30 +227,40 @@ async def serve():
                 state['needs_key'] = True
                 stage('backups', 'Create the encrypted backup for your workspace.')
                 return
+            if not os.path.ismount(PROJECTS):
+                if await asyncio.to_thread(volume_configured, HfApi(token=management.token), deployment):
+                    stage('error', 'The projects volume is set in Space settings but is not mounted. Check the Space volumes on the Hub, then restart.')
+                    return
+                state['needs_volume'] = True
+                stage('backups', 'Keep your projects live in the backup bucket.')
+                return
+            if not await asyncio.to_thread(projects_writable):
+                stage('error', 'The agent user cannot write to the projects volume. Check the Space volumes on the Hub, then restart.')
+                return
             stage('starting', 'Restoring your workspace from the backup bucket.')
             control_env = {'HOME': str(CONTROL), 'PATH': '/usr/local/bin:/usr/bin:/bin', 'HF_TOKEN': management.token, 'LANG': 'C.UTF-8'}
             management.listeners.append(lambda value: control_env.update(HF_TOKEN=value))
             bucket = Bucket(deployment.bucket, control_env)
             vault = Vault(key, str(uuid.uuid4()))
-            from vault.rotate import recover_rotation
-            await recover_rotation(bucket, vault)
+            from vault.rotate import finish_rotation
+            await finish_rotation(bucket, vault)
             schema = json.loads((ROOT / 'schema.json').read_text())['state_schema']
             recovery = Recovery(bucket, vault, schema, release, vault.installation)
-            generation = os.environ.get('LP_SPACE_RESTORE_GENERATION') or None
-            restore_request = os.environ.get('LP_SPACE_RESTORE_REQUEST', generation)
+            checkpoint = os.environ.get('LP_SPACE_RESTORE_CHECKPOINT') or None
+            restore_request = os.environ.get('LP_SPACE_RESTORE_REQUEST', checkpoint)
             if restore_request:
                 safe_name(restore_request)
                 if '/' in restore_request:
                     raise ValueError('Invalid restore request')
-                if await asyncio.to_thread(bucket.exists, f'backups/restores/{restore_request}.json'):
-                    generation = None
-            await recovery.recover(generation)
-            if generation:
+                if await asyncio.to_thread(bucket.exists, f'space/restores/{restore_request}.json'):
+                    checkpoint = None
+            await recovery.recover(checkpoint)
+            if checkpoint:
                 # Acknowledge the one-shot restore right away and make it the latest checkpoint, so a later
                 # restart neither repeats it nor restores newer (migrated) data on this older image.
-                await asyncio.to_thread(bucket.put, 'backups/latest.json', json.dumps({'generation': generation}).encode())
-                await asyncio.to_thread(bucket.put, f'backups/restores/{restore_request}.json',
-                                        json.dumps({'generation': generation, 'restored_at': time.time()}).encode())
+                await asyncio.to_thread(bucket.put, MANIFEST, json.dumps(recovery.manifest, sort_keys=True).encode())
+                await asyncio.to_thread(bucket.put, f'space/restores/{restore_request}.json',
+                                        json.dumps({'checkpoint': checkpoint, 'restored_at': time.time()}).encode())
             from supervisor.updates import Updates
             updater = Updates(deployment, management.token, runtime, recovery, release)
             management.listeners.append(lambda value: setattr(updater.api, 'token', value))
@@ -228,6 +286,12 @@ async def serve():
             state['started_at'] = time.time()
             worker = asyncio.create_task(recovery.run())
             updater.task = asyncio.create_task(updater.watch())
+            try:
+                await updater.finish(runtime)
+            except Exception:
+                # The claim or the bucket failed: report it, never retry resumes on another boot.
+                traceback.print_exc()
+                updater.result = {'outcome': 'unknown', 'error': 'Could not read the last update record. Check stopped agents in Launchpad and resume them.'}
         except MissingBucket:
             state['needs_bucket'] = True
             state['needs_key'] = not os.environ.get('LP_SPACE_BACKUP_KEY')
@@ -279,6 +343,59 @@ async def serve():
                     maintenance=runtime.maintenance, update=updater.status() if updater else None)
         return web.json_response(data)
 
+    async def update(image, agents):
+        """Owner-confirmed update: stop running agents, save a verified checkpoint, commit the new image.
+
+        The new boot resumes `agents` (see Updates.finish). If anything fails before the commit, Launchpad
+        restarts on the current version and the same agents resume right away.
+        """
+        from supervisor.updates import UncertainMaintenance, resume_agents, stop_agents
+        async with actions:
+            def step(name):
+                updater.progress = {'step': name, 'agents': agents, 'to': updater.candidate and updater.candidate['launchpad']}
+            try:
+                step('stopping')
+                await drain()
+                await stop_agents(runtime, [a['id'] for a in agents])
+                step('saving')
+                recovery.paused = True
+                async with recovery.lock:
+                    pass
+                await runtime.close()
+                checkpoint = await recovery.checkpoint(clean=True)
+                step('updating')
+                await updater.apply(checkpoint, image, agents)
+            except Exception as error:
+                if not isinstance(error, ValueError):
+                    traceback.print_exc()
+                message = str(error) if isinstance(error, ValueError) else human(error)
+                updater.progress = None
+                if runtime.process is None and isinstance(error, UncertainMaintenance):
+                    # The image may or may not change: keep everything stopped; the next boot resumes the agents.
+                    stage('error', message)
+                    return
+                result = {'outcome': 'failed', 'error': message, 'at': time.time(), 'resumed': [], 'finished': [], 'failed': [], 'pending': agents}
+                updater.result = result
+                recovery.paused = False
+                try:
+                    if runtime.process is None:
+                        await runtime.start()
+                    proxy.token = runtime.token
+                except Exception:
+                    traceback.print_exc()
+                    await runtime.close()
+                    result.update(pending=[], failed=[dict(a, error='Launchpad did not restart') for a in agents])
+                    stage('stopped', f'The update failed ({message}) and Launchpad could not restart. Restart it, then resume the stopped agents.')
+                    return
+                finally:
+                    runtime.maintenance = False
+                result.update(await resume_agents(runtime, agents), pending=[])
+                return
+            updater.progress = dict(updater.progress, step='restarting')
+            count = len(agents)
+            stage('restarting', 'Backup verified. Your Space is rebuilding with the new version.'
+                  + (f' {count} stopped agent{"s" if count != 1 else ""} will resume automatically.' if count else ''))
+
     async def connections(request):
         """One row per thing the owner can connect, computed from Launchpad's own sign-in checks."""
         if not state['ready']:
@@ -316,7 +433,7 @@ async def serve():
         return socket
 
     async def bootstrap():
-        """One click: save the Space sign-in, create the bucket and the key, then restart once."""
+        """One click: save the Space sign-in, create the bucket, the key and the projects volume, then restart once."""
         signed = pending if state['stage'] == 'token' else management
         if not signed or not signed.token:
             raise ValueError('Sign in with Hugging Face first')
@@ -340,6 +457,8 @@ async def serve():
                 key = base64.b64encode(os.urandom(32)).decode()
                 await asyncio.to_thread(api.add_space_secret, deployment.space, 'LP_SPACE_BACKUP_KEY', key,
                                         description='Launchpad credential encryption key. Never share or reuse it.')
+            if not os.path.ismount(PROJECTS):
+                await asyncio.to_thread(api.set_space_volumes, deployment.space, await asyncio.to_thread(projects_volume, api, deployment))
             if signed is pending:
                 await signed.save()
             await asyncio.to_thread(api.restart_space, deployment.space)
@@ -430,6 +549,22 @@ async def serve():
                     raise ValueError('Connect GitHub first, then try again')
                 await recovery.credentials()
                 return web.json_response({'message': 'Git now uses your GitHub sign-in for HTTPS.'})
+            elif kind == 'repositories':
+                suggestions = await runtime.api('POST', '/api/projects/clone/suggestions', {})
+                return web.json_response({'repositories': suggestions[:50]})
+            elif kind == 'clone':
+                repos = body.get('repos')
+                if (not isinstance(repos, list) or not 1 <= len(repos) <= 20
+                        or not all(isinstance(r, str) and 0 < len(r.strip()) <= 200 for r in repos)):
+                    raise ValueError('Choose up to 20 repositories to clone')
+                clones = state['clones']
+                if clones['running']:
+                    raise ValueError('Wait for the current clones to finish')
+                clones.update(running=True, queue=list(dict.fromkeys(r.strip() for r in repos)), done=[], failed=[])
+                task = asyncio.create_task(clone_all())
+                background.add(task)
+                task.add_done_callback(background.discard)
+                return web.json_response({'message': 'Cloning started. Folders appear in Launchpad as each clone finishes.'})
             elif kind == 'check-updates':
                 await updater.check()
             elif kind == 'backup':
@@ -438,11 +573,39 @@ async def serve():
             elif kind == 'reconnect':
                 recovery.reconnect = False
                 await recovery.checkpoint()
-            elif kind in ('restart', 'prepare-update', 'rollback', 'rotate-key'):
+            elif kind == 'dismiss-update':
+                if updater.result and updater.result.get('pending'):
+                    raise ValueError('Wait until the agents have resumed')
+                updater.result = None
+            elif kind == 'update-plan':
+                from supervisor.updates import plan
+                return web.json_response(await plan(runtime))
+            elif kind == 'prepare-update':
+                from supervisor.updates import plan
+                if body.get('confirmed') is not True:
+                    raise ValueError('Confirm the update first')
+                if not updater.candidate or body.get('image') != updater.candidate['image']:
+                    raise ValueError('The available release changed. Review the new candidate before updating.')
+                if logins.status()['running']:
+                    raise ValueError('Finish or cancel the current sign-in first')
+                if state['clones']['running']:
+                    raise ValueError('Wait for the repositories to finish cloning first')
+                current = await plan(runtime)
+                if current['blockers']:
+                    raise ValueError(current['blockers'][0])
+                # Block new proxied mutations now; the update itself runs in the background and reports progress.
+                runtime.maintenance = True
+                updater.result = None
+                updater.progress = {'step': 'stopping', 'agents': current['running'], 'to': updater.candidate['launchpad']}
+                updater.run = asyncio.create_task(update(body['image'], current['running']))
+                return web.json_response({'message': 'Updating. Follow the progress in Space settings.'})
+            elif kind in ('restart', 'rollback', 'rotate-key'):
                 if body.get('confirmed') is not True:
                     raise ValueError('Confirm this action first')
                 if logins.status()['running']:
                     raise ValueError('Finish or cancel the current sign-in first')
+                if state['clones']['running']:
+                    raise ValueError('Wait for the repositories to finish cloning first')
                 runtime.maintenance = True
                 try:
                     await drain()
@@ -452,13 +615,11 @@ async def serve():
                     async with recovery.lock:
                         pass
                     await runtime.close()
-                    checkpoint = await recovery.checkpoint(clean=True)
+                    await recovery.checkpoint(clean=True)
                     if kind == 'rotate-key':
                         from vault.rotate import rotate
                         await rotate(recovery, HfApi(token=management.token), deployment.space)
                         await asyncio.to_thread(HfApi(token=management.token).restart_space, deployment.space)
-                    elif kind == 'prepare-update':
-                        await updater.apply(checkpoint, body.get('image'))
                     elif kind == 'rollback':
                         await updater.rollback(True)
                     else:

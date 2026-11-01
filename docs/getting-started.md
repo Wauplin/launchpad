@@ -80,7 +80,7 @@ See [Profiles](agents.md#profiles) for the details.
 
 ### Add a folder
 
-Click **+ Add folder** in the sidebar. You can browse any folder on this computer or an SSH host, or **Clone from GitHub** into the folders root (`~/projects` by default).
+Click **+ Add folder** in the sidebar. You can browse any folder on this computer or an SSH host, or **Clone from GitHub** into the folders root (`~/projects` by default). Clone suggestions list repositories with recent GitHub notifications first, then your recently pushed repositories.
 
 ### Launch your first agent
 
