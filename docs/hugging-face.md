@@ -30,7 +30,7 @@ hf://buckets/<namespace>/<bucket>/<prefix>/<folder name>/<YYYYMMDD_HHMM>_<sessio
 - Disabling sync or archiving a session never deletes remote data.
 - Traces can contain sensitive data: prompts, tool output and file paths. Keep the bucket private.
 
-**Sync between machines**: instances that use the same bucket and prefix import each other's traces for folders with the same name. Imported sessions appear as **Synced trace** in Agents. They are read-only: use **New agent here** or **Use trace as context** to continue the work locally. Credentials, profiles, settings and worktrees are never synced.
+**Sync between machines**: instances that use the same bucket and prefix import each other's traces for folders with the same name. Imported sessions appear in **Synced traces** below **Archived** in Agents, collapsed by default and revealed by search. They are read-only: use **New agent here** or **Use trace as context** to continue the work locally. Credentials, profiles, settings and worktrees are never synced.
 
 ## Run Launchpad in a Space
 

@@ -33,7 +33,7 @@ Launchpad is a desktop app to launch, follow and review coding agents (Claude Co
 | **Terminals and files** | Integrated terminals for shells and harness TUIs, and a read-only file viewer with syntax colors. [Read more](docs/agents.md#terminals-and-files) |
 | **Phone and remote access** | Pair a phone with a QR code, use it over Tailscale, get Web Push notifications. [Read more](docs/remote-access.md) |
 | **SSH hosts** | Run agents and terminals on other machines over SSH. [Read more](docs/ssh-hosts.md) |
-| **Hugging Face** | Run Launchpad in a private Hugging Face Space, and sync agent traces to a Hugging Face bucket. [Read more](docs/hugging-face.md) |
+| **Hugging Face** | Run Launchpad in a private Hugging Face Space, and sync agent traces to a Hugging Face bucket. Read-only synced traces have their own searchable group below Archived. [Read more](docs/hugging-face.md) |
 | **Chrome extension** | Give an agent the browser tabs you choose. [Read more](extension/README.md) |
 
 ## Getting started
