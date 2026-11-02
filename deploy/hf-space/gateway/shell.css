@@ -161,6 +161,15 @@ body.bar-collapsed #app { height: 100dvh; }
 .chip.work::before { background: var(--work); }
 #app { display: block; width: 100%; height: calc(100dvh - 24px); border: 0; background: var(--board); }
 
+/* Hub mini header (shell.js applyHubPill): keep controls out of the top-right corner it covers. */
+body.hub-pill .bar { padding-right: var(--hub-pill-width); }
+body.hub-pill-tall .bar { height: 64px; align-items: flex-start; padding-top: 6px; }
+body.hub-pill-tall #app, body.hub-pill-tall.bar-collapsed #app { height: calc(100dvh - 64px); }
+body.hub-pill-tall.bar-collapsed .bar { display: flex; }
+body.hub-pill-tall .bar-fold, body.hub-pill-tall .bar-tab { display: none; }
+body.hub-pill .panel { inset: 64px 0 0 auto; height: calc(100dvh - 64px); max-height: calc(100dvh - 64px); border-top: 1px solid var(--line-2); border-top-left-radius: 12px; }
+body.hub-pill .setup { padding-top: max(7vh, calc(72px / var(--zoom, 1.2))); }
+
 /* Setup page */
 .setup, .panel-body, .panel-head { zoom: var(--zoom, 1.2); }
 .setup { min-height: calc(100dvh / var(--zoom, 1.2)); display: flex; justify-content: center; padding: 7vh 20px 48px; }

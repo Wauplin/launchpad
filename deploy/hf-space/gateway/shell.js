@@ -243,6 +243,7 @@ function render() {
   document.body.classList.toggle("bar-collapsed", showApp && barCollapsed);
   $("app").hidden = !showApp;
   $("setup").hidden = showApp;
+  applyHubPill();
   if (showApp) {
     renderBar();
     if (!routeLoaded) {
@@ -264,6 +265,37 @@ function setBarCollapsed(value) {
   render();
 }
 $("bar-fold").addEventListener("click", () => setBarCollapsed(true));
+
+// ---------- Hub mini header ----------
+
+// With `header: mini`, the Hub page draws a pill (Space name, menu) over the top-right corner of this page:
+// fixed 20 px from the top and 24 px from the right, 40 px tall, hidden below 640 px. We cannot move it, so we keep
+// our controls and the app's top bar buttons out of that corner. Its width follows the Space name.
+const PILL_BOTTOM = 64;
+const embedded = window.parent !== window;
+const pillQuery = matchMedia("(min-width: 640px)");
+const phoneQuery = matchMedia("(max-width: 719px)");
+
+function applyHubPill() {
+  const on = embedded && pillQuery.matches;
+  // The phone layout of the app (below 720 px) has no host inset support: give it a taller bar instead.
+  const tall = on && phoneQuery.matches;
+  const width = on ? Math.round(36 + 150 + 9.5 * (state?.space?.id || "namespace/launchpad").length) : 0;
+  document.body.classList.toggle("hub-pill", on);
+  document.body.classList.toggle("hub-pill-tall", tall);
+  document.documentElement.style.setProperty("--hub-pill-width", `${width}px`);
+  try {
+    const root = $("app").contentDocument?.documentElement;
+    if (!root) return;
+    const inset = on && !tall;
+    root.style.setProperty("--lp-host-inset-right", inset ? `${width}px` : "0px");
+    // The app starts below the 24 px bar unless it is folded.
+    root.style.setProperty("--lp-host-inset-top", inset ? `${barCollapsed ? PILL_BOTTOM : PILL_BOTTOM - 24}px` : "0px");
+  } catch { /* Cross-origin pages are not ours. */ }
+}
+pillQuery.addEventListener("change", applyHubPill);
+phoneQuery.addEventListener("change", applyHubPill);
+$("app").addEventListener("load", applyHubPill);
 $("bar-tab").addEventListener("click", () => setBarCollapsed(false));
 
 function renderBar() {

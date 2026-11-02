@@ -62,6 +62,13 @@ function Crumbs({ list }: { list: Crumb[] }) {
   );
 }
 
+/** An embedding host (the Hugging Face Space shell) can cover the top-right corner of the page with its own UI. It sets
+ * `--lp-host-inset-right` and `--lp-host-inset-top` (unzoomed pixels) on the root element; the bar keeps its buttons out of that area. */
+const HOST_INSET = {
+  paddingRight: "max(10px, calc(var(--lp-host-inset-right, 0px) / var(--lp-zoom, 1)))",
+  minHeight: "max(46px, calc(var(--lp-host-inset-top, 0px) / var(--lp-zoom, 1)))",
+};
+
 export function TopBar() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const projects = useProjects().data ?? [];
@@ -71,7 +78,7 @@ export function TopBar() {
   const gh = path.match(/^\/github\/([^/]+)\/([^/]+)\/(\d+)/);
   const predraftId = path.match(/^\/predrafts\/([^/]+)/)?.[1];
   return (
-    <header className="flex min-h-[46px] flex-none flex-wrap items-center gap-x-3.5 gap-y-1.5 border-b border-line bg-chrome py-1.5 pr-2.5 pl-3.5">
+    <header className="flex flex-none flex-wrap items-center gap-x-3.5 gap-y-1.5 border-b border-line bg-chrome py-1.5 pl-3.5" style={HOST_INSET}>
       <div className="flex shrink-0 items-center gap-2 font-bold tracking-[0.01em]">
         <img src={logo} alt="" className="size-[22px]" />
         Launchpad
