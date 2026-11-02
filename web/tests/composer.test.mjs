@@ -11,10 +11,10 @@ const { emptySpec, rememberProjectDefaults, rememberProjectCompletion, useCompos
 const { api } = await import("../src/lib/api.ts");
 api.put = async () => ({ revision: 1 });
 const draft = () => useComposer.getState();
-const merge = () => draft().spec.worktree?.merge_when_done;
+const merge = () => { const w = draft().spec.worktree; return w ? w.when_done === "merge" : undefined; };
 
 test("new drafts and project switches use separate defaults; context additions preserve unsent choices", () => {
-  rememberProjectDefaults([{ id: "review", merge_when_done: false }, { id: "merge", merge_when_done: true }]);
+  rememberProjectDefaults([{ id: "review", when_done: "keep" }, { id: "merge", when_done: "merge" }]);
   useComposer.setState({ spec: emptySpec(), open: false });
   draft().start({ projectId: "merge" });
   assert.equal(merge(), true);
@@ -22,10 +22,10 @@ test("new drafts and project switches use separate defaults; context additions p
   assert.equal(merge(), false);
   draft().update((s) => ({ ...s, target: { kind: "project", project_id: "merge" } }));
   assert.equal(merge(), true);
-  draft().update((s) => ({ ...s, worktree: { ...s.worktree, merge_when_done: false } }));
+  draft().update((s) => ({ ...s, worktree: { ...s.worktree, when_done: "keep" } }));
   draft().start({ projectId: "merge", githubRefs: [] });
   assert.equal(merge(), false);
-  rememberProjectCompletion("merge", false);
+  rememberProjectCompletion("merge", "keep");
   draft().discard();
   draft().start({ projectId: "merge" });
   assert.equal(merge(), false);
@@ -35,7 +35,7 @@ test("new drafts and project switches use separate defaults; context additions p
 
 test("restored drafts keep their choice, and newly enabled worktrees use the project default", async () => {
   const saved = { ...emptySpec(), target: { kind: "project", project_id: "merge" } };
-  api.get = async (path) => path === "/api/projects" ? [{ id: "merge", merge_when_done: true }] : path === "/api/sessions" ? [] : { spec: saved, open: true };
+  api.get = async (path) => path === "/api/projects" ? [{ id: "merge", when_done: "merge" }] : path === "/api/sessions" ? [] : { spec: saved, open: true };
   await draft().loadNewer();
   await draft().restore();
   assert.equal(merge(), false);
@@ -44,7 +44,7 @@ test("restored drafts keep their choice, and newly enabled worktrees use the pro
   draft().update((s) => ({ ...s, worktree: null }));
   draft().update((s) => ({ ...s, worktree: emptySpec().worktree }));
   assert.equal(merge(), true);
-  draft().update((s) => ({ ...s, target: { kind: "predraft", project_id: "merge" }, worktree: { ...s.worktree, merge_when_done: false } }));
+  draft().update((s) => ({ ...s, target: { kind: "predraft", project_id: "merge" }, worktree: { ...s.worktree, when_done: "keep" } }));
   assert.equal(merge(), false);
 });
 

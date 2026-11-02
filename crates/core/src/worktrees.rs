@@ -495,7 +495,7 @@ pub async fn join(app: &App, source_session: &str, session_id: &str) -> Result<V
 }
 
 /// Launch instructions: where to work, and how the task ends. Overrides checkout workflow rules only.
-pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, String)], projects: &[Project], merge_when_done: bool, changes_copied: bool) -> String {
+pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, String)], projects: &[Project], when_done: crate::model::WhenDone, changes_copied: bool) -> String {
     let cli = worktrees.first().map(|(w, _)| app.cli_command_in(&w.root)).unwrap_or_else(|| app.paths.cli_command());
     let name = |id: &str| projects.iter().find(|p| p.id == id).map(|p| p.name.clone()).unwrap_or_else(|| "project".into());
     let mut text = String::from(
@@ -532,7 +532,11 @@ pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, Stri
     let base = if bases.is_empty() { "its base branch".to_string() } else { bases.join(", ") };
     if pr.is_some() {
         text.push_str("\nThe pull request on GitHub is the review: Launchpad does not merge this branch locally.");
-    } else if merge_when_done {
+    } else if when_done == crate::model::WhenDone::LocalPr {
+        text.push_str(&format!(
+            "\nWhen the task is done and checked, commit everything, then run `{cli} work finish --session-id {session_id}`. Launchpad turns your worktree into a Local PR (same folder and branch) for the owner to review; then set its title and description as the command output explains. Do not merge into {base}, push or open a pull request on GitHub yourself."
+        ));
+    } else if when_done == crate::model::WhenDone::Merge {
         text.push_str(&format!(
             "\nWhen the task is done and checked, commit everything, then run `{cli} work finish --session-id {session_id}`. Launchpad merges your branches into {base} after your turn ends, as soon as the target checkout is clean. Do not merge yourself, and report the merge as requested, not as done. If Launchpad later reports a conflict, rebase onto the target branch in your worktree, resolve it, re-run your checks, commit, and run the finish command again."
         ));
@@ -947,17 +951,18 @@ pub async fn request_merge(app: &App, id: &str, by_agent: bool) -> Result<TaskWo
     Ok(w)
 }
 
-/// `launchpad work finish`: requests the merge of every worktree of the session.
+/// `launchpad work finish`: requests the merge of every worktree of the session, or turns the
+/// primary worktree into a Local PR when the launch chose it.
 pub async fn finish(app: &App, session_id: &str) -> Result<String> {
+    let when_done = app.sessions.get(session_id).and_then(|s| s.launch_spec.worktree).map(|o| o.when_done).unwrap_or_default();
+    if when_done == crate::model::WhenDone::LocalPr {
+        return finish_local_pr(app, session_id).await;
+    }
     let all = for_session(app, session_id).await?;
     let records: Vec<_> = all.into_iter().filter(|w| w.state == WorktreeState::Active && w.base_branch.is_some()).collect();
     ensure!(!records.is_empty(), "this session has no Launchpad worktree to merge");
     for w in &records {
-        let dirty = dirty_files(app, &w.root).await?;
-        ensure!(dirty.is_empty(), "{} has uncommitted changes ({}); commit or remove them, then run finish again", w.root, dirty.iter().take(5).cloned().collect::<Vec<_>>().join(", "));
-        ensure!(!operation_in_progress(app, &w.root).await, "{}: finish the Git operation in progress first", w.root);
-        let branch = git(app, &w.root, &["branch", "--show-current"]).await?;
-        ensure!(branch == w.branch, "{} must stay on branch {} (it is on {branch:?})", w.root, w.branch);
+        ready_to_finish(app, w).await?;
     }
     let mut lines = vec![];
     for w in &records {
@@ -968,6 +973,33 @@ pub async fn finish(app: &App, session_id: &str) -> Result<String> {
         "Merge requested:\n{}\nLaunchpad merges after your turn ends, when the target checkout is clean. End your turn now and report the merge as requested, not as done. Do not merge yourself.",
         lines.join("\n")
     ))
+}
+
+async fn ready_to_finish(app: &App, w: &TaskWorktree) -> Result<()> {
+    let dirty = dirty_files(app, &w.root).await?;
+    ensure!(dirty.is_empty(), "{} has uncommitted changes ({}); commit or remove them, then run finish again", w.root, dirty.iter().take(5).cloned().collect::<Vec<_>>().join(", "));
+    ensure!(!operation_in_progress(app, &w.root).await, "{}: finish the Git operation in progress first", w.root);
+    let branch = git(app, &w.root, &["branch", "--show-current"]).await?;
+    ensure!(branch == w.branch, "{} must stay on branch {} (it is on {branch:?})", w.root, w.branch);
+    Ok(())
+}
+
+/// Turns the session's primary worktree into a Local PR. Idempotent: a second call returns the same Local PR.
+async fn finish_local_pr(app: &App, session_id: &str) -> Result<String> {
+    let all = for_session(app, session_id).await?;
+    let w = all.iter().find(|w| w.primary && matches!(w.state, WorktreeState::Active | WorktreeState::Predraft)).context("this session has no Launchpad worktree to turn into a Local PR")?;
+    ready_to_finish(app, w).await?;
+    let title = app.sessions.get(session_id).map(|s| s.title).filter(|t| !t.trim().is_empty());
+    let p = crate::predrafts::create(app, crate::predrafts::Create { cwd: Some(w.root.clone()), title, ..Default::default() }).await?;
+    let others: Vec<String> = all.iter().filter(|o| !o.primary && o.state == WorktreeState::Active).map(|o| format!("`{}`", o.branch)).collect();
+    let mut text = format!(
+        "Local PR opened from branch `{}` (id {}), based on `{}`. Now set its title and description: write the description to a file, then run `{} pr update --title \"…\" --body-file <file>` in `{}`. Then end your turn and report the Local PR as opened for review. Do not push or open a pull request on GitHub.",
+        p.branch, p.id, p.base_branch, app.cli_command_in(&p.root), p.root
+    );
+    if !others.is_empty() {
+        text.push_str(&format!(" The branches of your other worktrees ({}) stay local for the owner to review.", others.join(", ")));
+    }
+    Ok(text)
 }
 
 pub async fn cancel_merge(app: &App, id: &str) -> Result<TaskWorktree> {

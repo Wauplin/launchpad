@@ -60,7 +60,7 @@ function renderPrompt(spec: LaunchSpec, cwd: string): string {
   if (context.length) parts.push(`Context:\n${context.join("\n")}${spec.github_refs.length ? "\nUse `gh` to read issues, pull requests and comments." : ""}`);
   const presets = world.config.presets.filter((p) => (spec.target.kind === "assistant" ? p.ask_launchpad : p.agent) && spec.presets.includes(p.id) && p.text.trim()).map((p) => p.text.trim()).join(" ");
   if (presets) parts.push(presets);
-  if (spec.worktree) parts.push(`Launchpad worktree: you work in ${cwd}, a Git worktree on its own branch. Commit your changes there.${spec.worktree.merge_when_done ? " When the task is done, run `launchpad work finish` so Launchpad merges the branch." : ""}`);
+  if (spec.worktree) parts.push(`Launchpad worktree: you work in ${cwd}, a Git worktree on its own branch. Commit your changes there.${spec.worktree.when_done === "merge" ? " When the task is done, run `launchpad work finish` so Launchpad merges the branch." : spec.worktree.when_done === "local_pr" ? " When the task is done, run `launchpad work finish` so Launchpad turns the worktree into a Local PR." : ""}`);
   parts.push(SUMMARY_INSTRUCTION);
   return parts.filter(Boolean).join("\n\n");
 }

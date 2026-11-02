@@ -108,6 +108,7 @@ flowchart LR
     B --> C{When done}
     C -->|Keep branch for review| D[Review in Changes]
     C -->|Merge into base| E[Rebase + fast-forward]
+    C -->|Open a Local PR| F
     D --> E
     D --> F[Create Local PR]
     D --> G[Discard]
@@ -115,7 +116,7 @@ flowchart LR
     H --> E
 ```
 
-- **When done** is remembered per folder: **Keep branch for review** (default) or **Merge into &lt;base&gt;**.
+- **When done** is remembered per folder: **Keep branch for review** (default), **Open a Local PR** or **Merge into &lt;base&gt;**. With **Open a Local PR**, the agent runs `launchpad work finish` when it is done: Launchpad turns the worktree into a Local PR (same folder and branch), and the agent sets its title and description. You review and publish it.
 - Merges wait until the agents are idle and the worktree is clean, then rebase and fast-forward. Launchpad never stashes, resets or force-pushes. Conflicts go back to the agent.
 - After a successful merge, Launchpad tries to push exactly the merged commit to the base branch’s upstream (or the same branch on `origin`) in the background. It never forces a push or retries automatically. Task branches (`lp/`) stay local. A failed push keeps the local merge and appears in the worktree card and session trace. Each Git sync command has a 10-second timeout and cannot ask for credentials.
 - A per-folder **Worktree setup** command and `.worktreeinclude` files prepare new worktrees (dependencies, `.env` files).

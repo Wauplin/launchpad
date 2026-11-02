@@ -10,6 +10,7 @@ import { create } from "zustand";
 import { reconcile } from "../lib/promptDocument.ts";
 import type { AgentTraceRef } from "@/gen/AgentTraceRef";
 import type { ContextProject } from "@/gen/ContextProject";
+import type { WhenDone } from "@/gen/WhenDone";
 import type { FileRef } from "@/gen/FileRef";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { Project } from "@/gen/Project";
@@ -26,7 +27,7 @@ export const emptySpec = (): LaunchSpec => ({
   allow_paid_usage: false,
   target: { kind: "none" },
   // New drafts run in a new task worktree; "Project checkout" sets this to null.
-  worktree: { base: null, include_changes: false, merge_when_done: false },
+  worktree: { base: null, include_changes: false, when_done: "keep" },
   text: "",
   mentions: [],
   skills: [],
@@ -194,17 +195,17 @@ async function loadDraft(discardLocal = false) {
   }
 }
 
-const projectCompletionDefaults = new Map<string, boolean>();
+const projectCompletionDefaults = new Map<string, WhenDone>();
 export function rememberProjectDefaults(projects: Project[]) {
   projectCompletionDefaults.clear();
-  for (const project of projects) projectCompletionDefaults.set(project.id, project.merge_when_done);
+  for (const project of projects) projectCompletionDefaults.set(project.id, project.when_done);
 }
-export function rememberProjectCompletion(projectId: string, merge: boolean) {
-  projectCompletionDefaults.set(projectId, merge);
+export function rememberProjectCompletion(projectId: string, whenDone: WhenDone) {
+  projectCompletionDefaults.set(projectId, whenDone);
 }
 function withProjectCompletion(spec: LaunchSpec): LaunchSpec {
   if (spec.target.kind !== "project" || !spec.worktree) return spec;
-  return { ...spec, worktree: { ...spec.worktree, merge_when_done: projectCompletionDefaults.get(spec.target.project_id) ?? false } };
+  return { ...spec, worktree: { ...spec.worktree, when_done: projectCompletionDefaults.get(spec.target.project_id) ?? "keep" } };
 }
 
 type RunDefaults = Pick<LaunchSpec, "model" | "effort" | "permission_mode">;

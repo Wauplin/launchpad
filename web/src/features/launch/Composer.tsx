@@ -21,6 +21,7 @@ import type { Preview } from "@/gen/Preview";
 import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
+import type { WhenDone } from "@/gen/WhenDone";
 import { reusableWorktrees } from "./worktreeChoices";
 import { pullRequestOf } from "./pullRequest";
 import { HarnessMark, useHarnessName, useHarnesses, useHarnessInfo } from "@/components/HarnessMark";
@@ -165,9 +166,9 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const browserOnly = spec.target.kind === "browser";
   const projects = useProjects().data ?? [];
   const completionDefault = useMutation({
-    mutationFn: ({ projectId, merge }: { projectId: string; merge: boolean }) => api.patch<Project>(`/api/projects/${projectId}`, { merge_when_done: merge }),
+    mutationFn: ({ projectId, whenDone }: { projectId: string; whenDone: WhenDone }) => api.patch<Project>(`/api/projects/${projectId}`, { when_done: whenDone }),
     onSuccess: (project) => {
-      rememberProjectCompletion(project.id, project.merge_when_done);
+      rememberProjectCompletion(project.id, project.when_done);
       queryClient.setQueryData<Project[]>(["projects"], (projects) => projects?.map((p) => p.id === project.id ? project : p));
     },
     onError: toastError,
@@ -520,7 +521,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               const predraft = existingPrChoices.find((p) => v === `predraft:${p.id}`);
               if (worktree) set((s) => ({ ...s, target: { kind: "session_folder", session_id: worktree.source.id }, worktree: null }));
               else if (predraft) set((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: predraft.id }, worktree: null }));
-              else if (v === "worktree" || v === "project" || v === "predraft") set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, include_changes: false, merge_when_done: false }) : null }));
+              else if (v === "worktree" || v === "project" || v === "predraft") set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, include_changes: false, when_done: "keep" }) : null }));
             }}>
               {spec.target.kind === "session_folder" && !selectedWorktree && <option value="session_folder">Previous agent’s folder</option>}
               {gitTarget && <option value="worktree">New worktree</option>}
@@ -545,19 +546,20 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             Push to PR #{detectedPr.number}
           </label>}
           {!pushToPr && <>
-          <span className="inline-flex items-center gap-1">From<Branch projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="current branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { include_changes: false, merge_when_done: false }), base } }))} /></span>
+          <span className="inline-flex items-center gap-1">From<Branch projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="current branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { include_changes: false, when_done: "keep" }), base } }))} /></span>
           <label className="inline-flex items-center gap-1.5" title="Copy the uncommitted changes of your checkout into the new worktree (only when starting from the current branch)">
             <input type="checkbox" className="accent-teal" disabled={!!spec.worktree?.base && spec.worktree.base !== targetBranches.data?.current} checked={!!spec.worktree?.include_changes} onChange={(e) => set((s) => ({ ...s, worktree: { ...s.worktree!, include_changes: e.target.checked } }))} />
             Copy uncommitted changes
           </label>
-          <label className="inline-flex items-center gap-1.5 whitespace-nowrap" title="Merge into the base branch: the agent asks Launchpad to merge when it is done; Launchpad waits for a clean checkout, rebases and fast-forwards. Conflicts go back to the agent.">
+          <label className="inline-flex items-center gap-1.5 whitespace-nowrap" title="Merge: the agent asks Launchpad to merge when it is done; Launchpad waits for a clean checkout, rebases and fast-forwards, and conflicts go back to the agent. Open a Local PR: the agent turns its worktree into a Local PR with a title and description for you to review and publish.">
             When done
-            <select className="field-input h-6 py-0 text-xs" aria-label="When done" value={spec.worktree?.merge_when_done ? "merge" : "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project" onChange={(e) => {
-              const merge = e.target.value === "merge";
-              set((s) => ({ ...s, worktree: { ...s.worktree!, merge_when_done: merge } }));
-              completionDefault.mutate({ projectId: target.id, merge });
+            <select className="field-input h-6 py-0 text-xs" aria-label="When done" value={spec.worktree?.when_done ?? "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project" onChange={(e) => {
+              const whenDone = e.target.value as WhenDone;
+              set((s) => ({ ...s, worktree: { ...s.worktree!, when_done: whenDone } }));
+              completionDefault.mutate({ projectId: target.id, whenDone });
             }}>
               <option value="keep">Keep branch for review</option>
+              <option value="local_pr">Open a Local PR</option>
               <option value="merge">Merge into {baseLabel}</option>
             </select>
           </label>
@@ -638,7 +640,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {harness?.capabilities.permission_modes && spec.permission_mode && spec.permission_mode !== "yolo" && <Token>{spec.permission_mode === "auto" ? "Auto approval" : "Ask for approval"}</Token>}
           {targetHost && <Token warn={hostStatus?.state !== "connected"} title={hostStatus?.state === "connected" ? `The agent runs on ${targetHost}` : `${targetHost} is ${hostStatus?.state ?? "unknown"}: the launch waits up to 25 s for a connection`}>on {targetHost}</Token>}
           {runIn && <Token>{runIn}</Token>}
-          {worktreeMode && spec.worktree?.merge_when_done && <Token title={`The agent asks Launchpad to merge into ${baseLabel} when it is done`}>merge when done</Token>}
+          {worktreeMode && !pushToPr && spec.worktree?.when_done === "merge" && <Token title={`The agent asks Launchpad to merge into ${baseLabel} when it is done`}>merge when done</Token>}
+          {worktreeMode && !pushToPr && spec.worktree?.when_done === "local_pr" && <Token title="The agent turns its worktree into a Local PR when it is done">Local PR when done</Token>}
           {presetLabels.map((l) => <Token key={l}>{l}</Token>)}
           {scheduled && <Token warn title="Starts when all start conditions are met">start: {conditions.length} condition{conditions.length === 1 ? "" : "s"}</Token>}
           {cron && <Token warn title={`Cron schedule ${cron.schedule}`}>cron {cron.schedule}</Token>}

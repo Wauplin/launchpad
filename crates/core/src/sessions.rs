@@ -893,7 +893,7 @@ impl Sessions {
             if !worktrees.is_empty() {
                 let projects = crate::projects::list(app).await?;
                 let opts = spec.worktree.clone().unwrap_or_default();
-                preview.prompt.push_str(&format!("\n\n{}", crate::worktrees::instruction(app, &id, &worktrees, &projects, opts.merge_when_done && !in_checkout, opts.include_changes && opts.pull_request.is_none())));
+                preview.prompt.push_str(&format!("\n\n{}", crate::worktrees::instruction(app, &id, &worktrees, &projects, if in_checkout { crate::model::WhenDone::Keep } else { opts.when_done }, opts.include_changes && opts.pull_request.is_none())));
             }
             if let (Some(ws), Some(project_id)) = (&spec.workspace_id, &project_id)
                 && let Err(e) = crate::workspace::add_project(app, ws, project_id).await
