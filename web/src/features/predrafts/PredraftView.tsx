@@ -53,6 +53,7 @@ function Review({ id }: { id: string }) {
   const [tab, setTab] = useState<View>("description");
   const [remote, setRemote] = useState("");
   const [draft, setDraft] = useState(true);
+  const [fork, setFork] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [loaded, setLoaded] = useState(false);
@@ -76,7 +77,7 @@ function Review({ id }: { id: string }) {
   useEffect(() => {
     if (!p || loaded || !saved.loaded) return;
     apply(saved.value);
-    setRemote(q.data?.default_remote_branch ?? ""); setLoaded(true);
+    setRemote(p.remote_branch ?? q.data?.default_remote_branch ?? ""); setFork(!!p.push_repo); setLoaded(true);
   }, [p, loaded, saved.loaded]);
   // Another window or device changed the draft.
   useEffect(() => { if (loaded && saved.remote) apply(saved.value); }, [saved.remote]);
@@ -133,6 +134,10 @@ function Review({ id }: { id: string }) {
       {d.dirty && <span className="flex items-center gap-1.5"><Icon name="alert" size={12} />Uncommitted changes are excluded from this review. Ask the agent to commit them before publishing.</span>}
     </div>}
     {p.remote_sync_note && <div className="border-b border-line px-3 py-2 text-[12px] text-ink-2">{p.remote_sync_note}</div>}
+    {active && p.pushed_head && <div className="flex flex-wrap items-center gap-2 border-b border-attn-line bg-attn-soft px-4 py-2 text-[12px] text-attn">
+      <Icon name="alert" size={12} /><span className="flex-1">Publication of <span className="font-mono">{p.pushed_head.slice(0, 8)}</span>{p.remote_branch ? <> to <span className="font-mono">{p.push_repo ?? "origin"}:{p.remote_branch}</span></> : null} did not finish, so agents cannot change this branch. Retry Publish, or unlock it.</span>
+      <ConfirmButton disabled={busy} consequence="Agents can change the branch again. A branch already pushed keeps its name, and the next Publish updates it. Nothing is deleted on GitHub." confirmLabel="Unlock" onConfirm={() => run(() => api.post(`/api/predrafts/${id}/unlock`), "Local PR unlocked")}>Unlock</ConfirmButton>
+    </div>}
     {!!error && <ErrorState className="m-2" error={error} />}
     {notesBar}
     {tab === "files" && !p.archived && d.head ? <FilesChanged repo="local" number={0} head={d.head} local={{ id, root: p.root }} notes={lineNotes} onAddNote={active ? (n) => setNotes((all) => [...all, { path: n.path, text: lineNoteText(n) }]) : undefined} /> : <div className="min-h-0 flex-1 overflow-auto p-4">
@@ -154,7 +159,8 @@ function Review({ id }: { id: string }) {
     {active && <div data-tour="predraft.actions" className="phone-publish-bar flex flex-wrap items-center gap-2 border-t border-line p-3">
       <input aria-label="Remote branch name" className="field-input min-w-48 flex-1" value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="Remote branch name" />
       <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} />As a GitHub draft</label>
-      <ConfirmButton tone="publish" small={false} className="btn-primary" disabled={busy || running || d.dirty || !d.head || !remote.trim()} consequence={`Pushes ${remote.trim()} and creates ${draft ? "a GitHub draft" : "a"} PR on GitHub.`} confirmLabel="Push and create PR" onConfirm={() => run(async () => { await save(); await api.post(`/api/predrafts/${id}/publish`, { remote_branch: remote, draft, head: d.head }); await saved.clear(); }, "Local PR published")}>Publish</ConfirmButton>
+      <label className="flex items-center gap-2 text-[12px]" title="Push to your fork of origin and open the PR from it, when you cannot push to origin"><input type="checkbox" checked={fork} disabled={!!p.pushed_head} onChange={(e) => setFork(e.target.checked)} />From my fork</label>
+      <ConfirmButton tone="publish" small={false} className="btn-primary" disabled={busy || running || d.dirty || !d.head || !remote.trim()} consequence={`Pushes ${remote.trim()} to ${fork ? "your fork" : "origin"} and creates ${draft ? "a GitHub draft" : "a"} PR on GitHub.`} confirmLabel="Push and create PR" onConfirm={() => run(async () => { await save(); await api.post(`/api/predrafts/${id}/publish`, { remote_branch: remote, draft, head: d.head, fork }); await saved.clear(); }, "Local PR published")}>Publish</ConfirmButton>
       <ConfirmButton tone="publish" small={false} disabled={busy || running || d.dirty || !d.head} consequence={`Rebases ${p.branch} onto the local ${p.base_branch} branch if needed, then fast-forwards ${p.base_branch} in its checkout. Then tries to push the merged base branch; a failure keeps the local merge.`} confirmLabel={`Merge into ${p.base_branch}`} onConfirm={() => run(async () => { await api.post(`/api/predrafts/${id}/merge-local`, { head: d.head }); await saved.clear(); }, `Merged locally into ${p.base_branch}`)}>Merge locally</ConfirmButton>
       <ConfirmButton small={false} disabled={busy || running || d.dirty} consequence="Deletes the branch and the worktree." confirmLabel="Discard" onConfirm={() => run(() => api.post(`/api/predrafts/${id}/discard`), "Local PR discarded")}>Discard</ConfirmButton>
     </div>}

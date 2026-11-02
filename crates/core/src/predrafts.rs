@@ -30,6 +30,11 @@ pub struct Predraft {
     pub default_remote_branch: String,
     pub remote_branch: Option<String>,
     pub pushed_head: Option<String>,
+    /// GitHub repository the branch is pushed to when it is not `origin` (the owner's fork).
+    #[serde(default)]
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub push_repo: Option<String>,
     pub created_at: i64,
     #[serde(default)]
     #[ts(optional)]
@@ -71,6 +76,50 @@ pub struct Publish {
     pub remote_branch: String,
     pub draft: bool,
     pub head: String,
+    /// Push to the signed-in user's fork of `origin` and open the PR from there.
+    #[serde(default)]
+    pub fork: bool,
+}
+/// Where a publication pushes: a remote name or URL, and the GitHub repository behind it.
+struct PushTarget {
+    remote: String,
+    repo: String,
+    /// A configured remote (not a bare URL), so the local branch can track it.
+    named: bool,
+}
+/// The URL of `fork` built from the origin URL, keeping its scheme (SSH or HTTPS).
+fn fork_url(origin_url: &str, origin_repo: &str, fork: &str) -> Option<String> {
+    let trimmed = origin_url.trim_end_matches('/');
+    let suffix = if trimmed.ends_with(".git") { ".git" } else { "" };
+    let base = trimmed.strip_suffix(suffix)?.strip_suffix(origin_repo)?;
+    Some(format!("{base}{fork}{suffix}"))
+}
+async fn push_target(project_path: &str, fork: Option<&str>) -> Result<PushTarget> {
+    let remotes = crate::git::remotes(Path::new(project_path)).await;
+    let (origin_url, origin_repo) = remotes
+        .iter()
+        .find(|(n, _)| n == "origin")
+        .and_then(|(_, u)| Some((u.clone(), crate::git::github_repo(u)?)))
+        .context("origin must be a GitHub repository")?;
+    let Some(fork) = fork.filter(|f| *f != origin_repo) else {
+        return Ok(PushTarget { remote: "origin".into(), repo: origin_repo, named: true });
+    };
+    if let Some((name, _)) = remotes.iter().find(|(_, u)| crate::git::github_repo(u).as_deref() == Some(fork)) {
+        return Ok(PushTarget { remote: name.clone(), repo: fork.to_string(), named: true });
+    }
+    let url = fork_url(&origin_url, &origin_repo, fork).context("cannot derive the fork URL from origin")?;
+    Ok(PushTarget { remote: url, repo: fork.to_string(), named: false })
+}
+/// The signed-in user's fork of `origin`, checked on GitHub.
+async fn user_fork(app: &App, project_path: &str) -> Result<String> {
+    let origin = push_target(project_path, None).await?.repo;
+    let login = app.github.get("/user").await?["login"].as_str().context("GitHub login missing")?.to_string();
+    let name = origin.split('/').nth(1).context("repository name")?;
+    let fork = format!("{login}/{name}");
+    ensure!(fork != origin, "you own {origin}; publish without the fork option");
+    let v = app.github.get(&format!("/repos/{fork}")).await.with_context(|| format!("fork {fork} not found; fork {origin} on GitHub first"))?;
+    ensure!(v["fork"].as_bool() == Some(true), "{fork} is not a fork of {origin}");
+    Ok(fork)
 }
 #[derive(Deserialize)]
 pub struct MergeLocal {
@@ -273,6 +322,7 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
             published_number: None,
             remote_branch: None,
             pushed_head: None,
+            push_repo: None,
             created_at: crate::util::now_ms(),
             remote_sync_note: None,
             merged: None,
@@ -328,6 +378,7 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
         published_number: None,
         remote_branch: None,
         pushed_head: None,
+        push_repo: None,
         created_at: crate::util::now_ms(),
         remote_sync_note: None,
         merged: None,
@@ -679,6 +730,16 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
     // Serialize retries of this publication without holding any global gate during network I/O.
     let publication = app.suggestion_locks.get(&format!("predraft-publish:{id}"));
     let _publication = publication.lock().await;
+    // A retry keeps the target of the first attempt. Look up the fork before taking the gates.
+    let first = get(app, id).await?;
+    let fork = match (&first.pushed_head, q.fork, first.published_url.is_some()) {
+        (Some(_), _, _) | (_, _, true) => first.push_repo.clone(),
+        (None, true, false) => {
+            let project = crate::projects::get(app, &first.project_id).await?.context("project not found")?;
+            Some(user_fork(app, &project.path).await?)
+        }
+        (None, false, false) => None,
+    };
     let _action = app.sessions.action_lock().await;
     let _work = app.sessions.allow_work().await;
     let _lock = app.predraft_lock.lock().await;
@@ -709,12 +770,8 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
     let project = crate::projects::get(app, &p.project_id)
         .await?
         .context("project not found")?;
-    let repo = crate::git::remotes(Path::new(&project.path))
-        .await
-        .into_iter()
-        .find(|(n, _)| n == "origin")
-        .and_then(|(_, u)| crate::git::github_repo(&u))
-        .context("origin must be a GitHub repository")?;
+    let origin = push_target(&project.path, None).await?.repo;
+    let target = push_target(&project.path, fork.as_deref()).await?;
     let head = git(app, &p.root, &["rev-parse", "HEAD"]).await?;
     let branch_head = git(
         app,
@@ -742,13 +799,14 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
         ensure!(pushed == &head, "publication already started for a different head");
     }
     p.pushed_head = Some(head.clone());
+    p.push_repo = fork.clone();
     save(app, &p).await?;
     drop(_lock);
     drop(_work);
     drop(_action);
     if p.remote_branch.is_none() {
         let available: Result<()> = async {
-            let exists = git(app, &p.root, &["ls-remote", "--heads", "origin", &format!("refs/heads/{}", q.remote_branch)]).await?;
+            let exists = git(app, &p.root, &["ls-remote", "--heads", &target.remote, &format!("refs/heads/{}", q.remote_branch)]).await?;
             ensure!(exists.is_empty(), "remote branch already exists; choose a new name");
             Ok(())
         }.await;
@@ -758,34 +816,31 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
         p = get(app, id).await?;
         if let Err(e) = available {
             p.pushed_head = None;
+            p.push_repo = None;
             save(app, &p).await?;
             return Err(e);
         }
         p.remote_branch = Some(q.remote_branch.clone());
         save(app, &p).await?;
     }
-    git(
-        app,
-        &p.root,
-        &[
-            "push",
-            "-u",
-            "origin",
-            &format!("{head}:refs/heads/{}", q.remote_branch),
-        ],
-    )
-    .await?;
-    git(
-        app,
-        &project.path,
-        &[
-            "branch",
-            &format!("--set-upstream-to=origin/{}", q.remote_branch),
-            &p.branch,
-        ],
-    )
-    .await?;
-    let owner = repo.split('/').next().context("repository owner")?;
+    let pushed = git(app, &p.root, &["push", &target.remote, &format!("{head}:refs/heads/{}", q.remote_branch)]).await;
+    if let Err(e) = pushed {
+        // Unlock only when the remote proves nothing arrived; otherwise the claim stays for Publish or Unlock.
+        let _lock = app.predraft_lock.lock().await;
+        if remote_branch_head(app, &p.root, &target.remote, &q.remote_branch).await.is_ok_and(|h| h.is_none()) {
+            p = get(app, id).await?;
+            release(&mut p);
+            save(app, &p).await?;
+            return Err(e.context(format!("push to {} failed; nothing was pushed and the Local PR is unlocked", target.repo)));
+        }
+        return Err(e.context(format!("push to {} failed; retry Publish or Unlock the Local PR", target.repo)));
+    }
+    if target.named {
+        git(app, &project.path, &["branch", &format!("--set-upstream-to={}/{}", target.remote, q.remote_branch), &p.branch]).await?;
+    }
+    let owner = target.repo.split('/').next().context("repository owner")?;
+    let pr_head = if target.repo == origin { q.remote_branch.clone() } else { format!("{owner}:{}", q.remote_branch) };
+    let repo = origin;
     let mut query = reqwest::Url::parse(&format!("https://api.github.com/repos/{repo}/pulls"))?;
     query
         .query_pairs_mut()
@@ -812,7 +867,7 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
     let pr = if let Some(v) = found {
         v
     } else {
-        app.github.request(Method::POST, &format!("/repos/{repo}/pulls"), Some(json!({"title":p.title,"body":p.body,"head":q.remote_branch,"base":p.base_branch,"draft":q.draft})), false).await?.value
+        app.github.request(Method::POST, &format!("/repos/{repo}/pulls"), Some(json!({"title":p.title,"body":p.body,"head":pr_head,"base":p.base_branch,"draft":q.draft})), false).await?.value
     };
     let _action = app.sessions.action_lock().await;
     let _work = app.sessions.allow_work().await;
@@ -831,6 +886,45 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
     {
         tracing::warn!("PR published; worktree kept: {e:#}");
     }
+    Ok(p)
+}
+
+/// The commit of a remote branch, `None` when the branch does not exist.
+async fn remote_branch_head(app: &App, root: &str, remote: &str, branch: &str) -> Result<Option<String>> {
+    let out = git(app, root, &["ls-remote", "--heads", remote, &format!("refs/heads/{branch}")]).await?;
+    Ok(out.split_whitespace().next().map(str::to_string))
+}
+/// Ends an unfinished publication so agents can change the branch again.
+fn release(p: &mut Predraft) {
+    p.pushed_head = None;
+    p.remote_branch = None;
+    p.push_repo = None;
+}
+/// Owner click: unlock a Local PR whose publication did not finish. A branch that already
+/// reached the remote keeps its name and target, so the next Publish updates it.
+pub async fn unlock(app: &App, id: &str) -> Result<Predraft> {
+    let publication = app.suggestion_locks.get(&format!("predraft-publish:{id}"));
+    let _publication = publication.lock().await;
+    let p = get(app, id).await?;
+    editable(&p)?;
+    ensure!(p.pushed_head.is_some(), "publication has not started");
+    let remote = match &p.remote_branch {
+        Some(branch) => {
+            let project = crate::projects::get(app, &p.project_id).await?.context("project not found")?;
+            let target = push_target(&project.path, p.push_repo.as_deref()).await?;
+            remote_branch_head(app, &p.root, &target.remote, branch).await.context("could not read the remote branch; try again")?
+        }
+        None => None,
+    };
+    let _lock = app.predraft_lock.lock().await;
+    let mut p = get(app, id).await?;
+    editable(&p)?;
+    if remote.is_some() {
+        p.pushed_head = None;
+    } else {
+        release(&mut p);
+    }
+    save(app, &p).await?;
     Ok(p)
 }
 

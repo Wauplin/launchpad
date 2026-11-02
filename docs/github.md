@@ -58,7 +58,7 @@ flowchart LR
 
 - **Create**: choose **Run in → New Local PR** in the composer, or let an agent run `launchpad pr create`.
 - **Review**: the agent keeps the title and description up to date with `launchpad pr update`. **Notes** (general or per file) go back to the agent as one message.
-- **Publish**: choose a remote branch name and GitHub draft or ready, then confirm. Launchpad pushes the branch and creates the PR.
+- **Publish**: choose a remote branch name and GitHub draft or ready, then confirm. Launchpad pushes the branch and creates the PR. Check **From my fork** when you cannot push to `origin`: Launchpad pushes to your existing GitHub fork (a configured remote, or the origin URL with your login) and opens the PR from it. While a publication runs, agents cannot change the branch. If the push fails and the remote shows that nothing arrived, the Local PR unlocks itself. Otherwise a banner offers **Unlock**: agents can work again, and a branch that was already pushed keeps its name for the next Publish.
 - **Merge locally**: rebases the branch onto the local base branch and fast-forwards it. Then it tries to push the merged base branch to its upstream (or the same branch on `origin`) in the background. Push failure keeps the local merge and is shown on the Local PR; it never forces or retries automatically.
 
 Publication and merges wait until the agents are idle and the worktree is clean.
