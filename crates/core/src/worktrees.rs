@@ -13,7 +13,7 @@ use serde_json::json;
 use ts_rs::TS;
 
 use crate::App;
-use crate::model::{EventBody, Project, Session, SessionStatus, WorktreeOptions};
+use crate::model::{EventBody, Project, PullRequestRef, Session, SessionStatus, WorktreeOptions};
 use crate::util::now_ms;
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -48,8 +48,27 @@ pub struct TaskWorktree {
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_sync_note: Option<String>,
+    /// The GitHub pull request this worktree continues: the agent pushes to its branch.
+    #[serde(default)]
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pull_request: Option<PullRequestBranch>,
     #[ts(type = "number")]
     pub created_at: i64,
+}
+
+/// Where the commits of a pull request worktree go.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct PullRequestBranch {
+    /// `owner/repo` of the base repository.
+    pub repo: String,
+    pub number: u64,
+    pub url: String,
+    /// `owner/repo` holding the PR branch: a fork for outside contributions.
+    pub head_repo: String,
+    pub head_branch: String,
+    /// The remote name, or URL when no remote points to `head_repo`, that agents push to.
+    pub push_remote: String,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -221,15 +240,25 @@ pub async fn create(app: &App, session_id: &str, project: &Project, opts: &Workt
     }
     git(app, &top, &["rev-parse", "--verify", "HEAD^{commit}"]).await.map_err(|_| anyhow::anyhow!("{} has no commit yet; run in the project checkout instead", project.name))?;
     let current = git(app, &top, &["branch", "--show-current"]).await.unwrap_or_default();
-    let base_branch = opts.base.clone().filter(|b| !b.is_empty()).or_else(|| (!current.is_empty()).then(|| current.clone()));
+    let pr = opts.pull_request.as_ref().filter(|_| primary);
+    // A pull request worktree starts from the PR head and never merges locally: no base branch.
+    let base_branch = if pr.is_some() { None } else { opts.base.clone().filter(|b| !b.is_empty()).or_else(|| (!current.is_empty()).then(|| current.clone())) };
     if let Some(b) = &base_branch {
         ensure!(!b.starts_with('-'), "invalid base branch");
     }
     let remote_sync_note = if let Some(base) = &base_branch {
         crate::remote_sync::pull(app, &top, base).await
     } else { None };
-    let base_ref = base_branch.as_deref().map(|b| format!("refs/heads/{b}^{{commit}}")).unwrap_or_else(|| "HEAD^{commit}".into());
-    let base_commit = git(app, &top, &["rev-parse", "--verify", &base_ref]).await.with_context(|| format!("branch {} not found", base_branch.as_deref().unwrap_or("HEAD")))?;
+    let (pull_request, base_commit) = match pr {
+        Some(pr) => {
+            let (branch, head) = pull_request_head(app, &project.path, &top, pr).await?;
+            (Some(branch), head)
+        }
+        None => {
+            let base_ref = base_branch.as_deref().map(|b| format!("refs/heads/{b}^{{commit}}")).unwrap_or_else(|| "HEAD^{commit}".into());
+            (None, git(app, &top, &["rev-parse", "--verify", &base_ref]).await.with_context(|| format!("branch {} not found", base_branch.as_deref().unwrap_or("HEAD")))?)
+        }
+    };
     let id = uuid::Uuid::new_v4().to_string();
     let name = if primary { crate::compose::slug_from(title) } else { format!("{}-{}", crate::compose::slug_from(&project.name), crate::compose::slug_from(title)) };
     let name: String = name.chars().take(48).collect::<String>().trim_matches('-').to_string();
@@ -262,10 +291,11 @@ pub async fn create(app: &App, session_id: &str, project: &Project, opts: &Workt
         handoff_from: None,
         cleanup_note: None,
         remote_sync_note,
+        pull_request,
         created_at: now_ms(),
     };
     let prepared = async {
-        if opts.include_changes && primary && base_branch.as_deref().is_none_or(|b| b == current) {
+        if opts.include_changes && primary && w.pull_request.is_none() && base_branch.as_deref().is_none_or(|b| b == current) {
             copy_changes(app, &top, &root).await?;
         }
         copy_included(app, &top, &root).await?;
@@ -279,6 +309,42 @@ pub async fn create(app: &App, session_id: &str, project: &Project, opts: &Workt
     }
     if let Some(note) = &w.remote_sync_note { notice(app, &w, note).await; }
     Ok((w, folder_in(&root, &subdir)))
+}
+
+/// Reads an open pull request on GitHub and fetches its head from the base repository's remote.
+/// Returns where agents push and the head commit to start from.
+async fn pull_request_head(app: &App, project_path: &str, top: &str, pr: &PullRequestRef) -> Result<(PullRequestBranch, String)> {
+    let label = format!("{}#{}", pr.repo, pr.number);
+    let v = app.github.get(&format!("/repos/{}/pulls/{}", pr.repo, pr.number)).await.with_context(|| format!("could not read pull request {label}"))?;
+    ensure!(v["state"] == "open", "pull request {label} is not open");
+    let head_repo = v["head"]["repo"]["full_name"].as_str().with_context(|| format!("the branch repository of {label} was deleted"))?.to_string();
+    let head_branch = v["head"]["ref"].as_str().context("pull request branch missing")?.to_string();
+    ensure!(!head_branch.starts_with('-'), "invalid pull request branch");
+    let url = v["html_url"].as_str().context("pull request URL missing")?.to_string();
+    let remotes = crate::git::remotes(Path::new(project_path)).await;
+    let base_remote = remotes
+        .iter()
+        .find(|(_, u)| crate::git::github_repo(u).is_some_and(|r| r.eq_ignore_ascii_case(&pr.repo)))
+        .map(|(n, _)| n.clone())
+        .with_context(|| format!("no Git remote of this folder points to {}", pr.repo))?;
+    let local = format!("refs/launchpad/pr/{}", pr.number);
+    crate::remote_sync::git_timeout(app, top, &["fetch", "--no-tags", "--no-recurse-submodules", &base_remote, &format!("+refs/pull/{}/head:{local}", pr.number)], 120).await
+        .with_context(|| format!("could not fetch {label} from {base_remote}"))?;
+    let head = git(app, top, &["rev-parse", "--verify", &format!("{local}^{{commit}}")]).await?;
+    let push_remote = crate::predrafts::push_target(project_path, Some(&head_repo)).await?.remote;
+    Ok((PullRequestBranch { repo: pr.repo.clone(), number: pr.number, url, head_repo, head_branch, push_remote }, head))
+}
+
+/// The pull request a worktree folder continues, if any.
+pub async fn pull_request_at(app: &App, root: &str) -> Option<PullRequestBranch> {
+    list(app).await.ok()?.into_iter().find(|w| w.state == WorktreeState::Active && crate::hosts::loc::within(root, &w.root))?.pull_request
+}
+
+/// Push instructions for a branch already published on GitHub.
+pub fn push_instruction(url: &str, remote: &str, branch: &str) -> String {
+    format!(
+        "This work continues the published pull request {url}. Commit your changes, then push them to it with `git push {remote} HEAD:refs/heads/{branch}`. Never force-push and never rewrite commits that are already pushed. If the push is rejected because the branch moved, run `git pull --rebase {remote} {branch}`, re-run your checks and push again. Do not open another pull request. Comments and reviews still go through `launchpad suggest`; never post them yourself."
+    )
 }
 
 /// Applies the source checkout's staged, unstaged and untracked changes to a fresh worktree.
@@ -418,11 +484,21 @@ pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, Stri
             name(&w.project_id),
             if w.primary { " (your working directory)" } else { " (editable)" },
             w.branch,
-            w.base_branch.as_deref().map(|b| format!("`{b}`")).unwrap_or_else(|| "a detached checkout".into()),
+            match (&w.pull_request, w.base_branch.as_deref()) {
+                (Some(pr), _) => format!("the head of pull request #{} (`{}` on {})", pr.number, pr.head_branch, pr.head_repo),
+                (None, Some(b)) => format!("`{b}`"),
+                (None, None) => "a detached checkout".into(),
+            },
             &w.base_commit[..12.min(w.base_commit.len())]
         ));
     }
-    text.push_str("\nCommit your work on these branches. Do not push, switch branches, or remove these worktrees. The other branches and the shared history stay readable, for example with `git log` or `git show`.");
+    let pr = worktrees.iter().find_map(|(w, _)| w.pull_request.clone());
+    if let Some(pr) = &pr {
+        text.push_str(&format!("\n{}", push_instruction(&pr.url, &pr.push_remote, &pr.head_branch)));
+        text.push_str(" Do not switch branches or remove these worktrees; do not push other branches.");
+    } else {
+        text.push_str("\nCommit your work on these branches. Do not push, switch branches, or remove these worktrees. The other branches and the shared history stay readable, for example with `git log` or `git show`.");
+    }
     if changes_copied {
         text.push_str(" The uncommitted changes of the project checkout were copied into your worktree; they are not committed yet.");
     }
@@ -431,7 +507,9 @@ pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, Stri
     ));
     let bases: Vec<String> = worktrees.iter().filter_map(|(w, _)| w.base_branch.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().map(|b| format!("`{b}`")).collect();
     let base = if bases.is_empty() { "its base branch".to_string() } else { bases.join(", ") };
-    if merge_when_done {
+    if pr.is_some() {
+        text.push_str("\nThe pull request on GitHub is the review: Launchpad does not merge this branch locally.");
+    } else if merge_when_done {
         text.push_str(&format!(
             "\nWhen the task is done and checked, commit everything, then run `{cli} work finish --session-id {session_id}`. Launchpad merges your branches into {base} after your turn ends, as soon as the target checkout is clean. Do not merge yourself, and report the merge as requested, not as done. If Launchpad later reports a conflict, rebase onto the target branch in your worktree, resolve it, re-run your checks, commit, and run the finish command again."
         ));

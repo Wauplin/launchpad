@@ -36,7 +36,7 @@ flowchart TB
 1. **Never wait on the network to show something.** Every screen renders from the local database first and refreshes in the background.
 2. **Launching an agent is the main action.** A minimal launch is a prompt and a click.
 3. **The core does not depend on a harness.** Claude Code, Codex and OpenCode are adapters behind one session model.
-4. **Local first, publish later.** Anything that would create noise on GitHub stays local until you publish it.
+4. **Local first, then follow GitHub.** New work stays local until you publish it. Once work is on GitHub (a published Local PR, or a pull request launched with **Push to PR**), agents keep pushing to that same branch, never with force. Comments, reviews and PR state changes always need your click.
 5. **Click only.** Every action is a visible button. The only keyboard shortcuts are `Ctrl+F` in Files, `Ctrl+T` for a terminal and normal text and terminal keys.
 6. **One user, move fast.** No multi-user model, no versioning, no data migrations. Few tests.
 

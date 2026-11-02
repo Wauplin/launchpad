@@ -36,14 +36,14 @@ Profiles live in `config.toml` (see [Configuration](configuration.md#profiles)).
 Click **Launch** (top bar, folder pages, inbox rows, or any **▶** button). The composer opens as a side drawer:
 
 - **Prompt.** Type `@` for files and folders, `/` for skills and `#` for folders, agent traces and GitHub items. Paste or drop images and files (up to eight files, 5 MB each).
-- **Folder and Run in.** **New worktree** (default in Git folders), **Checkout**, or **New Local PR** (see [GitHub](github.md#local-prs)).
+- **Folder and Run in.** **New worktree** (default in Git folders), **Checkout**, or **New Local PR** (see [GitHub](github.md#local-prs)). When the prompt or the context names one pull request of the folder's repository (for example a pasted link to a review comment), **Push to PR #N** is checked: the worktree starts from the PR head and the agent pushes its commits to the PR branch (see [GitHub](github.md#continue-a-pull-request)).
 - **Context.** **+ Add context** attaches issues, pull requests, file selections, other folders and the trace of another agent. Traces are referenced by a `launchpad trace` command, not copied into the prompt.
 - **Options.** Profile, model, effort, permission mode, paid usage, cost limit, presets and start conditions. The summary line shows only non-default values and warnings.
 - **Preview prompt** shows exactly what the agent will receive.
 
 The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the Launch button while you collect more context.
 
-New launches ask the agent to end its first task with a short, self-contained summary. Follow-up messages are sent unchanged.
+New launches ask the agent to end its first task with a short, self-contained summary. Follow-up messages are sent unchanged, except the first message after a Local PR is published, which tells the agent to push to the published branch from now on.
 
 ## Following agents
 

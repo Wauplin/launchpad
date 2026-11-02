@@ -51,7 +51,7 @@ async fn merge_ignores_terminals_and_unrelated_target_changes() {
         git(&app, repo, &["commit", "-m", "base"]).await?;
         let project = crate::projects::register(&app, std::path::Path::new(repo), false).await?;
         let (w, _) = create(&app, "test-merge", &project, &crate::model::WorktreeOptions {
-            base: None, include_changes: false, merge_when_done: false,
+            base: None, include_changes: false, merge_when_done: false, pull_request: None,
         }, true, "merge guards").await?;
         std::fs::write(std::path::Path::new(&w.root).join("shared.txt"), "task\n")?;
         std::fs::write(std::path::Path::new(&w.root).join("added.txt"), "task\n")?;

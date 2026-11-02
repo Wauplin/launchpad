@@ -5,12 +5,17 @@ use anyhow::{Context, Result, ensure};
 use crate::{App, exec::Io};
 
 async fn git(app: &App, repo: &str, args: &[&str]) -> Result<String> {
+    git_timeout(app, repo, args, 10).await
+}
+
+/// A noninteractive Git command bounded by `secs`.
+pub(crate) async fn git_timeout(app: &App, repo: &str, args: &[&str], secs: u64) -> Result<String> {
     let mut cmd = crate::procs::command(&app.env, "git", Some(Path::new(repo)));
     cmd.process_tree().args(args).stdin(Io::Null)
         .env("GIT_TERMINAL_PROMPT", "0").env("GIT_ASKPASS", "true")
         .env("GCM_INTERACTIVE", "Never").env("SSH_ASKPASS", "true").env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes");
-    let out = tokio::time::timeout(Duration::from_secs(10), cmd.output()).await
-        .context("remote sync timed out after 10 seconds; check the remote before retrying")??;
+    let out = tokio::time::timeout(Duration::from_secs(secs), cmd.output()).await
+        .with_context(|| format!("git {} timed out after {secs} seconds; check the remote before retrying", args.first().copied().unwrap_or_default()))??;
     ensure!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr).trim());
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }

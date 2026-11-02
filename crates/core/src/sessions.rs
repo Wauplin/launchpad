@@ -621,9 +621,10 @@ impl Sessions {
             Target::ExistingPredraft { predraft_id } => {
                 let p = crate::predrafts::get(app, predraft_id).await?;
                 anyhow::ensure!(
-                    p.is_open() && p.pushed_head.is_none(),
-                    "pre-draft is archived, published, merged locally, or publication has started"
+                    p.agents_can_work(),
+                    "pre-draft is archived, merged locally, or publication has started"
                 );
+                anyhow::ensure!(crate::hostfs::is_dir(&p.root).await, "the Local PR worktree no longer exists");
                 let project = crate::projects::get(app, &p.project_id)
                     .await?
                     .context("project not found")?;
@@ -690,14 +691,23 @@ impl Sessions {
             }
             prompt.push_str(&crate::compose::trace_references(&traces, &cli));
         }
-        if !prompt.trim().is_empty() && matches!(
+        let published = match &spec.target {
+            Target::ExistingPredraft { predraft_id } => crate::predrafts::get(app, predraft_id).await.is_ok_and(|p| p.published_url.is_some()),
+            _ => false,
+        };
+        if !prompt.trim().is_empty() && published {
+            prompt.push_str("\n\nWork in the worktree of a published Local PR: commit your changes and push them to its pull request branch, never force.");
+        } else if !prompt.trim().is_empty() && matches!(
             spec.target,
             Target::Predraft { .. } | Target::ExistingPredraft { .. }
         ) {
             prompt.push_str("\n\nWork in a dedicated local pre-draft worktree. Commit your changes, update the local PR title and description with launchpad pr update. Do not push, publish, or delete the worktree.");
         }
         if !for_launch && !prompt.trim().is_empty() && (worktree_launch || context.iter().any(|c| c.own_worktree)) {
-            let base = spec.worktree.as_ref().and_then(|w| w.base.clone()).map(|b| format!("`{b}`")).unwrap_or_else(|| "the branch checked out in the project checkout".into());
+            let base = match spec.worktree.as_ref() {
+                Some(WorktreeOptions { pull_request: Some(pr), .. }) => format!("the head of pull request {}#{}", pr.repo, pr.number),
+                w => w.and_then(|w| w.base.clone()).map(|b| format!("`{b}`")).unwrap_or_else(|| "the branch checked out in the project checkout".into()),
+            };
             prompt.push_str(&format!("\n\nLaunchpad worktree: Launchpad creates dedicated Git worktrees for this task at launch{}, and lists their exact folders and branches here.", if worktree_launch { format!(", starting from {base}") } else { String::new() }));
         }
         if let Target::Browser { act, .. } = &spec.target {
@@ -825,8 +835,8 @@ impl Sessions {
                     let _lock = app.predraft_lock.lock().await;
                     let mut p = crate::predrafts::get(app, predraft_id).await?;
                     anyhow::ensure!(
-                        p.is_open() && p.pushed_head.is_none(),
-                        "pre-draft is archived, published, merged locally, or publication has started"
+                        p.agents_can_work(),
+                        "pre-draft is archived, merged locally, or publication has started"
                     );
                     anyhow::ensure!(
                         !self.list().iter().any(|s| s.cwd == p.root
@@ -835,10 +845,11 @@ impl Sessions {
                     );
                     predraft = Some(p.clone());
                     p.session_id = Some(id.clone());
+                    if p.published_url.is_some() { p.push_told.push(id.clone()); }
                     crate::predrafts::save(app, &p).await?;
                     preview
                         .prompt
-                        .push_str(&format!("\n\n{}", crate::predrafts::instruction(app, &p)));
+                        .push_str(&format!("\n\n{}", crate::predrafts::work_instruction(app, &p).await));
                     let cwd = p.root.clone();
                     let project_id = p.project_id.clone();
                     (cwd, Some(project_id))
@@ -878,7 +889,7 @@ impl Sessions {
             if !worktrees.is_empty() {
                 let projects = crate::projects::list(app).await?;
                 let opts = spec.worktree.clone().unwrap_or_default();
-                preview.prompt.push_str(&format!("\n\n{}", crate::worktrees::instruction(app, &id, &worktrees, &projects, opts.merge_when_done && !in_checkout, opts.include_changes)));
+                preview.prompt.push_str(&format!("\n\n{}", crate::worktrees::instruction(app, &id, &worktrees, &projects, opts.merge_when_done && !in_checkout, opts.include_changes && opts.pull_request.is_none())));
             }
             if let (Some(ws), Some(project_id)) = (&spec.workspace_id, &project_id)
                 && let Err(e) = crate::workspace::add_project(app, ws, project_id).await
@@ -1582,6 +1593,12 @@ impl Sessions {
         if s.status == SessionStatus::InTerminal {
             bail!("the session is open in a terminal: re-attach it first");
         }
+        // An agent launched before its Local PR was published was told not to push.
+        let with_note;
+        let text = match crate::predrafts::published_note(app, id, &s.cwd).await {
+            Some(note) => { with_note = format!("{text}\n\n{note}"); with_note.as_str() }
+            None => text,
+        };
         if let Some(pause) = &s.quota_pause {
             anyhow::ensure!(matches!(pause.phase, QuotaPausePhase::Pausing | QuotaPausePhase::Paused | QuotaPausePhase::ProviderLimited),
                 "The quota continuation needs inspection or is already resuming. Wait or Stop before sending input.");

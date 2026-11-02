@@ -517,6 +517,19 @@ pub struct WorktreeOptions {
     pub include_changes: bool,
     /// The agent asks Launchpad to merge its branch into the base branch when the task is done.
     pub merge_when_done: bool,
+    /// Continue this pull request: start from its head and let the agent push to its branch.
+    /// `base`, `include_changes` and `merge_when_done` do not apply.
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pull_request: Option<PullRequestRef>,
+}
+
+/// A GitHub pull request, by repository and number.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct PullRequestRef {
+    /// `owner/repo` of the base repository.
+    pub repo: String,
+    pub number: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]

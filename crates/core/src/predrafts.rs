@@ -43,6 +43,10 @@ pub struct Predraft {
     /// Merged into the local base branch; remote synchronization is best effort.
     #[serde(default)]
     pub merged: Option<LocalMerge>,
+    /// Sessions already told to push to the published PR.
+    #[serde(default)]
+    #[ts(skip)]
+    pub push_told: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 pub struct LocalMerge {
@@ -56,6 +60,11 @@ impl Predraft {
     /// Still a Local PR under review: not discarded, published or merged locally.
     pub fn is_open(&self) -> bool {
         !self.archived && self.published_url.is_none() && self.merged.is_none()
+    }
+    /// Agents may work in it: an open Local PR outside publication, or a published one, whose
+    /// agents then push to the published branch.
+    pub fn agents_can_work(&self) -> bool {
+        !self.archived && self.merged.is_none() && (self.published_url.is_some() || self.pushed_head.is_none())
     }
 }
 #[derive(Default, Deserialize)]
@@ -81,11 +90,11 @@ pub struct Publish {
     pub fork: bool,
 }
 /// Where a publication pushes: a remote name or URL, and the GitHub repository behind it.
-struct PushTarget {
-    remote: String,
-    repo: String,
+pub(crate) struct PushTarget {
+    pub(crate) remote: String,
+    pub(crate) repo: String,
     /// A configured remote (not a bare URL), so the local branch can track it.
-    named: bool,
+    pub(crate) named: bool,
 }
 /// The URL of `fork` built from the origin URL, keeping its scheme (SSH or HTTPS).
 fn fork_url(origin_url: &str, origin_repo: &str, fork: &str) -> Option<String> {
@@ -94,7 +103,7 @@ fn fork_url(origin_url: &str, origin_repo: &str, fork: &str) -> Option<String> {
     let base = trimmed.strip_suffix(suffix)?.strip_suffix(origin_repo)?;
     Some(format!("{base}{fork}{suffix}"))
 }
-async fn push_target(project_path: &str, fork: Option<&str>) -> Result<PushTarget> {
+pub(crate) async fn push_target(project_path: &str, fork: Option<&str>) -> Result<PushTarget> {
     let remotes = crate::git::remotes(Path::new(project_path)).await;
     let (origin_url, origin_repo) = remotes
         .iter()
@@ -219,7 +228,7 @@ pub async fn get(app: &App, id: &str) -> Result<Predraft> {
 pub async fn check_session_work(app: &App, root: &str) -> Result<()> {
     if let Some(p) = list(app).await?.into_iter().find(|p| crate::hosts::loc::within(root, &p.root)) {
         ensure!(
-            !p.archived && p.pushed_head.is_none(),
+            !p.archived && (p.pushed_head.is_none() || p.published_url.is_some()),
             "this pre-draft was discarded or publication has started; finish publication in its review page"
         );
     }
@@ -255,6 +264,9 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
             return Ok(p);
         }
         let root = crate::hosts::loc::rehost(&cwd, &git(app, &cwd, &["rev-parse", "--show-toplevel"]).await?);
+        if let Some(pr) = crate::worktrees::pull_request_at(app, &root).await {
+            anyhow::bail!("this worktree continues {}; push your commits to it instead of creating a Local PR", pr.url);
+        }
         let source = crate::code::open(app, &root, None).await?;
         (source.project, Some(root))
     };
@@ -326,6 +338,7 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
             created_at: crate::util::now_ms(),
             remote_sync_note: None,
             merged: None,
+            push_told: vec![],
         };
         save(app, &p).await?;
         crate::worktrees::mark_predraft(app, &w.root, &p.id).await?;
@@ -382,6 +395,7 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
         created_at: crate::util::now_ms(),
         remote_sync_note: None,
         merged: None,
+        push_told: vec![],
     };
     if let Err(e) = save(app, &p).await {
         let _ = git(app, &project.path, &["worktree", "remove", &p.root]).await;
@@ -389,6 +403,37 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
         return Err(e);
     }
     Ok(p)
+}
+/// Where agents push the commits of a published Local PR: remote (name or URL) and branch.
+pub async fn published_push(p: &Predraft, project_path: &str) -> Option<(String, String, String)> {
+    let url = p.published_url.clone()?;
+    let branch = p.remote_branch.clone()?;
+    let target = push_target(project_path, p.push_repo.as_deref()).await.ok()?;
+    Some((url, target.remote, branch))
+}
+/// Launch instructions for an agent in a Local PR worktree; after publication, it pushes to the PR.
+pub async fn work_instruction(app: &App, p: &Predraft) -> String {
+    if p.published_url.is_some() {
+        let project = crate::projects::get(app, &p.project_id).await.ok().flatten();
+        if let Some((url, remote, branch)) = match &project { Some(project) => published_push(p, &project.path).await, None => None } {
+            return format!("You are working in a dedicated git worktree on branch `{}`. Do not remove this worktree. {}", p.branch, crate::worktrees::push_instruction(&url, &remote, &branch));
+        }
+    }
+    instruction(app, p)
+}
+/// Once per session: tells an agent of a published Local PR to push its commits there.
+/// Its earlier instructions said not to push. Returns the text to append to the message.
+pub async fn published_note(app: &App, session_id: &str, cwd: &str) -> Option<String> {
+    let _lock = app.predraft_lock.lock().await;
+    let mut p = list(app).await.ok()?.into_iter().find(|p| p.published_url.is_some() && !p.archived && crate::hosts::loc::within(cwd, &p.root))?;
+    if p.push_told.iter().any(|s| s == session_id) {
+        return None;
+    }
+    let project = crate::projects::get(app, &p.project_id).await.ok()??;
+    let (url, remote, branch) = published_push(&p, &project.path).await?;
+    p.push_told.push(session_id.to_string());
+    save(app, &p).await.ok()?;
+    Some(format!("Launchpad: this Local PR is now published. {}", crate::worktrees::push_instruction(&url, &remote, &branch)))
 }
 pub fn instruction(app: &App, p: &Predraft) -> String {
     format!(
