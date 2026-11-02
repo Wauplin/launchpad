@@ -69,7 +69,7 @@ Screens narrower than 720 px get a phone layout (or choose it in **Settings → 
 
 - **Now**: what needs you, with answer buttons in place, and open terminals.
 - **Agents**, **Ask**, **Review** and **Inbox** tabs.
-- Session pages with Summary, Trace and Changes, a reply box and a terminal key bar.
+- Session pages with Summary, Trace and Changes, a reply box and a terminal key bar. In Summary or Trace, tap the expand icon beside the view tabs to fill the screen with a compact header and hide the reply box. Tap collapse to restore the layout and your draft.
 
 <table>
   <tr>

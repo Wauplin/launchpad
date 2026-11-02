@@ -482,6 +482,22 @@ button {
 }
 .lp-phone .session-views .btn[aria-pressed="true"] { border-bottom-color: var(--color-teal); color: var(--color-teal-ink); }
 .lp-phone .session-detail-sheet { overflow-wrap: anywhere; }
+.lp-phone .session-header:has(.session-expand) .session-views { grid-column: 1; }
+.lp-phone .session-expand { grid-column: 2; grid-row: 3; }
+.lp-phone .session-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.lp-phone .session-expanded .session-heading,
+.lp-phone .session-expanded .session-meta,
+.lp-phone .session-expanded .session-actions > div { display: none; }
+.lp-phone .session-expanded .session-header { padding-top: 0; }
+.lp-phone .session-expanded .session-views,
+.lp-phone .session-expanded .session-expand { grid-row: 1; }
 
 /* Keep attachments outside the scrolling prompt so no line can pass under the button. */
 .lp-phone .composer-prompt {

@@ -199,6 +199,8 @@ type View = "summary" | "trace" | "changes" | "subagents" | "processes";
 export function SessionPane({ sessionId, onClear, initialView, chat = false }: { sessionId: string; onClear: () => void; initialView?: "changes" | "trace"; chat?: boolean }) {
   const phone = usePhone();
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => setExpanded(false), [sessionId]);
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
@@ -229,6 +231,8 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
   const current: View = view === "processes" && !hasProcesses ? "trace" : view === "changes" && !isGit ? "summary" : view ?? "summary";
   // Running opens Trace by default (decision 10 allows Summary while running, with a "Working…" band).
   const summary = !s || current === "summary";
+  const canExpand = phone && !chat && (current === "summary" || current === "trace");
+  const readingExpanded = canExpand && expanded;
   const changesOpen = current === "changes";
   const processesOpen = current === "processes";
   const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => p.root === s?.cwd || p.id === localStorage.getItem(`launchpad.session-predraft.${sessionId}`));
@@ -335,7 +339,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
     </> : <button className="btn btn-sm btn-primary" title="Continue this session in Launchpad" onClick={() => (tui ? setReattaching(true) : void act(s.id, "resume"))}>Re-attach</button>
   ) : s.status === "waiting" && s.open_question ? (
     <>
-      <button className="btn btn-sm btn-primary" title={ask?.permission ? "Review the requested operation" : "Show the question and focus the message box"} onClick={() => { setView("trace"); setAnswering((n) => n + 1); }}>{ask?.permission ? "Review approval" : "Answer"}</button>
+      <button className="btn btn-sm btn-primary" title={ask?.permission ? "Review the requested operation" : "Show the question and focus the message box"} onClick={() => { setExpanded(false); setView("trace"); setAnswering((n) => n + 1); }}>{ask?.permission ? "Review approval" : "Answer"}</button>
       {s.live && <button className="iconbtn text-danger" title="Stop the agent while it waits for your decision" aria-label="Stop agent" onClick={() => void act(s.id, "interrupt")}><Icon name="stop" size={14} /></button>}
     </>
   ) : s.status === "waiting" ? (
@@ -348,12 +352,17 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
   const archivePrimary = s.status === "waiting" && !s.open_question && !uncommitted;
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-col bg-paper"
+    <div className={`relative flex h-full min-h-0 min-w-0 flex-col bg-paper ${readingExpanded ? "session-expanded" : ""}`}
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
       onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(false); dropImages.current?.(Array.from(e.dataTransfer.files)); } }}
     >
       {dragging && <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center border-2 border-teal bg-teal-soft/80 font-semibold text-teal-ink">{harness?.capabilities.images ? "Drop files or images to attach to your message" : `Drop files to attach (${name} does not accept images)`}</div>}
+      {readingExpanded && <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-line-2 px-3 py-1">
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold" title={s.title}>{s.title}</span>
+        <StatusBadge s={s} />
+        {!archivePrimary && primary}
+      </div>}
       {phone && chat ? <div className="flex min-h-11 items-center gap-2 border-b border-line-2 px-3 py-1 text-[12px] text-ink-3">
         <StatusBadge s={s} />
         <span className="min-w-0 flex-1 truncate">{usageLine(s)}</span>
@@ -408,6 +417,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
             ...(isGit ? [{ id: "changes" as const, title: "Git changes of the session folder", label: `Changes${changed ? ` · ${git.data?.files.length || committedFiles || mainChanges}` : ""}` }] : []),
           ]} />
           <div className="session-actions ml-auto flex flex-wrap items-center gap-1">
+            {canExpand && <button className="iconbtn session-expand" aria-label={readingExpanded ? "Collapse session view" : "Expand session view"} title={readingExpanded ? "Collapse session view" : "Expand session view"} aria-pressed={readingExpanded} onClick={() => setExpanded((value) => !value)}><Icon name={readingExpanded ? "collapse" : "expand"} size={18} /></button>}
             {!phone && <>
               <span data-tour="session.primary" className="inline-flex">{primary}</span>
               {!s.imported_from && <FollowUpAgent session={s} />}
@@ -524,7 +534,9 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
       </div>
       </ShellCodeContext.Provider>
       </CodeLinksContext.Provider>
+      <div className={readingExpanded ? "hidden" : "contents"}>
       {!s.imported_from && !childrenOpen && <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={!quotaPaused && s.open_question && ask?.permission ? "Choose a decision on the approval card." : placeholder} disabled={!!(!quotaPaused && s.open_question && ask?.permission) || s.status === "in_terminal" || quotaMessageBlocked || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={!quotaPaused && s.open_question && s.live ? ask : null} />}
+      </div>
     </div>
   );
 }
