@@ -33,7 +33,7 @@ const WorktreeRow = memo(function WorktreeRow({ info: i, bytes }: { info: Worktr
     <div className="flex h-[56px] items-center gap-3 border-b border-line-2 px-3 text-xs">
       <div className="grid min-w-0 flex-1 gap-0.5">
         <span className="flex min-w-0 items-center gap-1.5"><b className="truncate font-mono text-[12px]">{w.branch}</b><span className="shrink-0 text-ink-3">{i.project_name}</span></span>
-        <span className="truncate text-ink-3" title={w.cleanup_note ?? i.path}>{worktreeState(i)}{w.cleanup_note && w.state === "active" ? ` · ${w.cleanup_note}` : ""}{size(bytes) ? ` · ${size(bytes)}` : ""}</span>
+        <span className="truncate text-ink-3" title={w.remote_sync_note ?? w.cleanup_note ?? i.path}>{worktreeState(i)}{w.remote_sync_note ? ` · ${w.remote_sync_note}` : ""}{w.cleanup_note && w.state === "active" ? ` · ${w.cleanup_note}` : ""}{size(bytes) ? ` · ${size(bytes)}` : ""}</span>
       </div>
       {w.sessions.length > 0 && <button className="btn btn-sm" onClick={() => { show(w.sessions[w.sessions.length - 1]); void navigate({ to: "/agents" }); }}>Agent</button>}
       {w.state === "active" && <button className="btn btn-sm" disabled={busy} title="Remove the clean folder; the branch keeps the commits and Resume restores it" onClick={() => void act("remove")}>Remove folder</button>}

@@ -31,7 +31,11 @@ pub struct Predraft {
     pub remote_branch: Option<String>,
     pub pushed_head: Option<String>,
     pub created_at: i64,
-    /// Merged into the local base branch with Merge locally; nothing was pushed.
+    #[serde(default)]
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_sync_note: Option<String>,
+    /// Merged into the local base branch; remote synchronization is best effort.
     #[serde(default)]
     pub merged: Option<LocalMerge>,
 }
@@ -270,6 +274,7 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
             remote_branch: None,
             pushed_head: None,
             created_at: crate::util::now_ms(),
+            remote_sync_note: None,
             merged: None,
         };
         save(app, &p).await?;
@@ -324,6 +329,7 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
         remote_branch: None,
         pushed_head: None,
         created_at: crate::util::now_ms(),
+        remote_sync_note: None,
         merged: None,
     };
     if let Err(e) = save(app, &p).await {
@@ -573,7 +579,7 @@ pub async fn discard(app: &App, id: &str) -> Result<Predraft> {
     Ok(p)
 }
 /// Merge locally: rebase the branch onto the local base branch when needed, then fast-forward the
-/// checkout that has the base branch checked out. Nothing is pushed and GitHub is not called.
+/// checkout that has the base branch checked out, then best-effort pushes the merged base.
 pub async fn merge_local(app: &App, id: &str, q: MergeLocal) -> Result<Predraft> {
     let _action = app.sessions.action_lock().await;
     let _work = app.sessions.allow_work().await;
@@ -649,13 +655,24 @@ pub async fn merge_local(app: &App, id: &str, q: MergeLocal) -> Result<Predraft>
             return Err(e.context(format!("fast-forward of {base} in {target}")));
         }
     }
-    p.merged = Some(LocalMerge { checkout: target, head: tip, at: crate::util::now_ms() });
+    p.remote_sync_note = Some(format!("Remote sync: local merge saved; push of {base} requested."));
+    p.merged = Some(LocalMerge { checkout: target, head: tip.clone(), at: crate::util::now_ms() });
     save(app, &p).await?;
     if app.config.get().remove_published_worktree
         && let Err(e) = cleanup(app, &p, false).await
     {
         tracing::warn!("Local PR merged locally; worktree kept: {e:#}");
     }
+    let (app, id, repo, session) = (app.clone(), p.id.clone(), project.path.clone(), p.session_id.clone());
+    tokio::spawn(async move {
+        let note = crate::remote_sync::push(&app, &repo, &base, &tip).await;
+        let _lock = app.predraft_lock.lock().await;
+        if let Ok(mut current) = get(&app, &id).await {
+            current.remote_sync_note = Some(note.clone());
+            if let Err(e) = save(&app, &current).await { tracing::warn!("save remote sync: {e:#}"); }
+        }
+        if let Some(session) = session { app.sessions.sink(&app, &session).emit(crate::model::EventBody::Notice { text: note }).await; }
+    });
     Ok(p)
 }
 pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {

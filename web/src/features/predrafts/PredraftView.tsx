@@ -132,6 +132,7 @@ function Review({ id }: { id: string }) {
       {d.base_ahead > 0 && <span className="flex items-center gap-1.5"><Icon name="alert" size={12} />Base moved: {p.base_branch} is {d.base_ahead} commits ahead of this branch. Review against the refreshed base before publishing.</span>}
       {d.dirty && <span className="flex items-center gap-1.5"><Icon name="alert" size={12} />Uncommitted changes are excluded from this review. Ask the agent to commit them before publishing.</span>}
     </div>}
+    {p.remote_sync_note && <div className="border-b border-line px-3 py-2 text-[12px] text-ink-2">{p.remote_sync_note}</div>}
     {!!error && <ErrorState className="m-2" error={error} />}
     {notesBar}
     {tab === "files" && !p.archived && d.head ? <FilesChanged repo="local" number={0} head={d.head} local={{ id, root: p.root }} notes={lineNotes} onAddNote={active ? (n) => setNotes((all) => [...all, { path: n.path, text: lineNoteText(n) }]) : undefined} /> : <div className="min-h-0 flex-1 overflow-auto p-4">
@@ -154,7 +155,7 @@ function Review({ id }: { id: string }) {
       <input aria-label="Remote branch name" className="field-input min-w-48 flex-1" value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="Remote branch name" />
       <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} />As a GitHub draft</label>
       <ConfirmButton tone="publish" small={false} className="btn-primary" disabled={busy || running || d.dirty || !d.head || !remote.trim()} consequence={`Pushes ${remote.trim()} and creates ${draft ? "a GitHub draft" : "a"} PR on GitHub.`} confirmLabel="Push and create PR" onConfirm={() => run(async () => { await save(); await api.post(`/api/predrafts/${id}/publish`, { remote_branch: remote, draft, head: d.head }); await saved.clear(); }, "Local PR published")}>Publish</ConfirmButton>
-      <ConfirmButton tone="publish" small={false} disabled={busy || running || d.dirty || !d.head} consequence={`Rebases ${p.branch} onto the local ${p.base_branch} branch if needed, then fast-forwards ${p.base_branch} in its checkout. Nothing is pushed.`} confirmLabel={`Merge into ${p.base_branch}`} onConfirm={() => run(async () => { await api.post(`/api/predrafts/${id}/merge-local`, { head: d.head }); await saved.clear(); }, `Merged locally into ${p.base_branch}`)}>Merge locally</ConfirmButton>
+      <ConfirmButton tone="publish" small={false} disabled={busy || running || d.dirty || !d.head} consequence={`Rebases ${p.branch} onto the local ${p.base_branch} branch if needed, then fast-forwards ${p.base_branch} in its checkout. Then tries to push the merged base branch; a failure keeps the local merge.`} confirmLabel={`Merge into ${p.base_branch}`} onConfirm={() => run(async () => { await api.post(`/api/predrafts/${id}/merge-local`, { head: d.head }); await saved.clear(); }, `Merged locally into ${p.base_branch}`)}>Merge locally</ConfirmButton>
       <ConfirmButton small={false} disabled={busy || running || d.dirty} consequence="Deletes the branch and the worktree." confirmLabel="Discard" onConfirm={() => run(() => api.post(`/api/predrafts/${id}/discard`), "Local PR discarded")}>Discard</ConfirmButton>
     </div>}
   </div>;
@@ -172,6 +173,7 @@ function Orphan({ p, running, onDiscarded }: { p: Predraft; running: boolean; on
       <p className="mt-3 text-[13px] text-ink-2">The folder of this Local PR is no longer registered in Launchpad, so its commits and changes cannot be reviewed or published from here. {active ? "Discard archives this record and closes the agents and terminals in its worktree. Without the folder, the worktree and the branch are kept on disk; remove them with git if you no longer need them." : p.archived ? "This Local PR was discarded." : p.merged ? "This Local PR was merged locally." : "This Local PR was published."}</p>
       {p.published_url && <button className="text-teal-ink hover:underline" onClick={() => openGitHub(p.published_url!)}>Published on GitHub as #{p.published_number}</button>}
       {p.body && <div className="mt-3 border-t border-line pt-3"><Markdown text={p.body} /></div>}
+      {p.remote_sync_note && <div className="border-b border-line px-3 py-2 text-[12px] text-ink-2">{p.remote_sync_note}</div>}
       {!!error && <ErrorState className="mt-2" error={error} />}
       {active && <div className="mt-4 flex items-center gap-2">
         <ConfirmButton small={false} disabled={running} consequence="Archives the record; the worktree and branch stay on disk." confirmLabel="Discard" onConfirm={() => api.post(`/api/predrafts/${p.id}/discard`).then(onDiscarded, setError)}>Discard</ConfirmButton>

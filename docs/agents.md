@@ -100,7 +100,7 @@ Sessions that fail because the model is at capacity or overloaded resume automat
 
 ## Worktrees and merging
 
-In a Git folder, each new agent gets its own worktree and branch, created by Launchpad before the agent starts. Your checkout stays untouched.
+In a Git folder, each new agent gets its own worktree and branch, created by Launchpad before the agent starts. Before branching, Launchpad tries to fast-forward the base from its configured upstream (or the same branch on `origin`). Dirty or busy base checkouts stay unchanged. Remote failures leave the local base usable and appear in the worktree card and session trace.
 
 ```mermaid
 flowchart LR
@@ -117,6 +117,7 @@ flowchart LR
 
 - **When done** is remembered per folder: **Keep branch for review** (default) or **Merge into &lt;base&gt;**.
 - Merges wait until the agents are idle and the worktree is clean, then rebase and fast-forward. Launchpad never stashes, resets or force-pushes. Conflicts go back to the agent.
+- After a successful merge, Launchpad tries to push exactly the merged commit to the base branch’s upstream (or the same branch on `origin`) in the background. It never forces a push or retries automatically. Task branches (`lp/`) stay local. A failed push keeps the local merge and appears in the worktree card and session trace. Each Git sync command has a 10-second timeout and cannot ask for credentials.
 - A per-folder **Worktree setup** command and `.worktreeinclude` files prepare new worktrees (dependencies, `.env` files).
 - Clean worktrees of archived agents are removed after a retention limit (`[worktrees] keep`). The branch stays, and **Resume** restores the folder.
 

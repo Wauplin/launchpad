@@ -2,8 +2,8 @@
 import type { LocalMerge } from "./LocalMerge";
 import type { Note } from "./Note";
 
-export type Predraft = { id: string, project_id: string, root: string, branch: string, base_branch: string, initial_base: string, title: string, body: string, session_id: string | null, notes: Array<Note>, archived: boolean, published_url: string | null, published_number: number | null, default_remote_branch: string, remote_branch: string | null, pushed_head: string | null, created_at: number,
+export type Predraft = { id: string, project_id: string, root: string, branch: string, base_branch: string, initial_base: string, title: string, body: string, session_id: string | null, notes: Array<Note>, archived: boolean, published_url: string | null, published_number: number | null, default_remote_branch: string, remote_branch: string | null, pushed_head: string | null, created_at: number, remote_sync_note?: string,
 /**
- * Merged into the local base branch with Merge locally; nothing was pushed.
+ * Merged into the local base branch; remote synchronization is best effort.
  */
 merged: LocalMerge | null, };

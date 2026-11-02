@@ -951,6 +951,11 @@ impl Sessions {
             app.bus.publish("sessions", "updated", serde_json::to_value(session.light())?);
             self.inner.records.lock().unwrap().insert(id.clone(), session);
             self.publish_counts(app);
+            for (w, _) in &worktrees {
+                if let Some(text) = &w.remote_sync_note {
+                    self.sink(app, &id).emit(EventBody::Notice { text: text.clone() }).await;
+                }
+            }
             Ok::<_, anyhow::Error>((start, images, preview.prompt))
         }.await;
         let (start, images, prompt) = match prepared {

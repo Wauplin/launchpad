@@ -43,6 +43,11 @@ pub struct TaskWorktree {
     pub handoff_from: Option<String>,
     /// Why the last automatic cleanup kept the folder.
     pub cleanup_note: Option<String>,
+    /// Last best-effort pull or push result, visible even if no session trace is open.
+    #[serde(default)]
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_sync_note: Option<String>,
     #[ts(type = "number")]
     pub created_at: i64,
 }
@@ -206,7 +211,7 @@ pub(crate) async fn context_folder(app: &App, records: &[TaskWorktree], project:
 }
 
 /// Creates the worktree of `project` for a session, or returns the one it already has in the same
-/// repository. Returns the record and the project folder inside it. Never edits the source checkout.
+/// repository. Returns the record and the project folder inside it. Fast-forwards a clean, idle base checkout when possible.
 pub async fn create(app: &App, session_id: &str, project: &Project, opts: &WorktreeOptions, primary: bool, title: &str) -> Result<(TaskWorktree, String)> {
     let _lock = app.worktree_lock.lock().await;
     let (top, common_dir) = repository(app, &project.path).await?;
@@ -220,6 +225,9 @@ pub async fn create(app: &App, session_id: &str, project: &Project, opts: &Workt
     if let Some(b) = &base_branch {
         ensure!(!b.starts_with('-'), "invalid base branch");
     }
+    let remote_sync_note = if let Some(base) = &base_branch {
+        crate::remote_sync::pull(app, &top, base).await
+    } else { None };
     let base_ref = base_branch.as_deref().map(|b| format!("refs/heads/{b}^{{commit}}")).unwrap_or_else(|| "HEAD^{commit}".into());
     let base_commit = git(app, &top, &["rev-parse", "--verify", &base_ref]).await.with_context(|| format!("branch {} not found", base_branch.as_deref().unwrap_or("HEAD")))?;
     let id = uuid::Uuid::new_v4().to_string();
@@ -253,6 +261,7 @@ pub async fn create(app: &App, session_id: &str, project: &Project, opts: &Workt
         predraft_id: None,
         handoff_from: None,
         cleanup_note: None,
+        remote_sync_note,
         created_at: now_ms(),
     };
     let prepared = async {
@@ -268,6 +277,7 @@ pub async fn create(app: &App, session_id: &str, project: &Project, opts: &Workt
         let _ = git(app, &top, &["branch", "-D", &branch]).await;
         return Err(e);
     }
+    if let Some(note) = &w.remote_sync_note { notice(app, &w, note).await; }
     Ok((w, folder_in(&root, &subdir)))
 }
 
@@ -892,6 +902,7 @@ pub async fn fix_with_agent(app: &App, id: &str) -> Result<()> {
 
 /// One merge attempt. Never stashes, resets, cleans or commits anyone's changes, and never forces.
 async fn attempt(app: &App, id: &str) {
+    let mut push = None;
     let outcome = {
         let _action = app.sessions.action_lock().await;
         let _lock = app.worktree_lock.lock().await;
@@ -904,6 +915,8 @@ async fn attempt(app: &App, id: &str) {
         let result = match result {
             Ok(Step::Merged(head, base)) => {
                 let into = w.base_branch.clone().unwrap_or_default();
+                w.remote_sync_note = Some(format!("Remote sync: local merge saved; push of {into} requested."));
+                push = Some((w.clone(), into.clone(), head.clone()));
                 w.merge = None;
                 w.merged = Some(Merged { base: Some(base), into: into.clone(), head: head.clone(), at: now_ms() });
                 notice(app, &w, &format!("Launchpad merged {} into {into} ({}).", w.branch, &head[..12.min(head.len())])).await;
@@ -926,10 +939,26 @@ async fn attempt(app: &App, id: &str) {
             }
         };
         if let Err(e) = save(app, &w).await {
+            push = None;
             tracing::warn!("worktree merge {id}: {e:#}");
         }
         result.map(|r| (w, r))
     };
+    // Network publication runs after local success is saved and all action locks are released.
+    if let Some((w, base, head)) = push {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let note = crate::remote_sync::push(&app, &w.repo, &base, &head).await;
+            let _lock = app.worktree_lock.lock().await;
+            if let Ok(mut current) = get(&app, &w.id).await
+                && current.merged.as_ref().is_some_and(|m| m.head == head)
+            {
+                current.remote_sync_note = Some(note.clone());
+                if let Err(e) = save(&app, &current).await { tracing::warn!("save remote sync: {e:#}"); }
+            }
+            notice(&app, &w, &note).await;
+        });
+    }
     // The agent fixes conflicts itself, after the locks are released.
     if let Some((w, (Some(session), reason))) = outcome
         && let Err(e) = app.sessions.send_follow_up(app, &session, &conflict_message(app, &w, &reason, &session), false).await

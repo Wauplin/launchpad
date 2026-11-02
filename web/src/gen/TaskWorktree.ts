@@ -35,4 +35,8 @@ handoff_from: string | null,
 /**
  * Why the last automatic cleanup kept the folder.
  */
-cleanup_note: string | null, created_at: number, };
+cleanup_note: string | null,
+/**
+ * Last best-effort pull or push result, visible even if no session trace is open.
+ */
+remote_sync_note?: string, created_at: number, };

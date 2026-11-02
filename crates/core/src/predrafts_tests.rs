@@ -37,7 +37,7 @@ async fn fixture() -> (Fixture, App, Predraft) {
         base_branch: "main".into(), initial_base: "head".into(), title: "Test".into(), body: String::new(),
         session_id: None, notes: vec![Note { path: None, text: "Fix it".into() }],
         archived: false, published_url: None, published_number: None, default_remote_branch: "test".into(),
-        remote_branch: None, pushed_head: None, created_at: 0, merged: None,
+        remote_branch: None, pushed_head: None, created_at: 0, remote_sync_note: None, merged: None,
     };
     save(&app, &p).await.unwrap();
     let cwd = Path::new(&p.root).join("subdir").to_string_lossy().into_owned();
