@@ -177,7 +177,10 @@ async fn remote_sync_pulls_before_branching_and_keeps_merges_when_push_fails() {
         anyhow::ensure!(git(&app, repo, &["rev-parse", "HEAD"]).await? == old);
         let project = crate::projects::register(&app, &repo_path, false).await?;
         let (w, _) = create(&app, "sync-task", &project, &crate::model::WorktreeOptions::default(), true, "remote sync").await?;
-        anyhow::ensure!(w.base_commit == latest, "new task must start from the pulled upstream");
+        anyhow::ensure!(w.base_commit == old, "creation stays local");
+        let (w, before) = sync_base(&app, &w.id).await?.unwrap();
+        anyhow::ensure!(before == old && w.base_commit == latest, "new task must start from the pulled upstream");
+        anyhow::ensure!(git(&app, &w.root, &["rev-parse", "HEAD"]).await? == latest);
         git(&app, &w.root, &["commit", "--allow-empty", "-m", "task"]).await?;
         let merged = request_merge(&app, &w.id, false).await?;
         anyhow::ensure!(merged.merged.is_some() && merged.merge.is_none());
@@ -194,6 +197,7 @@ async fn remote_sync_pulls_before_branching_and_keeps_merges_when_push_fails() {
         anyhow::ensure!(git(&app, remote, &["show-ref", "--verify", &format!("refs/heads/{}", w.branch)]).await.is_err());
         std::fs::write(repo_path.join("untracked.txt"), "keep")?;
         let (dirty, _) = create(&app, "dirty-task", &project, &crate::model::WorktreeOptions::default(), true, "dirty").await?;
+        let (dirty, _) = sync_base(&app, &dirty.id).await?.unwrap();
         anyhow::ensure!(dirty.base_commit == head && dirty.remote_sync_note.unwrap().contains("uncommitted changes"));
         anyhow::ensure!(std::fs::read_to_string(repo_path.join("untracked.txt"))? == "keep");
         std::fs::remove_file(repo_path.join("untracked.txt"))?;
@@ -209,9 +213,11 @@ async fn remote_sync_pulls_before_branching_and_keeps_merges_when_push_fails() {
         anyhow::ensure!(git(&app, remote, &["rev-parse", "refs/heads/official"]).await? == competing);
         // Divergence and a missing remote still allow a task to start from local main.
         let (diverged, _) = create(&app, "diverged-task", &project, &crate::model::WorktreeOptions::default(), true, "diverged").await?;
+        let (diverged, _) = sync_base(&app, &diverged.id).await?.unwrap();
         anyhow::ensure!(diverged.base_commit == head && diverged.remote_sync_note.unwrap().contains("could not pull"));
         std::fs::remove_dir_all(&remote_path)?;
         let (offline, _) = create(&app, "offline-task", &project, &crate::model::WorktreeOptions::default(), true, "offline").await?;
+        let (offline, _) = sync_base(&app, &offline.id).await?.unwrap();
         anyhow::ensure!(offline.base_commit == head && offline.remote_sync_note.unwrap().contains("could not pull"));
         Ok(())
     }.await;

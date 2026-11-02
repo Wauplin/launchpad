@@ -40,7 +40,8 @@ async fn upstream(app: &App, repo: &str, branch: &str) -> Result<Option<(String,
 async fn idle_checkout(app: &App, target: &str, branch: &str) -> Result<()> {
     ensure!(git(app, target, &["branch", "--show-current"]).await? == branch, "the checkout changed branches");
     ensure!(!crate::worktrees::operation_in_progress(app, target).await, "a Git operation is in progress in {target}");
-    ensure!(crate::worktrees::dirty_files(app, target).await?.is_empty(), "{target} has uncommitted changes");
+    // Bounded: a status scan can be slow on network or bucket file systems.
+    ensure!(git_timeout(app, target, &["status", "--porcelain"], 30).await?.is_empty(), "{target} has uncommitted changes");
     ensure!(!app.sessions.list().iter().any(|s| crate::hosts::loc::within(&s.cwd, target) && app.sessions.is_busy(s)), "an agent is running in {target}");
     Ok(())
 }

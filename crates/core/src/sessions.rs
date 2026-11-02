@@ -332,7 +332,7 @@ impl Sessions {
         self.inner.actions.lock().await
     }
 
-    /// The worktree setup command runs before the agent of this new session starts.
+    /// Launch preparation (remote sync, worktree setup) runs before the agent of this new session starts.
     pub fn setup_running(&self, id: &str) -> bool {
         self.inner.setups.lock().unwrap().contains_key(id)
     }
@@ -786,6 +786,8 @@ impl Sessions {
         let mut predraft = None;
         let mut worktrees: Vec<(crate::worktrees::TaskWorktree, String)> = vec![];
         let mut setups: Vec<(Project, String)> = vec![];
+        // Worktrees created by this launch: their base branches sync in the background.
+        let mut created: Vec<String> = vec![];
         let prepared = async {
             if let Target::Browser { grants, act, .. } = &spec.target { crate::browser::claim(app, &id, grants, *act).await?; }
             let (mut cwd, project_id) = match &spec.target {
@@ -874,6 +876,7 @@ impl Sessions {
             if let (Some(project_id), Some(opts)) = (project_target, &spec.worktree) {
                 let project = crate::projects::get(app, project_id).await?.context("the project no longer exists")?;
                 let (w, folder) = crate::worktrees::create(app, &id, &project, opts, true, &preview.title).await?;
+                created.push(w.id.clone());
                 cwd = folder.clone();
                 worktrees.push((w, folder.clone()));
                 setups.push((project, folder));
@@ -882,6 +885,7 @@ impl Sessions {
                 let Some(project) = crate::projects::get(app, &cp.project_id).await? else { continue };
                 let opts = WorktreeOptions { base: cp.branch.clone(), ..Default::default() };
                 let (w, folder) = crate::worktrees::create(app, &id, &project, &opts, false, &preview.title).await?;
+                if !created.contains(&w.id) { created.push(w.id.clone()); }
                 if let Some(d) = preview.add_dirs.iter_mut().find(|d| **d == project.path) { *d = folder.clone(); }
                 if !worktrees.iter().any(|(x, _)| x.id == w.id) { setups.push((project, folder.clone())); }
                 worktrees.push((w, folder));
@@ -962,11 +966,6 @@ impl Sessions {
             app.bus.publish("sessions", "updated", serde_json::to_value(session.light())?);
             self.inner.records.lock().unwrap().insert(id.clone(), session);
             self.publish_counts(app);
-            for (w, _) in &worktrees {
-                if let Some(text) = &w.remote_sync_note {
-                    self.sink(app, &id).emit(EventBody::Notice { text: text.clone() }).await;
-                }
-            }
             Ok::<_, anyhow::Error>((start, images, preview.prompt))
         }.await;
         let (start, images, prompt) = match prepared {
@@ -993,11 +992,8 @@ impl Sessions {
             }
         };
         setups.retain(|(p, _)| !p.worktree_setup.trim().is_empty());
-        if setups.is_empty() {
-            self.start_new(app, &id, start, (prompt, images), automatic).await;
-            return Ok(self.get(&id).unwrap());
-        }
-        // Setup can take minutes: it runs in the background, and the agent starts afterwards.
+        // The remote sync, worktree setup and harness start can take minutes (network, slow file
+        // systems, setup commands): they run in the background so the launch request returns now.
         let (this, app2, id2) = (self.clone(), app.clone(), id.clone());
         let (ready, wait) = tokio::sync::oneshot::channel::<()>();
         let (cancel, mut cancelled) = tokio::sync::watch::channel(false);
@@ -1006,7 +1002,25 @@ impl Sessions {
             let _ = wait.await;
             let sink = this.sink(&app2, &id2);
             let mut prompt = prompt;
+            for wid in &created {
+                if *cancelled.borrow() { break; }
+                match crate::worktrees::sync_base(&app2, wid).await {
+                    Ok(Some((w, old))) => {
+                        if w.base_commit != old {
+                            // The launch instruction names the base commit.
+                            let short = |c: &str| format!("({}).", &c[..12.min(c.len())]);
+                            prompt = prompt.replace(&short(&old), &short(&w.base_commit));
+                            let text = prompt.clone();
+                            if let Err(e) = this.update(&app2, &id2, |s| s.prompt = text).await { tracing::warn!("launch {id2}: {e:#}"); }
+                        }
+                        if let Some(text) = w.remote_sync_note { sink.emit(EventBody::Notice { text }).await; }
+                    }
+                    Ok(None) => {}
+                    Err(e) => sink.emit(EventBody::Notice { text: format!("Remote sync failed: {e:#}. The task starts from the local base.") }).await,
+                }
+            }
             for (project, folder) in &setups {
+                if *cancelled.borrow() { break; }
                 if let Err(e) = crate::worktrees::run_setup(&app2, project, folder, &sink, &mut cancelled).await {
                     if *cancelled.borrow() { break; }
                     sink.emit(EventBody::Notice { text: format!("Worktree setup failed: {e:#}") }).await;
@@ -1333,7 +1347,7 @@ impl Sessions {
         anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.permission_modes,
             "This harness manages permissions in its native configuration.");
         anyhow::ensure!(s.status != SessionStatus::InTerminal, "Re-attach the session before changing permissions.");
-        anyhow::ensure!(!self.setup_running(id), "Wait for worktree setup to finish before changing permissions.");
+        anyhow::ensure!(!self.setup_running(id), "Wait for the agent to start before changing permissions.");
         if s.launch_spec.permission_mode == mode { return Ok(s); }
         crate::predrafts::check_session_work(app, &s.cwd).await?;
         if let Some(live) = self.live(id) {
@@ -1574,7 +1588,7 @@ impl Sessions {
         self.ensure_shutdown_finished(id)?;
         self.update(app, id, |s| s.capacity_retry_at = None).await?;
         let s = self.get(id).context("no such session")?;
-        anyhow::ensure!(!self.setup_running(id), "Wait for the worktree setup to finish; the agent starts afterwards.");
+        anyhow::ensure!(!self.setup_running(id), "The agent is still starting; send your message once it is ready.");
         if mode != InputMode::Manual && (s.status.is_running() || s.open_question || s.status == SessionStatus::InTerminal || s.quota_pause.is_some()) {
             return Err(FollowUpBusy.into());
         }
@@ -1694,7 +1708,7 @@ impl Sessions {
             self.inner.manual_quota_retries.lock().unwrap().remove(id);
             self.update(app, id, |s| s.quota_pause = None).await?;
             let sink = self.sink(app, id);
-            sink.emit(EventBody::Notice { text: "Worktree setup cancelled by you; the agent was not started.".into() }).await;
+            sink.emit(EventBody::Notice { text: "Launch cancelled by you; the agent was not started.".into() }).await;
             sink.set_status(SessionStatus::Stopped).await;
             return Ok(());
         }
@@ -1817,7 +1831,7 @@ impl Sessions {
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(!s.status.is_running() && !s.open_question && self.live(id).is_none_or(|l| l.ready_for_turn()), "Wait for the current turn, question and outstanding commands to finish.");
         anyhow::ensure!(s.quota_pause.is_none(), "Use Resume with paid usage to continue a quota-paused session.");
-        anyhow::ensure!(!self.setup_running(id), "Wait for the worktree setup to finish.");
+        anyhow::ensure!(!self.setup_running(id), "Wait for the agent to start.");
         crate::predrafts::check_session_work(app, &s.cwd).await?;
         if let Some(t) = app.terminals.tui_of(id) {
             if !close_terminal {
@@ -1862,7 +1876,7 @@ impl Sessions {
         let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.terminal, "This harness does not support a terminal TUI.");
-        anyhow::ensure!(!self.setup_running(id), "Wait for the worktree setup to finish.");
+        anyhow::ensure!(!self.setup_running(id), "Wait for the agent to start.");
         if let Some(t) = app.terminals.tui_of(id) {
             return app.terminals.list().into_iter().find(|i| i.id == t).context("no such terminal");
         }

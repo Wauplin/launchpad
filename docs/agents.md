@@ -100,7 +100,7 @@ Sessions that fail because the model is at capacity or overloaded resume automat
 
 ## Worktrees and merging
 
-In a Git folder, each new agent gets its own worktree and branch, created by Launchpad before the agent starts. Before branching, Launchpad tries to fast-forward the base from its configured upstream (or the same branch on `origin`). Dirty or busy base checkouts stay unchanged. Remote failures leave the local base usable and appear in the worktree card and session trace.
+In a Git folder, each new agent gets its own worktree and branch, created by Launchpad before the agent starts. The launch returns as soon as the worktree exists locally; in the background, before the agent starts, Launchpad tries to fast-forward the base from its configured upstream (or the same branch on `origin`) and moves the new, untouched task branch to it. Dirty or busy base checkouts stay unchanged. Remote failures leave the local base usable and appear in the worktree card and session trace.
 
 ```mermaid
 flowchart LR

@@ -58,7 +58,7 @@ Every harness maps to the same model:
 
 Adapters (`crates/core/src/harness/`) translate each native protocol into these events and own everything native: startup, resume, model discovery, quota readings, terminal commands. See [Harness adapters](harness-adapters.md).
 
-Task worktree creation makes a bounded, best-effort fast-forward update of the base from its upstream (falling back to the same branch on `origin`). Dirty or busy base checkouts stay unchanged. Successful task and Local PR merges save local success first, then push the exact merged commit in a background task outside the session action lock. Sync uses host-aware process groups, noninteractive credentials and a 10-second timeout per Git command; failures are recorded in the UI and session notices and never undo a local merge. Task branches (`lp/`) are never synchronized automatically.
+A launch only does local work in the request: it creates the worktree from the local base, saves the session as Starting and returns. A background task then makes a bounded, best-effort fast-forward update of the base from its upstream (falling back to the same branch on `origin`), fast-forwards the untouched task branch, runs worktree setup and starts the harness; Stop cancels it between steps. Dirty or busy base checkouts stay unchanged. Successful task and Local PR merges save local success first, then push the exact merged commit in a background task outside the session action lock. Sync uses host-aware process groups, noninteractive credentials and a 10-second timeout per Git command; failures are recorded in the UI and session notices and never undo a local merge. Task branches (`lp/`) are never synchronized automatically.
 
 ## Storage
 

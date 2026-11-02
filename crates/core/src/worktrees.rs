@@ -230,7 +230,7 @@ pub(crate) async fn context_folder(app: &App, records: &[TaskWorktree], project:
 }
 
 /// Creates the worktree of `project` for a session, or returns the one it already has in the same
-/// repository. Returns the record and the project folder inside it. Fast-forwards a clean, idle base checkout when possible.
+/// repository. Returns the record and the project folder inside it. Local only: `sync_base` pulls later.
 pub async fn create(app: &App, session_id: &str, project: &Project, opts: &WorktreeOptions, primary: bool, title: &str) -> Result<(TaskWorktree, String)> {
     let _lock = app.worktree_lock.lock().await;
     let (top, common_dir) = repository(app, &project.path).await?;
@@ -246,9 +246,6 @@ pub async fn create(app: &App, session_id: &str, project: &Project, opts: &Workt
     if let Some(b) = &base_branch {
         ensure!(!b.starts_with('-'), "invalid base branch");
     }
-    let remote_sync_note = if let Some(base) = &base_branch {
-        crate::remote_sync::pull(app, &top, base).await
-    } else { None };
     let (pull_request, base_commit) = match pr {
         Some(pr) => {
             let (branch, head) = pull_request_head(app, &project.path, &top, pr).await?;
@@ -290,7 +287,7 @@ pub async fn create(app: &App, session_id: &str, project: &Project, opts: &Workt
         predraft_id: None,
         handoff_from: None,
         cleanup_note: None,
-        remote_sync_note,
+        remote_sync_note: None,
         pull_request,
         created_at: now_ms(),
     };
@@ -307,8 +304,34 @@ pub async fn create(app: &App, session_id: &str, project: &Project, opts: &Workt
         let _ = git(app, &top, &["branch", "-D", &branch]).await;
         return Err(e);
     }
-    if let Some(note) = &w.remote_sync_note { notice(app, &w, note).await; }
     Ok((w, folder_in(&root, &subdir)))
+}
+
+/// Best-effort pull of a new worktree's base branch, then fast-forward of the untouched task branch.
+/// Runs in the background before the agent starts, so network and slow file systems never block a launch.
+/// Returns the saved record and its base commit before the sync.
+pub async fn sync_base(app: &App, id: &str) -> Result<Option<(TaskWorktree, String)>> {
+    let _lock = app.worktree_lock.lock().await;
+    let mut w = get(app, id).await?;
+    let Some(base) = w.base_branch.clone().filter(|_| w.pull_request.is_none() && w.state == WorktreeState::Active) else { return Ok(None) };
+    let old = w.base_commit.clone();
+    let mut note = crate::remote_sync::pull(app, &w.repo, &base).await;
+    let latest = git(app, &w.repo, &["rev-parse", "--verify", &format!("refs/heads/{base}^{{commit}}")]).await?;
+    if latest != old {
+        let moved = async {
+            ensure!(git(app, &w.root, &["rev-parse", "HEAD"]).await? == old, "the task branch already has commits");
+            git(app, &w.repo, &["merge-base", "--is-ancestor", &old, &latest]).await.with_context(|| format!("{base} is not a fast-forward of the task base"))?;
+            git(app, &w.root, &["-c", "merge.autoStash=false", "merge", "--ff-only", "--quiet", &latest]).await?;
+            Ok::<_, anyhow::Error>(())
+        }.await;
+        match moved {
+            Ok(()) => w.base_commit = latest,
+            Err(e) => note = Some(format!("Remote sync: the task starts from {} instead of the updated {base}: {e:#}.", &old[..12.min(old.len())])),
+        }
+    }
+    w.remote_sync_note = note;
+    save(app, &w).await?;
+    Ok(Some((w, old)))
 }
 
 /// Reads an open pull request on GitHub and fetches its head from the base repository's remote.
