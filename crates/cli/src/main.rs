@@ -124,7 +124,7 @@ enum Command {
     },
     /// Store an inert proposal for the owner to start from the Ask page; never starts anything.
     Propose {
-        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status"])]
+        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset"])]
         kind: String,
         #[arg(long)]
         title: String,
@@ -469,6 +469,9 @@ mod proposal_tests {
         assert!(matches!(cli.command, Command::Propose { replaces: Some(id), note: None, .. } if id == "old-id"));
         let cli = Cli::try_parse_from(["launchpad", "propose", "status", "--title", "New", "--spec-file", "spec.json"]).unwrap();
         assert!(matches!(cli.command, Command::Propose { replaces: None, .. }));
+        let cli = Cli::try_parse_from(["launchpad", "propose", "preset", "--title", "Preset", "--spec-file", "spec.json"]).unwrap();
+        assert!(matches!(cli.command, Command::Propose { kind, .. } if kind == "preset"));
+        assert!(Cli::try_parse_from(["launchpad", "propose", "delete", "--title", "X", "--spec-file", "spec.json"]).is_err());
         let cli = Cli::try_parse_from(["launchpad", "proposals", "list", "--workspace", "Work"]).unwrap();
         assert!(matches!(cli.command, Command::Proposals { command: ListOnly::List { workspace: Some(w) } } if w == "Work"));
     }

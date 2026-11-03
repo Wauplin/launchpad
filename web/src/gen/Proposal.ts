@@ -16,7 +16,7 @@ session_id: string | null, title: string,
  */
 note: string | null, body: ProposalBody, state: ProposalState, 
 /**
- * For launches: the session ID reserved at proposal time. Then the started session, schedule or cron.
+ * For launches and new presets: the ID reserved at proposal time. Then the started session, schedule, cron or preset.
  */
 result_id: string | null,
 /**

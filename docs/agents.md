@@ -145,11 +145,11 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ## Ask Launchpad
 
-**Ask** is an assistant for the current workspace. It reads your folders, agents, inbox and quotas, and proposes launches, messages, schedules and crons as cards. Nothing starts until you click **Start**, **Send**, **Schedule** or **Create cron**. **Edit** moves a proposal into the composer.
+**Ask** is an assistant for the current workspace. It reads your folders, agents, inbox and quotas, and proposes launches, messages, schedules, crons and presets as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create cron** or **Save preset**. **Edit** moves a proposal into the composer.
 
 ![Ask Launchpad with two proposals](images/ask.webp)
 
-In **Settings → Presets**, check **Ask Launchpad**, **Agent composer / steering**, or both for each preset. The Presets button adds selected instructions after your message, in settings order, including the first Ask request and later messages. Agent availability includes launches, steering and Send later. Existing presets remain available to agents until you change their availability. For example, an Ask-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
+In **Settings → Presets**, check **Ask Launchpad**, **Agent composer / steering**, or both for each preset. The Presets button adds selected instructions after your message, in settings order, including the first Ask request and later messages. Ask can also propose a new preset or new values (label, text, agent availability) for an existing one; it cannot delete presets. Agent availability includes launches, steering and Send later. Existing presets remain available to agents until you change their availability. For example, an Ask-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
 
 The assistant runs with a restricted token: it can read state and write proposals, nothing else. It never reaches GitHub.
 

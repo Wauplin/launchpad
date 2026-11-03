@@ -104,7 +104,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 
 ### Ask Launchpad
 
-- The assistant writes inert proposals only, with a restricted token allowed only `GET /api/context/*`, `GET /api/sessions/{id}/trace`, `GET /api/status`, `GET|POST /api/proposals` and `POST /api/launch/preview`. Every start needs an owner click; paid usage is forced off.
+- The assistant writes inert proposals only, with a restricted token allowed only `GET /api/context/*`, `GET /api/sessions/{id}/trace`, `GET /api/status`, `GET|POST /api/proposals` and `POST /api/launch/preview`. Every start needs an owner click; paid usage is forced off. Preset proposals create or update presets in config.toml and never delete them.
 - Assistant threads (`Target::Assistant`) are hidden from normal session lists, counts and remembered launch defaults.
 
 ### Terminals
