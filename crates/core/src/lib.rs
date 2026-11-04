@@ -279,6 +279,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     home_git::MergeOutcome::export_all(&cfg)?;
     plain::Change::export_all(&cfg)?;
     plain::Tree::export_all(&cfg)?;
+    plain::AssetInfo::export_all(&cfg)?;
     kb::Notes::export_all(&cfg)?;
     kb::Hit::export_all(&cfg)?;
     kb::NativeMemory::export_all(&cfg)?;

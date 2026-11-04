@@ -5,7 +5,7 @@ import type { Project } from "@/gen/Project";
 import type { Workspace } from "@/gen/Workspace";
 import { clock, DemoError, githubDemo, notInDemo, publish, route } from "../daemon";
 import { world } from "../world";
-import { ORG, ROOT } from "../world/ids";
+import { ORG, P, ROOT } from "../world/ids";
 import { fakeSha } from "../world/github";
 import { toast } from "@/components/Toast";
 
@@ -115,6 +115,11 @@ route("POST", "/api/home-git/:id/restore", ({ body }) => {
   toast(`Demo: ${String(body?.branch ?? "the branch")} would point back to ${String(body?.commit ?? "").slice(0, 8)} on Home. Nothing changed.`);
   return { ok: true };
 });
+route("GET", "/api/plain/assets/:project", ({ params }) => params.project === P.storefront ? [
+  { asset: { id: "demo-asset-fixtures", project_id: P.storefront, name: "lp/checkout-test/test/fixtures", created_at: clock.ago(60 * 24 * 3), trashed_at: null, restored_at: null }, files: 42, size: 18_400_000, last_change: clock.ago(60 * 5), in_use: true },
+  { asset: { id: "demo-asset-screens", project_id: P.storefront, name: "lp/darkmode/screenshots", created_at: clock.ago(60 * 24 * 20), trashed_at: clock.ago(60 * 24 * 2), restored_at: null }, files: 0, size: 0, last_change: clock.ago(60 * 24 * 2), in_use: false },
+] : []);
+route("POST", "/api/plain/:id/untrash", () => notInDemo());
 route("GET", "/api/plain/:id/history", () => ({ changes: [], locked_by: null }));
 route("POST", "/api/projects/plain", () => notInDemo());
 route("GET", "/api/projects/:id/branches", ({ params }) => {

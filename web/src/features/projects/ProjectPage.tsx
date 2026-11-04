@@ -12,11 +12,13 @@ import type { Project } from "@/gen/Project";
 import { toastError } from "@/components/Toast";
 import type { Predraft } from "@/gen/Predraft";
 import type { HomeBranch } from "@/gen/HomeBranch";
+import type { AssetInfo } from "@/gen/AssetInfo";
 import type { Change } from "@/gen/Change";
 import { useComposer } from "@/stores/composer";
 import { RepoItems } from "@/features/github/RepoItems";
 import { Link, useParams, useSearch } from "@tanstack/react-router";
-import { ConfirmButton, Empty, FilterChip, FilterChips, SettingRow, Tabs, useSaveState } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, FilterChip, FilterChips, SettingRow, Tabs, useSaveState } from "@/components/ui";
+import { formatAge } from "@/lib/format";
 import { moveFolder, useWorkspaces } from "@/lib/workspace";
 import { toast } from "@/components/Toast";
 import { HarnessMark } from "@/components/HarnessMark";
@@ -134,6 +136,7 @@ export function ProjectPage() {
           </>
         )}
         {p.home_git && <HomeBranches projectId={p.id} predrafts={predrafts} />}
+        {p.home_git && <AssetFolders projectId={p.id} />}
         {p.plain && <PlainHistory projectId={p.id} sessions={sessions} />}
         <ProjectAgents title="All agents" sessions={sessions} empty="No agents in this folder yet." />
         </>}
@@ -253,6 +256,30 @@ const ProjectAgentRow = memo(function ProjectAgentRow({ s }: { s: Session }) {
     </button>
   );
 });
+
+/** Asset folders of a Git folder: large or generated files stored by Home. Unused ones go to the trash after 14 days. */
+function AssetFolders({ projectId }: { projectId: string }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["plain", "assets", projectId], queryFn: () => api.get<AssetInfo[]>(`/api/plain/assets/${projectId}`) });
+  const rows = q.data ?? [];
+  if (q.isError || !rows.length) return null;
+  const untrash = (a: AssetInfo) => api.post(`/api/plain/${a.asset.id}/untrash`, {}).then(() => { toast(`${a.asset.name} restored`); return qc.invalidateQueries({ queryKey: ["plain", "assets", projectId] }); }, toastError);
+  const mb = (n: number) => n < 1 << 20 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / (1 << 20)).toFixed(1)} MB`;
+  return <>
+    <div className="seclabel">Asset folders · {rows.length}</div>
+    <span className="text-xs text-ink-3">Large or generated files stored by Home instead of Git. A folder that no branch, kept tip or note names, unchanged for 14 days, goes to the trash; Restore works for 30 days.</span>
+    <div className="max-h-[320px] overflow-y-auto rounded-lg border border-line">
+      {rows.map((a) => <div key={a.asset.id} className="flex min-h-[44px] items-center gap-2.5 border-b border-line-2 px-4 text-xs">
+        <Icon name="folder" size={14} className="text-ink-3" />
+        <span className="grid min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-2"><span className="truncate font-mono font-semibold">{a.asset.name}</span>{a.asset.trashed_at ? <Badge tone="attn">in the trash</Badge> : !a.in_use && <Badge title="No branch, kept tip or note names it">unused</Badge>}</span>
+          <span className="truncate text-[12px] text-ink-3">{a.asset.trashed_at ? `Moved to the trash ${formatAge(a.asset.trashed_at)} ago` : `${a.files} files · ${mb(a.size)}`} · changed {formatAge(a.last_change)} ago</span>
+        </span>
+        {a.asset.trashed_at && <ConfirmButton tone="publish" consequence={`Puts the files of ${a.asset.name} back.`} confirmLabel="Restore" onConfirm={() => untrash(a)}>Restore</ConfirmButton>}
+      </div>)}
+    </div>
+  </>;
+}
 
 const BRANCH_ROW = 52;
 

@@ -88,7 +88,33 @@ pub struct Asset {
     pub name: String,
     #[ts(type = "number")]
     pub created_at: i64,
+    /// Moved to the trash by the cleanup of unused asset folders (its files stay restorable 30 days).
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub trashed_at: Option<i64>,
+    /// Restored from the trash: counts as a change, so the cleanup waits 14 more days.
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub restored_at: Option<i64>,
 }
+
+/// An asset folder on the folder page.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct AssetInfo {
+    pub asset: Asset,
+    #[ts(type = "number")]
+    pub files: u64,
+    #[ts(type = "number")]
+    pub size: u64,
+    /// The last change of its files (or its creation).
+    #[ts(type = "number")]
+    pub last_change: i64,
+    /// A branch, kept tip or note still names it, or a session holds it.
+    pub in_use: bool,
+}
+
+/// Unused asset folders move to the trash after this long.
+const UNUSED_MS: i64 = 14 * 24 * 3600 * 1000;
 
 fn blob_dir(app: &App) -> PathBuf {
     app.paths.data_dir.join("blobs/sha256")
@@ -269,7 +295,7 @@ async fn folder_name(app: &App, id: &str) -> String {
 pub async fn create_asset(app: &App, project_id: &str, name: &str) -> Result<Asset> {
     let p = crate::projects::get(app, project_id).await?.context("no such folder")?;
     ensure!(p.home_git, "asset folders belong to Git folders");
-    let a = Asset { id: uuid::Uuid::new_v4().to_string(), project_id: project_id.into(), name: name.trim().chars().take(120).collect(), created_at: now_ms() };
+    let a = Asset { id: uuid::Uuid::new_v4().to_string(), project_id: project_id.into(), name: name.trim().chars().take(120).collect(), created_at: now_ms(), trashed_at: None, restored_at: None };
     let json = serde_json::to_string(&a)?;
     let (id, pid) = (a.id.clone(), a.project_id.clone());
     app.state_db.call(move |c| Ok(c.execute("INSERT INTO plain_asset (id, project_id, json) VALUES (?1, ?2, ?3)", params![id, pid, json])?)).await?;
@@ -283,6 +309,121 @@ pub async fn assets(app: &App, project_id: Option<&str>) -> Result<Vec<Asset>> {
         Ok(rows)
     }).await?;
     Ok(rows.iter().filter_map(|j| serde_json::from_str::<Asset>(j).ok()).filter(|a| project_id.is_none_or(|p| a.project_id == p)).collect())
+}
+
+async fn save_asset(app: &App, a: &Asset) -> Result<()> {
+    let (id, json) = (a.id.clone(), serde_json::to_string(a)?);
+    app.state_db.call(move |c| Ok(c.execute("UPDATE plain_asset SET json = ?2 WHERE id = ?1", params![id, json])?)).await?;
+    Ok(())
+}
+
+/// Home: the asset folders a branch, a kept tip or a knowledge base note still names.
+async fn referenced_assets(app: &App) -> Result<std::collections::HashSet<String>> {
+    let mut ids = std::collections::HashSet::new();
+    let assets = assets(app, None).await?;
+    let projects: std::collections::HashSet<String> = assets.iter().map(|a| a.project_id.clone()).collect();
+    for pid in projects {
+        let dir = crate::home_git::mirror(app, &pid);
+        if !dir.join("HEAD").exists() {
+            continue;
+        }
+        let refs = crate::home_git::git_in(app, &dir, &["for-each-ref", "--format=%(objectname)", "refs/heads", "refs/kept"], 60).await?;
+        let mut commits: Vec<&str> = refs.lines().filter(|l| !l.is_empty()).collect();
+        commits.sort();
+        commits.dedup();
+        for c in commits {
+            if let Ok(text) = crate::home_git::git_in(app, &dir, &["cat-file", "-p", &format!("{c}:.launchpad/assets.toml")], 30).await
+                && let Ok(table) = toml::from_str::<toml::Table>(&text)
+            {
+                ids.extend(table.values().filter_map(|v| v.as_str().map(str::to_string)));
+            }
+        }
+    }
+    // Notes may name an asset folder by its ID.
+    let notes: Vec<String> = app.state_db.call(|c| {
+        let mut st = c.prepare("SELECT sha256 FROM plain_file WHERE store LIKE 'kb-%' AND size < 1048576")?;
+        let rows = st.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }).await?;
+    for sha in notes {
+        if let Ok(data) = tokio::fs::read(blob_path(app, &sha)?).await {
+            let text = String::from_utf8_lossy(&data);
+            ids.extend(assets.iter().filter(|a| text.contains(&a.id)).map(|a| a.id.clone()));
+        }
+    }
+    Ok(ids)
+}
+
+/// Home: the asset folders of a Git folder, with their size and whether something still uses them.
+pub async fn asset_infos(app: &App, project_id: &str) -> Result<Vec<AssetInfo>> {
+    let used = referenced_assets(app).await?;
+    let mut out = vec![];
+    for a in assets(app, Some(project_id)).await? {
+        let id = a.id.clone();
+        let (files, size, last): (i64, i64, Option<i64>) = app.state_db.call(move |c| {
+            let (n, s): (i64, i64) = c.query_row("SELECT count(*), coalesce(sum(size), 0) FROM plain_file WHERE store = ?1", [&id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            let last: Option<i64> = c.query_row("SELECT max(at) FROM plain_history WHERE store = ?1", [&id], |r| r.get(0))?;
+            Ok((n, s, last))
+        }).await?;
+        let locked = lock_holder(app, &a.id).await?.is_some();
+        out.push(AssetInfo { in_use: locked || used.contains(&a.id), files: files as u64, size: size as u64, last_change: last.unwrap_or(a.created_at).max(a.created_at).max(a.restored_at.unwrap_or(0)), asset: a });
+    }
+    out.sort_by_key(|i| std::cmp::Reverse(i.last_change));
+    Ok(out)
+}
+
+/// Home: asset folders that nothing names and nobody changed for 14 days go to the trash: their files are
+/// deleted (restorable for 30 days), then the record goes after 30 days.
+pub async fn clean_assets(app: &App) -> Result<()> {
+    let now = now_ms();
+    let mut projects: Vec<String> = assets(app, None).await?.into_iter().map(|a| a.project_id).collect();
+    projects.sort();
+    projects.dedup();
+    for pid in projects {
+        for info in asset_infos(app, &pid).await? {
+            let mut a = info.asset;
+            match a.trashed_at {
+                Some(t) if t < now - KEEP_MS => {
+                    let id = a.id.clone();
+                    app.state_db.call(move |c| Ok(c.execute("DELETE FROM plain_asset WHERE id = ?1", [id])?)).await?;
+                }
+                Some(_) => {}
+                None if !info.in_use && info.last_change < now - UNUSED_MS => {
+                    let files = tree(app, &a.id).await?.files;
+                    record(app, &a.id, None, files.into_iter().map(|e| (Update { path: e.path, sha256: None, size: 0, executable: false }, None)).collect()).await?;
+                    a.trashed_at = Some(now);
+                    save_asset(app, &a).await?;
+                    tracing::info!("asset folder {} unused for 14 days: moved to the trash", a.name);
+                }
+                None => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Home: puts back the files of an asset folder moved to the trash.
+pub async fn untrash_asset(app: &App, id: &str) -> Result<i64> {
+    let mut a = assets(app, None).await?.into_iter().find(|a| a.id == id).context("no such asset folder")?;
+    let at = a.trashed_at.context("this asset folder is not in the trash")?;
+    let deleted: Vec<(String, String)> = {
+        let id = id.to_string();
+        app.state_db.call(move |c| {
+            let mut st = c.prepare("SELECT path, sha256 FROM plain_history WHERE store = ?1 AND new_sha256 IS NULL AND sha256 IS NOT NULL AND at >= ?2 ORDER BY id")?;
+            let rows = st.query_map(params![id, at], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        }).await?
+    };
+    let mut updates = vec![];
+    for (path, sha) in deleted {
+        let size = tokio::fs::metadata(blob_path(app, &sha)?).await.map(|m| m.len()).unwrap_or(0);
+        updates.push((Update { path, sha256: Some(sha), size, executable: false }, None));
+    }
+    let v = record(app, id, None, updates).await?;
+    a.trashed_at = None;
+    a.restored_at = Some(now_ms());
+    save_asset(app, &a).await?;
+    Ok(v)
 }
 
 /// Hashes of every blob a store still needs: current files and the versions of the last 30 days.
@@ -319,6 +460,9 @@ pub fn spawn(app: &App) {
         let mut tick = tokio::time::interval(std::time::Duration::from_secs(6 * 3600));
         loop {
             tick.tick().await;
+            if let Err(e) = clean_assets(&app).await {
+                tracing::warn!("asset folders cleanup: {e:#}");
+            }
             if let Err(e) = prune(&app).await {
                 tracing::warn!("plain folders prune: {e:#}");
             }

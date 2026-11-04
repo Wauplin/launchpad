@@ -26,7 +26,8 @@ pub fn router() -> Router<Server> {
         .route("/api/plain/{id}/unlock", post(unlock))
         .route("/api/plain/{id}/history", get(history))
         .route("/api/plain/{id}/restore", post(restore))
-        .route("/api/plain/assets/{project}", post(create_asset))
+        .route("/api/plain/assets/{project}", post(create_asset).get(list_assets))
+        .route("/api/plain/{id}/untrash", post(untrash))
         .route("/api/assets", post(create_in_worktree))
 }
 
@@ -118,6 +119,16 @@ struct NewAsset {
 async fn create_asset(State(s): State<Server>, Path(project): Path<String>, headers: HeaderMap, Json(b): Json<NewAsset>) -> ApiResult<plain::Asset> {
     caller(&s, &headers).await?;
     Ok(Json(plain::create_asset(&s.app, &project, &b.name).await.map_err(bad)?))
+}
+
+async fn list_assets(State(s): State<Server>, Path(project): Path<String>, headers: HeaderMap) -> ApiResult<Vec<plain::AssetInfo>> {
+    caller(&s, &headers).await?;
+    Ok(Json(plain::asset_infos(&s.app, &project).await.map_err(bad)?))
+}
+
+async fn untrash(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap) -> ApiResult<Value> {
+    caller(&s, &headers).await?;
+    Ok(Json(json!({"version": plain::untrash_asset(&s.app, &id).await.map_err(bad)?})))
 }
 
 #[derive(Deserialize)]
