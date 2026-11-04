@@ -1,7 +1,7 @@
 //! Host setup helpers used from a browser: sign-in checks (Settings → Profiles) and Clone from GitHub.
 use crate::{Server, error::{ApiError, ApiResult}};
 use axum::{Json, Router, extract::{Path, Query, State}, routing::{get, post}};
-use launchpad_core::{model::Project, onboarding, project_clone, setup_checklist, signin, terminals::TerminalInfo, workspace};
+use launchpad_core::{model::Project, onboarding, project_clone, setup_checklist, signin, terminals::TerminalInfo};
 use serde::Deserialize;
 
 pub fn router() -> Router<Server> {
@@ -35,14 +35,12 @@ struct Clone {
     repo: String,
     /// Clone onto this SSH host, into its projects root.
     host: Option<String>,
-    workspace_id: Option<String>,
+    /// The one workspace of the new folder (required).
+    workspace_id: String,
 }
 
 async fn clone(State(s): State<Server>, Json(b): Json<Clone>) -> ApiResult<Project> {
-    let p = project_clone::clone(&s.app, &b.repo, b.host.as_deref()).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
-    if let Some(ws) = &b.workspace_id {
-        workspace::add_project(&s.app, ws, &p.id).await?;
-    }
+    let p = project_clone::clone(&s.app, &b.repo, b.host.as_deref(), &b.workspace_id).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     Ok(Json(p))
 }
 

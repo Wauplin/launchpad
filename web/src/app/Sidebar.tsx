@@ -116,7 +116,7 @@ function WorkspaceMenu({ workspace }: { workspace: Workspace | null }) {
     if (!n) return;
     try {
       if (mode === "new") {
-        const w = await api.post<Workspace>("/api/workspaces", { name: n, project_ids: [] });
+        const w = await api.post<Workspace>("/api/workspaces", { name: n });
         switchTo(w.id);
       } else if (workspace) await api.patch(`/api/workspaces/${workspace.id}`, { name: n });
       done();
@@ -135,12 +135,12 @@ function WorkspaceMenu({ workspace }: { workspace: Workspace | null }) {
         </form>
       ) : (
         <>
-          <MenuItem icon={<Icon name="plus" size={13} />} label="New workspace" detail="A named set of folders" onClick={() => { setName(""); setMode("new"); }} />
+          <MenuItem icon={<Icon name="plus" size={13} />} label="New workspace" detail="Each folder belongs to one workspace" onClick={() => { setName(""); setMode("new"); }} />
           {workspace && <MenuItem icon={<Icon name="pencil" size={13} />} label="Rename" onClick={() => { setName(workspace.name); setMode("rename"); }} />}
           <MenuItem icon={<Icon name="window" size={13} />} label={`Open in new ${newWindowWord}`} onClick={() => { close(); void openWindow(workspace?.id ?? null); }} />
           {workspace && (
             <div className="border-t border-line-2 px-2 pt-1.5 pb-1">
-              <ConfirmButton icon="trash" consequence="Folders and agents are kept." confirmLabel={`Delete ${workspace.name}`} onConfirm={async () => { try { await api.delete(`/api/workspaces/${workspace.id}`); done(); close(); } catch (e) { toastError(e); } }}>Delete workspace</ConfirmButton>
+              <ConfirmButton icon="trash" consequence="Only an empty workspace can be deleted: move or remove its folders first." confirmLabel={`Delete ${workspace.name}`} onConfirm={async () => { try { await api.delete(`/api/workspaces/${workspace.id}`); done(); close(); } catch (e) { toastError(e); } }}>Delete workspace</ConfirmButton>
             </div>
           )}
         </>

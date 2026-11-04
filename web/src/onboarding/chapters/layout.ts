@@ -10,7 +10,7 @@ let sawPersonal = false;
 
 export const layout: Chapter = {
   ...meta("layout"),
-  learned: ["Demo mode and how to leave it", "Where Ask, Inbox, Agents, Review and Folders are", "Workspaces narrow everything to their folders", "Quota meters show what your subscriptions have left"],
+  learned: ["Demo mode and how to leave it", "Where Ask, Inbox, Agents, Review and Folders are", "Each folder belongs to one workspace, which narrows everything to its folders", "Quota meters show what your subscriptions have left"],
   setup: () => { sawPersonal = false; useWorkspace.getState().switchTo(null); },
   steps: [
     {
@@ -26,7 +26,7 @@ export const layout: Chapter = {
     {
       id: "layout.workspaces", route: "/agents", anchor: "topbar.workspaces",
       title: "Workspaces",
-      body: "A workspace is a named set of folders. Choosing one narrows agents, the inbox and every count to its folders. Everything shows them all.",
+      body: "Every folder belongs to one workspace. Choosing one narrows agents, the inbox and every count to its folders. Everything is a view of all of them.",
       tryIt: {
         text: "switch to the Personal workspace, then back to Acme.",
         done: () => { const ws = useWorkspace.getState().current; if (ws === WS.personal) sawPersonal = true; return sawPersonal && ws !== WS.personal; },

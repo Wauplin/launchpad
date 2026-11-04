@@ -88,12 +88,6 @@ export function launch(input: LaunchSpec, id = demoId("demo-run"), scenarioId?: 
     usage: { context_tokens: 0, context_window: 200_000, input_tokens: 0, cached_tokens: 0, output_tokens: 0, cost_usd: harness === "opencode" ? 0 : null, cost_unavailable: false },
   };
   world.sessions = [s, ...world.sessions];
-  // Launching from a workspace window adds the folder to that workspace.
-  const ws = world.workspaces.find((w) => w.id === spec.workspace_id);
-  if (ws && place.projectId && !ws.project_ids.includes(place.projectId) && place.projectId !== P.scratch) {
-    ws.project_ids = [...ws.project_ids, place.projectId];
-    publish("workspaces", "changed", null);
-  }
   publishSession(s);
   ready();
   appendEvent(id, { kind: "user_message", text: s.prompt, client_id: id, queued: false, images: [] });

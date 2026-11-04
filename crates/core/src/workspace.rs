@@ -1,5 +1,6 @@
-//! Workspaces: named sets of projects. A window shows one workspace at a
-//! time; its agents, scheduled launches, crons and inbox threads are the ones of its projects.
+//! Workspaces: user-defined groups of projects. Every project belongs to exactly one workspace
+//! (`project.workspace_id`); "Everything" is a view, not a workspace. A window shows one workspace at a time;
+//! its agents, scheduled launches, crons and inbox threads are the ones of its projects.
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -12,7 +13,6 @@ use crate::util::now_ms;
 pub struct Workspace {
     pub id: String,
     pub name: String,
-    pub project_ids: Vec<String>,
     #[ts(type = "number")]
     pub created_at: i64,
 }
@@ -21,7 +21,6 @@ pub struct Workspace {
 #[serde(default)]
 pub struct Patch {
     pub name: Option<String>,
-    pub project_ids: Option<Vec<String>>,
 }
 
 pub async fn list(app: &App) -> Result<Vec<Workspace>> {
@@ -64,9 +63,9 @@ async fn check_name(app: &App, name: &str, id: &str) -> Result<String> {
     Ok(name)
 }
 
-pub async fn create(app: &App, name: &str, project_ids: Vec<String>) -> Result<Workspace> {
+pub async fn create(app: &App, name: &str) -> Result<Workspace> {
     let id = uuid::Uuid::new_v4().to_string();
-    let w = Workspace { name: check_name(app, name, &id).await?, id, project_ids, created_at: now_ms() };
+    let w = Workspace { name: check_name(app, name, &id).await?, id, created_at: now_ms() };
     save(app, &w).await?;
     Ok(w)
 }
@@ -76,45 +75,32 @@ pub async fn update(app: &App, id: &str, patch: Patch) -> Result<Workspace> {
     if let Some(name) = patch.name {
         w.name = check_name(app, &name, id).await?;
     }
-    if let Some(ids) = patch.project_ids {
-        w.project_ids = ids.into_iter().fold(Vec::new(), |mut acc, id| {
-            if !acc.contains(&id) {
-                acc.push(id);
-            }
-            acc
-        });
-    }
     save(app, &w).await?;
     Ok(w)
 }
 
-/// Deletes the workspace only: its projects and agents stay.
+/// The projects of a workspace.
+pub async fn project_ids(app: &App, id: &str) -> Result<Vec<String>> {
+    let id = id.to_string();
+    app.state_db
+        .call(move |c| {
+            let mut st = c.prepare("SELECT id FROM project WHERE workspace_id = ?1")?;
+            let rows = st.query_map([id], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await
+}
+
+/// Deletes an empty workspace. Its folders must first move to another workspace or be removed, so every
+/// folder keeps exactly one workspace.
 pub async fn delete(app: &App, id: &str) -> Result<()> {
+    let folders = project_ids(app, id).await?.len();
+    if folders > 0 {
+        bail!("move or remove its {folders} folder{} first", if folders == 1 { "" } else { "s" });
+    }
     let id = id.to_string();
     app.state_db.call(move |c| Ok(c.execute("DELETE FROM workspace WHERE id = ?1", [id])?)).await?;
     app.bus.publish("workspaces", "changed", serde_json::Value::Null);
-    Ok(())
-}
-
-/// Adds a project to a workspace, for example the project of an agent launched from it. A missing
-/// workspace (deleted from another window) is ignored.
-pub async fn add_project(app: &App, id: &str, project_id: &str) -> Result<()> {
-    let Ok(mut w) = get(app, id).await else { return Ok(()) };
-    if !w.project_ids.iter().any(|p| p == project_id) {
-        w.project_ids.push(project_id.to_string());
-        save(app, &w).await?;
-    }
-    Ok(())
-}
-
-/// Removes an unregistered project from every workspace.
-pub async fn forget_project(app: &App, project_id: &str) -> Result<()> {
-    for mut w in list(app).await? {
-        if w.project_ids.iter().any(|p| p == project_id) {
-            w.project_ids.retain(|p| p != project_id);
-            save(app, &w).await?;
-        }
-    }
     Ok(())
 }
 

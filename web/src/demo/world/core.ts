@@ -10,7 +10,7 @@ import { demoHost } from "./settings";
 
 const project = (id: string, name: string, repo: string | null, description: string, extra: Partial<Project> = {}): Project => ({
   id, name, path: `${ROOT}/${name}`, remote_url: repo ? `git@github.com:${repo}.git` : null, gh_repo: repo, gh_upstream: null,
-  description, is_temp: false, pinned: false, created_at: clock.ago(60 * 24 * 40), worktree_setup: "", when_done: "keep", ...extra,
+  description, is_temp: false, pinned: false, created_at: clock.ago(60 * 24 * 40), worktree_setup: "", when_done: "keep", workspace_id: WS.acme, ...extra,
 });
 
 export function coreWorld() {
@@ -18,12 +18,12 @@ export function coreWorld() {
     project(P.storefront, "storefront", `${ORG}/storefront`, "TypeScript web shop", { worktree_setup: "pnpm install" }),
     project(P.billing, "billing-api", `${ORG}/billing-api`, "Rust billing service"),
     project(P.docs, "docs", `${ORG}/docs`, "Product documentation"),
-    project(P.dotfiles, "dotfiles", null, "Personal configuration"),
+    project(P.dotfiles, "dotfiles", null, "Personal configuration", { workspace_id: WS.personal }),
     project(P.scratch, "tmp-1028-csv-cleanup", null, "", { path: `${ROOT}/tmp-1028-csv-cleanup`, is_temp: true }),
   ];
   const workspaces: Workspace[] = [
-    { id: WS.acme, name: "Acme", project_ids: [P.storefront, P.billing, P.docs], created_at: clock.ago(60 * 24 * 30) },
-    { id: WS.personal, name: "Personal", project_ids: [P.dotfiles], created_at: clock.ago(60 * 24 * 30) },
+    { id: WS.acme, name: "Acme", created_at: clock.ago(60 * 24 * 30) },
+    { id: WS.personal, name: "Personal", created_at: clock.ago(60 * 24 * 30) },
   ];
   const config: Config = {
     projects_root: ROOT,

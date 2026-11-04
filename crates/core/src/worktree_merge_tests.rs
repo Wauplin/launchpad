@@ -49,7 +49,8 @@ async fn merge_ignores_terminals_and_unrelated_target_changes() {
         std::fs::write(path("shared.txt"), "base\n")?;
         git(&app, repo, &["add", "."]).await?;
         git(&app, repo, &["commit", "-m", "base"]).await?;
-        let project = crate::projects::register(&app, std::path::Path::new(repo), false).await?;
+        let ws = crate::workspace::create(&app, &uuid::Uuid::new_v4().to_string()).await?;
+        let project = crate::projects::register(&app, std::path::Path::new(repo), false, &ws.id).await?;
         let (w, _) = create(&app, "test-merge", &project, &crate::model::WorktreeOptions {
             base: None, include_changes: false, when_done: Default::default(), pull_request: None,
         }, true, "merge guards").await?;
@@ -107,7 +108,8 @@ async fn committed_history_survives_merge_rebase_and_cleanup() {
         git(&app, repo, &["config", "user.email", "test@example.invalid"]).await?;
         git(&app, repo, &["commit", "--allow-empty", "-m", "base"]).await?;
         let original_base = git(&app, repo, &["rev-parse", "HEAD"]).await?;
-        let project = crate::projects::register(&app, std::path::Path::new(repo), false).await?;
+        let ws = crate::workspace::create(&app, &uuid::Uuid::new_v4().to_string()).await?;
+        let project = crate::projects::register(&app, std::path::Path::new(repo), false, &ws.id).await?;
         let (w, _) = create(&app, "review-task", &project, &crate::model::WorktreeOptions::default(), true, "commit review").await?;
         std::fs::write(std::path::Path::new(&w.root).join("task.txt"), "first\n")?;
         git(&app, &w.root, &["add", "."]).await?;
@@ -175,7 +177,8 @@ async fn remote_sync_pulls_before_branching_and_keeps_merges_when_push_fails() {
         git(&app, repo, &["push", "origin", "HEAD:official"]).await?;
         git(&app, repo, &["switch", "main"]).await?;
         anyhow::ensure!(git(&app, repo, &["rev-parse", "HEAD"]).await? == old);
-        let project = crate::projects::register(&app, &repo_path, false).await?;
+        let ws = crate::workspace::create(&app, &uuid::Uuid::new_v4().to_string()).await?;
+        let project = crate::projects::register(&app, &repo_path, false, &ws.id).await?;
         let (w, _) = create(&app, "sync-task", &project, &crate::model::WorktreeOptions::default(), true, "remote sync").await?;
         anyhow::ensure!(w.base_commit == old, "creation stays local");
         let (w, before) = sync_base(&app, &w.id).await?.unwrap();

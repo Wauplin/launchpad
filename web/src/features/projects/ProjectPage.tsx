@@ -15,7 +15,7 @@ import { useComposer } from "@/stores/composer";
 import { RepoItems } from "@/features/github/RepoItems";
 import { Link, useParams, useSearch } from "@tanstack/react-router";
 import { ConfirmButton, Empty, FilterChip, FilterChips, SettingRow, Tabs, useSaveState } from "@/components/ui";
-import { setWorkspaceProjects, useWorkspaces } from "@/lib/workspace";
+import { moveFolder, useWorkspaces } from "@/lib/workspace";
 import { toast } from "@/components/Toast";
 import { HarnessMark } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
@@ -165,12 +165,12 @@ function FolderSettings({ p }: { p: Project }) {
       <SettingRow label="Description" hint="One line, used when the folder is given as context." state={description.state} error={description.error}>
         <input className="field-input min-w-0 flex-1" aria-label="Folder description" placeholder="Add a description" {...field("description", description, (v) => ({ description: v }), p.description ?? "")} />
       </SettingRow>
-      <SettingRow label="Workspaces" hint="Windows showing these workspaces list this folder." state={member.state} error={member.error}>
+      <SettingRow label="Workspace" hint="Every folder belongs to one workspace. Its agents, schedules and inbox threads follow it." state={member.state} error={member.error}>
         {workspaces.length === 0 ? <span className="text-[12px] text-ink-3">No workspace yet: create one from the sidebar menu.</span> : (
-          <FilterChips label="Workspaces of this folder">
+          <FilterChips label="Workspace of this folder">
             {workspaces.map((w) => {
-              const inside = w.project_ids.includes(p.id);
-              return <FilterChip key={w.id} active={inside} onClick={() => void member.run(() => setWorkspaceProjects(w, inside ? w.project_ids.filter((x) => x !== p.id) : [...w.project_ids, p.id]))}>{inside && <Icon name="check" size={11} />}{w.name}</FilterChip>;
+              const inside = p.workspace_id === w.id;
+              return <FilterChip key={w.id} active={inside} onClick={() => !inside && void member.run(() => moveFolder(p, w).then(() => qc.invalidateQueries({ queryKey: ["projects"] })))}>{inside && <Icon name="check" size={11} />}{w.name}</FilterChip>;
             })}
           </FilterChips>
         )}

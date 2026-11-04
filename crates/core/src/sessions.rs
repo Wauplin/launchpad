@@ -804,7 +804,8 @@ impl Sessions {
                     }
                 }
                 Target::Temp => {
-                    let p = crate::projects::create_temp(app, &spec.text).await?;
+                    let workspace = spec.workspace_id.as_deref().context("a new scratch folder needs a workspace: launch it from a workspace")?;
+                    let p = crate::projects::create_temp(app, &spec.text, workspace).await?;
                     (p.path, Some(p.id))
                 }
                 Target::Assistant { workspace_id } => {
@@ -894,11 +895,6 @@ impl Sessions {
                 let projects = crate::projects::list(app).await?;
                 let opts = spec.worktree.clone().unwrap_or_default();
                 preview.prompt.push_str(&format!("\n\n{}", crate::worktrees::instruction(app, &id, &worktrees, &projects, if in_checkout { crate::model::WhenDone::Keep } else { opts.when_done }, opts.include_changes && opts.pull_request.is_none())));
-            }
-            if let (Some(ws), Some(project_id)) = (&spec.workspace_id, &project_id)
-                && let Err(e) = crate::workspace::add_project(app, ws, project_id).await
-            {
-                tracing::warn!("launch: could not add the project to its workspace: {e:#}");
             }
             let (images, attachment_dir, instruction) = crate::attachments::prepare(app, crate::hosts::loc::host_of(&cwd), &id, &spec.attachments).await?;
             if let Some(dir) = attachment_dir { preview.add_dirs.push(dir.to_string_lossy().into_owned()); }

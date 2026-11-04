@@ -34,7 +34,7 @@ import { costUnavailableMessage, supportsModelCost, parseUsd, usd, usesModelRefe
 import { ModelSearch } from "@/components/ModelSearch";
 import { findModel, pickModel, ProviderPicker } from "@/components/ProviderPicker";
 import { availablePresets } from "@/lib/presets";
-import { announceImplicitAdd, specProject, useScope } from "@/lib/workspace";
+import { useScope } from "@/lib/workspace";
 import { useZoomScale } from "@/lib/zoom";
 import { rememberProjectCompletion, rememberedRun, rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
@@ -329,7 +329,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const hostStatus = targetHost ? (hosts.find((h) => h.host.id === targetHost) ?? null) : null;
   const hostProfile = (p: Profile | null) => (p ? profileOnHost(hostStatus, p) : null);
   const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Machines` : hostProfile(profile)?.ok === false ? hostProfile(profile)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context folders must be on the same machine as the folder" : null;
-  const blocker = selectedWorktree?.busy ? "Stop the active agent before using this worktree" : hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const blocker = selectedWorktree?.busy ? "Stop the active agent before using this worktree" : hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : spec.target.kind === "temp" && !scope.workspace ? "Switch to a workspace for a new scratch folder" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
@@ -363,19 +363,16 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const launch = async () => {
     if (!canLaunch || launching || attachmentRead.current) return;
     setLaunching(true);
-    // The target project joins this window's workspace, so the new agent shows up here.
+    // A new scratch folder joins this window's workspace; other folders keep their own.
     const draft = useComposer.getState().spec;
     const pr = prOf(draft);
     const pullRequest = pr && prOptOut !== `${pr.repo}#${pr.number}` ? pr : undefined;
     const spec = { ...draft, workspace_id: scope.workspace?.id ?? null, worktree: draft.target.kind === "project" && !gitTarget ? null : draft.worktree && { ...draft.worktree, pull_request: pullRequest } };
-    const joins = specProject(spec);
-    const announce = () => announceImplicitAdd(scope.workspace, joins, projects.find((p) => p.id === joins)?.name ?? "the folder");
     try {
       if (cron) {
         await api.post("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions });
         setCron(null);
         discard();
-        announce();
         void navigate({ to: "/agents" });
         toast("Cron agent created. Find it in the Cron group in Agents.");
         return;
@@ -383,7 +380,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       if (scheduled) {
         await api.post("/api/launch/schedules", { spec, conditions });
         discard();
-        announce();
         void navigate({ to: "/agents" });
         toast("Agent scheduled. You can start it now or cancel in Agents.");
         return;
@@ -392,7 +388,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       setUnconfirmedLaunch(null);
       if (s.status !== "error") useComposer.getState().rememberLaunch(spec, s.started_at);
       discard();
-      announce();
       const where = s.launch_spec.target.kind === "browser" ? "a browser session" : projects.find((p) => p.id === s.project_id)?.name ?? s.cwd.split("/").pop();
       const openIt = () => {
         showSession(s.id);

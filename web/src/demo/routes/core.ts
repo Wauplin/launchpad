@@ -32,20 +32,17 @@ const EXTRA: { name: string; git: boolean; repo: string | null }[] = [
 
 function register(path: string, repo: string | null, workspaceId: string | null): Project {
   const clean = path.replace(/\/+$/, "");
+  const workspace = world.workspaces.find((x) => x.id === workspaceId);
+  if (!workspace) throw new DemoError(400, "choose a workspace for the folder");
   const existing = world.projects.find((p) => p.path === clean);
   if (existing) throw new DemoError(400, `${clean} is already registered`);
   const name = clean.split("/").pop() || "folder";
   const known = EXTRA.find((e) => e.name === name);
   const p: Project = {
     id: `demo-${name}-${clock.now().toString(36)}`, name, path: clean, remote_url: (repo ?? known?.repo) ? `git@github.com:${repo ?? known?.repo}.git` : null, gh_repo: repo ?? known?.repo ?? null, gh_upstream: null,
-    description: "", is_temp: false, pinned: false, created_at: clock.now(), worktree_setup: "", when_done: "keep",
+    description: "", is_temp: false, pinned: false, created_at: clock.now(), worktree_setup: "", when_done: "keep", workspace_id: workspace.id,
   };
   world.projects = [...world.projects, p];
-  if (workspaceId) {
-    const w = world.workspaces.find((x) => x.id === workspaceId);
-    if (w && !w.project_ids.includes(p.id)) w.project_ids = [...w.project_ids, p.id];
-    workspacesChanged();
-  }
   projectsChanged();
   return p;
 }
@@ -90,7 +87,8 @@ route("POST", "/api/projects/clone", ({ body }) => {
 route("GET", "/api/projects/:id", ({ params }) => projectOf(params.id));
 route("PATCH", "/api/projects/:id", ({ params, body }) => {
   const p = projectOf(params.id);
-  for (const key of ["name", "description", "pinned", "worktree_setup", "when_done"] as const) {
+  if (body?.workspace_id != null && !world.workspaces.some((w) => w.id === body.workspace_id)) throw new DemoError(400, "no such workspace");
+  for (const key of ["name", "description", "pinned", "worktree_setup", "when_done", "workspace_id"] as const) {
     if (body?.[key] !== null && body?.[key] !== undefined) (p as Record<string, unknown>)[key] = body[key];
   }
   projectsChanged();
@@ -99,9 +97,7 @@ route("PATCH", "/api/projects/:id", ({ params, body }) => {
 route("DELETE", "/api/projects/:id", ({ params }) => {
   const p = projectOf(params.id);
   world.projects = world.projects.filter((x) => x.id !== p.id);
-  for (const w of world.workspaces) w.project_ids = w.project_ids.filter((id) => id !== p.id);
   projectsChanged();
-  workspacesChanged();
   return { ok: true };
 });
 route("GET", "/api/projects/:id/branches", ({ params }) => {
@@ -126,7 +122,7 @@ route("POST", "/api/workspaces", ({ body }): Workspace => {
   const name = String(body?.name ?? "").trim();
   if (!name) throw new DemoError(400, "a workspace needs a name");
   if (world.workspaces.some((w) => w.name.toLowerCase() === name.toLowerCase())) throw new DemoError(400, `a workspace named ${name} already exists`);
-  const w: Workspace = { id: `demo-ws-${clock.now().toString(36)}`, name, project_ids: body?.project_ids ?? [], created_at: clock.now() };
+  const w: Workspace = { id: `demo-ws-${clock.now().toString(36)}`, name, created_at: clock.now() };
   world.workspaces = [...world.workspaces, w];
   workspacesChanged();
   return w;
@@ -139,11 +135,12 @@ route("PATCH", "/api/workspaces/:id", ({ params, body }): Workspace => {
     if (!name) throw new DemoError(400, "a workspace needs a name");
     w.name = name;
   }
-  if (body?.project_ids != null) w.project_ids = body.project_ids;
   workspacesChanged();
   return w;
 });
 route("DELETE", "/api/workspaces/:id", ({ params }) => {
+  const folders = world.projects.filter((p) => p.workspace_id === params.id).length;
+  if (folders) throw new DemoError(400, `move or remove its ${folders} folder${folders === 1 ? "" : "s"} first`);
   world.workspaces = world.workspaces.filter((w) => w.id !== params.id);
   workspacesChanged();
   return { ok: true };

@@ -436,7 +436,7 @@ pub struct LaunchSpec {
     pub agent_traces: Vec<AgentTraceRef>,
     pub model: Option<String>,
     pub effort: Option<String>,
-    /// The workspace of the window that launched it: the target project joins that workspace.
+    /// The workspace of the window that launched it. A new scratch folder joins it; other targets keep their own.
     pub workspace_id: Option<String>,
 }
 
@@ -596,6 +596,9 @@ pub struct Project {
     /// Default task worktree completion choice, remembered when selected in the composer.
     #[serde(default)]
     pub when_done: WhenDone,
+    /// The one workspace of this folder. None: Unassigned (folders registered before workspaces were required).
+    #[serde(default)]
+    pub workspace_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

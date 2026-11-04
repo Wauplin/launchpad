@@ -1,6 +1,6 @@
 // Add folder: the one way to register folders. Pick a machine, browse to any folder (Git or not), tick
-// folders (Git repositories of the folders root are suggested), choose the workspaces they join, or clone a
-// repository. Membership is explicit here; nothing joins a workspace silently.
+// folders (Git repositories of the folders root are suggested), or clone a repository. Every folder belongs to
+// exactly one workspace, chosen here (the window's by default).
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -14,7 +14,8 @@ import { api } from "@/lib/api";
 import { useHosts } from "@/lib/hosts";
 import { usePhone } from "@/lib/phone";
 import { useConfig, useProjects } from "@/lib/queries";
-import { setWorkspaceProjects, useScope, useWorkspaces } from "@/lib/workspace";
+import { useScope, useWorkspaces } from "@/lib/workspace";
+import { WorkspacePicker, defaultWorkspace } from "@/features/workspaces/WorkspacePicker";
 import { Sheet } from "@/mobile/Sheet";
 import { CloneFromGitHub } from "./CloneFromGitHub";
 import { useAddFolder } from "./addFolderStore";
@@ -57,7 +58,7 @@ function Body({ onClose }: { onClose: () => void }) {
   const [at, setAt] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
-  const [addTo, setAddTo] = useState<Set<string>>(() => new Set(current ? [current.id] : []));
+  const [chosenId, setChosenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => { setAt(null); setPicked(new Set()); }, [host]);
   const browse = useQuery({
@@ -73,19 +74,16 @@ function Body({ onClose }: { onClose: () => void }) {
   const d = browse.data;
   const toggle = (native: string) => setPicked((s) => { const n = new Set(s); if (n.has(native)) n.delete(native); else n.add(native); return n; });
   const nativeOf = (path: string) => (host && path.startsWith(`${host}:`) ? path.slice(host.length + 1) : path);
-  const chosen = workspaces.filter((w) => addTo.has(w.id));
+  const chosen = workspaces.find((w) => w.id === (chosenId ?? defaultWorkspace(current, workspaces))) ?? null;
   const add = async () => {
+    if (!chosen) return;
     setBusy(true);
     const added: Project[] = [];
     try {
-      for (const path of picked) added.push(await api.post<Project>("/api/projects", { path, host, workspace_id: null }));
-      for (const w of chosen) {
-        const ids = [...w.project_ids, ...added.map((p) => p.id).filter((id) => !w.project_ids.includes(id))];
-        if (ids.length !== w.project_ids.length) await setWorkspaceProjects(w, ids);
-      }
+      for (const path of picked) added.push(await api.post<Project>("/api/projects", { path, host, workspace_id: chosen.id }));
       await qc.invalidateQueries({ queryKey: ["projects"] });
       await qc.invalidateQueries({ queryKey: ["discover"] });
-      toast(`Added ${added.length === 1 ? added[0].name : `${added.length} folders`}${chosen.length ? ` to ${chosen.map((w) => w.name).join(", ")}` : ""}`);
+      toast(`Added ${added.length === 1 ? added[0].name : `${added.length} folders`} to ${chosen.name}`);
       onClose();
     } catch (e) {
       toastError(e);
@@ -118,7 +116,7 @@ function Body({ onClose }: { onClose: () => void }) {
           <Link to="/settings/hosts" className="lp-chip no-underline" onClick={onClose}><Icon name="plus" size={11} />New host…</Link>
         </FilterChips>
         {tab === "clone" ? (
-          <CloneFromGitHub key={host ?? "local"} host={host} root={host ? `${host}:${hostInfo?.host.projects_root ?? ""}` : config?.projects_root} addTo={chosen} onDone={onClose} />
+          <CloneFromGitHub key={host ?? "local"} host={host} root={host ? `${host}:${hostInfo?.host.projects_root ?? ""}` : config?.projects_root} workspace={chosen} onDone={onClose} />
         ) : (
           <>
             {suggestions.length > 0 && (
@@ -144,18 +142,13 @@ function Body({ onClose }: { onClose: () => void }) {
             </section>
           </>
         )}
-        {workspaces.length > 0 && (
-          <FilterChips label="Add to workspaces">
-            <span className="text-[12px] text-ink-3">Add to</span>
-            {workspaces.map((w) => <FilterChip key={w.id} active={addTo.has(w.id)} onClick={() => setAddTo((s) => { const n = new Set(s); if (n.has(w.id)) n.delete(w.id); else n.add(w.id); return n; })}>{addTo.has(w.id) && <Icon name="check" size={11} />}{w.name}</FilterChip>)}
-          </FilterChips>
-        )}
+        <WorkspacePicker label="Add to" value={chosen?.id ?? null} onChange={setChosenId} />
       </div>
       {tab === "browse" && (
         <div className="flex items-center gap-2 border-t border-line-2 px-4 py-2.5">
-          <span className="min-w-0 flex-1 truncate text-[12px] text-ink-3">{picked.size ? [...picked].map((p) => p.split("/").pop()).join(", ") : "Tick the folders to add."}</span>
+          <span className="min-w-0 flex-1 truncate text-[12px] text-ink-3">{!chosen ? "Choose a workspace." : picked.size ? [...picked].map((p) => p.split("/").pop()).join(", ") : "Tick the folders to add."}</span>
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" disabled={!picked.size || busy} onClick={() => void add()}><Icon name="plus" size={14} />{busy ? "Adding…" : `Add ${picked.size || ""} folder${picked.size === 1 ? "" : "s"}`}</button>
+          <button className="btn btn-primary" disabled={!picked.size || !chosen || busy} onClick={() => void add()}><Icon name="plus" size={14} />{busy ? "Adding…" : `Add ${picked.size || ""} folder${picked.size === 1 ? "" : "s"}`}</button>
         </div>
       )}
     </>

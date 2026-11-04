@@ -8,7 +8,7 @@ const findOpen = () => !!document.querySelector('input[placeholder="Find in file
 
 export const folders: Chapter = {
   ...meta("folders"),
-  learned: ["A folder page shows its agents, GitHub items and worktrees", "Files browses any checkout or worktree, with Find", "Workspaces group folders; Everything shows them all", "Add folder registers, browses or clones folders"],
+  learned: ["A folder page shows its agents, GitHub items and worktrees", "Files browses any checkout or worktree, with Find", "Each folder belongs to one workspace; Everything shows them all", "Add folder registers, browses or clones folders"],
   steps: [
     {
       id: "folders.page", route: "/projects/demo-storefront", anchor: "folder.page",
@@ -29,7 +29,7 @@ export const folders: Chapter = {
     {
       id: "folders.add", route: "/projects", anchor: "sidebar.add-folder",
       title: "Add folder",
-      body: "Register a folder you work in: Git repositories of your folders root are suggested, any folder can be browsed, and Clone from GitHub clones one. On SSH machines too.",
+      body: "Register a folder you work in, in one workspace: Git repositories of your folders root are suggested, any folder can be browsed, and Clone from GitHub clones one. On SSH machines too.",
     },
   ],
 };

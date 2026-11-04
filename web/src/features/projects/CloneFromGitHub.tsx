@@ -9,12 +9,11 @@ import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import type { Workspace } from "@/gen/Workspace";
-import { setWorkspaceProjects } from "@/lib/workspace";
 
 const SHOWN = 30;
 
-/** `addTo`: the workspaces the clone joins, chosen explicitly in the Add folder dialog. */
-export function CloneFromGitHub({ root, host = null, addTo, onDone }: { root: string | undefined; host?: string | null; addTo: Workspace[]; onDone?: () => void }) {
+/** `workspace`: the one workspace of the new folder, chosen in the Add folder dialog (null: not chosen yet). */
+export function CloneFromGitHub({ root, host = null, workspace, onDone }: { root: string | undefined; host?: string | null; workspace: Workspace | null; onDone?: () => void }) {
   const qc = useQueryClient();
   const [repo, setRepo] = useState("");
   const [cloning, setCloning] = useState<string | null>(null);
@@ -23,11 +22,11 @@ export function CloneFromGitHub({ root, host = null, addTo, onDone }: { root: st
   const typed = repo.trim();
   const matches = (q.data ?? []).filter((r) => !typed || r.repo.toLowerCase().includes(typed.toLowerCase()));
   const clone = async (name: string) => {
+    if (!workspace) return;
     setCloning(name);
     try {
-      const p = await api.post<Project>("/api/projects/clone", { repo: name, host, workspace_id: null });
-      for (const w of addTo) if (!w.project_ids.includes(p.id)) await setWorkspaceProjects(w, [...w.project_ids, p.id]);
-      toast(`Cloned ${name} into ${p.path}${addTo.length ? ` and added it to ${addTo.map((w) => w.name).join(", ")}` : ""}`);
+      const p = await api.post<Project>("/api/projects/clone", { repo: name, host, workspace_id: workspace.id });
+      toast(`Cloned ${name} into ${p.path} and added it to ${workspace.name}`);
       onDone?.();
       setRepo("");
       await qc.invalidateQueries({ queryKey: ["projects"] });
@@ -41,10 +40,10 @@ export function CloneFromGitHub({ root, host = null, addTo, onDone }: { root: st
   };
   return (
     <div className="grid gap-2">
-      <div className="text-[12px] text-ink-3">Clones into <span className="font-mono">{root ?? "the folders root"}</span>{addTo.length ? `, then adds it to ${addTo.map((w) => w.name).join(", ")}` : ", then adds it to Launchpad"}.</div>
+      <div className="text-[12px] text-ink-3">Clones into <span className="font-mono">{root ?? "the folders root"}</span>{workspace ? `, then adds it to ${workspace.name}` : ". Choose its workspace below"}. A repository already cloned for another workspace gets a second folder.</div>
       <div className="flex gap-2">
         <input className="field-input h-7 flex-1 font-mono text-xs" aria-label="Repository" placeholder="owner/name, or filter the repositories below" value={repo} disabled={!!cloning} onChange={(e) => setRepo(e.target.value)} />
-        <button className="btn btn-sm btn-primary" disabled={!typed.includes("/") || !!cloning} onClick={() => void clone(typed)}>
+        <button className="btn btn-sm btn-primary" disabled={!typed.includes("/") || !!cloning || !workspace} onClick={() => void clone(typed)}>
           {cloning ? "Cloning…" : "Clone"}
         </button>
       </div>
@@ -58,7 +57,7 @@ export function CloneFromGitHub({ root, host = null, addTo, onDone }: { root: st
             <div key={r.repo} className="flex h-9 items-center gap-2 border-b border-line-2 px-3 text-[13px] last:border-0">
               <span className="truncate font-mono text-[12px]">{r.repo}</span>
               {r.notifications > 0 && <span className="shrink-0 text-[11px] text-ink-3">{r.notifications} recent notification{r.notifications === 1 ? "" : "s"}</span>}
-              <button className="btn btn-sm ml-auto" disabled={!!cloning} onClick={() => void clone(r.repo)}>
+              <button className="btn btn-sm ml-auto" disabled={!!cloning || !workspace} onClick={() => void clone(r.repo)}>
                 <Icon name="plus" size={12} />
                 Clone
               </button>

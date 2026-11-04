@@ -198,6 +198,15 @@ CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_
     if !project_columns.iter().any(|c| c == "worktree_setup") { conn.execute_batch("ALTER TABLE project ADD COLUMN worktree_setup TEXT;")?; }
     if !project_columns.iter().any(|c| c == "merge_when_done") { conn.execute_batch("ALTER TABLE project ADD COLUMN merge_when_done INTEGER NOT NULL DEFAULT 0;")?; }
     if !project_columns.iter().any(|c| c == "when_done") { conn.execute_batch("ALTER TABLE project ADD COLUMN when_done TEXT NOT NULL DEFAULT 'keep'; UPDATE project SET when_done = 'merge' WHERE merge_when_done = 1;")?; }
+    // Folders used to join any number of workspaces. A folder of exactly one keeps it; the others become
+    // Unassigned until the owner picks one.
+    if !project_columns.iter().any(|c| c == "workspace_id") {
+        conn.execute_batch(
+            "ALTER TABLE project ADD COLUMN workspace_id TEXT;
+             UPDATE project SET workspace_id = (SELECT w.id FROM workspace w, json_each(w.json, '$.project_ids') j WHERE j.value = project.id)
+             WHERE (SELECT count(*) FROM workspace w, json_each(w.json, '$.project_ids') j WHERE j.value = project.id) = 1;",
+        )?;
+    }
     let device_columns = conn.prepare("PRAGMA table_info(browser_device)")?
         .query_map([], |r| r.get::<_, String>(1))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -301,6 +310,31 @@ mod tests {
         }
         // Windows keeps the file locked until the connection thread exits.
         let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn folders_of_exactly_one_workspace_keep_it() {
+        let path = std::env::temp_dir().join(format!("launchpad-workspace-{}.db", uuid::Uuid::new_v4()));
+        let db = super::open_state(&path).unwrap();
+        db.call(|c| {
+            c.execute_batch("ALTER TABLE project DROP COLUMN workspace_id;")?;
+            for id in ["one", "two", "none"] {
+                c.execute("INSERT INTO project (id, name, path, description, is_temp, pinned, created_at) VALUES (?1, ?1, ?1, '', 0, 0, 0)", [id])?;
+            }
+            c.execute_batch(r#"INSERT INTO workspace VALUES ('w1', '{"id":"w1","name":"A","project_ids":["one","two"],"created_at":0}');
+                INSERT INTO workspace VALUES ('w2', '{"id":"w2","name":"B","project_ids":["two"],"created_at":0}');"#)?;
+            Ok(())
+        }).await.unwrap();
+        drop(db);
+        let db = super::open_state(&path).unwrap();
+        db.call(|c| {
+            for (id, want) in [("one", Some("w1")), ("two", None), ("none", None)] {
+                let got: Option<String> = c.query_row("SELECT workspace_id FROM project WHERE id = ?1", [id], |r| r.get(0))?;
+                assert_eq!(got.as_deref(), want, "{id}");
+            }
+            Ok(())
+        }).await.unwrap();
+        std::fs::remove_file(path).unwrap();
     }
 
     #[tokio::test]

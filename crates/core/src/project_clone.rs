@@ -116,15 +116,27 @@ pub async fn refresh_suggestions(app: &App) -> Result<Vec<CloneSuggestion>> {
 /// or `git clone` over HTTPS without a signed-in GitHub CLI. A hidden staging folder keeps Discover from listing a
 /// partial clone; no prompt can block the request.
 /// On an SSH host, the clone runs there with the host's own `gh` or `git` credentials.
-pub async fn clone(app: &App, input: &str, host: Option<&str>) -> Result<Project> {
+/// A repository already cloned for another workspace gets a second folder, `<name>-<workspace>`.
+pub async fn clone(app: &App, input: &str, host: Option<&str>, workspace_id: &str) -> Result<Project> {
+    let workspace = crate::workspace::get(app, workspace_id).await.context("choose a workspace for the folder")?;
     let (owner, repo) = parse_repo(input)?;
     let root = crate::projects::projects_root(app, host)?;
     crate::hostfs::create_dir_all(&root).await.with_context(|| format!("create {}", root.display()))?;
-    let dest = root.join(&repo);
+    let mut dest = root.join(&repo);
     if crate::hostfs::exists(&dest).await {
-        bail!("{} already exists; use Discover to add it", dest.display());
+        let canonical = crate::hostfs::canonicalize(&dest).await.unwrap_or(dest.clone()).to_string_lossy().into_owned();
+        let elsewhere = crate::projects::list(app).await?.into_iter()
+            .any(|p| p.path == canonical && p.workspace_id.as_ref().is_some_and(|w| *w != workspace.id));
+        if !elsewhere {
+            bail!("{} already exists; use Discover to add it", dest.display());
+        }
+        dest = root.join(format!("{repo}-{}", crate::compose::slug_from(&workspace.name)));
+        if crate::hostfs::exists(&dest).await {
+            bail!("{} already exists; use Discover to add it", dest.display());
+        }
     }
-    let staging = root.join(format!(".{repo}.cloning-{}", &uuid::Uuid::new_v4().to_string()[..8]));
+    let name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| repo.clone());
+    let staging = root.join(format!(".{name}.cloning-{}", &uuid::Uuid::new_v4().to_string()[..8]));
     let full = format!("{owner}/{repo}");
     let staging_s = staging.to_string_lossy().into_owned();
     let gh = match host {
@@ -158,7 +170,7 @@ pub async fn clone(app: &App, input: &str, host: Option<&str>) -> Result<Project
         bail!("{} appeared during the clone; use Discover to add it", dest.display());
     }
     crate::hostfs::rename(&staging, &dest).await.with_context(|| format!("move the clone to {}", dest.display()))?;
-    crate::projects::register(app, &dest, false).await
+    crate::projects::register(app, &dest, false, &workspace.id).await
 }
 
 #[cfg(test)]

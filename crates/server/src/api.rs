@@ -94,8 +94,8 @@ struct AddProject {
     path: String,
     /// The SSH host of `path` (a native path on that host, `~` for its home).
     host: Option<String>,
-    /// The workspace of the window that adds it.
-    workspace_id: Option<String>,
+    /// The one workspace of the folder (required).
+    workspace_id: String,
 }
 
 #[derive(Deserialize)]
@@ -142,10 +142,7 @@ async fn add_project(State(s): State<Server>, Json(b): Json<AddProject>) -> ApiR
         }
         None => launchpad_core::paths::expand_home(b.path.trim()),
     };
-    let p = projects::register(&s.app, &path, false).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
-    if let Some(ws) = &b.workspace_id {
-        workspace::add_project(&s.app, ws, &p.id).await?;
-    }
+    let p = projects::register(&s.app, &path, false, &b.workspace_id).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     Ok(Json(p))
 }
 
@@ -158,12 +155,10 @@ async fn list_workspaces(State(s): State<Server>) -> ApiResult<Vec<Workspace>> {
 #[derive(Deserialize)]
 struct NewWorkspace {
     name: String,
-    #[serde(default)]
-    project_ids: Vec<String>,
 }
 
 async fn create_workspace(State(s): State<Server>, Json(b): Json<NewWorkspace>) -> ApiResult<Workspace> {
-    Ok(Json(workspace::create(&s.app, &b.name, b.project_ids).await.map_err(bad)?))
+    Ok(Json(workspace::create(&s.app, &b.name).await.map_err(bad)?))
 }
 
 async fn patch_workspace(State(s): State<Server>, Path(id): Path<String>, Json(patch): Json<workspace::Patch>) -> ApiResult<Workspace> {
@@ -171,7 +166,7 @@ async fn patch_workspace(State(s): State<Server>, Path(id): Path<String>, Json(p
 }
 
 async fn delete_workspace(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
-    workspace::delete(&s.app, &id).await?;
+    workspace::delete(&s.app, &id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 

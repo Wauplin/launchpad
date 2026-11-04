@@ -80,7 +80,7 @@ async fn scope(s: &Server, workspace: Option<&str>) -> Result<Option<Vec<String>
     let Some(w) = workspace.filter(|w| !w.is_empty() && *w != "all") else { return Ok(None) };
     let all = launchpad_core::workspace::list(&s.app).await?;
     let ws = all.iter().find(|x| x.id == w || x.name.eq_ignore_ascii_case(w)).ok_or_else(|| ApiError::not_found(format!("no workspace {w}")))?;
-    Ok(Some(ws.project_ids.clone()))
+    Ok(Some(launchpad_core::workspace::project_ids(&s.app, &ws.id).await?))
 }
 
 async fn folders(State(s): State<Server>, Query(q): Query<Scope>) -> ApiResult<Value> {

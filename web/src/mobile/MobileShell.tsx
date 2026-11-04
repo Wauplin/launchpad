@@ -14,7 +14,7 @@ import { Composer } from "@/features/launch/Composer";
 import { TerminalDock } from "@/features/terminals/TerminalDock";
 import { useInboxNeeds } from "@/features/inbox/data";
 import { useReviewCount } from "@/features/review/data";
-import { useScope, useWorkspaces, useWorkspaceSync } from "@/lib/workspace";
+import { folderCount, useScope, useWorkspaces, useWorkspaceSync } from "@/lib/workspace";
 import { useProjects, useSessions } from "@/lib/queries";
 import { isRunning, needsYou } from "@/lib/sessionStatus";
 import { setLayoutChoice } from "@/lib/phone";
@@ -63,7 +63,8 @@ function MenuLink({ to, icon, children, onClick }: { to: string; icon: IconName;
 function WorkspaceMenu({ onClose }: { onClose: () => void }) {
   const { current, switchTo } = useWorkspace();
   const workspaces = useWorkspaces().data ?? [];
-  const projects = useProjects().data?.length ?? 0;
+  const all = useProjects().data;
+  const projects = all?.length ?? 0;
   const { theme, toggle } = useTheme();
   const pick = (id: string | null) => { switchTo(id); onClose(); };
   const button = (id: string | null, label: string, detail: string) => (
@@ -75,7 +76,7 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
     <Sheet title="Workspace" onClose={onClose}>
       <div className="seclabel px-4 pt-3 pb-1">Show in this tab</div>
       {button(null, "Everything", `${projects} folders`)}
-      {workspaces.map((w) => button(w.id, w.name, `${w.project_ids.length} folders`))}
+      {workspaces.map((w) => button(w.id, w.name, `${folderCount(all, w.id)} folders`))}
       <div className="seclabel px-4 pt-4 pb-1">Go to</div>
       <MenuLink to="/projects" icon="folder" onClick={onClose}>Folders</MenuLink>
       <MenuLink to="/terminals" icon="term" onClick={onClose}>Terminals</MenuLink>

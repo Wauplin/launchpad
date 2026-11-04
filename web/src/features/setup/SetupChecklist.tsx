@@ -22,7 +22,8 @@ import { nativePath, useHosts } from "@/lib/hosts";
 import { useConfig, useProjects } from "@/lib/queries";
 import { isDesktopShell, usePushState } from "@/lib/push";
 import { useComposer } from "@/stores/composer";
-import { useWorkspace } from "@/stores/workspace";
+import { useScope, useWorkspaces } from "@/lib/workspace";
+import { WorkspacePicker, defaultWorkspace } from "@/features/workspaces/WorkspacePicker";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
 import { NotificationsCard } from "@/features/settings/DevicesView";
@@ -309,13 +310,17 @@ function ProfileStep({ item, host, onDone }: { item: SetupItem; host: string | n
 function FolderStep({ item, host, onDone }: { item: SetupItem; host: string | null; onDone: () => void }) {
   const qc = useQueryClient();
   const showAdd = useAddFolder((s) => s.show);
-  const workspace = useWorkspace((s) => s.current);
+  const current = useScope().workspace;
+  const workspaces = useWorkspaces().data ?? [];
+  const [chosen, setChosen] = useState<string | null>(null);
+  const workspace = workspaces.find((w) => w.id === (chosen ?? defaultWorkspace(current, workspaces)));
   const [busy, setBusy] = useState<string | null>(null);
   const add = async (path: string) => {
+    if (!workspace) return;
     setBusy(path);
     try {
-      const p = await api.post<Project>("/api/projects", { path: host ? nativePath(path) : path, host, workspace_id: workspace ?? undefined });
-      toast(`Added ${p.name}`);
+      const p = await api.post<Project>("/api/projects", { path: host ? nativePath(path) : path, host, workspace_id: workspace.id });
+      toast(`Added ${p.name} to ${workspace.name}`);
       await qc.invalidateQueries({ queryKey: ["projects"] });
       void qc.invalidateQueries({ queryKey: ["workspaces"] });
       onDone();
@@ -323,12 +328,13 @@ function FolderStep({ item, host, onDone }: { item: SetupItem; host: string | nu
   };
   return (
     <div className="grid gap-1.5">
+      {item.suggestions.length > 0 && <WorkspacePicker label="Add to" value={workspace?.id ?? null} onChange={setChosen} />}
       {item.suggestions.length > 0 && <div className="text-[12px] text-ink-2">Git repositories found in your folders root:</div>}
       {item.suggestions.map((path) => (
         <div key={path} className="flex items-center gap-2 rounded-lg border border-line-2 bg-chrome px-2.5 py-1.5 text-[13px]">
           <Icon name="folder" size={13} />
           <span className="min-w-0 flex-1 truncate" title={path}>{nativePath(path)}</span>
-          <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => void add(path)}><Icon name="plus" size={12} />Add</button>
+          <button type="button" className="btn btn-sm" disabled={busy !== null || !workspace} onClick={() => void add(path)}><Icon name="plus" size={12} />Add</button>
         </div>
       ))}
       <div><button type="button" className="btn btn-sm" onClick={showAdd}><Icon name="plus" size={12} />Add folder…</button></div>

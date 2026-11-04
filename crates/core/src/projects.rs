@@ -12,7 +12,7 @@ use crate::App;
 use crate::model::Project;
 use crate::util::now_ms;
 
-const COLUMNS: &str = "id, name, path, remote_url, gh_repo, gh_upstream, description, is_temp, pinned, created_at, worktree_setup, when_done";
+const COLUMNS: &str = "id, name, path, remote_url, gh_repo, gh_upstream, description, is_temp, pinned, created_at, worktree_setup, when_done, workspace_id";
 
 fn from_row(r: &Row) -> rusqlite::Result<Project> {
     Ok(Project {
@@ -28,6 +28,7 @@ fn from_row(r: &Row) -> rusqlite::Result<Project> {
         created_at: r.get(9)?,
         worktree_setup: r.get::<_, Option<String>>(10)?.unwrap_or_default(),
         when_done: crate::model::WhenDone::parse(&r.get::<_, Option<String>>(11)?.unwrap_or_default()),
+        workspace_id: r.get(12)?,
     })
 }
 
@@ -49,6 +50,8 @@ pub struct ProjectPatch {
     /// Command run in each new task worktree of this project before the agent starts.
     pub worktree_setup: Option<String>,
     pub when_done: Option<crate::model::WhenDone>,
+    /// Moves the folder to another workspace (also assigns an Unassigned folder).
+    pub workspace_id: Option<String>,
 }
 
 pub async fn list(app: &App) -> Result<Vec<Project>> {
@@ -161,8 +164,11 @@ async fn remote_info(path: &Path) -> (Option<String>, Option<String>, Option<Str
     (origin, gh_repo, gh_upstream)
 }
 
-/// Registers a folder (or returns the existing project for it). A folder on an SSH host is `<host>:<path>`.
-pub async fn register(app: &App, path: &Path, is_temp: bool) -> Result<Project> {
+/// Registers a folder in a workspace. A folder already registered in the same workspace is returned, an
+/// Unassigned one joins the workspace, and a folder of another workspace is refused: one folder belongs to
+/// one workspace. A folder on an SSH host is `<host>:<path>`.
+pub async fn register(app: &App, path: &Path, is_temp: bool, workspace_id: &str) -> Result<Project> {
+    let workspace = crate::workspace::get(app, workspace_id).await.context("choose a workspace for the folder")?;
     if let Some(host) = crate::hosts::loc::host_of_path(path) {
         anyhow::ensure!(app.hosts.record(host).is_some(), "unknown host {host}; add it in Settings → Hosts");
     }
@@ -184,27 +190,45 @@ pub async fn register(app: &App, path: &Path, is_temp: bool) -> Result<Project> 
         created_at: now_ms(),
         worktree_setup: String::new(),
         when_done: Default::default(),
+        workspace_id: Some(workspace.id.clone()),
     };
     let saved = p.clone();
     let existing = app
         .state_db
         .call(move |c| {
-            if let Some(e) = c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE path = ?1"), [&p.path], from_row).optional()? {
+            if let Some(mut e) = c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE path = ?1"), [&p.path], from_row).optional()? {
+                if e.workspace_id.is_none() {
+                    c.execute("UPDATE project SET workspace_id = ?1 WHERE id = ?2", params![p.workspace_id, e.id])?;
+                    e.workspace_id = p.workspace_id;
+                }
                 return Ok(Some(e));
             }
             c.execute(
-                &format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"),
-                params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str()],
+                &format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"),
+                params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id],
             )?;
             Ok(None)
         })
         .await?;
+    if let Some(e) = &existing
+        && e.workspace_id.as_deref() != Some(workspace.id.as_str())
+    {
+        let other = match e.workspace_id.as_deref() {
+            Some(id) => crate::workspace::get(app, id).await.map(|w| w.name).unwrap_or_else(|_| "another workspace".into()),
+            None => "another workspace".into(),
+        };
+        bail!("{} is already a folder of {other}; clone the repository again to use it in {}", e.path, workspace.name);
+    }
     let project = refresh_metadata(app, vec![existing.unwrap_or(saved)], true).await?.pop().unwrap();
     app.bus.publish("projects", "changed", serde_json::Value::Null);
     Ok(project)
 }
 
-pub async fn update(app: &App, id: &str, patch: ProjectPatch) -> Result<Project> {
+pub async fn update(app: &App, id: &str, mut patch: ProjectPatch) -> Result<Project> {
+    let workspace = match patch.workspace_id.take() {
+        Some(w) => Some(crate::workspace::get(app, &w).await?.id),
+        None => None,
+    };
     let id2 = id.to_string();
     app.state_db
         .call(move |c| {
@@ -223,6 +247,9 @@ pub async fn update(app: &App, id: &str, patch: ProjectPatch) -> Result<Project>
             if let Some(w) = patch.worktree_setup {
                 c.execute("UPDATE project SET worktree_setup = ?1 WHERE id = ?2", params![w.trim(), id2])?;
             }
+            if let Some(w) = workspace {
+                c.execute("UPDATE project SET workspace_id = ?1 WHERE id = ?2", params![w, id2])?;
+            }
             Ok(())
         })
         .await?;
@@ -233,9 +260,7 @@ pub async fn update(app: &App, id: &str, patch: ProjectPatch) -> Result<Project>
 /// Removes a project from the registry. The folder is left as is.
 pub async fn unregister(app: &App, id: &str) -> Result<()> {
     let id = id.to_string();
-    let id2 = id.clone();
-    app.state_db.call(move |c| Ok(c.execute("DELETE FROM project WHERE id = ?1", [id2])?)).await?;
-    crate::workspace::forget_project(app, &id).await?;
+    app.state_db.call(move |c| Ok(c.execute("DELETE FROM project WHERE id = ?1", [id])?)).await?;
     app.bus.publish("projects", "changed", serde_json::Value::Null);
     Ok(())
 }
@@ -272,8 +297,9 @@ pub async fn discover(app: &App, host: Option<&str>) -> Result<Vec<Discovered>> 
     Ok(out)
 }
 
-/// Creates `<projects_root>/tmp-<MMDD>-<slug>` and registers it as a temporary project.
-pub async fn create_temp(app: &App, prompt: &str) -> Result<Project> {
+/// Creates `<projects_root>/tmp-<MMDD>-<slug>` and registers it as a temporary project of a workspace.
+pub async fn create_temp(app: &App, prompt: &str, workspace_id: &str) -> Result<Project> {
+    crate::workspace::get(app, workspace_id).await.context("choose a workspace for the scratch folder")?;
     let root = app.config.get().projects_root();
     let (month, day) = crate::util::local_month_day();
     let base = format!("tmp-{month:02}{day:02}-{}", crate::compose::slug_from(prompt));
@@ -284,7 +310,7 @@ pub async fn create_temp(app: &App, prompt: &str) -> Result<Project> {
         n += 1;
     }
     std::fs::create_dir_all(&path).with_context(|| format!("create {}", path.display()))?;
-    register(app, &path, true).await
+    register(app, &path, true, workspace_id).await
 }
 
 fn check_temp(app: &App, p: &Project) -> Result<PathBuf> {

@@ -87,7 +87,7 @@ pub async fn paths(
     let scoped = root.is_some();
     let mut projects = crate::projects::list(app).await?;
     let preferred = match workspace {
-        Some(id) => crate::workspace::get(app, id).await?.project_ids,
+        Some(id) => crate::workspace::project_ids(app, id).await?,
         None => vec![],
     };
     projects.sort_by_key(|p| (!preferred.contains(&p.id), !p.pinned, p.name.to_lowercase()));

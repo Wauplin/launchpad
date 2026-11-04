@@ -1,6 +1,7 @@
 import { usePhone } from "@/lib/phone";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
-// Folders: the registered folders of this window's workspace (then the others), and scratch folders.
+// Folders: the registered folders of this window's workspace (Everything: every workspace, one section each),
+// scratch folders, and the Unassigned folders card for folders registered before workspaces were required.
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HostLabel } from "@/components/HostLabel";
@@ -18,7 +19,8 @@ import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { useProjects, useSessions } from "@/lib/queries";
-import { setWorkspaceProjects, useScope } from "@/lib/workspace";
+import type { Workspace } from "@/gen/Workspace";
+import { moveFolder, useScope, useWorkspaces } from "@/lib/workspace";
 
 export function Description({ p }: { p: Project }) {
   const [edit, setEdit] = useState<string | null>(null);
@@ -106,25 +108,51 @@ export function TempProjectCard({ p }: { p: Project }) {
 }
 
 
-/** Workspaces of a folder, and Remove from workspace / Remove from Launchpad with their consequences. */
+/** Folder settings, Move to another workspace, and Remove from Launchpad with its consequence. */
 function FolderActions({ p }: { p: Project }) {
   const qc = useQueryClient();
-  const w = useScope().workspace;
-  const inside = !!w?.project_ids.includes(p.id);
+  const workspaces = useWorkspaces().data ?? [];
+  const others = workspaces.filter((w) => w.id !== p.workspace_id);
   return (
     <Popover viewport align="right" width={300} trigger={({ open, toggle }) => <button className="iconbtn" aria-label={`More actions for ${p.name}`} title="More actions" aria-expanded={open} onClick={toggle}><Icon name="more" size={14} /></button>}>
       {(close) => (
         <div className="grid gap-1 p-1">
           <Link to="/projects/$id" params={{ id: p.id }} search={{ tab: "settings" } as never} className="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] text-ink no-underline hover:bg-sunk" onClick={close}><Icon name="sliders" size={13} />Folder settings</Link>
-          {w && (inside
-            ? <button className="flex h-8 items-center gap-2 rounded-md px-2 text-left text-[13px] hover:bg-sunk" onClick={() => { close(); void setWorkspaceProjects(w, w.project_ids.filter((id) => id !== p.id)).then(() => toast(`Removed ${p.name} from ${w.name}`), toastError); }}><Icon name="x" size={13} />Remove from {w.name}<span className="ml-auto text-[11px] text-ink-3">kept in Launchpad</span></button>
-            : <button className="flex h-8 items-center gap-2 rounded-md px-2 text-left text-[13px] hover:bg-sunk" onClick={() => { close(); void setWorkspaceProjects(w, [...w.project_ids, p.id]).catch(toastError); }}><Icon name="plus" size={13} />Add to {w.name}</button>)}
+          {others.map((w) => (
+            <button key={w.id} className="flex h-8 items-center gap-2 rounded-md px-2 text-left text-[13px] hover:bg-sunk" onClick={() => { close(); void moveFolder(p, w).then(() => { toast(`Moved ${p.name} to ${w.name}`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError); }}><Icon name="folder" size={13} />Move to {w.name}</button>
+          ))}
           <div className="border-t border-line-2 px-2 pt-1.5 pb-0.5">
             <ConfirmButton icon="trash" consequence="Unregisters it; files on disk are kept." confirmLabel="Remove" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => { close(); toast(`Removed ${p.name} from Launchpad`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError)}>Remove from Launchpad</ConfirmButton>
           </div>
         </div>
       )}
     </Popover>
+  );
+}
+
+/** Folders without a workspace: assign each to one, or remove it. Shown in every view until none is left. */
+function UnassignedFolders({ folders, workspaces }: { folders: Project[]; workspaces: Workspace[] }) {
+  const qc = useQueryClient();
+  const assign = (p: Project, w: Workspace) => moveFolder(p, w).then(() => { toast(`Added ${p.name} to ${w.name}`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError);
+  return (
+    <section className="grid gap-2 rounded-lg border border-attn/40 bg-attn-soft/40 p-3.5" aria-label="Unassigned folders">
+      <div className="grid gap-0.5">
+        <b className="text-[13px]">Unassigned folders · {folders.length}</b>
+        <span className="text-[12px] text-ink-3">Every folder belongs to one workspace. {workspaces.length ? "Choose one for each, or remove the folders you no longer use." : "Create a workspace from the sidebar menu, then choose it here."}</span>
+      </div>
+      <div className="grid max-h-[320px] overflow-y-auto rounded-md border border-line bg-paper">
+        {folders.map((p) => (
+          <div key={p.id} className="flex min-h-[44px] flex-wrap items-center gap-2 border-b border-line-2 px-3 py-1.5 text-[13px] last:border-0">
+            <span className="grid min-w-0 flex-1 basis-[200px]">
+              <span className="flex min-w-0 items-center gap-2"><span className="truncate font-semibold">{p.name}</span><HostLabel path={p.path} />{p.is_temp && <span className="text-[11px] text-ink-3">scratch</span>}</span>
+              <span className="truncate font-mono text-[12px] text-ink-3" title={p.path}>{p.path}</span>
+            </span>
+            {workspaces.map((w) => <button key={w.id} className="btn btn-sm" onClick={() => void assign(p, w)}>{w.name}</button>)}
+            <ConfirmButton icon="trash" consequence={p.is_temp ? `Deletes ${p.path} from disk.` : "Unregisters it; files on disk are kept."} confirmLabel={p.is_temp ? "Delete files" : "Remove"} onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => { toast(`Removed ${p.name}`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError)}>Remove</ConfirmButton>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -163,27 +191,30 @@ function FolderTable({ folders }: { folders: Project[] }) {
 export function ProjectsView() {
   const phone = usePhone();
   const projects = useProjects().data ?? [];
+  const workspaces = useWorkspaces().data ?? [];
   const scope = useScope();
   const w = scope.workspace;
   const showAdd = useAddFolder((s) => s.show);
-  const regular = projects.filter((p) => !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
-  // In a workspace: its folders first, then the others, which one click adds.
+  const assigned = projects.filter((p) => p.workspace_id && workspaces.some((x) => x.id === p.workspace_id));
+  const unassigned = projects.filter((p) => !assigned.includes(p));
+  const regular = assigned.filter((p) => !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const mine = w ? regular.filter((p) => scope.hasProject(p.id)) : regular;
-  const others = w ? regular.filter((p) => !scope.hasProject(p.id)) : [];
-  const temp = projects.filter((p) => p.is_temp && scope.hasProject(p.id));
+  // Everything is a view: one section per workspace.
+  const sections = w ? [{ w, folders: mine }] : workspaces.map((x) => ({ w: x, folders: regular.filter((p) => p.workspace_id === x.id) })).filter((x) => x.folders.length > 0);
+  const temp = assigned.filter((p) => p.is_temp && (!w || scope.hasProject(p.id)));
   const add = <button className="btn btn-primary" onClick={showAdd}><Icon name="plus" size={14} />Add folder</button>;
   const title = w ? `Folders in ${w.name}` : "Folders";
   return (
     <div className="h-full overflow-y-auto">
-      {phone ? <PhoneHeader title={title} subtitle={`${mine.length} folder${mine.length === 1 ? "" : "s"}`} primary={add} /> : <PageHeader title={title} meta={`${mine.length} folder${mine.length === 1 ? "" : "s"}${w ? ` · ${others.length} more in Launchpad` : ""}`} actions={add} />}
+      {phone ? <PhoneHeader title={title} subtitle={`${mine.length} folder${mine.length === 1 ? "" : "s"}`} primary={add} /> : <PageHeader title={title} meta={`${mine.length} folder${mine.length === 1 ? "" : "s"}${w ? "" : ` · ${workspaces.length} workspace${workspaces.length === 1 ? "" : "s"}`}`} actions={add} />}
       <div className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
-        {mine.length === 0 ? <Empty icon="folder" action={add}>{w ? `No folder in ${w.name} yet.` : "No folder yet."}</Empty> : <FolderTable folders={mine} />}
-        {others.length > 0 && (
-          <>
-            <div className="seclabel">Other folders</div>
-            <FolderTable folders={others} />
-          </>
-        )}
+        {unassigned.length > 0 && <UnassignedFolders folders={unassigned} workspaces={workspaces} />}
+        {mine.length === 0 ? <Empty icon="folder" action={add}>{w ? `No folder in ${w.name} yet.` : "No folder yet."}</Empty> : sections.map((x) => (
+          <section key={x.w.id} className="grid gap-2">
+            {!w && <div className="seclabel">{x.w.name}</div>}
+            <FolderTable folders={x.folders} />
+          </section>
+        ))}
         {temp.length > 0 && (
           <>
             <div className="seclabel">Scratch folders</div>

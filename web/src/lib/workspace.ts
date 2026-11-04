@@ -1,4 +1,5 @@
-// What the current workspace contains. Every list that a workspace narrows (sidebar, agents, projects,
+// What the current workspace contains. Every folder belongs to exactly one workspace (`Project.workspace_id`);
+// "Everything" is a view of all of them. Every list that a workspace narrows (sidebar, agents, projects,
 // inbox, composer) uses these predicates, so counts and markers agree.
 
 import { isDesktopShell } from "./platform";
@@ -43,8 +44,8 @@ export function useScope(): Scope {
     const workspace = workspaces.data?.find((w) => w.id === current) ?? null;
     // While the workspaces load, show nothing rather than every project.
     if (!workspace && !(current && !workspaces.data)) return { workspace, projects: projects ?? [], hasProject: yes, hasSession: yes, hasSpec: yes, hasRepo: yes };
-    const ids = new Set(workspace?.project_ids ?? []);
-    const mine = (projects ?? []).filter((p) => ids.has(p.id));
+    const mine = (projects ?? []).filter((p) => !!workspace && p.workspace_id === workspace.id);
+    const ids = new Set(mine.map((p) => p.id));
     const repos = new Set(mine.flatMap((p) => [p.gh_repo, p.gh_upstream]).filter((r): r is string => !!r).map((r) => r.toLowerCase()));
     const hasProject = (id: string | null, cwd?: string) => (!!id && ids.has(id)) || (!!cwd && mine.some((p) => cwd === p.path || cwd.startsWith(p.path + "/")));
     const hasSpec = (spec: LaunchSpec) => (!!workspace && spec.workspace_id === workspace.id) || hasProject(specProject(spec));
@@ -102,19 +103,12 @@ export async function openWindow(workspaceId: string | null) {
 /** "window" in the desktop shell, "tab" in a browser. */
 export const newWindowWord = isDesktopShell ? "window" : "tab";
 
-/** Membership changes of a workspace, saved at once; every window refreshes on the `workspaces` bus topic. */
-export async function setWorkspaceProjects(workspace: Workspace, projectIds: string[]) {
-  await api.patch<Workspace>(`/api/workspaces/${workspace.id}`, { project_ids: projectIds });
+/** Moves a folder to another workspace (or assigns an Unassigned one); every window refreshes on the `projects` bus topic. */
+export async function moveFolder(project: Project, workspace: Workspace) {
+  await api.patch<Project>(`/api/projects/${project.id}`, { workspace_id: workspace.id });
 }
 
-/** After a launch that silently added its folder to the window's workspace: "Added X to <workspace> · Undo". */
-export function announceImplicitAdd(workspace: Workspace | null, projectId: string | null, name: string) {
-  if (!workspace || !projectId || workspace.project_ids.includes(projectId)) return;
-  toast(`Added ${name} to ${workspace.name}`, {
-    label: "Undo",
-    run: () => void api.get<Workspace[]>("/api/workspaces").then((all) => {
-      const w = all.find((x) => x.id === workspace.id);
-      if (w) return setWorkspaceProjects(w, w.project_ids.filter((id) => id !== projectId));
-    }).catch(() => toast(`Could not remove ${name} from ${workspace.name}`)),
-  });
+/** Folders per workspace, for counts. */
+export function folderCount(projects: Project[] | undefined, workspaceId: string): number {
+  return (projects ?? []).filter((p) => p.workspace_id === workspaceId).length;
 }
