@@ -1345,6 +1345,8 @@ fn spawn_quota(app: &App, server: CodexServer, account: String) -> tokio::task::
     })
 }
 fn spawn_updates(app: &App) {
+    // A parallel runner borrows the machine's CLI read-only; Home has no harness installation to update.
+    if app.paths.role != crate::role::Role::All { return; }
     let app = app.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(20)).await;

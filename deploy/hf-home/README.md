@@ -33,7 +33,7 @@ Upload the directory with `hf upload Wauplin/launchpad-home <directory> --type s
 
 ## Try it alongside an existing laptop install
 
-Use the already prepared checkout at `/home/wauplin/projects/.worktrees/launchpad-h3`. The commands below build in that checkout and run a foreground runner on port **7320**, with `launchpad-runner-dev` data/config and a dev browser cookie. Harness discovery uses a separate empty home under the runner data folder, so it does not open or refresh the old install's logins. They do not install a service, replace `~/.local/bin/launchpad`, or use the existing daemon on port 7317.
+Use the already prepared checkout at `/home/wauplin/projects/.worktrees/launchpad-h3`. The commands below build in that checkout and run a foreground runner on port **7320**, with `launchpad-runner-dev` data/config and a dev browser cookie. Runners do not run the daemon's Codex auto-updater. Harness discovery uses a separate empty home under the runner data folder, so it does not open or refresh the old install's logins. They do not install a service, replace `~/.local/bin/launchpad`, or use the existing daemon on port 7317.
 
 1. Build that exact commit: build the UI with Node 24 (`cd web && pnpm build`), then run `cargo build --locked -p launchpad` from the checkout root. Check bubblewrap with `bwrap --ro-bind / / --dev /dev --proc /proc --unshare-pid true`. If it fails, fix bubblewrap/user-namespace support yourself before launching an agent; never set the runner boundary to `vm` on your laptop.
 2. Start the runner in a terminal, from that checkout:
