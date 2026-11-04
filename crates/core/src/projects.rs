@@ -400,6 +400,70 @@ pub async fn home_folders(app: &App) -> Result<Vec<Project>> {
 }
 
 /// Home (or `all`): a new, empty plain folder.
+/// Home: turns a plain folder into a Git folder without a remote. Its current files become the first commit
+/// of `main` in a new Home Git mirror; agents then work in worktrees. Refused while an agent holds the folder.
+pub async fn plain_to_git(app: &App, id: &str) -> Result<Project> {
+    anyhow::ensure!(crate::home_git::here(app), "folders are changed on Home");
+    let mut p = get(app, id).await?.context("no such folder")?;
+    anyhow::ensure!(p.plain, "{} is not a plain folder", p.name);
+    if let Some(holder) = crate::plain::lock_holder(app, id).await?
+        && app.sessions.get(&holder).is_some_and(|s| s.status != crate::model::SessionStatus::Closed)
+    {
+        anyhow::bail!("an agent works in {}; archive it first", p.name);
+    }
+    let tree = crate::plain::tree(app, id).await?;
+    let tmp = app.paths.data_dir.join("tmp").join(format!("to-git-{id}"));
+    let _ = tokio::fs::remove_dir_all(&tmp).await;
+    tokio::fs::create_dir_all(&tmp).await?;
+    for e in &tree.files {
+        let path = tmp.join(&e.path);
+        tokio::fs::create_dir_all(path.parent().context("file path")?).await?;
+        tokio::fs::write(&path, crate::plain::read_blob(app, &e.sha256).await?).await?;
+        #[cfg(unix)]
+        if e.executable {
+            use std::os::unix::fs::PermissionsExt;
+            tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).await?;
+        }
+    }
+    let home = app.config.get().home.clone();
+    let name = Some(home.git_name).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "Launchpad".into());
+    let email = Some(home.git_email).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "launchpad@localhost".into());
+    let git = |args: Vec<String>| {
+        let (app, tmp) = (app.clone(), tmp.clone());
+        async move {
+            let mut cmd = crate::procs::command(&app.env, "git", Some(&tmp));
+            cmd.args(args.iter().map(String::as_str)).stdin(crate::exec::Io::Null).env("LP_IMPORT", "1");
+            let out = cmd.output().await?;
+            anyhow::ensure!(out.status.success(), "git {}: {}", args.first().cloned().unwrap_or_default(), String::from_utf8_lossy(&out.stderr).trim());
+            anyhow::Ok(())
+        }
+    };
+    git(vec!["init".into(), "--quiet".into(), "--initial-branch=main".into()]).await?;
+    git(vec!["add".into(), "--all".into()]).await?;
+    git(vec!["-c".into(), format!("user.name={name}"), "-c".into(), format!("user.email={email}"), "commit".into(), "--quiet".into(), "--allow-empty".into(), "-m".into(), format!("Files of {} (plain folder until now)", p.name)]).await?;
+    p.plain = false;
+    p.home_git = true;
+    p.remote_url = None;
+    p.path = if app.paths.role == crate::role::Role::Home { crate::home_git::mirror(app, &p.id) } else { crate::repo_cache::dir(app, &p.id) }.to_string_lossy().into_owned();
+    let mirror = crate::home_git::ensure(app, &p).await?;
+    git(vec!["push".into(), "--quiet".into(), mirror.to_string_lossy().into_owned(), "main:refs/heads/main".into()]).await?;
+    let _ = tokio::fs::remove_dir_all(&tmp).await;
+    let saved = p.clone();
+    app.state_db
+        .call(move |c| {
+            let tx = c.transaction()?;
+            tx.execute("UPDATE project SET plain = 0, home_git = 1, remote_url = NULL, path = ?2 WHERE id = ?1", params![saved.id, saved.path])?;
+            // The files are in Git now; their earlier versions stay in the history until it expires.
+            tx.execute("DELETE FROM plain_file WHERE store = ?1", [&saved.id])?;
+            tx.execute("DELETE FROM plain_state WHERE store = ?1", [&saved.id])?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await?;
+    app.bus.publish("projects", "changed", serde_json::Value::Null);
+    get(app, id).await?.context("no such folder")
+}
+
 pub async fn create_plain(app: &App, name: &str, workspace_id: &str) -> Result<Project> {
     anyhow::ensure!(crate::home_git::here(app), "folders are registered on Home");
     let workspace = crate::workspace::get(app, workspace_id).await.context("choose a workspace for the folder")?;

@@ -52,6 +52,8 @@ Home keeps each Git folder as a bare mirror. For **Files**, it keeps a read-only
 
 A **plain folder** has no Git: Home stores its files (Add folders → **New plain folder**, or add a folder without Git from Browse on a runner, which copies its files once). Runners work in a synced copy: it comes down from Home before a session starts and goes back at the end of every turn. One agent works in a plain folder at a time; another launch fails until the first agent is archived. Changes compares with the start of the session. Home keeps every overwritten version and every deleted file for 30 days: the folder page lists them under **Versions and trash**, with **Restore**.
 
+A plain folder can become a Git folder: on its folder page, open **Settings** and click **Turn into a Git folder**. Its current files become the first commit of `main` in a new Home Git folder without a remote; agents then work in worktrees and branches.
+
 An **asset folder** holds large or generated files of a Git folder (datasets, media, model files) outside Git. An agent runs `launchpad assets create <path> --session-id <id>` in its worktree: the path is mapped in `.launchpad/assets.toml` (committed), kept out of Git, and synced like a plain folder, so later sessions on that branch get the same files. Assets are shared, not pinned per commit.
 
 The folder page of a Git folder lists its asset folders with their size. An asset folder that no branch, kept tip or knowledge base note names, and that nobody changed for 14 days, goes to the trash: its files are removed and **Restore** puts them back for 30 days.

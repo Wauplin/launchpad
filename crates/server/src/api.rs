@@ -19,6 +19,7 @@ pub fn router() -> Router<Server> {
         .route("/api/projects", get(list_projects).post(add_project))
         .route("/api/projects/remote", post(add_remote))
         .route("/api/projects/plain", post(add_plain))
+        .route("/api/projects/{id}/to-git", post(plain_to_git))
         .route("/api/projects/discover", post(discover))
         .route("/api/projects/browse", get(browse_local))
         .route("/api/projects/{id}", get(get_project).patch(patch_project).delete(delete_project))
@@ -182,6 +183,17 @@ async fn add_plain(State(s): State<Server>, Json(b): Json<AddPlain>) -> ApiResul
         return Ok(Json(projects::get(&s.app, &p.id).await?.unwrap_or(p)));
     }
     Ok(Json(projects::create_plain(&s.app, &b.name, &b.workspace_id).await.map_err(bad)?))
+}
+
+/// Turn a plain folder into a Git folder (Home does it; a runner forwards the request).
+async fn plain_to_git(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Project> {
+    if s.app.paths.role == launchpad_core::role::Role::Runner {
+        let v = launchpad_core::home_link::home_request("POST", &format!("/api/projects/{id}/to-git"), None).await.map_err(bad)?;
+        let p: Project = serde_json::from_value(v).map_err(|e| ApiError::bad_request(format!("{e}")))?;
+        projects::store_home(&s.app, vec![p.clone()], false).await?;
+        return Ok(Json(projects::get(&s.app, &p.id).await?.unwrap_or(p)));
+    }
+    Ok(Json(projects::plain_to_git(&s.app, &id).await.map_err(bad)?))
 }
 
 /// Home: a Git folder by its remote (a runner adding a checkout).
