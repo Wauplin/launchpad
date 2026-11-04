@@ -147,7 +147,7 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
         Ok(Some(Ok(Message::Text(t)))) => serde_json::from_str::<FromRunner>(&t).ok(),
         _ => None,
     };
-    let Some(FromRunner::Hello { protocol, commit, guard, .. }) = hello else { return };
+    let Some(FromRunner::Hello { protocol, commit, guard, capabilities, .. }) = hello else { return };
     let refuse = if runner.state != RunnerState::Approved {
         Some("waiting for approval on Home (Settings → Home and runners)".to_string())
     } else if role::compat(role::PROTOCOL, launchpad_core::COMMIT, protocol, &commit) == Compat::Incompatible {
@@ -161,7 +161,7 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
     }
     let compat = role::compat(role::PROTOCOL, launchpad_core::COMMIT, protocol, &commit);
     let id = runner.id.clone();
-    let runner = match runners::seen(&s.app, runner, &commit, protocol).await {
+    let runner = match runners::seen(&s.app, runner, &commit, protocol, capabilities).await {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!("runner {id}: {e:#}");
@@ -320,6 +320,21 @@ async fn launch_runner(s: &Server, body: Option<&str>) -> Result<String, ApiErro
         _ => None,
     };
     let available = s.app.runners.available();
+    // A runner chosen in the composer (a Local VM for Docker).
+    if let Some(r) = &spec.runner_id {
+        if !available.contains(r) {
+            let all = runners::list(&s.app).await?;
+            let name = all.iter().find(|x| &x.runner.id == r).map(|x| x.runner.name.clone()).unwrap_or_else(|| "The chosen runner".into());
+            return Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{name} does not take this launch now: it is offline, paused, refuses launches from other devices or needs an update")));
+        }
+        if let Some(project) = &project {
+            let p = launchpad_core::projects::get(&s.app, project).await?.ok_or_else(|| ApiError::bad_request("no such folder"))?;
+            if !(p.home_git || p.plain) && p.runner_id.as_deref() != Some(r.as_str()) {
+                return Err(ApiError::bad_request(format!("{} exists only on another runner's disk", p.name)));
+            }
+        }
+        return Ok(r.clone());
+    }
     if let Some(project) = project {
         let p = launchpad_core::projects::get(&s.app, &project).await?.ok_or_else(|| ApiError::bad_request("no such folder"))?;
         // A Git folder of Home runs on any runner: it clones the folder on first use.

@@ -764,7 +764,7 @@ impl Terminals {
             busy: None,
             notice: None,
         };
-        self.spawn_in(app, info, argv, env, Recipe::Tui, contained.map(|(_, jail)| jail)).await
+        self.spawn_in(app, info, argv, env, Recipe::Tui, contained.and_then(|(_, jail)| jail)).await
     }
 }
 

@@ -61,7 +61,7 @@ async fn title(app: &App, session: &Session) -> Result<Option<Named>> {
     };
     match crate::contain::auxiliary(app, session, &cwd).await? {
         Some((env, jail)) => {
-            cmd.jail(Some(jail)).envs(env);
+            cmd.jail(jail).envs(env);
         }
         None => {
             cmd.envs(crate::profiles::env(app, session.harness, &session.launch_spec, session.model.as_deref(), None)?);

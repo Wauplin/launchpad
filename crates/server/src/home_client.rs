@@ -160,7 +160,8 @@ async fn run(app: &App, router: &Router, link: &Link) -> anyhow::Result<Option<S
     let text = |m: &FromRunner| Message::Text(serde_json::to_string(m).unwrap_or_default().into());
     let guard = home_link::guard(&app.paths);
     let status = app.status.get();
-    tx.send(text(&FromRunner::Hello { protocol: role::PROTOCOL, commit: launchpad_core::COMMIT.into(), name: status.host.clone(), os: std::env::consts::OS.into(), guard: guard.clone() })).await?;
+    let capabilities = launchpad_core::runners::capabilities(app).await;
+    tx.send(text(&FromRunner::Hello { protocol: role::PROTOCOL, commit: launchpad_core::COMMIT.into(), name: status.host.clone(), os: std::env::consts::OS.into(), guard: guard.clone(), capabilities })).await?;
     let (compat, acked) = loop {
         match tokio::time::timeout(Duration::from_secs(30), rx.next()).await? {
             Some(Ok(Message::Text(t))) => match serde_json::from_str::<ToRunner>(&t)? {

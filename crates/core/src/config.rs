@@ -32,6 +32,24 @@ pub struct Config {
     pub profiles: Vec<Profile>,
     pub assistant: Assistant,
     pub home: HomeConfig,
+    pub runner: RunnerConfig,
+}
+
+/// Runner role settings.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
+#[serde(default)]
+pub struct RunnerConfig {
+    /// What contains agents here: a bubblewrap jail (default), or the virtual machine this runner runs in (a Local
+    /// VM, where agents may use Docker). Never set `vm` on a machine you use yourself.
+    pub boundary: Boundary,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Boundary {
+    #[default]
+    Jail,
+    Vm,
 }
 
 /// Home role settings.
@@ -233,6 +251,7 @@ impl Default for Config {
             presets: vec![],
             assistant: Assistant::default(),
             home: HomeConfig::default(),
+            runner: RunnerConfig::default(),
         }
     }
 }

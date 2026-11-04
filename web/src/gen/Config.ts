@@ -6,6 +6,7 @@ import type { GitHub } from "./GitHub";
 import type { HomeConfig } from "./HomeConfig";
 import type { Preset } from "./Preset";
 import type { Profile } from "./Profile";
+import type { RunnerConfig } from "./RunnerConfig";
 import type { ServerConfig } from "./ServerConfig";
 import type { TraceBackup } from "./TraceBackup";
 import type { Worktrees } from "./Worktrees";
@@ -22,4 +23,4 @@ remove_published_worktree: boolean, server: ServerConfig, commands: Commands, gi
 /**
  * Named harness settings, selectable in the composer beside the base harnesses.
  */
-profiles: Array<Profile>, assistant: Assistant, home: HomeConfig, };
+profiles: Array<Profile>, assistant: Assistant, home: HomeConfig, runner: RunnerConfig, };

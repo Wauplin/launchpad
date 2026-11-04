@@ -9,7 +9,7 @@ import { toast, toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, SettingRow } from "@/components/ui";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
-import { useStatus } from "@/lib/queries";
+import { useConfig, useStatus } from "@/lib/queries";
 import { useRunners } from "@/lib/runners";
 import { Card, SettingsPage } from "./SettingsView";
 
@@ -61,7 +61,7 @@ function HomeRunners() {
             {approved.length === 0 ? <Empty icon="term">No runner yet. Run launchpad connect on a machine.</Empty> : approved.map((r) => (
               <div key={r.runner.id} className="flex flex-wrap items-center gap-2 text-[13px]">
                 <span className="grid min-w-0 flex-1">
-                  <span className="flex items-center gap-2"><b>{r.runner.name}</b>{r.connected ? <Badge tone="ok">connected</Badge> : <Badge>offline</Badge>}{r.compat === "outdated" && <Badge tone="attn">Update this runner</Badge>}{r.guard?.paused && <Badge tone="attn">paused</Badge>}{r.guard && !r.guard.accept_launches && <Badge>own launches only</Badge>}</span>
+                  <span className="flex items-center gap-2"><b>{r.runner.name}</b>{r.connected ? <Badge tone="ok">connected</Badge> : <Badge>offline</Badge>}{r.runner.capabilities.vm && <Badge tone="teal" title="The virtual machine contains its agents">Local VM</Badge>}{r.runner.capabilities.docker && <Badge tone="teal">Docker</Badge>}{r.compat === "outdated" && <Badge tone="attn">Update this runner</Badge>}{r.guard?.paused && <Badge tone="attn">paused</Badge>}{r.guard && !r.guard.accept_launches && <Badge>own launches only</Badge>}</span>
                   <span className="text-[12px] text-ink-3">{r.runner.os}{r.runner.last_seen_at ? ` · last connected ${formatAge(r.runner.last_seen_at)} ago` : ""}{r.runner.commit ? ` · build ${r.runner.commit.slice(0, 8)}` : ""}</span>
                 </span>
                 <ConfirmButton icon="trash" consequence={`Disconnects ${r.runner.name}; it must pair again. Its sessions stay on Home.`} confirmLabel="Remove runner" onConfirm={() => api.delete(`/api/runners/${r.runner.id}`).then(() => { toast(`Removed ${r.runner.name}`); return refresh(); }, toastError)}>Remove</ConfirmButton>
@@ -78,6 +78,7 @@ function ThisRunner() {
   const qc = useQueryClient();
   const home = useStatus().data?.home;
   const guard = home?.guard;
+  const boundary = useConfig().data?.config.runner.boundary ?? "jail";
   const launches = useQuery({ queryKey: ["runner-launches"], queryFn: () => api.get<RemoteLaunch[]>("/api/runner/launches"), refetchInterval: 30_000 });
   const save = (g: Guard) => api.put<Guard>("/api/runner/guard", g).then(() => qc.invalidateQueries({ queryKey: ["status"] }), toastError);
   const state: Record<string, string> = { not_connected: "Not paired", connecting: "Connecting…", connected: "Connected", refused: "Refused", offline: "Home unreachable" };
@@ -86,6 +87,11 @@ function ThisRunner() {
       <Card title="Home">
         <SettingRow label="Home" hint={home?.message ?? (home?.state === "not_connected" ? "Run launchpad connect <Home address> in a terminal on this machine." : undefined)}>
           <span className="flex items-center gap-2 text-[13px]">{home?.url && <span className="font-mono text-[12px]">{home.url}</span>}<Badge tone={home?.state === "connected" ? "ok" : "attn"}>{state[home?.state ?? "not_connected"]}</Badge>{home?.compat === "outdated" && <Badge tone="attn">Update this runner</Badge>}</span>
+        </SettingRow>
+      </Card>
+      <Card title="Boundary">
+        <SettingRow label="Agents run in" hint={boundary === "vm" ? "This runner is a Local VM: the virtual machine contains its agents, which may use Docker." : "A bubblewrap jail: agents see only their session's folders, never your files, keys or logins. Set [runner] boundary = \"vm\" in config.toml only inside a dedicated virtual machine."}>
+          <Badge tone="teal">{boundary === "vm" ? "Local VM" : "Jail"}</Badge>
         </SettingRow>
       </Card>
       {guard && (

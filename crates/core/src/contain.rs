@@ -73,7 +73,6 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     if !contained(app, start.host.as_deref()) {
         return Ok(start);
     }
-    crate::jail::check().await?;
     let s = app.sessions.get(&start.session_id).context("no such session")?;
     let port = app.proxy.ensure(app).await?;
     // A running session (a terminal next to its agent, a replaced process) keeps its lease and proxy key.
@@ -190,8 +189,13 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     }
     let mut rw: Vec<PathBuf> = vec![start.cwd.clone(), home.clone(), cache.clone(), dir.join("ssh"), app.paths.data_dir.join("worktrees"), app.paths.data_dir.join("repos")];
     rw.extend(start.add_dirs.iter().map(PathBuf::from));
-    let jail = crate::jail::Jail { rw, ro, tmp, env: all.clone() };
-    start.env = all;
+    start.env = all.clone();
+    // On a Local VM the virtual machine contains the agents: no jail inside, Docker available.
+    if app.config.get().runner.boundary == crate::config::Boundary::Vm {
+        return Ok(start);
+    }
+    crate::jail::check().await?;
+    let jail = crate::jail::Jail { rw, ro, tmp, env: all };
     start.jail = Some(Arc::new(jail));
     Ok(start)
 }
@@ -417,7 +421,7 @@ pub fn trace_overrides(app: &App, session: &Session) -> Vec<(String, String)> {
 }
 
 /// The environment and jail of an auxiliary process of a session (title requests), sharing its lease.
-pub async fn auxiliary(app: &App, session: &Session, cwd: &Path) -> Result<Option<(Vec<(String, String)>, Arc<crate::jail::Jail>)>> {
+pub async fn auxiliary(app: &App, session: &Session, cwd: &Path) -> Result<Option<(Vec<(String, String)>, Option<Arc<crate::jail::Jail>>)>> {
     if !contained(app, crate::hosts::loc::host_of(&session.cwd)) {
         return Ok(None);
     }
@@ -438,5 +442,5 @@ pub async fn auxiliary(app: &App, session: &Session, cwd: &Path) -> Result<Optio
         jail: None,
     };
     let spec = apply(app, spec).await?;
-    Ok(spec.jail.map(|j| (spec.env, j)))
+    Ok(Some((spec.env, spec.jail)))
 }

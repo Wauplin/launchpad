@@ -61,6 +61,31 @@ pub struct Runner {
     /// Build and protocol of its last connection.
     pub commit: String,
     pub protocol: u32,
+    /// What the runner reported on its last connection.
+    #[serde(default)]
+    pub capabilities: Capabilities,
+}
+
+/// What a runner offers, reported on connect.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS, PartialEq)]
+#[serde(default)]
+pub struct Capabilities {
+    /// A Local VM: the virtual machine contains the agents (no jail inside).
+    pub vm: bool,
+    /// Docker works for agents there (only on a Local VM: Docker needs root).
+    pub docker: bool,
+}
+
+/// This runner's capabilities.
+pub async fn capabilities(app: &App) -> Capabilities {
+    let vm = app.config.get().runner.boundary == crate::config::Boundary::Vm;
+    let docker = vm
+        && tokio::time::timeout(std::time::Duration::from_secs(5), tokio::process::Command::new("docker").arg("info").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status())
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+            .is_some_and(|s| s.success());
+    Capabilities { vm, docker }
 }
 
 /// A runner with its live state, for Settings.
@@ -137,6 +162,7 @@ pub async fn request(app: &App, name: &str, os: &str) -> Result<(Runner, String)
         last_seen_at: None,
         commit: String::new(),
         protocol: 0,
+        capabilities: Capabilities::default(),
     };
     let secret = hex::encode(rand::random::<[u8; 32]>());
     save(app, &runner, Some(hash(&secret))).await?;
@@ -184,7 +210,8 @@ pub async fn list(app: &App) -> Result<Vec<RunnerStatus>> {
 }
 
 /// Records a connection: build, protocol and time.
-pub async fn seen(app: &App, mut r: Runner, commit: &str, protocol: u32) -> Result<Runner> {
+pub async fn seen(app: &App, mut r: Runner, commit: &str, protocol: u32, capabilities: Capabilities) -> Result<Runner> {
+    r.capabilities = capabilities;
     r.commit = commit.into();
     r.protocol = protocol;
     r.last_seen_at = Some(now_ms());
@@ -203,7 +230,7 @@ pub mod proto {
     #[serde(tag = "t", rename_all = "snake_case")]
     pub enum FromRunner {
         /// First message.
-        Hello { protocol: u32, commit: String, name: String, os: String, guard: Guard },
+        Hello { protocol: u32, commit: String, name: String, os: String, guard: Guard, #[serde(default)] capabilities: super::Capabilities },
         /// The runner's local settings changed.
         Guard { guard: Guard },
         /// Answer to `ToRunner::Req`.

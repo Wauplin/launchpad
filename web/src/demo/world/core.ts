@@ -47,6 +47,7 @@ export function coreWorld() {
     ],
     assistant: { profile: null, model: null, effort: null, auto_mode: false },
     home: { backup: "", git_name: "", git_email: "" },
+    runner: { boundary: "jail" },
   };
   const status: Status = {
     env: "demo",
