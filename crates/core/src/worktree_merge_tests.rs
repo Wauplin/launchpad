@@ -19,6 +19,7 @@ async fn fixture(root: &std::path::Path) -> App {
     App {
         browser: Default::default(),
         trace_backup: Default::default(),
+        runners: Default::default(),
         paths: paths.clone(), config, state_db, cache_db: cache_db.clone(), bus, status, hosts,
         harnesses: crate::harness::Registry::new(&env),
         github: crate::github::GitHub::new(env.clone(), cache_db), env,

@@ -56,7 +56,7 @@ The [Home and runners plan](https://wauplin-launchpad-bots-research.static.hf.sp
 - **Runner** runs agents and terminals in its own folders and keeps only caches.
 - **All** (default) keeps both in one process, as before.
 
-A runner and Home compare `role::PROTOCOL` and the build commit: another protocol cannot connect; another build of the same protocol keeps its running sessions but takes no new ones.
+A runner pairs with `launchpad connect` (a code approved on Home; Home stores the SHA-256 of the runner's secret) and keeps one outbound WebSocket to `/api/runners/tunnel`, authenticated with `X-Launchpad-Runner`. Home sends API requests over it (`runners::Hub::request`), which the runner answers by calling its own router as its local owner. A runner and Home compare `role::PROTOCOL` and the build commit: another protocol cannot connect; another build of the same protocol keeps its running sessions but takes no new ones. The runner guard (accept launches, pause) lives in the runner's folder and is reported to Home.
 
 ## Sessions and harnesses
 

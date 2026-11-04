@@ -160,6 +160,14 @@ enum Command {
         #[arg(long, default_value = "all")]
         role: String,
     },
+    /// Pair this machine as a runner of a Home: shows a code to approve in Home's Settings → Home and runners.
+    Connect {
+        /// Home's address, for example https://<you>-launchpad.hf.space
+        url: String,
+        /// Name shown on Home (default: the host name).
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// Print the daemon status as JSON.
     Status,
     /// Print the address that signs a browser into the UI.
@@ -425,6 +433,10 @@ async fn main() -> Result<()> {
             tracing::info!("env {}, role {}, data in {}", paths.app_env.name(), role.name(), paths.data_dir.display());
             let app = launchpad_core::App::start(paths).await?;
             launchpad_server::serve(app).await
+        }
+        Command::Connect { url, name } => {
+            let runner = Paths { port: paths.port, ..Paths::for_role(paths.app_env, launchpad_core::role::Role::Runner) };
+            launchpad_server::connect(&runner, &url, name).await
         }
         Command::Status => {
             let body = Client::new(&paths)?.json("GET", "/api/status", None).await?;

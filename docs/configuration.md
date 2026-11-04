@@ -102,6 +102,7 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 | Command | Purpose |
 | --- | --- |
 | `launchpad daemon [--role home\|runner\|all]` | Run the daemon. `home` keeps records and runs no agents or terminals; `runner` runs agents in its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`); `all` (default) does both in one process |
+| `launchpad connect <Home address> [--name <name>]` | Pair this machine as a runner of a Home: prints a code to approve in Home's Settings → Home and runners |
 | `launchpad status` | Print the daemon status as JSON |
 | `launchpad url` | Print a link that signs a browser in |
 | `launchpad pair` | Print a five-minute pairing link and QR code |

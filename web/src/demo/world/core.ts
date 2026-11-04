@@ -50,6 +50,7 @@ export function coreWorld() {
   const status: Status = {
     env: "demo",
     role: "all",
+    home: null,
     commit: "demo",
     host: "this-computer",
     harnesses: {

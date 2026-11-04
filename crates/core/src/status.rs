@@ -17,6 +17,8 @@ pub struct Status {
     pub env: String,
     /// Home, runner or all (single process).
     pub role: crate::role::Role,
+    /// A runner's link to its Home.
+    pub home: Option<crate::home_link::HomeStatus>,
     pub commit: String,
     /// Host name of the machine the daemon runs on (shown to browsers on other devices).
     pub host: String,

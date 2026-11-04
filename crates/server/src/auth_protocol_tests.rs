@@ -37,6 +37,7 @@ async fn front_door_protocol() {
     let app = core::App {
         browser: Default::default(),
         trace_backup: Default::default(),
+        runners: Default::default(),
         paths: Arc::new(fixture.0.clone()),
         config: config.clone(),
         state_db: state_db.clone(),

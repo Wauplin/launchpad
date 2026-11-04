@@ -38,6 +38,8 @@ pub mod spend;
 pub mod status;
 pub mod quota;
 pub mod role;
+pub mod runners;
+pub mod home_link;
 pub mod analytics;
 pub mod review_state;
 pub(crate) mod remote_sync;
@@ -86,6 +88,8 @@ pub struct App {
     pub hosts: hosts::Hosts,
     pub browser: browser::Broker,
     pub trace_backup: trace_backup::BackupStatus,
+    /// Live runner tunnels (Home).
+    pub runners: runners::Hub,
 }
 
 impl App {
@@ -125,6 +129,7 @@ impl App {
             hosts,
             browser: browser::Broker::default(),
             trace_backup: trace_backup::BackupStatus::default(),
+            runners: runners::Hub::default(),
         };
         predrafts::link_skill()?;
         app.sessions.load(&app).await?;
@@ -217,6 +222,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     session_git::GitDiff::export_all(&cfg)?;
     session_git::GitHistory::export_all(&cfg)?;
     workspace::Workspace::export_all(&cfg)?;
+    runners::RunnerStatus::export_all(&cfg)?;
     worktrees::WorktreeInfo::export_all(&cfg)?;
     hosts::HostStatus::export_all(&cfg)?;
     hosts::sshconfig::SshConfigHost::export_all(&cfg)?;

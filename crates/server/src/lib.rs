@@ -5,6 +5,7 @@ mod browser;
 mod auth;
 mod code;
 mod error;
+mod home_client;
 mod hosts;
 mod items;
 mod operations;
@@ -12,6 +13,7 @@ mod predrafts;
 mod push;
 mod review_state;
 mod routes;
+mod runners;
 mod setup;
 mod suggestions;
 mod proposals;
@@ -36,6 +38,8 @@ pub struct Server {
     pub auth: Arc<auth::Auth>,
 }
 
+pub use home_client::connect;
+
 pub async fn serve(app: App) -> Result<()> {
     let port = app.paths.port;
     let mut config = app.config.get().server;
@@ -46,8 +50,11 @@ pub async fn serve(app: App) -> Result<()> {
     tracing::info!("listening on {bind}:{port}");
     let tailnet = tailnet::prepare(&mut config, port, &app.env).await;
     let auth = Arc::new(auth::Auth::new(&app.paths, &config, app.state_db.clone()).await?);
-    let server = Server { app, auth };
+    let server = Server { app: app.clone(), auth };
     let router = router(server);
+    if app.paths.role == launchpad_core::role::Role::Runner {
+        home_client::spawn(app, router.clone());
+    }
     if let Some(tailnet) = tailnet {
         use std::future::IntoFuture;
         tokio::try_join!(
@@ -78,6 +85,7 @@ pub(crate) fn router(server: Server) -> Router {
         .merge(setup::router())
         .merge(hosts::router())
         .merge(push::router())
+        .merge(runners::router())
         .route("/ws", axum::routing::get(ws::handler))
         .merge(auth::router())
         .fallback(ui::serve)

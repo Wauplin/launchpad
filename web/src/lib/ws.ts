@@ -130,6 +130,8 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["config"] });
     } else if (topic === "proposals") {
       void queryClient.invalidateQueries({ queryKey: ["proposals"] });
+    } else if (topic === "runners") {
+      void queryClient.invalidateQueries({ queryKey: ["runners"] });
     } else if (topic === "workspaces") {
       void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
     } else if (topic === "projects") {

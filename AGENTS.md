@@ -11,6 +11,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 
 - Build the UI: `cd web && pnpm install && pnpm build` (Node 24 from `web/.nvmrc`, pnpm through Corepack).
 - Dev daemon: `LAUNCHPAD_ENV=dev cargo run -p launchpad -- daemon [--role home|runner|all]` (port 7318, data in `~/.local/share/launchpad-dev`; a runner uses `launchpad-runner-dev`). A debug daemon reads `web/dist` from disk. For an isolated second daemon, set `HOME` to a scratch folder and `LAUNCHPAD_PORT` to a free port.
+- Runners: `launchpad daemon --role runner` (own folders), paired with `launchpad connect <Home address>` and approved in Home's Settings → Home and runners. Test pairs use two scratch `HOME`s and ports; remove test runners afterwards.
 - Sign a browser in to the dev daemon: `LAUNCHPAD_ENV=dev cargo run -p launchpad -- url` (`pair` prints a QR code). Headless screenshots: `google-chrome --headless=new --screenshot=out.png --virtual-time-budget=5000 "<url>"` after pairing; they do not wait for Web Workers, so syntax colors need a real DevTools-driven wait.
 - Demo mode: `/agents?demo=1` on any running UI (`?demo=essentials:layout`, `?demo=full:<chapter>`, `?demo=phone`). No pairing or real data needed.
 - Dev window: `cargo build -p launchpad-desktop && LAUNCHPAD_ENV=dev ./target/debug/launchpad-desktop [--open <route>] [--workspace <id or name>] [--new-window]`.
