@@ -183,6 +183,8 @@ CREATE TABLE IF NOT EXISTS launch_proposal (id TEXT PRIMARY KEY, json TEXT NOT N
 CREATE TABLE IF NOT EXISTS browser_device (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS host (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS runner (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS runner_ack (runner_id TEXT PRIMARY KEY, n INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS home_outbox (n INTEGER PRIMARY KEY AUTOINCREMENT, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS profile_cost (profile TEXT NOT NULL, at INTEGER NOT NULL, usd REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS onboarding (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_id TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, titles INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);",
@@ -217,6 +219,8 @@ CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_
     if !has("capacity_retry_count") { conn.execute_batch("ALTER TABLE session ADD COLUMN capacity_retry_count INTEGER NOT NULL DEFAULT 0;")?; }
     if !has("capacity_retry_at") { conn.execute_batch("ALTER TABLE session ADD COLUMN capacity_retry_at INTEGER;")?; }
     if !has("quota_pause_json") { conn.execute_batch("ALTER TABLE session ADD COLUMN quota_pause_json TEXT;")?; }
+    if !has("runner_id") { conn.execute_batch("ALTER TABLE session ADD COLUMN runner_id TEXT;")?; }
+    if !has("generation") { conn.execute_batch("ALTER TABLE session ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;")?; }
     if !has("title_pending") { conn.execute_batch("ALTER TABLE session ADD COLUMN title_pending INTEGER;")?; }
     // Existing sessions start as seen, so old Done sessions do not all need you at once.
     if !has("seen_at") { conn.execute_batch("ALTER TABLE session ADD COLUMN seen_at INTEGER NOT NULL DEFAULT 0; UPDATE session SET seen_at = status_since;")?; }

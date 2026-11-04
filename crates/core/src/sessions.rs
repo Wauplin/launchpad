@@ -221,7 +221,7 @@ impl Sessions {
                 let mut st = c.prepare(
                     "SELECT id, harness, harness_session_id, project_id, cwd, title, status, status_since, open_question, model,
                             effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json, quota_pause_json, title_pending,
-                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, imported_from
+                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, imported_from, runner_id, generation
                      FROM session",
                 )?;
                 let rows = st
@@ -237,6 +237,8 @@ impl Sessions {
                             spec.harness.is_some() && !spec.text.trim().is_empty() && title == title_from(&spec.text, ""));
                         Ok(Session {
                             imported_from: r.get(25)?,
+                            runner_id: r.get(26)?,
+                            generation: r.get(27)?,
                             id: r.get(0)?,
                             harness: HarnessKind::parse(&r.get::<_, String>(1)?).ok_or_else(|| rusqlite::Error::InvalidParameterName("unregistered stored harness".into()))?,
                             harness_session_id: r.get(2)?,
@@ -272,7 +274,8 @@ impl Sessions {
         {
             let mut recs = self.inner.records.lock().unwrap();
             for mut s in rows {
-                if s.imported_from.is_some() { recs.insert(s.id.clone(), s); continue; }
+                // Replicas: another instance or a runner owns their processes.
+                if s.imported_from.is_some() || s.runner_id.is_some() { recs.insert(s.id.clone(), s); continue; }
                 let mut changed = false;
                 if !crate::profiles::supports_cost(app, s.harness, &s.launch_spec, s.model.as_deref()) && crate::harness::registration(s.harness).descriptor.capabilities.cost {
                     changed = !s.usage.cost_unavailable;
@@ -311,7 +314,7 @@ impl Sessions {
             Ok(by_session)
         }).await?;
         for s in self.list() {
-            if s.imported_from.is_some() { continue; }
+            if s.imported_from.is_some() || s.runner_id.is_some() { continue; }
             let pending = unanswered_requests(&decisions.remove(&s.id).unwrap_or_default());
             let sink = self.sink(app, &s.id);
             for request_id in pending {
@@ -449,12 +452,13 @@ impl Sessions {
     pub(crate) fn store(c: &rusqlite::Connection, s: &Session) -> Result<()> {
         c.execute(
             "INSERT INTO session (id, harness, harness_session_id, project_id, cwd, title, status, status_since,
-                open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, imported_from)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)
+                open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, imported_from, runner_id, generation)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
              ON CONFLICT (id) DO UPDATE SET harness_session_id = ?3, project_id = ?4, cwd = ?5, title = ?6, status = ?7,
                 status_since = ?8, open_question = ?9, model = ?10, effort = ?11, cost_usd = ?14, usage_json = ?15,
                 ended_at = ?17, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20,
-                seen_at = ?21, archived_done = ?23, capacity_retry_count = ?24, capacity_retry_at = ?25, imported_from = ?26",
+                seen_at = ?21, archived_done = ?23, capacity_retry_count = ?24, capacity_retry_at = ?25, imported_from = ?26,
+                runner_id = ?27, generation = ?28",
             params![
                 s.id,
                 s.harness.as_str(),
@@ -482,8 +486,11 @@ impl Sessions {
                 s.capacity_retry_count,
                 s.capacity_retry_at,
                 s.imported_from,
+                s.runner_id,
+                s.generation,
             ],
         )?;
+        crate::replica::queue(c, &crate::replica::Item::Session { session: Box::new(s.clone()) })?;
         Ok(())
     }
 
@@ -500,6 +507,83 @@ impl Sessions {
         self.inner.records.lock().unwrap().insert(session.id.clone(), session.clone());
         app.bus.publish("sessions", "updated", serde_json::to_value(session.light())?);
         self.publish_counts(app);
+        Ok(())
+    }
+
+    /// Home: stores an item replicated from a runner, with its outbox number, then shows it. Items of an older
+    /// generation than the stored record (the session moved) only advance the acknowledged number.
+    pub(crate) async fn apply_replica(&self, app: &App, runner_id: &str, n: u64, item: crate::replica::Item) -> Result<()> {
+        use crate::replica::{Item, set_acked};
+        let runner = runner_id.to_string();
+        match item {
+            Item::Session { session } => {
+                let mut s = *session;
+                let current = self.get(&s.id);
+                let stale = current.as_ref().is_some_and(|c| c.generation > s.generation || c.imported_from.is_some() || (c.runner_id.is_none() && c.generation >= s.generation));
+                if !stale {
+                    s.runner_id = Some(runner.clone());
+                    // Either side may have shown it to the owner.
+                    if let Some(c) = &current { s.seen_at = s.seen_at.max(c.seen_at); s.last_seq = s.last_seq.max(c.last_seq); }
+                }
+                let stored = s.clone();
+                app.state_db.call(move |c| {
+                    let tx = c.transaction()?;
+                    if !stale {
+                        Self::store(&tx, &stored)?;
+                        tx.execute("UPDATE session SET last_message = ?2, prompt = ?3 WHERE id = ?1", params![stored.id, stored.last_message, stored.prompt])?;
+                    }
+                    set_acked(&tx, &runner, n)?;
+                    tx.commit()?;
+                    Ok(())
+                }).await?;
+                if !stale {
+                    self.inner.records.lock().unwrap().insert(s.id.clone(), s.clone());
+                    app.bus.publish("sessions", "updated", serde_json::to_value(s.light())?);
+                    self.publish_counts(app);
+                }
+            }
+            Item::Event { generation, event } => {
+                let current = self.get(&event.session_id);
+                let fresh = current.as_ref().is_none_or(|c| c.runner_id.as_deref() == Some(runner_id) && c.generation <= generation);
+                let ev = event.clone();
+                let inserted = app.state_db.call(move |c| {
+                    let tx = c.transaction()?;
+                    let mut inserted = false;
+                    if fresh {
+                        inserted = tx.execute("INSERT INTO session_event (session_id, seq, ts, kind, json) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (session_id, seq) DO NOTHING",
+                            params![ev.session_id, ev.seq, ev.ts, ev.body.kind(), serde_json::to_string(&ev.body)?])? > 0;
+                        tx.execute("UPDATE session SET last_seq = max(last_seq, ?1) WHERE id = ?2", params![ev.seq, ev.session_id])?;
+                    }
+                    set_acked(&tx, &runner, n)?;
+                    tx.commit()?;
+                    Ok(inserted)
+                }).await?;
+                if inserted {
+                    if let Some(s) = self.inner.records.lock().unwrap().get_mut(&event.session_id) { s.last_seq = s.last_seq.max(event.seq); }
+                    app.bus.send(crate::events::Event {
+                        seq: event.seq as u64,
+                        topic: format!("session/{}", event.session_id),
+                        kind: "event".into(),
+                        payload: serde_json::to_value(&event).unwrap_or(Value::Null),
+                    });
+                }
+            }
+            Item::Forget { id } => {
+                let owned = self.get(&id).is_some_and(|s| s.runner_id.as_deref() == Some(runner_id));
+                if owned { self.inner.records.lock().unwrap().remove(&id); }
+                app.state_db.call(move |c| {
+                    let tx = c.transaction()?;
+                    if owned {
+                        tx.execute("DELETE FROM session_event WHERE session_id = ?1", [&id])?;
+                        tx.execute("DELETE FROM session WHERE id = ?1", [&id])?;
+                    }
+                    set_acked(&tx, &runner, n)?;
+                    tx.commit()?;
+                    Ok(())
+                }).await?;
+                if owned { self.publish_counts(app); app.bus.publish("sessions", "changed", Value::Null); }
+            }
+        }
         Ok(())
     }
 
@@ -904,6 +988,8 @@ impl Sessions {
             let now = now_ms();
             let session = Session {
                 imported_from: None,
+                runner_id: None,
+                generation: 1,
                 id: id.clone(),
                 harness,
                 harness_session_id: None,
@@ -971,7 +1057,10 @@ impl Sessions {
                 crate::browser::revoke_session(app, &id).await?;
                 self.inner.records.lock().unwrap().remove(&id);
                 let failed_id = id.clone();
-                let _ = app.state_db.call(move |c| Ok(c.execute("DELETE FROM session WHERE id = ?1", [failed_id])?)).await;
+                let _ = app.state_db.call(move |c| {
+                    c.execute("DELETE FROM session WHERE id = ?1", [&failed_id])?;
+                    crate::replica::queue(c, &crate::replica::Item::Forget { id: failed_id })
+                }).await;
                 let mut created = Vec::new();
                 for (w, _) in worktrees { if w.sessions == [id.clone()] && !created.iter().any(|c: &crate::worktrees::TaskWorktree| c.id == w.id) { created.push(w); } }
                 crate::worktrees::abandon(app, &created).await;
@@ -2034,6 +2123,7 @@ impl Sink {
             s.last_seq += 1;
             if preview.is_some() { s.last_message = preview.clone(); }
             let seq = s.last_seq;
+            let generation = s.generation;
             let ev = SessionEvent { session_id: self.id.clone(), seq, ts, body };
             let (id, kind, json) = (self.id.clone(), ev.body.kind(), serde_json::to_string(&ev.body).unwrap_or_default());
             let sink = self.clone();
@@ -2042,6 +2132,7 @@ impl Sink {
                 let tx = c.transaction()?;
                 tx.execute("INSERT INTO session_event (session_id, seq, ts, kind, json) VALUES (?1, ?2, ?3, ?4, ?5)", params![id, seq, ts, kind, json])?;
                 tx.execute("UPDATE session SET last_seq = max(last_seq, ?1), last_message = coalesce(?3, last_message) WHERE id = ?2", params![seq, id, preview])?;
+                crate::replica::queue(&tx, &crate::replica::Item::Event { generation, event: ev.clone() })?;
                 tx.commit()?;
                 sink.publish(&ev);
                 Ok(())

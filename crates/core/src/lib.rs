@@ -39,6 +39,7 @@ pub mod status;
 pub mod quota;
 pub mod role;
 pub mod runners;
+pub mod replica;
 pub mod home_link;
 pub mod analytics;
 pub mod review_state;
@@ -96,6 +97,9 @@ impl App {
     /// Opens the databases and the config, and starts the background services.
     pub async fn start(paths: paths::Paths) -> Result<App> {
         paths.ensure_dirs()?;
+        if paths.role == role::Role::Runner {
+            replica::enable();
+        }
         attachments::init(&paths.data_dir);
         let paths = Arc::new(paths);
         let bus = events::Bus::new();

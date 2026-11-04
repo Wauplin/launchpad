@@ -127,6 +127,13 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub imported_from: Option<String>,
+    /// On Home: the runner that runs this session. None: this daemon runs it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runner_id: Option<String>,
+    /// Increases each time the session moves to another runner. Home refuses changes from an older generation.
+    #[serde(default)]
+    pub generation: u32,
     /// Opaque native conversation ID, interpreted only by its adapter.
     pub harness_session_id: Option<String>,
     pub project_id: Option<String>,

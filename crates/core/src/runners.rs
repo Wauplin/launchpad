@@ -208,14 +208,18 @@ pub mod proto {
         Guard { guard: Guard },
         /// Answer to `ToRunner::Req`.
         Res { id: u64, status: u16, body: String },
+        /// Outbox items (`replica::Item`) with their numbers, oldest first.
+        Items { items: Vec<(u64, serde_json::Value)> },
         Ping,
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
     #[serde(tag = "t", rename_all = "snake_case")]
     pub enum ToRunner {
-        /// Answer to `Hello`.
-        Welcome { compat: Compat, commit: String },
+        /// Answer to `Hello`, with the last outbox number Home saved for this runner.
+        Welcome { compat: Compat, commit: String, acked: u64 },
+        /// Home saved every outbox item up to `n`.
+        Ack { n: u64 },
         /// The connection is refused (unknown, pending or incompatible runner); the runner shows the reason.
         Refuse { reason: String },
         /// An API request for the runner's own daemon.

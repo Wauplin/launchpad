@@ -11,7 +11,7 @@ use axum::Router;
 use futures_util::{SinkExt, StreamExt};
 use launchpad_core::App;
 use launchpad_core::home_link::{self, Link, TunnelState};
-use launchpad_core::role;
+use launchpad_core::{replica, role};
 use launchpad_core::runners::proto::{FromRunner, ToRunner};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -74,10 +74,10 @@ async fn run(app: &App, router: &Router, link: &Link) -> anyhow::Result<Option<S
     let mut guard = home_link::guard(&app.paths);
     let status = app.status.get();
     tx.send(text(&FromRunner::Hello { protocol: role::PROTOCOL, commit: launchpad_core::COMMIT.into(), name: status.host.clone(), os: std::env::consts::OS.into(), guard: guard.clone() })).await?;
-    let compat = loop {
+    let (compat, acked) = loop {
         match tokio::time::timeout(Duration::from_secs(30), rx.next()).await? {
             Some(Ok(Message::Text(t))) => match serde_json::from_str::<ToRunner>(&t)? {
-                ToRunner::Welcome { compat, .. } => break compat,
+                ToRunner::Welcome { compat, acked, .. } => break (compat, acked),
                 ToRunner::Refuse { reason } => return Ok(Some(reason)),
                 _ => {}
             },
@@ -88,6 +88,9 @@ async fn run(app: &App, router: &Router, link: &Link) -> anyhow::Result<Option<S
     };
     home_link::set_state(app, Some(link.url.clone()), TunnelState::Connected, None, Some(compat));
     tracing::info!("connected to Home {} ({compat:?})", link.url);
+    // Everything Home saved can go; the rest is sent again, in order.
+    replica::acked(app, acked).await?;
+    let mut cursor = acked;
     let (res_tx, mut res_rx) = tokio::sync::mpsc::unbounded_channel::<FromRunner>();
     let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING, PING);
     let mut last_heard = tokio::time::Instant::now();
@@ -96,6 +99,13 @@ async fn run(app: &App, router: &Router, link: &Link) -> anyhow::Result<Option<S
             res = res_rx.recv() => {
                 let Some(res) = res else { break };
                 tx.send(text(&res)).await?;
+            }
+            _ = replica::wait() => {
+                let items = replica::pending(app, cursor, 200).await?;
+                if let Some((n, _)) = items.last() {
+                    cursor = *n;
+                    tx.send(text(&FromRunner::Items { items })).await?;
+                }
             }
             _ = ping.tick() => {
                 anyhow::ensure!(last_heard.elapsed() < PING * 3, "Home stopped answering");
@@ -119,6 +129,7 @@ async fn run(app: &App, router: &Router, link: &Link) -> anyhow::Result<Option<S
                             let _ = res_tx.send(FromRunner::Res { id, status, body });
                         });
                     }
+                    Ok(ToRunner::Ack { n }) => replica::acked(app, n).await?,
                     Ok(ToRunner::Refuse { reason }) => return Ok(Some(reason)),
                     Ok(_) => {}
                     Err(e) => tracing::warn!("Home sent a bad message: {e}"),

@@ -5,43 +5,51 @@ import type { QuotaPause } from "./QuotaPause";
 import type { SessionStatus } from "./SessionStatus";
 import type { Usage } from "./Usage";
 
-export type Session = { id: string, harness: HarnessKind,
+export type Session = { id: string, harness: HarnessKind, 
 /**
  * Bucket source of a read-only trace owned by another Launchpad instance.
  */
-imported_from?: string,
+imported_from?: string, 
+/**
+ * On Home: the runner that runs this session. None: this daemon runs it.
+ */
+runner_id?: string, 
+/**
+ * Increases each time the session moves to another runner. Home refuses changes from an older generation.
+ */
+generation: number, 
 /**
  * Opaque native conversation ID, interpreted only by its adapter.
  */
-harness_session_id: string | null, project_id: string | null, cwd: string, title: string, status: SessionStatus,
+harness_session_id: string | null, project_id: string | null, cwd: string, title: string, status: SessionStatus, 
 /**
  * The session was Done when archived; retained only while Closed.
  */
-archived_done: boolean,
+archived_done: boolean, 
 /**
  * When the status last changed (Unix ms).
  */
-status_since: number,
+status_since: number, 
 /**
  * A harness process is attached. A done session without a process resumes when you send a message.
  */
-live: boolean,
+live: boolean, 
 /**
  * The agent asked a question that is not answered yet.
  */
-open_question: boolean, model: string | null, effort: string | null, prompt: string, usage: Usage, started_at: number, ended_at: number | null, last_seq: number, launch_spec: LaunchSpec, quota_pause: QuotaPause | null,
+open_question: boolean, model: string | null, effort: string | null, prompt: string, usage: Usage, started_at: number, ended_at: number | null, last_seq: number, launch_spec: LaunchSpec, quota_pause: QuotaPause | null, 
 /**
  * Lifetime automatic capacity retries claimed for this session (never reset by manual input).
  */
-capacity_retry_count: number,
+capacity_retry_count: number, 
 /**
  * Pending automatic continuation deadline, Unix milliseconds.
  */
-capacity_retry_at: number | null,
+capacity_retry_at: number | null, 
 /**
  * When a focused window last showed the session (Unix ms, 0: never). Unseen while older than `status_since`.
  */
-seen_at: number,
+seen_at: number, 
 /**
  * Start of the last assistant message, as one line of plain text.
  */

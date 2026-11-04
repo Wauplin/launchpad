@@ -137,7 +137,14 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
             return;
         }
     };
-    if !send(&mut tx, &ToRunner::Welcome { compat, commit: launchpad_core::COMMIT.into() }).await {
+    let acked = match launchpad_core::replica::acked_for(&s.app, &runner.id).await {
+        Ok(n) => n,
+        Err(e) => {
+            tracing::warn!("runner {}: {e:#}", runner.id);
+            return;
+        }
+    };
+    if !send(&mut tx, &ToRunner::Welcome { compat, commit: launchpad_core::COMMIT.into(), acked }).await {
         return;
     }
     tracing::info!("runner {} ({}) connected, {compat:?}", runner.name, runner.id);
@@ -162,6 +169,18 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
                 match serde_json::from_str::<FromRunner>(&text) {
                     Ok(FromRunner::Guard { guard }) => s.app.runners.set_guard(&s.app, &runner.id, guard),
                     Ok(FromRunner::Res { id, status, body }) => s.app.runners.answered(id, status, body),
+                    Ok(FromRunner::Items { items }) => {
+                        let mut last = None;
+                        for (n, item) in items {
+                            if let Err(e) = launchpad_core::replica::ingest(&s.app, &runner.id, n, item).await {
+                                // Not acknowledged: the runner sends it again after reconnecting.
+                                tracing::warn!("runner {}: could not store item {n}: {e:#}", runner.id);
+                                break;
+                            }
+                            last = Some(n);
+                        }
+                        if let Some(n) = last && !send(&mut tx, &ToRunner::Ack { n }).await { break }
+                    }
                     Ok(FromRunner::Ping) => { if !send(&mut tx, &ToRunner::Pong).await { break } }
                     Ok(FromRunner::Hello { .. }) => {}
                     Err(e) => tracing::warn!("runner {}: bad message: {e}", runner.id),
