@@ -56,6 +56,8 @@ When Home starts on an empty data folder, it restores the newest complete backup
 
 ## Credentials and tools
 
+Home’s image includes Claude Code, Codex, OpenCode, `gh` and `hf` for discovery, usage and quota checks. Home’s Setup and profile pages lead to the vault and runner pairing; native install and sign-in terminals run on the runner.
+
 Home keeps every credential agents use: open **Settings → Credentials and tools** (on Home, or on a runner, which forwards to Home).
 
 - **Harness logins:** a Claude Code token (`claude setup-token`) and a Codex ChatGPT login (paste its `auth.json`; from then on only Home refreshes it, so do not use that login elsewhere). A profile can name its login; otherwise the harness's first login is used.

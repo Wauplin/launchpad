@@ -107,7 +107,7 @@ Rust types shared with the UI derive `ts_rs::TS`, so the API is typed end to end
 
 ## Security model
 
-The Home-only Space POC (`deploy/hf-home/`) runs the daemon behind the private Hub gate, with backups on a separate private bucket volume. It does not use the combined-daemon Space connector or its update/resume mechanism. See its README for isolation and recovery limits.
+The Home-only Space POC (`deploy/hf-home/`) runs the daemon behind the private Hub gate, with backups on a separate private bucket volume. Its image includes the pinned harness, GitHub and Hugging Face CLIs for discovery and quota checks; agent turns still run on runners. It does not use the combined-daemon Space connector or its update/resume mechanism. See its README for isolation and recovery limits.
 
 - Launchpad has one user. Every paired browser has full access.
 - The daemon listens on loopback. Remote access goes through a private network (Tailscale) or a proxy you control, with an exact allowed origin.

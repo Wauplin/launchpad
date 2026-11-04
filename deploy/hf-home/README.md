@@ -1,6 +1,6 @@
 # Home-only Hugging Face Space (POC)
 
-This deployment runs `launchpad daemon --role home`, with no harness CLIs or agents in the image. It is separate from the older combined-daemon Space connector. Use a **private** Docker Space and a **private** bucket mounted read-write at `/backups`. The free `cpu-basic` tier is enough for a trial; it can sleep after inactivity.
+This deployment runs `launchpad daemon --role home`, and includes Claude Code, Codex, OpenCode, GitHub CLI and Hugging Face CLI for discovery, usage and quota checks. Tool versions are pinned by `deploy/hf-space/release.json`. Agent turns and general-purpose terminals still run on paired runners. It is separate from the older combined-daemon Space connector. Use a **private** Docker Space and a **private** bucket mounted read-write at `/backups`. The free `cpu-basic` tier is enough for a trial; it can sleep after inactivity.
 
 The browser signs in through Hugging Face. The gateway injects a local daemon credential only inside the container, checks the exact Space Host and browser Origin, and blocks local setup, browser pairing, push and desktop endpoints. Native runner pairing, the tunnel, Git and plain-folder traffic keep their own runner authentication. Startup refuses an unmounted bucket or anonymously readable Space metadata. No laptop credentials or Hub management token are installed in this image.
 
@@ -29,7 +29,7 @@ header: mini
 ---
 ```
 
-Upload the directory with `hf upload Wauplin/launchpad-home <directory> --type space`. Keep `.git`, build outputs, `node_modules` and credentials out of the upload. The image builds the UI before embedding it in the release daemon. Home and runners must report the same source commit. Do not use the old Space updater or `packaging/install.sh` for this POC.
+Upload the directory with `hf upload Wauplin/launchpad-home <directory> --type space`. Keep `.git`, build outputs, `node_modules` and credentials out of the upload. The image builds the UI before embedding it in the release daemon. Home and runners must report the same runtime source commit. A packaging or UI-only update can retain `LAUNCHPAD_REVISION` from the deployed runtime when the Rust sources are unchanged, keeping paired runners compatible; record the deployment commit separately in the Space card. Do not use the old Space updater or `packaging/install.sh` for this POC.
 
 ## Try it alongside an existing laptop install
 

@@ -29,7 +29,7 @@ import { costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, use
 import { useOpenTerminal } from "@/features/terminals/lib";
 import { Card, ConfigError, SettingsPage } from "./SettingsView";
 import { ConfirmButton, Loading } from "@/components/ui";
-import { useBlocker } from "@tanstack/react-router";
+import { Link, useBlocker } from "@tanstack/react-router";
 
 /** Editable form of a profile: environment rows keep their order and allow empty names while typing. */
 type Draft = Omit<Profile, "env" | "budget_usd" | "spend_limits"> & { key: string; env: [string, string][]; budget: string; limits: LimitDraft[]; saved: boolean; template: ProfileTemplate | null };
@@ -508,6 +508,8 @@ function WorksOn({ draft: d, machines }: { draft: Draft; machines: Machine[] }) 
   const terminal = useOpenTerminal();
   const signIn = useSignIn();
   const [checking, setChecking] = useState(false);
+  const role = useStatus().data?.role;
+  if (role === "home") return <HomeProfileLogin draft={d} />;
   if (!d.saved) return <span className="pt-1 text-xs text-ink-3">Save the profile to check where it is installed and signed in.</span>;
   const recheck = async () => {
     setChecking(true);
@@ -547,6 +549,18 @@ function WorksOn({ draft: d, machines }: { draft: Draft; machines: Machine[] }) 
       </span>
     </span>
   );
+}
+
+/** Home uses vault logins for quota checks; native sign-in terminals belong to runners. */
+function HomeProfileLogin({ draft: d }: { draft: Draft }) {
+  const vault = useVault();
+  const login = vault.data?.logins.find((l) => l.harness === d.harness);
+  const entry = vault.data?.entries.find((e) => e.kind === login?.kind && (!d.login || e.id === d.login));
+  return <span className="grid gap-1.5 text-xs text-ink-2">
+    <span>{vault.isLoading ? "Checking Home’s logins…" : vault.error ? "Could not read Home’s logins." : entry ? `Home login: ${entry.name}` : login ? "Add this profile’s login to Home’s vault." : "Configure this profile’s provider credentials in Credentials and tools."}</span>
+    <span className="text-ink-3">Home reads usage and quotas. Agent turns run on your paired runners.</span>
+    <Link to="/settings/credentials" className="btn btn-sm w-fit">Credentials and tools</Link>
+  </span>;
 }
 
 export function GitHubCard() {
