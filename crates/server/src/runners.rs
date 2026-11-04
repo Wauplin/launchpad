@@ -31,6 +31,21 @@ pub fn router() -> Router<Server> {
         .route("/api/runners/{id}", axum::routing::delete(remove))
         .route("/api/runner/guard", get(guard).put(set_guard))
         .route("/api/runner/launches", get(launches))
+        .route("/api/home/backup", get(backup_info).post(backup_now))
+}
+
+async fn backup_info(State(s): State<Server>) -> Json<launchpad_core::home_backup::BackupInfo> {
+    let mut info = s.app.home_backups.info();
+    info.destination = Some(s.app.config.get().home.backup).filter(|d| !d.trim().is_empty());
+    Json(info)
+}
+
+async fn backup_now(State(s): State<Server>) -> ApiResult<launchpad_core::home_backup::BackupInfo> {
+    if s.app.paths.role != role::Role::Home {
+        return Err(ApiError::bad_request("only Home backs up its database"));
+    }
+    launchpad_core::home_backup::run(&s.app, true).await.map_err(bad)?;
+    Ok(backup_info(State(s)).await)
 }
 
 /// Launches that came from other devices through Home, newest first.

@@ -27,6 +27,7 @@ Task worktrees live in `<folders root>/.worktrees/<folder id>/`.
 | `LAUNCHPAD_PORT` | Use another port (for an isolated second daemon, together with another `HOME`) |
 | `LAUNCHPAD_TOKEN` | Credential for the CLI (defaults to the daemon's token file) |
 | `LAUNCHPAD_ROLE=runner` | Point CLI commands at a runner's folders |
+| `LAUNCHPAD_HOME_BACKUP` | Home: the backup to restore on a first boot, before `config.toml` exists |
 
 ## config.toml
 
@@ -58,6 +59,9 @@ notify = true                       # desktop and Web Push notifications
 
 [worktrees]
 keep = 15                           # clean task worktrees of idle agents kept on disk (0: keep all)
+
+[home]
+backup = ""                         # Home only: hf://buckets/<you>/launchpad or a folder; empty: no backup
 ```
 
 Each `[[presets]]` entry has `id`, `label`, `text` and two independent availability flags: `ask_launchpad` (defaults to `false`) and `agent` (defaults to `true`). Enable either or both in Settings → Presets. Agent availability covers the composer, steering and Send later.

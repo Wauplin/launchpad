@@ -81,6 +81,7 @@ A launch only does local work in the request: it creates the worktree from the l
 | `config.toml` | Settings, profiles, presets | Edited in Settings or by hand |
 | `state.db` (SQLite, WAL) | Sessions, events, drafts, Local PRs, suggestions, schedules, devices | Your data; back it up |
 | `cache.db` (SQLite) | GitHub payloads as JSON | Disposable, rebuilt on demand |
+| Home backup (`home_backup.rs`) | `state.db` copies (`VACUUM INTO`) and `config.toml` by content hash, one manifest per backup, written last | Home only; last day kept, restored on an empty boot |
 | Harness folders | Native conversations (`~/.claude`, `~/.codex`, OpenCode data) | Owned by each harness |
 
 Rust types shared with the UI derive `ts_rs::TS`, so the API is typed end to end without an OpenAPI spec.

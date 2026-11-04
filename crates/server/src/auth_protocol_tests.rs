@@ -38,6 +38,7 @@ async fn front_door_protocol() {
         browser: Default::default(),
         trace_backup: Default::default(),
         runners: Default::default(),
+        home_backups: Default::default(),
         paths: Arc::new(fixture.0.clone()),
         config: config.clone(),
         state_db: state_db.clone(),

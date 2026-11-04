@@ -25,6 +25,12 @@ Every session a runner runs is saved on Home: its record and every event, in ord
 
 Each session has a generation number, which grows when a session moves to another runner. Home ignores records and events of an older generation.
 
+## Backups
+
+Home backs up its database and `config.toml` to `[home] backup` (`hf://buckets/<you>/launchpad` or a folder) every minute when something changed, and before a planned stop. Objects are stored by content hash under `home/blobs/sha256/` and never overwritten; each backup is a manifest under `home/backup/<time>/`, written last, so a backup is complete only when its manifest exists. Settings → Home and runners shows the last complete backup and has **Back up now**. Backups older than a day are deleted, except the newest, together with the objects no kept backup needs.
+
+When Home starts on an empty data folder, it restores the newest complete backup before it opens the database (on a first boot without `config.toml`, `LAUNCHPAD_HOME_BACKUP` names the destination). Runners then reconnect with their existing credentials and resend what Home has not acknowledged. After an unplanned restart, up to a minute of events acknowledged since the backup can be missing.
+
 ## Versions
 
 Home and its runners compare their protocol and build. A runner with another protocol cannot connect. A runner with another build of the same protocol shows **Update this runner** and takes no new sessions; its running sessions continue.

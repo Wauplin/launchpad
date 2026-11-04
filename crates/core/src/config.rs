@@ -31,6 +31,16 @@ pub struct Config {
     /// Named harness settings, selectable in the composer beside the base harnesses.
     pub profiles: Vec<Profile>,
     pub assistant: Assistant,
+    pub home: HomeConfig,
+}
+
+/// Home role settings.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
+#[serde(default)]
+pub struct HomeConfig {
+    /// Where Home backs up its database every minute: `hf://buckets/<namespace>/<bucket>` or a local folder.
+    /// Empty: no backup.
+    pub backup: String,
 }
 
 /// Ask Launchpad: the profile, model and effort of the assistant session, kept apart from the composer's
@@ -216,6 +226,7 @@ impl Default for Config {
             profiles: vec![],
             presets: vec![],
             assistant: Assistant::default(),
+            home: HomeConfig::default(),
         }
     }
 }

@@ -41,6 +41,7 @@ pub mod role;
 pub mod runners;
 pub mod replica;
 pub mod home_link;
+pub mod home_backup;
 pub mod analytics;
 pub mod review_state;
 pub(crate) mod remote_sync;
@@ -63,7 +64,7 @@ pub const SOURCE: &str = env!("LAUNCHPAD_SOURCE");
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 /// Shared state of a running daemon. Cheap to clone.
 #[derive(Clone)]
@@ -91,6 +92,7 @@ pub struct App {
     pub trace_backup: trace_backup::BackupStatus,
     /// Live runner tunnels (Home).
     pub runners: runners::Hub,
+    pub home_backups: home_backup::Backups,
 }
 
 impl App {
@@ -101,12 +103,15 @@ impl App {
             replica::enable();
         }
         attachments::init(&paths.data_dir);
+        let env = shellenv::UserEnv::resolve().await;
+        if paths.role == role::Role::Home {
+            home_backup::restore_if_empty(&paths, &env).await.context("restore the Home backup")?;
+        }
         let paths = Arc::new(paths);
         let bus = events::Bus::new();
         let config = config::ConfigHandle::load(&paths, bus.clone())?;
         let state_db = db::open_state(&paths.state_db())?;
         let cache_db = db::open_cache(&paths.cache_db())?;
-        let env = shellenv::UserEnv::resolve().await;
         let status = status::StatusHandle::new(bus.clone());
         let harnesses = harness::Registry::new(&env);
         let github = github::GitHub::new(env.clone(), cache_db.clone());
@@ -134,6 +139,7 @@ impl App {
             browser: browser::Broker::default(),
             trace_backup: trace_backup::BackupStatus::default(),
             runners: runners::Hub::default(),
+            home_backups: home_backup::Backups::default(),
         };
         predrafts::link_skill()?;
         app.sessions.load(&app).await?;
@@ -154,6 +160,7 @@ impl App {
             });
         }
         trace_backup::spawn(&app);
+        home_backup::spawn(&app);
         crons::spawn(&app);
         status::spawn_monitors(&app);
         quota::spawn(&app);
@@ -228,6 +235,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     workspace::Workspace::export_all(&cfg)?;
     runners::RunnerStatus::export_all(&cfg)?;
     home_link::RemoteLaunch::export_all(&cfg)?;
+    home_backup::BackupInfo::export_all(&cfg)?;
     worktrees::WorktreeInfo::export_all(&cfg)?;
     hosts::HostStatus::export_all(&cfg)?;
     hosts::sshconfig::SshConfigHost::export_all(&cfg)?;

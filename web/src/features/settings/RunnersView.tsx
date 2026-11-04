@@ -2,6 +2,7 @@
 // and Remove. On a runner: its link to Home and the runner guard, local settings that never sync to Home.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { BackupInfo } from "@/gen/BackupInfo";
 import type { Guard } from "@/gen/Guard";
 import type { RemoteLaunch } from "@/gen/RemoteLaunch";
 import type { RunnerStatus } from "@/gen/RunnerStatus";
@@ -32,6 +33,7 @@ function HomeRunners() {
   const pending = (runners.data ?? []).filter((r) => r.runner.state === "pending");
   const approved = (runners.data ?? []).filter((r) => r.runner.state === "approved");
   const refresh = () => qc.invalidateQueries({ queryKey: ["runners"] });
+  const backup = useQuery({ queryKey: ["home-backup"], queryFn: () => api.get<BackupInfo>("/api/home/backup"), refetchInterval: 30_000 });
   return (
     <SettingsPage title="Home and runners" intro="This is Home: it keeps every record and runs no agents. Runners run them. To add one, run launchpad connect <this address> on it and approve the code here.">
       {runners.isLoading ? <Loading what="runners" /> : runners.error ? <ErrorState error={runners.error} /> : (
@@ -48,6 +50,15 @@ function HomeRunners() {
               ))}
             </Card>
           )}
+          <Card title="Backup" end={backup.data?.destination ? <button className="btn btn-sm" onClick={() => void api.post<BackupInfo>("/api/home/backup", {}).then((b) => { qc.setQueryData(["home-backup"], b); toast("Backed up"); }, toastError)}>Back up now</button> : undefined}>
+            {!backup.data?.destination ? <span className="text-[13px] text-ink-2">No backup destination. Set <code className="font-mono">[home] backup</code> in config.toml to <code className="font-mono">hf://buckets/&lt;you&gt;/launchpad</code> or a folder.</span> : (
+              <span className="flex flex-wrap items-center gap-2 text-[13px]">
+                <span className="font-mono text-[12px]">{backup.data.destination}</span>
+                {backup.data.last_complete_at ? <Badge tone="ok">last complete backup {formatAge(backup.data.last_complete_at)} ago</Badge> : <Badge tone="attn">no complete backup yet</Badge>}
+                {backup.data.error && <span className="text-[12px] text-danger-ink">{backup.data.error}</span>}
+              </span>
+            )}
+          </Card>
           <Card title="Runners">
             {approved.length === 0 ? <Empty icon="term">No runner yet. Run launchpad connect on a machine.</Empty> : approved.map((r) => (
               <div key={r.runner.id} className="flex flex-wrap items-center gap-2 text-[13px]">

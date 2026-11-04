@@ -1,0 +1,340 @@
+//! Home's backups: a consistent copy of `state.db` (and `config.toml`) every minute when something changed,
+//! and before a planned restart. An empty data folder restores the newest complete backup on boot.
+//!
+//! Layout under the destination (an HF bucket or a local folder):
+//! - `home/blobs/sha256/<hash>`: content-addressed objects, never overwritten.
+//! - `home/backup/<time>/manifest.json`: the objects of one backup, by hash. Written last: a backup is complete
+//!   only when its manifest exists, so restore never points to objects that were never uploaded.
+//!
+//! Pruning keeps every backup of the last day (and always the newest), then removes objects no kept manifest
+//! needs. `cache.db` is not backed up: it is rebuilt from GitHub.
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use anyhow::{Context, Result, bail};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use ts_rs::TS;
+
+use crate::App;
+use crate::shellenv::UserEnv;
+use crate::util::now_ms;
+
+const KEEP_MS: i64 = 24 * 3600 * 1000;
+
+/// Where backups go: `hf://buckets/<namespace>/<bucket>` or a local folder.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Store {
+    Bucket(String),
+    Dir(PathBuf),
+}
+
+impl Store {
+    pub fn parse(s: &str) -> Option<Store> {
+        let s = s.trim().trim_end_matches('/');
+        if s.is_empty() {
+            None
+        } else if let Some(rest) = s.strip_prefix("hf://buckets/") {
+            Some(Store::Bucket(rest.into()))
+        } else {
+            Some(Store::Dir(crate::paths::expand_home(s)))
+        }
+    }
+
+    async fn put(&self, env: &UserEnv, key: &str, data: Vec<u8>) -> Result<()> {
+        match self {
+            Store::Bucket(b) => crate::trace_backup::hf(env, &["buckets", "cp", "-", &format!("hf://buckets/{b}/{key}"), "--quiet"], Some(data)).await.map(|_| ()),
+            Store::Dir(d) => {
+                let path = d.join(key);
+                tokio::fs::create_dir_all(path.parent().context("bad key")?).await?;
+                // Write then rename, so a crash never leaves a partial object under its final name.
+                let tmp = path.with_extension("partial");
+                tokio::fs::write(&tmp, data).await?;
+                tokio::fs::rename(&tmp, &path).await?;
+                Ok(())
+            }
+        }
+    }
+
+    async fn get(&self, env: &UserEnv, key: &str) -> Result<Vec<u8>> {
+        match self {
+            Store::Bucket(b) => {
+                let mut cmd = crate::procs::command(env, "hf", None);
+                cmd.args(["buckets", "cp", &format!("hf://buckets/{b}/{key}"), "-"]).stdin(crate::exec::Io::Null).stderr(crate::exec::Io::Null);
+                let out = tokio::time::timeout(Duration::from_secs(600), cmd.output()).await.context("hf timed out")??;
+                anyhow::ensure!(out.status.success(), "could not download {key}");
+                Ok(out.stdout)
+            }
+            Store::Dir(d) => Ok(tokio::fs::read(d.join(key)).await.with_context(|| format!("read {key}"))?),
+        }
+    }
+
+    /// Keys of the files under `prefix` (recursive).
+    async fn list(&self, env: &UserEnv, prefix: &str) -> Result<Vec<String>> {
+        match self {
+            Store::Bucket(b) => {
+                let out = match crate::trace_backup::hf(env, &["buckets", "ls", &format!("{b}/{prefix}"), "-R", "--format", "json"], None).await {
+                    Ok(out) => out,
+                    // A prefix that does not exist yet.
+                    Err(_) => return Ok(vec![]),
+                };
+                let items: Vec<serde_json::Value> = serde_json::from_str(out.trim()).unwrap_or_default();
+                Ok(items.iter().filter(|i| i["type"] == "file").filter_map(|i| i["path"].as_str()).map(|p| if p.starts_with(prefix) { p.to_string() } else { format!("{prefix}/{p}") }).collect())
+            }
+            Store::Dir(d) => {
+                let root = d.join(prefix);
+                let mut out = vec![];
+                let mut stack = vec![root];
+                while let Some(dir) = stack.pop() {
+                    let Ok(mut rd) = tokio::fs::read_dir(&dir).await else { continue };
+                    while let Some(e) = rd.next_entry().await? {
+                        let path = e.path();
+                        if e.file_type().await?.is_dir() {
+                            stack.push(path);
+                        } else if path.extension().is_none_or(|x| x != "partial")
+                            && let Ok(rel) = path.strip_prefix(d)
+                        {
+                            out.push(rel.to_string_lossy().replace('\\', "/"));
+                        }
+                    }
+                }
+                Ok(out)
+            }
+        }
+    }
+
+    async fn remove(&self, env: &UserEnv, key: &str) -> Result<()> {
+        match self {
+            Store::Bucket(b) => crate::trace_backup::hf(env, &["buckets", "rm", &format!("{b}/{key}"), "--quiet"], None).await.map(|_| ()),
+            Store::Dir(d) => Ok(tokio::fs::remove_file(d.join(key)).await?),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Object {
+    /// `state.db` or `config.toml`.
+    pub name: String,
+    pub sha256: String,
+    pub size: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Manifest {
+    pub format: u32,
+    pub created_at: i64,
+    pub commit: String,
+    pub objects: Vec<Object>,
+}
+
+/// Shown in Settings → Home and runners.
+#[derive(Clone, Debug, Default, Serialize, TS)]
+pub struct BackupInfo {
+    pub destination: Option<String>,
+    #[ts(type = "number | null")]
+    pub last_complete_at: Option<i64>,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Default)]
+pub struct Backups {
+    info: Arc<Mutex<BackupInfo>>,
+    /// `total_changes()` of the state database at the last backup.
+    changes: Arc<Mutex<Option<i64>>>,
+    running: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl Backups {
+    pub fn info(&self) -> BackupInfo {
+        self.info.lock().unwrap().clone()
+    }
+}
+
+fn blob_key(hash: &str) -> String {
+    format!("home/blobs/sha256/{hash}")
+}
+
+fn manifest_key(at: i64) -> String {
+    let t = chrono::DateTime::from_timestamp_millis(at).unwrap_or_default().format("%Y%m%dT%H%M%S%.3fZ");
+    format!("home/backup/{t}/manifest.json")
+}
+
+/// Complete backups, newest first.
+async fn manifests(store: &Store, env: &UserEnv) -> Result<Vec<(String, Manifest)>> {
+    let mut out = vec![];
+    for key in store.list(env, "home/backup").await?.into_iter().filter(|k| k.ends_with("/manifest.json")) {
+        match store.get(env, &key).await.and_then(|b| Ok(serde_json::from_slice::<Manifest>(&b)?)) {
+            Ok(m) => out.push((key, m)),
+            Err(e) => tracing::warn!("home backup: unreadable {key}: {e:#}"),
+        }
+    }
+    out.sort_by_key(|(_, m)| std::cmp::Reverse(m.created_at));
+    Ok(out)
+}
+
+/// Which manifests pruning removes: those older than a day, except the newest.
+fn prunable(manifests: &[(String, Manifest)], now: i64) -> Vec<String> {
+    manifests.iter().skip(1).filter(|(_, m)| now - m.created_at > KEEP_MS).map(|(k, _)| k.clone()).collect()
+}
+
+async fn snapshot(app: &App) -> Result<(Vec<u8>, i64)> {
+    let tmp = app.paths.data_dir.join(format!("state.backup-{}.db", uuid::Uuid::new_v4()));
+    let target = tmp.clone();
+    let changes = app
+        .state_db
+        .call(move |c| {
+            // One consistent copy, taken by SQLite itself while the database stays open.
+            c.execute("VACUUM INTO ?1", [target.to_string_lossy().as_ref()])?;
+            Ok(c.query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))?)
+        })
+        .await?;
+    let bytes = tokio::fs::read(&tmp).await;
+    let _ = tokio::fs::remove_file(&tmp).await;
+    Ok((bytes?, changes))
+}
+
+/// Takes one backup now if the database changed since the last one (or always with `force`).
+pub async fn run(app: &App, force: bool) -> Result<bool> {
+    let Some(store) = Store::parse(&app.config.get().home.backup) else { return Ok(false) };
+    let backups = app.home_backups.clone();
+    let _one = backups.running.lock().await;
+    let current = app.state_db.call(|c| Ok(c.query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))?)).await?;
+    if !force && *backups.changes.lock().unwrap() == Some(current) {
+        return Ok(false);
+    }
+    let (db, changes) = snapshot(app).await?;
+    let config = tokio::fs::read(app.paths.config_file()).await.unwrap_or_default();
+    let existing: std::collections::HashSet<String> = store.list(&app.env, "home/blobs/sha256").await?.into_iter().collect();
+    let mut objects = vec![];
+    for (name, data) in [("state.db", db), ("config.toml", config)] {
+        let hash = hex::encode(Sha256::digest(&data));
+        let size = data.len() as u64;
+        if !existing.contains(&blob_key(&hash)) {
+            store.put(&app.env, &blob_key(&hash), data).await?;
+        }
+        objects.push(Object { name: name.into(), sha256: hash, size });
+    }
+    let now = now_ms();
+    let manifest = Manifest { format: 1, created_at: now, commit: crate::COMMIT.into(), objects };
+    store.put(&app.env, &manifest_key(now), serde_json::to_vec_pretty(&manifest)?).await?;
+    *backups.changes.lock().unwrap() = Some(changes);
+    backups.info.lock().unwrap().last_complete_at = Some(now);
+    if let Err(e) = prune(&store, &app.env, now).await {
+        tracing::warn!("home backup: pruning: {e:#}");
+    }
+    Ok(true)
+}
+
+async fn prune(store: &Store, env: &UserEnv, now: i64) -> Result<()> {
+    let all = manifests(store, env).await?;
+    let gone = prunable(&all, now);
+    for key in &gone {
+        store.remove(env, key).await?;
+    }
+    let needed: std::collections::HashSet<String> = all.iter().filter(|(k, _)| !gone.contains(k)).flat_map(|(_, m)| m.objects.iter().map(|o| blob_key(&o.sha256))).collect();
+    for key in store.list(env, "home/blobs/sha256").await? {
+        if !needed.contains(&key) {
+            store.remove(env, &key).await?;
+        }
+    }
+    Ok(())
+}
+
+/// On boot, before the database opens: an empty data folder gets the newest complete backup.
+pub async fn restore_if_empty(paths: &crate::paths::Paths, env: &UserEnv) -> Result<Option<i64>> {
+    if paths.state_db().exists() {
+        return Ok(None);
+    }
+    // The destination is in config.toml, which may not exist yet either: `LAUNCHPAD_HOME_BACKUP` names it then.
+    let configured = std::fs::read_to_string(paths.config_file()).ok().and_then(|t| toml::from_str::<crate::config::Config>(&t).ok()).map(|c| c.home.backup);
+    let destination = configured.filter(|d| !d.trim().is_empty()).or_else(|| std::env::var("LAUNCHPAD_HOME_BACKUP").ok());
+    let Some(store) = destination.as_deref().and_then(Store::parse) else { return Ok(None) };
+    let all = manifests(&store, env).await?;
+    let Some((key, m)) = all.first() else { return Ok(None) };
+    let mut files: Vec<(PathBuf, Vec<u8>)> = vec![];
+    for o in &m.objects {
+        let data = store.get(env, &blob_key(&o.sha256)).await?;
+        if hex::encode(Sha256::digest(&data)) != o.sha256 {
+            bail!("backup {key}: object {} does not match its hash", o.name);
+        }
+        let path = match o.name.as_str() {
+            "state.db" => paths.state_db(),
+            // Settings edited since (or set by the Space) win over the backup.
+            "config.toml" if !paths.config_file().exists() && !data.is_empty() => paths.config_file(),
+            _ => continue,
+        };
+        files.push((path, data));
+    }
+    paths.ensure_dirs()?;
+    for (path, data) in files {
+        write_atomic(&path, &data)?;
+    }
+    tracing::info!("restored the Home backup {key}");
+    Ok(Some(m.created_at))
+}
+
+fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
+    let tmp = path.with_extension("restoring");
+    std::fs::write(&tmp, data)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// Home: a backup every minute when something changed.
+pub fn spawn(app: &App) {
+    if app.paths.role != crate::role::Role::Home {
+        return;
+    }
+    let app = app.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(60));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tick.tick().await;
+            let destination = app.config.get().home.backup;
+            let result = run(&app, false).await;
+            let changed = {
+                let mut info = app.home_backups.info.lock().unwrap();
+                let before = (info.destination.clone(), info.error.clone(), info.last_complete_at);
+                info.destination = Some(destination).filter(|d| !d.trim().is_empty());
+                info.error = result.as_ref().err().map(|e| format!("{e:#}"));
+                before != (info.destination.clone(), info.error.clone(), info.last_complete_at)
+            };
+            if let Err(e) = &result {
+                tracing::warn!("home backup: {e:#}");
+            }
+            if changed {
+                app.bus.publish("runners", "changed", serde_json::Value::Null);
+            }
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manifest(at: i64) -> (String, Manifest) {
+        (manifest_key(at), Manifest { format: 1, created_at: at, commit: String::new(), objects: vec![] })
+    }
+
+    #[test]
+    fn pruning_keeps_the_last_day_and_the_newest() {
+        let day = KEEP_MS;
+        let now = 10 * day;
+        let fresh = vec![manifest(now - 1000), manifest(now - day + 1000), manifest(now - 2 * day)];
+        assert_eq!(prunable(&fresh, now), vec![manifest_key(now - 2 * day)]);
+        // Only old backups: the newest stays.
+        let old = vec![manifest(now - 3 * day), manifest(now - 4 * day)];
+        assert_eq!(prunable(&old, now), vec![manifest_key(now - 4 * day)]);
+    }
+
+    #[test]
+    fn destinations() {
+        assert_eq!(Store::parse("hf://buckets/me/launchpad/"), Some(Store::Bucket("me/launchpad".into())));
+        assert_eq!(Store::parse(" "), None);
+        assert!(matches!(Store::parse("/backups/home"), Some(Store::Dir(_))));
+    }
+}

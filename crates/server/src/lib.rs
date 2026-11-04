@@ -57,7 +57,7 @@ pub async fn serve(app: App) -> Result<()> {
     let router = router(server);
     let _ = ROUTER.set(router.clone());
     if app.paths.role == launchpad_core::role::Role::Runner {
-        home_client::spawn(app, router.clone());
+        home_client::spawn(app.clone(), router.clone());
     }
     if let Some(tailnet) = tailnet {
         use std::future::IntoFuture;
@@ -67,6 +67,12 @@ pub async fn serve(app: App) -> Result<()> {
         )?;
     } else {
         axum::serve(listener, router.into_make_service_with_connect_info::<std::net::SocketAddr>()).with_graceful_shutdown(shutdown_signal()).await?;
+    }
+    // A planned stop (update, restart) takes a final backup first.
+    if app.paths.role == launchpad_core::role::Role::Home
+        && let Err(e) = launchpad_core::home_backup::run(&app, false).await
+    {
+        tracing::warn!("final home backup: {e:#}");
     }
     Ok(())
 }

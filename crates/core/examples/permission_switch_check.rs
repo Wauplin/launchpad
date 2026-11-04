@@ -50,6 +50,7 @@ async fn main() -> Result<()> {
         browser: Default::default(),
         trace_backup: Default::default(),
         runners: Default::default(),
+        home_backups: Default::default(),
         paths: Arc::new(paths.clone()), config, state_db, cache_db: cache_db.clone(), status, hosts,
         harnesses: core::harness::Registry::new(&env), github: core::github::GitHub::new(env.clone(), cache_db), env, bus,
         sessions: core::sessions::Sessions::new(), inbox: core::inbox::Inbox::new(), models: Default::default(),
