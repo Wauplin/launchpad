@@ -5,6 +5,8 @@ Work in progress: this implements the first parts of the [Home and runners plan]
 - **Home** (`launchpad daemon --role home`) keeps every record and runs no agents or terminals.
 - **Runners** (`launchpad daemon --role runner`) run agents. A runner works in its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`) and never reuses a single-process install's data.
 
+For a private Space POC that runs beside an existing install, use the [Home-only deployment and laptop instructions](../deploy/hf-home/README.md). Use a separate runner port and the same source commit as Home.
+
 ## Pair a runner
 
 1. Start the runner daemon on the machine: `launchpad daemon --role runner`.
@@ -17,7 +19,7 @@ The runner keeps one outbound WebSocket to Home (no inbound port) and reconnects
 
 A launch on Home (from the phone, another browser, a schedule) in a Git folder goes to the first runner that takes launches: it clones the folder from Home Git on first use. A folder that exists only on one runner's disk (a scratch folder, a folder without Git) goes to that runner. Follow-ups, Stop, answers and the other session actions on Home go to the session's runner; Home serves the record, the events and the trace itself. When that runner is offline, paused or refuses launches from other devices, Home says so and starts nothing.
 
-Workspaces and Git folders belong to Home: a runner shows Home's and sends its changes to Home, so they need Home to be reachable. **Clone from GitHub** registers the repository on Home, from any window. **Add folder** on a runner's window registers a local checkout's remote on Home (a checkout without a remote is imported into Home Git); the runner then works in its own clones, never in your checkout. Each runner keeps a local log of the launches that came from elsewhere (Settings → This runner).
+Profiles (including vault login IDs), workspaces and Git folders belong to Home: a runner shows Home's and sends its changes to Home, so they need Home to be reachable. **Clone from GitHub** registers the repository on Home, from any window. **Add folder** on a runner's window registers a local checkout's remote on Home (a checkout without a remote is imported into Home Git); the runner then works in its own clones, never in your checkout. Each runner keeps a local log of the launches that came from elsewhere (Settings → This runner).
 
 ## Sessions on Home
 
@@ -80,3 +82,5 @@ Home and its runners compare their protocol and build. A runner with another pro
 ## Runner guard
 
 On a runner, **Settings → This runner** holds settings that never sync to Home: **Launches from other devices** (Accept or Refuse: only windows on that machine launch there) and **Pause runner** (no new session starts there, from anywhere). Home shows them next to the runner. They are conveniences, not a security boundary: runners trust Home.
+
+Contained sessions receive a session CLI credential bound to their ID and generation, not the runner daemon token. It allows context reads and inert local preparation; host settings, terminals, file APIs and publication still require an owner window.

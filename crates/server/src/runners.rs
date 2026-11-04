@@ -134,6 +134,10 @@ async fn folders(s: &Server) -> Option<ToRunner> {
     launchpad_core::projects::home_folders(&s.app).await.ok().map(|projects| ToRunner::Folders { projects })
 }
 
+fn profiles(s: &Server) -> ToRunner {
+    ToRunner::Profiles { profiles: s.app.config.get().profiles }
+}
+
 const PING: std::time::Duration = std::time::Duration::from_secs(25);
 
 async fn send(tx: &mut futures_util::stream::SplitSink<WebSocket, Message>, msg: &ToRunner) -> bool {
@@ -186,6 +190,7 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
     if let Some(f) = folders(&s).await && !send(&mut tx, &f).await {
         return;
     }
+    if !send(&mut tx, &profiles(&s)).await { return; }
     let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<ToRunner>();
     let conn = s.app.runners.connect(&s.app, &runner.id, compat, guard, out_tx);
     let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING, PING);
@@ -198,11 +203,12 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
             }
             delivered = bus.recv() => {
                 // Workspaces and Git folders are Home's: every runner gets each new snapshot.
-                let (w, f) = match delivered {
-                    Ok(d) => (d.text.contains(r#""topic":"workspaces""#), d.text.contains(r#""topic":"projects""#)),
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => (true, true),
-                    Err(_) => (false, false),
+                let (w, f, p) = match delivered {
+                    Ok(d) => (d.text.contains(r#""topic":"workspaces""#), d.text.contains(r#""topic":"projects""#), d.text.contains(r#""topic":"config""#)),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => (true, true, true),
+                    Err(_) => (false, false, false),
                 };
+                if p && !send(&mut tx, &profiles(&s)).await { break }
                 if w && !send(&mut tx, &workspaces(&s).await).await { break }
                 if f && let Some(f) = folders(&s).await && !send(&mut tx, &f).await { break }
             }

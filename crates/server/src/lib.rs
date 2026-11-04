@@ -3,6 +3,7 @@
 mod api;
 mod browser;
 mod auth;
+mod agent_auth;
 mod code;
 mod error;
 mod git_http;

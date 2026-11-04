@@ -273,7 +273,7 @@ async fn bundles(app: &App, store: &Store, existing: &std::collections::HashSet<
             out.push(o);
             continue;
         }
-        let ours: Vec<&str> = refs.lines().filter_map(|l| l.split_once(' ').map(|(_, r)| r)).filter(|r| r.starts_with("refs/heads/lp") || r.starts_with("refs/kept/")).collect();
+        let ours: Vec<&str> = refs.lines().filter_map(|l| l.split_once(' ').map(|(_, r)| r)).filter(|r| r.starts_with("refs/heads/lp") || r.starts_with("refs/kept/") || r.starts_with("refs/lp-snapshots/")).collect();
         let theirs: Vec<String> = refs.lines().filter_map(|l| l.split_once(' ')).filter(|(_, r)| !(r.starts_with("refs/heads/lp") || r.starts_with("refs/kept/") || r.starts_with("refs/lp-snapshots/"))).map(|(c, _)| format!("^{c}")).collect();
         let has_remote = crate::home_git::git_in(app, &dir, &["remote"], 10).await?.lines().any(|r| r == "origin");
         let file = app.paths.data_dir.join(format!("bundle-{}.partial", uuid::Uuid::new_v4()));
@@ -307,6 +307,17 @@ async fn bundles(app: &App, store: &Store, existing: &std::collections::HashSet<
         let o = Object { name: format!("git/{id}.bundle"), sha256: hash, size };
         app.home_backups.bundles.lock().unwrap().insert(id.to_string(), (refs_hash, o.clone()));
         out.push(o);
+    }
+    // A restored mirror may not have been opened yet. Carry its bundle forward so pruning cannot
+    // delete the only copy of its local branches while Home is idle.
+    if let Ok(data) = tokio::fs::read(git_restore_file(&app.paths)).await {
+        let pending: std::collections::BTreeMap<String, String> = serde_json::from_slice(&data)?;
+        for (id, hash) in pending {
+            let name = format!("git/{id}.bundle");
+            if !out.iter().any(|o| o.name == name) {
+                out.push(Object { name, sha256: hash, size: 0 });
+            }
+        }
     }
     Ok(out)
 }

@@ -262,6 +262,8 @@ pub mod proto {
         Workspaces { workspaces: Vec<crate::workspace::Workspace> },
         /// Every Git folder of Home, on connect and after each change.
         Folders { projects: Vec<crate::model::Project> },
+        /// Profiles configured on Home, including their vault login IDs.
+        Profiles { profiles: Vec<crate::config::Profile> },
         /// Home revoked a lease: the runner drops its tokens at once.
         Revoke { lease_id: String },
         /// Quota readings of Home's logins (`vault:<id>`), on connect and when they change.

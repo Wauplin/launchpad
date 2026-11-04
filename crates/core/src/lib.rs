@@ -31,6 +31,7 @@ pub mod proposals;
 pub mod schedules;
 pub mod session_pages;
 pub mod sessions;
+pub mod session_token;
 pub mod shellenv;
 pub mod setup_checklist;
 pub mod signin;

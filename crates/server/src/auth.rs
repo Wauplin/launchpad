@@ -466,6 +466,23 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
     if crate::runners::runner_path(path) || crate::git_http::git_path(path) || crate::plain_http::runner_request(path, req.headers()) {
         return private_response(next.run(req).await, true);
     }
+    // Session-scoped CLI token: verify the durable generation and restrict the router surface before relays.
+    if let Some(t) = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "))
+        && t.starts_with("lp-session.")
+    {
+        let session = launchpad_core::session_token::verify(&s.auth.token, t)
+            .and_then(|(id, generation)| s.app.sessions.get(&id).filter(|session| session.generation == generation && session.status != launchpad_core::model::SessionStatus::Closed));
+        let Some(session) = session else {
+            return (StatusCode::UNAUTHORIZED, Json(json!({"error": "this session credential is no longer valid"}))).into_response();
+        };
+        return match crate::agent_auth::authorize(&s.app, &session.id, req).await {
+            Ok(mut req) => {
+                req.extensions_mut().insert(Access { session: None, device: None, changes: s.auth.changes.subscribe() });
+                private_response(next.run(req).await, private)
+            }
+            Err(e) => e.into_response(),
+        };
+    }
     // The Ask Launchpad assistant's CLI token: read-only context and proposals, nothing else.
     if let Some(t) = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer ")) {
         let t = t.trim();
