@@ -1,4 +1,4 @@
-// Chapter 6: Ask Launchpad, proposals and the owner's click.
+// Chapter 6: Ask Launchpad, proposals and the owner's click; then bots, agents that stay.
 
 import type { Chapter } from "../tour/types";
 import { api } from "@/lib/api";
@@ -7,13 +7,16 @@ import { world } from "@/demo/world";
 import { WS } from "@/demo/world/ids";
 import { TODAY_PROPOSAL } from "@/demo/scenarios/askToday";
 import { meta } from "./meta";
+import { BOT } from "@/demo/world/bots";
 
 const THREAD = "demo-s-ask-acme";
 const proposal = () => world.proposals.find((p) => p.id === TODAY_PROPOSAL);
+const BOT_ROUTE = `/bots/${BOT}`;
+const botSessions = () => world.sessions.filter((s) => s.launch_spec.bot?.id === BOT);
 
 export const ask: Chapter = {
   ...meta("ask"),
-  learned: ["Ask Launchpad keeps one thread per workspace and reads its state", "It answers with proposals: launches, messages, schedules and crons", "Manual mode waits for your click; auto mode starts new proposals; Edit sends a proposal to the composer"],
+  learned: ["Ask Launchpad keeps one thread per workspace and reads its state", "It answers with proposals: launches, messages, schedules and crons", "Manual mode waits for your click; auto mode starts new proposals; Edit sends a proposal to the composer", "A bot is an agent that stays: one thread, its instructions in BOT.md, its notes in the knowledge base"],
   setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {
@@ -37,6 +40,22 @@ export const ask: Chapter = {
       id: "ask.started", route: "/ask", anchor: "proposal.card", anchorId: TODAY_PROPOSAL,
       title: "A normal agent",
       body: "A started proposal becomes a normal agent, listed in Agents like any other. Cron proposals say “Creates a repeating agent” before you accept them.",
+    },
+    {
+      id: "ask.bots", route: "/bots", anchor: "sidebar.bots",
+      title: "Bots: agents that stay",
+      body: "Ask Launchpad is the built-in bot. Your own bots each have a job, one thread you come back to, and notes they keep in the knowledge base. Ask Launchpad can propose one for you.",
+    },
+    {
+      id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",
+      title: "One thread, many sessions",
+      body: "Messages go to the bot's current session. A new session starts when its profile or folder changes, or on New session; it reads the previous trace only when it needs it.",
+      tryIt: { text: "ask the Maintainer for the refund test.", done: () => botSessions().some((s) => (world.events[s.id] ?? []).some((e) => e.body.kind === "user_message" && e.body.text.toLowerCase().includes("refund"))), doIt: () => api.post(`/api/bots/${BOT}/message`, { text: "Prepare the refund end-to-end test as a Local PR." }) },
+    },
+    {
+      id: "ask.bot-panels", route: BOT_ROUTE, anchor: "bots.panels",
+      title: "Memory, files and settings",
+      body: "Memory lists its notes in the knowledge base. Files holds BOT.md and bot.toml, with every version for 30 days. Settings shows its profile, folder, permissions and what it can reach.",
     },
   ],
 };

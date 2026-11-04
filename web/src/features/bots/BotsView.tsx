@@ -78,10 +78,10 @@ export function BotsView() {
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.page">
       {header}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto grid w-full max-w-[880px] gap-4 p-4">
+        <div className="mx-auto grid w-full max-w-[880px] grid-cols-[minmax(0,1fr)] gap-4 p-4">
           {bots.isLoading ? <Loading what="bots" /> : bots.error ? <ErrorState error={bots.error} onRetry={() => void bots.refetch()} /> : <>
             {creating && <NewBot first={mine.length === 0} onCancel={mine.length ? close : undefined} />}
-            <div className="grid gap-2">
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
               <AskRow />
               {mine.map((b) => <BotRow key={b.id} bot={b} thread={botThread(sessions, b.id)} folder={folderLabel(projects, b.settings.folder)} />)}
             </div>

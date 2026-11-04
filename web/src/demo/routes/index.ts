@@ -7,3 +7,4 @@ import "./code";
 import "./settings";
 import "./terminals";
 import "./knowledge";
+import "./bots";

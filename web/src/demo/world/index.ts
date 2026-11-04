@@ -8,11 +8,12 @@ import { githubWorld } from "./github";
 import { codeWorld } from "./code";
 import { settingsWorld } from "./settings";
 import { knowledgeWorld } from "./knowledge";
+import { botsWorld } from "./bots";
 
-export type World = ReturnType<typeof coreWorld> & ReturnType<typeof agentsWorld> & ReturnType<typeof githubWorld> & ReturnType<typeof codeWorld> & ReturnType<typeof settingsWorld> & ReturnType<typeof knowledgeWorld>;
+export type World = ReturnType<typeof coreWorld> & ReturnType<typeof agentsWorld> & ReturnType<typeof githubWorld> & ReturnType<typeof codeWorld> & ReturnType<typeof settingsWorld> & ReturnType<typeof knowledgeWorld> & ReturnType<typeof botsWorld>;
 
 export let world: World = null as unknown as World;
 
 export function resetWorld() {
-  world = { ...coreWorld(), ...agentsWorld(), ...githubWorld(), ...codeWorld(), ...settingsWorld(), ...knowledgeWorld() };
+  world = { ...coreWorld(), ...agentsWorld(), ...githubWorld(), ...codeWorld(), ...settingsWorld(), ...knowledgeWorld(), ...botsWorld() };
 }

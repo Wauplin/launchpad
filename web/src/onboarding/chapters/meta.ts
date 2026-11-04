@@ -9,7 +9,7 @@ export const CHAPTER_META: ChapterMeta[] = [
   { id: "answering", title: "Agents & answering", time: "0:45", essentials: true },
   { id: "review", title: "Review the work", time: "0:45", essentials: true },
   { id: "github", title: "GitHub inbox & PRs", time: "1:15", essentials: false },
-  { id: "ask", title: "Ask Launchpad", time: "1:15", essentials: false },
+  { id: "ask", title: "Ask Launchpad & bots", time: "2:00", essentials: false },
   { id: "terminals", title: "Terminals", time: "1:00", essentials: false },
   { id: "folders", title: "Folders & workspaces", time: "1:00", essentials: false },
   { id: "automation", title: "Start later, crons & quotas", time: "1:15", essentials: false },

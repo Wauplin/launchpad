@@ -303,6 +303,16 @@ export function agentsWorld() {
       say("I proposed two things; nothing starts until you press its button:\n\n1. **Fix the empty-cart 500 in the invoices API**: issue #77 mentions you, and the fix looks small.\n2. **Weekly docs link check**: a repeating agent every Monday at 09:00 that reports broken links in docs.\n\nBoth cards are in **Proposals**."),
       ...end(1), status("waiting"),
     ] });
+  // Bots: the Maintainer of storefront, one session in its thread (its definition is in world/bots.ts).
+  add({ id: "demo-s-bot-maintainer", title: "What changed in checkout this week", project: P.storefront, harness: "claude", minutesAgo: 70, seen: true, worktree: "maintainer-checkout-week",
+    spec: { text: "What changed in checkout this week, and is anything still risky?", bot: { id: "demo-bot-maintainer", name: "Maintainer", slug: "maintainer", instructions: "", previous: null } },
+    events: [
+      user("What changed in checkout this week, and is anything still risky?"),
+      ...tool("Bash", "git log --since=7.days --oneline -- src/checkout", "a41c9e2 Poll the order in the checkout e2e test\n7f03b11 Verify Stripe webhooks before saving"),
+      ...tool("Bash", "launchpad kb write bots/maintainer/checkout.md", "Saved bots/maintainer/checkout.md"),
+      say("Two changes in checkout this week:\n\n- **Webhooks are verified before the order is saved** (7f03b11), as decided with Maria.\n- **The flaky e2e test now polls the order** for 10 seconds (a41c9e2).\n\nStill risky: the refund path has no end-to-end test. I noted it in my notes (`bots/maintainer/checkout.md`); say the word and I prepare one as a Local PR."),
+      ...end(2), status("waiting"),
+    ] });
   const proposals: Proposal[] = [
     { id: "demo-prop-empty-cart", workspace_id: WS.acme, session_id: "demo-s-ask-acme", title: "Fix the empty-cart 500 in the invoices API",
       note: "Issue #77 mentions you: `GET /invoices` returns 500 when the cart is empty. The fix is likely a missing empty check.",
