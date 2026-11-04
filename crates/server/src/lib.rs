@@ -8,6 +8,7 @@ mod code;
 mod error;
 mod git_http;
 mod plain_http;
+mod kb_http;
 mod home_client;
 mod hosts;
 mod items;
@@ -103,6 +104,7 @@ pub(crate) fn router(server: Server) -> Router {
         .merge(vault::router())
         .merge(git_http::router())
         .merge(plain_http::router())
+        .merge(kb_http::router())
         .route("/ws", axum::routing::get(ws::handler))
         .merge(auth::router())
         .fallback(ui::serve)

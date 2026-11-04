@@ -36,6 +36,7 @@ function pageTitle(path: string): string {
   if (path.startsWith("/terminals")) return "Terminals";
   if (path.startsWith("/settings")) return "Settings";
   if (path.startsWith("/setup")) return "Setup";
+  if (path.startsWith("/knowledge")) return "Knowledge";
   if (path.startsWith("/projects")) return path.endsWith("/code") ? "Files" : "Folders";
   return "Launchpad";
 }
@@ -79,6 +80,7 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
       {workspaces.map((w) => button(w.id, w.name, `${folderCount(all, w.id)} folders`))}
       <div className="seclabel px-4 pt-4 pb-1">Go to</div>
       <MenuLink to="/projects" icon="folder" onClick={onClose}>Folders</MenuLink>
+      <MenuLink to="/knowledge" icon="book" onClick={onClose}>Knowledge</MenuLink>
       <MenuLink to="/terminals" icon="term" onClick={onClose}>Terminals</MenuLink>
       <MenuLink to="/settings" icon="sliders" onClick={onClose}>Settings</MenuLink>
       <div className="seclabel px-4 pt-4 pb-1">This device</div>

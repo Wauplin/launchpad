@@ -80,6 +80,8 @@ The runner proxy (`proxy.rs`) listens on `127.0.0.1`. Jailed processes get `HTTP
 
 The jail (`jail.rs`) is bubblewrap with system folders, PATH folders and toolchain folders read-only, and the session's folders read-write: its working folders, `<data_dir>/worktrees`, `<data_dir>/repos`, its harness home (`<data_dir>/sessions/<id>/home`: `HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`), its `/tmp` and its workspace's cache. Only a short list of machine variables passes. Jailed CLIs receive an HMAC credential in a separate signing domain, bound to session ID and generation; the server limits it to context and inert preparation, checking session ownership for worktree mutations. `UserEnv::jailed` makes `exec::Cmd` wrap the program in `bwrap`; adapters start every native process with `StartSpec::process_env`, and title requests and harness TUIs use the same lease and jail. The SSH key stays in an `ssh-agent` on Home: the session's `SSH_AUTH_SOCK` is a runner socket whose list and sign requests go to Home. Tools install once per recipe into `<data_dir>/tools/` (downloads by the runner, package managers in a jail). With `[runner] boundary = "vm"` (a Local VM, `packaging/local-vm.sh`) the VM is the boundary: no jail, Docker allowed, same lease and proxy.
 
+The knowledge base (`kb.rs`) is the only agent memory. Runners mirror each workspace's knowledge base to `<data_dir>/knowledge/<workspace name>/` (every minute, before a session starts and after each write); the jail mounts it read-only as `$LAUNCHPAD_KB`, and `Harness::contained_memory` turns the harness's own memory off and writes its user instructions (the knowledge base and `INDEX.md`). `launchpad kb` posts writes to the runner (`/api/kb`), which uploads contents as blobs and sends the writes to Home (`FromRunner::Call` "kb"); Home checks the session's runner, takes the author from its own session record and applies writes one at a time. A write whose base changed is kept as a `.concurrent-<id>` sibling. Owner edits in a runner's mirror are sent as the owner's.
+
 ## Sessions and harnesses
 
 Every harness maps to the same model:
@@ -101,6 +103,7 @@ A launch only does local work in the request: it records the session (Starting) 
 | `cache.db` (SQLite) | GitHub payloads as JSON | Disposable, rebuilt on demand |
 | Home backup (`home_backup.rs`) | `state.db` copies (`VACUUM INTO`), `config.toml` and Home Git bundles by content hash, one manifest per backup, written last | Home only; last day kept, restored on an empty boot |
 | Harness folders | Native conversations: per session in `<data_dir>/sessions/<id>/home` for contained sessions, else `~/.claude`, `~/.codex`, OpenCode data | Owned by each harness |
+| Knowledge base (`kb.rs`) | One per workspace, stored by Home like a plain folder (store `kb-<workspace>`, history with author and line counts in `plain_history.meta`); a read-only mirror on each runner | Home; changes restorable 30 days |
 | Vault (`vault.rs`) | Credentials (write-only), tools, leases, access log, in `state.db` | Home only |
 
 Rust types shared with the UI derive `ts_rs::TS`, so the API is typed end to end without an OpenAPI spec.

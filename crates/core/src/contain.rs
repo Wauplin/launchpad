@@ -158,6 +158,27 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
         env.extend(app.harnesses.get(s.harness).contained_login(&setup)?);
     }
     write_git_config(&home, &lease)?;
+    // The knowledge base: a read-only mirror, and the harness's own memory off.
+    let harness = app.harnesses.get(s.harness);
+    let kb = match request(app, &s).await?.workspace_id {
+        Some(ws) => match crate::kb::sync(app, &ws).await {
+            Ok(dir) => Some((ws, dir)),
+            Err(e) => {
+                app.sessions.sink(app, &s.id).emit(crate::model::EventBody::Notice { text: format!("The knowledge base could not be refreshed from Home: {e:#}. The agent reads the last copy on this runner.") }).await;
+                crate::kb::mirror_dir(app, &ws).await.ok().filter(|d| d.is_dir()).map(|d| (ws, d))
+            }
+        },
+        None => None,
+    };
+    let instructions = match &kb {
+        Some((ws, dir)) => {
+            env.push(("LAUNCHPAD_KB".into(), p(dir)));
+            ro.push(dir.clone());
+            crate::kb::instructions(app, ws, dir).await
+        }
+        None => "Your harness's own memory is off in Launchpad, and this session has no workspace, so no knowledge base: do not write memory files.\n".into(),
+    };
+    env.extend(harness.contained_memory(&home, &instructions)?);
     let vm = app.config.get().runner.boundary == crate::config::Boundary::Vm;
     let mut binds = vec![];
     if lease.ssh {

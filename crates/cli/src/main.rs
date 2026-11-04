@@ -92,6 +92,11 @@ enum Command {
         #[command(subcommand)]
         command: Assets,
     },
+    /// The workspace's knowledge base, the only memory agents have: read its files in $LAUNCHPAD_KB, write here.
+    Kb {
+        #[command(subcommand)]
+        command: Kb,
+    },
     /// Registered folders (JSON), optionally of one workspace.
     Folders {
         #[command(subcommand)]
@@ -295,6 +300,119 @@ enum Work {
     },
 }
 #[derive(Subcommand)]
+enum Kb {
+    /// Print the folder of the knowledge base (read-only files).
+    Path,
+    /// Lines of the knowledge base that contain every word.
+    Search { words: Vec<String> },
+    /// Create or replace a note with stdin (or --file). Paths are relative to the knowledge base.
+    Write {
+        path: String,
+        #[arg(long)]
+        file: Option<std::path::PathBuf>,
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+        session_id: String,
+    },
+    /// Add stdin (or --file, or the text arguments) to the end of a note.
+    Append {
+        path: String,
+        text: Vec<String>,
+        #[arg(long)]
+        file: Option<std::path::PathBuf>,
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+        session_id: String,
+    },
+    /// Copy an image, video or audio file into media/ (or --as <path>).
+    AddMedia {
+        file: std::path::PathBuf,
+        #[arg(long = "as")]
+        to: Option<String>,
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+        session_id: String,
+    },
+    /// Remove a note (restorable for 30 days).
+    Rm {
+        path: String,
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+        session_id: String,
+    },
+}
+
+fn kb_dir() -> Result<std::path::PathBuf> {
+    std::env::var_os("LAUNCHPAD_KB").map(std::path::PathBuf::from).context("no knowledge base here: launchpad kb works in an agent session of a workspace ($LAUNCHPAD_KB is not set)")
+}
+
+/// A note path: relative to the knowledge base, or a path inside its folder.
+fn kb_path(path: &str) -> Result<String> {
+    let p = std::path::Path::new(path);
+    if p.is_absolute() {
+        let dir = kb_dir()?;
+        let rel = p.strip_prefix(&dir).with_context(|| format!("{path} is not in the knowledge base ({})", dir.display()))?;
+        return Ok(rel.to_string_lossy().into_owned());
+    }
+    Ok(path.trim_start_matches("./").to_string())
+}
+
+fn read_input(file: Option<&std::path::Path>) -> Result<Vec<u8>> {
+    use std::io::Read;
+    match file {
+        Some(f) => std::fs::read(f).with_context(|| format!("read {}", f.display())),
+        None => {
+            let mut buf = vec![];
+            std::io::stdin().read_to_end(&mut buf)?;
+            Ok(buf)
+        }
+    }
+}
+
+async fn kb_command(paths: &Paths, command: Kb) -> Result<()> {
+    use base64::Engine;
+    let b64 = |d: &[u8]| base64::engine::general_purpose::STANDARD.encode(d);
+    let (session_id, op) = match command {
+        Kb::Path => {
+            println!("{}", kb_dir()?.display());
+            return Ok(());
+        }
+        Kb::Search { words } => {
+            let dir = kb_dir()?;
+            let mut bodies = vec![];
+            for rel in launchpad_core::plain::walk(&dir) {
+                if let Ok(text) = std::fs::read_to_string(dir.join(&rel)) {
+                    bodies.push((rel, text));
+                }
+            }
+            let hits = launchpad_core::kb::search_text(bodies.iter().map(|(p, t)| (p.clone(), t.as_str())), &words.join(" "), 200);
+            if hits.is_empty() {
+                println!("No match.");
+            }
+            for h in hits {
+                println!("{}:{}: {}", h.path, h.line, h.text);
+            }
+            return Ok(());
+        }
+        Kb::Write { path, file, session_id } => (session_id, serde_json::json!({"op": "write", "path": kb_path(&path)?, "content_b64": b64(&read_input(file.as_deref())?)})),
+        Kb::Append { path, text, file, session_id } => {
+            let text = if !text.is_empty() && file.is_none() { text.join(" ") } else { String::from_utf8(read_input(file.as_deref())?).context("append takes text")? };
+            (session_id, serde_json::json!({"op": "append", "path": kb_path(&path)?, "text": text}))
+        }
+        Kb::AddMedia { file, to, session_id } => {
+            let name = file.file_name().context("name a file")?.to_string_lossy().into_owned();
+            let path = match to {
+                Some(t) => kb_path(&t)?,
+                None => format!("media/{name}"),
+            };
+            (session_id, serde_json::json!({"op": "write", "path": path, "content_b64": b64(&read_input(Some(&file))?)}))
+        }
+        Kb::Rm { path, session_id } => (session_id, serde_json::json!({"op": "remove", "path": kb_path(&path)?})),
+    };
+    let body = Client::new(paths)?.json("POST", "/api/kb", Some(serde_json::json!({"session_id": session_id, "ops": [op]}))).await?;
+    for line in body["lines"].as_array().into_iter().flatten() {
+        println!("{}", line.as_str().unwrap_or_default());
+    }
+    Ok(())
+}
+
+#[derive(Subcommand)]
 enum Assets {
     /// Make `path` of this worktree an asset folder, mapped in `.launchpad/assets.toml` (commit that file).
     Create {
@@ -391,6 +509,7 @@ async fn main() -> Result<()> {
         Command::Pr { command } => pr_command(&paths, command).await,
         Command::Work { command } => work_command(&paths, command).await,
         Command::Assets { command } => assets_command(&paths, command).await,
+        Command::Kb { command } => kb_command(&paths, command).await,
         Command::Folders { command: ListOnly::List { workspace } } => context_command(&paths, "folders", workspace).await,
         Command::Profiles { command: ListOnly::List { .. } } => context_command(&paths, "profiles", None).await,
         Command::Presets { command: ListOnly::List { .. } } => context_command(&paths, "presets", None).await,

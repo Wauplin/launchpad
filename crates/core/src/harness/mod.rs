@@ -197,6 +197,16 @@ pub trait Harness: Send + Sync {
     fn contained_login(&self, _setup: &LoginSetup) -> Result<Vec<(String, String)>> {
         Ok(vec![])
     }
+    /// Turns the harness's own memory off in a contained session's harness home and installs `instructions`
+    /// (the knowledge base) as its user-level instructions. Returns variables for the harness.
+    fn contained_memory(&self, _home: &Path, _instructions: &str) -> Result<Vec<(String, String)>> {
+        Ok(vec![])
+    }
+    /// Folders of the harness's own memory files on this machine (`home`: the user's home), with a group name
+    /// (for example the project), for a one-time import into the knowledge base.
+    fn native_memories(&self, _home: &Path) -> Vec<(String, std::path::PathBuf)> {
+        vec![]
+    }
     /// Polls the included quota of one subscription login (see `quota::QuotaAccount`) and publishes it with
     /// `StatusHandle::update_quota`. Called once per account while a profile uses it; the task is aborted
     /// when no profile uses it anymore.

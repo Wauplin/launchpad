@@ -732,6 +732,7 @@ pub async fn runner_call(app: &App, runner_id: Option<&str>, op: &str, body: Val
             let reply = crate::ssh_agent::handle(app, &msg).await?;
             Ok(json!({"msg": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, reply)}))
         }
+        "kb" => crate::kb::runner_apply(app, runner_id, body).await,
         _ => bail!("unknown runner call {op}"),
     }
 }

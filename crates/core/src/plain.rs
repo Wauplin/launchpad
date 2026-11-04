@@ -55,6 +55,18 @@ pub struct Change {
     #[ts(type = "number")]
     pub at: i64,
     pub session_id: Option<String>,
+    /// Knowledge base changes: who wrote it, and the lines added and removed.
+    pub author: Option<crate::kb::Author>,
+    pub added: Option<u32>,
+    pub removed: Option<u32>,
+}
+
+/// What a knowledge base change records next to a plain change (`plain_history.meta`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct Meta {
+    pub author: crate::kb::Author,
+    pub added: Option<u32>,
+    pub removed: Option<u32>,
 }
 
 /// A change sent by a runner: the new content of `path`, or None to delete it.
@@ -87,14 +99,18 @@ pub fn blob_path(app: &App, sha: &str) -> Result<PathBuf> {
     Ok(blob_dir(app).join(sha))
 }
 
-fn check_path(path: &str) -> Result<()> {
+pub(crate) fn check_path(path: &str) -> Result<()> {
     ensure!(!path.is_empty() && !path.starts_with('/') && !path.contains('\\') && path.split('/').all(|c| !c.is_empty() && c != "." && c != ".."), "invalid path {path:?}");
     ensure!(!path.split('/').any(|c| c == ".git"), "Git data is never stored in a plain folder");
     Ok(())
 }
 
-/// Home: the store exists (a plain folder or an asset folder).
+/// Home: the store exists (a plain folder, an asset folder or a workspace's knowledge base).
 async fn ensure_store(app: &App, id: &str) -> Result<()> {
+    if let Some(ws) = crate::kb::workspace_of(id) {
+        crate::workspace::get(app, ws).await?;
+        return Ok(());
+    }
     let id = id.to_string();
     let known = app.state_db.call(move |c| {
         let plain: bool = c.query_row("SELECT 1 FROM project WHERE id = ?1 AND plain = 1", [&id], |_| Ok(true)).optional()?.unwrap_or(false);
@@ -143,11 +159,17 @@ pub async fn write_blob(app: &App, sha: &str, data: &[u8]) -> Result<()> {
 /// Home: applies a runner's changes. The session must hold the store's lock. Returns the new version.
 pub async fn commit(app: &App, id: &str, session: Option<&str>, updates: Vec<Update>) -> Result<i64> {
     ensure_store(app, id).await?;
+    ensure!(crate::kb::workspace_of(id).is_none(), "the knowledge base is written with launchpad kb");
     if let Some(s) = session {
         let holder = lock_holder(app, id).await?;
         ensure!(holder.as_deref() == Some(s), "this session does not hold the folder's lock");
     }
-    for u in &updates {
+    record(app, id, session, updates.into_iter().map(|u| (u, None)).collect()).await
+}
+
+/// Home: applies changes, each with its knowledge base record. Callers checked the lock.
+pub(crate) async fn record(app: &App, id: &str, session: Option<&str>, updates: Vec<(Update, Option<Meta>)>) -> Result<i64> {
+    for (u, _) in &updates {
         check_path(&u.path)?;
         if let Some(sha) = &u.sha256 {
             ensure!(blob_path(app, sha)?.exists(), "content of {} was not uploaded", u.path);
@@ -157,7 +179,8 @@ pub async fn commit(app: &App, id: &str, session: Option<&str>, updates: Vec<Upd
     let at = now_ms();
     let version = app.state_db.call(move |c| {
         let tx = c.transaction()?;
-        for u in updates {
+        for (u, meta) in updates {
+            let meta = meta.map(|m| serde_json::to_string(&m)).transpose().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
             let old: Option<String> = tx.query_row("SELECT sha256 FROM plain_file WHERE store = ?1 AND path = ?2", params![id2, u.path], |r| r.get(0)).optional()?;
             if old == u.sha256 {
                 continue;
@@ -166,14 +189,17 @@ pub async fn commit(app: &App, id: &str, session: Option<&str>, updates: Vec<Upd
                 Some(sha) => tx.execute("INSERT INTO plain_file (store, path, sha256, size, executable) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (store, path) DO UPDATE SET sha256 = ?3, size = ?4, executable = ?5", params![id2, u.path, sha, u.size as i64, u.executable as i64])?,
                 None => tx.execute("DELETE FROM plain_file WHERE store = ?1 AND path = ?2", params![id2, u.path])?,
             };
-            tx.execute("INSERT INTO plain_history (store, path, sha256, new_sha256, at, session_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![id2, u.path, old, u.sha256, at, session])?;
+            tx.execute("INSERT INTO plain_history (store, path, sha256, new_sha256, at, session_id, meta) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", params![id2, u.path, old, u.sha256, at, session, meta])?;
         }
         tx.execute("INSERT INTO plain_state (store, version) VALUES (?1, 1) ON CONFLICT (store) DO UPDATE SET version = version + 1", [&id2])?;
         let v: i64 = tx.query_row("SELECT version FROM plain_state WHERE store = ?1", [&id2], |r| r.get(0))?;
         tx.commit()?;
         Ok(v)
     }).await?;
-    app.bus.publish("plain", "changed", serde_json::json!({"id": id, "version": version}));
+    match crate::kb::workspace_of(id) {
+        Some(ws) => app.bus.publish("kb", "changed", serde_json::json!({"workspace_id": ws, "version": version})),
+        None => app.bus.publish("plain", "changed", serde_json::json!({"id": id, "version": version})),
+    }
     Ok(version)
 }
 
@@ -182,8 +208,13 @@ pub async fn history(app: &App, id: &str) -> Result<Vec<Change>> {
     let id = id.to_string();
     let cutoff = now_ms() - KEEP_MS;
     app.state_db.call(move |c| {
-        let mut st = c.prepare("SELECT id, path, sha256, new_sha256, at, session_id FROM plain_history WHERE store = ?1 AND at >= ?2 ORDER BY id DESC LIMIT 500")?;
-        let rows = st.query_map(params![id, cutoff], |r| Ok(Change { id: r.get(0)?, path: r.get(1)?, sha256: r.get(2)?, new_sha256: r.get(3)?, at: r.get(4)?, session_id: r.get(5)? }))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut st = c.prepare("SELECT id, path, sha256, new_sha256, at, session_id, meta FROM plain_history WHERE store = ?1 AND at >= ?2 ORDER BY id DESC LIMIT 500")?;
+        let rows = st
+            .query_map(params![id, cutoff], |r| {
+                let meta: Option<Meta> = r.get::<_, Option<String>>(6)?.and_then(|m| serde_json::from_str(&m).ok());
+                Ok(Change { id: r.get(0)?, path: r.get(1)?, sha256: r.get(2)?, new_sha256: r.get(3)?, at: r.get(4)?, session_id: r.get(5)?, added: meta.as_ref().and_then(|m| m.added), removed: meta.as_ref().and_then(|m| m.removed), author: meta.map(|m| m.author) })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }).await
 }
@@ -315,7 +346,7 @@ struct Synced {
 }
 
 /// Calls Home: in process on Home and `all`, over HTTP with the runner credential on a runner.
-mod home {
+pub(crate) mod home {
     use super::*;
 
     fn client() -> Result<reqwest::Client> {
@@ -383,7 +414,7 @@ mod home {
     }
 }
 
-async fn hash_file(path: &Path) -> Result<(String, u64, bool)> {
+pub(crate) async fn hash_file(path: &Path) -> Result<(String, u64, bool)> {
     let data = tokio::fs::read(path).await?;
     #[cfg(unix)]
     let exec = {
@@ -396,7 +427,7 @@ async fn hash_file(path: &Path) -> Result<(String, u64, bool)> {
 }
 
 /// Files of a copy (no `.git`, no symlinks), relative paths with `/`.
-fn walk(root: &Path) -> Vec<String> {
+pub fn walk(root: &Path) -> Vec<String> {
     let mut out = vec![];
     for e in ignore::WalkBuilder::new(root).hidden(false).git_ignore(false).git_exclude(false).git_global(false).ignore(false).parents(false).filter_entry(|e| e.file_name() != ".git").build().flatten() {
         if e.file_type().is_some_and(|t| t.is_file())

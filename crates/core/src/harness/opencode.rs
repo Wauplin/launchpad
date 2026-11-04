@@ -46,6 +46,12 @@ pub const REGISTRATION: super::Registration = super::Registration {
 pub struct Adapter;
 #[async_trait]
 impl super::Harness for Adapter {
+    fn contained_memory(&self, home: &std::path::Path, instructions: &str) -> Result<Vec<(String, String)>> {
+        let dir = home.join(".config/opencode");
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("AGENTS.md"), instructions)?;
+        Ok(vec![])
+    }
     fn skill_locations(&self) -> Vec<crate::prompt_context::SkillLocation> {
         use crate::prompt_context::SkillLocation;
         vec![SkillLocation::project(".opencode/skills"), SkillLocation::project(".agents/skills"), SkillLocation::project(".claude/skills"), SkillLocation::config("XDG_CONFIG_HOME", ".config", "opencode/skills"), SkillLocation::home(".agents/skills"), SkillLocation::home(".claude/skills")]

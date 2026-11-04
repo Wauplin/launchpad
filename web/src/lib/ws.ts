@@ -132,6 +132,9 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["proposals"] });
     } else if (topic === "runners") {
       void queryClient.invalidateQueries({ queryKey: ["runners"] });
+    } else if (topic === "kb") {
+      void queryClient.invalidateQueries({ queryKey: ["knowledge"] });
+      void queryClient.invalidateQueries({ queryKey: ["knowledge-unseen"] });
     } else if (topic === "workspaces") {
       void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
     } else if (topic === "projects") {

@@ -130,6 +130,12 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - Home backups add one Git bundle per mirror (Launchpad branches and kept tips minus what the remote has; a full bundle without a remote); a restored Home applies it when it recreates the mirror.
 - Home backups: content-addressed objects, the manifest written last, restore only from a complete manifest whose hashes match. Pruning under `home/` is allowed (last day, newest kept); never touch other prefixes. Test backups with a local folder destination, never a real bucket.
 
+### Knowledge base
+
+- The knowledge base (`kb.rs`, store `kb-<workspace id>` in the plain store tables) is the only agent memory. Only Home writes it, through `kb::apply` (one writer at a time, author and line counts in `plain_history.meta`); never commit a `kb-` store with `plain::commit`. Writes name the content they started from; a changed base keeps both versions (`.concurrent-<id>` sibling), never a silent overwrite.
+- Every contained session gets its workspace's mirror read-only (`$LAUNCHPAD_KB`) and the harness's own memory off through `Harness::contained_memory`; keep harness identity branches in the adapters. Agents write only with `launchpad kb` (session CLI token, `/api/kb`); Home takes the author from its own session record, never from the runner.
+- The gardener is a normal launch the owner starts (or schedules with a cron) from the Knowledge page; memory import reads a runner's harness memories only on an owner click.
+
 ### Credentials and the jail
 
 - Every agent on Linux runs contained (`contain::apply` in `Sessions::attach`): a bubblewrap jail, or a Local VM (`[runner] boundary = "vm"`). Never add a full-machine mode, never pass the machine's credentials, logins, Git config or SSH keys into a session, and keep `jail::KEEP_ENV` free of secrets. Title requests and harness TUIs use the session's lease and jail.

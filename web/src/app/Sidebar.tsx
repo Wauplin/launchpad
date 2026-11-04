@@ -1,3 +1,4 @@
+import { useKnowledgeUnseen } from "@/lib/knowledge";
 import { useInboxNeeds } from "@/features/inbox/data";
 import { useReviewCount } from "@/features/review/data";
 import { useAskCount } from "@/features/ask/count";
@@ -166,6 +167,7 @@ export function Sidebar() {
   const { theme, toggle } = useTheme();
   const needs = useInboxNeeds();
   const toReview = useReviewCount();
+  const knowledgeNew = useKnowledgeUnseen();
   const proposals = useAskCount();
   const scope = useScope();
   const all = useProjects().data ?? [];
@@ -208,6 +210,9 @@ export function Sidebar() {
       </NavItem>
       <NavItem tour="sidebar.folders" to="/projects" icon="folder">
         Folders
+      </NavItem>
+      <NavItem tour="sidebar.knowledge" to="/knowledge" icon="book" end={knowledgeNew > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${knowledgeNew} changes by agents since your last look`}>{knowledgeNew}</span> : undefined}>
+        Knowledge
       </NavItem>
       </nav>
       <SideLabel end={<>

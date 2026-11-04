@@ -196,6 +196,7 @@ CREATE TABLE IF NOT EXISTS plain_history (id INTEGER PRIMARY KEY AUTOINCREMENT, 
 CREATE TABLE IF NOT EXISTS plain_state (store TEXT PRIMARY KEY, version INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS plain_lock (store TEXT PRIMARY KEY, session_id TEXT NOT NULL, at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS plain_asset (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS kb_seen (workspace_id TEXT PRIMARY KEY, change_id INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS profile_cost (profile TEXT NOT NULL, at INTEGER NOT NULL, usd REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS onboarding (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_id TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, titles INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);",
@@ -209,6 +210,8 @@ CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_
     let project_columns = conn.prepare("PRAGMA table_info(project)")?
         .query_map([], |r| r.get::<_, String>(1))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let plain_columns = conn.prepare("PRAGMA table_info(plain_history)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !plain_columns.iter().any(|c| c == "meta") { conn.execute_batch("ALTER TABLE plain_history ADD COLUMN meta TEXT;")?; }
     if !project_columns.iter().any(|c| c == "worktree_setup") { conn.execute_batch("ALTER TABLE project ADD COLUMN worktree_setup TEXT;")?; }
     if !project_columns.iter().any(|c| c == "merge_when_done") { conn.execute_batch("ALTER TABLE project ADD COLUMN merge_when_done INTEGER NOT NULL DEFAULT 0;")?; }
     if !project_columns.iter().any(|c| c == "when_done") { conn.execute_batch("ALTER TABLE project ADD COLUMN when_done TEXT NOT NULL DEFAULT 'keep'; UPDATE project SET when_done = 'merge' WHERE merge_when_done = 1;")?; }

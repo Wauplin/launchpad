@@ -6,3 +6,4 @@ import "./github";
 import "./code";
 import "./settings";
 import "./terminals";
+import "./knowledge";

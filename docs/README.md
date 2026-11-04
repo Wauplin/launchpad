@@ -9,6 +9,7 @@
 - [SSH hosts](ssh-hosts.md): agents and terminals on other machines.
 - [Hugging Face](hugging-face.md): open models, trace sync to buckets and Launchpad in a Space.
 - [Home and runners](home-and-runners.md): one Home that keeps records, runners that run agents (in progress).
+- [Knowledge](knowledge.md): the knowledge base of each workspace, the only memory agents have.
 - [Chrome extension](../extension/README.md): give an agent the browser tabs you choose.
 - [Configuration](configuration.md): files, environment variables, `config.toml` and the CLI.
 - [Glossary](glossary.md): the words used in the UI.

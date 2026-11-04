@@ -34,6 +34,7 @@ Launchpad is a desktop app to launch, follow and review coding agents (Claude Co
 | **Phone and remote access** | Pair a phone with a QR code, use it over Tailscale, expand Summary or Trace for more reading space, get Web Push notifications. [Read more](docs/remote-access.md) |
 | **SSH hosts** | Run agents and terminals on other machines over SSH. [Read more](docs/ssh-hosts.md) |
 | **Home, runners and the jail** | [Private Space POC](deploy/hf-home/README.md): one Home keeps every record, credential and branch, with a guided setup that ends with a first agent, and bucket backup with encrypted credentials, plus harness and Hub CLIs for discovery and quota checks; runners run agents in a bubblewrap jail, with Home's logins and tokens added by a proxy (agents only see placeholders), or in a Local VM for Docker. [Read more](docs/home-and-runners.md) |
+| **Knowledge** | One knowledge base per workspace, the only memory agents have: notes and media that agents read as files and write through Launchpad, with the author of every change, diffs, Restore for 30 days, a gardener and a one-click import of Claude Code and Codex memories. [Read more](docs/knowledge.md) |
 | **Hugging Face** | Run Launchpad in a private Hugging Face Space, and sync agent traces to a Hugging Face bucket. Read-only synced traces have their own searchable group below Archived. [Read more](docs/hugging-face.md) |
 | **Chrome extension** | Give an agent the browser tabs you choose. [Read more](extension/README.md) |
 
@@ -62,6 +63,7 @@ The [getting started guide](docs/getting-started.md) covers prebuilt packages, h
 - [Remote access and phones](docs/remote-access.md): pairing, Tailscale, phone layout, notifications and headless servers.
 - [SSH hosts](docs/ssh-hosts.md): agents on other machines.
 - [Hugging Face](docs/hugging-face.md): Launchpad in a Space, trace sync and Hugging Face models.
+- [Knowledge](docs/knowledge.md): the knowledge base of each workspace, the only memory agents have.
 - [Configuration](docs/configuration.md): files, environment variables and the CLI.
 - [Architecture](docs/architecture.md): how the daemon, the UI and the agents fit together.
 - [Development](docs/development.md): build, run and check the code.

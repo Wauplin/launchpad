@@ -1,4 +1,4 @@
-// Chapter 8: folder pages, Files, workspaces and Add folder.
+// Chapter 8: folder pages, Files, workspaces, Add folder and the knowledge base.
 
 import type { Chapter } from "../tour/types";
 import { clickAnchor } from "./helpers";
@@ -8,7 +8,7 @@ const findOpen = () => !!document.querySelector('input[placeholder="Find in file
 
 export const folders: Chapter = {
   ...meta("folders"),
-  learned: ["A folder page shows its agents, GitHub items and worktrees", "Files browses any checkout or worktree, with Find", "Each folder belongs to one workspace; Everything shows them all", "Add folder registers, browses or clones folders"],
+  learned: ["A folder page shows its agents, GitHub items and worktrees", "Files browses any checkout or worktree, with Find", "Each folder belongs to one workspace; Everything shows them all", "Add folder registers, browses or clones folders", "Knowledge is the memory of a workspace: notes agents read and write, every change restorable"],
   steps: [
     {
       id: "folders.page", route: "/projects/demo-storefront", anchor: "folder.page",
@@ -30,6 +30,16 @@ export const folders: Chapter = {
       id: "folders.add", route: "/projects", anchor: "sidebar.add-folder",
       title: "Add folder",
       body: "Register a folder you work in, in one workspace: Git repositories of your folders root are suggested, any folder can be browsed, and Clone from GitHub clones one. On SSH machines too.",
+    },
+    {
+      id: "folders.knowledge", route: "/knowledge", anchor: "knowledge.notes",
+      title: "Knowledge",
+      body: "Each workspace has a knowledge base: Markdown notes and media, the only memory agents have. Agents read it as files and write with launchpad kb; their harness's own memory is off. Edit notes here, or run the gardener to merge duplicates and keep INDEX.md current.",
+    },
+    {
+      id: "folders.knowledge-changes", route: "/knowledge", anchor: "knowledge.tabs",
+      title: "Every change, restorable",
+      body: "Changes lists who changed what: the agent with its model and runner, or you, with the diff. Restore previous undoes a change for 30 days. A note edited by two agents at once keeps both versions until you pick one.",
     },
   ],
 };

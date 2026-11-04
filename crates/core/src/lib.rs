@@ -45,6 +45,7 @@ pub mod home_link;
 pub mod home_backup;
 pub mod home_git;
 pub mod plain;
+pub mod kb;
 pub mod repo_cache;
 pub mod analytics;
 pub mod review_state;
@@ -198,6 +199,7 @@ impl App {
         projects::spawn(&app);
         home_git::spawn(&app);
         plain::spawn(&app);
+        kb::spawn(&app);
         if let Err(e) = projects::adopt_git_folders(&app).await {
             tracing::warn!("Home Git folders: {e:#}");
         }
@@ -277,6 +279,9 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     home_git::MergeOutcome::export_all(&cfg)?;
     plain::Change::export_all(&cfg)?;
     plain::Tree::export_all(&cfg)?;
+    kb::Notes::export_all(&cfg)?;
+    kb::Hit::export_all(&cfg)?;
+    kb::NativeMemory::export_all(&cfg)?;
     hosts::HostStatus::export_all(&cfg)?;
     hosts::sshconfig::SshConfigHost::export_all(&cfg)?;
     proposals::Proposal::export_all(&cfg)?;

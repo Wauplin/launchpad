@@ -11,8 +11,11 @@ fn read_allowed(path: &str) -> bool {
         || (path.starts_with("/api/sessions/") && path.ends_with("/trace"))
 }
 
+/// `launchpad kb` sends contents (media included) in its request.
+pub const KB_BODY_MAX: usize = 128 << 20;
+
 fn own_write(path: &str) -> bool {
-    matches!(path, "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/proposals")
+    matches!(path, "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/proposals" | "/api/kb")
 }
 
 async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
@@ -35,7 +38,7 @@ pub async fn authorize(app: &App, id: &str, req: Request) -> Result<Request, Api
     if patch { return Ok(req); }
     if req.method() != Method::POST || !(own_write(&path) || path == "/api/predrafts") { return Err(denied()); }
     let (parts, body) = req.into_parts();
-    let bytes = to_bytes(body, 1 << 20).await.map_err(|_| denied())?;
+    let bytes = to_bytes(body, if path == "/api/kb" { KB_BODY_MAX } else { 1 << 20 }).await.map_err(|_| denied())?;
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| denied())?;
     if path == "/api/predrafts" {
         if !owns_cwd(app, id, value["cwd"].as_str().unwrap_or_default()).await

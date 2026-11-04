@@ -1050,6 +1050,32 @@ impl super::Harness for Adapter {
             ("ANTHROPIC_BASE_URL".into(), format!("{}/api.anthropic.com", setup.proxy_base)),
         ])
     }
+    fn contained_memory(&self, home: &std::path::Path, instructions: &str) -> Result<Vec<(String, String)>> {
+        let dir = home.join(".claude");
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("CLAUDE.md"), instructions)?;
+        let path = dir.join("settings.json");
+        let mut settings: Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
+        settings["autoMemoryEnabled"] = Value::Bool(false);
+        std::fs::write(&path, serde_json::to_string_pretty(&settings)?)?;
+        Ok(vec![("CLAUDE_CODE_DISABLE_AUTO_MEMORY".into(), "1".into())])
+    }
+    fn native_memories(&self, home: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {
+        // `~/.claude/projects/<folder path with / as ->/memory/`.
+        let prefix = format!("{}-", home.to_string_lossy().replace(['/', '.'], "-"));
+        let Ok(rd) = std::fs::read_dir(home.join(".claude/projects")) else { return vec![] };
+        let mut out: Vec<(String, std::path::PathBuf)> = rd
+            .flatten()
+            .filter(|e| e.path().join("memory").is_dir())
+            .map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let group = name.strip_prefix(&prefix).unwrap_or(name.trim_start_matches('-')).to_string();
+                (group, e.path().join("memory"))
+            })
+            .collect();
+        out.sort();
+        out
+    }
     fn title_command(
         &self,
         app: &App,

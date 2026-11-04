@@ -1188,6 +1188,21 @@ impl super::Harness for Adapter {
         std::fs::write(dir.join("config.toml"), config)?;
         Ok(vec![])
     }
+    fn contained_memory(&self, home: &std::path::Path, instructions: &str) -> Result<Vec<(String, String)>> {
+        let dir = home.join(".codex");
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("AGENTS.md"), instructions)?;
+        let path = dir.join("config.toml");
+        let config = std::fs::read_to_string(&path).unwrap_or_default();
+        if !config.contains("[memories]") {
+            std::fs::write(&path, format!("{config}{}\n[memories]\nuse_memories = false\ngenerate_memories = false\n", if config.is_empty() || config.ends_with('\n') { "" } else { "\n" }))?;
+        }
+        Ok(vec![])
+    }
+    fn native_memories(&self, home: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {
+        let dir = home.join(".codex/memories");
+        if dir.is_dir() { vec![("memories".into(), dir)] } else { vec![] }
+    }
     async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<super::trace::TraceFile>> {
         let id = super::trace::conversation(session)?;
         let root = super::trace::root(app, session, "CODEX_HOME", ".codex").await?;

@@ -31,6 +31,10 @@ When the session prompt has a "Launchpad worktree" section, Launchpad created fr
 
 For large or generated files in a Git folder (datasets, media, model files), run `launchpad assets create <path> --session-id <session-id>` in your worktree and commit `.launchpad/assets.toml`. Launchpad stores the folder outside Git and syncs it into later worktrees of the branch. Notes and knowledge do not belong there.
 
+## Knowledge base
+
+Your memory is the knowledge base of your workspace, a read-only folder in `$LAUNCHPAD_KB` (your user instructions include its `INDEX.md`). Your harness's own memory is off: never write memory files elsewhere. Look things up with `rg` in that folder or `launchpad kb search <words>`. Read its `AGENTS.md` before your first write, then write with `launchpad kb write <path>` (content on stdin or `--file`), `launchpad kb append <path> <text>`, `launchpad kb add-media <file>` and `launchpad kb rm <path>`. Save what helps later sessions (decisions and their reasons, facts you had to discover, how-tos, people and project context), update existing notes rather than adding near duplicates, and keep `INDEX.md` current. If a write reports a concurrent edit, merge the two versions into the note and remove the `.concurrent-` file.
+
 ## Credentials and the jail
 
 You run in a jail: your home folder is the session's own, and only your session's folders are writable. Variables such as `GH_TOKEN` or `HF_TOKEN` hold placeholders; Launchpad's proxy adds the owner's real token to requests to the tool's hosts and logs them in the session. Use `gh`, `hf`, `git` and other granted tools normally. Prepare work by default (Local PRs, suggestions); act directly on GitHub or the Hub only when the owner explicitly asks. Docker is not available in the jail: say so when a task needs it, so the owner can move it to a Local VM runner.
