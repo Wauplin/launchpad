@@ -20,6 +20,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,targe
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv git gh openssh-client ca-certificates tini && rm -rf /var/lib/apt/lists/*
+RUN git config --system credential.https://github.com.helper '!gh auth git-credential'
 RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir aiohttp==3.13.3 tomlkit==0.14.0
 RUN useradd --uid 1000 --create-home --shell /bin/bash user
 COPY --from=build /launchpad /usr/local/bin/launchpad
