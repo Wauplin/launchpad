@@ -4,7 +4,15 @@ import type { LaunchDelay } from "./LaunchDelay";
 import type { LaunchSpec } from "./LaunchSpec";
 import type { Tool } from "./Tool";
 
-export type ProposalBody = { "kind": "launch", spec: LaunchSpec, } | { "kind": "message", session_id: string, text: string, } | { "kind": "schedule", spec: LaunchSpec, conditions: Array<LaunchDelay>, } | { "kind": "cron", spec: LaunchSpec, schedule: string, conditions: Array<CronCondition>, } | { "kind": "status", session_ids: Array<string>, } | { "kind": "preset", preset_id?: string, label: string, text: string, agent: boolean, } | { "kind": "tool", tool: Tool, 
+export type ProposalBody = { "kind": "launch", spec: LaunchSpec, } | { "kind": "message", session_id: string, text: string, } | { "kind": "schedule", spec: LaunchSpec, conditions: Array<LaunchDelay>, } | { "kind": "cron", spec: LaunchSpec, schedule: string, conditions: Array<CronCondition>, } | { "kind": "status", session_ids: Array<string>, } | { "kind": "preset", preset_id?: string, label: string, text: string, agent: boolean, } | { "kind": "bot", name: string, 
+/**
+ * BOT.md.
+ */
+instructions: string, profile?: string, 
+/**
+ * A folder of the workspace. None: a new plain folder named after the bot.
+ */
+folder?: string, } | { "kind": "tool", tool: Tool, 
 /**
  * Where the owner creates the token.
  */

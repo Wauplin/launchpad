@@ -228,14 +228,14 @@ export function AskView() {
     : phone
       // Phone: the intro at the top and the field above the bottom tabs, like the session message box.
       ? <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
-          <p className="m-0 text-[13px] text-ink-2">Describe work in plain words. The assistant reads your folders, agents, inbox and quotas, then proposes launches, messages, schedules and crons. {auto ? "Auto mode starts new proposals immediately." : "Proposals wait for your tap."} Nothing reaches GitHub.</p>
+          <p className="m-0 text-[13px] text-ink-2">Describe work in plain words. The assistant reads your folders, agents, inbox and quotas, then proposes launches, messages, schedules, crons and bots. {auto ? "Auto mode starts new proposals immediately." : "Proposals wait for your tap."} Nothing reaches GitHub.</p>
           {resumePrevious}
           {busy && <Loading what="the assistant" />}
           <div className="mt-auto grid gap-2"><AskField phone onSend={ask} busy={busy} /></div>
         </div>
       : <div className="grid min-h-0 flex-1 place-items-center p-6">
         <div className="grid w-full max-w-[560px] gap-3">
-          <p className="m-0 text-[13px] text-ink-2">Describe work in plain words. The assistant reads your folders, agents, inbox and quotas, then proposes launches, messages, schedules and crons as cards. {auto ? "Auto mode starts new proposals immediately." : "Proposals wait for your tap."} Nothing reaches GitHub.</p>
+          <p className="m-0 text-[13px] text-ink-2">Describe work in plain words. The assistant reads your folders, agents, inbox and quotas, then proposes launches, messages, schedules, crons and bots as cards. {auto ? "Auto mode starts new proposals immediately." : "Proposals wait for your tap."} Nothing reaches GitHub.</p>
           <AskField onSend={ask} busy={busy} autoFocus />
           {resumePrevious}
           {busy && <Loading what="the assistant" />}

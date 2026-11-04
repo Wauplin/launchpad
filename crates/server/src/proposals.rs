@@ -20,6 +20,7 @@ pub fn router() -> Router<Server> {
         .route("/api/proposals/{id}/recheck", post(recheck))
         .route("/api/assistant", get(thread).post(ask))
         .route("/api/context/folders", get(folders))
+        .route("/api/context/bots", get(bots))
         .route("/api/context/sessions", get(sessions))
         .route("/api/context/sessions/{id}", get(session))
         .route("/api/context/profiles", get(profiles))
@@ -89,6 +90,22 @@ async fn folders(State(s): State<Server>, Query(q): Query<Scope>) -> ApiResult<V
     Ok(Json(json!(list.into_iter().filter(|p| ids.as_ref().is_none_or(|ids| ids.contains(&p.id))).map(|p| json!({
         "id": p.id, "name": p.name, "path": p.path, "description": p.description, "github": p.gh_repo, "scratch": p.is_temp,
     })).collect::<Vec<_>>())))
+}
+
+/// Bots without their instructions' history: name, job, profile, folder and the current session.
+async fn bots(State(s): State<Server>, Query(q): Query<Scope>) -> ApiResult<Value> {
+    let ids = scope(&s, q.workspace.as_deref()).await?;
+    let list = launchpad_core::bots::list(&s.app).await.map_err(bad)?;
+    let folders = launchpad_core::projects::list(&s.app).await?;
+    Ok(Json(json!(list.into_iter().filter(|b| ids.as_ref().is_none_or(|ids| ids.contains(&b.settings.folder))).map(|b| {
+        let thread = launchpad_core::bots::thread(&s.app, &b.id);
+        let current = thread.iter().rev().find(|x| x.status != launchpad_core::model::SessionStatus::Closed);
+        json!({
+            "id": b.id, "name": b.settings.name, "workspace_id": b.workspace_id, "instructions": b.instructions.chars().take(2000).collect::<String>(),
+            "profile": b.settings.profile, "folder_id": b.settings.folder, "folder": folders.iter().find(|p| p.id == b.settings.folder).map(|p| p.name.clone()),
+            "current_session": current.map(session_json), "sessions": thread.len(),
+        })
+    }).collect::<Vec<_>>())))
 }
 
 fn session_json(s: &Session) -> Value {

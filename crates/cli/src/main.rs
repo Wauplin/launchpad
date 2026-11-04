@@ -102,6 +102,11 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
+    /// Bots of a workspace with their job, profile, folder and current session (JSON).
+    Bots {
+        #[command(subcommand)]
+        command: ListOnly,
+    },
     /// Agent sessions (JSON): `list` or `show <id>`.
     Sessions {
         #[command(subcommand)]
@@ -134,7 +139,7 @@ enum Command {
     },
     /// Store an inert proposal for the owner to start from the Ask page; never starts anything.
     Propose {
-        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool"])]
+        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot"])]
         kind: String,
         #[arg(long)]
         title: String,
@@ -511,6 +516,7 @@ async fn main() -> Result<()> {
         Command::Assets { command } => assets_command(&paths, command).await,
         Command::Kb { command } => kb_command(&paths, command).await,
         Command::Folders { command: ListOnly::List { workspace } } => context_command(&paths, "folders", workspace).await,
+        Command::Bots { command: ListOnly::List { workspace } } => context_command(&paths, "bots", workspace).await,
         Command::Profiles { command: ListOnly::List { .. } } => context_command(&paths, "profiles", None).await,
         Command::Presets { command: ListOnly::List { .. } } => context_command(&paths, "presets", None).await,
         Command::Inbox { command: ListOnly::List { workspace } } => context_command(&paths, "inbox", workspace).await,
