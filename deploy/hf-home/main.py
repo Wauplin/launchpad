@@ -71,8 +71,8 @@ def configure(backup, config, key):
     config.parent.mkdir(parents=True, exist_ok=True)
     # Recover settings before adding the fixed front door. The daemon restores state.db itself.
     if not config.exists():
-        # Encrypted backups live under home/sealed; plain-text ones from before encryption under home.
-        roots = ([backup / "home/sealed"] if key else []) + [backup / "home"]
+        # Backups live under home; home/sealed is the earlier fully encrypted layout, read once.
+        roots = [backup / "home"] + ([backup / "home/sealed"] if key else [])
         root = next((r for r in roots if any((r / "backup").glob("*/manifest.json"))), None)
         manifests = sorted((root / "backup").glob("*/manifest.json"), reverse=True) if root else []
         if manifests:

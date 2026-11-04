@@ -5,6 +5,6 @@
  */
 export type BackupInfo = { destination: string | null, last_complete_at: number | null, error: string | null, 
 /**
- * Objects are sealed with `LAUNCHPAD_HOME_KEY`.
+ * Vault secrets in backups are sealed with `LAUNCHPAD_HOME_KEY`.
  */
-encrypted: boolean, };
+credentials_encrypted: boolean, };

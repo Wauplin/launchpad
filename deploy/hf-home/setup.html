@@ -24,12 +24,12 @@ footer{padding:14px 24px;border-top:1px solid var(--line-2);background:var(--chr
 code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4px;border-radius:4px}[hidden]{display:none!important}
 </style>
 <main><div class="card">
-<header><h1>Set up Launchpad Home</h1><p>Home keeps your sessions, branches and settings in its private bucket, encrypted. Agents run on the runners you pair. Three sign-ins are needed before Home opens.</p></header>
+<header><h1>Set up Launchpad Home</h1><p>Home keeps your sessions, branches and settings in its private bucket; credentials there are encrypted. Agents run on the runners you pair. Three sign-ins are needed before Home opens.</p></header>
 <ol>
 <li id="s-huggingface"><span class="dot">1</span><div><h2>Hugging Face</h2><div class="state"></div></div>
-  <div class="body"><p class="hint" style="margin:0">Home uses this login for its private bucket <b id="bucket"></b>. Right after it, Home creates an encryption key, keeps it as the <code>LP_HOME_KEY</code> secret of this Space, and restarts once. Everything Home stores in the bucket is then encrypted with it: backups, the vault and its own logins.</p>
+  <div class="body"><p class="hint" style="margin:0">Home uses this login for its private bucket <b id="bucket"></b>. Right after it, Home creates an encryption key, keeps it as the <code>LP_HOME_KEY</code> secret of this Space, and restarts once. Credentials in the bucket are then encrypted with it: the vault in backups and Home's own logins. Other data stays as plain files you can browse.</p>
   <div class="row"><button class="primary" data-login="huggingface">Sign in to Hugging Face</button></div>
-  <div id="manual" class="device" hidden><span>Open <a id="secrets" target="_blank" rel="noopener noreferrer">the Space settings</a>, add a secret named <code>LP_HOME_KEY</code> with this value, then restart the Space. Keep a copy somewhere safe: without it, the backups cannot be read.</span>
+  <div id="manual" class="device" hidden><span>Open <a id="secrets" target="_blank" rel="noopener noreferrer">the Space settings</a>, add a secret named <code>LP_HOME_KEY</code> with this value, then restart the Space. Keep a copy somewhere safe: without it, the stored credentials cannot be read.</span>
   <div class="row"><input id="manual-key" readonly aria-label="LP_HOME_KEY value"><button id="copy-key">Copy</button></div></div></div></li>
 <li id="s-github"><span class="dot">2</span><div><h2>GitHub</h2><div class="state"></div></div>
   <div class="body"><p class="hint" style="margin:0">Used by the Inbox, issues, pull requests, private clones and publication. Home keeps this login encrypted in its bucket. Agents never get it: they get their own tokens from Credentials and tools.</p>
@@ -38,7 +38,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
   <div class="body"><p class="hint" style="margin:0" id="profile-hint">A profile is how agents run. Sign in with your subscription: Home keeps the login encrypted in its vault and lends it to runners for each session.</p>
   <div class="row"><button class="primary" data-login="claude">Sign in to Claude Code</button><button class="primary" data-login="codex">Sign in to Codex (ChatGPT)</button></div></div></li>
 </ol>
-<div id="device" class="device" hidden><span id="device-what"></span><span class="code" id="code"></span>
+<div id="device" class="device" hidden><span id="device-what"></span><div class="row" id="code-row"><span class="code" id="code"></span><button id="copy-code">Copy</button></div>
   <div class="row"><a id="link" class="btn primary" target="_blank" rel="noopener noreferrer">Open sign-in page</a><button id="cancel">Cancel</button></div>
   <div class="row" id="paste" hidden><input id="paste-code" autocomplete="off" spellcheck="false" placeholder="Code from the sign-in page" aria-label="Authorization code"><button class="primary" id="paste-send">Continue</button></div>
   <small id="device-note">The code expires after a few minutes. This page updates when you approve it.</small></div>
@@ -74,7 +74,7 @@ function render(s){
     const body=$(`#s-${STEP[login.tool]} .body`);body.hidden=false;if($("#device").parentNode!==body)body.appendChild($("#device"));
     const terminal=login.tool==="claude";
     $("#device-what").textContent=!login.link?`Starting the ${NAMES[login.tool]} sign-in…`:terminal?(login.needs_code?"Open the Claude sign-in page, approve, then paste the code it shows:":"Finishing the Claude Code sign-in…"):`Open the ${NAMES[login.tool]} sign-in page and enter this code:`;
-    $("#code").textContent=login.code||"";$("#code").hidden=!login.code;
+    $("#code").textContent=login.code||"";$("#code-row").hidden=!login.code;
     $("#link").hidden=!login.link||(terminal&&!login.needs_code);if(login.link)$("#link").href=login.link;
     $("#paste").hidden=!login.needs_code;
     $("#device-note").textContent=terminal?"The code is sent to Claude Code on Home; the token it creates goes straight into the vault.":"The code expires after a few minutes. This page updates when you approve it.";
@@ -93,7 +93,9 @@ async function call(path,body){
 document.querySelectorAll("[data-login]").forEach(b=>b.onclick=()=>call("/_home/login",{tool:b.dataset.login}));
 $("#cancel").onclick=()=>call("/_home/cancel",{});
 $("#paste-send").onclick=async()=>{const code=$("#paste-code").value.trim();if(!code)return;await call("/_home/code",{code});$("#paste-code").value="";};
-$("#copy-key").onclick=()=>navigator.clipboard.writeText($("#manual-key").value);
+function copy(button,text){navigator.clipboard.writeText(text).then(()=>{button.textContent="Copied";setTimeout(()=>button.textContent="Copy",1500);});}
+$("#copy-key").onclick=e=>copy(e.target,$("#manual-key").value);
+$("#copy-code").onclick=e=>copy(e.target,$("#code").textContent);
 $("#open").onclick=async e=>{e.preventDefault();await call("/_home/finish",{});if(st&&st.complete)location.replace("/");};
 call("/_home/status");setInterval(()=>{if(!document.hidden)call("/_home/status")},2000);
 </script></html>

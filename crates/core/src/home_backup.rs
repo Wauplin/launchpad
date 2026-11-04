@@ -6,10 +6,10 @@
 //! - `home/backup/<time>/manifest.json`: the objects of one backup, by hash. Written last: a backup is complete
 //!   only when its manifest exists, so restore never points to objects that were never uploaded.
 //!
-//! Encryption: with `LAUNCHPAD_HOME_KEY` (base64 of 32 random bytes; the hosted Home keeps it in a Space secret),
-//! every object and manifest is sealed with AES-256-GCM and the layout moves under `home/sealed/`. A sealed
-//! Home restores an older plain-text backup once, then deletes the plain-text layout after its first complete
-//! sealed backup.
+//! Credentials: with `LAUNCHPAD_HOME_KEY` (base64 of 32 random bytes; the hosted Home keeps it in a Space
+//! secret), the vault's secrets are sealed with AES-256-GCM inside the backup copy of `state.db`, and opened again
+//! on restore. Everything else stays plain, so the bucket can be browsed and deduplicated. Backups from the
+//! earlier fully sealed layout (`home/sealed/`) are restored once, then deleted after the next complete backup.
 //!
 //! Pruning keeps every backup of the last day (and always the newest), then removes objects no kept manifest
 //! needs. `cache.db` is not backed up: it is rebuilt from GitHub.
@@ -53,10 +53,6 @@ impl Store {
     }
 
     async fn put(&self, env: &UserEnv, key: &str, data: Vec<u8>) -> Result<()> {
-        let data = match sealing_key() {
-            Some(k) => seal(k, &data)?,
-            None => data,
-        };
         match self {
             Store::Bucket(b) => crate::trace_backup::hf(env, &["buckets", "cp", "-", &format!("hf://buckets/{b}/{key}"), "--quiet"], Some(data)).await.map(|_| ()),
             Store::Dir(d) => {
@@ -153,8 +149,8 @@ pub struct BackupInfo {
     #[ts(type = "number | null")]
     pub last_complete_at: Option<i64>,
     pub error: Option<String>,
-    /// Objects are sealed with `LAUNCHPAD_HOME_KEY`.
-    pub encrypted: bool,
+    /// Vault secrets in backups are sealed with `LAUNCHPAD_HOME_KEY`.
+    pub credentials_encrypted: bool,
 }
 
 #[derive(Clone, Default)]
@@ -176,13 +172,17 @@ pub fn changed() {
 
 impl Backups {
     pub fn info(&self) -> BackupInfo {
-        BackupInfo { encrypted: sealing_key().is_some(), ..self.info.lock().unwrap().clone() }
+        BackupInfo { credentials_encrypted: sealing_key().is_some(), ..self.info.lock().unwrap().clone() }
     }
 }
 
 const MAGIC: &[u8] = b"LPSEALED1";
-/// The plain-text layout, read only to restore a Home from before encryption.
-const LEGACY: &str = "home";
+/// Where backups go.
+const ROOT: &str = "home";
+/// The earlier layout with every object sealed: read once to restore, then deleted.
+const LEGACY: &str = "home/sealed";
+/// A sealed vault secret in a backup copy of `state.db`.
+const SEALED_SECRET: &str = "lpsealed1:";
 
 static KEY: std::sync::OnceLock<Option<[u8; 32]>> = std::sync::OnceLock::new();
 
@@ -209,7 +209,7 @@ fn seal(key: &[u8; 32], data: &[u8]) -> Result<Vec<u8>> {
     Ok([MAGIC, &nonce, &sealed].concat())
 }
 
-/// Opens a sealed object; plain-text objects (from before encryption) pass through unchanged.
+/// Opens a sealed object (earlier layout); plain objects pass through unchanged.
 fn open(key: Option<&[u8; 32]>, data: Vec<u8>) -> Result<Vec<u8>> {
     use aes_gcm::{Aes256Gcm, KeyInit, aead::Aead};
     let Some(rest) = data.strip_prefix(MAGIC) else { return Ok(data) };
@@ -220,26 +220,20 @@ fn open(key: Option<&[u8; 32]>, data: Vec<u8>) -> Result<Vec<u8>> {
     Aes256Gcm::new(key.into()).decrypt(&nonce.into(), sealed).map_err(|_| anyhow::anyhow!("wrong key or damaged object"))
 }
 
-/// Where this Home writes: `home/sealed` when backups are encrypted.
-fn root() -> &'static str {
-    if sealing_key().is_some() { "home/sealed" } else { LEGACY }
-}
-
 fn blob_key(hash: &str) -> String {
-    format!("{}/blobs/sha256/{hash}", root())
+    format!("{ROOT}/blobs/sha256/{hash}")
 }
 
 fn manifest_key(at: i64) -> String {
     let t = chrono::DateTime::from_timestamp_millis(at).unwrap_or_default().format("%Y%m%dT%H%M%S%.3fZ");
-    format!("{}/backup/{t}/manifest.json", root())
+    format!("{ROOT}/backup/{t}/manifest.json")
 }
 
-/// An object by hash, from the current layout or, after a restore from before encryption, the plain-text one.
+/// An object by hash, from the current layout or, after a restore from the earlier sealed layout, that one.
 async fn get_blob(store: &Store, env: &UserEnv, hash: &str) -> Result<Vec<u8>> {
     let data = match store.get(env, &blob_key(hash)).await {
         Ok(d) => d,
-        Err(e) if root() != LEGACY => store.get(env, &format!("{LEGACY}/blobs/sha256/{hash}")).await.map_err(|_| e)?,
-        Err(e) => return Err(e),
+        Err(e) => store.get(env, &format!("{LEGACY}/blobs/sha256/{hash}")).await.map_err(|_| e)?,
     };
     ensure!(hex::encode(Sha256::digest(&data)) == hash, "backup object {hash} does not match its hash");
     Ok(data)
@@ -274,9 +268,50 @@ async fn snapshot(app: &App) -> Result<(Vec<u8>, i64)> {
             Ok(c.query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))?)
         })
         .await?;
-    let bytes = tokio::fs::read(&tmp).await;
+    let sealed = match sealing_key() {
+        Some(key) => {
+            let (path, key) = (tmp.clone(), *key);
+            tokio::task::spawn_blocking(move || map_secrets(&path, |s| seal_secret(&key, s))).await?
+        }
+        None => Ok(()),
+    };
+    let bytes = match sealed {
+        Ok(()) => tokio::fs::read(&tmp).await.map_err(anyhow::Error::from),
+        Err(e) => Err(e.context("seal the vault in the backup")),
+    };
     let _ = tokio::fs::remove_file(&tmp).await;
     Ok((bytes?, changes))
+}
+
+fn seal_secret(key: &[u8; 32], secret: &str) -> Result<String> {
+    use base64::Engine;
+    Ok(format!("{SEALED_SECRET}{}", base64::engine::general_purpose::STANDARD.encode(seal(key, secret.as_bytes())?)))
+}
+
+fn open_secret(key: Option<&[u8; 32]>, value: &str) -> Result<String> {
+    use base64::Engine;
+    let Some(rest) = value.strip_prefix(SEALED_SECRET) else { return Ok(value.to_string()) };
+    let key = key.context("this backup's vault is encrypted: set LAUNCHPAD_HOME_KEY (the LP_HOME_KEY Space secret)")?;
+    let data = open(Some(key), base64::engine::general_purpose::STANDARD.decode(rest)?)?;
+    Ok(String::from_utf8(data)?)
+}
+
+/// Rewrites every vault secret of a database copy (backup or restore); the only credentials in `state.db`.
+fn map_secrets(db: &Path, f: impl Fn(&str) -> Result<String>) -> Result<()> {
+    let mut c = rusqlite::Connection::open(db)?;
+    let exists: bool = c.query_row("SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vault')", [], |r| r.get(0))?;
+    if !exists {
+        return Ok(());
+    }
+    let tx = c.transaction()?;
+    let rows: Vec<(String, String)> = tx.prepare("SELECT id, secret FROM vault")?.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+    for (id, secret) in rows {
+        tx.execute("UPDATE vault SET secret = ?1 WHERE id = ?2", rusqlite::params![f(&secret)?, id])?;
+    }
+    tx.commit()?;
+    // VACUUM drops the old pages, so no plain secret survives in the free space of the copy.
+    c.execute_batch("VACUUM")?;
+    Ok(())
 }
 
 /// Takes one backup now if the database changed since the last one (or always with `force`).
@@ -291,7 +326,7 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
     }
     let (db, changes) = snapshot(app).await?;
     let config = tokio::fs::read(app.paths.config_file()).await.unwrap_or_default();
-    let existing: std::collections::HashSet<String> = store.list(&app.env, &format!("{}/blobs/sha256", root())).await?.into_iter().collect();
+    let existing: std::collections::HashSet<String> = store.list(&app.env, &format!("{ROOT}/blobs/sha256")).await?.into_iter().collect();
     let mut objects = vec![];
     for (name, data) in [("state.db", db), ("config.toml", config)] {
         let hash = hex::encode(Sha256::digest(&data));
@@ -436,23 +471,21 @@ pub async fn restore_bundle(app: &App, project_id: &str) -> Result<()> {
 }
 
 async fn prune(store: &Store, env: &UserEnv, now: i64) -> Result<()> {
-    let all = manifests(store, env, root()).await?;
+    let all = manifests(store, env, ROOT).await?;
     let gone = prunable(&all, now);
     for key in &gone {
         store.remove(env, key).await?;
     }
     let needed: std::collections::HashSet<String> = all.iter().filter(|(k, _)| !gone.contains(k)).flat_map(|(_, m)| m.objects.iter().map(|o| blob_key(&o.sha256))).collect();
-    for key in store.list(env, &format!("{}/blobs/sha256", root())).await? {
+    for key in store.list(env, &format!("{ROOT}/blobs/sha256")).await? {
         if !needed.contains(&key) {
             store.remove(env, &key).await?;
         }
     }
-    // A complete sealed backup exists now: the plain-text layout from before encryption goes.
-    if root() != LEGACY {
-        for prefix in ["backup", "blobs/sha256"] {
-            for key in store.list(env, &format!("{LEGACY}/{prefix}")).await? {
-                store.remove(env, &key).await?;
-            }
+    // A complete backup exists in the current layout: the earlier sealed one goes.
+    for prefix in ["backup", "blobs/sha256"] {
+        for key in store.list(env, &format!("{LEGACY}/{prefix}")).await? {
+            store.remove(env, &key).await?;
         }
     }
     Ok(())
@@ -467,8 +500,8 @@ pub async fn restore_if_empty(paths: &crate::paths::Paths, env: &UserEnv) -> Res
     let configured = std::fs::read_to_string(paths.config_file()).ok().and_then(|t| toml::from_str::<crate::config::Config>(&t).ok()).map(|c| c.home.backup);
     let destination = configured.filter(|d| !d.trim().is_empty()).or_else(|| std::env::var("LAUNCHPAD_HOME_BACKUP").ok());
     let Some(store) = destination.as_deref().and_then(Store::parse) else { return Ok(None) };
-    let mut all = manifests(&store, env, root()).await?;
-    if all.is_empty() && root() != LEGACY {
+    let mut all = manifests(&store, env, ROOT).await?;
+    if all.is_empty() {
         all = manifests(&store, env, LEGACY).await?;
     }
     let Some((key, m)) = all.first() else { return Ok(None) };
@@ -488,6 +521,10 @@ pub async fn restore_if_empty(paths: &crate::paths::Paths, env: &UserEnv) -> Res
     paths.ensure_dirs()?;
     for (path, data) in files {
         write_atomic(&path, &data)?;
+        if path == paths.state_db() {
+            let key = sealing_key().copied();
+            map_secrets(&path, |s| open_secret(key.as_ref(), s)).inspect_err(|_| { let _ = std::fs::remove_file(&path); })?;
+        }
     }
     tracing::info!("restored the Home backup {key}");
     Ok(Some(m.created_at))
@@ -560,6 +597,12 @@ mod tests {
         assert!(open(Some(&[7; 32]), sealed.clone()).is_err());
         assert!(open(None, sealed).is_err());
         assert!(parse_key("c2hvcnQ=").is_none());
+        // Vault secrets inside a backup copy of state.db.
+        let sealed = seal_secret(&key, "sk-ant-oat01-abc").unwrap();
+        assert!(sealed.starts_with(SEALED_SECRET) && !sealed.contains("sk-ant"));
+        assert_eq!(open_secret(Some(&key), &sealed).unwrap(), "sk-ant-oat01-abc");
+        assert_eq!(open_secret(None, "plain").unwrap(), "plain");
+        assert!(open_secret(None, &sealed).is_err());
         // Sealed by the Space gateway (Python `cryptography`), which recovers config.toml with the same format.
         let python = hex::decode("4c505345414c45443100000000000000000000000068cedab3955cfac960c7c7994747a29ecb0a873b743cdd078fbf59").unwrap();
         assert_eq!(open(Some(&key), python).unwrap(), b"from python");

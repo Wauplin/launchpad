@@ -1,8 +1,8 @@
-"""Home's first-start setup: Hugging Face with encryption, GitHub and a first profile. All three are required.
+"""Home's first-start setup: Hugging Face with the credential key, GitHub and a first profile. All three are required.
 
 Only fixed CLI logins run, and only after an owner click. Their output stays in memory and is never logged.
-Home's own logins are kept in the private bucket encrypted with `LP_HOME_KEY` (a Space secret), and decrypted
-only into this container's local disk.
+Credentials are encrypted with `LP_HOME_KEY` (a Space secret): Home's own logins in the bucket (decrypted only
+into this container's local disk) and the vault secrets in Home's backups. Everything else is stored plain.
 """
 import asyncio
 import base64
@@ -249,7 +249,7 @@ class Setup:
             from huggingface_hub import HfApi, get_token
             api = HfApi(token=get_token())
             await asyncio.to_thread(api.add_space_secret, self.space, KEY_SECRET, value,
-                                    description="Encrypts Launchpad Home's backups and logins in the bucket. Never share or delete it.")
+                                    description="Encrypts Launchpad Home's credentials in the bucket. Never share or delete it.")
             self.encryption = {"state": "restarting", "error": None, "manual_key": None}
             asyncio.get_running_loop().call_later(2, lambda: asyncio.ensure_future(self.restart(api)))
         except Exception:
