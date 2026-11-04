@@ -19,6 +19,9 @@ use crate::sessions::StartSpec;
 use crate::util::now_ms;
 use crate::vault::{Lease, LeaseRequest};
 
+/// Where a jailed session finds its ssh-agent socket.
+const SSH_SOCK_IN_JAIL: &str = "/run/launchpad/ssh-agent.sock";
+
 pub fn session_dir(app: &App, id: &str) -> PathBuf {
     app.paths.data_dir.join("sessions").join(id)
 }
@@ -152,10 +155,19 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
         env.extend(app.harnesses.get(s.harness).contained_login(&setup)?);
     }
     write_git_config(&home, &lease)?;
+    let vm = app.config.get().runner.boundary == crate::config::Boundary::Vm;
+    let mut binds = vec![];
     if lease.ssh {
-        let sock = dir.join("ssh/agent.sock");
-        env.push(("SSH_AUTH_SOCK".into(), p(&sock)));
+        // Socket paths are short (108 bytes): the socket lives in the runtime folder, mounted at a fixed path.
+        let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|d| d.is_dir()).unwrap_or_else(std::env::temp_dir);
+        let sock = runtime.join("launchpad-ssh").join(format!("{}.sock", &s.id[..s.id.len().min(12)]));
         start_ssh_socket(app, &s.id, &sock)?;
+        if vm {
+            env.push(("SSH_AUTH_SOCK".into(), p(&sock)));
+        } else {
+            env.push(("SSH_AUTH_SOCK".into(), SSH_SOCK_IN_JAIL.into()));
+            binds.push((sock, PathBuf::from(SSH_SOCK_IN_JAIL)));
+        }
     }
     // Profile values: `${NAME}` references resolve to placeholders of granted tools, never machine values.
     let refs = crate::vault::reference_values(&lease);
@@ -175,7 +187,7 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
             ro.push(d);
         }
     }
-    for program in ["claude", "codex", "opencode"] {
+    for program in crate::harness::REGISTRATIONS.iter().map(|r| app.harnesses.get(r.descriptor.id).sign_in_program()) {
         if let Some(real) = app.env.which(program).and_then(|p| std::fs::canonicalize(p).ok())
             && let Some(parent) = real.parent()
         {
@@ -187,15 +199,15 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     if let Ok(exe) = std::env::current_exe() {
         ro.push(exe);
     }
-    let mut rw: Vec<PathBuf> = vec![start.cwd.clone(), home.clone(), cache.clone(), dir.join("ssh"), app.paths.data_dir.join("worktrees"), app.paths.data_dir.join("repos")];
+    let mut rw: Vec<PathBuf> = vec![start.cwd.clone(), home.clone(), cache.clone(), app.paths.data_dir.join("worktrees"), app.paths.data_dir.join("repos")];
     rw.extend(start.add_dirs.iter().map(PathBuf::from));
     start.env = all.clone();
     // On a Local VM the virtual machine contains the agents: no jail inside, Docker available.
-    if app.config.get().runner.boundary == crate::config::Boundary::Vm {
+    if vm {
         return Ok(start);
     }
     crate::jail::check().await?;
-    let jail = crate::jail::Jail { rw, ro, tmp, env: all };
+    let jail = crate::jail::Jail { rw, ro, tmp, env: all, binds };
     start.jail = Some(Arc::new(jail));
     Ok(start)
 }
@@ -229,11 +241,20 @@ fn write_git_config(home: &Path, lease: &Lease) -> Result<()> {
 /// The session's ssh-agent socket: every message goes to Home, which holds the key.
 fn start_ssh_socket(app: &App, session_id: &str, sock: &Path) -> Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    // A running jail keeps the socket it mounted: never replace a live listener.
+    if SSH.lock().unwrap().get(session_id).is_some_and(|t| !t.is_finished()) && sock.exists() {
+        return Ok(());
+    }
     if let Some(old) = SSH.lock().unwrap().remove(session_id) {
         old.abort();
     }
     std::fs::create_dir_all(sock.parent().context("socket folder")?)?;
     let _ = std::fs::remove_file(sock);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(sock.parent().context("socket folder")?, std::fs::Permissions::from_mode(0o700));
+    }
     let listener = tokio::net::UnixListener::bind(sock).context("create the ssh-agent socket")?;
     let (app, id) = (app.clone(), session_id.to_string());
     let task = tokio::spawn(async move {
