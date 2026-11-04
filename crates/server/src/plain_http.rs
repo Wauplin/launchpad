@@ -57,6 +57,9 @@ async fn caller(s: &Server, headers: &HeaderMap) -> Result<Option<String>, ApiEr
 
 async fn tree(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap) -> ApiResult<plain::Tree> {
     caller(&s, &headers).await?;
+    if let Some(ws) = launchpad_core::kb::workspace_of(&id) {
+        launchpad_core::kb::ensure_seeded(&s.app, ws).await.map_err(bad)?;
+    }
     Ok(Json(plain::tree(&s.app, &id).await.map_err(bad)?))
 }
 

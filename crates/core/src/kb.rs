@@ -417,24 +417,32 @@ async fn session_author(app: &App, session_id: &str) -> Result<(Author, String)>
 
 /// Home: writes a runner sends for one of its sessions (`launchpad kb` through the tunnel).
 pub async fn runner_apply(app: &App, runner_id: Option<&str>, body: Value) -> Result<Value> {
-    let session_id = body["session_id"].as_str().context("session_id")?;
-    crate::home_git::check_session(app, runner_id, session_id)?;
     let ops: Vec<Op> = serde_json::from_value(body["ops"].clone())?;
-    let (author, ws) = match body["owner"].as_bool() {
+    let (author, ws) = if body["owner"].as_bool() == Some(true) {
         // Your edits in a runner's mirror.
-        Some(true) => (Author::owner(None), body["workspace_id"].as_str().context("workspace_id")?.to_string()),
-        _ => session_author(app, session_id).await?,
+        let runner = match runner_id {
+            Some(r) => crate::runners::list(app).await.ok().and_then(|l| l.into_iter().find(|x| x.runner.id == r)).map(|x| x.runner.name),
+            None => None,
+        };
+        (Author { runner, ..Author::owner(None) }, body["workspace_id"].as_str().context("workspace_id")?.to_string())
+    } else {
+        let session_id = body["session_id"].as_str().context("session_id")?;
+        crate::home_git::check_session(app, runner_id, session_id)?;
+        session_author(app, session_id).await?
     };
     Ok(json!({"lines": apply(app, &ws, author, ops).await?}))
 }
 
-pub async fn notes(app: &App, workspace_id: &str) -> Result<Notes> {
+/// Home: a knowledge base gets its first files before anyone reads it.
+pub async fn ensure_seeded(app: &App, workspace_id: &str) -> Result<()> {
     ensure_home(app)?;
     crate::workspace::get(app, workspace_id).await?;
-    {
-        let _one = WRITES.lock().await;
-        seed(app, workspace_id).await?;
-    }
+    let _one = WRITES.lock().await;
+    seed(app, workspace_id).await
+}
+
+pub async fn notes(app: &App, workspace_id: &str) -> Result<Notes> {
+    ensure_seeded(app, workspace_id).await?;
     let t = plain::tree(app, &store(workspace_id)).await?;
     let concurrent = t.files.iter().filter_map(|e| Some(Concurrent { note: concurrent_note(&e.path)?, path: e.path.clone() })).collect();
     let ws = workspace_id.to_string();
@@ -670,6 +678,9 @@ pub async fn sync(app: &App, workspace_id: &str) -> Result<PathBuf> {
         }
     }
     // Home's version.
+    if crate::home_git::here(app) {
+        ensure_seeded(app, workspace_id).await?;
+    }
     let tree = plain::home::tree(app, &id).await?;
     let wanted: BTreeMap<&str, &plain::Entry> = tree.files.iter().map(|e| (e.path.as_str(), e)).collect();
     for (rel, h) in &local {
