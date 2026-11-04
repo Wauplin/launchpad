@@ -131,6 +131,17 @@ pub struct Tool {
     /// Workspaces where the tool is granted; `*` grants it everywhere.
     #[serde(default)]
     pub workspaces: Vec<String>,
+    /// An HTTPS address on one of its hosts that answers 2xx with a valid token (Test in Settings).
+    #[serde(default)]
+    pub check_url: Option<String>,
+}
+
+/// The result of Test: Home sends one GET to the tool's check URL with the token added.
+#[derive(Clone, Debug, Serialize, TS)]
+pub struct ToolTest {
+    pub ok: bool,
+    pub status: u16,
+    pub message: String,
 }
 
 impl Tool {
@@ -160,6 +171,7 @@ pub fn templates() -> Vec<Tool> {
                 rule("github.com", Auth::Basic { user: "x-access-token".into() }),
             ],
             workspaces: vec!["*".into()],
+            check_url: Some("https://api.github.com/user".into()),
         },
         Tool {
             id: "hf".into(),
@@ -169,6 +181,7 @@ pub fn templates() -> Vec<Tool> {
             env: vec!["HF_TOKEN".into()],
             hosts: vec![rule("huggingface.co", Auth::Bearer)],
             workspaces: vec!["*".into()],
+            check_url: Some("https://huggingface.co/api/whoami-v2".into()),
         },
         Tool {
             id: "openrouter".into(),
@@ -178,6 +191,7 @@ pub fn templates() -> Vec<Tool> {
             env: vec!["OPENROUTER_API_KEY".into()],
             hosts: vec![rule("openrouter.ai", Auth::Bearer)],
             workspaces: vec!["*".into()],
+            check_url: Some("https://openrouter.ai/api/v1/key".into()),
         },
     ]
 }
@@ -363,6 +377,27 @@ pub async fn entries(app: &App) -> Result<Vec<VaultEntry>> {
                 .collect())
         })
         .await
+}
+
+/// Home: Test of a saved tool. The token never leaves Home; only the status comes back.
+pub async fn test_tool(app: &App, id: &str) -> Result<ToolTest> {
+    let tool = tools(app).await?.into_iter().find(|t| t.id == id).context("no such tool")?;
+    let url = tool.check_url.as_deref().map(str::trim).filter(|u| !u.is_empty()).context("this tool has no check URL (Advanced)")?;
+    let mut url = reqwest::Url::parse(url).context("the check URL is not a valid address")?;
+    anyhow::ensure!(url.scheme() == "https", "the check URL must use https");
+    let host = url.host_str().context("the check URL has no host")?.to_string();
+    let rule = tool.hosts.iter().find(|r| r.matches(&host)).with_context(|| format!("{host} is not one of the tool's hosts"))?;
+    let credential = tool.credential.as_deref().context("this tool has no token")?;
+    let (_, secret) = secret(app, credential).await?.with_context(|| format!("the token {credential} is not in the vault"))?;
+    let mut headers = reqwest::header::HeaderMap::new();
+    crate::proxy::add_auth(&mut headers, &mut url, &rule.auth, &secret);
+    let res = reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build()?.get(url).headers(headers).header("user-agent", "launchpad").send().await;
+    Ok(match res {
+        Ok(r) if r.status().is_success() => ToolTest { ok: true, status: r.status().as_u16(), message: format!("The token works on {host}.") },
+        Ok(r) if matches!(r.status().as_u16(), 401 | 403) => ToolTest { ok: false, status: r.status().as_u16(), message: format!("{host} refused the token ({}). Check the token and its permissions.", r.status()) },
+        Ok(r) => ToolTest { ok: false, status: r.status().as_u16(), message: format!("{host} answered {}.", r.status()) },
+        Err(e) => ToolTest { ok: false, status: 0, message: format!("Could not reach {host}: {e}") },
+    })
 }
 
 async fn secret(app: &App, id: &str) -> Result<Option<(Kind, String)>> {

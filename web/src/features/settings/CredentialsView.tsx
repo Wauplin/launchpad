@@ -7,6 +7,7 @@ import type { HomeToken } from "@/gen/HomeToken";
 import type { LeaseInfo } from "@/gen/LeaseInfo";
 import type { ProxyAuth } from "@/gen/ProxyAuth";
 import type { Tool } from "@/gen/Tool";
+import type { ToolTest } from "@/gen/ToolTest";
 import type { ToolInstallKind } from "@/gen/ToolInstallKind";
 import type { VaultKind } from "@/gen/VaultKind";
 import type { VaultOverview } from "@/gen/VaultOverview";
@@ -129,6 +130,17 @@ function installText(t: Tool): string {
   return i.kind === "github_release" ? `GitHub release ${i.source} (${i.asset})` : `${i.kind === "url" ? "download" : i.kind} ${i.source}`;
 }
 
+/** Home calls the tool's check URL with the token; only the answer comes back. */
+function TestTool({ tool }: { tool: Tool }) {
+  const [result, setResult] = useState<ToolTest | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = () => { setBusy(true); void api.post<ToolTest>(`/api/vault/tools/${tool.id}/test`, {}).then(setResult, toastError).finally(() => setBusy(false)); };
+  return <>
+    {result && <Badge tone={result.ok ? "ok" : "attn"} title={result.message}>{result.ok ? "token works" : result.status ? `refused · ${result.status}` : "unreachable"}</Badge>}
+    <button className="btn btn-sm" disabled={busy} title={`Calls ${tool.check_url} from Home with the token`} onClick={run}>{busy ? "Testing…" : "Test"}</button>
+  </>;
+}
+
 function Tools({ v, onDone }: { v: VaultOverview; onDone: () => unknown }) {
   const [editing, setEditing] = useState<Tool | null>(null);
   const workspaces = useWorkspaces().data ?? [];
@@ -144,6 +156,7 @@ function Tools({ v, onDone }: { v: VaultOverview; onDone: () => unknown }) {
             <span className="flex flex-wrap items-center gap-1.5"><b>{t.name}</b><span className="font-mono text-[12px] text-ink-3">{t.id}</span>{t.credential && !v.entries.some((e) => e.id === t.credential) && <Badge tone="attn">token {t.credential} missing</Badge>}</span>
             <span className="text-[12px] text-ink-3">{installText(t)} · {t.env.join(", ") || "no variable"} · {t.hosts.map((h) => h.host).join(", ") || "no host"} · {t.workspaces.length ? t.workspaces.map(wsName).join(", ") : "not granted"}</span>
           </span>
+          {t.check_url && <TestTool tool={t} />}
           <button className="btn btn-sm" onClick={() => setEditing(t)}>Edit</button>
           <ConfirmButton icon="trash" consequence={`Removes ${t.name}. New sessions no longer get it.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/vault/tools/${t.id}`).then(onDone, toastError)}>Remove</ConfirmButton>
         </div>
@@ -151,7 +164,7 @@ function Tools({ v, onDone }: { v: VaultOverview; onDone: () => unknown }) {
       {editing ? <ToolEditor tool={editing} v={v} onClose={() => setEditing(null)} onDone={onDone} /> : (
         <div className="flex flex-wrap gap-2">
           {v.templates.filter((t) => !v.tools.some((x) => x.id === t.id)).map((t) => <button key={t.id} className="btn btn-sm" onClick={() => setEditing(t)}>Add {t.name}</button>)}
-          <button className="btn btn-sm" onClick={() => setEditing({ id: "", name: "", install: null, credential: null, env: [], hosts: [], workspaces: ["*"] })}>Add another tool</button>
+          <button className="btn btn-sm" onClick={() => setEditing({ id: "", name: "", install: null, credential: null, env: [], hosts: [], workspaces: ["*"], check_url: null })}>Add another tool</button>
         </div>
       )}
     </Card>
@@ -236,6 +249,9 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
         <SettingRow label="Hosts" hint={<>One per line: <code className="font-mono">host bearer</code>, <code className="font-mono">host basic user</code>, <code className="font-mono">host header Name [prefix]</code> or <code className="font-mono">host query param</code>. <code className="font-mono">*.example.com</code> covers subdomains.</>}>
           <textarea className="field-input min-h-[70px] min-w-[300px] flex-1 font-mono text-[12px]" value={hosts} onChange={(e) => setHosts(e.target.value)} spellCheck={false} />
           <span className="text-[11px] text-ink-3">{parseHosts(hosts).map((h) => `${h.host}: ${AUTH_LABEL[h.auth.kind]}`).join(" · ")}</span>
+        </SettingRow>
+        <SettingRow label="Check URL" hint="An https address on one of the hosts that answers with a valid token; Test calls it from Home.">
+          <input className="field-input min-w-[300px] flex-1 font-mono" value={t.check_url ?? ""} placeholder="https://api.example.com/me" onChange={(e) => set({ check_url: e.target.value.trim() || null })} />
         </SettingRow>
         <SettingRow label="Granted in" hint="Sessions of these workspaces get the tool and its token.">
           <FilterChips label="Granted in">

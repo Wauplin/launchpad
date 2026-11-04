@@ -300,6 +300,25 @@ fn wants_body(host: &str, method: &str, path: &str) -> (bool, bool) {
     (req, res)
 }
 
+/// Sets a token on a request the way a host rule says.
+pub fn add_auth(headers: &mut reqwest::header::HeaderMap, url: &mut reqwest::Url, auth: &Auth, secret: &str) {
+    use base64::Engine;
+    let mut set = |name: &str, value: String| {
+        if let (Ok(n), Ok(v)) = (reqwest::header::HeaderName::from_bytes(name.as_bytes()), reqwest::header::HeaderValue::from_str(&value)) {
+            headers.insert(n, v);
+        }
+    };
+    match auth {
+        Auth::Bearer => set("authorization", format!("Bearer {secret}")),
+        Auth::Basic { user } => set("authorization", format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{user}:{secret}")))),
+        Auth::Header { name, prefix } => set(name, format!("{prefix}{secret}")),
+        Auth::Query { param } => {
+            let pairs: Vec<(String, String)> = url.query_pairs().filter(|(k, _)| k != param).map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+            url.query_pairs_mut().clear().extend_pairs(pairs).append_pair(param, secret);
+        }
+    }
+}
+
 /// Adds the credential (if the lease has one for this host), sends the request to `https://<host><target>`
 /// and streams the answer back.
 async fn forward(inner: &Inner, active: Option<Arc<Active>>, host: &str, target: &str, req: Request<Incoming>) -> Response<Body> {
@@ -316,21 +335,7 @@ async fn forward(inner: &Inner, active: Option<Arc<Active>>, host: &str, target:
         }
     }
     if let Some((secret, auth)) = &credential {
-        use base64::Engine;
-        let set = |headers: &mut reqwest::header::HeaderMap, name: &str, value: String| {
-            if let (Ok(n), Ok(v)) = (reqwest::header::HeaderName::from_bytes(name.as_bytes()), reqwest::header::HeaderValue::from_str(&value)) {
-                headers.insert(n, v);
-            }
-        };
-        match auth {
-            Auth::Bearer => set(&mut headers, "authorization", format!("Bearer {secret}")),
-            Auth::Basic { user } => set(&mut headers, "authorization", format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{user}:{secret}")))),
-            Auth::Header { name, prefix } => set(&mut headers, name, format!("{prefix}{secret}")),
-            Auth::Query { param } => {
-                let pairs: Vec<(String, String)> = url.query_pairs().filter(|(k, _)| k != param).map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
-                url.query_pairs_mut().clear().extend_pairs(pairs).append_pair(param, secret);
-            }
-        }
+        add_auth(&mut headers, &mut url, auth, secret);
     }
     let path = url.path().to_string();
     let (read_req, read_res) = if credential.is_some() { wants_body(host, &method, &path) } else { (false, false) };

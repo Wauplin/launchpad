@@ -176,8 +176,8 @@ route("GET", "/api/home/backup", () => ({ destination: null, last_complete_at: n
 
 // Credentials and tools: a sample vault. Secrets never reach the browser, in the demo either.
 const demoTemplates = [
-  { id: "gh", name: "GitHub CLI", install: { kind: "github_release" as const, source: "cli/cli", asset: "gh_*_linux_{arch}.tar.gz" }, credential: "github", env: ["GH_TOKEN", "GITHUB_TOKEN"], hosts: [{ host: "api.github.com", auth: { kind: "bearer" as const } }, { host: "github.com", auth: { kind: "basic" as const, user: "x-access-token" } }], workspaces: ["*"] },
-  { id: "hf", name: "Hugging Face CLI", install: { kind: "uv" as const, source: "huggingface_hub", asset: "" }, credential: "huggingface", env: ["HF_TOKEN"], hosts: [{ host: "huggingface.co", auth: { kind: "bearer" as const } }], workspaces: ["*"] },
+  { id: "gh", name: "GitHub CLI", install: { kind: "github_release" as const, source: "cli/cli", asset: "gh_*_linux_{arch}.tar.gz" }, credential: "github", env: ["GH_TOKEN", "GITHUB_TOKEN"], hosts: [{ host: "api.github.com", auth: { kind: "bearer" as const } }, { host: "github.com", auth: { kind: "basic" as const, user: "x-access-token" } }], workspaces: ["*"], check_url: "https://api.github.com/user" },
+  { id: "hf", name: "Hugging Face CLI", install: { kind: "uv" as const, source: "huggingface_hub", asset: "" }, credential: "huggingface", env: ["HF_TOKEN"], hosts: [{ host: "huggingface.co", auth: { kind: "bearer" as const } }], workspaces: ["*"], check_url: "https://huggingface.co/api/whoami-v2" },
 ];
 route("GET", "/api/vault", () => ({
   entries: [
@@ -203,6 +203,7 @@ route("GET", "/api/vault/tools.toml", () => ({ toml: "[[tools]]\nid = \"gh\"\n" 
 route("PUT", "/api/vault/entries/:id", notInDemo);
 route("POST", "/api/vault/entries/:id/from-home", notInDemo);
 route("DELETE", "/api/vault/entries/:id", notInDemo);
+route("POST", "/api/vault/tools/:id/test", () => ({ ok: true, status: 200, message: "The token works on api.github.com." }));
 route("PUT", "/api/vault/tools/:id", notInDemo);
 route("DELETE", "/api/vault/tools/:id", notInDemo);
 route("PUT", "/api/vault/identity", notInDemo);

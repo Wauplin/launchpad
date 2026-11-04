@@ -270,6 +270,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     workspace::Workspace::export_all(&cfg)?;
     runners::RunnerStatus::export_all(&cfg)?;
     vault::VaultOverview::export_all(&cfg)?;
+    vault::ToolTest::export_all(&cfg)?;
     vault::LeaseInfo::export_all(&cfg)?;
     proxy::Access::export_all(&cfg)?;
     home_link::RemoteLaunch::export_all(&cfg)?;

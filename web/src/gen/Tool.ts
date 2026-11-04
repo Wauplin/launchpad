@@ -6,20 +6,24 @@ import type { ToolInstall } from "./ToolInstall";
  * A CLI agents may use: how a runner installs it, the variables that receive a placeholder, and the hosts
  * where the proxy adds the credential.
  */
-export type Tool = { 
+export type Tool = {
 /**
  * Lowercase letters, digits and dashes.
  */
-id: string, name: string, install: ToolInstall | null, 
+id: string, name: string, install: ToolInstall | null,
 /**
  * The vault entry (kind Token) the proxy adds. Tools sharing a credential share its authority.
  */
-credential: string | null, 
+credential: string | null,
 /**
  * Variables set to the placeholder in the agent's environment, for example `GH_TOKEN`.
  */
-env: Array<string>, hosts: Array<HostRule>, 
+env: Array<string>, hosts: Array<HostRule>,
 /**
  * Workspaces where the tool is granted; `*` grants it everywhere.
  */
-workspaces: Array<string>, };
+workspaces: Array<string>,
+/**
+ * An HTTPS address on one of its hosts that answers 2xx with a valid token (Test in Settings).
+ */
+check_url: string | null, };

@@ -17,6 +17,7 @@ pub fn router() -> Router<Server> {
         .route("/api/vault/entries/{id}", put(put_entry).delete(delete_entry))
         .route("/api/vault/entries/{id}/from-home", post(entry_from_home))
         .route("/api/vault/tools/{id}", put(put_tool).delete(delete_tool))
+        .route("/api/vault/tools/{id}/test", post(test_tool))
         .route("/api/vault/tools.toml", get(export))
         .route("/api/vault/identity", put(identity))
         .route("/api/vault/leases", get(leases))
@@ -116,4 +117,8 @@ async fn revoke(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Va
 
 async fn access(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Vec<launchpad_core::proxy::Access>> {
     Ok(Json(launchpad_core::contain::access_log(&s.app, &id).await?))
+}
+
+async fn test_tool(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<vault::ToolTest> {
+    Ok(Json(vault::test_tool(&s.app, &id).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }
