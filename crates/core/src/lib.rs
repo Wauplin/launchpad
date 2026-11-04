@@ -43,6 +43,7 @@ pub mod replica;
 pub mod home_link;
 pub mod home_backup;
 pub mod home_git;
+pub mod plain;
 pub mod repo_cache;
 pub mod analytics;
 pub mod review_state;
@@ -170,6 +171,7 @@ impl App {
         inbox::spawn(&app);
         projects::spawn(&app);
         home_git::spawn(&app);
+        plain::spawn(&app);
         if let Err(e) = projects::adopt_git_folders(&app).await {
             tracing::warn!("Home Git folders: {e:#}");
         }
@@ -244,6 +246,8 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     worktrees::WorktreeInfo::export_all(&cfg)?;
     home_git::HomeBranch::export_all(&cfg)?;
     home_git::MergeOutcome::export_all(&cfg)?;
+    plain::Change::export_all(&cfg)?;
+    plain::Tree::export_all(&cfg)?;
     hosts::HostStatus::export_all(&cfg)?;
     hosts::sshconfig::SshConfigHost::export_all(&cfg)?;
     proposals::Proposal::export_all(&cfg)?;

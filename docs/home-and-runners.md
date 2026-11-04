@@ -38,6 +38,14 @@ Home keeps a mirror of every Git folder: every branch of the folder's remote, pl
 - Local PRs live on Home: diff, review, Merge and Publish work from the phone while the laptop sleeps. Local PRs opened by one agent form a change set, published together.
 - Sessions that continue a GitHub pull request push to Home; Home pushes the branch to the pull request after each push, never forced. Published Local PRs work the same way.
 
+## Plain and asset folders
+
+A **plain folder** has no Git: Home stores its files (Add folders → **New plain folder**, or add a folder without Git from Browse, which copies its files once). Runners work in a synced copy: it comes down from Home before a session starts and goes back at the end of every turn. One agent works in a plain folder at a time; another launch fails until the first agent is archived. Changes compares with the start of the session. Home keeps every overwritten version and every deleted file for 30 days: the folder page lists them under **Versions and trash**, with **Restore**.
+
+An **asset folder** holds large or generated files of a Git folder (datasets, media, model files) outside Git. An agent runs `launchpad assets create <path> --session-id <id>` in its worktree: the path is mapped in `.launchpad/assets.toml` (committed), kept out of Git, and synced like a plain folder, so later sessions on that branch get the same files. Assets are shared, not pinned per commit.
+
+Contents are stored by hash and included in Home backups.
+
 ## Backups
 
 Home backs up its database, `config.toml` and a Git bundle of each mirror's Launchpad branches and kept tips (only what the folder's remote does not have) to `[home] backup` (`hf://buckets/<you>/launchpad` or a folder) every minute when something changed, and before a planned stop. Objects are stored by content hash under `home/blobs/sha256/` and never overwritten; each backup is a manifest under `home/backup/<time>/`, written last, so a backup is complete only when its manifest exists. Settings → Home and runners shows the last complete backup and has **Back up now**. Backups older than a day are deleted, except the newest, together with the objects no kept backup needs.

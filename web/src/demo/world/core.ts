@@ -10,7 +10,7 @@ import { demoHost } from "./settings";
 
 const project = (id: string, name: string, repo: string | null, description: string, extra: Partial<Project> = {}): Project => ({
   id, name, path: `${ROOT}/${name}`, remote_url: repo ? `git@github.com:${repo}.git` : null, gh_repo: repo, gh_upstream: null,
-  description, is_temp: false, pinned: false, created_at: clock.ago(60 * 24 * 40), worktree_setup: "", when_done: "keep", workspace_id: WS.acme, home_git: !!repo, ...extra,
+  description, is_temp: false, pinned: false, created_at: clock.ago(60 * 24 * 40), worktree_setup: "", when_done: "keep", workspace_id: WS.acme, home_git: !!repo, plain: false, ...extra,
 });
 
 export function coreWorld() {

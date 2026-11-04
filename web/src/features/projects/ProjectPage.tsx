@@ -12,6 +12,7 @@ import type { Project } from "@/gen/Project";
 import { toastError } from "@/components/Toast";
 import type { Predraft } from "@/gen/Predraft";
 import type { HomeBranch } from "@/gen/HomeBranch";
+import type { Change } from "@/gen/Change";
 import { useComposer } from "@/stores/composer";
 import { RepoItems } from "@/features/github/RepoItems";
 import { Link, useParams, useSearch } from "@tanstack/react-router";
@@ -133,6 +134,7 @@ export function ProjectPage() {
           </>
         )}
         {p.home_git && <HomeBranches projectId={p.id} predrafts={predrafts} />}
+        {p.plain && <PlainHistory projectId={p.id} sessions={sessions} />}
         <ProjectAgents title="All agents" sessions={sessions} empty="No agents in this folder yet." />
         </>}
       </div>
@@ -299,3 +301,36 @@ function KeptTips({ projectId, b }: { projectId: string; b: HomeBranch }) {
     </div>)}
   </div>;
 }
+
+const CHANGE_ROW = 40;
+
+/** A plain folder's changes on Home: previous versions and deleted files of the last 30 days, with Restore. */
+function PlainHistory({ projectId, sessions }: { projectId: string; sessions: Session[] }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["plain", projectId, "history"], queryFn: () => api.get<{ changes: Change[]; locked_by: string | null }>(`/api/plain/${projectId}/history`) });
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const rows = q.data?.changes ?? [];
+  const v = useVirtualizer({ count: rows.length, getScrollElement: () => scrollRef.current, estimateSize: () => CHANGE_ROW, overscan: 8, useFlushSync: false });
+  if (q.isError || !q.data) return null;
+  const holder = sessions.find((s) => s.id === q.data.locked_by);
+  const restore = (c: Change) => api.post(`/api/plain/${projectId}/restore`, { change: c.id }).then(() => { toast(`${c.path} restored`); return qc.invalidateQueries({ queryKey: ["plain", projectId] }); }, toastError);
+  return <>
+    <div className="seclabel">Versions and trash · {rows.length}</div>
+    {q.data.locked_by && <span className="text-xs text-ink-3">In use by {holder ? `the agent "${holder.title}"` : "an agent"}: Restore works once it is archived.</span>}
+    {rows.length === 0 ? <Empty icon="folder">No change yet. Agents' changes reach Home at the end of every turn.</Empty> : <div ref={scrollRef} className="max-h-[320px] overflow-y-auto rounded-lg border border-line">
+      <div className="relative" style={{ height: v.getTotalSize() }}>
+        {v.getVirtualItems().map((r) => <div key={rows[r.index].id} className="absolute inset-x-0" style={{ top: r.start, height: CHANGE_ROW }}>
+          <ChangeRow c={rows[r.index]} locked={!!q.data!.locked_by} onRestore={restore} />
+        </div>)}
+      </div>
+    </div>}
+  </>;
+}
+
+const ChangeRow = memo(function ChangeRow({ c, locked, onRestore }: { c: Change; locked: boolean; onRestore: (c: Change) => unknown }) {
+  const what = !c.sha256 ? "created" : !c.new_sha256 ? "deleted" : "changed";
+  return <div className="flex h-full items-center gap-2 border-b border-line-2 px-4 text-xs">
+    <span className="min-w-0 flex-1 truncate"><span className="font-mono">{c.path}</span> <span className="text-ink-3">· {what} · {new Date(c.at).toLocaleString()}</span></span>
+    {c.sha256 && <ConfirmButton disabled={locked} consequence={what === "deleted" ? `Puts ${c.path} back.` : `Puts back the version of ${c.path} from before this change. The current version stays restorable.`} confirmLabel="Restore" onConfirm={() => onRestore(c)}>{what === "deleted" ? "Restore" : "Restore previous"}</ConfirmButton>}
+  </div>;
+});

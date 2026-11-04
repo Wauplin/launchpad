@@ -42,7 +42,7 @@ function register(path: string, repo: string | null, workspaceId: string | null)
   const known = EXTRA.find((e) => e.name === name);
   const p: Project = {
     id: `demo-${name}-${clock.now().toString(36)}`, name, path: clean, remote_url: (repo ?? known?.repo) ? `git@github.com:${repo ?? known?.repo}.git` : null, gh_repo: repo ?? known?.repo ?? null, gh_upstream: null,
-    description: "", is_temp: false, pinned: false, created_at: clock.now(), worktree_setup: "", when_done: "keep", workspace_id: workspace.id, home_git: true,
+    description: "", is_temp: false, pinned: false, created_at: clock.now(), worktree_setup: "", when_done: "keep", workspace_id: workspace.id, home_git: true, plain: false,
   };
   world.projects = [...world.projects, p];
   projectsChanged();
@@ -115,6 +115,8 @@ route("POST", "/api/home-git/:id/restore", ({ body }) => {
   toast(`Demo: ${String(body?.branch ?? "the branch")} would point back to ${String(body?.commit ?? "").slice(0, 8)} on Home. Nothing changed.`);
   return { ok: true };
 });
+route("GET", "/api/plain/:id/history", () => ({ changes: [], locked_by: null }));
+route("POST", "/api/projects/plain", () => notInDemo());
 route("GET", "/api/projects/:id/branches", ({ params }) => {
   const p = projectOf(params.id);
   if (!p.gh_repo && !world.codeTrees[p.id] || p.is_temp) throw new DemoError(400, "not a git repository");

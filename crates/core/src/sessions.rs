@@ -1052,6 +1052,11 @@ impl Sessions {
                     break;
                 }
             }
+            // Plain folders and asset folders come down from Home; the session takes their locks.
+            if prepared && !*cancelled.borrow() && let Err(e) = crate::plain::prepare(&app2, &id2).await {
+                sink.emit(EventBody::Notice { text: format!("Could not prepare the folder from Home: {e:#}") }).await;
+                prepared = false;
+            }
             for p in &views {
                 if *cancelled.borrow() || !prepared { break; }
                 if let Err(e) = crate::repo_cache::sync(&app2, p).await {
@@ -1176,6 +1181,7 @@ impl Sessions {
         }
         // A clean worktree removed by cleanup comes back from its branch before the agent resumes.
         crate::worktrees::restore_for_session(app, id).await?;
+        crate::plain::prepare(app, id).await?;
         let s = self.get(id).context("no such session")?;
         let worktrees = crate::worktrees::for_session(app, id).await?;
         let mut add_dirs = Vec::new();
@@ -2206,7 +2212,10 @@ impl Sink {
         // Every turn end sends the session's branches to Home.
         if before.status.is_running() && !status.is_running() {
             let (app, id) = (self.app.clone(), self.id.clone());
-            tokio::spawn(async move { crate::worktrees::after_turn(&app, &id).await });
+            tokio::spawn(async move {
+                crate::worktrees::after_turn(&app, &id).await;
+                crate::plain::after_turn(&app, &id).await;
+            });
         }
         self.sessions.publish_counts(&self.app);
         if let Some(event) = crate::notify::status_notification(before.status, status, before.open_question, manual_stop, budget_stop)

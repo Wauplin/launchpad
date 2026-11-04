@@ -56,7 +56,7 @@ async fn to_home(method: &str, path: &str, body: Option<String>) -> anyhow::Resu
 /// Requests about records Home owns, which a runner sends to Home: workspace changes (the runner keeps a copy
 /// for reading) and Home Git.
 pub(crate) fn home_owned(path: &str) -> bool {
-    path == "/api/workspaces" || path.starts_with("/api/workspaces/") || path.starts_with("/api/home-git/")
+    path == "/api/workspaces" || path.starts_with("/api/workspaces/") || path.starts_with("/api/home-git/") || path.starts_with("/api/plain/")
 }
 
 /// Home: requests a runner may send through its tunnel (as Home's owner).

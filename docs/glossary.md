@@ -8,6 +8,8 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Scratch folder | temporary folder, New temporary folder | A folder Launchpad created for a one-off agent; Keep or Delete files. The `tmp-MMDD-` prefix stays hidden. |
 | Worktree / Checkout | task worktree, Agent branches, Open worktree, Project checkout | Worktree: a task's own branch and folder. Checkout: the folder's main working copy. |
 | Local PR | pre-draft PR, pre-draft, Local pre-draft | A PR prepared in Launchpad on a branch of Home Git, published or merged with a click. |
+| Plain folder | non-Git folder | A folder without Git whose files Home stores, with versions and trash. |
+| Asset folder | assets | Large or generated files of a Git folder, stored by Home instead of Git. |
 | Home Git | Git server, mirror | Home's copy of every Git folder, with the Launchpad branches. Runners clone from it and push to it. |
 | Suggestion | agent draft, Agent draft banner, suggested comment | A comment or review written by an agent, posted with a click. |
 | Draft | (5 meanings) | Only an unsent composer launch. GitHub draft PRs say "GitHub draft"; unsent replies are "unsent reply". |

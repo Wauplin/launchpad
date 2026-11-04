@@ -312,7 +312,7 @@ async fn launch_runner(s: &Server, body: Option<&str>) -> Result<String, ApiErro
     if let Some(project) = project {
         let p = launchpad_core::projects::get(&s.app, &project).await?.ok_or_else(|| ApiError::bad_request("no such folder"))?;
         // A Git folder of Home runs on any runner: it clones the folder on first use.
-        if p.home_git {
+        if p.home_git || p.plain {
             return available.into_iter().next().ok_or_else(|| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "no runner takes launches now: connect one, or check its guard in Settings → Home and runners"));
         }
         let r = p.runner_id.ok_or_else(|| ApiError::bad_request(format!("{} is not on a runner", p.name)))?;

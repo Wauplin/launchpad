@@ -68,6 +68,8 @@ Runner side (`repo_cache.rs`, `worktrees.rs`): `<data_dir>/repos/<id>` is a clon
 
 Local PRs (`predrafts.rs`) are Home records for `(folder, lp branch)`; detail, Merge (`home_git::merge`) and Publish (`home_git::push` of the reviewed commit) read the mirror. Runners forward `/api/predrafts` to Home, except `create`/`resolve` by worktree. `change_set` is the creating session; `publish_set` publishes the open members and links the pull requests. Home backups add one bundle per mirror; `git_restore.json` lists the bundles a restored Home applies when it recreates each mirror.
 
+Plain and asset folders (`plain.rs`): Home keeps each store's tree in `plain_file`, contents by SHA-256 in `<data_dir>/blobs/sha256/`, and every change in `plain_history` (30 days; Restore re-commits the old content). `plain_lock` gives one session a store. Runners call `/api/plain/<id>/{tree,blob,commit,lock,unlock}` over HTTP with the runner credential; `sync_down` writes Home's version into the copy (`<data_dir>/plain/<id>`, or an asset path of a worktree) and commits a local Git baseline for Changes; `sync_up` hashes the copy and sends what changed since the last sync. Backups list live blobs as `plain/<sha>` objects; a restored Home reads missing blobs from the backup store.
+
 ## Sessions and harnesses
 
 Every harness maps to the same model:

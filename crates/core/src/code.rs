@@ -968,7 +968,7 @@ mod tests {
             project: Project {
                 id: "test".into(), name: "test".into(), path: root.to_string_lossy().into_owned(),
                 remote_url: None, gh_repo: None, gh_upstream: None, description: String::new(),
-                is_temp: false, pinned: false, created_at: 0, worktree_setup: String::new(), when_done: Default::default(), workspace_id: None, runner_id: None, home_git: false,
+                is_temp: false, pinned: false, created_at: 0, worktree_setup: String::new(), when_done: Default::default(), workspace_id: None, runner_id: None, home_git: false, plain: false,
             },
             root: root.clone(), rev: None, git: true,
         };

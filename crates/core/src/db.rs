@@ -186,6 +186,11 @@ CREATE TABLE IF NOT EXISTS runner (id TEXT PRIMARY KEY, secret_hash TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS runner_ack (runner_id TEXT PRIMARY KEY, n INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS home_outbox (n INTEGER PRIMARY KEY AUTOINCREMENT, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS git_follow (project_id TEXT NOT NULL, branch TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY (project_id, branch));
+CREATE TABLE IF NOT EXISTS plain_file (store TEXT NOT NULL, path TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL, executable INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (store, path));
+CREATE TABLE IF NOT EXISTS plain_history (id INTEGER PRIMARY KEY AUTOINCREMENT, store TEXT NOT NULL, path TEXT NOT NULL, sha256 TEXT, new_sha256 TEXT, at INTEGER NOT NULL, session_id TEXT);
+CREATE TABLE IF NOT EXISTS plain_state (store TEXT PRIMARY KEY, version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS plain_lock (store TEXT PRIMARY KEY, session_id TEXT NOT NULL, at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS plain_asset (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS profile_cost (profile TEXT NOT NULL, at INTEGER NOT NULL, usd REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS onboarding (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_id TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, titles INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);",
@@ -206,6 +211,7 @@ CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_
     // Unassigned until the owner picks one.
     if !project_columns.iter().any(|c| c == "runner_id") { conn.execute_batch("ALTER TABLE project ADD COLUMN runner_id TEXT;")?; }
     if !project_columns.iter().any(|c| c == "home_git") { conn.execute_batch("ALTER TABLE project ADD COLUMN home_git INTEGER NOT NULL DEFAULT 0;")?; }
+    if !project_columns.iter().any(|c| c == "plain") { conn.execute_batch("ALTER TABLE project ADD COLUMN plain INTEGER NOT NULL DEFAULT 0;")?; }
     if !project_columns.iter().any(|c| c == "workspace_id") {
         conn.execute_batch(
             "ALTER TABLE project ADD COLUMN workspace_id TEXT;

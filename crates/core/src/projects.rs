@@ -12,7 +12,7 @@ use crate::App;
 use crate::model::Project;
 use crate::util::now_ms;
 
-const COLUMNS: &str = "id, name, path, remote_url, gh_repo, gh_upstream, description, is_temp, pinned, created_at, worktree_setup, when_done, workspace_id, runner_id, home_git";
+const COLUMNS: &str = "id, name, path, remote_url, gh_repo, gh_upstream, description, is_temp, pinned, created_at, worktree_setup, when_done, workspace_id, runner_id, home_git, plain";
 
 fn from_row(r: &Row) -> rusqlite::Result<Project> {
     Ok(Project {
@@ -31,6 +31,7 @@ fn from_row(r: &Row) -> rusqlite::Result<Project> {
         workspace_id: r.get(12)?,
         runner_id: r.get(13)?,
         home_git: r.get::<_, i64>(14)? != 0,
+        plain: r.get::<_, i64>(15)? != 0,
     })
 }
 
@@ -40,7 +41,7 @@ fn queue(c: &rusqlite::Connection, id: &str) -> Result<()> {
     if !crate::replica::enabled() {
         return Ok(());
     }
-    if let Some(project) = c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE id = ?1"), [id], from_row).optional()?.filter(|p| !p.home_git) {
+    if let Some(project) = c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE id = ?1"), [id], from_row).optional()?.filter(|p| !p.home_git && !p.plain) {
         crate::replica::queue(c, &crate::replica::Item::Project { project })?;
     }
     Ok(())
@@ -57,7 +58,7 @@ pub(crate) async fn apply_replica(app: &App, runner_id: &str, n: u64, item: crat
                     // A folder of this Home itself, or of another runner, is never overwritten.
                     let owner: Option<Option<String>> = tx.query_row("SELECT runner_id FROM project WHERE id = ?1", [&p.id], |r| r.get(0)).optional()?;
                     if owner.as_ref().is_none_or(|o| o.as_deref() == Some(runner.as_str())) {
-                        tx.execute(&format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 0)
+                        tx.execute(&format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 0, 0)
                             ON CONFLICT (id) DO UPDATE SET name = ?2, path = ?3, remote_url = ?4, gh_repo = ?5, gh_upstream = ?6, description = ?7, is_temp = ?8,
                             pinned = ?9, worktree_setup = ?11, when_done = ?12, workspace_id = ?13"),
                             params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id, runner])?;
@@ -131,7 +132,7 @@ async fn refresh_metadata(app: &App, projects: Vec<Project>, include_hosts: bool
         // Keep the last known mapping when a folder is temporarily unavailable.
         // Git folders of Home keep the remote they were registered with: Home's mirror and runners' clones
         // are Launchpad's own copies.
-        if (include_hosts || !remote) && !p.home_git && crate::hostfs::is_dir(&p.path).await {
+        if (include_hosts || !remote) && !p.home_git && !p.plain && crate::hostfs::is_dir(&p.path).await {
             let (remote_url, gh_repo, gh_upstream) = remote_info(Path::new(&p.path)).await;
             if p.remote_url != remote_url || p.gh_repo != gh_repo || p.gh_upstream != gh_upstream {
                 (p.remote_url, p.gh_repo, p.gh_upstream) = (remote_url, gh_repo, gh_upstream);
@@ -242,6 +243,7 @@ pub async fn register(app: &App, path: &Path, is_temp: bool, workspace_id: &str)
         runner_id: None,
         // Home and a single-process daemon serve every Git folder from Home Git.
         home_git: !is_temp && app.paths.role != crate::role::Role::Runner && crate::hosts::loc::host_of_path(&path).is_none() && crate::git::git_dir(&path).await.is_some(),
+        plain: false,
     };
     let saved = p.clone();
     let existing = app
@@ -256,8 +258,8 @@ pub async fn register(app: &App, path: &Path, is_temp: bool, workspace_id: &str)
                 return Ok(Some(e));
             }
             c.execute(
-                &format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"),
-                params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id, p.runner_id, p.home_git as i64],
+                &format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)"),
+                params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id, p.runner_id, p.home_git as i64, p.plain as i64],
             )?;
             queue(c, &p.id)?;
             Ok(None)
@@ -309,14 +311,15 @@ pub async fn register_remote(app: &App, name: &str, url: &str, workspace_id: &st
         workspace_id: Some(workspace.id.clone()),
         runner_id: None,
         home_git: true,
+        plain: false,
     };
     crate::home_git::ensure(app, &p).await?;
     let saved = p.clone();
     app.state_db
         .call(move |c| {
             c.execute(
-                &format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"),
-                params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id, p.runner_id, p.home_git as i64],
+                &format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)"),
+                params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id, p.runner_id, p.home_git as i64, p.plain as i64],
             )?;
             Ok(())
         })
@@ -354,8 +357,8 @@ pub async fn add_to_home(app: &App, path: &Path, workspace_id: &str) -> Result<P
 /// Runner: stores Home's Git folders (`all`: a full snapshot, so folders that left Home go too). Each gets
 /// this runner's clone as its path.
 pub async fn store_home(app: &App, projects: Vec<Project>, all: bool) -> Result<()> {
-    let rows: Vec<Project> = projects.into_iter().filter(|p| p.home_git).map(|mut p| {
-        p.path = crate::repo_cache::dir(app, &p.id).to_string_lossy().into_owned();
+    let rows: Vec<Project> = projects.into_iter().filter(|p| p.home_git || p.plain).map(|mut p| {
+        p.path = if p.plain { crate::plain::copy_dir(app, &p.id) } else { crate::repo_cache::dir(app, &p.id) }.to_string_lossy().into_owned();
         p.runner_id = None;
         p
     }).collect();
@@ -366,7 +369,7 @@ pub async fn store_home(app: &App, projects: Vec<Project>, all: bool) -> Result<
             let mut gone = vec![];
             if all {
                 let keep: std::collections::HashSet<String> = rows.iter().map(|p| p.id.clone()).collect();
-                let mut st = tx.prepare("SELECT id FROM project WHERE home_git = 1")?;
+                let mut st = tx.prepare("SELECT id FROM project WHERE home_git = 1 OR plain = 1")?;
                 gone = st.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().filter(|id| !keep.contains(id)).collect();
                 drop(st);
                 for id in &gone {
@@ -374,10 +377,10 @@ pub async fn store_home(app: &App, projects: Vec<Project>, all: bool) -> Result<
                 }
             }
             for p in rows {
-                tx.execute(&format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL, 1)
+                tx.execute(&format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL, ?14, ?15)
                     ON CONFLICT (id) DO UPDATE SET name = ?2, path = ?3, remote_url = ?4, gh_repo = ?5, gh_upstream = ?6, description = ?7, is_temp = ?8,
-                    pinned = ?9, worktree_setup = ?11, when_done = ?12, workspace_id = ?13, runner_id = NULL, home_git = 1"),
-                    params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id])?;
+                    pinned = ?9, worktree_setup = ?11, when_done = ?12, workspace_id = ?13, runner_id = NULL, home_git = ?14, plain = ?15"),
+                    params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id, p.home_git as i64, p.plain as i64])?;
             }
             tx.commit()?;
             Ok(gone)
@@ -385,14 +388,81 @@ pub async fn store_home(app: &App, projects: Vec<Project>, all: bool) -> Result<
         .await?;
     for id in gone {
         crate::repo_cache::forget(app, &id).await;
+        let _ = tokio::fs::remove_dir_all(crate::plain::copy_dir(app, &id)).await;
     }
     app.bus.publish("projects", "changed", serde_json::Value::Null);
     Ok(())
 }
 
-/// Home's Git folders, for runners.
+/// Home's Git and plain folders, for runners.
 pub async fn home_folders(app: &App) -> Result<Vec<Project>> {
-    Ok(list(app).await?.into_iter().filter(|p| p.home_git).collect())
+    Ok(list(app).await?.into_iter().filter(|p| p.home_git || p.plain).collect())
+}
+
+/// Home (or `all`): a new, empty plain folder.
+pub async fn create_plain(app: &App, name: &str, workspace_id: &str) -> Result<Project> {
+    anyhow::ensure!(crate::home_git::here(app), "folders are registered on Home");
+    let workspace = crate::workspace::get(app, workspace_id).await.context("choose a workspace for the folder")?;
+    let name = name.trim();
+    anyhow::ensure!(!name.is_empty() && !name.contains('/'), "invalid folder name");
+    let id = uuid::Uuid::new_v4().to_string();
+    let p = Project {
+        path: crate::plain::copy_dir(app, &id).to_string_lossy().into_owned(),
+        id,
+        name: name.to_string(),
+        remote_url: None,
+        gh_repo: None,
+        gh_upstream: None,
+        description: String::new(),
+        is_temp: false,
+        pinned: false,
+        created_at: now_ms(),
+        worktree_setup: String::new(),
+        when_done: Default::default(),
+        workspace_id: Some(workspace.id.clone()),
+        runner_id: None,
+        home_git: false,
+        plain: true,
+    };
+    let saved = p.clone();
+    app.state_db
+        .call(move |c| {
+            c.execute(
+                &format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)"),
+                params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id, p.runner_id, p.home_git as i64, p.plain as i64],
+            )?;
+            c.execute("INSERT INTO plain_state (store, version) VALUES (?1, 0) ON CONFLICT DO NOTHING", [&p.id])?;
+            Ok(())
+        })
+        .await?;
+    app.bus.publish("projects", "changed", serde_json::Value::Null);
+    Ok(saved)
+}
+
+/// Runner: a local folder without Git becomes a plain folder of Home; its files are uploaded once. The runner
+/// then works in its own copy, never in the original folder.
+pub async fn import_plain(app: &App, path: &Path, workspace_id: &str) -> Result<Project> {
+    let path = crate::hostfs::canonicalize(path).await.with_context(|| format!("{} does not exist", path.display()))?;
+    anyhow::ensure!(path.is_dir(), "{} is not a folder", path.display());
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let p: Project = if crate::home_git::here(app) {
+        create_plain(app, &name, workspace_id).await?
+    } else {
+        serde_json::from_value(crate::home_link::home_request("POST", "/api/projects/plain", Some(serde_json::json!({"name": name, "workspace_id": workspace_id}))).await?)?
+    };
+    let importer = format!("import-{}", uuid::Uuid::new_v4());
+    crate::plain::sync_down(app, &p.id, &crate::plain::copy_dir(app, &p.id), &importer).await?;
+    let copy = crate::plain::copy_dir(app, &p.id);
+    let mut cmd = crate::procs::command(&app.env, "cp", None);
+    cmd.arg("-a").arg(format!("{}/.", path.display())).arg(&copy).stdin(crate::exec::Io::Null);
+    let out = cmd.output().await?;
+    anyhow::ensure!(out.status.success(), "copy {}: {}", path.display(), String::from_utf8_lossy(&out.stderr).trim());
+    crate::plain::sync_up(app, &p.id, &copy, &importer).await?;
+    crate::plain::release(app, &p.id, &importer).await?;
+    if !crate::home_git::here(app) {
+        store_home(app, vec![p.clone()], false).await?;
+    }
+    get(app, &p.id).await?.context("no such folder")
 }
 
 /// Home and `all`: Git checkouts registered before Home Git become Home Git folders.

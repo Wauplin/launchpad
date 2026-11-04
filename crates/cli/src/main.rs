@@ -87,6 +87,11 @@ enum Command {
         #[command(subcommand)]
         command: Work,
     },
+    /// Asset folders: large or generated files of a Git folder, stored by Launchpad instead of Git (for agents).
+    Assets {
+        #[command(subcommand)]
+        command: Assets,
+    },
     /// Registered folders (JSON), optionally of one workspace.
     Folders {
         #[command(subcommand)]
@@ -289,6 +294,22 @@ enum Work {
         project: String,
     },
 }
+#[derive(Subcommand)]
+enum Assets {
+    /// Make `path` of this worktree an asset folder, mapped in `.launchpad/assets.toml` (commit that file).
+    Create {
+        path: String,
+        #[arg(long)]
+        session_id: String,
+    },
+}
+async fn assets_command(paths: &Paths, command: Assets) -> Result<()> {
+    let Assets::Create { path, session_id } = command;
+    let cwd = std::env::current_dir()?.to_string_lossy().into_owned();
+    let body = Client::new(paths)?.json("POST", "/api/assets", Some(serde_json::json!({"session_id": session_id, "cwd": cwd, "path": path}))).await?;
+    println!("{}", body["message"].as_str().unwrap_or_default());
+    Ok(())
+}
 async fn work_command(paths: &Paths, command: Work) -> Result<()> {
     let (path, body) = match command {
         Work::Finish { session_id } => ("finish", serde_json::json!({"session_id": session_id})),
@@ -369,6 +390,7 @@ async fn main() -> Result<()> {
         Command::Suggest { command } => suggest_command(&paths, command).await,
         Command::Pr { command } => pr_command(&paths, command).await,
         Command::Work { command } => work_command(&paths, command).await,
+        Command::Assets { command } => assets_command(&paths, command).await,
         Command::Folders { command: ListOnly::List { workspace } } => context_command(&paths, "folders", workspace).await,
         Command::Profiles { command: ListOnly::List { .. } } => context_command(&paths, "profiles", None).await,
         Command::Presets { command: ListOnly::List { .. } } => context_command(&paths, "presets", None).await,

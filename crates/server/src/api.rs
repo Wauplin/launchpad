@@ -18,6 +18,7 @@ pub fn router() -> Router<Server> {
     Router::new()
         .route("/api/projects", get(list_projects).post(add_project))
         .route("/api/projects/remote", post(add_remote))
+        .route("/api/projects/plain", post(add_plain))
         .route("/api/projects/discover", post(discover))
         .route("/api/projects/browse", get(browse_local))
         .route("/api/projects/{id}", get(get_project).patch(patch_project).delete(delete_project))
@@ -145,8 +146,12 @@ async fn add_project(State(s): State<Server>, Json(b): Json<AddProject>) -> ApiR
         None => launchpad_core::paths::expand_home(b.path.trim()),
     };
     // A runner's Git checkout becomes a folder of Home; the runner works in its own clones of it.
-    let p = if s.app.paths.role == launchpad_core::role::Role::Runner && b.host.is_none() && launchpad_core::git::git_dir(&path).await.is_some() {
+    let git = launchpad_core::git::git_dir(&path).await.is_some();
+    let p = if s.app.paths.role == launchpad_core::role::Role::Runner && b.host.is_none() && git {
         projects::add_to_home(&s.app, &path, &b.workspace_id).await
+    } else if b.host.is_none() && !git {
+        // A folder without Git becomes a plain folder of Home: agents work in a synced copy.
+        projects::import_plain(&s.app, &path, &b.workspace_id).await
     } else {
         projects::register(&s.app, &path, false, &b.workspace_id).await
     };
@@ -162,6 +167,23 @@ struct AddRemote {
     workspace_id: String,
 }
 
+#[derive(Deserialize)]
+struct AddPlain {
+    name: String,
+    workspace_id: String,
+}
+
+/// A new, empty plain folder of Home.
+async fn add_plain(State(s): State<Server>, Json(b): Json<AddPlain>) -> ApiResult<Project> {
+    if s.app.paths.role == launchpad_core::role::Role::Runner {
+        let v = launchpad_core::home_link::home_request("POST", "/api/projects/plain", Some(json!({"name": b.name, "workspace_id": b.workspace_id}))).await.map_err(bad)?;
+        let p: Project = serde_json::from_value(v).map_err(|e| ApiError::bad_request(format!("{e}")))?;
+        projects::store_home(&s.app, vec![p.clone()], false).await?;
+        return Ok(Json(projects::get(&s.app, &p.id).await?.unwrap_or(p)));
+    }
+    Ok(Json(projects::create_plain(&s.app, &b.name, &b.workspace_id).await.map_err(bad)?))
+}
+
 /// Home: a Git folder by its remote (a runner adding a checkout).
 async fn add_remote(State(s): State<Server>, Json(b): Json<AddRemote>) -> ApiResult<Project> {
     Ok(Json(projects::register_remote(&s.app, &b.name, &b.url, &b.workspace_id).await.map_err(bad)?))
@@ -169,7 +191,7 @@ async fn add_remote(State(s): State<Server>, Json(b): Json<AddRemote>) -> ApiRes
 
 /// Runner: a change to a Git folder of Home goes to Home, and the runner keeps Home's answer.
 async fn home_folder_change(s: &Server, p: &Project, method: &str, body: Option<Value>) -> Result<Option<Value>, ApiError> {
-    if s.app.paths.role != launchpad_core::role::Role::Runner || !p.home_git {
+    if s.app.paths.role != launchpad_core::role::Role::Runner || !(p.home_git || p.plain) {
         return Ok(None);
     }
     let v = launchpad_core::home_link::home_request(method, &format!("/api/projects/{}", p.id), body).await.map_err(bad)?;
@@ -521,7 +543,10 @@ async fn close(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Val
     s.app.sessions.close(&s.app, &id).await.map_err(bad)?;
     // Archive makes clean task worktrees eligible for removal; Resume restores them.
     let app = s.app.clone();
-    tokio::spawn(async move { launchpad_core::worktrees::after_archive(&app, &id).await });
+    tokio::spawn(async move {
+        launchpad_core::plain::after_archive(&app, &id).await;
+        launchpad_core::worktrees::after_archive(&app, &id).await;
+    });
     Ok(Json(json!({"ok": true})))
 }
 

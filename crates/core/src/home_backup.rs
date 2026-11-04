@@ -237,6 +237,14 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
             return Err(e.context("bundle Home Git"));
         }
     }
+    // Plain and asset folders: their contents are already content-addressed.
+    for sha in crate::plain::live_blobs(app).await? {
+        if !existing.contains(&blob_key(&sha)) {
+            let Ok(data) = tokio::fs::read(crate::plain::blob_path(app, &sha)?).await else { continue };
+            store.put(&app.env, &blob_key(&sha), data).await?;
+        }
+        objects.push(Object { name: format!("plain/{sha}"), sha256: sha, size: 0 });
+    }
     let now = now_ms();
     let manifest = Manifest { format: 1, created_at: now, commit: crate::COMMIT.into(), objects };
     store.put(&app.env, &manifest_key(now), serde_json::to_vec_pretty(&manifest)?).await?;
@@ -301,6 +309,14 @@ async fn bundles(app: &App, store: &Store, existing: &std::collections::HashSet<
         out.push(o);
     }
     Ok(out)
+}
+
+/// A restored Home reads plain folder contents it no longer has from the backup destination.
+pub async fn fetch_blob(app: &App, sha: &str) -> Result<Vec<u8>> {
+    let store = Store::parse(&app.config.get().home.backup).context("no backup destination")?;
+    let data = store.get(&app.env, &blob_key(sha)).await?;
+    ensure!(hex::encode(Sha256::digest(&data)) == sha, "backup object {sha} does not match its hash");
+    Ok(data)
 }
 
 fn git_restore_file(paths: &crate::paths::Paths) -> PathBuf {

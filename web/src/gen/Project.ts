@@ -29,4 +29,8 @@ runner_id?: string,
 /**
  * A Git folder served by Home Git: Home owns the record and the branches; runners clone it on first use.
  */
-home_git: boolean, };
+home_git: boolean, 
+/**
+ * A plain folder (no Git) stored by Home, with previous versions and trash; runners keep a synced copy.
+ */
+plain: boolean, };

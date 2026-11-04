@@ -51,7 +51,7 @@ function Body({ onClose }: { onClose: () => void }) {
   const projects = useProjects().data ?? [];
   const workspaces = useWorkspaces().data ?? [];
   const current = useScope().workspace;
-  const [tab, setTab] = useState<"browse" | "clone">("browse");
+  const [tab, setTab] = useState<"browse" | "clone" | "plain">("browse");
   const [machine, setMachine] = useState<string | null>(null);
   const host = hosts.some((h) => h.host.id === machine) ? machine : null;
   const hostInfo = hosts.find((h) => h.host.id === host);
@@ -109,13 +109,13 @@ function Body({ onClose }: { onClose: () => void }) {
   return (
     <>
       <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto p-4">
-        <Tabs label="How to add" value={tab} onChange={setTab} items={[{ id: "browse", label: "Browse", icon: "folder" }, { id: "clone", label: "Clone from GitHub", icon: "branch" }]} />
+        <Tabs label="How to add" value={tab} onChange={setTab} items={[{ id: "browse", label: "Browse", icon: "folder" }, { id: "clone", label: "Clone from GitHub", icon: "branch" }, { id: "plain", label: "New plain folder", icon: "plus" }]} />
         <FilterChips label="Machine">
           <FilterChip active={host === null} onClick={() => setMachine(null)}>This computer</FilterChip>
           {hosts.map((h) => <FilterChip key={h.host.id} active={host === h.host.id} title={h.state === "connected" ? h.host.destination : h.error ?? h.state} onClick={() => setMachine(h.host.id)}>{h.host.id}{h.state !== "connected" && <span className="text-danger-ink">·</span>}</FilterChip>)}
           <Link to="/settings/hosts" className="lp-chip no-underline" onClick={onClose}><Icon name="plus" size={11} />New host…</Link>
         </FilterChips>
-        {tab === "clone" ? (
+        {tab === "plain" ? <NewPlainFolder workspaceId={chosen?.id ?? null} onDone={onClose} /> : tab === "clone" ? (
           <CloneFromGitHub key={host ?? "local"} host={host} root={host ? `${host}:${hostInfo?.host.projects_root ?? ""}` : config?.projects_root} workspace={chosen} onDone={onClose} />
         ) : (
           <>
@@ -153,4 +153,28 @@ function Body({ onClose }: { onClose: () => void }) {
       )}
     </>
   );
+}
+
+/** A plain folder: files without Git, stored by Home with previous versions and trash. Folders without Git
+ * added from Browse become plain folders too (their files are copied once). */
+function NewPlainFolder({ workspaceId, onDone }: { workspaceId: string | null; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const create = async () => {
+    setBusy(true);
+    try {
+      await api.post<Project>("/api/projects/plain", { name: name.trim(), workspace_id: workspaceId });
+      await qc.invalidateQueries({ queryKey: ["projects"] });
+      toast(`${name.trim()} created`);
+      onDone();
+    } catch (e) { toastError(e); } finally { setBusy(false); }
+  };
+  return <section className="grid gap-1.5">
+    <span className="text-[12px] text-ink-3">For projects without Git. Home stores the files and keeps previous versions and deleted files for 30 days; one agent works in it at a time, in a synced copy.</span>
+    <div className="flex gap-1.5">
+      <input className="field-input h-[30px] min-w-0 flex-1" aria-label="Folder name" placeholder="Folder name" value={name} onChange={(e) => setName(e.target.value)} />
+      <button className="btn btn-sm btn-primary" disabled={busy || !name.trim() || !workspaceId} onClick={() => void create()}>Create</button>
+    </div>
+  </section>;
 }

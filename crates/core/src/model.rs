@@ -611,6 +611,9 @@ pub struct Project {
     /// A Git folder served by Home Git: Home owns the record and the branches; runners clone it on first use.
     #[serde(default)]
     pub home_git: bool,
+    /// A plain folder (no Git) stored by Home, with previous versions and trash; runners keep a synced copy.
+    #[serde(default)]
+    pub plain: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
