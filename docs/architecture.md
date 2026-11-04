@@ -70,6 +70,16 @@ Local PRs (`predrafts.rs`) are Home records for `(folder, lp branch)`; detail, M
 
 Plain and asset folders (`plain.rs`): Home keeps each store's tree in `plain_file`, contents by SHA-256 in `<data_dir>/blobs/sha256/`, and every change in `plain_history` (30 days; Restore re-commits the old content). `plain_lock` gives one session a store. Runners call `/api/plain/<id>/{tree,blob,commit,lock,unlock}` over HTTP with the runner credential; `sync_down` writes Home's version into the copy (`<data_dir>/plain/<id>`, or an asset path of a worktree) and commits a local Git baseline for Changes; `sync_up` hashes the copy and sends what changed since the last sync. Backups list live blobs as `plain/<sha>` objects; a restored Home reads missing blobs from the backup store.
 
+## Credentials and the jail
+
+Home keeps a vault in `state.db` (`vault.rs`): harness logins (a Claude setup token, a Codex `auth.json`), tokens and the SSH key, all write-only, plus the tool registry (`tool` table: install recipe, variables that get a placeholder, host rules, granted workspaces). Settings → Credentials and tools edits them; runners forward those requests to Home.
+
+Before a harness starts, `contain::apply` asks Home for the session's lease (`FromRunner::Call` "lease" through the tunnel; Home checks the session's runner and generation and records `vault_lease`). The lease holds the login's token, the granted tools and their tokens, the Git identity and whether Home has an SSH key. The runner keeps it in `proxy::Proxy` memory, renews it every ten minutes and drops it after an hour without Home, on Stop/Archive (`release`) or at once on Revoke (`ToRunner::Revoke`).
+
+The runner proxy (`proxy.rs`) listens on `127.0.0.1`. Jailed processes get `HTTPS_PROXY` with a per-lease key and the runner CA in their CA variables; on a host with a credential the proxy terminates TLS with a leaf certificate from the runner's CA (`<data_dir>/proxy/`), sets the token (Bearer, Basic, header or query) and streams the request upstream; every other host is a plain `CONNECT` tunnel. Harness logins use base URLs on the proxy (`/lp/<key>/<host>/…`): Claude Code gets `ANTHROPIC_BASE_URL` and a placeholder `CLAUDE_CODE_OAUTH_TOKEN`; Codex gets an `auth.json` with placeholders and an unsigned ID token, and `config.toml` pointing at the proxy (adapters own this in `Harness::contained_login`). Requests that received a token go to Home's `access_log` (through `replica::Item::Access` on a runner); known actions become session notices. Home refreshes Codex logins itself and runs one quota monitor per vault login (`vault:<id>`, plus `vault:default:<harness>`), sent to runners as `ToRunner::Quotas`.
+
+The jail (`jail.rs`) is bubblewrap with system folders, PATH folders and toolchain folders read-only, and the session's folders read-write: its working folders, `<data_dir>/worktrees`, `<data_dir>/repos`, its harness home (`<data_dir>/sessions/<id>/home`: `HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`), its `/tmp` and its workspace's cache. Only a short list of machine variables passes. `UserEnv::jailed` makes `exec::Cmd` wrap the program in `bwrap`; adapters start every native process with `StartSpec::process_env`, and title requests and harness TUIs use the same lease and jail. The SSH key stays in an `ssh-agent` on Home: the session's `SSH_AUTH_SOCK` is a runner socket whose list and sign requests go to Home. Tools install once per recipe into `<data_dir>/tools/` (downloads by the runner, package managers in a jail). With `[runner] boundary = "vm"` (a Local VM, `packaging/local-vm.sh`) the VM is the boundary: no jail, Docker allowed, same lease and proxy.
+
 ## Sessions and harnesses
 
 Every harness maps to the same model:
@@ -90,7 +100,8 @@ A launch only does local work in the request: it records the session (Starting) 
 | `state.db` (SQLite, WAL) | Sessions, events, drafts, Local PRs, suggestions, schedules, devices | Your data; back it up |
 | `cache.db` (SQLite) | GitHub payloads as JSON | Disposable, rebuilt on demand |
 | Home backup (`home_backup.rs`) | `state.db` copies (`VACUUM INTO`), `config.toml` and Home Git bundles by content hash, one manifest per backup, written last | Home only; last day kept, restored on an empty boot |
-| Harness folders | Native conversations (`~/.claude`, `~/.codex`, OpenCode data) | Owned by each harness |
+| Harness folders | Native conversations: per session in `<data_dir>/sessions/<id>/home` for contained sessions, else `~/.claude`, `~/.codex`, OpenCode data | Owned by each harness |
+| Vault (`vault.rs`) | Credentials (write-only), tools, leases, access log, in `state.db` | Home only |
 
 Rust types shared with the UI derive `ts_rs::TS`, so the API is typed end to end without an OpenAPI spec.
 
@@ -101,7 +112,7 @@ Rust types shared with the UI derive `ts_rs::TS`, so the API is typed end to end
 - Browsers authenticate with an HttpOnly device cookie after pairing. The CLI uses a bearer token from the data folder.
 - The Ask Launchpad assistant gets a restricted token: read state and write proposals only.
 - GitHub publication, merges and setup commands always require an owner click.
-- Agents run as your user with your credentials. Launchpad is not a sandbox for hostile code.
+- Agents run contained: a bubblewrap jail on Linux runners (or a Local VM). They see their session's folders, their own harness home and the machine's toolchains, never your home folder, keys, logins or Launchpad's data. Their network goes through the runner proxy, which adds Home's tokens on known hosts; agents only hold placeholders. Token scopes decide what a request may do; a steered agent can still leak what it reads or misuse a token within its scopes. SSH host sessions are not contained yet.
 
 ## Repository layout
 

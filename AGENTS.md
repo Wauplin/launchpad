@@ -11,7 +11,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 
 - Build the UI: `cd web && pnpm install && pnpm build` (Node 24 from `web/.nvmrc`, pnpm through Corepack).
 - Dev daemon: `LAUNCHPAD_ENV=dev cargo run -p launchpad -- daemon [--role home|runner|all]` (port 7318, data in `~/.local/share/launchpad-dev`; a runner uses `launchpad-runner-dev`). A debug daemon reads `web/dist` from disk. For an isolated second daemon, set `HOME` to a scratch folder and `LAUNCHPAD_PORT` to a free port.
-- Runners: `launchpad daemon --role runner` (own folders), paired with `launchpad connect <Home address>` and approved in Home's Settings → Home and runners. Test pairs use two scratch `HOME`s and ports; remove test runners afterwards.
+- Runners: `launchpad daemon --role runner` (own folders), paired with `launchpad connect <Home address>` and approved in Home's Settings → Home and runners. Test pairs use two scratch `HOME`s and ports; remove test runners afterwards. Contained sessions need `bwrap` (`sudo apt install bubblewrap`) and a harness login in the vault (Settings → Credentials and tools). `packaging/local-vm.sh <Home address>` creates a Local VM runner with Multipass.
 - Sign a browser in to the dev daemon: `LAUNCHPAD_ENV=dev cargo run -p launchpad -- url` (`pair` prints a QR code). Headless screenshots: `google-chrome --headless=new --screenshot=out.png --virtual-time-budget=5000 "<url>"` after pairing; they do not wait for Web Workers, so syntax colors need a real DevTools-driven wait.
 - Demo mode: `/agents?demo=1` on any running UI (`?demo=essentials:layout`, `?demo=full:<chapter>`, `?demo=phone`). No pairing or real data needed.
 - Dev window: `cargo build -p launchpad-desktop && LAUNCHPAD_ENV=dev ./target/debug/launchpad-desktop [--open <route>] [--workspace <id or name>] [--new-window]`.
@@ -65,7 +65,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 ### Profiles, quota and costs
 
 - Profiles (`[[profiles]]` in config.toml) are the only way to run an agent; there are no built-in profiles. Sessions store the profile ID, never environment values. Missing IDs or changed harnesses fail visibly on resume.
-- Each subscription login (harness + `account_env` values) has its own quota monitor; quota checks use the session's login.
+- Each subscription login has its own quota monitor; quota checks use the session's login. On Linux the logins are Home's vault logins (`quota::vault_key`): Home monitors them and runners receive the readings.
 - Allow paid usage defaults to false and is never remembered. Exhausted quota holds input or pauses sessions into Quota paused; automatic continuation needs fresh confirmed capacity in both windows. Never infer availability from a reset time alone. A null reset means the window has not started. Owner messages sent during a quota pause are queued in the durable pending continuation (never sent to the harness directly) and delivered in order with the continuation turn; Stop and Archive discard them.
 - Cost limits and rolling spend limits apply only to harnesses that report USD cost; reaching one refuses input, interrupts best effort and never resumes automatically. Claude adds only increases of its per-process `total_cost_usd`.
 - Terminal TUIs are outside quota protection.
@@ -128,6 +128,14 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - Home's relay serves records, events, images and traces itself and forwards every other session or runner-folder request to its runner. Workspaces, Git folders, Home Git and Local PRs are Home's: runners keep copies of workspaces and Git folders (snapshots over the tunnel) and forward their changes (`home_client::home_owned`); Home accepts only `home_client::home_accepts` paths from a runner. A launch in a Git folder goes to any available runner.
 - Home backups add one Git bundle per mirror (Launchpad branches and kept tips minus what the remote has; a full bundle without a remote); a restored Home applies it when it recreates the mirror.
 - Home backups: content-addressed objects, the manifest written last, restore only from a complete manifest whose hashes match. Pruning under `home/` is allowed (last day, newest kept); never touch other prefixes. Test backups with a local folder destination, never a real bucket.
+
+### Credentials and the jail
+
+- Every agent on Linux runs contained (`contain::apply` in `Sessions::attach`): a bubblewrap jail, or a Local VM (`[runner] boundary = "vm"`). Never add a full-machine mode, never pass the machine's credentials, logins, Git config or SSH keys into a session, and keep `jail::KEEP_ENV` free of secrets. Title requests and harness TUIs use the session's lease and jail.
+- Secrets live only in Home's vault (`vault.rs`) and in the runner proxy's memory. No API returns them; the lease goes only through a runner's own tunnel (`FromRunner::Call`) or in process on an `all` daemon. Agents see `vault::placeholder` values. Never write a real token into a session's files.
+- The proxy adds tokens only on hosts of the lease and never judges requests; other traffic is a plain tunnel. Log every request that received a token. Harness-specific login setup belongs to `Harness::contained_login`.
+- Leases end on Stop, Archive and Revoke, and after an hour without Home. Home refuses leases of a session that runs elsewhere. Only Home refreshes Codex logins.
+- Test contained sessions with scratch daemons and copies of tokens read without refreshing them; never refresh the owner's Claude token, and check a Codex login's `last_refresh` before copying it into a test vault.
 
 ### Hugging Face Space
 

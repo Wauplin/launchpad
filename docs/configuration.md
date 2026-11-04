@@ -62,7 +62,14 @@ keep = 15                           # clean task worktrees of idle agents kept o
 
 [home]
 backup = ""                         # Home only: hf://buckets/<you>/launchpad or a folder; empty: no backup
+git_name = ""                       # Home only: the author of agents' commits on every runner
+git_email = ""
+
+[runner]
+boundary = "jail"                   # jail (bubblewrap) or vm: only inside a dedicated Local VM, where agents may use Docker
 ```
+
+Credentials and tools live in Home's database, never in `config.toml`: edit them in Settings → Credentials and tools. A profile's `login` names a harness login of Home's vault (default: the harness's first login).
 
 Each `[[presets]]` entry has `id`, `label`, `text` and two independent availability flags: `ask_launchpad` (defaults to `false`) and `agent` (defaults to `true`). Enable either or both in Settings → Presets. Agent availability covers the composer, steering and Send later.
 
