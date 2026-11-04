@@ -21,7 +21,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - Tests: `cargo test`, and `(cd web && pnpm test:<name>)` for attachments, code, composer, drafts, markdown, operations, proposals, sessions, terminals and tour (Node 24, all run in CI). Targeted Rust checks: `cargo test -p launchpad-core capacity` (model capacity retries), `cargo test -p launchpad-core trace` (trace backup).
 - Chrome extension: `cd extension && pnpm install --frozen-lockfile && pnpm build` after installing `web/` dependencies; see `extension/README.md`.
 - Icons: keep `packaging/icons/source.png` unchanged; regenerate exports with `python3 packaging/generate-icons.py`; `packaging/install-icons.sh` updates installed icons without a restart.
-- Read-only context CLI for agents: `launchpad folders|sessions|profiles|presets|inbox|schedules|proposals list [--workspace <id or name>]`, `launchpad sessions show <id>`; `launchpad propose …` stores an inert Ask proposal. Local PR CLI: `launchpad pr create|update|show|list`.
+- Read-only context CLI for agents: `launchpad folders|bots|sessions|profiles|presets|inbox|schedules|proposals list [--workspace <id or name>]`, `launchpad sessions show <id>`; `launchpad propose …` stores an inert Ask proposal. Local PR CLI: `launchpad pr create|update|show|list`.
 - CI (`.github/workflows/ci.yml`): lint and debug tests on main, pull requests and tags; release builds only on tags. Linux releases build on Ubuntu 22.04 (verify a downloaded binary locally before changing that baseline); build the UI before the release daemon so it embeds the assets. `.github/workflows/hf-space.yml` publishes the Space image on main pushes. Keep CI commands and this file in sync.
 - Production install/update: `packaging/install.sh` (Linux/macOS, `--headless`, `--prebuilt`) and `packaging/install.ps1` (Windows). They restart the production daemon: only run them when the owner asks.
 
@@ -108,6 +108,12 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 
 - Detail and list GETs return cached content; POST refreshes. Label/reviewer pickers read `cache.db` only.
 - `all=true` notifications include historical Done threads; keep inbox membership in `state.db` and never promise exact parity with the web inbox. A missing thread subscription (404) is not evidence of unsubscribe.
+
+### Bots
+
+- A bot is files on Home (`BOT.md`, `bot.toml`, store `bot-<id>`) plus one thread: the sessions whose `LaunchSpec.bot` names it. `bot.toml` is the only source of its settings; agents never write either file.
+- A new session of the thread starts only on the first message, a profile or folder change, an archived current session or the owner's New session click; it references the previous trace (`launchpad trace`), never inlines it. Harness compaction handles a full context.
+- Bot sessions are normal sessions (counted once, in Agents); the sidebar shows only a state dot per bot. Their notes go in `bots/<slug>/` of the knowledge base. Creating a bot (form or Ask proposal) starts nothing; Ask's bot proposals never auto-start.
 
 ### Ask Launchpad
 

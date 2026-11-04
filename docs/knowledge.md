@@ -38,4 +38,6 @@ On a runner, the copy is in `<runner data folder>/knowledge/<workspace name>/`, 
 
 ## Storage
 
-Home stores the knowledge base like a plain folder: the file list is in its database, and the contents are stored by hash. Both go into every Home backup. The bucket therefore holds content-addressed files, not a browsable copy of the notes. Read the notes on the Knowledge page or in a runner's copy.
+Home stores the knowledge base like a plain folder: the file list is in its database, and the contents are stored by hash. Both go into every Home backup. After each backup, Home also writes a readable copy of the notes to the bucket, under `<workspace>/kb/`, and removes the files you deleted. Home never reads that copy back: edit notes on the Knowledge page or in a runner's copy.
+
+Bots keep their own notes in `bots/<bot>/` (see [Bots](bots.md)).

@@ -28,7 +28,8 @@ Launchpad is a desktop app to launch, follow and review coding agents (Claude Co
 | **Profiles** | Run each harness with a subscription login, an API key or another provider (for example the Hugging Face router). Several accounts work side by side. [Read more](docs/agents.md#profiles) |
 | **Worktrees** | New agents run in a dedicated worktree and branch. Launchpad tries to update the base from its remote before launch, merges when you ask, and tries to push the merged base. Remote failures stay visible without blocking the task. [Read more](docs/agents.md#worktrees-and-merging) |
 | **Scheduling** | Start later, after other agents finish, when a quota resets, or on a cron schedule. [Read more](docs/agents.md#scheduling) |
-| **Ask Launchpad** | Describe work in plain words. An assistant proposes launches, messages, crons and presets as cards that you start with one click. Choose presets for Ask Launchpad, agent composer / steering, or both. [Read more](docs/agents.md#ask-launchpad) |
+| **Ask Launchpad** | Describe work in plain words. An assistant proposes launches, messages, crons, presets and bots as cards that you start with one click. Choose presets for Ask Launchpad, agent composer / steering, or both. [Read more](docs/agents.md#ask-launchpad) |
+| **Bots** | Agents that stay: a name, a job in `BOT.md`, one thread made of sessions that hand off by trace reference, notes in the knowledge base, and files with versions on Home. Ask Launchpad is the built-in bot and can propose new ones. [Read more](docs/bots.md) |
 | **GitHub** | Inbox triage, issues, pull requests, diffs, reviews and merges, with local PRs and agent suggestions. [Read more](docs/github.md) |
 | **Terminals and files** | Integrated terminals for shells and harness TUIs, and a read-only file viewer with syntax colors. [Read more](docs/agents.md#terminals-and-files) |
 | **Phone and remote access** | Pair a phone with a QR code, use it over Tailscale, expand Summary or Trace for more reading space, get Web Push notifications. [Read more](docs/remote-access.md) |
@@ -64,6 +65,7 @@ The [getting started guide](docs/getting-started.md) covers prebuilt packages, h
 - [SSH hosts](docs/ssh-hosts.md): agents on other machines.
 - [Hugging Face](docs/hugging-face.md): Launchpad in a Space, trace sync and Hugging Face models.
 - [Knowledge](docs/knowledge.md): the knowledge base of each workspace, the only memory agents have.
+- [Bots](docs/bots.md): persistent agents with one thread, instructions and notes.
 - [Configuration](docs/configuration.md): files, environment variables and the CLI.
 - [Architecture](docs/architecture.md): how the daemon, the UI and the agents fit together.
 - [Development](docs/development.md): build, run and check the code.

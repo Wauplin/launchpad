@@ -10,6 +10,7 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Local PR | pre-draft PR, pre-draft, Local pre-draft | A PR prepared in Launchpad on a branch of Home Git, published or merged with a click. |
 | Plain folder | non-Git folder | A folder without Git whose files Home stores, with versions and trash. |
 | Asset folder | assets | Large or generated files of a Git folder, stored by Home instead of Git. |
+| Bot | assistant, teammate, persona | A named agent that stays: one thread of sessions, `BOT.md` instructions, notes in the knowledge base. Ask Launchpad is the built-in bot. |
 | Knowledge | memory, notes, wiki | The knowledge base of a workspace: notes and media that are the only memory agents have. |
 | Home Git | Git server, mirror | Home's copy of every Git folder, with the Launchpad branches. Runners clone from it and push to it. |
 | Suggestion | agent draft, Agent draft banner, suggested comment | A comment or review written by an agent, posted with a click. |

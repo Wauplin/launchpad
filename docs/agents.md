@@ -146,7 +146,7 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ## Ask Launchpad
 
-**Ask** is an assistant for the current workspace. It reads your folders, agents, inbox and quotas, and proposes launches, messages, schedules, crons, presets and tools as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create cron**, **Save preset** or **Add tool**. Any agent can also propose a tool it needs; after **Add tool**, paste its token. **Edit** moves a proposal into the composer.
+**Ask** is an assistant for the current workspace. It reads your folders, agents, inbox and quotas, and proposes launches, messages, schedules, crons, presets, tools and [bots](bots.md) as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create cron**, **Save preset**, **Add tool** or **Create bot**. Ask Launchpad is the built-in bot: it is listed first under **Bots** in the sidebar. Any agent can also propose a tool it needs; after **Add tool**, paste its token. **Edit** moves a proposal into the composer.
 
 ![Ask Launchpad with two proposals](images/ask.webp)
 
