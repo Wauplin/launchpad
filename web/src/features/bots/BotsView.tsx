@@ -227,6 +227,7 @@ export function BotPage() {
   const profiles = useProfiles();
   const projects = useProjects().data ?? [];
   const offline = useOfflineRunner(current?.runner_id ?? undefined);
+  const navigate = useNavigate();
   useEffect(() => setFresh(false), [current?.id]);
   if (bots.isLoading) return <Loading what="the bot" />;
   if (bots.error) return <ErrorState error={bots.error} onRetry={() => void bots.refetch()} />;
@@ -245,7 +246,7 @@ export function BotPage() {
   </>;
   const newSession = thread.length > 0 && !fresh && <button className="btn btn-sm" title="Start a new session of this thread; it references the previous session's trace" disabled={!!current && current.status !== "waiting" && current.status !== "error" && current.status !== "interrupted" && current.status !== "stopped"} onClick={() => setFresh(true)}><Icon name="plus" size={12} />New session</button>;
   const conversation = showSession
-    ? <div className="relative min-h-0 flex-1" data-tour="bots.thread"><SessionPane key={current.id} sessionId={current.id} initialView="trace" onClear={() => setFresh(true)} /></div>
+    ? <div className="relative min-h-0 flex-1" data-tour="bots.thread"><SessionPane key={current.id} sessionId={current.id} initialView="trace" onClear={() => void navigate({ to: "/bots" })} /></div>
     : <FirstMessage bot={bot} reason={fresh ? "You asked for a new session" : rotation} previous={thread.at(-1) ?? null} needsProfile={!profile} openSettings={() => setPanel("settings")} onCancel={fresh ? () => setFresh(false) : undefined} />;
   const side = <>
     {panel === "memory" && <MemoryPanel bot={bot} thread={thread} />}
@@ -255,7 +256,7 @@ export function BotPage() {
   </>;
   if (phone)
     return <div className="flex h-full min-h-0 flex-col">
-      <PhoneHeader title={bot.settings.name} subtitle={<span className="flex flex-wrap items-center gap-x-2">{meta}</span>} primary={panel === "chat" ? newSession : undefined} />
+      <PhoneHeader title={bot.settings.name} onBack={() => void navigate({ to: "/bots" })} backLabel="All bots" subtitle={<span className="flex flex-wrap items-center gap-x-2">{meta}</span>} primary={panel === "chat" ? newSession : undefined} />
       <div className="border-b border-line px-3 py-1">{tabs}</div>
       {panel === "chat" ? conversation : <div className="min-h-0 flex-1 overflow-y-auto">{side}</div>}
     </div>;

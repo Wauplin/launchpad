@@ -9,6 +9,7 @@ import { ErrorState, Loading } from "@/components/ui";
 import { delegatedAccess } from "@/lib/deployment";
 import { useConfig, useProjects } from "@/lib/queries";
 import { useRunners } from "@/lib/runners";
+import { useBots } from "@/lib/bots";
 import { useWorkspaces } from "@/lib/workspace";
 import { useVault } from "@/features/settings/CredentialsView";
 import { useAddFolder } from "@/features/projects/addFolderStore";
@@ -41,6 +42,7 @@ export function HomeSetup() {
   const projects = useProjects().data ?? [];
   const runners = useRunners().data ?? [];
   const workspaces = useWorkspaces().data ?? [];
+  const bots = useBots().data ?? [];
   const showAddFolder = useAddFolder((s) => s.show);
   if (delegatedAccess() && space.isPending) return <Loading what="Home setup" />;
   if (delegatedAccess() && space.error) return <ErrorState error={space.error} onRetry={() => void space.refetch()} />;
@@ -61,6 +63,7 @@ export function HomeSetup() {
     { id: "folders", title: "Workspace and first folder", why: "Folders your agents work in, grouped by workspace.", done: s ? s.folders.done : workspaces.length > 0 && projects.length > 0, action: <button className="btn btn-sm" onClick={showAddFolder}>Add a folder</button> },
     { id: "runner", title: "Runner", why: "A Linux machine of yours that runs the agents.", optional: true, done: s ? s.runner.done : runners.some((r) => r.connected), action: settings("/settings/runners", runners.some((r) => r.connected) ? "Open" : "Add a runner") },
     ...(s ? [{ id: "agent", title: "First agent", why: "Ask an agent what one of your projects is about.", optional: true, done: s.agent.done, action: s.agent.done ? null : openSetup }] : []),
+    { id: "bot", title: "First bot", why: "An agent that stays: one thread, its own instructions, and notes it keeps between sessions.", optional: true, done: bots.length > 0, action: bots.length ? settings("/bots") : <Link to="/bots" search={{ new: true } as never} className="btn btn-sm">Create a bot</Link> },
   ];
   const done = rows.filter((r) => r.done).length;
   return (
