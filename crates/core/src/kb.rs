@@ -615,7 +615,7 @@ fn state_file(app: &App, workspace_id: &str) -> PathBuf {
 }
 
 /// The folder name of a workspace's mirror: its name, readable in Obsidian.
-fn folder_name(name: &str, id: &str) -> String {
+pub(crate) fn folder_name(name: &str, id: &str) -> String {
     let clean: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.') { c } else { '-' }).collect();
     let clean = clean.trim().trim_matches('.').to_string();
     if clean.is_empty() { id.to_string() } else { clean }

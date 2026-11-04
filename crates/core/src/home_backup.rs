@@ -355,7 +355,57 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
     if let Err(e) = prune(&store, &app.env, now).await {
         tracing::warn!("home backup: pruning: {e:#}");
     }
+    if let Err(e) = readable(app, &store).await {
+        tracing::warn!("home backup: readable copies: {e:#}");
+    }
     Ok(true)
+}
+
+/// Top-level names the bucket already uses (Home backups, the Space connector, trace sync).
+const RESERVED: &[&str] = &[ROOT, "space", "projects", "traces", "backups", "credentials"];
+
+/// The bucket prefix of a workspace: its name, like its knowledge base folder on runners.
+pub fn workspace_prefix(name: &str, id: &str) -> String {
+    let p = crate::kb::folder_name(name, id);
+    if RESERVED.iter().any(|r| r.eq_ignore_ascii_case(&p)) { format!("{p} {}", &id[..8.min(id.len())]) } else { p }
+}
+
+/// Readable copies next to the backups, for browsing the bucket: `<workspace>/kb/<note>` and
+/// `<workspace>/bots/<slug>/<file>`. Only changed files are uploaded and removed files are deleted. Home never reads
+/// them back: its own store (in every backup) stays the source.
+async fn readable(app: &App, store: &Store) -> Result<()> {
+    let state = app.paths.data_dir.join("readable-copies.json");
+    let mut done: std::collections::BTreeMap<String, String> = tokio::fs::read(&state).await.ok().and_then(|d| serde_json::from_slice(&d).ok()).unwrap_or_default();
+    let mut want = std::collections::BTreeMap::new();
+    let workspaces = crate::workspace::list(app).await?;
+    for w in &workspaces {
+        let prefix = workspace_prefix(&w.name, &w.id);
+        for f in crate::plain::tree(app, &crate::kb::store(&w.id)).await.map(|t| t.files).unwrap_or_default() {
+            want.insert(format!("{prefix}/kb/{}", f.path), f.sha256);
+        }
+    }
+    for b in crate::bots::list(app).await.unwrap_or_default() {
+        let Some(w) = workspaces.iter().find(|w| w.id == b.workspace_id) else { continue };
+        for f in crate::plain::tree(app, &crate::bots::store(&b.id)).await.map(|t| t.files).unwrap_or_default() {
+            want.insert(format!("{}/bots/{}/{}", workspace_prefix(&w.name, &w.id), b.slug, f.path), f.sha256);
+        }
+    }
+    let result: Result<()> = async {
+        for (key, sha) in &want {
+            if done.get(key) != Some(sha) {
+                store.put(&app.env, key, crate::plain::read_blob(app, sha).await?).await?;
+                done.insert(key.clone(), sha.clone());
+            }
+        }
+        let gone: Vec<String> = done.keys().filter(|k| !want.contains_key(*k)).cloned().collect();
+        for key in gone {
+            store.remove(&app.env, &key).await?;
+            done.remove(&key);
+        }
+        Ok(())
+    }.await;
+    write_atomic(&state, &serde_json::to_vec(&done)?)?;
+    result
 }
 
 /// One bundle per mirror: Launchpad branches, kept tips and leftovers the remote does not have.
