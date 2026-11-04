@@ -114,7 +114,23 @@ impl App {
             replica::enable();
         }
         attachments::init(&paths.data_dir);
-        let env = shellenv::UserEnv::resolve().await;
+        let mut env = shellenv::UserEnv::resolve().await;
+        if paths.role == role::Role::Runner {
+            // Discovery runs before a session has its jail. Never open or refresh the laptop's existing
+            // harness login (or use its Git configuration) while running a parallel runner.
+            let home = paths.data_dir.join("discovery/home");
+            std::fs::create_dir_all(&home)?;
+            let value = |p: &std::path::Path| p.to_string_lossy().into_owned();
+            env = env.with(&[
+                ("HOME".into(), value(&home)),
+                ("CLAUDE_CONFIG_DIR".into(), value(&home.join(".claude"))),
+                ("CODEX_HOME".into(), value(&home.join(".codex"))),
+                ("XDG_CONFIG_HOME".into(), value(&home.join(".config"))),
+                ("XDG_DATA_HOME".into(), value(&home.join(".local/share"))),
+                ("XDG_STATE_HOME".into(), value(&home.join(".local/state"))),
+                ("XDG_CACHE_HOME".into(), value(&home.join(".cache"))),
+            ]);
+        }
         if paths.role == role::Role::Home {
             home_backup::restore_if_empty(&paths, &env).await.context("restore the Home backup")?;
         }

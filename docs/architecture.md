@@ -53,7 +53,7 @@ Closing the window never affects running agents.
 The [Home and runners plan](https://wauplin-launchpad-bots-research.static.hf.space/index.html) splits the daemon into two roles of the same binary, selected with `launchpad daemon --role`:
 
 - **Home** holds every record and runs no agents or terminals: starting one there fails with "connect a runner".
-- **Runner** runs agents and terminals in its own folders and keeps only caches.
+- **Runner** runs agents and terminals in its own folders and keeps only caches. Harness discovery uses an empty home in the runner data folder, separate from the laptop's existing sign-ins.
 - **All** (default) keeps both in one process, as before.
 
 A runner pairs with `launchpad connect` (a code approved on Home; Home stores the SHA-256 of the runner's secret) and keeps one outbound WebSocket to `/api/runners/tunnel`, authenticated with `X-Launchpad-Runner`. Home sends API requests over it (`runners::Hub::request`), which the runner answers by calling its own router as its local owner. A runner and Home compare `role::PROTOCOL` and the build commit: another protocol cannot connect; another build of the same protocol keeps its running sessions but takes no new ones. The runner guard (accept launches, pause) lives in the runner's folder and is reported to Home.
