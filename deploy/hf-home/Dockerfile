@@ -19,10 +19,10 @@ COPY --from=web /src/web/dist ./web/dist
 RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/src/target cargo build --locked --release -p launchpad && cp target/release/launchpad /launchpad
 
 FROM node:24.14.1-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv git openssh-client ca-certificates tini && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv git openssh-client ca-certificates curl tini && rm -rf /var/lib/apt/lists/*
 COPY deploy/hf-space/release.json /opt/space/release.json
 COPY deploy/hf-space/supervisor/install_tools.py /opt/space/install_tools.py
-RUN python3 /opt/space/install_tools.py
+RUN --mount=type=cache,target=/root/.npm python3 /opt/space/install_tools.py
 RUN git config --system credential.https://github.com.helper '!gh auth git-credential'
 COPY deploy/hf-space/requirements.txt /opt/home/requirements.txt
 RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r /opt/home/requirements.txt

@@ -6,7 +6,6 @@ import os
 import re
 import subprocess
 import tarfile
-import urllib.request
 from pathlib import Path
 
 versions=json.loads(Path('/opt/space/release.json').read_text())['tools']
@@ -15,8 +14,11 @@ subprocess.run(['npm','install','-g',f"@openai/codex@{versions['codex']}",f"@ant
 version=versions['gh']
 name=f'gh_{version}_linux_amd64.tar.gz'
 url=f'https://github.com/cli/cli/releases/download/v{version}/'
-archive=urllib.request.urlopen(url+name,timeout=60).read()
-checksums=urllib.request.urlopen(url+f'gh_{version}_checksums.txt',timeout=30).read().decode()
+def download(url):
+    return subprocess.check_output(['curl', '-4', '--fail', '--silent', '--show-error', '--location', '--retry', '2', '--connect-timeout', '20', '--max-time', '120', url])
+
+archive=download(url+name)
+checksums=download(url+f'gh_{version}_checksums.txt').decode()
 expected=next(line.split()[0] for line in checksums.splitlines() if line.split()[-1]==name)
 if hashlib.sha256(archive).hexdigest()!=expected: raise ValueError('GitHub CLI checksum mismatch')
 with tarfile.open(fileobj=io.BytesIO(archive),mode='r:gz') as tar:

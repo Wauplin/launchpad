@@ -302,7 +302,7 @@ function ProfileCard({ draft: d, open, problem, dirty, onToggle, onChange, onDel
   }, []);
   const pct = (q: { used_percent: number } | null) => (q ? `${Math.round(q.used_percent)}%` : "?");
   const summary = [
-    source(d, harness),
+    status?.role === "home" && d.billing === "subscription" ? "Subscription · Home login" : source(d, harness),
     harness?.capabilities.cost && (!supportsModelCost(harness, d.model) || status?.cost_unavailable_profiles.includes(d.id)) ? "Cost management unavailable" : null,
     d.model ? d.model : null,
     quota ? `5 h ${pct(quota.five_hour)} · week ${pct(quota.weekly)}` : null,
@@ -320,7 +320,8 @@ function ProfileCard({ draft: d, open, problem, dirty, onToggle, onChange, onDel
           </span>
         </button>
         <span className="flex flex-wrap items-center gap-2 text-xs">
-          {d.saved && machines.map((m) => (
+          {d.saved && status?.role === "home" && <span className="text-ink-3">Home vault</span>}
+          {d.saved && status?.role !== "home" && machines.map((m) => (
             <span key={m.label} className="inline-flex items-center gap-1" title={`${m.label}: ${m.detail}`}>
               <i className={`inline-block size-1.5 rounded-full ${machineTone(m)}`} aria-hidden />
               <span className="text-ink-2">{m.host ?? "This computer"}</span>
@@ -348,7 +349,8 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
   const harnesses = useHarnesses();
   const harness = harnesses.find((h) => h.id === d.harness);
   const defaults = useHarnessDefaults(d.harness).data;
-  const unavailable = useStatus().data?.cost_unavailable_profiles.includes(d.id) ?? false;
+  const status = useStatus().data;
+  const unavailable = status?.cost_unavailable_profiles.includes(d.id) ?? false;
   const supportsCost = supportsModelCost(harness, d.model) && !unavailable;
   const ownModels = !!d.models_url?.trim();
   const providerModels = useProfileModels(ownModels ? d.models_url!.trim() : null);
@@ -456,7 +458,7 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
         </span>
       </div>}
       <div className={row}>
-        <b className="pt-1 font-[650]">Works on</b>
+        <b className="pt-1 font-[650]">{status?.role === "home" ? "Home login" : "Works on"}</b>
         <WorksOn draft={d} machines={machines} />
       </div>
       <div className="grid gap-3">
