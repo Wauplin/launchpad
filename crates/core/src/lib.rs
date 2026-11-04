@@ -37,6 +37,7 @@ pub mod signin;
 pub mod spend;
 pub mod status;
 pub mod quota;
+pub mod role;
 pub mod analytics;
 pub mod review_state;
 pub(crate) mod remote_sync;

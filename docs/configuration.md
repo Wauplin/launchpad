@@ -26,6 +26,7 @@ Task worktrees live in `<folders root>/.worktrees/<folder id>/`.
 | `LAUNCHPAD_ENV=dev` | Use the development port, configuration and data folders |
 | `LAUNCHPAD_PORT` | Use another port (for an isolated second daemon, together with another `HOME`) |
 | `LAUNCHPAD_TOKEN` | Credential for the CLI (defaults to the daemon's token file) |
+| `LAUNCHPAD_ROLE=runner` | Point CLI commands at a runner's folders |
 
 ## config.toml
 
@@ -100,7 +101,7 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 
 | Command | Purpose |
 | --- | --- |
-| `launchpad daemon` | Run the daemon |
+| `launchpad daemon [--role home\|runner\|all]` | Run the daemon. `home` keeps records and runs no agents or terminals; `runner` runs agents in its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`); `all` (default) does both in one process |
 | `launchpad status` | Print the daemon status as JSON |
 | `launchpad url` | Print a link that signs a browser in |
 | `launchpad pair` | Print a five-minute pairing link and QR code |

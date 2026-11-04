@@ -1000,6 +1000,7 @@ mod tests {
                 config_dir: root.join("config"),
                 data_dir: root.join("data"),
                 port: 7318,
+                role: Default::default(),
             };
             paths.ensure_dirs().unwrap();
             Self(paths)

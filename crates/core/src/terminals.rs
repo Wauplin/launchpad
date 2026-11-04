@@ -434,6 +434,7 @@ impl Terminals {
     }
 
     async fn spawn(&self, app: &App, mut info: TerminalInfo, argv: Vec<String>, env: Vec<(String, String)>, recipe: Recipe) -> Result<TerminalInfo> {
+        crate::role::ensure_runs_agents(app.paths.role)?;
         // The PTY would otherwise start the process in another folder.
         if !crate::hostfs::is_dir(&info.cwd).await {
             bail!("the folder {} no longer exists", info.cwd);
@@ -515,6 +516,7 @@ impl Terminals {
 
     /// A PTY on an SSH host: the helper owns it, so it survives a lost connection and the output resumes.
     async fn spawn_remote(&self, app: &App, mut info: TerminalInfo, host: &str, argv: Vec<String>, env: Vec<(String, String)>, recipe: Recipe) -> Result<TerminalInfo> {
+        crate::role::ensure_runs_agents(app.paths.role)?;
         let conn = crate::hosts::conn(host)?;
         let mut vars = vec![("TERM".to_string(), "xterm-256color".to_string()), ("COLORTERM".into(), "truecolor".into()), ("LAUNCHPAD_ENV".into(), app.paths.app_env.name().into())];
         vars.extend(env.into_iter().map(|(k, v)| (k, crate::hosts::loc::localize_arg(host, &v))));

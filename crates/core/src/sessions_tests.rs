@@ -63,7 +63,7 @@ async fn fixture() -> (Fixture, crate::App) {
     let root = std::env::temp_dir().join(format!("launchpad-session-events-{}", uuid::Uuid::new_v4()));
     let paths = Arc::new(crate::paths::Paths {
         app_env: crate::paths::AppEnv::Dev,
-        config_dir: root.join("config"), data_dir: root.join("data"), port: 0,
+        config_dir: root.join("config"), data_dir: root.join("data"), port: 0, role: Default::default(),
     });
     paths.ensure_dirs().unwrap();
     // Tests exercise real session transitions, but must not send desktop or push notifications.

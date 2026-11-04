@@ -35,14 +35,22 @@ pub struct Paths {
     pub config_dir: PathBuf,
     pub data_dir: PathBuf,
     pub port: u16,
+    pub role: crate::role::Role,
 }
 
 impl Paths {
     pub fn for_app_env(app_env: AppEnv) -> Paths {
+        Paths::for_role(app_env, crate::role::Role::All)
+    }
+
+    /// A runner keeps its own folders (`launchpad-runner`): it never shares data with a single-process install.
+    pub fn for_role(app_env: AppEnv, role: crate::role::Role) -> Paths {
         let home = dirs::home_dir().expect("no home directory");
-        let suffix = match app_env {
-            AppEnv::Prod => "launchpad",
-            AppEnv::Dev => "launchpad-dev",
+        let suffix = match (app_env, role) {
+            (AppEnv::Prod, crate::role::Role::Runner) => "launchpad-runner",
+            (AppEnv::Dev, crate::role::Role::Runner) => "launchpad-runner-dev",
+            (AppEnv::Prod, _) => "launchpad",
+            (AppEnv::Dev, _) => "launchpad-dev",
         };
         Paths {
             app_env,
@@ -53,12 +61,15 @@ impl Paths {
                 AppEnv::Prod => 7317,
                 AppEnv::Dev => 7318,
             }),
+            role,
         }
     }
 
-    /// `LAUNCHPAD_PORT` overrides the environment's port (isolated test daemons).
+    /// `LAUNCHPAD_PORT` overrides the environment's port (isolated test daemons). `LAUNCHPAD_ROLE` selects the
+    /// folders of a runner for CLI commands run next to it.
     pub fn from_env() -> Paths {
-        let mut paths = Paths::for_app_env(AppEnv::from_env());
+        let role = std::env::var("LAUNCHPAD_ROLE").ok().and_then(|r| crate::role::Role::parse(&r).ok()).unwrap_or_default();
+        let mut paths = Paths::for_role(AppEnv::from_env(), role);
         if let Some(port) = std::env::var("LAUNCHPAD_PORT").ok().and_then(|p| p.parse().ok()) {
             paths.port = port;
         }

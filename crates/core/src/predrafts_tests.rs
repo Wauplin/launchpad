@@ -11,7 +11,7 @@ async fn fixture() -> (Fixture, App, Predraft) {
     let root = std::env::temp_dir().join(format!("launchpad-predraft-{}", uuid::Uuid::new_v4()));
     let paths = Arc::new(crate::paths::Paths {
         app_env: crate::paths::AppEnv::Dev,
-        config_dir: root.join("config"), data_dir: root.join("data"), port: 0,
+        config_dir: root.join("config"), data_dir: root.join("data"), port: 0, role: Default::default(),
     });
     paths.ensure_dirs().unwrap();
     let bus = crate::events::Bus::new();

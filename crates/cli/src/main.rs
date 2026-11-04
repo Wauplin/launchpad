@@ -154,7 +154,12 @@ enum Command {
     #[command(hide = true)]
     NativeHost { origin: String, #[arg(trailing_var_arg = true, allow_hyphen_values = true)] extra: Vec<String> },
     /// Run the daemon (HTTP + WebSocket; loopback by default).
-    Daemon,
+    Daemon {
+        /// home: records and services, no agents; runner: agents and terminals, in its own folders
+        /// (`~/.local/share/launchpad-runner`); all: both in one process.
+        #[arg(long, default_value = "all")]
+        role: String,
+    },
     /// Print the daemon status as JSON.
     Status,
     /// Print the address that signs a browser into the UI.
@@ -412,9 +417,12 @@ async fn main() -> Result<()> {
             browser::mcp(&paths).await
         },
         Command::NativeHost { origin, .. } => browser::native_host(&paths, &origin).await,
-        Command::Daemon => {
+        Command::Daemon { role } => {
             init_tracing();
-            tracing::info!("env {}, data in {}", paths.app_env.name(), paths.data_dir.display());
+            let role = launchpad_core::role::Role::parse(&role)?;
+            // Keep the port of `LAUNCHPAD_PORT` or the environment; a runner gets its own folders.
+            let paths = if role == paths.role { paths } else { Paths { port: paths.port, ..Paths::for_role(paths.app_env, role) } };
+            tracing::info!("env {}, role {}, data in {}", paths.app_env.name(), role.name(), paths.data_dir.display());
             let app = launchpad_core::App::start(paths).await?;
             launchpad_server::serve(app).await
         }

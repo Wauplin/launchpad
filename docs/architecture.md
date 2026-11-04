@@ -48,6 +48,16 @@ flowchart TB
 
 Closing the window never affects running agents.
 
+## Roles
+
+The [Home and runners plan](https://wauplin-launchpad-bots-research.static.hf.space/index.html) splits the daemon into two roles of the same binary, selected with `launchpad daemon --role`:
+
+- **Home** holds every record and runs no agents or terminals: starting one there fails with "connect a runner".
+- **Runner** runs agents and terminals in its own folders and keeps only caches.
+- **All** (default) keeps both in one process, as before.
+
+A runner and Home compare `role::PROTOCOL` and the build commit: another protocol cannot connect; another build of the same protocol keeps its running sessions but takes no new ones.
+
 ## Sessions and harnesses
 
 Every harness maps to the same model:

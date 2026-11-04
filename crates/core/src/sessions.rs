@@ -745,6 +745,7 @@ impl Sessions {
     }
 
     async fn launch_inner(&self, app: &App, spec: LaunchSpec, id: String, automatic: bool) -> Result<Session> {
+        crate::role::ensure_runs_agents(app.paths.role)?;
         let _action = self.inner.actions.lock().await;
         anyhow::ensure!(self.get(&id).is_none(), "a session with this id already exists");
         let _guard = self.allow_work().await;
@@ -1580,6 +1581,7 @@ impl Sessions {
 
     /// Caller holds the action and work locks, including during permission changes.
     async fn send_locked(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>) -> Result<()> {
+        crate::role::ensure_runs_agents(app.paths.role)?;
         self.ensure_local(id)?;
         self.ensure_shutdown_finished(id)?;
         self.update(app, id, |s| s.capacity_retry_at = None).await?;
@@ -1814,6 +1816,7 @@ impl Sessions {
     /// A session without a native conversation receives its original task and launch images.
     /// With `close_terminal`, an integrated terminal still running the session's TUI is closed first.
     pub async fn resume(&self, app: &App, id: &str, close_terminal: bool, continue_turn: bool) -> Result<()> {
+        crate::role::ensure_runs_agents(app.paths.role)?;
         self.ensure_local(id)?;
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
