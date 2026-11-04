@@ -5,15 +5,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BackupInfo } from "@/gen/BackupInfo";
 import type { Guard } from "@/gen/Guard";
 import type { RemoteLaunch } from "@/gen/RemoteLaunch";
-import type { RunnerStatus } from "@/gen/RunnerStatus";
 import { toast, toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, SettingRow } from "@/components/ui";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { useStatus } from "@/lib/queries";
+import { useRunners } from "@/lib/runners";
 import { Card, SettingsPage } from "./SettingsView";
-
-export const useRunners = (enabled: boolean) => useQuery({ queryKey: ["runners"], queryFn: () => api.get<RunnerStatus[]>("/api/runners"), enabled, staleTime: Infinity });
 
 export function RunnersView() {
   const status = useStatus().data;
@@ -29,7 +27,7 @@ export function RunnersView() {
 
 function HomeRunners() {
   const qc = useQueryClient();
-  const runners = useRunners(true);
+  const runners = useRunners();
   const pending = (runners.data ?? []).filter((r) => r.runner.state === "pending");
   const approved = (runners.data ?? []).filter((r) => r.runner.state === "approved");
   const refresh = () => qc.invalidateQueries({ queryKey: ["runners"] });

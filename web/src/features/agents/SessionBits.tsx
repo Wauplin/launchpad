@@ -1,6 +1,7 @@
 import type { Session } from "@/gen/Session";
 import { formatAge } from "@/lib/format";
 import { Icon, type IconName } from "@/components/Icon";
+import { useOfflineRunner } from "@/lib/runners";
 
 /** "12:04" since `ms`. */
 export function elapsed(ms: number): string {
@@ -54,10 +55,14 @@ export function statusInfo(s: Session): { label: string; style: keyof typeof STY
 
 export function StatusBadge({ s }: { s: Session }) {
   const { label, style, icon } = statusInfo(s);
+  const offline = useOfflineRunner(s.runner_id);
   return (
-    <span className={`inline-flex h-5 items-center gap-[5px] rounded-full px-2 text-[12px] font-semibold whitespace-nowrap ${STYLES[style]}`}>
-      {icon ? <Icon name={icon} size={11} /> : <span className="size-1.5 rounded-full bg-current" />}
-      {label}
+    <span className="inline-flex items-center gap-1">
+      <span className={`inline-flex h-5 items-center gap-[5px] rounded-full px-2 text-[12px] font-semibold whitespace-nowrap ${STYLES[style]}`}>
+        {icon ? <Icon name={icon} size={11} /> : <span className="size-1.5 rounded-full bg-current" />}
+        {label}
+      </span>
+      {offline && <span className="inline-flex h-5 items-center rounded-full bg-sunk px-2 text-[12px] whitespace-nowrap text-ink-3" title="Its runner is disconnected: the status is the last one Home received.">{offline} offline</span>}
     </span>
   );
 }

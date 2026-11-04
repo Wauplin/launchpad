@@ -23,6 +23,8 @@ Until Home Git arrives, folders stay on the runner that has them: add folders fr
 
 Every session a runner runs is saved on Home: its record and every event, in order. The runner writes them to a local outbox in the same transaction as its own copy and drops them only after Home has saved them. While Home is unreachable, sessions keep running and accept your messages on the runner; the outbox is sent when the tunnel is back. Home never marks a runner's session Interrupted when Home itself restarts.
 
+While a runner is disconnected (a sleeping laptop), Home shows "<runner> offline" next to its sessions' status: the status is the last one Home received. This is a runner state, never a session status.
+
 Each session has a generation number, which grows when a session moves to another runner. Home ignores records and events of an older generation.
 
 ## Backups

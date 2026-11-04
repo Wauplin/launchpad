@@ -169,6 +169,10 @@ function connect(id: string) {
   }, 1500);
 }
 
+// Home and runners: the demo runs in one process (role all), so it has no runners, backups or remote launches.
+route("GET", "/api/runners", () => []);
+route("GET", "/api/runner/launches", () => []);
+route("GET", "/api/home/backup", () => ({ destination: null, last_complete_at: null, error: null }));
 route("GET", "/api/hosts", () => world.status.hosts);
 route("GET", "/api/hosts/ssh-config", () => world.sshConfig);
 route("POST", "/api/hosts", ({ body }) => {
