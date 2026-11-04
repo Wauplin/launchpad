@@ -58,7 +58,18 @@ async fn start(app: &App) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
     }
-    let child = tokio::process::Command::new("ssh-agent").arg("-D").arg("-a").arg(&sock).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).kill_on_drop(true).spawn().context("start ssh-agent (install openssh-client)")?;
+    let mut cmd = tokio::process::Command::new("ssh-agent");
+    cmd.arg("-D").arg("-a").arg(&sock).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).kill_on_drop(true);
+    // The agent ends with the daemon.
+    // SAFETY: prctl is async-signal-safe and only affects the child.
+    #[cfg(target_os = "linux")]
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+            Ok(())
+        });
+    }
+    let child = cmd.spawn().context("start ssh-agent (install openssh-client)")?;
     for _ in 0..50 {
         if sock.exists() {
             break;
