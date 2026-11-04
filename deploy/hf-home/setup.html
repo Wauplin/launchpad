@@ -129,7 +129,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
 </div></main>
 <script>
 const $=s=>document.querySelector(s);
-let keyTried=false,csrf="",st=null,actionError="",busy=false,generatedKey=null,keyKept=false,sshRequested=false,modelsFor=null,foldersOpen=false,skipped=new Set(JSON.parse(sessionStorage.getItem("lp-setup-skipped")||"[]")),repos=null,cloningRepo=null,wsChosen=null;
+let keyTried=false,csrf="",st=null,actionError="",busy=false,generatedKey=null,keyKept=false,sshRequested=false,modelsFor=null,foldersOpen=false,skipped=new Set(JSON.parse(sessionStorage.getItem("lp-setup-skipped")||"[]")),repos=null,cloningRepo=null,cloneQueue=[],cloneErrors=[],wsChosen=null;
 const NAMES={huggingface:"Hugging Face",github:"GitHub",codex:"Codex",claude:"Claude Code"};
 const STEP={huggingface:"huggingface",github:"github",codex:"profile",claude:"profile"};
 const ORDER=["huggingface","key","github","ssh","identity","profile","folders","runner","agent"];
@@ -243,12 +243,34 @@ async function loadRepos(){repos=[];try{repos=await api("POST","/api/projects/cl
 function renderRepos(){
   const typed=$("#repo").value.trim().toLowerCase(),cloned=new Set((st?.folders.projects||[]).map(p=>p.name.toLowerCase()));
   const list=(repos||[]).filter(r=>!typed||r.repo.toLowerCase().includes(typed)).slice(0,30);
-  $("#repos").innerHTML=repos===null?"":list.length?list.map(r=>`<div><span class="name">${esc(r.repo)}</span>${cloned.has(r.repo.split("/")[1].toLowerCase())?`<span class="ok">✓ cloned</span>`:`<button data-clone="${esc(r.repo)}"${cloningRepo||!wsChosen?" disabled":""}>Clone</button>`}</div>`).join(""):`<div class="hint">${repos.length?"No match. Type owner/name and click Clone.":"Loading your repositories… You can also type owner/name."}</div>`;
+  const waiting=new Set(cloneQueue.map(c=>c.repo.toLowerCase()));
+  const action=r=>cloned.has(r.repo.split("/")[1].toLowerCase())?`<span class="ok">✓ cloned</span>`
+    :cloningRepo&&cloningRepo.toLowerCase()===r.repo.toLowerCase()?`<span class="row hint"><span class="spin"></span>cloning</span>`
+    :waiting.has(r.repo.toLowerCase())?`<span class="hint">queued</span>`
+    :`<button data-clone="${esc(r.repo)}"${!wsChosen?" disabled":""}>Clone</button>`;
+  $("#repos").innerHTML=repos===null?"":list.length?list.map(r=>`<div><span class="name">${esc(r.repo)}</span>${action(r)}</div>`).join(""):`<div class="hint">${repos.length?"No match. Type owner/name and click Clone.":"Loading your repositories… You can also type owner/name."}</div>`;
   document.querySelectorAll("[data-clone]").forEach(b=>b.onclick=()=>clone(b.dataset.clone));
-  $("#repo-clone").disabled=!!cloningRepo||!wsChosen||!$("#repo").value.trim().includes("/");
-  $("#cloning").innerHTML=cloningRepo?`<span class="row"><span class="spin"></span>Cloning ${esc(cloningRepo)}. Large repositories take a few minutes.</span>`:"";
+  $("#repo-clone").disabled=!wsChosen||!$("#repo").value.trim().includes("/");
+  $("#cloning").innerHTML=cloningRepo?`<span class="row"><span class="spin"></span>Cloning ${esc(cloningRepo)}${cloneQueue.length?` · ${cloneQueue.length} more queued`:""}. Large repositories take a few minutes.</span>`:"";
+  $("#cloning").innerHTML+=cloneErrors.map(e=>`<div class="error">${esc(e)}</div>`).join("");
 }
-async function clone(repo){cloningRepo=repo;renderRepos();try{await api("POST","/api/projects/clone",{repo,workspace_id:wsChosen});$("#repo").value="";await refresh();}finally{cloningRepo=null;renderRepos();}}
+/** Queues a clone into the chosen workspace; clones run one at a time, so several can be clicked in a row. */
+function clone(repo){
+  repo=repo.trim();const key=repo.toLowerCase();
+  if(!repo||(cloningRepo&&cloningRepo.toLowerCase()===key)||cloneQueue.some(c=>c.repo.toLowerCase()===key))return;
+  if(!cloningRepo)cloneErrors=[];
+  cloneQueue.push({repo,workspace_id:wsChosen});
+  if($("#repo").value.trim().toLowerCase()===key)$("#repo").value="";
+  if(!cloningRepo)void cloneNext();else renderRepos();
+}
+async function cloneNext(){
+  const next=cloneQueue.shift();
+  if(!next){cloningRepo=null;renderRepos();return;}
+  cloningRepo=next.repo;renderRepos();
+  if(!await api("POST","/api/projects/clone",next)){cloneErrors.push(`${next.repo}: ${actionError||"the clone failed"}`);actionError="";}
+  await refresh();
+  void cloneNext();
+}
 async function api(method,path,body,headers={}){
   actionError="";
   try{const r=await fetch(path,{method,cache:"no-store",headers:{...(body!==undefined?{"Content-Type":"application/json"}:{}),...headers},body:body!==undefined?JSON.stringify(body):undefined});

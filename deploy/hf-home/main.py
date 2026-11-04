@@ -153,7 +153,8 @@ async def main():
         app.on_startup.append(proxy.start)
         app.on_cleanup.append(proxy.close)
         app.router.add_route("*", "/{path:.*}", proxy.handle)
-        runner = web.AppRunner(app, access_log=None)
+        # Pass request bodies through unchanged: Git gzips large fetch requests and `git http-backend` inflates them.
+        runner = web.AppRunner(app, access_log=None, auto_decompress=False)
         await runner.setup()
         await web.TCPSite(runner, "0.0.0.0", 7860).start()
         print(f"Home ready: https://{host}", flush=True)

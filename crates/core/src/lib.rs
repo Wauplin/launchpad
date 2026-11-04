@@ -121,7 +121,10 @@ impl App {
             // Discovery runs before a session has its jail. Never open or refresh the laptop's existing
             // harness login (or use its Git configuration) while running a parallel runner.
             let home = paths.data_dir.join("discovery/home");
-            std::fs::create_dir_all(&home)?;
+            // Codex refuses a `CODEX_HOME` that does not exist.
+            for d in [".claude", ".codex", ".config", ".local/share", ".local/state", ".cache"] {
+                std::fs::create_dir_all(home.join(d))?;
+            }
             let value = |p: &std::path::Path| p.to_string_lossy().into_owned();
             env = env.with(&[
                 ("HOME".into(), value(&home)),

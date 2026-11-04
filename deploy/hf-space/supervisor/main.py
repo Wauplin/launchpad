@@ -690,7 +690,8 @@ async def serve():
     app.router.add_get('/_space/shell', shell)
     app.router.add_get('/_space/{name:.+}', asset)
     app.router.add_route('*', '/{path:.*}', dispatch)
-    runner = web.AppRunner(app, access_log=None)
+    # Pass request bodies through unchanged: a compressed body keeps its Content-Encoding for the daemon.
+    runner = web.AppRunner(app, access_log=None, auto_decompress=False)
     await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', 7860).start()
     boot = asyncio.create_task(initialize())

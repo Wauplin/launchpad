@@ -33,7 +33,11 @@ OSC8 = re.compile(r"\x1b\]8;[^;\x07\x1b]*;(https://[^\x07\x1b]+)(?:\x07|\x1b\\)"
 URL = re.compile(r"https://[^\s<>\"'\x1b\x07]+")
 # One-time device codes printed by hf ("ABCD-EFGH"), gh ("ABCD-1234") and Codex ("ABCD-12345").
 CODE = re.compile(r"\b[A-Z0-9]{4}-[A-Z0-9]{4,5}\b")
-CLAUDE_TOKEN = re.compile(r"sk-ant-oat01-[A-Za-z0-9_-]{20,}")
+# Claude Code's long-lived token (any `sk-ant-oat<version>-` prefix), then the line printed after it.
+CLAUDE_TOKEN = re.compile(r"sk-ant-oat\d*-[A-Za-z0-9_-]{20,}")
+CLAUDE_TOKEN_END = re.compile(r"Store\s*this\s*token")
+# How long Claude Code may take to exchange a pasted code before the page says so.
+CODE_WAIT = 90
 # Claude Code's answer to a rejected code; cursor moves may replace the spaces.
 RETRY = re.compile(r"Press\s*Enter\s*to\s*retry")
 TIMEOUT = 900
@@ -56,9 +60,29 @@ def device_prompt(output):
     return (links[-1] if links else None), (codes[-1] if codes else None)
 
 
-def claude_token(output):
-    found = CLAUDE_TOKEN.findall(ANSI.sub("", output))
-    return found[-1] if found else None
+def claude_token(output, complete=False):
+    """The token Claude Code printed, once all of it arrived: the line after it is there, or the process exited
+    (`complete`). A token wrapped over several lines is joined."""
+    text = ANSI.sub("", output)
+    start = text.rfind("sk-ant-oat")
+    if start < 0:
+        return None
+    rest = text[start:]
+    end = CLAUDE_TOKEN_END.search(rest)
+    if end:
+        found = CLAUDE_TOKEN.match(re.sub(r"\s+", "", rest[:end.start()]))
+    elif complete:
+        found = CLAUDE_TOKEN.match(rest)
+    else:
+        return None
+    return found.group(0) if found else None
+
+
+def last_line(output):
+    """The last visible line of a sign-in terminal, without anything that looks like a token."""
+    lines = [line.strip() for line in ANSI.sub("", output).replace("\r", "\n").split("\n")]
+    line = next((line for line in reversed(lines) if line), "")
+    return re.sub(r"sk-ant-\S+", "…", line)[:300]
 
 
 def unique_id(base, taken):
@@ -119,6 +143,7 @@ class Login:
         self.cancelled = False
         self.code_sent = False
         self.code_at = 0
+        self.watchdog = None
 
     @property
     def running(self):
@@ -174,7 +199,7 @@ class Login:
             code = await asyncio.wait_for(pump(), TIMEOUT)
             if code == 0:
                 await self.done(self.output.decode(errors="replace"))
-            elif code is not None and not self.cancelled:
+            elif code is not None and not self.cancelled and not self.error:
                 self.error = "The sign-in did not complete. Start it again."
         except asyncio.TimeoutError:
             await self.stop()
@@ -183,6 +208,8 @@ class Login:
             await self.stop()
             self.error = str(error) or "The sign-in could not be saved."
         finally:
+            if self.watchdog:
+                self.watchdog.cancel()
             self.output = b""
             if self.master is not None:
                 os.close(self.master)
@@ -196,6 +223,17 @@ class Login:
         self.code_at = len(self.output)
         os.write(self.master, code.encode() + b"\r")
         self.code_sent = True
+        if self.watchdog:
+            self.watchdog.cancel()
+        self.watchdog = asyncio.get_running_loop().create_task(self.wait_for_token())
+
+    async def wait_for_token(self):
+        """A pasted code that Claude Code neither accepts nor rejects in time ends the sign-in with what it shows."""
+        await asyncio.sleep(CODE_WAIT)
+        if self.running:
+            shown = last_line(self.output[self.code_at:].decode(errors="replace"))
+            self.error = "Claude Code did not finish the sign-in" + (f" (it shows: {shown})" if shown else "") + ". Start it again."
+            await self.stop()
 
     async def stop(self):
         if self.process and self.process.returncode is None:
@@ -451,7 +489,7 @@ class Setup:
                     self.login = Login(tool, ("codex", "login", "--device-auth"), dict(base, CODEX_HOME=str(folder)), done, cleanup)
                 else:
                     async def done(output):
-                        token = claude_token(output)
+                        token = claude_token(output, complete=True)
                         if not token:
                             raise ValueError("Claude Code did not print a token. Start the sign-in again.")
                         await self.add_login("claude", token)

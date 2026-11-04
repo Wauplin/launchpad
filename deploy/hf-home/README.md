@@ -9,8 +9,8 @@ The browser signs in through Hugging Face. On first start, Home shows a setup pa
 3. **GitHub**: `gh auth login --web` for the Inbox, issues, pull requests, private clones and publication. A `GH_TOKEN` Space secret replaces this login.
 4. **SSH key**: Home creates an ed25519 key pair and keeps the private key in its vault. The page shows the public key, with a link to add it on GitHub.
 5. **Git identity**: the name and email of agents' commits, suggested from the GitHub account (its noreply address).
-6. **Agent profile**: sign in to Claude Code (Home runs `claude setup-token`; you open the link, approve, and paste the code back) or to Codex (ChatGPT device login). The login goes into Home's vault and a profile uses it. Then choose the profile's default model and effort.
-7. **Workspace and first folder**: create one or more workspaces, then clone a repository from GitHub.
+6. **Agent profile**: sign in to Claude Code (Home runs `claude setup-token`; you open the link, approve, and paste the code back; if Claude Code neither accepts nor rejects the code within 90 seconds, the page shows what it says) or to Codex (ChatGPT device login). The login goes into Home's vault and a profile uses it. Then choose the profile's default model and effort.
+7. **Workspace and first folder**: create one or more workspaces, then clone repositories from GitHub. Click several in a row: they clone one after another.
 8. **Connect a runner** (recommended): copy the install command, run it on a Linux machine, and approve the request on the page.
 9. **Run your first agent** (recommended): Home asks an agent “What is this project about?” on the new folder and runner, then opens the session.
 

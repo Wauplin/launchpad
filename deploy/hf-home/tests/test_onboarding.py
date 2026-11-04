@@ -1,6 +1,6 @@
 import unittest
 
-from onboarding import claude_token, derive_key, device_prompt, noreply_email, seal, unique_id, unseal
+from onboarding import claude_token, derive_key, device_prompt, last_line, noreply_email, seal, unique_id, unseal
 
 
 class DevicePrompt(unittest.TestCase):
@@ -28,8 +28,22 @@ class DevicePrompt(unittest.TestCase):
 
     def test_claude_token(self):
         token = "sk-ant-oat01-" + "Ab_9-" * 20
-        self.assertEqual(claude_token(f"\x1b[2GYour OAuth token:\r\n\x1b[2G\x1b[1m{token}\x1b[22m\r\n"), token)
+        out = f"\x1b[2GYour OAuth token:\r\n\x1b[2G\x1b[1m{token}\x1b[22m\r\n\r\n\x1b[2GStore\x1b[8Gthis token securely."
+        self.assertEqual(claude_token(out), token)
         self.assertIsNone(claude_token("Paste code here if prompted >"))
+        # Other token versions, and a token wrapped over two lines.
+        newer = token.replace("oat01", "oat02")
+        self.assertEqual(claude_token(f"{newer[:60]}\r\n  {newer[60:]}\r\n Store this token"), newer)
+
+    def test_claude_token_partial(self):
+        token = "sk-ant-oat01-" + "Ab_9-" * 20
+        # A token cut by a read boundary is not taken until the next line or the exit.
+        self.assertIsNone(claude_token(f"Your OAuth token:\r\n{token[:40]}"))
+        self.assertEqual(claude_token(f"Your OAuth token:\r\n{token}\r\n", complete=True), token)
+
+    def test_last_line(self):
+        self.assertEqual(last_line("Exchanging\r\n\x1b[2GOAuth error: timeout\r\n\r\n"), "OAuth error: timeout")
+        self.assertEqual(last_line("token sk-ant-oat01-abc"), "token …")
 
     def test_nothing_yet(self):
         self.assertEqual(device_prompt(""), (None, None))
