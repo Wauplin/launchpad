@@ -29,7 +29,7 @@ header: mini
 ---
 ```
 
-Upload the directory with `hf upload Wauplin/launchpad-home <directory> --type space`. Keep `.git`, build outputs, `node_modules` and credentials out of the upload. The image builds the UI before embedding it in the release daemon. Home and runners must report the same runtime source commit. A packaging or UI-only update can retain `LAUNCHPAD_REVISION` from the deployed runtime when the Rust sources are unchanged, keeping paired runners compatible; record the deployment commit separately in the Space card. Do not use the old Space updater or `packaging/install.sh` for this POC.
+Upload the directory with `hf upload Wauplin/launchpad-home <directory> --type space`. Keep `.git`, build outputs, `node_modules` and credentials out of the upload. The image builds the UI before embedding it in the release daemon, limits Rust build jobs and installs tools after compilation to keep peak build memory lower. On a memory-constrained Space builder, deploy the executable exported from this locally built Linux image: replace the root Dockerfile’s build stages with a `COPY` of that artifact, verify its pinned SHA-256 before making it executable, and record its runtime and UI source commits separately. Keep this source Dockerfile for reproducible builds. Home and runners must report the same runtime source commit. A packaging or UI-only update can retain `LAUNCHPAD_REVISION` from the deployed runtime when the Rust sources are unchanged, keeping paired runners compatible; record the deployment commit separately in the Space card. Do not use the old Space updater or `packaging/install.sh` for this POC.
 
 ## Try it alongside an existing laptop install
 
