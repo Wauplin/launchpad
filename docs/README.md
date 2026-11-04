@@ -17,5 +17,6 @@
 - [Architecture](architecture.md): the daemon, the UI, sessions, storage and the security model.
 - [Development](development.md): build, run, checks and CI.
 - [Harness adapters](harness-adapters.md): how to add a coding agent harness.
+- [Foundations spikes](foundations-spikes.md): harness logins through a proxy and conversations moved between runners, checked for the Home and runners plan.
 - [Hugging Face Space connector](../deploy/hf-space/README.md): the Space control plane.
 - [AGENTS.md](../AGENTS.md): rules for coding agents working on this repository.
