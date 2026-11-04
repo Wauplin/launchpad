@@ -30,6 +30,14 @@ pub fn router() -> Router<Server> {
         .route("/api/runners/{id}/status", get(runner_status))
         .route("/api/runners/{id}", axum::routing::delete(remove))
         .route("/api/runner/guard", get(guard).put(set_guard))
+        .route("/api/runner/launches", get(launches))
+}
+
+/// Launches that came from other devices through Home, newest first.
+async fn launches(State(s): State<Server>) -> Json<Vec<launchpad_core::home_link::RemoteLaunch>> {
+    let mut all = launchpad_core::home_link::launches(&s.app.paths);
+    all.reverse();
+    Json(all)
 }
 
 /// The runner guard of this machine (runner role): local settings, never synced to Home.
@@ -103,6 +111,10 @@ async fn tunnel(State(s): State<Server>, headers: HeaderMap, ws: WebSocketUpgrad
     ws.on_upgrade(move |socket| serve(s, socket, runner))
 }
 
+async fn workspaces(s: &Server) -> ToRunner {
+    ToRunner::Workspaces { workspaces: launchpad_core::workspace::list(&s.app).await.unwrap_or_default() }
+}
+
 const PING: std::time::Duration = std::time::Duration::from_secs(25);
 
 async fn send(tx: &mut futures_util::stream::SplitSink<WebSocket, Message>, msg: &ToRunner) -> bool {
@@ -148,6 +160,10 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
         return;
     }
     tracing::info!("runner {} ({}) connected, {compat:?}", runner.name, runner.id);
+    let mut bus = s.app.bus.subscribe(None).rx;
+    if !send(&mut tx, &workspaces(&s).await).await {
+        return;
+    }
     let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<ToRunner>();
     let conn = s.app.runners.connect(&s.app, &runner.id, compat, guard, out_tx);
     let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING, PING);
@@ -157,6 +173,15 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
             msg = out_rx.recv() => {
                 let Some(msg) = msg else { break };
                 if !send(&mut tx, &msg).await { break }
+            }
+            delivered = bus.recv() => {
+                // Workspaces are Home's: every runner gets each new snapshot.
+                let changed = match delivered {
+                    Ok(d) => d.text.contains(r#""topic":"workspaces""#),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => true,
+                    Err(_) => false,
+                };
+                if changed && !send(&mut tx, &workspaces(&s).await).await { break }
             }
             _ = ping.tick() => {
                 // A silent runner (sleeping laptop, dead network) is dropped after three missed pings.
@@ -181,6 +206,18 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
                         }
                         if let Some(n) = last && !send(&mut tx, &ToRunner::Ack { n }).await { break }
                     }
+                    Ok(FromRunner::Req { id, method, path, body }) => {
+                        let (app, out) = (s.app.clone(), s.app.runners.clone());
+                        let runner_id = runner.id.clone();
+                        tokio::spawn(async move {
+                            let res = match crate::ROUTER.get() {
+                                Some(router) if path.starts_with("/api/workspaces") => crate::home_client::local(&app, router, &method, &path, body, &[]).await,
+                                _ => Err(anyhow::anyhow!("runners may only change workspaces on Home")),
+                            };
+                            let (status, body) = res.unwrap_or_else(|e| (400, json!({"error": format!("{e:#}")}).to_string()));
+                            out.send_to(&runner_id, ToRunner::Res { id, status, body });
+                        });
+                    }
                     Ok(FromRunner::Ping) => { if !send(&mut tx, &ToRunner::Pong).await { break } }
                     Ok(FromRunner::Hello { .. }) => {}
                     Err(e) => tracing::warn!("runner {}: bad message: {e}", runner.id),
@@ -190,4 +227,77 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
     }
     s.app.runners.disconnected(&s.app, &runner.id, conn);
     tracing::info!("runner {} disconnected", runner.name);
+}
+
+/// Home: requests about a runner's session or folder go to that runner, and launches go to a runner. Home
+/// serves records, events and traces itself.
+pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    if s.app.paths.role != role::Role::Home {
+        return next.run(req).await;
+    }
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    let get = method == axum::http::Method::GET;
+    let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    let runner = match parts.as_slice() {
+        ["api", "sessions"] if method == axum::http::Method::POST => None,
+        ["api", "sessions", id, rest @ ..] if *id != "search" => {
+            let served = get && matches!(rest, [] | ["events"] | ["events", "page"] | ["trace"] | ["images", ..]);
+            match s.app.sessions.get(id).and_then(|x| x.runner_id) {
+                Some(r) if !served => Some(r),
+                _ => return next.run(req).await,
+            }
+        }
+        ["api", "projects"] | ["api", "projects", "clone"] if method == axum::http::Method::POST => {
+            return ApiError::bad_request("Home has no folders of its own yet: add folders from a runner's window").into_response();
+        }
+        ["api", "projects", id, rest @ ..] if !get || rest == ["branches"] => match launchpad_core::projects::get(&s.app, id).await.ok().flatten().and_then(|p| p.runner_id) {
+            Some(r) => Some(r),
+            None => return next.run(req).await,
+        },
+        _ => return next.run(req).await,
+    };
+    let headers: Vec<(String, String)> = req.headers().get("idempotency-key").and_then(|v| v.to_str().ok()).map(|v| vec![("idempotency-key".to_string(), v.to_string())]).unwrap_or_default();
+    let path_and_query = req.uri().path_and_query().map(|p| p.to_string()).unwrap_or(path);
+    let body = match axum::body::to_bytes(req.into_body(), 32 << 20).await {
+        Ok(b) => (!b.is_empty()).then(|| String::from_utf8_lossy(&b).into_owned()),
+        Err(e) => return ApiError::bad_request(format!("{e}")).into_response(),
+    };
+    let runner = match runner {
+        Some(r) => r,
+        None => match launch_runner(&s, body.as_deref()).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        },
+    };
+    if !s.app.runners.connected(&runner) {
+        let name = runners::list(&s.app).await.ok().and_then(|l| l.into_iter().find(|r| r.runner.id == runner)).map(|r| r.runner.name).unwrap_or_else(|| "its runner".into());
+        return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{name} is offline")).into_response();
+    }
+    match s.app.runners.request_with(&runner, method.as_str(), &path_and_query, body, headers).await {
+        Ok((status, body)) => (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response(),
+        Err(e) => ApiError::new(StatusCode::BAD_GATEWAY, format!("{e:#}")).into_response(),
+    }
+}
+
+/// The runner for a new session: the one whose disk has its folder, else the first that takes launches from
+/// other devices.
+async fn launch_runner(s: &Server, body: Option<&str>) -> Result<String, ApiError> {
+    let spec: launchpad_core::model::LaunchSpec = serde_json::from_str(body.unwrap_or("{}")).map_err(|e| ApiError::bad_request(format!("{e}")))?;
+    let project = match &spec.target {
+        launchpad_core::model::Target::Project { project_id } | launchpad_core::model::Target::Predraft { project_id } => Some(project_id.clone()),
+        _ => None,
+    };
+    let available = s.app.runners.available();
+    if let Some(project) = project {
+        let p = launchpad_core::projects::get(&s.app, &project).await?.ok_or_else(|| ApiError::bad_request("no such folder"))?;
+        let r = p.runner_id.ok_or_else(|| ApiError::bad_request(format!("{} is not on a runner", p.name)))?;
+        if !available.contains(&r) {
+            let all = runners::list(&s.app).await?;
+            let name = all.iter().find(|x| x.runner.id == r).map(|x| x.runner.name.clone()).unwrap_or_else(|| "Its runner".into());
+            return Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{name} does not take this launch now: it is offline, paused, refuses launches from other devices or needs an update")));
+        }
+        return Ok(r);
+    }
+    available.into_iter().next().ok_or_else(|| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "no runner takes launches now: connect one, or check its guard in Settings → Home and runners"))
 }

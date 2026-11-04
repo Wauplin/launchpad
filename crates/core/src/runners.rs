@@ -210,6 +210,8 @@ pub mod proto {
         Res { id: u64, status: u16, body: String },
         /// Outbox items (`replica::Item`) with their numbers, oldest first.
         Items { items: Vec<(u64, serde_json::Value)> },
+        /// A change made in a window of the runner that Home owns (workspaces), for Home's API.
+        Req { id: u64, method: String, path: String, body: Option<String> },
         Ping,
     }
 
@@ -222,8 +224,12 @@ pub mod proto {
         Ack { n: u64 },
         /// The connection is refused (unknown, pending or incompatible runner); the runner shows the reason.
         Refuse { reason: String },
-        /// An API request for the runner's own daemon.
-        Req { id: u64, method: String, path: String, body: Option<String> },
+        /// An API request for the runner's own daemon. `headers`: only `Idempotency-Key`.
+        Req { id: u64, method: String, path: String, body: Option<String>, #[serde(default)] headers: Vec<(String, String)> },
+        /// Answer to `FromRunner::Req`.
+        Res { id: u64, status: u16, body: String },
+        /// Every workspace (Home owns them), on connect and after each change.
+        Workspaces { workspaces: Vec<crate::workspace::Workspace> },
         Pong,
     }
 }
@@ -288,6 +294,24 @@ impl Hub {
         self.inner.links.lock().unwrap().get(id).map(|l| (l.compat, l.guard.clone()))
     }
 
+    /// Sends a message to one connected runner.
+    pub fn send_to(&self, id: &str, msg: proto::ToRunner) {
+        if let Some(l) = self.inner.links.lock().unwrap().get(id) {
+            let _ = l.tx.send(msg);
+        }
+    }
+
+    /// Sends a message to every connected runner.
+    pub fn broadcast(&self, msg: proto::ToRunner) {
+        for l in self.inner.links.lock().unwrap().values() {
+            let _ = l.tx.send(msg.clone());
+        }
+    }
+
+    pub fn connected(&self, id: &str) -> bool {
+        self.inner.links.lock().unwrap().contains_key(id)
+    }
+
     /// Connected runners that take new sessions from other devices: same build, accepting, not paused.
     pub fn available(&self) -> Vec<String> {
         let links = self.inner.links.lock().unwrap();
@@ -298,10 +322,14 @@ impl Hub {
 
     /// Sends an API request to a runner's daemon and waits for its answer.
     pub async fn request(&self, id: &str, method: &str, path: &str, body: Option<String>) -> Result<(u16, String)> {
+        self.request_with(id, method, path, body, vec![]).await
+    }
+
+    pub async fn request_with(&self, id: &str, method: &str, path: &str, body: Option<String>, headers: Vec<(String, String)>) -> Result<(u16, String)> {
         let n = self.inner.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
         let (tx, rx) = oneshot::channel();
         self.inner.pending.lock().unwrap().insert(n, (id.to_string(), tx));
-        let sent = self.inner.links.lock().unwrap().get(id).map(|l| l.tx.send(proto::ToRunner::Req { id: n, method: method.into(), path: path.into(), body }).is_ok());
+        let sent = self.inner.links.lock().unwrap().get(id).map(|l| l.tx.send(proto::ToRunner::Req { id: n, method: method.into(), path: path.into(), body, headers }).is_ok());
         if sent != Some(true) {
             self.inner.pending.lock().unwrap().remove(&n);
             bail!("the runner is not connected");

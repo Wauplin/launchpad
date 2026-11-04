@@ -227,6 +227,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     session_git::GitHistory::export_all(&cfg)?;
     workspace::Workspace::export_all(&cfg)?;
     runners::RunnerStatus::export_all(&cfg)?;
+    home_link::RemoteLaunch::export_all(&cfg)?;
     worktrees::WorktreeInfo::export_all(&cfg)?;
     hosts::HostStatus::export_all(&cfg)?;
     hosts::sshconfig::SshConfigHost::export_all(&cfg)?;

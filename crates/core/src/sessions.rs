@@ -583,6 +583,7 @@ impl Sessions {
                 }).await?;
                 if owned { self.publish_counts(app); app.bus.publish("sessions", "changed", Value::Null); }
             }
+            Item::Project { .. } | Item::ForgetProject { .. } => return crate::projects::apply_replica(app, runner_id, n, item).await,
         }
         Ok(())
     }
@@ -830,6 +831,7 @@ impl Sessions {
 
     async fn launch_inner(&self, app: &App, spec: LaunchSpec, id: String, automatic: bool) -> Result<Session> {
         crate::role::ensure_runs_agents(app.paths.role)?;
+        anyhow::ensure!(app.paths.role != crate::role::Role::Runner || !crate::home_link::guard(&app.paths).paused, "This runner is paused: resume it in Settings → This runner");
         let _action = self.inner.actions.lock().await;
         anyhow::ensure!(self.get(&id).is_none(), "a session with this id already exists");
         let _guard = self.allow_work().await;

@@ -333,7 +333,12 @@ async fn get_session(State(s): State<Server>, Path(id): Path<String>) -> ApiResu
 
 async fn launch(State(s): State<Server>, headers: axum::http::HeaderMap, Json(spec): Json<LaunchSpec>) -> ApiResult<Session> {
     let id = headers.get("Idempotency-Key").and_then(|v| v.to_str().ok()).map(str::to_owned).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    Ok(Json(s.app.sessions.launch_with_id(&s.app, spec, id).await.map_err(bad)?))
+    let from_home = headers.contains_key(crate::home_client::FROM_HOME);
+    let session = s.app.sessions.launch_with_id(&s.app, spec, id).await.map_err(bad)?;
+    if from_home {
+        launchpad_core::home_link::log_launch(&s.app.paths, &session);
+    }
+    Ok(Json(session))
 }
 
 #[derive(Deserialize)]

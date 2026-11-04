@@ -3,6 +3,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Guard } from "@/gen/Guard";
+import type { RemoteLaunch } from "@/gen/RemoteLaunch";
 import type { RunnerStatus } from "@/gen/RunnerStatus";
 import { toast, toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, SettingRow } from "@/components/ui";
@@ -68,6 +69,7 @@ function ThisRunner() {
   const qc = useQueryClient();
   const home = useStatus().data?.home;
   const guard = home?.guard;
+  const launches = useQuery({ queryKey: ["runner-launches"], queryFn: () => api.get<RemoteLaunch[]>("/api/runner/launches"), refetchInterval: 30_000 });
   const save = (g: Guard) => api.put<Guard>("/api/runner/guard", g).then(() => qc.invalidateQueries({ queryKey: ["status"] }), toastError);
   const state: Record<string, string> = { not_connected: "Not paired", connecting: "Connecting…", connected: "Connected", refused: "Refused", offline: "Home unreachable" };
   return (
@@ -93,6 +95,11 @@ function ThisRunner() {
           </SettingRow>
         </Card>
       )}
+      <Card title="Recent launches from elsewhere">
+        {(launches.data ?? []).length === 0 ? <Empty icon="clock">None yet. Launches from the phone, schedules and bots appear here.</Empty> : (launches.data ?? []).slice(0, 20).map((l) => (
+          <div key={l.session_id} className="flex items-center gap-2 text-[13px]"><span className="w-[90px] text-[12px] text-ink-3">{formatAge(l.at)} ago</span><span className="min-w-0 flex-1 truncate">{l.title}</span></div>
+        ))}
+      </Card>
     </SettingsPage>
   );
 }

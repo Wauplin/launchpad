@@ -79,6 +79,24 @@ pub async fn update(app: &App, id: &str, patch: Patch) -> Result<Workspace> {
     Ok(w)
 }
 
+/// Runner: replaces every workspace with Home's.
+pub async fn replace_all(app: &App, all: Vec<Workspace>) -> Result<()> {
+    let rows: Vec<(String, String)> = all.iter().map(|w| Ok((w.id.clone(), serde_json::to_string(w)?))).collect::<Result<_>>()?;
+    app.state_db
+        .call(move |c| {
+            let tx = c.transaction()?;
+            tx.execute("DELETE FROM workspace", [])?;
+            for (id, json) in rows {
+                tx.execute("INSERT INTO workspace (id, json) VALUES (?1, ?2)", [id, json])?;
+            }
+            tx.commit()?;
+            Ok(())
+        })
+        .await?;
+    app.bus.publish("workspaces", "changed", serde_json::Value::Null);
+    Ok(())
+}
+
 /// The projects of a workspace.
 pub async fn project_ids(app: &App, id: &str) -> Result<Vec<String>> {
     let id = id.to_string();

@@ -46,8 +46,16 @@ pub fn guard(paths: &Paths) -> Guard {
     std::fs::read(guard_file(paths)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
+static GUARD_CHANGED: std::sync::LazyLock<tokio::sync::Notify> = std::sync::LazyLock::new(tokio::sync::Notify::new);
+
+/// Resolves after the guard changes (the tunnel reports it to Home at once).
+pub async fn guard_changed() {
+    GUARD_CHANGED.notified().await
+}
+
 pub fn set_guard(app: &App, guard: &Guard) -> Result<()> {
     std::fs::write(guard_file(&app.paths), serde_json::to_vec_pretty(guard)?)?;
+    GUARD_CHANGED.notify_one();
     app.status.update(|s| {
         if let Some(h) = s.home.as_mut() {
             h.guard = guard.clone();
@@ -55,6 +63,34 @@ pub fn set_guard(app: &App, guard: &Guard) -> Result<()> {
     });
     app.bus.publish("runner", "guard", serde_json::to_value(guard)?);
     Ok(())
+}
+
+/// A launch that came from another device through Home, in the runner's local log.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct RemoteLaunch {
+    #[ts(type = "number")]
+    pub at: i64,
+    pub session_id: String,
+    pub title: String,
+}
+
+fn launches_file(paths: &Paths) -> std::path::PathBuf {
+    paths.data_dir.join("launches-from-home.jsonl")
+}
+
+/// Appends to the local log of launches started elsewhere (kept to the last 200).
+pub fn log_launch(paths: &Paths, s: &crate::model::Session) {
+    let mut all = launches(paths);
+    all.push(RemoteLaunch { at: s.started_at, session_id: s.id.clone(), title: s.title.clone() });
+    let keep = all.len().saturating_sub(200);
+    let text: String = all[keep..].iter().filter_map(|l| serde_json::to_string(l).ok()).map(|l| l + "\n").collect();
+    if let Err(e) = std::fs::write(launches_file(paths), text) {
+        tracing::warn!("launch log: {e}");
+    }
+}
+
+pub fn launches(paths: &Paths) -> Vec<RemoteLaunch> {
+    std::fs::read_to_string(launches_file(paths)).unwrap_or_default().lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]

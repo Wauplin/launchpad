@@ -13,6 +13,12 @@ Work in progress: this is the first part of the [Home and runners plan](https://
 
 The runner keeps one outbound WebSocket to Home (no inbound port) and reconnects on its own. **Remove** on Home disconnects a runner; it must pair again.
 
+## Work started from Home
+
+A launch on Home (from the phone, another browser, a schedule) goes to the runner whose disk has the folder, or, for a new scratch folder, to the first runner that takes launches. Follow-ups, Stop, answers and the other session actions on Home go to the session's runner; Home serves the record, the events and the trace itself. When that runner is offline, paused or refuses launches from other devices, Home says so and starts nothing.
+
+Until Home Git arrives, folders stay on the runner that has them: add folders from a runner's window, and Home shows them. Workspaces belong to Home: a runner shows Home's and sends its workspace changes to Home, so they need Home to be reachable. Each runner keeps a local log of the launches that came from elsewhere (Settings → This runner).
+
 ## Sessions on Home
 
 Every session a runner runs is saved on Home: its record and every event, in order. The runner writes them to a local outbox in the same transaction as its own copy and drops them only after Home has saved them. While Home is unreachable, sessions keep running and accept your messages on the runner; the outbox is sent when the tunnel is back. Home never marks a runner's session Interrupted when Home itself restarts.
@@ -25,4 +31,4 @@ Home and its runners compare their protocol and build. A runner with another pro
 
 ## Runner guard
 
-On a runner, **Settings → This runner** holds settings that never sync to Home: **Launches from other devices** (Accept or Refuse) and **Pause runner**. Home shows them next to the runner. They are conveniences, not a security boundary: runners trust Home.
+On a runner, **Settings → This runner** holds settings that never sync to Home: **Launches from other devices** (Accept or Refuse: only windows on that machine launch there) and **Pause runner** (no new session starts there, from anywhere). Home shows them next to the runner. They are conveniences, not a security boundary: runners trust Home.

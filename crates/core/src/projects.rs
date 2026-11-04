@@ -12,7 +12,7 @@ use crate::App;
 use crate::model::Project;
 use crate::util::now_ms;
 
-const COLUMNS: &str = "id, name, path, remote_url, gh_repo, gh_upstream, description, is_temp, pinned, created_at, worktree_setup, when_done, workspace_id";
+const COLUMNS: &str = "id, name, path, remote_url, gh_repo, gh_upstream, description, is_temp, pinned, created_at, worktree_setup, when_done, workspace_id, runner_id";
 
 fn from_row(r: &Row) -> rusqlite::Result<Project> {
     Ok(Project {
@@ -29,7 +29,50 @@ fn from_row(r: &Row) -> rusqlite::Result<Project> {
         worktree_setup: r.get::<_, Option<String>>(10)?.unwrap_or_default(),
         when_done: crate::model::WhenDone::parse(&r.get::<_, Option<String>>(11)?.unwrap_or_default()),
         workspace_id: r.get(12)?,
+        runner_id: r.get(13)?,
     })
+}
+
+/// Runner: queues the stored folder for Home in the caller's transaction.
+fn queue(c: &rusqlite::Connection, id: &str) -> Result<()> {
+    if !crate::replica::enabled() {
+        return Ok(());
+    }
+    if let Some(project) = c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE id = ?1"), [id], from_row).optional()? {
+        crate::replica::queue(c, &crate::replica::Item::Project { project })?;
+    }
+    Ok(())
+}
+
+/// Home: stores a folder replicated from the runner whose disk has it.
+pub(crate) async fn apply_replica(app: &App, runner_id: &str, n: u64, item: crate::replica::Item) -> Result<()> {
+    let runner = runner_id.to_string();
+    app.state_db
+        .call(move |c| {
+            let tx = c.transaction()?;
+            match item {
+                crate::replica::Item::Project { project: p } => {
+                    // A folder of this Home itself, or of another runner, is never overwritten.
+                    let owner: Option<Option<String>> = tx.query_row("SELECT runner_id FROM project WHERE id = ?1", [&p.id], |r| r.get(0)).optional()?;
+                    if owner.as_ref().is_none_or(|o| o.as_deref() == Some(runner.as_str())) {
+                        tx.execute(&format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                            ON CONFLICT (id) DO UPDATE SET name = ?2, path = ?3, remote_url = ?4, gh_repo = ?5, gh_upstream = ?6, description = ?7, is_temp = ?8,
+                            pinned = ?9, worktree_setup = ?11, when_done = ?12, workspace_id = ?13"),
+                            params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id, runner])?;
+                    }
+                }
+                crate::replica::Item::ForgetProject { id } => {
+                    tx.execute("DELETE FROM project WHERE id = ?1 AND runner_id = ?2", params![id, runner])?;
+                }
+                _ => {}
+            }
+            crate::replica::set_acked(&tx, &runner, n)?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await?;
+    app.bus.publish("projects", "changed", serde_json::Value::Null);
+    Ok(())
 }
 
 /// A git repository found in the projects root.
@@ -111,6 +154,7 @@ async fn refresh_metadata(app: &App, projects: Vec<Project>, include_hosts: bool
                      AND (remote_url IS NOT ?1 OR gh_repo IS NOT ?2 OR gh_upstream IS NOT ?3)",
                     params![p.remote_url, p.gh_repo, p.gh_upstream, p.id, p.path],
                 )? > 0;
+                queue(&tx, &p.id)?;
             }
             tx.commit()?;
             Ok(changed)
@@ -191,6 +235,7 @@ pub async fn register(app: &App, path: &Path, is_temp: bool, workspace_id: &str)
         worktree_setup: String::new(),
         when_done: Default::default(),
         workspace_id: Some(workspace.id.clone()),
+        runner_id: None,
     };
     let saved = p.clone();
     let existing = app
@@ -199,14 +244,16 @@ pub async fn register(app: &App, path: &Path, is_temp: bool, workspace_id: &str)
             if let Some(mut e) = c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE path = ?1"), [&p.path], from_row).optional()? {
                 if e.workspace_id.is_none() {
                     c.execute("UPDATE project SET workspace_id = ?1 WHERE id = ?2", params![p.workspace_id, e.id])?;
+                    queue(c, &e.id)?;
                     e.workspace_id = p.workspace_id;
                 }
                 return Ok(Some(e));
             }
             c.execute(
-                &format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"),
-                params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id],
+                &format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"),
+                params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id, p.runner_id],
             )?;
+            queue(c, &p.id)?;
             Ok(None)
         })
         .await?;
@@ -250,6 +297,7 @@ pub async fn update(app: &App, id: &str, mut patch: ProjectPatch) -> Result<Proj
             if let Some(w) = workspace {
                 c.execute("UPDATE project SET workspace_id = ?1 WHERE id = ?2", params![w, id2])?;
             }
+            queue(c, &id2)?;
             Ok(())
         })
         .await?;
@@ -260,7 +308,10 @@ pub async fn update(app: &App, id: &str, mut patch: ProjectPatch) -> Result<Proj
 /// Removes a project from the registry. The folder is left as is.
 pub async fn unregister(app: &App, id: &str) -> Result<()> {
     let id = id.to_string();
-    app.state_db.call(move |c| Ok(c.execute("DELETE FROM project WHERE id = ?1", [id])?)).await?;
+    app.state_db.call(move |c| {
+        c.execute("DELETE FROM project WHERE id = ?1", [&id])?;
+        crate::replica::queue(c, &crate::replica::Item::ForgetProject { id })
+    }).await?;
     app.bus.publish("projects", "changed", serde_json::Value::Null);
     Ok(())
 }
@@ -363,7 +414,10 @@ pub async fn promote(app: &App, id: &str, name: &str) -> Result<Project> {
     let (id2, name2) = (id.to_string(), name.to_string());
     let new_path = new_s.clone();
     app.state_db
-        .call(move |c| Ok(c.execute("UPDATE project SET path = ?1, name = ?2, is_temp = 0 WHERE id = ?3", params![new_path, name2, id2])?))
+        .call(move |c| {
+            c.execute("UPDATE project SET path = ?1, name = ?2, is_temp = 0 WHERE id = ?3", params![new_path, name2, id2])?;
+            queue(c, &id2)
+        })
         .await?;
     // Sessions keep working from the new folder.
     app.sessions.move_cwd(app, &old_s, &new_s).await?;

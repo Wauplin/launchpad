@@ -17,8 +17,12 @@ worktree_setup: string,
 /**
  * Default task worktree completion choice, remembered when selected in the composer.
  */
-when_done: WhenDone,
+when_done: WhenDone, 
 /**
  * The one workspace of this folder. None: Unassigned (folders registered before workspaces were required).
  */
-workspace_id: string | null, };
+workspace_id: string | null, 
+/**
+ * On Home: the runner whose disk has this folder. None: this daemon's disk.
+ */
+runner_id?: string, };

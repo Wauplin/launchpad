@@ -40,6 +40,9 @@ pub struct Server {
 
 pub use home_client::connect;
 
+/// The daemon's own router, for API requests that arrive through a runner tunnel.
+pub(crate) static ROUTER: std::sync::OnceLock<Router> = std::sync::OnceLock::new();
+
 pub async fn serve(app: App) -> Result<()> {
     let port = app.paths.port;
     let mut config = app.config.get().server;
@@ -52,6 +55,7 @@ pub async fn serve(app: App) -> Result<()> {
     let auth = Arc::new(auth::Auth::new(&app.paths, &config, app.state_db.clone()).await?);
     let server = Server { app: app.clone(), auth };
     let router = router(server);
+    let _ = ROUTER.set(router.clone());
     if app.paths.role == launchpad_core::role::Role::Runner {
         home_client::spawn(app, router.clone());
     }
@@ -89,6 +93,8 @@ pub(crate) fn router(server: Server) -> Router {
         .route("/ws", axum::routing::get(ws::handler))
         .merge(auth::router())
         .fallback(ui::serve)
+        .layer(axum::middleware::from_fn_with_state(server.clone(), runners::relay))
+        .layer(axum::middleware::from_fn_with_state(server.clone(), home_client::forward_writes))
         .layer(axum::middleware::from_fn_with_state(operations, operations::guard))
         .layer(axum::middleware::from_fn_with_state(server.clone(), auth::guard))
         .layer(tower_http::compression::CompressionLayer::new())

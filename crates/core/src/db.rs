@@ -203,6 +203,7 @@ CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_
     if !project_columns.iter().any(|c| c == "when_done") { conn.execute_batch("ALTER TABLE project ADD COLUMN when_done TEXT NOT NULL DEFAULT 'keep'; UPDATE project SET when_done = 'merge' WHERE merge_when_done = 1;")?; }
     // Folders used to join any number of workspaces. A folder of exactly one keeps it; the others become
     // Unassigned until the owner picks one.
+    if !project_columns.iter().any(|c| c == "runner_id") { conn.execute_batch("ALTER TABLE project ADD COLUMN runner_id TEXT;")?; }
     if !project_columns.iter().any(|c| c == "workspace_id") {
         conn.execute_batch(
             "ALTER TABLE project ADD COLUMN workspace_id TEXT;

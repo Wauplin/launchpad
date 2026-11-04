@@ -30,6 +30,9 @@ pub enum Item {
     Event { generation: u32, event: SessionEvent },
     /// A launch that failed before it started: the record is gone.
     Forget { id: String },
+    /// A folder registered or changed on the runner (its disk has it).
+    Project { project: crate::model::Project },
+    ForgetProject { id: String },
 }
 
 /// Queues an item in the caller's transaction (runner only; replicas of other instances never go back).
@@ -42,9 +45,19 @@ pub(crate) fn queue(c: &Connection, item: &Item) -> Result<()> {
     {
         return Ok(());
     }
+    if let Item::Project { project } = item
+        && project.runner_id.is_some()
+    {
+        return Ok(());
+    }
     c.execute("INSERT INTO home_outbox (json) VALUES (?1)", [serde_json::to_string(item)?])?;
     WAKE.notify_one();
     Ok(())
+}
+
+/// Whether this daemon queues items for Home.
+pub fn enabled() -> bool {
+    ENABLED.load(Ordering::Relaxed)
 }
 
 /// Waits until new items are queued (or a second passes).
@@ -96,6 +109,7 @@ pub async fn ingest(app: &App, runner_id: &str, n: u64, item: serde_json::Value)
         return Ok(());
     }
     match serde_json::from_value::<Item>(item) {
+        Ok(item @ (Item::Project { .. } | Item::ForgetProject { .. })) => crate::projects::apply_replica(app, runner_id, n, item).await,
         Ok(item) => app.sessions.apply_replica(app, runner_id, n, item).await,
         Err(e) => {
             // An item this Home cannot read (another build) is skipped, never retried forever.
