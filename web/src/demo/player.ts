@@ -494,7 +494,7 @@ function start(sessionId: string, scenarioId: string, options: Options, resumeAt
 /** Plays a scenario in a session (the session should exist; its harness names the tools). */
 export function playScenario(sessionId: string, scenarioId: string, options: Partial<Options> = {}) {
   const s = session(sessionId);
-  const full: Options = { permission: s?.launch_spec.permission_mode ?? "yolo", merge: !!s?.launch_spec.worktree?.merge_when_done, ...options };
+  const full: Options = { permission: s?.launch_spec.permission_mode ?? "yolo", merge: s?.launch_spec.worktree?.when_done === "merge", ...options };
   if (!registry.has(scenarioId)) throw new Error(`unknown scenario ${scenarioId}`);
   delete world.dormant[sessionId];
   start(sessionId, scenarioId, full, null);

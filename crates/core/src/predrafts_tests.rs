@@ -37,7 +37,7 @@ async fn fixture() -> (Fixture, App, Predraft) {
         base_branch: "main".into(), initial_base: "head".into(), title: "Test".into(), body: String::new(),
         session_id: None, notes: vec![Note { path: None, text: "Fix it".into() }],
         archived: false, published_url: None, published_number: None, default_remote_branch: "test".into(),
-        remote_branch: None, pushed_head: None, created_at: 0, merged: None,
+        remote_branch: None, pushed_head: None, push_repo: None, created_at: 0, remote_sync_note: None, merged: None, push_told: vec![],
     };
     save(&app, &p).await.unwrap();
     let cwd = Path::new(&p.root).join("subdir").to_string_lossy().into_owned();
@@ -55,7 +55,7 @@ async fn subfolder_guards_cover_activity_publication_feedback_and_recovery() {
     assert_eq!(get(&app, &p.id).await.unwrap().session_id.as_deref(), Some("agent"));
     app.sessions.update(&app, "agent", |s| s.status = SessionStatus::Working).await.unwrap();
     assert!(idle(&app, &p).unwrap_err().to_string().contains("active agent"));
-    let err = publish(&app, &p.id, Publish { remote_branch: "test".into(), draft: true, head: "head".into() }).await.unwrap_err();
+    let err = publish(&app, &p.id, Publish { remote_branch: "test".into(), draft: true, head: "head".into(), fork: false }).await.unwrap_err();
     assert!(err.to_string().contains("active agent"));
     assert!(discard(&app, &p.id).await.unwrap_err().to_string().contains("active agent"));
     let err = merge_local(&app, &p.id, MergeLocal { head: "head".into() }).await.unwrap_err();
@@ -101,7 +101,7 @@ async fn discard_and_publish_wait_for_actions_before_taking_the_work_gate() {
         let id = p.id.clone();
         let task = tokio::spawn(async move {
             if publishing {
-                publish(&task_app, &id, Publish { remote_branch: "test".into(), draft: true, head: "head".into() }).await
+                publish(&task_app, &id, Publish { remote_branch: "test".into(), draft: true, head: "head".into(), fork: false }).await
             } else { discard(&task_app, &id).await }
         });
         // A concurrent send/launch already holding actions must still acquire work.
@@ -137,3 +137,11 @@ fn folder_containment_respects_components_and_hosts() {
 
 #[path = "group10_tests.rs"]
 mod group10;
+
+#[test]
+fn fork_url_keeps_the_origin_scheme() {
+    use super::fork_url;
+    assert_eq!(fork_url("git@github.com:huggingface/lerobot.git", "huggingface/lerobot", "Wauplin/lerobot").as_deref(), Some("git@github.com:Wauplin/lerobot.git"));
+    assert_eq!(fork_url("https://github.com/huggingface/lerobot/", "huggingface/lerobot", "Wauplin/lerobot").as_deref(), Some("https://github.com/Wauplin/lerobot"));
+    assert_eq!(fork_url("https://github.com/other/name.git", "huggingface/lerobot", "Wauplin/lerobot"), None);
+}

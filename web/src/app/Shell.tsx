@@ -23,7 +23,11 @@ const AddFolderDialog = lazy(() => import("@/features/projects/AddFolder").then(
 export function Shell() {
   const addOpen = useAddFolder((s) => s.open);
   const scale = useZoomScale();
-  useLayoutEffect(() => { document.documentElement.style.zoom = String(scale); }, [scale]);
+  useLayoutEffect(() => {
+    document.documentElement.style.zoom = String(scale);
+    // Embedding hosts express insets in unzoomed pixels (see TopBar).
+    document.documentElement.style.setProperty("--lp-zoom", String(scale));
+  }, [scale]);
   useWorkspaceSync();
   return (
     <div className="flex h-full flex-col">

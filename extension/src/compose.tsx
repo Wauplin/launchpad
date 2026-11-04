@@ -114,7 +114,7 @@ export function Box(p: BoxProps) {
   }, [p.text]);
   const addImages = async (files: File[] | Promise<File[]>) => {
     setReading(true);
-    try { p.setImages([...p.images, ...await readAttachments(await files, p.images, true)]); }
+    try { p.setImages([...p.images, ...await readAttachments((await files).filter((f) => f.type.startsWith("image/")), p.images)]); }
     catch (e) { toastError(e); }
     finally { setReading(false); }
   };

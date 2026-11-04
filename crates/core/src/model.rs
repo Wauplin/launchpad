@@ -515,8 +515,43 @@ pub struct WorktreeOptions {
     pub base: Option<String>,
     /// Copy the uncommitted changes of the project checkout into the new worktree.
     pub include_changes: bool,
-    /// The agent asks Launchpad to merge its branch into the base branch when the task is done.
-    pub merge_when_done: bool,
+    /// What happens when the agent runs `launchpad work finish`.
+    pub when_done: WhenDone,
+    /// Continue this pull request: start from its head and let the agent push to its branch.
+    /// `base`, `include_changes` and `when_done` do not apply.
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pull_request: Option<PullRequestRef>,
+}
+
+/// How a task worktree ends when the agent is done.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WhenDone {
+    /// The branch stays for the owner to review, merge, publish or discard.
+    #[default]
+    Keep,
+    /// `work finish` requests a merge into the base branch.
+    Merge,
+    /// `work finish` turns the worktree into a Local PR.
+    LocalPr,
+}
+
+impl WhenDone {
+    pub fn as_str(self) -> &'static str {
+        match self { Self::Keep => "keep", Self::Merge => "merge", Self::LocalPr => "local_pr" }
+    }
+    pub fn parse(s: &str) -> Self {
+        match s { "merge" => Self::Merge, "local_pr" => Self::LocalPr, _ => Self::Keep }
+    }
+}
+
+/// A GitHub pull request, by repository and number.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct PullRequestRef {
+    /// `owner/repo` of the base repository.
+    pub repo: String,
+    pub number: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
@@ -560,7 +595,7 @@ pub struct Project {
     pub worktree_setup: String,
     /// Default task worktree completion choice, remembered when selected in the composer.
     #[serde(default)]
-    pub merge_when_done: bool,
+    pub when_done: WhenDone,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

@@ -13,7 +13,7 @@ use serde_json::json;
 use ts_rs::TS;
 
 use crate::App;
-use crate::model::{EventBody, Project, Session, SessionStatus, WorktreeOptions};
+use crate::model::{EventBody, Project, PullRequestRef, Session, SessionStatus, WorktreeOptions};
 use crate::util::now_ms;
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -43,8 +43,32 @@ pub struct TaskWorktree {
     pub handoff_from: Option<String>,
     /// Why the last automatic cleanup kept the folder.
     pub cleanup_note: Option<String>,
+    /// Last best-effort pull or push result, visible even if no session trace is open.
+    #[serde(default)]
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_sync_note: Option<String>,
+    /// The GitHub pull request this worktree continues: the agent pushes to its branch.
+    #[serde(default)]
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pull_request: Option<PullRequestBranch>,
     #[ts(type = "number")]
     pub created_at: i64,
+}
+
+/// Where the commits of a pull request worktree go.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct PullRequestBranch {
+    /// `owner/repo` of the base repository.
+    pub repo: String,
+    pub number: u64,
+    pub url: String,
+    /// `owner/repo` holding the PR branch: a fork for outside contributions.
+    pub head_repo: String,
+    pub head_branch: String,
+    /// The remote name, or URL when no remote points to `head_repo`, that agents push to.
+    pub push_remote: String,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -206,7 +230,7 @@ pub(crate) async fn context_folder(app: &App, records: &[TaskWorktree], project:
 }
 
 /// Creates the worktree of `project` for a session, or returns the one it already has in the same
-/// repository. Returns the record and the project folder inside it. Never edits the source checkout.
+/// repository. Returns the record and the project folder inside it. Local only: `sync_base` pulls later.
 pub async fn create(app: &App, session_id: &str, project: &Project, opts: &WorktreeOptions, primary: bool, title: &str) -> Result<(TaskWorktree, String)> {
     let _lock = app.worktree_lock.lock().await;
     let (top, common_dir) = repository(app, &project.path).await?;
@@ -216,12 +240,22 @@ pub async fn create(app: &App, session_id: &str, project: &Project, opts: &Workt
     }
     git(app, &top, &["rev-parse", "--verify", "HEAD^{commit}"]).await.map_err(|_| anyhow::anyhow!("{} has no commit yet; run in the project checkout instead", project.name))?;
     let current = git(app, &top, &["branch", "--show-current"]).await.unwrap_or_default();
-    let base_branch = opts.base.clone().filter(|b| !b.is_empty()).or_else(|| (!current.is_empty()).then(|| current.clone()));
+    let pr = opts.pull_request.as_ref().filter(|_| primary);
+    // A pull request worktree starts from the PR head and never merges locally: no base branch.
+    let base_branch = if pr.is_some() { None } else { opts.base.clone().filter(|b| !b.is_empty()).or_else(|| (!current.is_empty()).then(|| current.clone())) };
     if let Some(b) = &base_branch {
         ensure!(!b.starts_with('-'), "invalid base branch");
     }
-    let base_ref = base_branch.as_deref().map(|b| format!("refs/heads/{b}^{{commit}}")).unwrap_or_else(|| "HEAD^{commit}".into());
-    let base_commit = git(app, &top, &["rev-parse", "--verify", &base_ref]).await.with_context(|| format!("branch {} not found", base_branch.as_deref().unwrap_or("HEAD")))?;
+    let (pull_request, base_commit) = match pr {
+        Some(pr) => {
+            let (branch, head) = pull_request_head(app, &project.path, &top, pr).await?;
+            (Some(branch), head)
+        }
+        None => {
+            let base_ref = base_branch.as_deref().map(|b| format!("refs/heads/{b}^{{commit}}")).unwrap_or_else(|| "HEAD^{commit}".into());
+            (None, git(app, &top, &["rev-parse", "--verify", &base_ref]).await.with_context(|| format!("branch {} not found", base_branch.as_deref().unwrap_or("HEAD")))?)
+        }
+    };
     let id = uuid::Uuid::new_v4().to_string();
     let name = if primary { crate::compose::slug_from(title) } else { format!("{}-{}", crate::compose::slug_from(&project.name), crate::compose::slug_from(title)) };
     let name: String = name.chars().take(48).collect::<String>().trim_matches('-').to_string();
@@ -253,10 +287,12 @@ pub async fn create(app: &App, session_id: &str, project: &Project, opts: &Workt
         predraft_id: None,
         handoff_from: None,
         cleanup_note: None,
+        remote_sync_note: None,
+        pull_request,
         created_at: now_ms(),
     };
     let prepared = async {
-        if opts.include_changes && primary && base_branch.as_deref().is_none_or(|b| b == current) {
+        if opts.include_changes && primary && w.pull_request.is_none() && base_branch.as_deref().is_none_or(|b| b == current) {
             copy_changes(app, &top, &root).await?;
         }
         copy_included(app, &top, &root).await?;
@@ -269,6 +305,69 @@ pub async fn create(app: &App, session_id: &str, project: &Project, opts: &Workt
         return Err(e);
     }
     Ok((w, folder_in(&root, &subdir)))
+}
+
+/// Best-effort pull of a new worktree's base branch, then fast-forward of the untouched task branch.
+/// Runs in the background before the agent starts, so network and slow file systems never block a launch.
+/// Returns the saved record and its base commit before the sync.
+pub async fn sync_base(app: &App, id: &str) -> Result<Option<(TaskWorktree, String)>> {
+    let _lock = app.worktree_lock.lock().await;
+    let mut w = get(app, id).await?;
+    let Some(base) = w.base_branch.clone().filter(|_| w.pull_request.is_none() && w.state == WorktreeState::Active) else { return Ok(None) };
+    let old = w.base_commit.clone();
+    let mut note = crate::remote_sync::pull(app, &w.repo, &base).await;
+    let latest = git(app, &w.repo, &["rev-parse", "--verify", &format!("refs/heads/{base}^{{commit}}")]).await?;
+    if latest != old {
+        let moved = async {
+            ensure!(git(app, &w.root, &["rev-parse", "HEAD"]).await? == old, "the task branch already has commits");
+            git(app, &w.repo, &["merge-base", "--is-ancestor", &old, &latest]).await.with_context(|| format!("{base} is not a fast-forward of the task base"))?;
+            git(app, &w.root, &["-c", "merge.autoStash=false", "merge", "--ff-only", "--quiet", &latest]).await?;
+            Ok::<_, anyhow::Error>(())
+        }.await;
+        match moved {
+            Ok(()) => w.base_commit = latest,
+            Err(e) => note = Some(format!("Remote sync: the task starts from {} instead of the updated {base}: {e:#}.", &old[..12.min(old.len())])),
+        }
+    }
+    w.remote_sync_note = note;
+    save(app, &w).await?;
+    Ok(Some((w, old)))
+}
+
+/// Reads an open pull request on GitHub and fetches its head from the base repository's remote.
+/// Returns where agents push and the head commit to start from.
+async fn pull_request_head(app: &App, project_path: &str, top: &str, pr: &PullRequestRef) -> Result<(PullRequestBranch, String)> {
+    let label = format!("{}#{}", pr.repo, pr.number);
+    let v = app.github.get(&format!("/repos/{}/pulls/{}", pr.repo, pr.number)).await.with_context(|| format!("could not read pull request {label}"))?;
+    ensure!(v["state"] == "open", "pull request {label} is not open");
+    let head_repo = v["head"]["repo"]["full_name"].as_str().with_context(|| format!("the branch repository of {label} was deleted"))?.to_string();
+    let head_branch = v["head"]["ref"].as_str().context("pull request branch missing")?.to_string();
+    ensure!(!head_branch.starts_with('-'), "invalid pull request branch");
+    let url = v["html_url"].as_str().context("pull request URL missing")?.to_string();
+    let remotes = crate::git::remotes(Path::new(project_path)).await;
+    let base_remote = remotes
+        .iter()
+        .find(|(_, u)| crate::git::github_repo(u).is_some_and(|r| r.eq_ignore_ascii_case(&pr.repo)))
+        .map(|(n, _)| n.clone())
+        .with_context(|| format!("no Git remote of this folder points to {}", pr.repo))?;
+    let local = format!("refs/launchpad/pr/{}", pr.number);
+    crate::remote_sync::git_timeout(app, top, &["fetch", "--no-tags", "--no-recurse-submodules", &base_remote, &format!("+refs/pull/{}/head:{local}", pr.number)], 120).await
+        .with_context(|| format!("could not fetch {label} from {base_remote}"))?;
+    let head = git(app, top, &["rev-parse", "--verify", &format!("{local}^{{commit}}")]).await?;
+    let push_remote = crate::predrafts::push_target(project_path, Some(&head_repo)).await?.remote;
+    Ok((PullRequestBranch { repo: pr.repo.clone(), number: pr.number, url, head_repo, head_branch, push_remote }, head))
+}
+
+/// The pull request a worktree folder continues, if any.
+pub async fn pull_request_at(app: &App, root: &str) -> Option<PullRequestBranch> {
+    list(app).await.ok()?.into_iter().find(|w| w.state == WorktreeState::Active && crate::hosts::loc::within(root, &w.root))?.pull_request
+}
+
+/// Push instructions for a branch already published on GitHub.
+pub fn push_instruction(url: &str, remote: &str, branch: &str) -> String {
+    format!(
+        "This work continues the published pull request {url}. Commit your changes, then push them to it with `git push {remote} HEAD:refs/heads/{branch}`. Never force-push and never rewrite commits that are already pushed. If the push is rejected because the branch moved, run `git pull --rebase {remote} {branch}`, re-run your checks and push again. Do not open another pull request. Comments and reviews still go through `launchpad suggest`; never post them yourself."
+    )
 }
 
 /// Applies the source checkout's staged, unstaged and untracked changes to a fresh worktree.
@@ -396,7 +495,7 @@ pub async fn join(app: &App, source_session: &str, session_id: &str) -> Result<V
 }
 
 /// Launch instructions: where to work, and how the task ends. Overrides checkout workflow rules only.
-pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, String)], projects: &[Project], merge_when_done: bool, changes_copied: bool) -> String {
+pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, String)], projects: &[Project], when_done: crate::model::WhenDone, changes_copied: bool) -> String {
     let cli = worktrees.first().map(|(w, _)| app.cli_command_in(&w.root)).unwrap_or_else(|| app.paths.cli_command());
     let name = |id: &str| projects.iter().find(|p| p.id == id).map(|p| p.name.clone()).unwrap_or_else(|| "project".into());
     let mut text = String::from(
@@ -408,11 +507,21 @@ pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, Stri
             name(&w.project_id),
             if w.primary { " (your working directory)" } else { " (editable)" },
             w.branch,
-            w.base_branch.as_deref().map(|b| format!("`{b}`")).unwrap_or_else(|| "a detached checkout".into()),
+            match (&w.pull_request, w.base_branch.as_deref()) {
+                (Some(pr), _) => format!("the head of pull request #{} (`{}` on {})", pr.number, pr.head_branch, pr.head_repo),
+                (None, Some(b)) => format!("`{b}`"),
+                (None, None) => "a detached checkout".into(),
+            },
             &w.base_commit[..12.min(w.base_commit.len())]
         ));
     }
-    text.push_str("\nCommit your work on these branches. Do not push, switch branches, or remove these worktrees. The other branches and the shared history stay readable, for example with `git log` or `git show`.");
+    let pr = worktrees.iter().find_map(|(w, _)| w.pull_request.clone());
+    if let Some(pr) = &pr {
+        text.push_str(&format!("\n{}", push_instruction(&pr.url, &pr.push_remote, &pr.head_branch)));
+        text.push_str(" Do not switch branches or remove these worktrees; do not push other branches.");
+    } else {
+        text.push_str("\nCommit your work on these branches. Do not push, switch branches, or remove these worktrees. The other branches and the shared history stay readable, for example with `git log` or `git show`.");
+    }
     if changes_copied {
         text.push_str(" The uncommitted changes of the project checkout were copied into your worktree; they are not committed yet.");
     }
@@ -421,7 +530,13 @@ pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, Stri
     ));
     let bases: Vec<String> = worktrees.iter().filter_map(|(w, _)| w.base_branch.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().map(|b| format!("`{b}`")).collect();
     let base = if bases.is_empty() { "its base branch".to_string() } else { bases.join(", ") };
-    if merge_when_done {
+    if pr.is_some() {
+        text.push_str("\nThe pull request on GitHub is the review: Launchpad does not merge this branch locally.");
+    } else if when_done == crate::model::WhenDone::LocalPr {
+        text.push_str(&format!(
+            "\nWhen the task is done and checked, commit everything, then run `{cli} work finish --session-id {session_id}`. Launchpad turns your worktree into a Local PR (same folder and branch) for the owner to review; then set its title and description as the command output explains. Do not merge into {base}, push or open a pull request on GitHub yourself."
+        ));
+    } else if when_done == crate::model::WhenDone::Merge {
         text.push_str(&format!(
             "\nWhen the task is done and checked, commit everything, then run `{cli} work finish --session-id {session_id}`. Launchpad merges your branches into {base} after your turn ends, as soon as the target checkout is clean. Do not merge yourself, and report the merge as requested, not as done. If Launchpad later reports a conflict, rebase onto the target branch in your worktree, resolve it, re-run your checks, commit, and run the finish command again."
         ));
@@ -836,17 +951,18 @@ pub async fn request_merge(app: &App, id: &str, by_agent: bool) -> Result<TaskWo
     Ok(w)
 }
 
-/// `launchpad work finish`: requests the merge of every worktree of the session.
+/// `launchpad work finish`: requests the merge of every worktree of the session, or turns the
+/// primary worktree into a Local PR when the launch chose it.
 pub async fn finish(app: &App, session_id: &str) -> Result<String> {
+    let when_done = app.sessions.get(session_id).and_then(|s| s.launch_spec.worktree).map(|o| o.when_done).unwrap_or_default();
+    if when_done == crate::model::WhenDone::LocalPr {
+        return finish_local_pr(app, session_id).await;
+    }
     let all = for_session(app, session_id).await?;
     let records: Vec<_> = all.into_iter().filter(|w| w.state == WorktreeState::Active && w.base_branch.is_some()).collect();
     ensure!(!records.is_empty(), "this session has no Launchpad worktree to merge");
     for w in &records {
-        let dirty = dirty_files(app, &w.root).await?;
-        ensure!(dirty.is_empty(), "{} has uncommitted changes ({}); commit or remove them, then run finish again", w.root, dirty.iter().take(5).cloned().collect::<Vec<_>>().join(", "));
-        ensure!(!operation_in_progress(app, &w.root).await, "{}: finish the Git operation in progress first", w.root);
-        let branch = git(app, &w.root, &["branch", "--show-current"]).await?;
-        ensure!(branch == w.branch, "{} must stay on branch {} (it is on {branch:?})", w.root, w.branch);
+        ready_to_finish(app, w).await?;
     }
     let mut lines = vec![];
     for w in &records {
@@ -857,6 +973,33 @@ pub async fn finish(app: &App, session_id: &str) -> Result<String> {
         "Merge requested:\n{}\nLaunchpad merges after your turn ends, when the target checkout is clean. End your turn now and report the merge as requested, not as done. Do not merge yourself.",
         lines.join("\n")
     ))
+}
+
+async fn ready_to_finish(app: &App, w: &TaskWorktree) -> Result<()> {
+    let dirty = dirty_files(app, &w.root).await?;
+    ensure!(dirty.is_empty(), "{} has uncommitted changes ({}); commit or remove them, then run finish again", w.root, dirty.iter().take(5).cloned().collect::<Vec<_>>().join(", "));
+    ensure!(!operation_in_progress(app, &w.root).await, "{}: finish the Git operation in progress first", w.root);
+    let branch = git(app, &w.root, &["branch", "--show-current"]).await?;
+    ensure!(branch == w.branch, "{} must stay on branch {} (it is on {branch:?})", w.root, w.branch);
+    Ok(())
+}
+
+/// Turns the session's primary worktree into a Local PR. Idempotent: a second call returns the same Local PR.
+async fn finish_local_pr(app: &App, session_id: &str) -> Result<String> {
+    let all = for_session(app, session_id).await?;
+    let w = all.iter().find(|w| w.primary && matches!(w.state, WorktreeState::Active | WorktreeState::Predraft)).context("this session has no Launchpad worktree to turn into a Local PR")?;
+    ready_to_finish(app, w).await?;
+    let title = app.sessions.get(session_id).map(|s| s.title).filter(|t| !t.trim().is_empty());
+    let p = crate::predrafts::create(app, crate::predrafts::Create { cwd: Some(w.root.clone()), title, ..Default::default() }).await?;
+    let others: Vec<String> = all.iter().filter(|o| !o.primary && o.state == WorktreeState::Active).map(|o| format!("`{}`", o.branch)).collect();
+    let mut text = format!(
+        "Local PR opened from branch `{}` (id {}), based on `{}`. Now set its title and description: write the description to a file, then run `{} pr update --title \"…\" --body-file <file>` in `{}`. Then end your turn and report the Local PR as opened for review. Do not push or open a pull request on GitHub.",
+        p.branch, p.id, p.base_branch, app.cli_command_in(&p.root), p.root
+    );
+    if !others.is_empty() {
+        text.push_str(&format!(" The branches of your other worktrees ({}) stay local for the owner to review.", others.join(", ")));
+    }
+    Ok(text)
 }
 
 pub async fn cancel_merge(app: &App, id: &str) -> Result<TaskWorktree> {
@@ -892,6 +1035,7 @@ pub async fn fix_with_agent(app: &App, id: &str) -> Result<()> {
 
 /// One merge attempt. Never stashes, resets, cleans or commits anyone's changes, and never forces.
 async fn attempt(app: &App, id: &str) {
+    let mut push = None;
     let outcome = {
         let _action = app.sessions.action_lock().await;
         let _lock = app.worktree_lock.lock().await;
@@ -904,6 +1048,8 @@ async fn attempt(app: &App, id: &str) {
         let result = match result {
             Ok(Step::Merged(head, base)) => {
                 let into = w.base_branch.clone().unwrap_or_default();
+                w.remote_sync_note = Some(format!("Remote sync: local merge saved; push of {into} requested."));
+                push = Some((w.clone(), into.clone(), head.clone()));
                 w.merge = None;
                 w.merged = Some(Merged { base: Some(base), into: into.clone(), head: head.clone(), at: now_ms() });
                 notice(app, &w, &format!("Launchpad merged {} into {into} ({}).", w.branch, &head[..12.min(head.len())])).await;
@@ -926,10 +1072,26 @@ async fn attempt(app: &App, id: &str) {
             }
         };
         if let Err(e) = save(app, &w).await {
+            push = None;
             tracing::warn!("worktree merge {id}: {e:#}");
         }
         result.map(|r| (w, r))
     };
+    // Network publication runs after local success is saved and all action locks are released.
+    if let Some((w, base, head)) = push {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let note = crate::remote_sync::push(&app, &w.repo, &base, &head).await;
+            let _lock = app.worktree_lock.lock().await;
+            if let Ok(mut current) = get(&app, &w.id).await
+                && current.merged.as_ref().is_some_and(|m| m.head == head)
+            {
+                current.remote_sync_note = Some(note.clone());
+                if let Err(e) = save(&app, &current).await { tracing::warn!("save remote sync: {e:#}"); }
+            }
+            notice(&app, &w, &note).await;
+        });
+    }
     // The agent fixes conflicts itself, after the locks are released.
     if let Some((w, (Some(session), reason))) = outcome
         && let Err(e) = app.sessions.send_follow_up(app, &session, &conflict_message(app, &w, &reason, &session), false).await

@@ -304,6 +304,10 @@ route("POST", "/api/predrafts/:id/:action", ({ params, body }) => {
       p.archived = true;
       toast("Demo: Local PR discarded. No files changed on disk.");
       return savePredraft(p);
+    case "unlock":
+      if (!open || !p.pushed_head) throw new DemoError(400, "publication has not started");
+      p.pushed_head = null;
+      return savePredraft(p);
     case "publish": {
       if (!open) throw new DemoError(400, "this Local PR is not open");
       const project = world.projects.find((x) => x.id === p.project_id);

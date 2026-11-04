@@ -37,9 +37,9 @@ const informative = (s: Session) => s.open_question || s.status === "error" || s
 
 const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onClick, onMarkUnread }: { s: Session; project: string; selected: boolean; pinned: boolean; onClick: () => void; onMarkUnread: () => void }) {
   const [acting, setActing] = useState(false);
-  const dim = s.status === "closed";
+  const dim = s.status === "closed" || !!s.imported_from;
   const stop = isRunning(s) || isQuotaPaused(s);
-  const canMarkUnread = !isUnseen(s) && (isDone(s) || s.status === "error" || s.status === "interrupted");
+  const canMarkUnread = !s.imported_from && !isUnseen(s) && (isDone(s) || s.status === "error" || s.status === "interrupted");
   const action = stop ? "Stop" : "Archive";
   const act = async (unread = false) => {
     setActing(true);
@@ -226,6 +226,7 @@ export function AgentsView() {
   const sessions = allSessions.filter(scope.hasSession);
   const [panelLoad, setPanelLoad] = useState(0);
   const [filter, setFilter] = useState("");
+  const [syncedSearchCollapsed, setSyncedSearchCollapsed] = useState(false);
   const [debounced, setDebounced] = useState("");
   const [pinsOnly, setPinsOnly] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -300,15 +301,17 @@ export function AgentsView() {
   const filteredSchedules = pinsOnly ? [] : schedules.filter((s) => !needle || `${s.title} ${s.spec.text}`.toLocaleLowerCase().includes(needle));
   // Needs you: open questions, then unseen Done (newest first), then unseen Failed and Interrupted.
   const needRank = (s: Session) => (s.open_question ? 0 : isDone(s) ? 1 : 2);
-  const needs = filtered.filter(needsYou).sort((a, b) => needRank(a) - needRank(b) || b.status_since - a.status_since);
-  const done = filtered.filter((s) => isDone(s) && !needsYou(s)).sort(newest);
-  const running = filtered.filter((s) => isRunning(s)).sort(order);
-  const quotaPaused = filtered.filter(isQuotaPaused).sort(order);
-  const stopped = filtered.filter(isStopped).sort(order);
-  const interrupted = filtered.filter((s) => s.status === "interrupted" && !needsYou(s)).sort(order);
-  const failed = filtered.filter((s) => s.status === "error" && !needsYou(s)).sort(order);
-  const inTerminal = filtered.filter((s) => s.status === "in_terminal").sort(order);
-  const archived = filtered.filter((s) => s.status === "closed").sort(order);
+  const local = filtered.filter((s) => !s.imported_from);
+  const synced = filtered.filter((s) => !!s.imported_from).sort(newest);
+  const needs = local.filter(needsYou).sort((a, b) => needRank(a) - needRank(b) || b.status_since - a.status_since);
+  const done = local.filter((s) => isDone(s) && !needsYou(s)).sort(newest);
+  const running = local.filter((s) => isRunning(s)).sort(order);
+  const quotaPaused = local.filter(isQuotaPaused).sort(order);
+  const stopped = local.filter(isStopped).sort(order);
+  const interrupted = local.filter((s) => s.status === "interrupted" && !needsYou(s)).sort(order);
+  const failed = local.filter((s) => s.status === "error" && !needsYou(s)).sort(order);
+  const inTerminal = local.filter((s) => s.status === "in_terminal").sort(order);
+  const archived = local.filter((s) => s.status === "closed").sort(order);
   const now = Date.now();
   const oldDone = done.filter((s) => !pinned.includes(s.id) && now - s.status_since > 3 * DAY);
   const cronNext = earliest(filteredCrons.filter((c) => !c.paused).map((c) => c.next_run_at));
@@ -330,8 +333,14 @@ export function AgentsView() {
   }, [visible, clearSession]);
 
   type Item = { kind: "group"; title: AgentGroup; count: number; highlight?: boolean; detail?: string } | { kind: "session"; session: Session } | { kind: "schedule"; launch: ScheduledLaunch } | { kind: "cron"; cron: CronAgent } | { kind: "more" } | { kind: "archive-old" };
+  // Search reveals matching synced traces even when their group is normally collapsed.
+  const groupCollapsed = (title: AgentGroup) => title === "Synced traces" && needle ? syncedSearchCollapsed : isCollapsed(collapsedGroups, title);
+  const toggleListGroup = (title: AgentGroup) => {
+    if (title === "Synced traces" && needle) setSyncedSearchCollapsed((collapsed) => !collapsed);
+    else toggleGroup(title);
+  };
   // Groups with no items are not shown at all.
-  const group = (title: AgentGroup, rows: Item[], opts: { highlight?: boolean; detail?: string; tail?: Item[] } = {}): Item[] => rows.length ? [{ kind: "group", title, count: rows.length, highlight: opts.highlight, detail: opts.detail }, ...(isCollapsed(collapsedGroups, title) ? [] : [...rows, ...(opts.tail ?? [])])] : [];
+  const group = (title: AgentGroup, rows: Item[], opts: { highlight?: boolean; detail?: string; tail?: Item[] } = {}): Item[] => rows.length ? [{ kind: "group", title, count: rows.length, highlight: opts.highlight, detail: opts.detail }, ...(groupCollapsed(title) ? [] : [...rows, ...(opts.tail ?? [])])] : [];
   const sessionRows = (list: Session[]) => list.map((session) => ({ kind: "session" as const, session }));
   const items: Item[] = [
     ...group("Needs you", sessionRows(needs), { highlight: true }),
@@ -345,6 +354,7 @@ export function AgentsView() {
     ...group("Cron", filteredCrons.map((cron) => ({ kind: "cron" as const, cron })), { detail: cronNext ? `next ${formatReset(cronNext / 1000)}` : undefined }),
     ...group("Scheduled", filteredSchedules.map((launch) => ({ kind: "schedule" as const, launch })), { detail: scheduleNext ? `next ${formatReset(scheduleNext / 1000)}` : undefined }),
     ...group("Archived", sessionRows(archived.slice(0, archivedLimit)), { tail: archived.length > archivedLimit ? [{ kind: "more" }] : [] }).map((i) => (i.kind === "group" ? { ...i, count: archived.length } : i)),
+    ...group("Synced traces", sessionRows(synced), { detail: "Read-only" }),
   ];
   const size = (i: Item) => (i.kind === "session" || i.kind === "schedule" || i.kind === "cron" ? 68 : i.kind === "archive-old" ? 44 : 34);
   const key = (i: Item) => (i.kind === "session" ? i.session.id : i.kind === "schedule" ? i.launch.id : i.kind === "cron" ? `cron-${i.cron.id}` : i.kind === "group" ? `group-${i.title}` : i.kind);
@@ -357,7 +367,7 @@ export function AgentsView() {
     <div className="flex h-full min-h-0">
       <div className={`flex flex-col bg-paper ${phone ? (paneOpen ? "hidden" : "w-full") : "w-[280px] flex-none border-r border-line"}`}>
         <div className="grid gap-2 border-b border-line p-2">
-          <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setArchivedLimit(30); }} />
+          <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setSyncedSearchCollapsed(false); setArchivedLimit(30); }} />
           <div className="flex flex-wrap items-center gap-2"><button className="lp-chip" aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button><button className="lp-chip" aria-pressed={showAssistant} onClick={() => setShowAssistant(!showAssistant)}>Show Ask threads</button>{phone && <span className="ml-auto"><LaunchButton small label="New agent" title="Open the composer (the draft if one exists)" /></span>}</div>
           {matches.isFetching && <span className="text-xs text-ink-3">Searching messages…</span>}
           {matches.error && <span className="text-xs text-danger-ink">{matches.error.message}</span>}
@@ -375,7 +385,7 @@ export function AgentsView() {
           {virtual.getVirtualItems().map((v) => {
             const item = items[v.index];
             return <div key={v.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: v.size, transform: `translateY(${v.start}px)` }}>
-              {item.kind === "session" ? row(item.session) : item.kind === "cron" ? <CronRow cron={item.cron} selected={cronId === item.cron.id} onClick={() => setCronId(item.cron.id)} /> : item.kind === "schedule" ? <button onClick={() => setScheduledId(item.launch.id)} className={`grid h-[68px] w-full gap-1 border-b border-line px-3 py-2 text-left hover:bg-chrome ${scheduledId === item.launch.id ? "bg-select" : ""}`}><span className="truncate text-xs font-semibold">{item.launch.title}</span><span className="truncate text-[11px] text-ink-3" title={conditionsSummary(item.launch, sessions, schedules)}>{item.launch.status === "failed" ? "Needs attention · " : item.launch.status === "starting" ? "Starting · " : ""}{conditionsSummary(item.launch, sessions, schedules)}</span></button> : item.kind === "group" ? <Group title={item.title} count={item.count} highlight={item.highlight} detail={item.detail} collapsed={isCollapsed(collapsedGroups, item.title)} onToggle={() => toggleGroup(item.title)} /> :
+              {item.kind === "session" ? row(item.session) : item.kind === "cron" ? <CronRow cron={item.cron} selected={cronId === item.cron.id} onClick={() => setCronId(item.cron.id)} /> : item.kind === "schedule" ? <button onClick={() => setScheduledId(item.launch.id)} className={`grid h-[68px] w-full gap-1 border-b border-line px-3 py-2 text-left hover:bg-chrome ${scheduledId === item.launch.id ? "bg-select" : ""}`}><span className="truncate text-xs font-semibold">{item.launch.title}</span><span className="truncate text-[11px] text-ink-3" title={conditionsSummary(item.launch, sessions, schedules)}>{item.launch.status === "failed" ? "Needs attention · " : item.launch.status === "starting" ? "Starting · " : ""}{conditionsSummary(item.launch, sessions, schedules)}</span></button> : item.kind === "group" ? <Group title={item.title} count={item.count} highlight={item.highlight} detail={item.detail} collapsed={groupCollapsed(item.title)} onToggle={() => toggleListGroup(item.title)} /> :
                 item.kind === "archive-old" ? <div className="flex h-full min-w-0 items-center px-3"><button className="btn btn-sm min-w-0 truncate" disabled={archiving} title="Archive seen Done sessions older than 3 days. Archived sessions stay resumable in Archived. Pinned sessions are kept." onClick={() => void archiveOld()}><Icon name="archive" size={13} />{archiving ? "Archiving…" : `Archive ${oldDone.length} seen, older than 3 d`}</button></div> :
                 <button className="px-3 py-2 text-left text-xs text-teal-ink hover:underline" onClick={() => setArchivedLimit((n) => n + 50)}>Show more</button>}
             </div>;

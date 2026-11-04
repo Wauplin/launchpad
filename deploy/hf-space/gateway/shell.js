@@ -9,11 +9,17 @@ const params = new URLSearchParams(location.search);
 // A profile that needs a sign-in: from the URL, or sent by the app ("Sign in from Space settings").
 let requestedProfile = params.get("profile");
 
-const TOKEN_URL = "https://huggingface.co/settings/tokens/new?tokenType=write";
+const HF_HINT = "Open the sign-in page, enter the code and approve access. This page continues when Hugging Face confirms.";
 const TOOLS = {
   huggingface: {
     name: "Hugging Face",
-    blurb: "Open models such as Qwen, Kimi, GLM and DeepSeek through Inference Providers, billed to your Hugging Face account.",
+    blurb: "Open models such as Qwen, Kimi, GLM and DeepSeek through Inference Providers, billed to your Hugging Face account. Launchpad also saves agent traces to your private bucket with this sign-in.",
+    hint: HF_HINT,
+  },
+  space: {
+    name: "Hugging Face",
+    blurb: "Lets this Space manage its own secrets, backup bucket and updates. Agents never see this sign-in.",
+    hint: HF_HINT,
   },
   claude: {
     name: "Claude Code",
@@ -237,6 +243,7 @@ function render() {
   document.body.classList.toggle("bar-collapsed", showApp && barCollapsed);
   $("app").hidden = !showApp;
   $("setup").hidden = showApp;
+  applyHubPill();
   if (showApp) {
     renderBar();
     if (!routeLoaded) {
@@ -258,14 +265,51 @@ function setBarCollapsed(value) {
   render();
 }
 $("bar-fold").addEventListener("click", () => setBarCollapsed(true));
+
+// ---------- Hub mini header ----------
+
+// With `header: mini`, the Hub page draws a pill (Space name, menu) over the top-right corner of this page:
+// fixed 20 px from the top and 24 px from the right, 40 px tall, hidden below 640 px. We cannot move it, so we keep
+// our controls and the app's top bar buttons out of that corner. Its width follows the Space name.
+const PILL_BOTTOM = 64;
+const embedded = window.parent !== window;
+const pillQuery = matchMedia("(min-width: 640px)");
+const phoneQuery = matchMedia("(max-width: 719px)");
+
+function applyHubPill() {
+  const on = embedded && pillQuery.matches;
+  // The phone layout of the app (below 720 px) has no host inset support: give it a taller bar instead.
+  const tall = on && phoneQuery.matches;
+  const width = on ? Math.round(36 + 150 + 9.5 * (state?.space?.id || "namespace/launchpad").length) : 0;
+  document.body.classList.toggle("hub-pill", on);
+  document.body.classList.toggle("hub-pill-tall", tall);
+  document.documentElement.style.setProperty("--hub-pill-width", `${width}px`);
+  try {
+    const root = $("app").contentDocument?.documentElement;
+    if (!root) return;
+    const inset = on && !tall;
+    root.style.setProperty("--lp-host-inset-right", inset ? `${width}px` : "0px");
+    // The app starts below the 24 px bar unless it is folded.
+    root.style.setProperty("--lp-host-inset-top", inset ? `${barCollapsed ? PILL_BOTTOM : PILL_BOTTOM - 24}px` : "0px");
+  } catch { /* Cross-origin pages are not ours. */ }
+}
+pillQuery.addEventListener("change", applyHubPill);
+phoneQuery.addEventListener("change", applyHubPill);
+$("app").addEventListener("load", applyHubPill);
 $("bar-tab").addEventListener("click", () => setBarCollapsed(false));
 
 function renderBar() {
-  $("available-update").hidden = !state.update?.candidate;
+  $("available-update").hidden = !state.update?.candidate || Boolean(state.update?.progress);
   const chip = $("bar-status");
   const backup = state.backup || {};
   chip.className = "chip";
-  if (state.maintenance) { chip.classList.add("attn"); chip.textContent = "Maintenance in progress"; }
+  const update = state.update || {};
+  const result = update.result;
+  if (update.progress) { chip.classList.add("work"); chip.textContent = "Updating Launchpad…"; }
+  else if (result?.pending?.length) { chip.classList.add("work"); chip.textContent = `Resuming ${plural(result.pending.length, "agent")}…`; }
+  else if (result && (result.outcome !== "updated" || result.failed?.length)) { chip.classList.add("attn"); chip.textContent = result.outcome === "updated" ? `Updated · ${plural(result.failed.length, "agent")} not resumed` : result.outcome === "failed" ? "Update failed" : "Update rolled back"; }
+  else if (result) { chip.textContent = `Updated${result.resumed?.length ? ` · ${plural(result.resumed.length, "agent")} resumed` : ""}`; }
+  else if (state.maintenance) { chip.classList.add("attn"); chip.textContent = "Maintenance in progress"; }
   else if (backup.reconnect) { chip.classList.add("attn"); chip.textContent = "Reconnect your accounts"; }
   else if (backup.error) { chip.classList.add("attn"); chip.textContent = "Backup delayed"; }
   else chip.textContent = backup.checkpoint_at ? `Backed up ${ago(backup.checkpoint_at)}` : "Backup pending";
@@ -274,7 +318,7 @@ function renderBar() {
 }
 
 function steps(current) {
-  const names = [["token", "Hugging Face token"], ["private", "Private Space"], ["backups", "Encrypted backups"], ["agent", "First agent"]];
+  const names = [["token", "Hugging Face sign-in"], ["private", "Private Space"], ["backups", "Encrypted backups"], ["agent", "First agent"]];
   const order = names.map(([key]) => key);
   const index = order.indexOf(current);
   return names.map(([key, label], i) =>
@@ -298,7 +342,7 @@ const logsUrl = () => `${state.space.url}?logs=container`;
 function renderSetup() {
   // Polling re-renders only when something visible changed, so typed text and focus survive.
   const login = state.login || {};
-  const key = JSON.stringify([restarting, slowRestart(), zoomPosition(), state.stage, state.message, state.needs_bucket, state.needs_key, connections, selected,
+  const key = JSON.stringify([restarting, slowRestart(), zoomPosition(), state.stage, state.message, state.needs_bucket, state.needs_key, state.signed_in_as, connections, selected,
     login.tool, login.profile, login.result, login.running, login.link, login.code, finished, repos, state.clones]);
   if (key === lastSetupRender) return;
   lastSetupRender = key;
@@ -306,6 +350,7 @@ function renderSetup() {
     return page("Restarting your Space", null, null,
       h("div", { class: "card" },
         h("div", { class: "waiting" }, h("span", { class: "spinner" }), h("b", {}, state?.message || "Your Space is restarting.")),
+        state?.update?.progress ? updateSteps("restarting", state.update.progress.agents?.length) : null,
         h("p", { class: "muted small-text", style: "margin-top:10px" }, "This usually takes one to two minutes. This page reconnects on its own."),
         h("div", { class: "actions" }, external(logsUrl(), "Open Space logs")),
         slowRestart() ? h("div", {},
@@ -332,34 +377,21 @@ function template() {
 }
 
 function token() {
-  const input = h("input", { type: "password", id: "token", placeholder: "hf_…", autocomplete: "off", spellcheck: "false", required: true });
-  const submit = h("button", { type: "submit", class: "primary" }, "Save and continue");
-  const form = h("form", {
-    onsubmit: async (event) => {
-      event.preventDefault();
-      const value = input.value.trim();
-      input.value = "";
-      await action("setup", { token: value }, submit);
-    },
-  },
-  h("label", { for: "token" }, "Paste the token"),
-  h("div", { class: "row" }, h("div", { class: "grow" }, input), submit));
+  const login = state.login || {};
+  const save = h("button", { type: "button", class: "primary" }, "Save and continue");
+  save.addEventListener("click", () => action("setup", {}, save));
   page("Connect this Space to Hugging Face",
-    "Launchpad needs a token with write access to create its private backup bucket and save an encryption key in this Space's secrets. Agents never see this token.",
+    "Sign in with your Hugging Face account so Launchpad can create its private backup bucket and save an encryption key in this Space's secrets. Agents never see this sign-in.",
     "token",
-    h("div", { class: "card" },
-      h("h2", {}, "Create a write token"),
-      h("p", {}, "Open the Hub, create a token of type Write, copy it and paste it below."),
-      h("div", { class: "actions", style: "margin-top:0" }, external(TOKEN_URL, "Create a token")),
-      form,
+    h("div", { class: login.tool === "space" && !state.signed_in_as ? "" : "card" },
+      /expired/.test(state.message || "") ? h("p", { class: "result fail" }, state.message) : null,
+      state.signed_in_as
+        ? h("div", {}, h("p", { class: "result ok" }, `✓ Signed in as ${state.signed_in_as}`), h("div", { class: "actions" }, save))
+        : connectFlow("space", true),
       h("p", { class: "muted small-text", style: "margin-top:12px" },
-        "Launchpad stores it as the ", h("code", {}, "LP_SPACE_MANAGEMENT_TOKEN"), " secret of this Space, creates the private bucket ",
-        h("code", {}, state.bucket.id), " and an encryption key, then restarts the Space once."),
-      h("details", {},
-        h("summary", {}, "Add the secret on the Hub instead"),
-        h("p", { class: "small-text muted", style: "margin-top:8px" },
-          "In Space settings → Variables and secrets, add a secret named ", h("code", {}, "LP_SPACE_MANAGEMENT_TOKEN"), " with the token. The Space restarts and continues here."),
-        external(`${state.space.settings}#secrets`, "Open Space settings", "button small"))));
+        "Launchpad stores the sign-in as the ", h("code", {}, "LP_SPACE_MANAGEMENT_TOKEN"), " secret of this Space and refreshes it automatically, creates the private bucket ",
+        h("code", {}, state.bucket.id), " and an encryption key, then restarts the Space once.")));
+  remountTerminal();
 }
 
 function blocked() {
@@ -407,7 +439,7 @@ function backups() {
       h("div", { class: "actions" }, create),
       h("p", { class: "muted small-text", style: "margin-top:12px" }, "The Space restarts once (about a minute). Existing files in the bucket are never deleted."),
       state.needs_key ? h("details", {}, h("summary", {}, "Save the encryption key yourself"),
-        h("p", { class: "small-text muted", style: "margin-top:8px" }, "Use this if the token cannot save Space secrets."), generate, manual) : null));
+        h("p", { class: "small-text muted", style: "margin-top:8px" }, "Use this if the sign-in cannot save Space secrets."), generate, manual) : null));
 }
 
 function starting() {
@@ -481,10 +513,9 @@ function error() {
 
 // ---------- sign-in flows ----------
 
-/** The sign-in UI for one tool: a token form for Hugging Face, a live terminal otherwise. */
+/** The sign-in UI for one tool: a button, then a live terminal with the sign-in page and the code. */
 function connectFlow(tool, primary = false) {
   const info = TOOLS[tool];
-  if (tool === "huggingface") return hfForm(primary);
   const login = state.login || {};
   const mine = login.tool === tool;
   const profile = connections?.profiles.find((p) => p.id === (mine ? login.profile : requestedProfile));
@@ -518,35 +549,12 @@ function connectFlow(tool, primary = false) {
 
 async function startLogin(tool, profile, button) {
   closeTerminal();
-  const value = await action("login", { tool, profile }, button);
+  const value = tool === "space" ? await action("space-login", {}, button) : await action("login", { tool, profile }, button);
   if (value) {
     lastSetupRender = lastPanelRender = "";
     render();
     $("flow")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
-}
-
-function hfForm(primary) {
-  const input = h("input", { type: "password", id: "hf-token", placeholder: "hf_…", autocomplete: "off", spellcheck: "false", required: true });
-  const profile = h("input", { type: "checkbox", id: "hf-profile", checked: true });
-  const submit = h("button", { type: "submit", class: primary ? "primary" : "" }, "Connect");
-  const hf = connections?.connections.find((c) => c.id === "huggingface");
-  return h("form", {
-    onsubmit: async (event) => {
-      event.preventDefault();
-      const token = input.value.trim();
-      input.value = "";
-      const ok = await action("hf-token", { token, create_profile: profile.checked }, submit);
-      if (ok) { await loadConnections(); toast("Hugging Face connected"); }
-    },
-  },
-  h("h2", {}, "Connect Hugging Face"),
-  hf?.connected ? h("p", { class: "result ok" }, `✓ Connected as ${hf.detail || "your account"}`) : null,
-  h("p", { class: "muted" }, "Paste a token with write access. Agents use it for Inference Providers, and Launchpad uses it to save agent traces to your private bucket. Use a different token than the Space token."),
-  h("div", { class: "actions", style: "margin-top:0" }, external(TOKEN_URL, "Create a token", "button small")),
-  h("label", { for: "hf-token" }, "Agent token"),
-  h("div", { class: "row" }, h("div", { class: "grow" }, input), submit),
-  h("label", { class: "check" }, profile, h("span", {}, "Add an agent profile for open models (Claude Code through Inference Providers; usage is billed to your Hugging Face account)")));
 }
 
 function apiKeyForm() {
@@ -655,10 +663,7 @@ function accountsSection() {
   const rows = (connections?.connections || []).map((c) => {
     const info = TOOLS[c.id];
     const button = h("button", { type: "button", class: "small" }, c.connected ? "Reconnect" : "Connect");
-    button.addEventListener("click", () => {
-      if (c.id === "huggingface") { selected = selected === "huggingface" ? null : "huggingface"; lastPanelRender = ""; renderPanel(); }
-      else startLogin(c.id, null, button);
-    });
+    button.addEventListener("click", () => startLogin(c.id, null, button));
     // Drop file locations such as "(/home/agent/.config/gh/hosts.yml)": they only make the line longer.
     const account = c.detail?.replace(/\s*\((?:\/|~\/)[^)]*\)/g, "").trim();
     const detail = c.connected ? (account ? `Connected · ${account}` : "Connected") : c.profile ? "Profile saved · not signed in" : "Not connected";
@@ -676,7 +681,6 @@ function accountsSection() {
       : null,
     connections ? h("div", { class: "list" }, rows) : h("div", { class: "waiting muted" }, h("span", { class: "spinner" }), "Checking sign-ins…"),
     login.tool ? connectFlow(login.tool) : null,
-    selected === "huggingface" && !login.tool ? h("div", { class: "flow" }, hfForm(false)) : null,
     h("details", {}, h("summary", {}, "Add a provider API key"), apiKeyForm()),
     h("details", {}, h("summary", {}, "SSH key"), sshBlock()));
 }
@@ -788,6 +792,67 @@ function backupSection() {
     h("p", { class: "muted small-text", style: "margin-top:10px" }, "~/projects is written to the bucket as you work. Launchpad state and agent history are saved every minute (latest copy only). Running commands and terminal screens cannot be restored after a restart."));
 }
 
+// ---------- updates ----------
+
+const REPO = "https://github.com/Wauplin/launchpad";
+const isRevision = (value) => /^[0-9a-f]{40}$/.test(value || "");
+const short = (value) => (isRevision(value) ? value.slice(0, 12) : value || "unknown");
+const changesUrl = (from, to) => (isRevision(from) && isRevision(to) ? `${REPO}/compare/${from}...${to}` : null);
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const UPDATE_STEPS = [
+  ["stopping", "Stop running agents"],
+  ["saving", "Save and verify a backup"],
+  ["updating", "Switch the Space to the new version"],
+  ["restarting", "Restart the Space"],
+  ["resuming", "Resume the stopped agents"],
+];
+
+/** The update steps with the current one spinning; `agents` drops the agent steps when none run. */
+function updateSteps(current, agents) {
+  const index = UPDATE_STEPS.findIndex(([key]) => key === current);
+  return h("ol", { class: "update-steps" },
+    UPDATE_STEPS.filter(([key]) => agents || (key !== "stopping" && key !== "resuming")).map(([key, label]) => {
+      const i = UPDATE_STEPS.findIndex(([k]) => k === key);
+      return h("li", { class: i < index ? "done" : i === index ? "current" : "" },
+        i < index ? h("span", { class: "dot" }, "✓") : i === index ? h("span", { class: "spinner" }) : h("span", { class: "dot" }), label);
+    }));
+}
+
+/** Opens a session in the app frame. */
+function openSession(id) {
+  if ($("update-dialog").open) $("update-dialog").close();
+  $("panel").close();
+  lastRoute = `/agents?session=${encodeURIComponent(id)}`;
+  $("app").src = lastRoute;
+}
+
+function agentList(agents, withError = false) {
+  return h("ul", { class: "agent-list" }, agents.map((a) => h("li", {},
+    state.ready ? h("button", { type: "button", class: "link", onclick: () => openSession(a.id) }, a.title) : h("span", {}, a.title),
+    withError && a.error ? h("span", { class: "muted" }, ` · ${a.error}`) : null)));
+}
+
+/** The last update outcome: what changed and which agents resumed. */
+function updateResult(r) {
+  const failed = r.failed || [];
+  const pending = r.pending || [];
+  const ok = r.outcome === "updated" && !failed.length;
+  const headline = {
+    updated: `Updated to ${short(r.to)}.`,
+    rolled_back: `The update was rolled back: ${short(r.from)} is running again with its pre-update backup.`,
+    failed: `The update did not run: ${r.error || "unknown error"}. The current version keeps running.`,
+  }[r.outcome] || r.error || "Launchpad restarted after an update, on an unexpected image. Check the Space logs.";
+  const dismiss = h("button", { type: "button", class: "small" }, "Dismiss");
+  dismiss.addEventListener("click", () => action("dismiss-update", {}, dismiss));
+  return h("div", { class: `notice ${ok ? "ok" : "attn"}` },
+    h("p", {}, ok ? h("b", {}, headline) : h("strong", {}, headline)),
+    pending.length ? h("div", { class: "waiting small-text", style: "margin-top:8px" }, h("span", { class: "spinner" }), `Resuming ${plural(pending.length, "agent")}…`) : null,
+    r.resumed?.length ? h("div", { class: "small-text" }, h("p", { style: "margin-top:8px" }, `Resumed ${plural(r.resumed.length, "agent")} in the same sessions:`), agentList(r.resumed)) : null,
+    r.finished?.length ? h("div", { class: "small-text" }, h("p", { style: "margin-top:8px" }, "Finished their turn before the stop, nothing to resume:"), agentList(r.finished)) : null,
+    failed.length ? h("div", { class: "small-text" }, h("p", { style: "margin-top:8px" }, h("strong", {}, `${plural(failed.length, "agent")} did not resume. `), "Open each one and click Resume:"), agentList(failed, true)) : null,
+    pending.length ? null : h("div", { class: "row", style: "margin-top:10px" }, dismiss));
+}
+
 function updatesSection() {
   const u = state.update || {};
   const release = state.release || {};
@@ -795,26 +860,69 @@ function updatesSection() {
   check.addEventListener("click", () => action("check-updates", {}, check));
   const c = u.candidate;
   const managedImage = Boolean(u.installed?.image);
+  const progress = u.progress;
+  const changes = c && changesUrl(release.launchpad, c.launchpad);
+  const update = h("button", { type: "button", class: "primary small" }, "Update…");
+  update.addEventListener("click", () => openUpdateDialog(c));
   return h("section", { id: "updates-section" },
     h("h3", {}, "Updates"),
-    h("p", { class: "muted small-text" }, "Checks main automatically about every six hours. Each new commit becomes available after its runtime build passes. Updates only run when you confirm."),
     h("div", { class: "lines" },
-      h("div", {}, h("span", {}, "Launchpad"), h("span", { class: "mono" }, (release.launchpad || "unknown").slice(0, 12))),
-      h("div", {}, h("span", {}, "Space connector"), h("span", {}, release.adapter || "unknown")),
-      h("div", {}, h("span", {}, "Last check"), h("span", {}, u.error || (u.checked_at ? ago(u.checked_at) : "Not checked yet")))),
-    c ? h("div", { class: "notice ok" },
-      h("p", {}, h("b", {}, `A new version is available: ${c.launchpad.slice(0, 12)}`)),
-      h("p", {}, "Would you like to update Launchpad?"),
-      h("pre", {}, Object.entries(c.tools).map(([k, v]) => `${k}: ${release.tools?.[k] || "—"} → ${v}`).join("\n")),
-      h("p", { class: "small-text" }, managedImage
-        ? "Stop agents and close terminals first. Launchpad saves a verified backup, then the Space rebuilds and reconnects this page."
-        : "This Space was built from source. Back up now and stop agents and terminals, then replace its Dockerfile in Hub with the one in the template download. This one-time setup enables future confirmed updates."),
+      h("div", {}, h("span", {}, "Installed"), h("span", { class: "mono" }, short(release.launchpad))),
+      h("div", {}, h("span", {}, "Available"), c ? h("span", { class: "mono" }, short(c.launchpad)) : h("span", {}, u.checked_at ? "Up to date" : "Not checked yet")),
+      h("div", {}, h("span", {}, "Last check"), h("span", {}, u.error || (u.checked_at ? ago(u.checked_at) : "Not checked yet"))),
+      h("div", {}, h("span", {}, "Space connector"), h("span", {}, release.adapter || "unknown"))),
+    progress ? h("div", { class: "notice" },
+      h("p", {}, h("b", {}, `Updating to ${short(progress.to)}`)),
+      updateSteps(progress.step, progress.agents?.length),
+      progress.agents?.length ? h("p", { class: "muted small-text" }, `${plural(progress.agents.length, "agent")} will resume after the restart.`) : null) : null,
+    u.result ? updateResult(u.result) : null,
+    c && !progress ? h("div", { class: "notice ok" },
+      h("p", {}, h("b", {}, `A new version is available: ${short(c.launchpad)}`)),
+      managedImage ? null : h("p", { class: "small-text" }, "This Space was built from source. Back up now and stop agents and terminals, then replace its Dockerfile in Hub with the one in the template download. This one-time setup enables future updates."),
       h("div", { class: "row" },
-        managedImage
-          ? confirmButton("Update and restart", "Confirm update", (b) => action("prepare-update", { image: c.image, confirmed: true }, b), "primary small")
-          : external("https://github.com/Wauplin/launchpad/raw/refs/heads/hf-space-channel/hf-space-template.zip", "Download managed template", "button primary small"),
-        typeof c.notes === "string" && c.notes.startsWith("https://") ? external(c.notes, "View commit", "button small") : null)) : null,
+        managedImage ? update : external(`${REPO}/raw/refs/heads/hf-space-channel/hf-space-template.zip`, "Download managed template", "button primary small"),
+        changes ? external(changes, "View changes", "button small") : typeof c.notes === "string" && c.notes.startsWith("https://") ? external(c.notes, "View commit", "button small") : null)) : null,
+    h("p", { class: "muted small-text" }, "Checks for a new version at startup and about every six hours. Updates only run when you confirm."),
     h("div", { class: "row" }, check));
+}
+
+/** Confirmation: says exactly what the update does with the agents running right now. */
+async function openUpdateDialog(candidate) {
+  const dialog = $("update-dialog");
+  const body = $("update-dialog-body");
+  const release = state.release || {};
+  body.replaceChildren(h("div", { class: "waiting muted" }, h("span", { class: "spinner" }), "Checking running agents…"));
+  if (!dialog.open) dialog.showModal();
+  const plan = await action("update-plan");
+  if (!plan) { dialog.close(); return; }
+  const running = plan.running || [];
+  const tools = Object.entries(candidate.tools || {}).filter(([k, v]) => release.tools?.[k] !== v);
+  const cancel = h("button", { type: "button" }, "Cancel");
+  cancel.addEventListener("click", () => dialog.close());
+  const confirm = h("button", { type: "button", class: "primary" }, running.length ? `Stop ${plural(running.length, "agent")} and update` : "Update and restart");
+  confirm.disabled = plan.blockers.length > 0;
+  confirm.addEventListener("click", async () => {
+    if (await action("prepare-update", { image: candidate.image, confirmed: true }, confirm)) dialog.close();
+  });
+  const changes = changesUrl(release.launchpad, candidate.launchpad);
+  body.replaceChildren(...[
+    h("div", { class: "lines" },
+      h("div", {}, h("span", {}, "Installed"), h("span", { class: "mono" }, short(release.launchpad))),
+      h("div", {}, h("span", {}, "New version"), h("span", { class: "mono" }, short(candidate.launchpad))),
+      tools.map(([k, v]) => h("div", {}, h("span", {}, k), h("span", { class: "mono" }, `${release.tools?.[k] || "—"} → ${v}`)))),
+    changes ? h("p", { class: "small-text" }, external(changes, "View the changes on GitHub", "")) : null,
+    h("h3", {}, "What happens"),
+    h("ol", { class: "plan" },
+      running.length
+        ? h("li", {}, `Stop ${plural(running.length, "running agent")}, like the Stop button:`, agentList(running))
+        : h("li", {}, "No agent is running, so none needs to be stopped."),
+      h("li", {}, "Save a backup of Launchpad state and check it."),
+      h("li", {}, "Switch the Space to the new version and restart it. This usually takes one to two minutes; Launchpad is unavailable meanwhile and this page reconnects on its own."),
+      running.length ? h("li", {}, "Resume the same agents automatically, in their own sessions with their full context. Each one receives “Continue the unfinished turn.”") : null),
+    plan.terminals ? h("div", { class: "notice attn small-text" }, h("strong", {}, `${plural(plan.terminals, "open terminal")} will close. `), "Commands running in them stop and their screens are not restored.") : null,
+    plan.blockers.length ? h("div", { class: "notice attn small-text" }, h("strong", {}, "Cannot update yet. "), plan.blockers.map((b) => h("p", {}, b))) : null,
+    h("p", { class: "muted small-text" }, "If something fails before the restart, nothing changes: the current version keeps running and the agents resume on it. If the new version does not start within five minutes, the restarting page offers a rollback to the current version and this backup. Agents that cannot resume are listed afterwards."),
+    h("div", { class: "actions" }, confirm, cancel)].filter(Boolean));
 }
 
 function spaceSection() {

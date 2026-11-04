@@ -183,8 +183,9 @@ function FolderSettings({ p }: { p: Project }) {
       {!p.is_temp && (
         <SettingRow label="When done" hint="Default for new agents of this folder; the composer can change it per launch." state={done.state} error={done.error}>
           <FilterChips label="When done">
-            <FilterChip active={!p.merge_when_done} onClick={() => p.merge_when_done && void done.run(() => patch({ merge_when_done: false }))}>Keep the branch for review</FilterChip>
-            <FilterChip active={p.merge_when_done} onClick={() => !p.merge_when_done && void done.run(() => patch({ merge_when_done: true }))}>Merge when done</FilterChip>
+            {([["keep", "Keep the branch for review"], ["local_pr", "Open a Local PR"], ["merge", "Merge when done"]] as const).map(([value, label]) => (
+              <FilterChip key={value} active={p.when_done === value} onClick={() => p.when_done !== value && void done.run(() => patch({ when_done: value }))}>{label}</FilterChip>
+            ))}
           </FilterChips>
         </SettingRow>
       )}

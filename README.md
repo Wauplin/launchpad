@@ -7,7 +7,7 @@ Launchpad is a desktop app to launch, follow and review coding agents (Claude Co
 ## Why Launchpad
 
 - **One place for all your agents.** Start an agent in the right folder with the right context in a few clicks. Follow many runs at once, answer their questions, review their changes and send follow-ups.
-- **Every task in its own worktree.** Each agent works on its own Git branch, so your checkout stays untouched. Merge the branch, review it as a local pull request or discard it.
+- **Every task in its own worktree.** Each agent works on its own Git branch, so its edits stay separate from your checkout. Merge the branch, review it as a local pull request or discard it.
 - **Your subscription, protected.** Launchpad reads the quota of your Claude and ChatGPT subscriptions, pauses agents before they use paid credits, and continues them when quota is available again.
 - **GitHub without waiting.** The inbox, issues, pull requests and reviews come from a local cache, so moving between them is instant.
 - **Nothing reaches GitHub without your click.** Comments and reviews written by agents, and pull requests prepared locally, stay on your machine until you publish them.
@@ -26,14 +26,14 @@ Launchpad is a desktop app to launch, follow and review coding agents (Claude Co
 | --- | --- |
 | **Agents** | Claude Code, Codex and OpenCode behind one session model. Live trace, Summary and Changes views, questions and approval cards, model and permission controls. [Read more](docs/agents.md) |
 | **Profiles** | Run each harness with a subscription login, an API key or another provider (for example the Hugging Face router). Several accounts work side by side. [Read more](docs/agents.md#profiles) |
-| **Worktrees** | New agents run in a dedicated worktree and branch. Launchpad merges the branch when you ask, and sends conflicts back to the agent. [Read more](docs/agents.md#worktrees-and-merging) |
+| **Worktrees** | New agents run in a dedicated worktree and branch. Launchpad tries to update the base from its remote before launch, merges when you ask, and tries to push the merged base. Remote failures stay visible without blocking the task. [Read more](docs/agents.md#worktrees-and-merging) |
 | **Scheduling** | Start later, after other agents finish, when a quota resets, or on a cron schedule. [Read more](docs/agents.md#scheduling) |
-| **Ask Launchpad** | Describe work in plain words. An assistant proposes launches, messages and crons as cards that you start with one click. Choose presets for Ask Launchpad, agent composer / steering, or both. [Read more](docs/agents.md#ask-launchpad) |
+| **Ask Launchpad** | Describe work in plain words. An assistant proposes launches, messages, crons and presets as cards that you start with one click. Choose presets for Ask Launchpad, agent composer / steering, or both. [Read more](docs/agents.md#ask-launchpad) |
 | **GitHub** | Inbox triage, issues, pull requests, diffs, reviews and merges, with local PRs and agent suggestions. [Read more](docs/github.md) |
 | **Terminals and files** | Integrated terminals for shells and harness TUIs, and a read-only file viewer with syntax colors. [Read more](docs/agents.md#terminals-and-files) |
 | **Phone and remote access** | Pair a phone with a QR code, use it over Tailscale, expand Summary or Trace for more reading space, get Web Push notifications. [Read more](docs/remote-access.md) |
 | **SSH hosts** | Run agents and terminals on other machines over SSH. [Read more](docs/ssh-hosts.md) |
-| **Hugging Face** | Run Launchpad in a private Hugging Face Space, and sync agent traces to a Hugging Face bucket. [Read more](docs/hugging-face.md) |
+| **Hugging Face** | Run Launchpad in a private Hugging Face Space, and sync agent traces to a Hugging Face bucket. Read-only synced traces have their own searchable group below Archived. [Read more](docs/hugging-face.md) |
 | **Chrome extension** | Give an agent the browser tabs you choose. [Read more](extension/README.md) |
 
 ## Getting started

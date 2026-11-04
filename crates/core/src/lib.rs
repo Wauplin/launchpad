@@ -39,6 +39,7 @@ pub mod status;
 pub mod quota;
 pub mod analytics;
 pub mod review_state;
+pub(crate) mod remote_sync;
 pub mod suggestions;
 pub mod terminals;
 pub mod trace_backup;

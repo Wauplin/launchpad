@@ -6,15 +6,20 @@ import json
 import os
 import pty
 import re
+import shutil
 import struct
 import termios
 import time
 
 import aiohttp
 
-from supervisor.processes import spawn, stop, HOME, own
+from supervisor.processes import CONTROL, spawn, spawn_control, stop, HOME, own
 
+# `hf auth login` in agent format runs the device flow without prompts: it prints the URL and the code, then waits.
+HF_LOGIN = ('hf', 'auth', 'login', '--force', '--format', 'agent')
 COMMANDS = {
+    'space': HF_LOGIN,
+    'huggingface': HF_LOGIN,
     'codex': ('codex', 'login', '--device-auth'),
     'claude': ('claude', 'auth', 'login'),
     'opencode': ('opencode', 'auth', 'login'),
@@ -22,9 +27,11 @@ COMMANDS = {
                '--scopes', 'repo,read:org,notifications'),
 }
 HARNESSES = ('codex', 'claude', 'opencode')
+# The Space's own sign-in (`space`) runs as root in this folder, away from agents; see supervisor/management.py.
+SPACE_LOGIN = CONTROL / 'space-login'
 ANSI = re.compile(r'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])')
 URL = re.compile(r'https://[^\s<>"\x1b\x07]+')
-# One-time device codes printed by gh ("ABCD-1234") and Codex ("ABCD-12345").
+# One-time device codes printed by gh ("ABCD-1234"), Codex ("ABCD-12345") and hf ("ABCD-EFGH").
 CODE = re.compile(r'\b[A-Z0-9]{4}-[A-Z0-9]{4,5}\b')
 LIMIT = 64 * 1024
 
@@ -71,8 +78,15 @@ class Logins:
             self.tool, self.profile, self.result = tool, profile, None
             master, slave = pty.openpty()
             self.resize(master, 24, 100)
+            if COMMANDS[tool] == HF_LOGIN:
+                extra = dict(extra or {}, HF_HUB_DISABLE_UPDATE_CHECK='1')  # The image pins hf: no update hints.
             try:
-                self.process = await spawn(*COMMANDS[tool], stdin=slave, stdout=slave, extra=extra)
+                if tool == 'space':
+                    shutil.rmtree(SPACE_LOGIN, ignore_errors=True)
+                    SPACE_LOGIN.mkdir(mode=0o700, parents=True)
+                    self.process = await spawn_control(*COMMANDS[tool], home=SPACE_LOGIN, stdin=slave, stdout=slave, extra=extra)
+                else:
+                    self.process = await spawn(*COMMANDS[tool], stdin=slave, stdout=slave, extra=extra)
             except BaseException:
                 os.close(master)
                 raise

@@ -16,7 +16,7 @@ A personal coding-agent machine you can open from any browser. All visitors admi
 ## Start here
 
 1. Keep this Space **Private**: everyone who can open it controls your agents and their sign-ins.
-2. Open the app and paste a Hugging Face **write** token. Launchpad saves it as a Space secret, creates a private backup bucket, an encryption key and a volume that keeps `/home/agent/projects` in the bucket, then restarts the Space once (about a minute).
+2. Open the app and sign in to Hugging Face (the page shows a link and a code). Launchpad saves the sign-in as a Space secret, creates a private backup bucket, an encryption key and a volume that keeps `/home/agent/projects` in the bucket, then restarts the Space once (about a minute).
 3. Connect your first agent: your Hugging Face account (open models through Inference Providers), Claude Code, Codex, OpenCode or an API key. Then optionally GitHub.
 
 The bucket is `<your namespace>/launchpad`, the same default as Launchpad's trace sync on your other machines; to use another one, set the Variable `LP_SPACE_BUCKET=namespace/name` first. `projects/` is the live projects volume and `traces/` is shared with your other machines; the Space keeps its own state under `space/` (latest copy, credentials encrypted); you can browse files and native agent traces on the Hub.

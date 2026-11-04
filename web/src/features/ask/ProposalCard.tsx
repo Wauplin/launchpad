@@ -18,7 +18,20 @@ import { StatusBadge } from "@/features/agents/SessionBits";
 
 export const useProposalList = (enabled = true) => useQuery({ enabled, queryKey: ["proposals"], queryFn: () => api.get<Proposal[]>("/api/proposals"), staleTime: 30_000 });
 
-const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create cron", status: "" };
+const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create cron", status: "", preset: "Save preset" };
+
+/** A preset card: new or updated label, availability and text. */
+function PresetBody({ body }: { body: Extract<Proposal["body"], { kind: "preset" }> }) {
+  return (
+    <>
+      <span className="flex flex-wrap gap-1">
+        <Token icon="preset">{body.preset_id ? "Update preset" : "New preset"} · {body.label}</Token>
+        <Token>{body.agent ? "agent composer / steering" : "not in agent composer"}</Token>
+      </span>
+      <p className="m-0 line-clamp-3 text-[12px] whitespace-pre-wrap text-ink-2">{body.text}</p>
+    </>
+  );
+}
 
 function specOf(p: Proposal): LaunchSpec | null {
   return p.body.kind === "launch" || p.body.kind === "schedule" || p.body.kind === "cron" ? p.body.spec : null;
@@ -36,7 +49,8 @@ function SpecTokens({ spec }: { spec: LaunchSpec }) {
       <Token>{spec.harness && <HarnessMark harness={spec.harness} size={11} />}{profile?.name ?? spec.profile ?? "no profile"}</Token>
       {spec.model && spec.model !== profile?.model && <Token>{spec.model}</Token>}
       {spec.target.kind === "project" && !spec.worktree && <Token>checkout</Token>}
-      {spec.worktree?.merge_when_done && <Token>merge when done</Token>}
+      {spec.worktree?.when_done === "merge" && <Token>merge when done</Token>}
+      {spec.worktree?.when_done === "local_pr" && <Token>Local PR when done</Token>}
       {spec.github_refs.length > 0 && <Token icon="pr">{spec.github_refs.length} GitHub item{spec.github_refs.length === 1 ? "" : "s"}</Token>}
       {(spec.agent_traces ?? []).length > 0 && <Token icon="agents">+ {spec.agent_traces.length} trace</Token>}
       {profile?.billing === "pay_as_you_go" && <Token tone="warn">pay as you go</Token>}
@@ -97,7 +111,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
   return (
     <article id={anchor ? `proposal-${p.id}` : undefined} data-tour="proposal.card" data-tour-id={p.id} tabIndex={-1} className={`grid gap-2 rounded-xl border bg-paper p-3 ${p.body.kind === "cron" && !started ? "border-attn-line" : "border-line"}`}>
       <div className="flex items-start gap-2">
-        <Icon name={p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" ? "refresh" : p.body.kind === "status" ? "agents" : "play"} size={14} className="mt-0.5 flex-none text-ink-3" />
+        <Icon name={p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : "play"} size={14} className="mt-0.5 flex-none text-ink-3" />
         <div className="min-w-0 flex-1">
           <b className="block text-[13px]">{p.title}</b>
           {p.note && <p className="m-0 text-[12px] text-ink-2">{p.note}</p>}
@@ -108,9 +122,10 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
       {p.body.kind === "schedule" && <Token tone="warn" icon="clock">{p.body.conditions.length} start condition{p.body.conditions.length === 1 ? "" : "s"}</Token>}
       {spec && !started && <p className="m-0 line-clamp-3 text-[12px] whitespace-pre-wrap text-ink-2">{spec.text}</p>}
       {p.body.kind === "message" && !started && <p className="m-0 line-clamp-3 text-[12px] whitespace-pre-wrap text-ink-2">To “{sessions.find((s) => s.id === (p.body as { session_id: string }).session_id)?.title ?? "an agent"}”: {p.body.text}</p>}
+      {p.body.kind === "preset" && <PresetBody body={p.body} />}
       {statusSessions.length > 0 && <div className="grid">{statusSessions.map((s) => <SessionRow key={s.id} s={s} />)}</div>}
       {session && <SessionRow s={session} />}
-      {started && !session && p.body.kind !== "status" && <span className="text-[12px] text-gh-open"><Icon name="check" size={11} /> {p.body.kind === "schedule" ? "Scheduled: see Agents → Scheduled" : p.body.kind === "cron" ? "Cron created: see Agents → Cron" : "Started"}</span>}
+      {started && !session && p.body.kind !== "status" && <span className="text-[12px] text-gh-open"><Icon name="check" size={11} /> {p.body.kind === "schedule" ? "Scheduled: see Agents → Scheduled" : p.body.kind === "cron" ? "Cron created: see Agents → Cron" : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : "Started"}</span>}
       {p.state === "replaced" && <span className="text-[12px] text-ink-3">Replaced{p.replaced_by && <> · <Link to="/ask" search={{ proposal: p.replaced_by }} onClick={() => useWorkspace.getState().switchTo(p.workspace_id)} className="underline">View replacement</Link></>}</span>}
       {p.state === "dismissed" && <span className="text-[12px] text-ink-3">Dismissed</span>}
       {p.state === "failed" && p.error && <ErrorState error={p.error} />}

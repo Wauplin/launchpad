@@ -38,7 +38,7 @@ function register(path: string, repo: string | null, workspaceId: string | null)
   const known = EXTRA.find((e) => e.name === name);
   const p: Project = {
     id: `demo-${name}-${clock.now().toString(36)}`, name, path: clean, remote_url: (repo ?? known?.repo) ? `git@github.com:${repo ?? known?.repo}.git` : null, gh_repo: repo ?? known?.repo ?? null, gh_upstream: null,
-    description: "", is_temp: false, pinned: false, created_at: clock.now(), worktree_setup: "", merge_when_done: false,
+    description: "", is_temp: false, pinned: false, created_at: clock.now(), worktree_setup: "", when_done: "keep",
   };
   world.projects = [...world.projects, p];
   if (workspaceId) {
@@ -90,7 +90,7 @@ route("POST", "/api/projects/clone", ({ body }) => {
 route("GET", "/api/projects/:id", ({ params }) => projectOf(params.id));
 route("PATCH", "/api/projects/:id", ({ params, body }) => {
   const p = projectOf(params.id);
-  for (const key of ["name", "description", "pinned", "worktree_setup", "merge_when_done"] as const) {
+  for (const key of ["name", "description", "pinned", "worktree_setup", "when_done"] as const) {
     if (body?.[key] !== null && body?.[key] !== undefined) (p as Record<string, unknown>)[key] = body[key];
   }
   projectsChanged();

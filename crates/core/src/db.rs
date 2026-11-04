@@ -197,6 +197,7 @@ CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_
         .collect::<rusqlite::Result<Vec<_>>>()?;
     if !project_columns.iter().any(|c| c == "worktree_setup") { conn.execute_batch("ALTER TABLE project ADD COLUMN worktree_setup TEXT;")?; }
     if !project_columns.iter().any(|c| c == "merge_when_done") { conn.execute_batch("ALTER TABLE project ADD COLUMN merge_when_done INTEGER NOT NULL DEFAULT 0;")?; }
+    if !project_columns.iter().any(|c| c == "when_done") { conn.execute_batch("ALTER TABLE project ADD COLUMN when_done TEXT NOT NULL DEFAULT 'keep'; UPDATE project SET when_done = 'merge' WHERE merge_when_done = 1;")?; }
     let device_columns = conn.prepare("PRAGMA table_info(browser_device)")?
         .query_map([], |r| r.get::<_, String>(1))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -298,7 +299,8 @@ mod tests {
                 Ok(())
             }).await.unwrap();
         }
-        std::fs::remove_file(path).unwrap();
+        // Windows keeps the file locked until the connection thread exits.
+        let _ = std::fs::remove_file(path);
     }
 
     #[tokio::test]
@@ -334,6 +336,7 @@ mod tests {
                 Ok(())
             }).await.unwrap();
         }
-        std::fs::remove_file(path).unwrap();
+        // Windows keeps the file locked until the connection thread exits.
+        let _ = std::fs::remove_file(path);
     }
 }

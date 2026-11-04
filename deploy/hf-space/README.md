@@ -7,9 +7,9 @@ Status: built and checked locally against a real private Space and bucket. The m
 ## What the owner does
 
 1. Duplicate the template Space. Keep it **Private**. Pick CPU upgrade hardware to keep agents running with the tab closed (the free CPU sleeps after 48 hours without visits).
-2. Open the Space. Paste one Hugging Face **write** token and click **Save and continue**. Launchpad saves it as the `LP_SPACE_MANAGEMENT_TOKEN` secret, creates the private bucket (`<namespace>/launchpad`, or `LP_SPACE_BUCKET`), creates the `LP_SPACE_BACKUP_KEY` encryption secret, adds the bucket volume for `/home/agent/projects` (keeping other volumes) and restarts the Space once.
-3. **Connect your first agent**: Hugging Face (paste an agent token; open models billed to the HF account), Claude Code, Codex or OpenCode (their own sign-in, in a terminal on the page) or a provider API key. Launchpad creates the matching profile automatically. GitHub is offered next, optionally, then a repository picker that clones into `~/projects` and registers each clone as a folder (recent GitHub notifications first, then recently pushed repositories).
-4. Use Launchpad. A 24 px bar above the app shows the Space name and backup state (the template uses `header: mini` to shrink the Hugging Face header, and the ▲ button folds the bar into a small tab); **Space settings** opens accounts, folders (the same repository picker), backups, updates and Space actions.
+2. Open the Space and click **Sign in to Hugging Face**. The page runs `hf auth login` and shows the sign-in link and code; after you approve access, click **Save and continue**. Launchpad saves the OAuth sign-in as the `LP_SPACE_MANAGEMENT_TOKEN` secret, creates the private bucket (`<namespace>/launchpad`, or `LP_SPACE_BUCKET`), creates the `LP_SPACE_BACKUP_KEY` encryption secret, adds the bucket volume for `/home/agent/projects` (keeping other volumes) and restarts the Space once.
+3. **Connect your first agent**: Hugging Face (`hf auth login`; open models billed to the HF account), Claude Code, Codex or OpenCode (each runs its own sign-in in a terminal on the page) or a provider API key. Launchpad creates the matching profile automatically. GitHub is offered next, optionally, then a repository picker that clones into `~/projects` and registers each clone as a folder (recent GitHub notifications first, then recently pushed repositories).
+4. Use Launchpad. A 24 px bar above the app shows the Space name and backup state (the template uses `header: mini` to shrink the Hugging Face header, and the ▲ button folds the bar into a small tab); **Space settings** opens accounts, folders (the same repository picker), backups, updates and Space actions. The Hub draws its mini header as a pill over the top-right corner on screens 640 px and wider; the bar, the Space settings drawer, the setup page and Launchpad's top bar keep their controls out of that corner (the shell sets `--lp-host-inset-right` and `--lp-host-inset-top` on the app's root element; between 640 and 719 px, where Launchpad uses its phone layout, the bar grows to 64 px instead).
 
 Each step is detected, never redone: a Space that already has its secrets or bucket skips straight ahead. A Space that is public, or a bucket that is public, stops at a page that explains how to fix it in Hub settings.
 
@@ -18,6 +18,7 @@ Each step is detected, never redone: a Space that already has its secrets or buc
 | Path | Owns |
 | --- | --- |
 | `supervisor/main.py` | The setup stages, `/_space/*` API, action dispatch, the proxy front door |
+| `supervisor/management.py` | The Space's own Hub sign-in: refresh and write-back of `LP_SPACE_MANAGEMENT_TOKEN` |
 | `supervisor/policy.py` | The one startup visibility decision (the owner accepts protected Spaces for now) |
 | `supervisor/runtime.py`, `processes.py` | The Launchpad daemon as the `agent` user, environment allowlist, crash watcher |
 | `supervisor/updates.py` | Release checks, image update with expected parent, rollback |
@@ -40,11 +41,11 @@ docker build -f deploy/hf-space/Dockerfile --build-arg LAUNCHPAD_REVISION="$(git
 
 The image builds the UI before the daemon, installs the CLI versions from `release.json`, copies xterm from the UI build, records dependency inventories under `/opt/space/sbom/`, and classifies the database schema of the embedded binary (`schema.json`). `tini` forwards signals.
 
-HF supplies `SPACE_ID` and `SPACE_HOST`. Secrets: `LP_SPACE_MANAGEMENT_TOKEN` and `LP_SPACE_BACKUP_KEY` (both created by setup). Optional variable: `LP_SPACE_BUCKET=namespace/name`. Host and Origin must be exactly `https://SPACE_HOST`.
+HF supplies `SPACE_ID` and `SPACE_HOST`. Secrets: `LP_SPACE_MANAGEMENT_TOKEN` (the `hf auth login` OAuth access and refresh tokens, as JSON) and `LP_SPACE_BACKUP_KEY`, both created by setup. OAuth access tokens expire after 30 days and each refresh rotates the refresh token: the control plane refreshes one day before expiry and writes the new pair back to the secret (Hub may restart the Space when a secret changes). If the stored sign-in no longer works at startup, the setup page asks to sign in again. Optional variable: `LP_SPACE_BUCKET=namespace/name`. Host and Origin must be exactly `https://SPACE_HOST`.
 
 To try it locally, run the image with `SPACE_ID` of a throwaway private Space you own, `SPACE_HOST=<anything>.hf.space` and a token, put a TLS proxy in front of port 7860 and map the host in the browser (for Chrome: `--host-resolver-rules="MAP <host>:443 127.0.0.1:<tls port>" --ignore-certificate-errors`). Mount `gateway/`, `supervisor/`, `providers/`, `backup/` and `vault/` over `/opt/space/` to iterate without rebuilding.
 
-The control plane runs as root; the daemon, agents, Git and shells run as the `agent` user in `/home/agent` with an allowlisted environment. The management token, the vault key and platform secrets never reach agent processes. Agents can read their own provider credentials: this is not a hostile-code sandbox.
+The control plane runs as root; the daemon, agents, Git and shells run as the `agent` user in `/home/agent` with an allowlisted environment. The Space sign-in runs as root in a private folder under `/run/launchpad-space`; it, the vault key and platform secrets never reach agent processes. Agents can read their own provider credentials: this is not a hostile-code sandbox.
 
 ## Backups
 
@@ -80,10 +81,17 @@ Every push to `main` triggers `.github/workflows/hf-space.yml`: build the image,
 
 `release.json` → `channel` names the public raw manifest URL and official image repository. **Make the `launchpad-hf-space` GHCR package public once** in its package settings; a public GitHub repo does not automatically make packages public. CI refuses to advertise an image that anonymous clients cannot inspect. The workflow needs Contents and Packages write permissions. Optional `HF_SPACE_TEMPLATE` (repository variable) and `HF_SPACE_TEMPLATE_TOKEN` (secret) refresh the public duplicate template after publication; otherwise download the template zip from `hf-space-channel`.
 
-Running Spaces check automatically at startup and roughly every six hours (with jitter), with **Check now** in Space settings. A persistent **Update available · Review** button opens the candidate commit, tool changes and **Update and restart** confirmation. Checks only advertise a different commit; they never apply updates automatically. A failed check preserves the last candidate and reports that the check is unavailable.
+Running Spaces check automatically at startup and roughly every six hours (with jitter), with **Check now** in Space settings. The Updates section shows the installed and available commits; **Update…** opens a confirmation listing the running agents, open terminals, tool changes and the steps below. Checks only advertise a different commit; they never apply updates automatically. A failed check preserves the last candidate and reports that the check is unavailable.
 
 Existing source-built Spaces and images using the old release-only URL need a one-time migration: after the first successful channel build, download the template zip and replace the Space Dockerfile with its managed digest-pinned Dockerfile in Hub, then rebuild. Save a current backup and stop agents/terminals first. Source-built Dockerfiles cannot use image rollback and are deliberately refused by the updater. Subsequent updates use the owner-approved flow below.
 
-Updates need a click in Space settings, idle agents and terminals, and a verified clean checkpoint, copied to `space/pre-update/`; then the managed Dockerfile is replaced at the expected parent revision. If the new build does not come back within five minutes, the restarting page offers **Roll back the update**, which restores the previous image and its pre-update Launchpad state (`projects/` is live and is not rolled back). Edited Dockerfiles are never overwritten.
+An owner-confirmed update (`update-plan` then `prepare-update` actions, `supervisor/main.py: update`, helpers in `supervisor/updates.py`) runs in the background and reports `update.progress` in the status:
+
+1. Stop the running agents (`starting`, `working`, `background`) through `POST /api/sessions/{id}/interrupt` and wait up to a minute; agents still running end with the daemon and come back Interrupted. Quota-paused and in-terminal sessions block the update.
+2. Stop the daemon (open terminals end) and save a verified clean checkpoint, copied to `space/pre-update/`.
+3. Write `space/update.json` (previous image, checkpoint, a `request` ID and the stopped agents), then replace the managed Dockerfile at the expected parent revision. Edited Dockerfiles are never overwritten.
+4. On the next boot (new version, or the previous one after a rollback), `Updates.finish` claims the request in `space/update-resumed.json` before anything else, then resumes each stopped or interrupted agent with `POST /api/sessions/{id}/resume {"continue_turn": true}`. The claim makes it run once; a boot more than one hour after the update reports the agents instead of resuming them. The result (`update.result`) lists resumed, already finished and failed agents.
+
+If a step fails before the commit, the daemon restarts on the current version and the same agents resume at once. An uncertain commit stops at the error page with everything stopped. If the new build does not come back within five minutes, the restarting page offers **Roll back the update**, which restores the previous image and its pre-update Launchpad state (`projects/` is live and is not rolled back).
 
 See the [template README](template/README.md#recover-without-the-app) for recovery from the Hub when the app cannot start.

@@ -34,7 +34,7 @@ export default scenario({
       const p: Proposal = {
         id: TODAY_PROPOSAL, workspace_id: workspace, session_id: c.sessionId, title: "Retry the Node 24 CI upgrade",
         note: "The CI upgrade failed on `pnpm install` because the lockfile was written by an older pnpm. A new run that regenerates it should pass.",
-        body: { kind: "launch", spec: defaultSpec({ harness: "codex", profile: "codex-plus", target: { kind: "project", project_id: P.storefront }, worktree: { base: null, include_changes: false, merge_when_done: false }, text: "Upgrade CI to Node 24: regenerate pnpm-lock.yaml with pnpm 10, then make the CI workflow pass.", workspace_id: workspace }) },
+        body: { kind: "launch", spec: defaultSpec({ harness: "codex", profile: "codex-plus", target: { kind: "project", project_id: P.storefront }, worktree: { base: null, include_changes: false, when_done: "keep" }, text: "Upgrade CI to Node 24: regenerate pnpm-lock.yaml with pnpm 10, then make the CI workflow pass.", workspace_id: workspace }) },
         state: "proposed", result_id: "demo-s-proposed-ci", replaced_by: null, error: null, created_at: now, updated_at: now,
       };
       c.w.proposals = [...c.w.proposals.filter((x) => x.id !== TODAY_PROPOSAL), p];

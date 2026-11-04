@@ -30,7 +30,7 @@ hf://buckets/<namespace>/<bucket>/<prefix>/<folder name>/<YYYYMMDD_HHMM>_<sessio
 - Disabling sync or archiving a session never deletes remote data.
 - Traces can contain sensitive data: prompts, tool output and file paths. Keep the bucket private.
 
-**Sync between machines**: instances that use the same bucket and prefix import each other's traces for folders with the same name. Imported sessions appear as **Synced trace** in Agents. They are read-only: use **New agent here** or **Use trace as context** to continue the work locally. Credentials, profiles, settings and worktrees are never synced.
+**Sync between machines**: instances that use the same bucket and prefix import each other's traces for folders with the same name. Imported sessions appear in **Synced traces** below **Archived** in Agents, collapsed by default and revealed by search. They are read-only: use **New agent here** or **Use trace as context** to continue the work locally. Credentials, profiles, settings and worktrees are never synced.
 
 ## Run Launchpad in a Space
 
@@ -50,7 +50,7 @@ flowchart LR
 
 1. Create a private Docker Space from the template: duplicate the published template Space, or use `hf-space-template.zip` from the [`hf-space-channel`](https://github.com/Wauplin/launchpad/tree/hf-space-channel) branch. Keep it **Private**: everyone who can open the Space controls your agents.
 2. Choose paid CPU hardware and disable sleep if agents must run while the tab is closed. Free CPU Spaces sleep and lose running processes.
-3. Open the Space and paste a Hugging Face **write** token. Launchpad saves it as a Space secret, creates the private `<your account>/launchpad` bucket (if missing), an encryption key and the `~/projects` volume, then restarts once (about a minute).
+3. Open the Space and sign in to Hugging Face: the page runs `hf auth login` and shows a link and a code. Launchpad saves the sign-in as a Space secret (refreshed automatically), creates the private `<your account>/launchpad` bucket (if missing), an encryption key and the `~/projects` volume, then restarts once (about a minute).
 4. **Connect your first agent**: your Hugging Face account (open models), Claude Code, Codex or OpenCode (their sign-in runs in a terminal on the page), or an API key. GitHub is offered next.
 5. **Clone your repositories** (optional): tick repositories to clone into `~/projects`. Each becomes a folder in Launchpad. When GitHub is connected, repositories with recent notifications come first, then your recently pushed ones. You can also type `owner/name`.
 
@@ -67,6 +67,13 @@ A bar above the app shows the Space name and the backup state. **Space settings*
 
 ### Updates
 
-Every commit on `main` that passes the image build becomes a version. The Space checks for updates at startup and about every six hours; **Check now** in Space settings checks immediately. **Update available · Review** shows the change. Updates need your click, idle agents and terminals, and a verified backup. If the new version does not start within five minutes, **Roll back** restores the previous image and data.
+Every commit on `main` that passes the image build becomes a version. The Space checks for updates at startup and about every six hours; **Check now** in Space settings checks immediately. The Updates section shows the installed and available versions, with a link to the changes.
+
+**Update…** opens a confirmation that lists what will happen: the running agents are stopped (like the Stop button), open terminals close, a backup is saved and verified, the Space switches to the new version and restarts, and the stopped agents resume in their own sessions with “Continue the unfinished turn.”. Space settings shows each step while it runs, then the result: the new version, the resumed agents and any agent that could not resume (open it and click **Resume**).
+
+- If a step fails before the restart, the current version keeps running and the stopped agents resume on it.
+- If the new version does not start within five minutes, **Roll back** restores the previous image and its pre-update backup; agents that were not resumed yet resume on the previous version.
+- Agents resume only once, and not when the Space comes back more than one hour after the update.
+- Sessions paused for quota or open in a terminal block the update until you stop or close them.
 
 Developer details (layout, build, recovery without the app) are in [`deploy/hf-space/README.md`](../deploy/hf-space/README.md).

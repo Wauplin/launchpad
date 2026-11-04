@@ -36,7 +36,7 @@ flowchart TB
 1. **Never wait on the network to show something.** Every screen renders from the local database first and refreshes in the background.
 2. **Launching an agent is the main action.** A minimal launch is a prompt and a click.
 3. **The core does not depend on a harness.** Claude Code, Codex and OpenCode are adapters behind one session model.
-4. **Local first, publish later.** Anything that would create noise on GitHub stays local until you publish it.
+4. **Local first, then follow GitHub.** New work stays local until you publish it. Once work is on GitHub (a published Local PR, or a pull request launched with **Push to PR**), agents keep pushing to that same branch, never with force. Comments, reviews and PR state changes always need your click.
 5. **Click only.** Every action is a visible button. The only keyboard shortcuts are `Ctrl+F` in Files, `Ctrl+T` for a terminal and normal text and terminal keys.
 6. **One user, move fast.** No multi-user model, no versioning, no data migrations. Few tests.
 
@@ -57,6 +57,8 @@ Every harness maps to the same model:
 - **Events** are the normalized conversation (messages, tool calls, questions, approvals, subagents), stored in order with a sequence number and pushed to every client over the event bus. Clients reconnect with the last sequence number they received and get what they missed.
 
 Adapters (`crates/core/src/harness/`) translate each native protocol into these events and own everything native: startup, resume, model discovery, quota readings, terminal commands. See [Harness adapters](harness-adapters.md).
+
+A launch only does local work in the request: it creates the worktree from the local base, saves the session as Starting and returns. A background task then makes a bounded, best-effort fast-forward update of the base from its upstream (falling back to the same branch on `origin`), fast-forwards the untouched task branch, runs worktree setup and starts the harness; Stop cancels it between steps. Dirty or busy base checkouts stay unchanged. Successful task and Local PR merges save local success first, then push the exact merged commit in a background task outside the session action lock. Sync uses host-aware process groups, noninteractive credentials and a 10-second timeout per Git command; failures are recorded in the UI and session notices and never undo a local merge. Task branches (`lp/`) are never synchronized automatically.
 
 ## Storage
 

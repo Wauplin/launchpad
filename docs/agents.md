@@ -36,14 +36,14 @@ Profiles live in `config.toml` (see [Configuration](configuration.md#profiles)).
 Click **Launch** (top bar, folder pages, inbox rows, or any **▶** button). The composer opens as a side drawer:
 
 - **Prompt.** Type `@` for files and folders, `/` for skills and `#` for folders, agent traces and GitHub items. Paste or drop images and files (up to eight files, 5 MB each).
-- **Folder and Run in.** **New worktree** (default in Git folders), **Checkout**, or **New Local PR** (see [GitHub](github.md#local-prs)).
+- **Folder and Run in.** **New worktree** (default in Git folders), **Checkout**, or **New Local PR** (see [GitHub](github.md#local-prs)). When the prompt or the context names one pull request of the folder's repository (for example a pasted link to a review comment), **Push to PR #N** is checked: the worktree starts from the PR head and the agent pushes its commits to the PR branch (see [GitHub](github.md#continue-a-pull-request)).
 - **Context.** **+ Add context** attaches issues, pull requests, file selections, other folders and the trace of another agent. Traces are referenced by a `launchpad trace` command, not copied into the prompt.
 - **Options.** Profile, model, effort, permission mode, paid usage, cost limit, presets and start conditions. The summary line shows only non-default values and warnings.
 - **Preview prompt** shows exactly what the agent will receive.
 
 The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the Launch button while you collect more context.
 
-New launches ask the agent to end its first task with a short, self-contained summary. Follow-up messages are sent unchanged.
+New launches ask the agent to end its first task with a short, self-contained summary. Follow-up messages are sent unchanged, except the first message after a Local PR is published, which tells the agent to push to the published branch from now on.
 
 ## Following agents
 
@@ -52,7 +52,8 @@ The **Agents** list groups sessions by state:
 - **Needs you**: an open question, or a finished, failed or interrupted run you have not seen yet.
 - **Running**: starting, working, or waiting on background commands.
 - **Quota paused**: held until subscription quota is available again.
-- **Done**, **Stopped**, **Interrupted**, **Failed**, **In terminal**, **Cron**, **Scheduled** and **Archived**.
+- **Done**, **Stopped**, **Interrupted**, **Failed**, **In terminal**, **Cron**, **Scheduled** and **Archived** for local sessions.
+- **Synced traces**, below Archived: read-only traces imported from other instances, collapsed by default. Search reveals matching traces in this group. Open one to read it or use it as context for a new local agent; it cannot be resumed or archived here.
 
 A session counts as seen after it was on screen for 1.5 seconds in a window you used recently. With no session selected, the dashboard shows what needs you, what runs, quota usage and scheduled launches.
 
@@ -99,7 +100,7 @@ Sessions that fail because the model is at capacity or overloaded resume automat
 
 ## Worktrees and merging
 
-In a Git folder, each new agent gets its own worktree and branch, created by Launchpad before the agent starts. Your checkout stays untouched.
+In a Git folder, each new agent gets its own worktree and branch, created by Launchpad before the agent starts. The launch returns as soon as the worktree exists locally; in the background, before the agent starts, Launchpad tries to fast-forward the base from its configured upstream (or the same branch on `origin`) and moves the new, untouched task branch to it. Dirty or busy base checkouts stay unchanged. Remote failures leave the local base usable and appear in the worktree card and session trace.
 
 ```mermaid
 flowchart LR
@@ -107,6 +108,7 @@ flowchart LR
     B --> C{When done}
     C -->|Keep branch for review| D[Review in Changes]
     C -->|Merge into base| E[Rebase + fast-forward]
+    C -->|Open a Local PR| F
     D --> E
     D --> F[Create Local PR]
     D --> G[Discard]
@@ -114,8 +116,9 @@ flowchart LR
     H --> E
 ```
 
-- **When done** is remembered per folder: **Keep branch for review** (default) or **Merge into &lt;base&gt;**.
+- **When done** is remembered per folder: **Keep branch for review** (default), **Open a Local PR** or **Merge into &lt;base&gt;**. With **Open a Local PR**, the agent runs `launchpad work finish` when it is done: Launchpad turns the worktree into a Local PR (same folder and branch), and the agent sets its title and description. You review and publish it.
 - Merges wait until the agents are idle and the worktree is clean, then rebase and fast-forward. Launchpad never stashes, resets or force-pushes. Conflicts go back to the agent.
+- After a successful merge, Launchpad tries to push exactly the merged commit to the base branch’s upstream (or the same branch on `origin`) in the background. It never forces a push or retries automatically. Task branches (`lp/`) stay local. A failed push keeps the local merge and appears in the worktree card and session trace. Each Git sync command has a 10-second timeout and cannot ask for credentials.
 - A per-folder **Worktree setup** command and `.worktreeinclude` files prepare new worktrees (dependencies, `.env` files).
 - Clean worktrees of archived agents are removed after a retention limit (`[worktrees] keep`). The branch stays, and **Resume** restores the folder.
 
@@ -142,11 +145,11 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ## Ask Launchpad
 
-**Ask** is an assistant for the current workspace. It reads your folders, agents, inbox and quotas, and proposes launches, messages, schedules and crons as cards. Nothing starts until you click **Start**, **Send**, **Schedule** or **Create cron**. **Edit** moves a proposal into the composer.
+**Ask** is an assistant for the current workspace. It reads your folders, agents, inbox and quotas, and proposes launches, messages, schedules, crons and presets as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create cron** or **Save preset**. **Edit** moves a proposal into the composer.
 
 ![Ask Launchpad with two proposals](images/ask.webp)
 
-In **Settings → Presets**, check **Ask Launchpad**, **Agent composer / steering**, or both for each preset. The Presets button adds selected instructions after your message, in settings order, including the first Ask request and later messages. Agent availability includes launches, steering and Send later. Existing presets remain available to agents until you change their availability. For example, an Ask-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
+In **Settings → Presets**, check **Ask Launchpad**, **Agent composer / steering**, or both for each preset. The Presets button adds selected instructions after your message, in settings order, including the first Ask request and later messages. Ask can also propose a new preset or new values (label, text, agent availability) for an existing one; it cannot delete presets. Agent availability includes launches, steering and Send later. Existing presets remain available to agents until you change their availability. For example, an Ask-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
 
 The assistant runs with a restricted token: it can read state and write proposals, nothing else. It never reaches GitHub.
 

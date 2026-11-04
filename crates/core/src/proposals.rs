@@ -30,6 +30,21 @@ pub enum ProposalBody {
     Cron { spec: LaunchSpec, schedule: String, conditions: Vec<CronCondition> },
     /// A list of sessions to look at; nothing to start.
     Status { session_ids: Vec<String> },
+    /// A new preset, or new values for the preset `preset_id`. Proposals never delete presets.
+    Preset {
+        #[serde(default)]
+        #[ts(optional)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        preset_id: Option<String>,
+        label: String,
+        text: String,
+        #[serde(default = "default_true")]
+        agent: bool,
+    },
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
@@ -61,7 +76,7 @@ pub struct Proposal {
     pub note: Option<String>,
     pub body: ProposalBody,
     pub state: ProposalState,
-    /// For launches: the session ID reserved at proposal time. Then the started session, schedule or cron.
+    /// For launches and new presets: the ID reserved at proposal time. Then the started session, schedule, cron or preset.
     pub result_id: Option<String>,
     /// Successor card when this proposal was replaced.
     #[serde(default)]
@@ -115,9 +130,9 @@ pub async fn instruction(app: &App, workspace_id: Option<&str>, cli: &str) -> St
         "You are Ask Launchpad, the owner's assistant inside Launchpad, scoped to {ws}. You turn requests into proposals. Depending on the owner’s auto mode setting, actionable proposals may start immediately or wait for a tap. You never start agents, send messages, schedule, publish or post to GitHub yourself, and you do not edit files.\n\n\
 Read Launchpad state with these read-only commands (JSON output):\n\
 - `{cmd} folders list{ws_arg}`\n- `{cmd} sessions list{ws_arg}` and `{cmd} sessions show <session-id>`\n- `{cmd} profiles list` (profiles and the quota of each subscription login)\n- `{cmd} presets list` (only presets with agent=true belong in proposed agent launch specs; Ask-only instructions guide you, not the launched agent)\n- `{cmd} inbox list{ws_arg}`\n- `{cmd} schedules list{ws_arg}`\n- `{cmd} proposals list{ws_arg}` (proposal ids, titles, states and contents)\n- `{cmd} trace <session-id>` for an agent's full trace\n\n\
-Write proposals with `{cmd} propose <launch|message|schedule|cron|status> --title \"…\" [--note \"…\"] [--replaces <proposal-id>] --spec-file <file.json>`. The JSON file holds:\n\
-- launch: {{\"spec\": <launch spec>}}\n- message: {{\"session_id\": \"…\", \"text\": \"…\"}}\n- schedule: {{\"spec\": <launch spec>, \"conditions\": [{{\"kind\": \"in\", \"minutes\": 30}} | {{\"kind\": \"at\", \"at\": <unix ms>}} | {{\"kind\": \"agents\", \"session_ids\": [\"…\"]}} | {{\"kind\": \"quota\", \"harness\": \"claude\", \"window\": \"five_hour\"}}]}}\n- cron: {{\"spec\": <launch spec>, \"schedule\": \"0 9 * * 1\", \"conditions\": []}}\n- status: {{\"session_ids\": [\"…\"]}}\n\
-A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"target\": {{\"kind\": \"project\", \"project_id\": \"<folder id>\"}} or {{\"kind\": \"temp\"}}, \"worktree\": {{\"base\": null, \"include_changes\": false, \"merge_when_done\": false}} for Git folders (null for the checkout), \"github_refs\": [], \"presets\": [<preset ids>]}}; other fields take their defaults. Launchpad validates each proposal with the launch preview and refuses invalid ones; read the error and fix the file. Paid usage stays off. Prefer one proposal per independent task, a message proposal to steer an existing agent, a status proposal to answer \"what needs me\", and a schedule with a quota condition for work that should wait for quota. When auto mode is enabled, actionable proposals, including crons, start immediately; otherwise they need the owner's tap.\n\n\
+Write proposals with `{cmd} propose <launch|message|schedule|cron|status|preset> --title \"…\" [--note \"…\"] [--replaces <proposal-id>] --spec-file <file.json>`. The JSON file holds:\n\
+- launch: {{\"spec\": <launch spec>}}\n- message: {{\"session_id\": \"…\", \"text\": \"…\"}}\n- schedule: {{\"spec\": <launch spec>, \"conditions\": [{{\"kind\": \"in\", \"minutes\": 30}} | {{\"kind\": \"at\", \"at\": <unix ms>}} | {{\"kind\": \"agents\", \"session_ids\": [\"…\"]}} | {{\"kind\": \"quota\", \"harness\": \"claude\", \"window\": \"five_hour\"}}]}}\n- cron: {{\"spec\": <launch spec>, \"schedule\": \"0 9 * * 1\", \"conditions\": []}}\n- status: {{\"session_ids\": [\"…\"]}}\n- preset: {{\"label\": \"…\", \"text\": \"<sentence added to prompts>\", \"agent\": true}} creates a preset; add \"preset_id\": \"<id from presets list>\" to update that preset instead (give its full new label, text and agent flag; its Ask Launchpad availability stays as is). Presets cannot be deleted through proposals; tell the owner to delete them in Settings → Presets.\n\
+A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"target\": {{\"kind\": \"project\", \"project_id\": \"<folder id>\"}} or {{\"kind\": \"temp\"}}, \"worktree\": {{\"base\": null, \"include_changes\": false, \"when_done\": \"keep\"}} for Git folders (null for the checkout; `when_done` is \"keep\", \"merge\" or \"local_pr\"), \"github_refs\": [], \"presets\": [<preset ids>]}}; other fields take their defaults. Launchpad validates each proposal with the launch preview and refuses invalid ones; read the error and fix the file. Paid usage stays off. Prefer one proposal per independent task, a message proposal to steer an existing agent, a status proposal to answer \"what needs me\", and a schedule with a quota condition for work that should wait for quota. When auto mode is enabled, actionable proposals, including crons, start immediately; otherwise they need the owner's tap.\n\n\
 When refining an earlier waiting proposal, find it with `proposals list` and use `--replaces <proposal-id>` so only the refined card waits. Only proposed or failed cards in this workspace can be replaced; starting, started, dismissed, uncertain and already replaced cards cannot. Tell the owner which card was replaced. The note on the new card is optional.\n\nAnswer in short sentences. After proposing, tell the owner what each card does and check its returned state. In manual mode they can accept it in the thread. Automatically accepted proposals keep the thread open; manual acceptance of the last unfinished proposal closes it."
     )
 }
@@ -182,6 +197,14 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
             ensure!(!text.trim().is_empty(), "the message is empty");
         }
         ProposalBody::Status { session_ids } => ensure!(!session_ids.is_empty(), "list at least one session"),
+        ProposalBody::Preset { preset_id, label, text, .. } => {
+            ensure!(!label.trim().is_empty(), "give the preset a label");
+            ensure!(!text.trim().is_empty(), "write the preset text");
+            match preset_id {
+                Some(id) => ensure!(app.config.get().presets.iter().any(|p| &p.id == id), "no preset {id} (see `presets list`)"),
+                None => result_id = Some(format!("preset-{}", uuid::Uuid::new_v4().simple())),
+            }
+        }
     }
     if let ProposalBody::Cron { schedule, .. } = &body {
         crate::crons::next_after(schedule, now_ms()).context("invalid cron schedule")?;
@@ -266,6 +289,14 @@ async fn accept_inner(app: &App, id: &str, close_thread: bool) -> Result<Proposa
             ProposalBody::Schedule { spec, conditions } => Ok(crate::schedules::create(app, spec, conditions).await?.id),
             ProposalBody::Cron { spec, schedule, conditions } => Ok(crate::crons::create(app, spec, schedule, conditions).await?.id),
             ProposalBody::Status { .. } => bail!("a status card has nothing to start"),
+            ProposalBody::Preset { preset_id, label, text, agent } => {
+                let create = preset_id.is_none();
+                let id = preset_id.or(p.result_id.clone()).context("the preset has no ID")?;
+                let mut config = app.config.get();
+                apply_preset(&mut config.presets, &id, create, &label, &text, agent)?;
+                app.config.save(config)?;
+                Ok(id)
+            }
         }
     }
     .await;
@@ -283,6 +314,23 @@ async fn accept_inner(app: &App, id: &str, close_thread: bool) -> Result<Proposa
     save(app, &p).await?;
     if close_thread { close_accepted_thread(app, &p).await?; }
     Ok(p)
+}
+
+/// Creates the preset `id` (appended, Ask Launchpad off) or updates its label, text and agent flag in place.
+/// A create whose preset already exists (an earlier attempt) succeeds without changing it.
+fn apply_preset(presets: &mut Vec<crate::config::Preset>, id: &str, create: bool, label: &str, text: &str, agent: bool) -> Result<()> {
+    let (label, text) = (label.trim().to_string(), text.trim().to_string());
+    match presets.iter_mut().find(|p| p.id == id) {
+        Some(_) if create => {}
+        Some(p) => {
+            p.label = label;
+            p.text = text;
+            p.agent = agent;
+        }
+        None if create => presets.push(crate::config::Preset { id: id.to_string(), label, text, ask_launchpad: false, agent }),
+        None => bail!("the preset {id} no longer exists"),
+    }
+    Ok(())
 }
 
 /// Check the full history, including cards outside the recent-proposals list.
@@ -328,7 +376,12 @@ pub async fn recheck(app: &App, id: &str) -> Result<Proposal> {
     let _lock = ACCEPT.lock().await;
     let mut p = get(app, id).await?;
     ensure!(p.state == ProposalState::Uncertain, "only uncertain proposals need a check");
-    if matches!(p.body, ProposalBody::Launch { .. }) && p.result_id.as_deref().is_some_and(|id| app.sessions.get(id).is_some()) {
+    let created = match &p.body {
+        ProposalBody::Launch { .. } => p.result_id.as_deref().is_some_and(|id| app.sessions.get(id).is_some()),
+        ProposalBody::Preset { preset_id: None, .. } => p.result_id.as_deref().is_some_and(|id| app.config.get().presets.iter().any(|x| x.id == id)),
+        _ => false,
+    };
+    if created {
         p.state = ProposalState::Started;
     } else {
         p.state = ProposalState::Failed;
@@ -425,6 +478,20 @@ mod tests {
     fn read(db: &rusqlite::Connection, id: &str) -> Proposal {
         let json: String = db.query_row("SELECT json FROM launch_proposal WHERE id = ?1", [id], |r| r.get(0)).unwrap();
         serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn preset_proposals_create_or_update_without_deleting() {
+        let mut presets = vec![crate::config::Preset { id: "a".into(), label: "A".into(), text: "old".into(), ask_launchpad: true, agent: true }];
+        apply_preset(&mut presets, "new", true, " New ", " Do it. ", false).unwrap();
+        assert_eq!(presets[1], crate::config::Preset { id: "new".into(), label: "New".into(), text: "Do it.".into(), ask_launchpad: false, agent: false });
+        // A repeated create keeps the existing preset.
+        apply_preset(&mut presets, "new", true, "Other", "Other", true).unwrap();
+        assert_eq!(presets[1].label, "New");
+        apply_preset(&mut presets, "a", false, "A2", "new", false).unwrap();
+        assert_eq!(presets[0], crate::config::Preset { id: "a".into(), label: "A2".into(), text: "new".into(), ask_launchpad: true, agent: false });
+        assert!(apply_preset(&mut presets, "gone", false, "X", "Y", true).is_err());
+        assert_eq!(presets.len(), 2);
     }
 
     #[test]

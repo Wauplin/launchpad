@@ -21,7 +21,9 @@ import type { Preview } from "@/gen/Preview";
 import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
+import type { WhenDone } from "@/gen/WhenDone";
 import { reusableWorktrees } from "./worktreeChoices";
+import { pullRequestOf } from "./pullRequest";
 import { HarnessMark, useHarnessName, useHarnesses, useHarnessInfo } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
@@ -164,9 +166,9 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const browserOnly = spec.target.kind === "browser";
   const projects = useProjects().data ?? [];
   const completionDefault = useMutation({
-    mutationFn: ({ projectId, merge }: { projectId: string; merge: boolean }) => api.patch<Project>(`/api/projects/${projectId}`, { merge_when_done: merge }),
+    mutationFn: ({ projectId, whenDone }: { projectId: string; whenDone: WhenDone }) => api.patch<Project>(`/api/projects/${projectId}`, { when_done: whenDone }),
     onSuccess: (project) => {
-      rememberProjectCompletion(project.id, project.merge_when_done);
+      rememberProjectCompletion(project.id, project.when_done);
       queryClient.setQueryData<Project[]>(["projects"], (projects) => projects?.map((p) => p.id === project.id ? project : p));
     },
     onError: toastError,
@@ -213,6 +215,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const [later, setLater] = useState(false);
   const [cronValid, setCronValid] = useState(true);
   const [launching, setLaunching] = useState(false);
+  // "repo#number" of a detected pull request the owner chose not to push to.
+  const [prOptOut, setPrOptOut] = useState<string | null>(null);
   const [unconfirmedLaunch, setUnconfirmedLaunch] = useState<LaunchSpec | null>(null);
   const [readingAttachments, setReadingAttachments] = useState(false);
   const attachmentRead = useRef(false);
@@ -251,7 +255,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const gitTarget = !!targetId && !targetBranches.isError;
   const worktreeChoices = reusableWorktrees(taskWorktrees.data ?? [], sessions ?? [], targetId);
   const selectedWorktree = worktreeChoices.find((w) => w.path === source?.cwd);
-  const existingPrChoices = (localPrs.data ?? []).filter((p) => p.project_id === targetId && !p.archived && !p.published_url && !p.merged && !p.pushed_head);
+  // Published Local PRs stay available: their agents push to the published branch.
+  const existingPrChoices = (localPrs.data ?? []).filter((p) => p.project_id === targetId && !p.archived && !p.merged && (!p.pushed_head || !!p.published_url));
   const recentSessions = (sessions ?? []).filter(scope.hasSession);
   const hosts = useHosts();
   // Recent folders of this workspace, newest first, as one-tap target chips.
@@ -290,6 +295,10 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const set = (f: (s: LaunchSpec) => LaunchSpec) => update(f);
   const target = (spec.target.kind === "project" || spec.target.kind === "predraft") ? projects.find((p) => p.id === (spec.target as { project_id: string }).project_id) : existing ? projects.find((p) => p.id === existing.project_id) : source ? projects.find((p) => p.id === source.project_id) : null;
   const repo = target?.gh_repo ?? target?.gh_upstream ?? null;
+  // A worktree launch that names one pull request of this folder continues it: start from its head and push there.
+  const prOf = (s: LaunchSpec) => s.target.kind === "project" && !!s.worktree && gitTarget && target ? pullRequestOf(s.text, s.github_refs, [target.gh_repo, target.gh_upstream]) : null;
+  const detectedPr = prOf(spec);
+  const pushToPr = detectedPr && prOptOut !== `${detectedPr.repo}#${detectedPr.number}` ? detectedPr : null;
   const inScope = (p: Project) => Number(!!scope.workspace && scope.hasProject(p.id));
   const sorted = [...projects.filter((p) => !p.is_temp)].sort((a, b) => inScope(b) - inScope(a) || Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
   const ownModels = !!profile?.models_url;
@@ -356,7 +365,9 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     setLaunching(true);
     // The target project joins this window's workspace, so the new agent shows up here.
     const draft = useComposer.getState().spec;
-    const spec = { ...draft, workspace_id: scope.workspace?.id ?? null, worktree: draft.target.kind === "project" && !gitTarget ? null : draft.worktree };
+    const pr = prOf(draft);
+    const pullRequest = pr && prOptOut !== `${pr.repo}#${pr.number}` ? pr : undefined;
+    const spec = { ...draft, workspace_id: scope.workspace?.id ?? null, worktree: draft.target.kind === "project" && !gitTarget ? null : draft.worktree && { ...draft.worktree, pull_request: pullRequest } };
     const joins = specProject(spec);
     const announce = () => announceImplicitAdd(scope.workspace, joins, projects.find((p) => p.id === joins)?.name ?? "the folder");
     try {
@@ -423,7 +434,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const effortLabel = spec.effort ?? profile?.effort ?? defaults?.effort ?? null;
   const worktreeMode = spec.target.kind === "project" && !!spec.worktree && gitTarget;
   // Only values that differ from the defaults show in the option line; a new worktree is the default for Git folders.
-  const runIn = spec.target.kind === "session_folder" ? (selectedWorktree ? `worktree · ${selectedWorktree.branch}` : "previous agent’s folder") : spec.target.kind === "predraft" ? "new Local PR" : spec.target.kind === "existing_predraft" ? "existing Local PR" : worktreeMode ? null : spec.target.kind === "project" && gitTarget ? "checkout" : null;
+  const runIn = spec.target.kind === "session_folder" ? (selectedWorktree ? `worktree · ${selectedWorktree.branch}` : "previous agent’s folder") : spec.target.kind === "predraft" ? "new Local PR" : spec.target.kind === "existing_predraft" ? "existing Local PR" : worktreeMode ? (pushToPr ? `PR #${pushToPr.number}` : null) : spec.target.kind === "project" && gitTarget ? "checkout" : null;
   const baseLabel = spec.worktree?.base ?? targetBranches.data?.current ?? "current branch";
   const billingText = !supportsCost && harness?.capabilities.cost ? costUnavailableMessage : payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${profile!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
   const presetLabels = agentPresets.filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
@@ -510,7 +521,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               const predraft = existingPrChoices.find((p) => v === `predraft:${p.id}`);
               if (worktree) set((s) => ({ ...s, target: { kind: "session_folder", session_id: worktree.source.id }, worktree: null }));
               else if (predraft) set((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: predraft.id }, worktree: null }));
-              else if (v === "worktree" || v === "project" || v === "predraft") set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, include_changes: false, merge_when_done: false }) : null }));
+              else if (v === "worktree" || v === "project" || v === "predraft") set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, include_changes: false, when_done: "keep" }) : null }));
             }}>
               {spec.target.kind === "session_folder" && !selectedWorktree && <option value="session_folder">Previous agent’s folder</option>}
               {gitTarget && <option value="worktree">New worktree</option>}
@@ -518,34 +529,41 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               {gitTarget && <option value="predraft">New Local PR</option>}
               {!!worktreeChoices.length && <optgroup label="Existing worktrees">{worktreeChoices.map((w) => <option key={w.id} value={`worktree:${w.id}`} disabled={w.busy}>{w.branch}{w.busy ? " · Agent active" : ""}</option>)}</optgroup>}
               {existing && !existingPrChoices.some((p) => p.id === existing.id) && <option value={`predraft:${existing.id}`} disabled>Local PR: {existing.title} · Unavailable</option>}
-              {!!existingPrChoices.length && <optgroup label="Existing Local PRs">{existingPrChoices.map((p) => <option key={p.id} value={`predraft:${p.id}`}>{p.title}</option>)}</optgroup>}
+              {!!existingPrChoices.length && <optgroup label="Existing Local PRs">{existingPrChoices.map((p) => <option key={p.id} value={`predraft:${p.id}`}>{p.title}{p.published_number ? ` · PR #${p.published_number}` : ""}</option>)}</optgroup>}
             </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "A new scratch folder" : "—"}</div>}
             {taskWorktrees.isFetching && !taskWorktrees.data && target && <div className="mt-1 text-xs text-ink-3">Loading existing worktrees…</div>}
             {taskWorktrees.isError && target && <div className="mt-1 text-xs text-danger-ink">Could not load existing worktrees. <button className="underline" onClick={() => void taskWorktrees.refetch()}>Retry</button></div>}
             {existing && <div className="mt-1 break-all text-xs text-ink-3">{existing.root}</div>}
             {spec.target.kind === "session_folder" && <div className="mt-1 break-all text-xs text-ink-3">{source?.cwd ?? "Source session unavailable"}</div>}
             {target && spec.target.kind === "project" && !worktreeMode && <div className="mt-1 text-xs text-ink-3">{gitTarget ? <TargetCheckout projectId={target.id} /> : "Runs in the folder"}</div>}
-            {worktreeMode && <div className="mt-1 text-xs text-ink-3" title="Launchpad creates a new branch and folder before the agent starts; your checkout is not modified.">Your checkout stays untouched</div>}
+            {worktreeMode && <div className="mt-1 text-xs text-ink-3" title="Launchpad creates a new branch and folder before the agent starts; your checkout is not modified.">{pushToPr ? `Starts from the head of PR #${pushToPr.number}; your checkout stays untouched` : "Your checkout stays untouched"}</div>}
           </Field>
         </div>}
 
         {worktreeMode && target && <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-line-2 bg-chrome px-2.5 py-1.5 text-xs text-ink-2">
-          <span className="inline-flex items-center gap-1">From<Branch projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="current branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { include_changes: false, merge_when_done: false }), base } }))} /></span>
+          {detectedPr && <label className="inline-flex items-center gap-1.5" title="The worktree starts from the pull request's head and the agent pushes its commits to the PR branch (never force). Uncheck to keep the work local.">
+            <input type="checkbox" className="accent-teal" checked={!!pushToPr} onChange={(e) => setPrOptOut(e.target.checked ? null : `${detectedPr.repo}#${detectedPr.number}`)} />
+            Push to PR #{detectedPr.number}
+          </label>}
+          {!pushToPr && <>
+          <span className="inline-flex items-center gap-1">From<Branch projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="current branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { include_changes: false, when_done: "keep" }), base } }))} /></span>
           <label className="inline-flex items-center gap-1.5" title="Copy the uncommitted changes of your checkout into the new worktree (only when starting from the current branch)">
             <input type="checkbox" className="accent-teal" disabled={!!spec.worktree?.base && spec.worktree.base !== targetBranches.data?.current} checked={!!spec.worktree?.include_changes} onChange={(e) => set((s) => ({ ...s, worktree: { ...s.worktree!, include_changes: e.target.checked } }))} />
             Copy uncommitted changes
           </label>
-          <label className="inline-flex items-center gap-1.5 whitespace-nowrap" title="Merge into the base branch: the agent asks Launchpad to merge when it is done; Launchpad waits for a clean checkout, rebases and fast-forwards. Conflicts go back to the agent.">
+          <label className="inline-flex items-center gap-1.5 whitespace-nowrap" title="Merge: the agent asks Launchpad to merge when it is done; Launchpad waits for a clean checkout, rebases and fast-forwards, and conflicts go back to the agent. Open a Local PR: the agent turns its worktree into a Local PR with a title and description for you to review and publish.">
             When done
-            <select className="field-input h-6 py-0 text-xs" aria-label="When done" value={spec.worktree?.merge_when_done ? "merge" : "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project" onChange={(e) => {
-              const merge = e.target.value === "merge";
-              set((s) => ({ ...s, worktree: { ...s.worktree!, merge_when_done: merge } }));
-              completionDefault.mutate({ projectId: target.id, merge });
+            <select className="field-input h-6 py-0 text-xs" aria-label="When done" value={spec.worktree?.when_done ?? "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project" onChange={(e) => {
+              const whenDone = e.target.value as WhenDone;
+              set((s) => ({ ...s, worktree: { ...s.worktree!, when_done: whenDone } }));
+              completionDefault.mutate({ projectId: target.id, whenDone });
             }}>
               <option value="keep">Keep branch for review</option>
+              <option value="local_pr">Open a Local PR</option>
               <option value="merge">Merge into {baseLabel}</option>
             </select>
           </label>
+          </>}
         </div>}
 
         <div className="flex flex-wrap items-center gap-1.5">
@@ -622,7 +640,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {harness?.capabilities.permission_modes && spec.permission_mode && spec.permission_mode !== "yolo" && <Token>{spec.permission_mode === "auto" ? "Auto approval" : "Ask for approval"}</Token>}
           {targetHost && <Token warn={hostStatus?.state !== "connected"} title={hostStatus?.state === "connected" ? `The agent runs on ${targetHost}` : `${targetHost} is ${hostStatus?.state ?? "unknown"}: the launch waits up to 25 s for a connection`}>on {targetHost}</Token>}
           {runIn && <Token>{runIn}</Token>}
-          {worktreeMode && spec.worktree?.merge_when_done && <Token title={`The agent asks Launchpad to merge into ${baseLabel} when it is done`}>merge when done</Token>}
+          {worktreeMode && !pushToPr && spec.worktree?.when_done === "merge" && <Token title={`The agent asks Launchpad to merge into ${baseLabel} when it is done`}>merge when done</Token>}
+          {worktreeMode && !pushToPr && spec.worktree?.when_done === "local_pr" && <Token title="The agent turns its worktree into a Local PR when it is done">Local PR when done</Token>}
           {presetLabels.map((l) => <Token key={l}>{l}</Token>)}
           {scheduled && <Token warn title="Starts when all start conditions are met">start: {conditions.length} condition{conditions.length === 1 ? "" : "s"}</Token>}
           {cron && <Token warn title={`Cron schedule ${cron.schedule}`}>cron {cron.schedule}</Token>}

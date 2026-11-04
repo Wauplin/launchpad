@@ -73,9 +73,10 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 ### Folders, worktrees and Local PRs
 
 - Use the glossary words in the UI: Folder (code: project), Local PR (code: predraft), Suggestion, Files (code viewer). See `docs/glossary.md`.
-- New drafts in Git folders run in a Launchpad-owned worktree (`<projects_root>/.worktrees/<project-id>/`, branch `lp/<slug>-<session8>`); never use a harness's own worktree feature. Merges wait for idle agents and a clean worktree, rebase, then `git merge --ff-only`. Never stash, reset, clean, force or commit other changes. Conflicts go back to the agent. Take the session action lock before `worktree_lock`, and release both before messaging an agent.
+- New drafts in Git folders run in a Launchpad-owned worktree (`<projects_root>/.worktrees/<project-id>/`, branch `lp/<slug>-<session8>`); never use a harness's own worktree feature. The launch request stays local: it branches from the local base and returns; the background start task then best-effort fast-forwards the base from its upstream (or the same branch on origin), keeping dirty or busy checkouts unchanged, and fast-forwards the untouched task branch before setup and the harness start. Never put network calls or the harness start in the launch request. Merges wait for idle agents and a clean worktree, rebase, then `git merge --ff-only`. Never stash, reset, clean, force or commit other changes. Conflicts go back to the agent. Take the session action lock before `worktree_lock`, and release both before messaging an agent. **When done** (`WorktreeOptions.when_done`, remembered per folder) is keep, merge or Local PR; with Local PR, `work finish` turns the primary worktree into a Local PR in place, and the agent sets its title and description.
 - Cleanup removes only clean worktrees of idle agents and keeps the branch; Resume restores the folder.
-- Local PR publication and cleanup require idle agents, a clean worktree and no terminal in that worktree. Merge locally never pushes.
+- Local first, then follow GitHub: work already on GitHub keeps going there. **Push to PR** (`WorktreeOptions.pull_request`, an owner choice in the composer) creates the worktree from the fetched `pull/N/head` with no base branch; the agent pushes `HEAD:<head branch>` itself, never with force; no local merge or Local PR. Published Local PRs accept agent work again and their agents push to the published branch (the first follow-up after publication carries the push instruction once).
+- Local PR publication and cleanup require idle agents, a clean worktree and no terminal in that worktree. Successful task and Local PR merges best-effort push the exact merged commit to the base branch upstream (or the same branch on origin), without force or automatic retries. Remote sync failures never fail a launch or undo a local merge and remain visible in the UI and trace. Task branches stay local.
 - HTML previews in Files are static, sanitized and sandboxed with no permissions. Keep the highlighting size/line limits shared with the viewer and terminate stalled highlight workers.
 - Every `/api/code/*` request goes through `code::open`, which accepts only a registered folder or one of its worktrees. Code API paths use forward slashes.
 - Folder remote metadata is derived from local Git configuration; broadcast only when it changes.
@@ -103,7 +104,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 
 ### Ask Launchpad
 
-- The assistant writes inert proposals only, with a restricted token allowed only `GET /api/context/*`, `GET /api/sessions/{id}/trace`, `GET /api/status`, `GET|POST /api/proposals` and `POST /api/launch/preview`. Every start needs an owner click; paid usage is forced off.
+- The assistant writes inert proposals only, with a restricted token allowed only `GET /api/context/*`, `GET /api/sessions/{id}/trace`, `GET /api/status`, `GET|POST /api/proposals` and `POST /api/launch/preview`. Every start needs an owner click; paid usage is forced off. Preset proposals create or update presets in config.toml and never delete them.
 - Assistant threads (`Target::Assistant`) are hidden from normal session lists, counts and remembered launch defaults.
 
 ### Terminals
@@ -119,7 +120,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 
 ### Hugging Face Space
 
-- The control plane talks to the shell only through `/_space/status`, `/_space/connections`, `/_space/login` and `POST /_space/action/<name>`. Updates need an owner click, idle agents and a verified checkpoint; edited Dockerfiles are never overwritten. See `deploy/hf-space/README.md`.
+- The control plane talks to the shell only through `/_space/status`, `/_space/connections`, `/_space/login` and `POST /_space/action/<name>`. Updates need an owner click and a verified checkpoint; they stop running agents first and the next boot resumes them once (claimed in `space/update-resumed.json` before resuming, never more than one hour late). Edited Dockerfiles are never overwritten. See `deploy/hf-space/README.md`.
 - The Space bucket defaults to `<namespace>/launchpad`, like trace sync elsewhere (bucket `launchpad`, prefix `traces`): `projects/` and `traces/` sit at the root for any machine, Space-only state stays under `space/`. `~/projects` is a bucket volume (`projects/`); never archive or upload it. Everything else is latest-only under `space/` (A/B slots, one manifest, one pre-update point): never add per-run generations, and the connector never deletes bucket files. Format 1 (`backups/`, `credentials/`) is read once to migrate. Python checks: `cd deploy/hf-space && python -m unittest discover -s tests`.
 
 ## UI rules
