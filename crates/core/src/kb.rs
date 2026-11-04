@@ -42,6 +42,7 @@ This is the knowledge base of this workspace, the only memory agents have. Write
 - `people/`, `projects/`, `topics/`, `decisions/`, `howto/`: one Markdown note per subject, with a short kebab-case file name.
 - `sources/`: captures of pages or documents, with their URL and date.
 - `media/`: images, video and audio, added with `launchpad kb add-media`.
+- `bots/<bot>/`: a bot's own notes (its working memory between sessions).
 
 ## Notes
 
@@ -239,7 +240,7 @@ fn diff_lines<'a>(old: &'a str, new: &'a str) -> Vec<D<'a>> {
 }
 
 /// Lines added and removed.
-fn counts(old: &str, new: &str) -> (u32, u32) {
+pub(crate) fn counts(old: &str, new: &str) -> (u32, u32) {
     diff_lines(old, new).iter().fold((0, 0), |(a, r), d| match d {
         D::Add(_) => (a + 1, r),
         D::Del(_) => (a, r + 1),

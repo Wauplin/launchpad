@@ -1,6 +1,7 @@
 //! HTTP + WebSocket server; loopback plus discovered tailnet access, or a configured gateway.
 
 mod api;
+mod bots;
 mod browser;
 mod auth;
 mod agent_auth;
@@ -94,6 +95,7 @@ pub(crate) fn router(server: Server) -> Router {
         .merge(review_state::router())
         .merge(suggestions::router())
         .merge(proposals::router())
+        .merge(bots::router())
         .merge(prompt_context::router())
         .merge(terminals::router())
         .merge(worktrees::router())

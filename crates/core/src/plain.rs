@@ -137,6 +137,10 @@ async fn ensure_store(app: &App, id: &str) -> Result<()> {
         crate::workspace::get(app, ws).await?;
         return Ok(());
     }
+    if let Some(bot) = crate::bots::id_of(id) {
+        ensure!(crate::bots::exists(app, bot).await?, "no such bot");
+        return Ok(());
+    }
     let id = id.to_string();
     let known = app.state_db.call(move |c| {
         let plain: bool = c.query_row("SELECT 1 FROM project WHERE id = ?1 AND plain = 1", [&id], |_| Ok(true)).optional()?.unwrap_or(false);
@@ -186,6 +190,7 @@ pub async fn write_blob(app: &App, sha: &str, data: &[u8]) -> Result<()> {
 pub async fn commit(app: &App, id: &str, session: Option<&str>, updates: Vec<Update>) -> Result<i64> {
     ensure_store(app, id).await?;
     ensure!(crate::kb::workspace_of(id).is_none(), "the knowledge base is written with launchpad kb");
+    ensure!(crate::bots::id_of(id).is_none(), "a bot's files change in its Settings and Files tabs");
     if let Some(s) = session {
         let holder = lock_holder(app, id).await?;
         ensure!(holder.as_deref() == Some(s), "this session does not hold the folder's lock");

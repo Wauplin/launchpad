@@ -1,6 +1,7 @@
 //! Domain types and services of the Launchpad daemon.
 
 pub mod attachments;
+pub mod bots;
 pub mod browser;
 pub mod code;
 pub mod compose;
@@ -287,6 +288,7 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     hosts::HostStatus::export_all(&cfg)?;
     hosts::sshconfig::SshConfigHost::export_all(&cfg)?;
     proposals::Proposal::export_all(&cfg)?;
+    bots::Bot::export_all(&cfg)?;
     onboarding::OnboardingState::export_all(&cfg)?;
     setup_checklist::Checklist::export_all(&cfg)?;
     setup_checklist::ChecklistSummary::export_all(&cfg)?;

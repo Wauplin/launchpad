@@ -204,6 +204,7 @@ impl Session {
             s.prompt.truncate(end);
             s.prompt.push('…');
         }
+        if let Some(bot) = &mut s.launch_spec.bot { bot.instructions.clear(); }
         for a in &mut s.launch_spec.attachments {
             if !a.data_url.starts_with("upload:") { a.data_url.clear(); }
         }
@@ -449,6 +450,32 @@ pub struct LaunchSpec {
     pub tools_off: Vec<String>,
     /// The runner chosen for this launch (for example a Local VM for Docker). None: Home picks one.
     pub runner_id: Option<String>,
+    /// A session of a bot's thread: Home composes it from the bot's files (`bots::message`).
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bot: Option<BotLaunch>,
+}
+
+/// What a bot session needs to know about its bot, carried in the launch spec to the runner.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
+#[serde(default)]
+pub struct BotLaunch {
+    pub id: String,
+    pub name: String,
+    /// The bot's notes are in `bots/<slug>/` of the knowledge base.
+    pub slug: String,
+    /// BOT.md, the owner's instructions. Cleared in session lists.
+    pub instructions: String,
+    /// The thread's previous session, referenced by its trace (never inlined).
+    pub previous: Option<BotHandoff>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct BotHandoff {
+    pub session_id: String,
+    pub title: String,
+    #[ts(type = "number")]
+    pub through_seq: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]

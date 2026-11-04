@@ -796,6 +796,10 @@ impl Sessions {
             prompt.push_str(&crate::proposals::instruction(app, workspace_id.as_deref(), &cli).await);
             return Ok(Preview { title: "Ask Launchpad".into(), prompt, cwd, add_dirs });
         }
+        if let Some(bot) = &spec.bot {
+            prompt.push_str("\n\n");
+            prompt.push_str(&crate::bots::instruction(bot, &cli));
+        }
         crate::compose::append_initial_summary_instruction(&mut prompt);
         Ok(Preview {
             title: title_from(&spec.text, project.as_ref().map(|p| p.name.as_str()).unwrap_or("New session")),
