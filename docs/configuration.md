@@ -17,7 +17,7 @@ The data folder contains:
 - `uploads/`, `attachments/`: files attached to prompts.
 - `vapid.json`: Web Push keys.
 
-Task worktrees live in `<folders root>/.worktrees/<folder id>/`.
+Task worktrees live in `<data folder>/worktrees/<folder id>/`, cloned from `<data folder>/repos/<folder id>/`. Home keeps its Git mirrors in `<data folder>/git/`.
 
 ## Environment variables
 

@@ -218,7 +218,7 @@ function requestMerge(i: WorktreeInfo, byAgent: boolean) {
     if (!w.merge) return;
     const head = fakeHead(`${w.id}:merged`);
     w.merge = null;
-    w.merged = { base: w.base_commit, into: w.base_branch ?? "main", head, at: clock.now() };
+    w.merged = { base: w.base_commit, into: w.base_branch ?? "main", head, note: "Merged on Home; the demo pushed nothing.", at: clock.now() };
     i.ahead = 0;
     i.dirty_files = 0;
     publishWorktree(i);
@@ -233,8 +233,6 @@ route("POST", "/api/worktrees/:id/:action", ({ params }) => {
   switch (params.action) {
     case "merge": case "fix": requestMerge(i, false); break;
     case "cancel-merge": w.merge = null; break;
-    case "handoff": w.state = "handed_off"; w.handoff_from = "main"; localToast(`checked out ${w.branch} in the folder`); break;
-    case "handback": w.state = "active"; w.handoff_from = null; localToast(`checked out main again`); break;
     case "remove": w.state = "removed"; if (r) r.exists = false; localToast("removed the worktree folder; the branch stays"); break;
     case "restore": w.state = "active"; if (r) r.exists = true; localToast("restored the worktree folder"); break;
     case "discard": w.state = "discarded"; if (r) r.exists = false; localToast("discarded the worktree and its branch"); break;

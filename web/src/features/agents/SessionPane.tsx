@@ -235,7 +235,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
   const readingExpanded = canExpand && expanded;
   const changesOpen = current === "changes";
   const processesOpen = current === "processes";
-  const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => p.root === s?.cwd || p.id === localStorage.getItem(`launchpad.session-predraft.${sessionId}`));
+  const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => (p.session_id === sessionId && !p.archived) || p.id === localStorage.getItem(`launchpad.session-predraft.${sessionId}`));
   const projects = useProjects().data;
   const profileName = useProfile(s?.launch_spec.profile)?.name;
   const navigate = useNavigate();

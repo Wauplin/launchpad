@@ -463,7 +463,7 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
         return private_response(next.run(req).await, private);
     }
     // Runners authenticate these with their own credential, checked by the handlers.
-    if crate::runners::runner_path(path) {
+    if crate::runners::runner_path(path) || crate::git_http::git_path(path) {
         return private_response(next.run(req).await, true);
     }
     // The Ask Launchpad assistant's CLI token: read-only context and proposals, nothing else.

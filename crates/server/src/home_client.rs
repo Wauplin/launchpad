@@ -53,12 +53,23 @@ async fn to_home(method: &str, path: &str, body: Option<String>) -> anyhow::Resu
     }
 }
 
-/// Runner: changes to records Home owns (workspaces) go to Home; the runner's copy follows Home's snapshot.
+/// Requests about records Home owns, which a runner sends to Home: workspace changes (the runner keeps a copy
+/// for reading) and Home Git.
+pub(crate) fn home_owned(path: &str) -> bool {
+    path == "/api/workspaces" || path.starts_with("/api/workspaces/") || path.starts_with("/api/home-git/")
+}
+
+/// Home: requests a runner may send through its tunnel (as Home's owner).
+pub(crate) fn home_accepts(path: &str) -> bool {
+    home_owned(path) || path.starts_with("/api/projects") || path.starts_with("/api/predrafts")
+}
+
+/// Runner: requests about records Home owns go to Home; the runner's copy follows Home's snapshots.
 pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate::Server>, req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
     use axum::response::IntoResponse;
     let path = req.uri().path();
-    let home_owned = path == "/api/workspaces" || path.starts_with("/api/workspaces/");
-    if s.app.paths.role != role::Role::Runner || req.method() == axum::http::Method::GET || !home_owned {
+    let forwarded = home_owned(path) && (req.method() != axum::http::Method::GET || !(path == "/api/workspaces" || path.starts_with("/api/workspaces/")));
+    if s.app.paths.role != role::Role::Runner || !forwarded {
         return next.run(req).await;
     }
     let (method, path) = (req.method().to_string(), req.uri().path_and_query().map(|p| p.to_string()).unwrap_or_default());
@@ -73,6 +84,7 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
 }
 
 pub fn spawn(app: App, router: Router) {
+    launchpad_core::home_link::set_requester(Box::new(|method, path, body| Box::pin(async move { to_home(&method, &path, body).await })));
     tokio::spawn(async move {
         let mut backoff = Duration::from_secs(2);
         loop {
@@ -202,6 +214,7 @@ async fn serve(app: &App, router: &Router, tx: &mut Tx, rx: &mut Rx, res_tx: tok
                         if let Some(tx) = HOME.pending.lock().unwrap().remove(&id) { let _ = tx.send((status, body)); }
                     }
                     Ok(ToRunner::Workspaces { workspaces }) => launchpad_core::workspace::replace_all(app, workspaces).await?,
+                    Ok(ToRunner::Folders { projects }) => launchpad_core::projects::store_home(app, projects, true).await?,
                     Ok(ToRunner::Ack { n }) => replica::acked(app, n).await?,
                     Ok(ToRunner::Refuse { reason }) => return Ok(Some(reason)),
                     Ok(_) => {}

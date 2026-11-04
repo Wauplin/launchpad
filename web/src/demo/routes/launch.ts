@@ -11,6 +11,7 @@ import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
 import { toast } from "@/components/Toast";
 import { clock, DemoError, notInDemo, onClock, publish, route } from "../daemon";
+import { predraftRoot } from "../world/github";
 import { playScenario } from "../player";
 import { pickScenario } from "../scenarios";
 import { appendEvent, defaultSpec, demoId, publishSession, refreshCounts, session, setStatus } from "../store";
@@ -35,7 +36,7 @@ function where(spec: LaunchSpec): Where {
     case "existing_predraft": {
       const p = world.predrafts.find((x) => x.id === t.predraft_id);
       if (!p) throw new DemoError(400, "no such Local PR");
-      return { projectId: p.project_id, cwd: p.root, git: true };
+      return { projectId: p.project_id, cwd: predraftRoot(p), git: true };
     }
     case "session_folder": {
       const s = found(t.session_id);

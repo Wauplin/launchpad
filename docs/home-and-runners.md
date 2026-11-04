@@ -1,6 +1,6 @@
 # Home and runners
 
-Work in progress: this is the first part of the [Home and runners plan](https://wauplin-launchpad-bots-research.static.hf.space/index.html). Today's single-process mode (`launchpad daemon`, role `all`) is unchanged.
+Work in progress: this implements the first parts of the [Home and runners plan](https://wauplin-launchpad-bots-research.static.hf.space/index.html) (H1, H2). The single-process mode (`launchpad daemon`, role `all`) is Home and a runner in one process: it uses Home Git too.
 
 - **Home** (`launchpad daemon --role home`) keeps every record and runs no agents or terminals.
 - **Runners** (`launchpad daemon --role runner`) run agents. A runner works in its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`) and never reuses a single-process install's data.
@@ -15,9 +15,9 @@ The runner keeps one outbound WebSocket to Home (no inbound port) and reconnects
 
 ## Work started from Home
 
-A launch on Home (from the phone, another browser, a schedule) goes to the runner whose disk has the folder, or, for a new scratch folder, to the first runner that takes launches. Follow-ups, Stop, answers and the other session actions on Home go to the session's runner; Home serves the record, the events and the trace itself. When that runner is offline, paused or refuses launches from other devices, Home says so and starts nothing.
+A launch on Home (from the phone, another browser, a schedule) in a Git folder goes to the first runner that takes launches: it clones the folder from Home Git on first use. A folder that exists only on one runner's disk (a scratch folder, a folder without Git) goes to that runner. Follow-ups, Stop, answers and the other session actions on Home go to the session's runner; Home serves the record, the events and the trace itself. When that runner is offline, paused or refuses launches from other devices, Home says so and starts nothing.
 
-Until Home Git arrives, folders stay on the runner that has them: add folders from a runner's window, and Home shows them. Workspaces belong to Home: a runner shows Home's and sends its workspace changes to Home, so they need Home to be reachable. Each runner keeps a local log of the launches that came from elsewhere (Settings → This runner).
+Workspaces and Git folders belong to Home: a runner shows Home's and sends its changes to Home, so they need Home to be reachable. **Clone from GitHub** registers the repository on Home, from any window. **Add folder** on a runner's window registers a local checkout's remote on Home (a checkout without a remote is imported into Home Git); the runner then works in its own clones, never in your checkout. Each runner keeps a local log of the launches that came from elsewhere (Settings → This runner).
 
 ## Sessions on Home
 
@@ -27,11 +27,22 @@ While a runner is disconnected (a sleeping laptop), Home shows "<runner> offline
 
 Each session has a generation number, which grows when a session moves to another runner. Home ignores records and events of an older generation.
 
+## Home Git
+
+Home keeps a mirror of every Git folder: every branch of the folder's remote, plus Launchpad branches (`lp/…`), which only agents push. Runners clone from Home, fetching most objects directly from the remote first.
+
+- Every session starts in a fresh worktree of its branch, cloned before the agent starts. At the end of every turn the runner pushes the branch to Home, and every five minutes it snapshots running worktrees. A worktree is removed only after Home confirmed its branch; uncommitted files are saved to an `lp-scratch/…` branch first, kept 30 days.
+- `origin` in an agent's worktree is Home Git, through its runner: agents never hold a credential for it. A runner that lost a session to another runner can no longer push its branches.
+- Only Home changes base branches, through **Merge** (fast-forward, then a push to the folder's remote) and **Publish** (the reviewed commit). A base branch that moved goes back to the agent for a rebase.
+- Home keeps every previous tip of a Launchpad branch for 30 days, also after force pushes and deletes. The folder page lists Launchpad branches and their previous tips, with **Restore**.
+- Local PRs live on Home: diff, review, Merge and Publish work from the phone while the laptop sleeps. Local PRs opened by one agent form a change set, published together.
+- Sessions that continue a GitHub pull request push to Home; Home pushes the branch to the pull request after each push, never forced. Published Local PRs work the same way.
+
 ## Backups
 
-Home backs up its database and `config.toml` to `[home] backup` (`hf://buckets/<you>/launchpad` or a folder) every minute when something changed, and before a planned stop. Objects are stored by content hash under `home/blobs/sha256/` and never overwritten; each backup is a manifest under `home/backup/<time>/`, written last, so a backup is complete only when its manifest exists. Settings → Home and runners shows the last complete backup and has **Back up now**. Backups older than a day are deleted, except the newest, together with the objects no kept backup needs.
+Home backs up its database, `config.toml` and a Git bundle of each mirror's Launchpad branches and kept tips (only what the folder's remote does not have) to `[home] backup` (`hf://buckets/<you>/launchpad` or a folder) every minute when something changed, and before a planned stop. Objects are stored by content hash under `home/blobs/sha256/` and never overwritten; each backup is a manifest under `home/backup/<time>/`, written last, so a backup is complete only when its manifest exists. Settings → Home and runners shows the last complete backup and has **Back up now**. Backups older than a day are deleted, except the newest, together with the objects no kept backup needs.
 
-When Home starts on an empty data folder, it restores the newest complete backup before it opens the database (on a first boot without `config.toml`, `LAUNCHPAD_HOME_BACKUP` names the destination). Runners then reconnect with their existing credentials and resend what Home has not acknowledged. After an unplanned restart, up to a minute of events acknowledged since the backup can be missing.
+When Home starts on an empty data folder, it restores the newest complete backup before it opens the database, and each mirror gets its bundle back when it is cloned again (on a first boot without `config.toml`, `LAUNCHPAD_HOME_BACKUP` names the destination). Runners then reconnect with their existing credentials and resend what Home has not acknowledged. After an unplanned restart, up to a minute of events acknowledged since the backup can be missing.
 
 ## Versions
 

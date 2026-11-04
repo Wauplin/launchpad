@@ -5,21 +5,17 @@ import type { WhenDone } from "./WhenDone";
 /**
  * How a task worktree starts and ends (`crates/core/src/worktrees.rs`).
  */
-export type WorktreeOptions = {
+export type WorktreeOptions = { 
 /**
- * Branch to start from. None: the branch currently checked out in the project checkout.
+ * Branch to start from. None: the folder's default branch on Home.
  */
-base: string | null,
-/**
- * Copy the uncommitted changes of the project checkout into the new worktree.
- */
-include_changes: boolean,
+base: string | null, 
 /**
  * What happens when the agent runs `launchpad work finish`.
  */
-when_done: WhenDone,
+when_done: WhenDone, 
 /**
- * Continue this pull request: start from its head and let the agent push to its branch.
- * `base`, `include_changes` and `when_done` do not apply.
+ * Continue this pull request: start from its head; Home pushes the agent's commits to its branch.
+ * `base` and `when_done` do not apply.
  */
 pull_request?: PullRequestRef, };

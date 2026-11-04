@@ -596,7 +596,6 @@ impl Terminals {
         let _guard = app.sessions.allow_work().await;
         let (root, project, home) = check_cwd(app, &cwd).await?;
         let cwd_s = root.to_string_lossy().to_string();
-        crate::predrafts::check_session_work(app, &cwd_s).await?;
         if command.is_none()
             && let Some(mut idle) = self.list().into_iter().find(|t| t.alive && t.kind == TerminalKind::Shell && t.cwd == cwd_s && t.busy == Some(false))
         {
@@ -933,7 +932,6 @@ pub async fn folders(app: &App, cwd: &str) -> Result<TerminalFolders> {
             Some(match record.map(|w| w.state) {
                 Some(crate::worktrees::WorktreeState::Removed) => "Removed by cleanup; Resume the agent to restore it".to_string(),
                 Some(crate::worktrees::WorktreeState::Discarded) => "Discarded".to_string(),
-                Some(crate::worktrees::WorktreeState::HandedOff) => "Checked out in the checkout".to_string(),
                 _ => match &merged { Some(into) => format!("Merged into {into} and removed"), None => "The folder no longer exists".to_string() },
             })
         };

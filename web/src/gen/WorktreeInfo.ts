@@ -4,16 +4,16 @@ import type { TaskWorktree } from "./TaskWorktree";
 /**
  * A worktree with its current Git state, for the session view and settings.
  */
-export type WorktreeInfo = { worktree: TaskWorktree, project_name: string,
+export type WorktreeInfo = { worktree: TaskWorktree, project_name: string, 
 /**
- * The folder agents work in (root plus the project subdirectory).
+ * The folder agents work in.
  */
-path: string, exists: boolean, dirty_files: number,
+path: string, exists: boolean, dirty_files: number, 
 /**
- * Commits of the branch missing from the base branch, and the reverse.
+ * Commits of the branch missing from the base branch on Home, and the reverse.
  */
-ahead: number, behind: number,
+ahead: number, behind: number, 
 /**
- * The checkout that has the base branch checked out: where a merge lands.
+ * Commits not on Home yet.
  */
-target_checkout: string | null, };
+unpushed: boolean, };

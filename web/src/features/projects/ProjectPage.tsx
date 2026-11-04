@@ -102,7 +102,7 @@ export function ProjectPage() {
             <div className="overflow-hidden rounded-lg border border-line">
               {worktrees.map((w) => {
                 const session = sessions.filter((s) => s.cwd === w.path).sort((a, b) => b.started_at - a.started_at)[0];
-                const draft = predrafts.find((d) => d.root === w.path);
+                const draft = predrafts.find((d) => d.project_id === p.id && d.branch === w.branch);
                 const canLaunch = draft && !draft.archived && !draft.published_url && !draft.merged && !draft.pushed_head;
                 const rowActions = <>
                   {session && <button className="btn btn-sm" title={session.title} onClick={() => { show(session.id); void navigate({ to: "/agents", search: phone ? { session: session.id } : {} }); }}>Agent</button>}

@@ -42,9 +42,10 @@ pub mod runners;
 pub mod replica;
 pub mod home_link;
 pub mod home_backup;
+pub mod home_git;
+pub mod repo_cache;
 pub mod analytics;
 pub mod review_state;
-pub(crate) mod remote_sync;
 pub mod suggestions;
 pub mod terminals;
 pub mod trace_backup;
@@ -168,6 +169,10 @@ impl App {
         harness::spawn_model_refresh(&app);
         inbox::spawn(&app);
         projects::spawn(&app);
+        home_git::spawn(&app);
+        if let Err(e) = projects::adopt_git_folders(&app).await {
+            tracing::warn!("Home Git folders: {e:#}");
+        }
         worktrees::spawn(&app);
         app.hosts.set_app(&app);
         hosts::preflight::spawn(&app);
@@ -237,6 +242,8 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     home_link::RemoteLaunch::export_all(&cfg)?;
     home_backup::BackupInfo::export_all(&cfg)?;
     worktrees::WorktreeInfo::export_all(&cfg)?;
+    home_git::HomeBranch::export_all(&cfg)?;
+    home_git::MergeOutcome::export_all(&cfg)?;
     hosts::HostStatus::export_all(&cfg)?;
     hosts::sshconfig::SshConfigHost::export_all(&cfg)?;
     proposals::Proposal::export_all(&cfg)?;
@@ -246,5 +253,3 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(test, unix))]
-mod worktree_merge_tests;

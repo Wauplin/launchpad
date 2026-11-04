@@ -51,7 +51,7 @@ export function useReviewData(): ReviewData {
   const branches = useMemo(() => {
     const busy = new Set((sessions ?? []).filter((s) => isRunning(s) || isQuotaPaused(s)).map((s) => s.id));
     return (worktrees ?? [])
-      .filter((i) => scope.hasProject(i.worktree.project_id) && !i.worktree.predraft_id && (i.worktree.state === "active" || i.worktree.state === "handed_off") && (i.ahead > 0 || i.dirty_files > 0 || !!i.worktree.merge) && !i.worktree.sessions.some((id) => busy.has(id)))
+      .filter((i) => scope.hasProject(i.worktree.project_id) && !i.worktree.predraft_id && (i.worktree.state === "active" || i.worktree.state === "removed") && (i.ahead > 0 || i.dirty_files > 0 || !!i.worktree.merge) && !i.worktree.sessions.some((id) => busy.has(id)))
       .sort((a, b) => b.worktree.created_at - a.worktree.created_at);
   }, [worktrees, sessions, scope]);
   const requests = useMemo(() => threads.filter((t) => t.reason === "review_requested" && t.kind === "PullRequest" && t.number !== null && t.state !== "closed" && t.state !== "merged"), [threads]);

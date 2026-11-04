@@ -22,7 +22,7 @@ export function FilesChanged({ repo, number, head, base, local, notes, onAddNote
   number: number;
   head: string;
   base?: string;
-  local?: { id: string; root: string };
+  local?: { id: string };
   /** Local PRs: notes for the agent, shown as line markers. PRs use `pr-notes:` review state. */
   notes?: LineNote[];
   onAddNote?: (note: LineNote) => void;
@@ -53,7 +53,7 @@ export function FilesChanged({ repo, number, head, base, local, notes, onAddNote
     if (!f || !q.data) return null;
     const rev = f.status === "removed" ? q.data.base : q.data.head;
     return q.data.project_id
-      ? <Link className="btn btn-sm no-underline" to="/projects/$id/code" params={{ id: q.data.project_id }} search={{ root: local?.root, rev, path: f.filename }}><Icon name="folder" size={12} />View file</Link>
+      ? <Link className="btn btn-sm no-underline" to="/projects/$id/code" params={{ id: q.data.project_id }} search={{ rev, path: f.filename }}><Icon name="folder" size={12} />View file</Link>
       : <button className="btn btn-sm" onClick={() => openGitHub(`https://github.com/${repo}/blob/${rev}/${f.filename.split("/").map(encodeURIComponent).join("/")}`)}><Icon name="ext" size={12} />View on GitHub</button>;
   };
   return <DiffReview

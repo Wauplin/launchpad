@@ -14,7 +14,7 @@ import { clock, DemoError, githubDemo, publish, route } from "../daemon";
 import { appendEvent, session } from "../store";
 import { world } from "../world";
 import { DEMO_COMMITS } from "../world/code";
-import { addLocalPr, buildItem, fakeSha, localPrHooks, mdToHtml, prDiff, repoMeta, syncThreads } from "../world/github";
+import { addLocalPr, buildItem, fakeSha, localPrHooks, mdToHtml, prDiff, predraftRoot, repoMeta, syncThreads } from "../world/github";
 import { ROOT, USER } from "../world/ids";
 import { diffFile, openSource } from "./code";
 
@@ -243,26 +243,26 @@ const savePredraft = (p: Predraft) => { publish("predrafts", "updated", p); retu
 function detail(p: Predraft) {
   const status = p.session_id ? session(p.session_id)?.status ?? null : null;
   const project = world.projects.find((x) => x.id === p.project_id);
-  if (!project) return { predraft: p, status, files: [], commits: [], base_ahead: 0, dirty: false, project_missing: true, project_id: null, head: "", base: "", fallback: false, default_remote_branch: p.default_remote_branch };
-  const r = world.codeRoots[p.root];
+  if (!project) return { predraft: p, status, files: [], commits: [], base_ahead: 0, project_missing: true, project_id: null, head: "", base: "", fallback: false, default_remote_branch: p.default_remote_branch };
+  const r = world.codeRoots[predraftRoot(p)];
   const changes = r ? openSource(project.path, r.branch).changes : [];
   const head = p.merged?.head ?? p.pushed_head ?? (p.id === "demo-pr-refunds" ? DEMO_COMMITS.refundsDoc : fakeSha(`${p.id}:head`));
   const subjects = p.id === "demo-pr-refunds" ? ["Document the refund flow"] : p.id === "demo-pr-prices" ? ["Format prices in the visitor's locale"] : [p.title.replace(/ \(#\d+\)$/, "")];
   return {
     predraft: p, status, files: changes.map((c) => diffFile(c)), project_id: p.project_id, head, base: p.initial_base, fallback: false,
-    commits: subjects.map((s, i) => `${(i ? fakeSha(`${p.id}${i}`) : head).slice(0, 8)} ${s}`), base_ahead: 0, dirty: false, default_remote_branch: p.default_remote_branch,
+    commits: subjects.map((s, i) => `${(i ? fakeSha(`${p.id}${i}`) : head).slice(0, 8)} ${s}`), base_ahead: 0, default_remote_branch: p.default_remote_branch,
   };
 }
 
 route("GET", "/api/predrafts", () => world.predrafts);
 route("GET", "/api/predrafts/resolve", ({ query }) => {
-  const p = world.predrafts.find((x) => x.root === query.get("cwd") && !x.archived);
+  const p = world.predrafts.find((x) => predraftRoot(x) === query.get("cwd") && !x.archived);
   if (!p) throw new DemoError(400, "no pre-draft for this folder");
   return p;
 });
 route("POST", "/api/predrafts", ({ body }) => {
   const cwd: string | undefined = body?.cwd ?? undefined;
-  const existing = cwd ? world.predrafts.find((x) => x.root === cwd && !x.archived && !x.published_url && !x.merged) : undefined;
+  const existing = cwd ? world.predrafts.find((x) => predraftRoot(x) === cwd && !x.archived && !x.published_url && !x.merged) : undefined;
   if (existing) return existing;
   const projectId: string | undefined = body?.project_id ?? world.taskWorktrees.find((w) => w.worktree.root === cwd)?.worktree.project_id ?? world.projects.find((p) => p.path === cwd)?.id;
   const project = world.projects.find((p) => p.id === projectId);
@@ -274,7 +274,7 @@ route("POST", "/api/predrafts", ({ body }) => {
     projectId: project.id, title: body?.title ?? "Local PR", body: body?.body ?? "", sessionId: task?.worktree.sessions[0] ?? null, root,
     branch: task?.worktree.branch ?? `lp/${slug}`, changes: world.codeRoots[root]?.overrides ?? {},
   });
-  if (task) { task.worktree.state = "predraft"; task.worktree.predraft_id = p.id; publish("worktrees", "updated", task.worktree); }
+  if (task) { task.worktree.predraft_id = p.id; publish("worktrees", "updated", task.worktree); }
   return p;
 });
 route("GET", "/api/predrafts/:id", ({ params }) => detail(predraftOf(params.id)));
@@ -320,15 +320,14 @@ route("POST", "/api/predrafts/:id/:action", ({ params, body }) => {
       p.published_number = number;
       p.published_url = `https://github.com/${repo}/pull/${number}`;
       world.ghItems[`${repo}#${number}`] = buildItem({ repo, number, pr: true, draft: !!body?.draft, title: p.title, author: USER, body: p.body, labels: [], minutesAgo: 0, updatedAgo: 0, head, branch: p.remote_branch, checks: [{ name: "test", conclusion: null, status: "IN_PROGRESS" }], mergeState: "BLOCKED" });
-      world.prDiffs[`${repo}#${number}`] = openSource(project!.path, world.codeRoots[p.root]?.branch).changes;
+      world.prDiffs[`${repo}#${number}`] = openSource(project!.path, world.codeRoots[predraftRoot(p)]?.branch).changes;
       githubDemo(`pushed ${p.remote_branch} and opened ${body?.draft ? "a draft " : ""}PR #${number}`);
       return savePredraft(p);
     }
     case "merge-local": {
       if (!open) throw new DemoError(400, "this Local PR is not open");
-      const project = world.projects.find((x) => x.id === p.project_id);
-      p.merged = { checkout: project?.path ?? p.root, head: String(body?.head ?? fakeSha(p.id)), at: clock.now() };
-      toast(`Demo: merged ${p.branch} into the local ${p.base_branch} branch. Nothing was pushed and GitHub was not contacted.`);
+      p.merged = { head: String(body?.head ?? fakeSha(p.id)), at: clock.now() };
+      toast(`Demo: merged ${p.branch} into ${p.base_branch} on Home. Nothing was pushed and GitHub was not contacted.`);
       return savePredraft(p);
     }
     default:

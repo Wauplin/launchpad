@@ -1,10 +1,13 @@
-//! Task worktrees owned by Launchpad. The daemon creates them before an
-//! agent starts, the same way for every harness, and owns merging, hand-off, promotion, cleanup and
-//! restoration. Agents only commit on their branch; Git operations that need waiting run here, without
-//! spending agent turns.
+//! Task worktrees owned by Launchpad, on the machine that runs the agent (a runner, or `all`).
+//!
+//! Each session gets fresh worktrees of its folders, cloned from Home Git (`repo_cache`). A worktree is
+//! disposable: the runner pushes its branch to Home at the end of every turn and records snapshots during
+//! long turns, and removes the folder only after Home confirmed the push. Uncommitted files left at removal
+//! go to a scratch branch on Home. Merges happen on Home (`home_git::merge`); a branch that needs a rebase
+//! goes back to its agent.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -22,42 +25,45 @@ pub struct TaskWorktree {
     /// Sessions working in it: the launching session first, then continuations with another agent.
     pub sessions: Vec<String>,
     pub project_id: String,
-    /// Top level of the project's own checkout. Repository commands and hand-off run there.
+    /// The runner's clone of the folder (`repo_cache`), which owns the worktree.
     pub repo: String,
-    /// Shared Git directory, which identifies the repository.
-    pub common_dir: String,
     pub root: String,
-    /// The project folder below the repository top level ("" at the top), with `/` separators.
-    pub subdir: String,
     pub branch: String,
-    /// The branch it started from, where merges go. None: started from a detached checkout.
+    /// The branch it started from, where merges go. None: a pull request worktree.
     pub base_branch: Option<String>,
+    /// Empty until the worktree is prepared.
     pub base_commit: String,
-    /// The session's working directory, rather than an editable context project.
+    /// The session's working directory, rather than an editable context folder.
     pub primary: bool,
     pub state: WorktreeState,
     pub merge: Option<MergeRequest>,
     pub merged: Option<Merged>,
     pub predraft_id: Option<String>,
-    /// During a hand-off: what the project checkout had checked out before (a branch, or a commit).
-    pub handoff_from: Option<String>,
     /// Why the last automatic cleanup kept the folder.
     pub cleanup_note: Option<String>,
-    /// Last best-effort pull or push result, visible even if no session trace is open.
-    #[serde(default)]
-    #[ts(optional)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub remote_sync_note: Option<String>,
-    /// The GitHub pull request this worktree continues: the agent pushes to its branch.
+    /// The GitHub pull request this worktree continues: Home pushes its commits there.
     #[serde(default)]
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<PullRequestBranch>,
+    /// The last commit Home confirmed for the branch.
+    #[serde(default)]
+    pub pushed: Option<String>,
+    /// Why the last push to Home failed; cleared by the next successful push.
+    #[serde(default)]
+    pub push_note: Option<String>,
+    /// Uncommitted files saved to a scratch branch on Home when the folder was removed.
+    #[serde(default)]
+    pub leftovers: Option<Leftovers>,
+    /// What the worktree starts from: an existing Launchpad branch on Home (a Local PR, a restored branch).
+    #[serde(default)]
+    #[ts(skip)]
+    pub from_branch: bool,
     #[ts(type = "number")]
     pub created_at: i64,
 }
 
-/// Where the commits of a pull request worktree go.
+/// Where the commits of a pull request worktree go: Home pushes them after each push from the runner.
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 pub struct PullRequestBranch {
     /// `owner/repo` of the base repository.
@@ -67,22 +73,25 @@ pub struct PullRequestBranch {
     /// `owner/repo` holding the PR branch: a fork for outside contributions.
     pub head_repo: String,
     pub head_branch: String,
-    /// The remote name, or URL when no remote points to `head_repo`, that agents push to.
-    pub push_remote: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct Leftovers {
+    /// `lp-scratch/…` on Home.
+    pub branch: String,
+    pub files: u32,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WorktreeState {
+    /// Being cloned from Home before the agent starts.
+    Preparing,
     /// The folder exists.
     Active,
-    /// The clean folder was removed; the branch keeps the commits and Resume restores the folder.
+    /// The folder was removed after Home confirmed its branch; Resume clones it again.
     Removed,
-    /// The branch is checked out in the project checkout instead (Check out locally).
-    HandedOff,
-    /// Promoted to a pre-draft PR, which now owns the folder and branch.
-    Predraft,
-    /// Folder and branch deleted by an explicit Discard.
+    /// Folder and branch deleted by an explicit Discard (the branch tip stays restorable on Home).
     Discarded,
 }
 
@@ -102,9 +111,9 @@ pub struct MergeRequest {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MergePhase {
-    /// Retried automatically: the agent is running, or the target checkout is busy or has changes the merge would overwrite.
+    /// Retried automatically: the agent is running, or the branch is not on Home yet.
     Waiting,
-    /// Rebasing onto the target conflicts: the agent (or the owner) must rebase.
+    /// The base branch moved: the agent (or the owner) must rebase.
     Conflict,
     /// Something unexpected; the owner decides.
     Failed,
@@ -112,11 +121,14 @@ pub enum MergePhase {
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct Merged {
-    /// Review baseline after any rebase. Older records fall back to the starting commit.
+    /// Review baseline: the start of the branch.
     #[serde(default)]
     pub base: Option<String>,
     pub into: String,
     pub head: String,
+    /// How the push of the base branch to the folder's remote went.
+    #[serde(default)]
+    pub note: String,
     #[ts(type = "number")]
     pub at: i64,
 }
@@ -126,38 +138,27 @@ pub struct Merged {
 pub struct WorktreeInfo {
     pub worktree: TaskWorktree,
     pub project_name: String,
-    /// The folder agents work in (root plus the project subdirectory).
+    /// The folder agents work in.
     pub path: String,
     pub exists: bool,
     pub dirty_files: u32,
-    /// Commits of the branch missing from the base branch, and the reverse.
+    /// Commits of the branch missing from the base branch on Home, and the reverse.
     pub ahead: u32,
     pub behind: u32,
-    /// The checkout that has the base branch checked out: where a merge lands.
-    pub target_checkout: Option<String>,
+    /// Commits not on Home yet.
+    pub unpushed: bool,
 }
 
 const MAX_AGENT_RETRIES: u32 = 3;
+/// Snapshots of running sessions' worktrees go to Home this often.
+const SNAPSHOT_EVERY: Duration = Duration::from_secs(5 * 60);
 
 async fn git(app: &App, dir: &str, args: &[&str]) -> Result<String> {
-    crate::procs::output(&app.env, "git", args, Some(Path::new(dir))).await
-}
-
-async fn canonical(path: &str) -> Result<String> {
-    Ok(crate::hostfs::canonicalize(path).await.with_context(|| format!("{path} does not exist"))?.to_string_lossy().into_owned())
-}
-
-/// A path printed by git in `dir`, on the machine of `dir`.
-fn on(dir: &str, native: &str) -> String {
-    crate::hosts::loc::rehost(dir, native)
+    crate::home_git::git_in(app, Path::new(dir), args, 120).await
 }
 
 pub fn folder(w: &TaskWorktree) -> String {
-    folder_in(&w.root, &w.subdir)
-}
-
-fn folder_in(root: &str, subdir: &str) -> String {
-    if subdir.is_empty() { root.to_string() } else { Path::new(root).join(subdir).to_string_lossy().into_owned() }
+    w.root.clone()
 }
 
 pub async fn list(app: &App) -> Result<Vec<TaskWorktree>> {
@@ -183,7 +184,7 @@ pub async fn for_session(app: &App, session_id: &str) -> Result<Vec<TaskWorktree
     Ok(rows)
 }
 
-/// The record whose folder contains `path` (Active or handed off).
+/// The active record whose folder contains `path`.
 pub async fn find_by_path(app: &App, path: &str) -> Result<Option<TaskWorktree>> {
     Ok(list(app).await?.into_iter().find(|w| w.state == WorktreeState::Active && crate::terminals::inside(path, &w.root)))
 }
@@ -208,135 +209,128 @@ async fn notice(app: &App, w: &TaskWorktree, text: &str) {
     }
 }
 
-/// Repository identity: top level and shared Git directory of a project folder.
-async fn repository(app: &App, path: &str) -> Result<(String, String)> {
-    let top = git(app, path, &["rev-parse", "--show-toplevel"]).await.map_err(|_| anyhow::anyhow!("{path} is not in a Git repository; run in the project checkout instead"))?;
-    let common = git(app, path, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).await?;
-    Ok((canonical(&on(path, &top)).await?, canonical(&on(path, &common)).await?))
+/// The editable worktree of a context folder.
+pub(crate) async fn context_folder(_app: &App, records: &[TaskWorktree], project: &Project) -> Result<String> {
+    let w = records.iter().find(|w| w.project_id == project.id && w.state == WorktreeState::Active)
+        .with_context(|| format!("editable context folder {} has no active worktree; restore it or remove it from the task before resuming", project.name))?;
+    Ok(w.root.clone())
 }
 
-async fn subdir_of(project_path: &str, top: &str) -> String {
-    let project = crate::hostfs::canonicalize(project_path).await.unwrap_or_else(|_| PathBuf::from(project_path));
-    project.strip_prefix(top).map(|p| p.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/")).unwrap_or_default()
-}
-
-/// Resolve editable context by repository, including projects sharing the primary worktree.
-pub(crate) async fn context_folder(app: &App, records: &[TaskWorktree], project: &Project) -> Result<String> {
-    let (top, common) = repository(app, &project.path).await?;
-    let w = records.iter().find(|w| w.common_dir == common && matches!(w.state, WorktreeState::Active | WorktreeState::HandedOff))
-        .with_context(|| format!("editable context project {} has no active worktree; restore it or remove it from the task before resuming", project.name))?;
-    let root = if w.state == WorktreeState::HandedOff { &w.repo } else { &w.root };
-    Ok(folder_in(root, &subdir_of(&project.path, &top).await))
-}
-
-/// Creates the worktree of `project` for a session, or returns the one it already has in the same
-/// repository. Returns the record and the project folder inside it. Local only: `sync_base` pulls later.
-pub async fn create(app: &App, session_id: &str, project: &Project, opts: &WorktreeOptions, primary: bool, title: &str) -> Result<(TaskWorktree, String)> {
-    let _lock = app.worktree_lock.lock().await;
-    let (top, common_dir) = repository(app, &project.path).await?;
-    let subdir = subdir_of(&project.path, &top).await;
-    if let Some(w) = for_session(app, session_id).await?.into_iter().find(|w| w.common_dir == common_dir && w.state == WorktreeState::Active) {
-        return Ok((w.clone(), folder_in(&w.root, &subdir)));
-    }
-    git(app, &top, &["rev-parse", "--verify", "HEAD^{commit}"]).await.map_err(|_| anyhow::anyhow!("{} has no commit yet; run in the project checkout instead", project.name))?;
-    let current = git(app, &top, &["branch", "--show-current"]).await.unwrap_or_default();
-    let pr = opts.pull_request.as_ref().filter(|_| primary);
-    // A pull request worktree starts from the PR head and never merges locally: no base branch.
-    let base_branch = if pr.is_some() { None } else { opts.base.clone().filter(|b| !b.is_empty()).or_else(|| (!current.is_empty()).then(|| current.clone())) };
-    if let Some(b) = &base_branch {
-        ensure!(!b.starts_with('-'), "invalid base branch");
-    }
-    let (pull_request, base_commit) = match pr {
-        Some(pr) => {
-            let (branch, head) = pull_request_head(app, &project.path, &top, pr).await?;
-            (Some(branch), head)
-        }
-        None => {
-            let base_ref = base_branch.as_deref().map(|b| format!("refs/heads/{b}^{{commit}}")).unwrap_or_else(|| "HEAD^{commit}".into());
-            (None, git(app, &top, &["rev-parse", "--verify", &base_ref]).await.with_context(|| format!("branch {} not found", base_branch.as_deref().unwrap_or("HEAD")))?)
-        }
-    };
-    let id = uuid::Uuid::new_v4().to_string();
+fn slug_for(session_id: &str, project: &Project, title: &str, primary: bool) -> String {
     let name = if primary { crate::compose::slug_from(title) } else { format!("{}-{}", crate::compose::slug_from(&project.name), crate::compose::slug_from(title)) };
     let name: String = name.chars().take(48).collect::<String>().trim_matches('-').to_string();
-    let slug = format!("{}-{}", if name.is_empty() { "task" } else { &name }, &session_id[..8.min(session_id.len())]);
-    let branch = format!("lp/{slug}");
-    ensure!(git(app, &top, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")]).await.is_err(), "branch {branch} already exists");
-    let parent = crate::projects::projects_root(app, crate::hosts::loc::host_of(&project.path))?.join(".worktrees").join(&project.id);
-    crate::hostfs::create_dir_all(&parent).await?;
-    let root_path = parent.join(&slug);
-    ensure!(!crate::hostfs::exists(&root_path).await, "{} already exists", root_path.display());
-    let root = root_path.to_string_lossy().into_owned();
-    git(app, &top, &["worktree", "add", "-b", &branch, &root, &base_commit]).await?;
-    let root = canonical(&root).await?;
+    format!("{}-{}", if name.is_empty() { "task" } else { &name }, &session_id[..8.min(session_id.len())])
+}
+
+/// Records the worktree of `project` for a session (or returns the one it already has for that folder).
+/// Nothing is cloned here, so a launch never waits for the network: `prepare` clones it before the agent
+/// starts. `branch`: continue an existing Launchpad branch of Home (a Local PR) instead of a new one.
+pub async fn plan(app: &App, session_id: &str, project: &Project, opts: &WorktreeOptions, primary: bool, title: &str, branch: Option<&str>) -> Result<(TaskWorktree, String)> {
+    let _lock = app.worktree_lock.lock().await;
+    ensure!(project.home_git, "{} is not a Git folder of Home", project.name);
+    if let Some(w) = for_session(app, session_id).await?.into_iter().find(|w| w.project_id == project.id && matches!(w.state, WorktreeState::Active | WorktreeState::Preparing)) {
+        return Ok((w.clone(), w.root.clone()));
+    }
+    let pr = opts.pull_request.as_ref().filter(|_| primary);
+    let base_branch = if pr.is_some() { None } else { opts.base.clone().filter(|b| !b.is_empty()) };
+    if let Some(b) = &base_branch {
+        ensure!(!b.starts_with('-') && !b.starts_with("lp/"), "invalid base branch {b}");
+    }
+    let slug = slug_for(session_id, project, title, primary);
+    let branch_name = match branch {
+        Some(b) => {
+            ensure!(b.starts_with("lp/"), "only Launchpad branches can be continued");
+            b.to_string()
+        }
+        None => format!("lp/{slug}"),
+    };
+    let root = app.paths.data_dir.join("worktrees").join(&project.id).join(&slug);
+    ensure!(!root.exists(), "{} already exists", root.display());
     let w = TaskWorktree {
-        id,
+        id: uuid::Uuid::new_v4().to_string(),
         sessions: vec![session_id.to_string()],
         project_id: project.id.clone(),
-        repo: top.clone(),
-        common_dir,
-        root: root.clone(),
-        subdir: subdir.clone(),
-        branch: branch.clone(),
-        base_branch: base_branch.clone(),
-        base_commit: base_commit.clone(),
+        repo: crate::repo_cache::dir(app, &project.id).to_string_lossy().into_owned(),
+        root: root.to_string_lossy().into_owned(),
+        branch: branch_name,
+        base_branch,
+        base_commit: String::new(),
         primary,
-        state: WorktreeState::Active,
+        state: WorktreeState::Preparing,
         merge: None,
         merged: None,
         predraft_id: None,
-        handoff_from: None,
         cleanup_note: None,
-        remote_sync_note: None,
-        pull_request,
+        pull_request: pr.map(|pr| PullRequestBranch { repo: pr.repo.clone(), number: pr.number, url: String::new(), head_repo: String::new(), head_branch: String::new() }),
+        pushed: None,
+        push_note: None,
+        leftovers: None,
+        from_branch: branch.is_some(),
         created_at: now_ms(),
     };
-    let prepared = async {
-        if opts.include_changes && primary && w.pull_request.is_none() && base_branch.as_deref().is_none_or(|b| b == current) {
-            copy_changes(app, &top, &root).await?;
-        }
-        copy_included(app, &top, &root).await?;
-        save(app, &w).await
-    }
-    .await;
-    if let Err(e) = prepared {
-        let _ = git(app, &top, &["worktree", "remove", "--force", &root]).await;
-        let _ = git(app, &top, &["branch", "-D", &branch]).await;
-        return Err(e);
-    }
-    Ok((w, folder_in(&root, &subdir)))
-}
-
-/// Best-effort pull of a new worktree's base branch, then fast-forward of the untouched task branch.
-/// Runs in the background before the agent starts, so network and slow file systems never block a launch.
-/// Returns the saved record and its base commit before the sync.
-pub async fn sync_base(app: &App, id: &str) -> Result<Option<(TaskWorktree, String)>> {
-    let _lock = app.worktree_lock.lock().await;
-    let mut w = get(app, id).await?;
-    let Some(base) = w.base_branch.clone().filter(|_| w.pull_request.is_none() && w.state == WorktreeState::Active) else { return Ok(None) };
-    let old = w.base_commit.clone();
-    let mut note = crate::remote_sync::pull(app, &w.repo, &base).await;
-    let latest = git(app, &w.repo, &["rev-parse", "--verify", &format!("refs/heads/{base}^{{commit}}")]).await?;
-    if latest != old {
-        let moved = async {
-            ensure!(git(app, &w.root, &["rev-parse", "HEAD"]).await? == old, "the task branch already has commits");
-            git(app, &w.repo, &["merge-base", "--is-ancestor", &old, &latest]).await.with_context(|| format!("{base} is not a fast-forward of the task base"))?;
-            git(app, &w.root, &["-c", "merge.autoStash=false", "merge", "--ff-only", "--quiet", &latest]).await?;
-            Ok::<_, anyhow::Error>(())
-        }.await;
-        match moved {
-            Ok(()) => w.base_commit = latest,
-            Err(e) => note = Some(format!("Remote sync: the task starts from {} instead of the updated {base}: {e:#}.", &old[..12.min(old.len())])),
-        }
-    }
-    w.remote_sync_note = note;
     save(app, &w).await?;
-    Ok(Some((w, old)))
+    Ok((w.clone(), w.root))
 }
 
-/// Reads an open pull request on GitHub and fetches its head from the base repository's remote.
-/// Returns where agents push and the head commit to start from.
-async fn pull_request_head(app: &App, project_path: &str, top: &str, pr: &PullRequestRef) -> Result<(PullRequestBranch, String)> {
+/// Clones a planned worktree from Home Git: Home refreshes its mirror, the runner's clone fetches, then a
+/// fresh worktree of the branch (or of the base branch) appears. Runs before the agent starts.
+pub async fn prepare(app: &App, id: &str) -> Result<TaskWorktree> {
+    let mut w = get(app, id).await?;
+    if w.state != WorktreeState::Preparing {
+        return Ok(w);
+    }
+    let project = crate::projects::get(app, &w.project_id).await?.context("the folder no longer exists")?;
+    let cache = crate::repo_cache::sync(app, &project).await?;
+    let cache_s = cache.to_string_lossy().into_owned();
+    if let Some(pr) = w.pull_request.clone() {
+        w.pull_request = Some(pull_request_branch(app, &project, &w, &PullRequestRef { repo: pr.repo, number: pr.number }).await?);
+        crate::repo_cache::git(app, &cache, &["fetch", "--quiet", "origin"], true, 600).await?;
+    }
+    let base = match &w.base_branch {
+        Some(b) => b.clone(),
+        None if w.pull_request.is_none() => {
+            let head = git(app, &cache_s, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).await.context("Home has no default branch for this folder")?;
+            head.trim_start_matches("origin/").to_string()
+        }
+        None => String::new(),
+    };
+    let existing = git(app, &cache_s, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/origin/{}^{{commit}}", w.branch)]).await.ok().filter(|s| !s.is_empty());
+    let start = match (&existing, w.from_branch || w.pull_request.is_some()) {
+        (Some(head), _) => head.clone(),
+        (None, true) => bail!("{} is not on Home", w.branch),
+        (None, false) => git(app, &cache_s, &["rev-parse", "--verify", &format!("refs/remotes/origin/{base}^{{commit}}")]).await.with_context(|| format!("branch {base} not found on Home"))?,
+    };
+    let _lock = app.worktree_lock.lock().await;
+    if let Some(parent) = Path::new(&w.root).parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let _ = git(app, &cache_s, &["worktree", "prune"]).await;
+    git(app, &cache_s, &["worktree", "add", "--quiet", "--no-track", "-B", &w.branch, &w.root, &start]).await?;
+    configure(app, &w, w.sessions.last().map(String::as_str).unwrap_or_default()).await?;
+    w.base_commit = if w.pull_request.is_some() || w.from_branch {
+        git(app, &cache_s, &["merge-base", &start, &format!("refs/remotes/origin/{base}")]).await.unwrap_or_else(|_| start.clone())
+    } else {
+        start.clone()
+    };
+    if w.base_branch.is_none() && w.pull_request.is_none() {
+        w.base_branch = Some(base);
+    }
+    w.pushed = existing;
+    w.state = WorktreeState::Active;
+    save(app, &w).await?;
+    Ok(w)
+}
+
+/// Per-worktree Git settings: pushes name the session, and `git push` goes to the same branch on Home.
+async fn configure(app: &App, w: &TaskWorktree, session_id: &str) -> Result<()> {
+    git(app, &w.root, &["config", "--worktree", "http.extraHeader", &crate::repo_cache::session_header(app, session_id)?]).await?;
+    git(app, &w.root, &["config", &format!("branch.{}.remote", w.branch), "origin"]).await?;
+    git(app, &w.root, &["config", &format!("branch.{}.merge", w.branch), &format!("refs/heads/{}", w.branch)]).await?;
+    Ok(())
+}
+
+/// Reads an open pull request on GitHub; Home fetches its head into the session's branch and follows it.
+async fn pull_request_branch(app: &App, project: &Project, w: &TaskWorktree, pr: &PullRequestRef) -> Result<PullRequestBranch> {
     let label = format!("{}#{}", pr.repo, pr.number);
     let v = app.github.get(&format!("/repos/{}/pulls/{}", pr.repo, pr.number)).await.with_context(|| format!("could not read pull request {label}"))?;
     ensure!(v["state"] == "open", "pull request {label} is not open");
@@ -344,18 +338,22 @@ async fn pull_request_head(app: &App, project_path: &str, top: &str, pr: &PullRe
     let head_branch = v["head"]["ref"].as_str().context("pull request branch missing")?.to_string();
     ensure!(!head_branch.starts_with('-'), "invalid pull request branch");
     let url = v["html_url"].as_str().context("pull request URL missing")?.to_string();
-    let remotes = crate::git::remotes(Path::new(project_path)).await;
-    let base_remote = remotes
-        .iter()
-        .find(|(_, u)| crate::git::github_repo(u).is_some_and(|r| r.eq_ignore_ascii_case(&pr.repo)))
-        .map(|(n, _)| n.clone())
-        .with_context(|| format!("no Git remote of this folder points to {}", pr.repo))?;
-    let local = format!("refs/launchpad/pr/{}", pr.number);
-    crate::remote_sync::git_timeout(app, top, &["fetch", "--no-tags", "--no-recurse-submodules", &base_remote, &format!("+refs/pull/{}/head:{local}", pr.number)], 120).await
-        .with_context(|| format!("could not fetch {label} from {base_remote}"))?;
-    let head = git(app, top, &["rev-parse", "--verify", &format!("{local}^{{commit}}")]).await?;
-    let push_remote = crate::predrafts::push_target(project_path, Some(&head_repo)).await?.remote;
-    Ok((PullRequestBranch { repo: pr.repo.clone(), number: pr.number, url, head_repo, head_branch, push_remote }, head))
+    let remote = if project.gh_repo.as_deref().is_some_and(|r| r.eq_ignore_ascii_case(&head_repo)) {
+        "origin".to_string()
+    } else {
+        let origin = project.remote_url.clone().unwrap_or_default();
+        let repo = project.gh_repo.clone().unwrap_or_default();
+        crate::predrafts::fork_url(&origin, &repo, &head_repo).with_context(|| format!("cannot derive the URL of {head_repo}"))?
+    };
+    let follow = crate::home_git::Follow { remote, branch: head_branch.clone(), url: url.clone(), session_id: w.sessions.first().cloned() };
+    let body = json!({"number": pr.number, "branch": w.branch, "follow": follow});
+    if crate::home_git::here(app) {
+        crate::home_git::pull_request(app, project, pr.number, &w.branch).await?;
+        crate::home_git::set_follow(app, &project.id, &w.branch, &follow).await?;
+    } else {
+        crate::home_link::home_request("POST", &format!("/api/home-git/{}/pull-request", project.id), Some(body)).await?;
+    }
+    Ok(PullRequestBranch { repo: pr.repo.clone(), number: pr.number, url, head_repo, head_branch })
 }
 
 /// The pull request a worktree folder continues, if any.
@@ -363,85 +361,70 @@ pub async fn pull_request_at(app: &App, root: &str) -> Option<PullRequestBranch>
     list(app).await.ok()?.into_iter().find(|w| w.state == WorktreeState::Active && crate::hosts::loc::within(root, &w.root))?.pull_request
 }
 
-/// Push instructions for a branch already published on GitHub.
-pub fn push_instruction(url: &str, remote: &str, branch: &str) -> String {
-    format!(
-        "This work continues the published pull request {url}. Commit your changes, then push them to it with `git push {remote} HEAD:refs/heads/{branch}`. Never force-push and never rewrite commits that are already pushed. If the push is rejected because the branch moved, run `git pull --rebase {remote} {branch}`, re-run your checks and push again. Do not open another pull request. Comments and reviews still go through `launchpad suggest`; never post them yourself."
-    )
-}
-
-/// Applies the source checkout's staged, unstaged and untracked changes to a fresh worktree.
-async fn copy_changes(app: &App, source: &str, dest: &str) -> Result<()> {
-    let out = crate::procs::command(&app.env, "git", Some(Path::new(source))).args(["diff", "--binary", "HEAD"]).output().await?;
-    ensure!(out.status.success(), "git diff failed: {}", String::from_utf8_lossy(&out.stderr).trim());
-    if !out.stdout.is_empty() {
-        let applied = crate::procs::command(&app.env, "git", Some(Path::new(dest))).args(["apply", "--binary", "--whitespace=nowarn", "-"]).stdin_bytes(out.stdout).output().await?;
-        ensure!(applied.status.success(), "could not copy uncommitted changes: {}", String::from_utf8_lossy(&applied.stderr).trim());
+/// Pushes the branch to Home unless Home already has it. Never overwrites a tip Home got elsewhere (a
+/// Restore, another runner): the push expects the tip this clone last saw.
+pub async fn push(app: &App, w: &mut TaskWorktree) -> Result<bool> {
+    if w.state != WorktreeState::Active || !Path::new(&w.root).is_dir() {
+        return Ok(false);
     }
-    let untracked = crate::procs::command(&app.env, "git", Some(Path::new(source))).args(["ls-files", "-z", "--others", "--exclude-standard"]).output().await?;
-    copy_files(source, dest, &untracked.stdout).await?;
-    Ok(())
-}
-
-/// Copies the ignored files listed by `.worktreeinclude` (gitignore patterns, as in Codex) and an ignored
-/// `AGENTS.override.md`: symlinks are skipped and existing files are never overwritten.
-async fn copy_included(app: &App, source: &str, dest: &str) -> Result<()> {
-    copy_files(source, dest, &included_files(app, source).await?).await
-}
-
-async fn included_files(app: &App, source: &str) -> Result<Vec<u8>> {
-    let ignored = crate::procs::command(&app.env, "git", Some(Path::new(source))).args(["ls-files", "-z", "--others", "--ignored", "--exclude-standard"]).output().await?;
-    ensure!(ignored.status.success(), "could not list ignored worktree files");
-    let ignored: std::collections::HashSet<&[u8]> = ignored.stdout.split(|b| *b == 0).filter(|p| !p.is_empty()).collect();
-    let mut wanted: Vec<u8> = Vec::new();
-    if ignored.contains(b"AGENTS.override.md".as_slice()) {
-        wanted.extend_from_slice(b"AGENTS.override.md\0");
+    let head = git(app, &w.root, &["rev-parse", "--verify", &format!("refs/heads/{}^{{commit}}", w.branch)]).await?;
+    if w.pushed.as_deref() == Some(head.as_str()) && w.push_note.is_none() {
+        return Ok(false);
     }
-    let include = Path::new(source).join(".worktreeinclude");
-    if crate::hostfs::is_file(&include).await {
-        let listed = crate::procs::command(&app.env, "git", Some(Path::new(source)))
-            .args(["ls-files", "-z", "--others", "--ignored", "--exclude-from"])
-            .arg(&include)
-            .output()
-            .await?;
-        ensure!(listed.status.success(), "could not apply .worktreeinclude rules");
-        for p in listed.stdout.split(|b| *b == 0).filter(|p| !p.is_empty() && ignored.contains(p)) {
-            wanted.extend_from_slice(p);
-            wanted.push(0);
+    let lease = format!("--force-with-lease=refs/heads/{}", w.branch);
+    let result = crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", &lease, "origin", &format!("refs/heads/{0}:refs/heads/{0}", w.branch)], 900).await;
+    match result {
+        Ok(_) => {
+            w.pushed = Some(head);
+            w.push_note = None;
+            save(app, w).await?;
+            Ok(true)
         }
-    }
-    Ok(wanted)
-}
-
-async fn copy_files(source: &str, dest: &str, list: &[u8]) -> Result<()> {
-    let dest_root = crate::hostfs::canonicalize(dest).await?;
-    for rel in list.split(|b| *b == 0).filter(|p| !p.is_empty()) {
-        let rel = String::from_utf8_lossy(rel);
-        let rel = Path::new(rel.as_ref());
-        if rel.is_absolute() || rel.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
-            continue;
-        }
-        let (from, to) = (Path::new(source).join(rel), Path::new(dest).join(rel));
-        let Ok(meta) = crate::hostfs::symlink_metadata(&from).await else { continue };
-        if !meta.is_file() || crate::hostfs::exists(&to).await {
-            continue;
-        }
-        // Refuse symlink parents before creating directories or writing files.
-        let mut parent = PathBuf::from(dest);
-        if let Some(parts) = rel.parent() {
-            for part in parts.components() {
-                parent.push(part);
-                if let Ok(meta) = crate::hostfs::symlink_metadata(&parent).await {
-                    ensure!(meta.is_dir(), "copy destination {} is not a regular directory", parent.display());
-                } else {
-                    crate::hostfs::create_dir_all(&parent).await?;
-                }
-                ensure!(crate::hostfs::canonicalize(&parent).await?.starts_with(&dest_root), "copy destination is outside the worktree");
+        Err(e) => {
+            let note = format!("Push of {} to Home failed: {e:#}", w.branch);
+            if w.push_note.as_deref() != Some(note.as_str()) {
+                w.push_note = Some(note.clone());
+                save(app, w).await?;
+                notice(app, w, &format!("{note}. Launchpad retries at the end of the next turn.")).await;
             }
+            Err(e)
         }
-        crate::hostfs::copy(&from, &to).await.with_context(|| format!("copy {}", rel.display()))?;
     }
-    Ok(())
+}
+
+/// At the end of every turn: the session's branches go to Home.
+pub async fn after_turn(app: &App, session_id: &str) {
+    let Ok(records) = for_session(app, session_id).await else { return };
+    for mut w in records.into_iter().filter(|w| w.state == WorktreeState::Active) {
+        let _ = push(app, &mut w).await;
+    }
+}
+
+/// During long turns: the state of every file (committed or not) goes to `refs/lp-snapshots/<worktree>` on
+/// Home, so nothing is lost if the machine disappears.
+async fn snapshots(app: &App, last: &mut HashMap<String, String>) {
+    let Ok(records) = list(app).await else { return };
+    for w in records.iter().filter(|w| w.state == WorktreeState::Active) {
+        let running = w.sessions.iter().filter_map(|id| app.sessions.get(id)).any(|s| app.sessions.is_busy(&s));
+        if !running || !Path::new(&w.root).is_dir() {
+            continue;
+        }
+        let tree = match crate::repo_cache::capture(app, Path::new(&w.root), "Launchpad snapshot").await {
+            Ok(Some(commit)) => commit,
+            Ok(None) => git(app, &w.root, &["rev-parse", "HEAD"]).await.unwrap_or_default(),
+            Err(e) => {
+                tracing::debug!("snapshot {}: {e:#}", w.root);
+                continue;
+            }
+        };
+        let content = git(app, &w.root, &["rev-parse", &format!("{tree}^{{tree}}")]).await.unwrap_or_default();
+        if last.get(&w.id) == Some(&content) {
+            continue;
+        }
+        if crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{tree}:refs/lp-snapshots/{}", w.id)], 900).await.is_ok() {
+            last.insert(w.id.clone(), content);
+        }
+    }
 }
 
 /// Removes worktrees created for a launch that failed before its agent started.
@@ -449,11 +432,8 @@ pub async fn abandon(app: &App, created: &[TaskWorktree]) {
     let _lock = app.worktree_lock.lock().await;
     for w in created {
         let result: Result<()> = async {
-            if crate::hostfs::exists(&w.root).await {
+            if Path::new(&w.root).exists() {
                 git(app, &w.repo, &["worktree", "remove", "--force", &w.root]).await?;
-            }
-            if git(app, &w.repo, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{}", w.branch)]).await.is_ok() {
-                git(app, &w.repo, &["branch", "-D", &w.branch]).await?;
             }
             let id = w.id.clone();
             app.state_db.call(move |c| Ok(c.execute("DELETE FROM task_worktree WHERE id = ?1", [id])?)).await?;
@@ -474,7 +454,7 @@ pub(crate) async fn leave(app: &App, session_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// A continuation with another agent works in the same worktrees.
+/// A continuation with another agent works in the same worktrees; its pushes name it.
 pub async fn join(app: &App, source_session: &str, session_id: &str) -> Result<Vec<TaskWorktree>> {
     let _lock = app.worktree_lock.lock().await;
     let worktrees = for_session(app, source_session).await?;
@@ -489,56 +469,52 @@ pub async fn join(app: &App, source_session: &str, session_id: &str) -> Result<V
             w.sessions.push(session_id.to_string());
             save(app, &w).await?;
         }
+        if w.state == WorktreeState::Active {
+            configure(app, &w, session_id).await?;
+        }
         joined.push(w);
     }
     Ok(joined)
 }
 
 /// Launch instructions: where to work, and how the task ends. Overrides checkout workflow rules only.
-pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, String)], projects: &[Project], when_done: crate::model::WhenDone, changes_copied: bool) -> String {
+pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, String)], projects: &[Project], when_done: crate::model::WhenDone) -> String {
     let cli = worktrees.first().map(|(w, _)| app.cli_command_in(&w.root)).unwrap_or_else(|| app.paths.cli_command());
-    let name = |id: &str| projects.iter().find(|p| p.id == id).map(|p| p.name.clone()).unwrap_or_else(|| "project".into());
+    let name = |id: &str| projects.iter().find(|p| p.id == id).map(|p| p.name.clone()).unwrap_or_else(|| "folder".into());
     let mut text = String::from(
-        "Launchpad worktree: Launchpad created dedicated Git worktrees for this task and manages them. This launch setting overrides repository or preset instructions to work on the main branch, in the main checkout, or to create, merge or delete worktrees yourself; follow all other repository rules (checks, documentation, commit conventions).",
+        "Launchpad worktree: Launchpad created fresh Git worktrees for this task and manages them. This launch setting overrides repository or preset instructions to work on the main branch, in the main checkout, or to create, merge or delete worktrees yourself; follow all other repository rules (checks, documentation, commit conventions).",
     );
     for (w, path) in worktrees {
         text.push_str(&format!(
-            "\n- {}{}: work in `{path}` on branch `{}`, created from {} ({}).",
+            "\n- {}{}: work in `{path}` on branch `{}`, {}.",
             name(&w.project_id),
             if w.primary { " (your working directory)" } else { " (editable)" },
             w.branch,
-            match (&w.pull_request, w.base_branch.as_deref()) {
-                (Some(pr), _) => format!("the head of pull request #{} (`{}` on {})", pr.number, pr.head_branch, pr.head_repo),
-                (None, Some(b)) => format!("`{b}`"),
-                (None, None) => "a detached checkout".into(),
+            match (&w.pull_request, w.base_branch.as_deref(), w.from_branch) {
+                (Some(pr), _, _) => format!("which continues pull request #{} of {}", pr.number, pr.repo),
+                (None, _, true) => "which continues earlier work".into(),
+                (None, Some(b), false) => format!("created from `{b}`"),
+                (None, None, false) => "created from the default branch".into(),
             },
-            &w.base_commit[..12.min(w.base_commit.len())]
         ));
     }
-    let pr = worktrees.iter().find_map(|(w, _)| w.pull_request.clone());
-    if let Some(pr) = &pr {
-        text.push_str(&format!("\n{}", push_instruction(&pr.url, &pr.push_remote, &pr.head_branch)));
-        text.push_str(" Do not switch branches or remove these worktrees; do not push other branches.");
-    } else {
-        text.push_str("\nCommit your work on these branches. Do not push, switch branches, or remove these worktrees. The other branches and the shared history stay readable, for example with `git log` or `git show`.");
-    }
-    if changes_copied {
-        text.push_str(" The uncommitted changes of the project checkout were copied into your worktree; they are not committed yet.");
+    text.push_str("\n`origin` is Launchpad's Git server (Home Git), with `origin/<branch>` for every branch. Commit your work on these branches: Launchpad pushes them to `origin` at the end of every turn (you may also `git push` them yourself). Do not switch branches, push other branches, or remove these worktrees; never push to the base branch. Uncommitted files are saved when the folder is removed, but commit what matters.");
+    if let Some(pr) = worktrees.iter().find_map(|(w, _)| w.pull_request.clone()) {
+        text.push_str(&format!("\nThis work continues pull request #{} on GitHub: after each push, Launchpad pushes your commits to its branch. Never force-push or rewrite commits that are already pushed. If Launchpad reports that the pull request branch moved, run `git fetch upstream refs/pull/{}/head` and rebase onto `FETCH_HEAD`, re-run your checks and commit. Do not open another pull request. The pull request on GitHub is the review: Launchpad does not merge this branch.", pr.number, pr.number));
     }
     text.push_str(&format!(
-        "\nTo modify another registered project, first run `{cli} work add-project --session-id {session_id} --project <name>`. It prints a dedicated worktree folder: edit that folder, never the original checkout."
+        "\nTo modify another registered folder, first run `{cli} work add-project --session-id {session_id} --project <name>`. It prints a dedicated worktree folder: edit that folder."
     ));
     let bases: Vec<String> = worktrees.iter().filter_map(|(w, _)| w.base_branch.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().map(|b| format!("`{b}`")).collect();
     let base = if bases.is_empty() { "its base branch".to_string() } else { bases.join(", ") };
-    if pr.is_some() {
-        text.push_str("\nThe pull request on GitHub is the review: Launchpad does not merge this branch locally.");
+    if worktrees.iter().any(|(w, _)| w.pull_request.is_some()) {
     } else if when_done == crate::model::WhenDone::LocalPr {
         text.push_str(&format!(
-            "\nWhen the task is done and checked, commit everything, then run `{cli} work finish --session-id {session_id}`. Launchpad turns your worktree into a Local PR (same folder and branch) for the owner to review; then set its title and description as the command output explains. Do not merge into {base}, push or open a pull request on GitHub yourself."
+            "\nWhen the task is done and checked, commit everything, then run `{cli} work finish --session-id {session_id}`. Launchpad opens a Local PR of your branch on Home for the owner to review; then set its title and description as the command output explains. Do not merge into {base} or open a pull request on GitHub yourself."
         ));
     } else if when_done == crate::model::WhenDone::Merge {
         text.push_str(&format!(
-            "\nWhen the task is done and checked, commit everything, then run `{cli} work finish --session-id {session_id}`. Launchpad merges your branches into {base} after your turn ends, as soon as the target checkout is clean. Do not merge yourself, and report the merge as requested, not as done. If Launchpad later reports a conflict, rebase onto the target branch in your worktree, resolve it, re-run your checks, commit, and run the finish command again."
+            "\nWhen the task is done and checked, commit everything, then run `{cli} work finish --session-id {session_id}`. Launchpad merges your branches into {base} on Home after your turn ends. Do not merge yourself, and report the merge as requested, not as done. If Launchpad later reports that {base} moved, run `git fetch origin`, rebase onto `origin/<base>`, resolve conflicts, re-run your checks, commit, and run the finish command again."
         ));
     } else {
         text.push_str(&format!("\nDo not merge into {base} yourself: the owner merges, publishes or discards the branch from Launchpad."));
@@ -601,6 +577,7 @@ async fn finish_setup(sink: &crate::sessions::Sink, command: &str, started: std:
     Ok(())
 }
 
+
 /// Sessions of a record are idle enough for Git operations on its folder.
 fn idle_agent_reason(app: &App, w: &TaskWorktree, strict: bool) -> Option<String> {
     for id in &w.sessions {
@@ -622,7 +599,7 @@ fn idle_reason(app: &App, w: &TaskWorktree, strict: bool) -> Option<String> {
     if let Some(reason) = idle_agent_reason(app, w, strict) {
         return Some(reason);
     }
-    if !app.terminals.alive_in(if w.state == WorktreeState::HandedOff { &w.repo } else { &w.root }).is_empty() {
+    if !app.terminals.alive_in(&w.root).is_empty() {
         return Some("a terminal is open in this worktree".into());
     }
     None
@@ -636,7 +613,7 @@ pub(crate) async fn dirty_files(app: &App, dir: &str) -> Result<Vec<String>> {
 pub(crate) async fn operation_in_progress(app: &App, dir: &str) -> bool {
     for marker in ["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD"] {
         if let Ok(p) = git(app, dir, &["rev-parse", "--path-format=absolute", "--git-path", marker]).await
-            && crate::hostfs::exists(on(dir, &p)).await
+            && Path::new(&p).exists()
         {
             return true;
         }
@@ -644,39 +621,29 @@ pub(crate) async fn operation_in_progress(app: &App, dir: &str) -> bool {
     false
 }
 
-/// The checkout that has `branch` checked out, from `git worktree list`.
-pub(crate) async fn checkout_of(app: &App, repo: &str, branch: &str) -> Result<Option<String>> {
-    let list = git(app, repo, &["worktree", "list", "--porcelain"]).await?;
-    let mut path = None;
-    for line in list.lines() {
-        if let Some(p) = line.strip_prefix("worktree ") {
-            path = Some(on(repo, p));
-        } else if line.strip_prefix("branch refs/heads/") == Some(branch) {
-            return Ok(path);
-        }
-    }
-    Ok(None)
-}
-
 async fn count(app: &App, dir: &str, range: &str) -> u32 {
     git(app, dir, &["rev-list", "--count", range, "--"]).await.ok().and_then(|n| n.parse().ok()).unwrap_or(0)
 }
 
 pub async fn info(app: &App, w: TaskWorktree) -> WorktreeInfo {
-    let project_name = crate::projects::get(app, &w.project_id).await.ok().flatten().map(|p| p.name).unwrap_or_else(|| "Removed project".into());
+    let project_name = crate::projects::get(app, &w.project_id).await.ok().flatten().map(|p| p.name).unwrap_or_else(|| "Removed folder".into());
     let path = folder(&w);
-    let exists = crate::hostfs::is_dir(&w.root).await;
-    let dir = if exists { w.root.clone() } else { w.repo.clone() };
+    let exists = w.state == WorktreeState::Active && Path::new(&w.root).is_dir();
     let dirty_files = if exists { dirty_files(app, &w.root).await.map(|f| f.len() as u32).unwrap_or(0) } else { 0 };
-    let (mut ahead, mut behind, mut target_checkout) = (0, 0, None);
-    if let Some(base) = &w.base_branch
-        && git(app, &dir, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{}", w.branch)]).await.is_ok()
+    let (mut ahead, mut behind, mut unpushed) = (0, 0, false);
+    if exists {
+        let head = git(app, &w.root, &["rev-parse", &format!("refs/heads/{}", w.branch)]).await.unwrap_or_default();
+        unpushed = !head.is_empty() && w.pushed.as_deref() != Some(head.as_str());
+        if let Some(base) = &w.base_branch {
+            ahead = count(app, &w.root, &format!("refs/remotes/origin/{base}..refs/heads/{}", w.branch)).await;
+            behind = count(app, &w.root, &format!("refs/heads/{}..refs/remotes/origin/{base}", w.branch)).await;
+        }
+    } else if let (Some(base), Some(pushed)) = (&w.base_branch, &w.pushed)
+        && Path::new(&w.repo).is_dir()
     {
-        ahead = count(app, &dir, &format!("refs/heads/{base}..refs/heads/{}", w.branch)).await;
-        behind = count(app, &dir, &format!("refs/heads/{}..refs/heads/{base}", w.branch)).await;
-        target_checkout = checkout_of(app, &dir, base).await.ok().flatten();
+        ahead = count(app, &w.repo, &format!("refs/remotes/origin/{base}..{pushed}")).await;
     }
-    WorktreeInfo { worktree: w, project_name, path, exists, dirty_files, ahead, behind, target_checkout }
+    WorktreeInfo { worktree: w, project_name, path, exists, dirty_files, ahead, behind, unpushed }
 }
 
 pub async fn session_info(app: &App, session_id: &str) -> Result<Vec<WorktreeInfo>> {
@@ -687,7 +654,7 @@ pub async fn session_info(app: &App, session_id: &str) -> Result<Vec<WorktreeInf
     Ok(out)
 }
 
-/// `launchpad work add-project`: a worktree for another registered project, during the task.
+/// `launchpad work add-project`: a worktree of another Git folder, during the task.
 pub async fn add_project(app: &App, session_id: &str, project: &str) -> Result<String> {
     let s = app.sessions.get(session_id).context("no such session")?;
     let projects = crate::projects::list(app).await?;
@@ -695,25 +662,27 @@ pub async fn add_project(app: &App, session_id: &str, project: &str) -> Result<S
     let matches: Vec<&Project> = projects.iter().filter(|p| p.id == wanted || p.name.eq_ignore_ascii_case(wanted)).collect();
     let p = match matches.as_slice() {
         [p] => (*p).clone(),
-        [] => bail!("no registered project named {wanted:?}; registered projects: {}", projects.iter().filter(|p| !p.is_temp).map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")),
-        _ => bail!("several projects are named {wanted:?}; use the project ID"),
+        [] => bail!("no registered folder named {wanted:?}; registered folders: {}", projects.iter().filter(|p| p.home_git).map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")),
+        _ => bail!("several folders are named {wanted:?}; use the folder ID"),
     };
+    ensure!(p.home_git, "{} is not a Git folder", p.name);
     let base = s.launch_spec.context_projects.iter().find(|c| c.project_id == p.id).and_then(|c| c.branch.clone());
-    let (w, path) = create(app, session_id, &p, &WorktreeOptions { base, ..Default::default() }, false, &s.title).await?;
+    let (w, path) = plan(app, session_id, &p, &WorktreeOptions { base, ..Default::default() }, false, &s.title, None).await?;
+    let w = prepare(app, &w.id).await?;
     let sink = app.sessions.sink(app, session_id);
     sink.emit(EventBody::Notice { text: format!("Added a worktree for {} on branch {}: {path}", p.name, w.branch) }).await;
     let (_cancel, mut cancelled) = tokio::sync::watch::channel(false);
     if let Err(e) = run_setup(app, &p, &path, &sink, &mut cancelled).await {
         return Ok(format!("Worktree for {} on branch `{}`: {path}\nIts setup command failed; fix the environment yourself if needed:\n{e:#}", p.name, w.branch));
     }
-    Ok(format!("Worktree for {} on branch `{}`: {path}\nEdit this folder, never the original checkout {}. Commit your work on this branch.", p.name, w.branch, p.path))
+    Ok(format!("Worktree for {} on branch `{}`: {path}\nCommit your work on this branch; Launchpad pushes it to Home at the end of each turn.", p.name, w.branch))
 }
 
 /// Restores the removed worktrees of a session before it resumes. Returns whether a folder was restored.
 pub async fn restore_for_session(app: &App, session_id: &str) -> Result<bool> {
     let mut restored = false;
     for w in for_session(app, session_id).await? {
-        if w.state == WorktreeState::Removed {
+        if matches!(w.state, WorktreeState::Removed | WorktreeState::Preparing) {
             restore(app, &w.id).await?;
             restored = true;
         }
@@ -721,61 +690,76 @@ pub async fn restore_for_session(app: &App, session_id: &str) -> Result<bool> {
     Ok(restored)
 }
 
-/// Recreates a removed folder from its branch; a merged and deleted branch restarts from its base.
+/// Clones a removed folder again from its branch on Home (or its base, when the branch is gone).
 pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
-    let _lock = app.worktree_lock.lock().await;
-    let mut w = get(app, id).await?;
-    if w.state == WorktreeState::Active && crate::hostfs::is_dir(&w.root).await {
+    let w = get(app, id).await?;
+    if w.state == WorktreeState::Active && Path::new(&w.root).is_dir() {
         return Ok(w);
     }
-    ensure!(w.state == WorktreeState::Removed, "this worktree cannot be restored");
-    ensure!(crate::hostfs::is_dir(&w.repo).await, "the project checkout {} no longer exists", w.repo);
-    ensure!(!crate::hostfs::exists(&w.root).await, "{} already exists", w.root);
-    let _ = git(app, &w.repo, &["worktree", "prune"]).await;
-    if git(app, &w.repo, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{}", w.branch)]).await.is_ok() {
-        git(app, &w.repo, &["worktree", "add", &w.root, &w.branch]).await?;
-    } else {
-        let base = w.base_branch.clone().context("the branch was deleted and there is no base branch to restart from")?;
-        git(app, &w.repo, &["worktree", "add", "-b", &w.branch, &w.root, &base]).await?;
+    if w.state == WorktreeState::Preparing {
+        return prepare(app, id).await;
     }
-    copy_included(app, &w.repo, &w.root).await?;
+    ensure!(w.state == WorktreeState::Removed, "this worktree cannot be restored");
+    let project = crate::projects::get(app, &w.project_id).await?.context("the folder no longer exists")?;
+    let cache = crate::repo_cache::sync(app, &project).await?;
+    let cache_s = cache.to_string_lossy().into_owned();
+    let _lock = app.worktree_lock.lock().await;
+    let mut w = get(app, id).await?;
+    ensure!(!Path::new(&w.root).exists(), "{} already exists", w.root);
+    let start = match git(app, &cache_s, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/origin/{}^{{commit}}", w.branch)]).await {
+        Ok(c) if !c.is_empty() => c,
+        _ => {
+            let base = w.base_branch.clone().context("the branch is gone from Home and there is no base branch to restart from")?;
+            git(app, &cache_s, &["rev-parse", "--verify", &format!("refs/remotes/origin/{base}^{{commit}}")]).await?
+        }
+    };
+    let _ = git(app, &cache_s, &["worktree", "prune"]).await;
+    git(app, &cache_s, &["worktree", "add", "--quiet", "--no-track", "-B", &w.branch, &w.root, &start]).await?;
+    configure(app, &w, w.sessions.last().map(String::as_str).unwrap_or_default()).await?;
     w.state = WorktreeState::Active;
     w.cleanup_note = None;
+    w.pushed = Some(start);
+    w.push_note = None;
     save(app, &w).await?;
-    notice(app, &w, &format!("Worktree restored from branch {}. Ignored files such as installed dependencies were not restored; run the project setup again if needed.", w.branch)).await;
+    let mut text = format!("Worktree cloned again from branch {} on Home. Ignored files such as installed dependencies were not restored; run the setup again if needed.", w.branch);
+    if let Some(l) = &w.leftovers {
+        text.push_str(&format!(" {} uncommitted files from before are on the branch {} (`git checkout origin/{} -- .` brings them back).", l.files, l.branch, l.branch));
+    }
+    notice(app, &w, &text).await;
     Ok(w)
 }
 
-/// Removes a clean folder; the branch keeps its commits. Fails with the reason when not safe.
+/// Removes a folder once Home has everything: the branch is pushed, and uncommitted files go to a scratch
+/// branch first. Fails with the reason when an agent or a terminal still uses it.
 async fn remove_clean(app: &App, w: &mut TaskWorktree) -> Result<()> {
     ensure!(w.state == WorktreeState::Active, "this worktree is not active");
     if let Some(reason) = idle_reason(app, w, true) {
         bail!("{reason}");
     }
     ensure!(w.merge.is_none(), "a merge is pending");
-    if crate::hostfs::exists(&w.root).await {
-        let dirty = dirty_files(app, &w.root).await?;
-        ensure!(dirty.is_empty(), "{} uncommitted files", dirty.len());
+    if Path::new(&w.root).exists() {
         ensure!(!operation_in_progress(app, &w.root).await, "a Git operation is in progress");
         let branch = git(app, &w.root, &["branch", "--show-current"]).await?;
         ensure!(branch == w.branch, "the worktree is on another branch ({branch})");
+        push(app, w).await.context("Home did not confirm the branch")?;
+        let dirty = dirty_files(app, &w.root).await?;
+        if !dirty.is_empty() {
+            let commit = crate::repo_cache::capture(app, Path::new(&w.root), &format!("Leftover files of {}", w.branch)).await?.context("leftover files could not be saved")?;
+            let scratch = format!("lp-scratch/{}", w.branch.trim_start_matches("lp/"));
+            crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{commit}:refs/heads/{scratch}")], 900).await.context("Home did not confirm the leftover files")?;
+            w.leftovers = Some(Leftovers { branch: scratch, files: dirty.len() as u32 });
+        }
         for id in w.sessions.clone() {
             app.sessions.release(app, &id).await?;
         }
-        git(app, &w.repo, &["worktree", "remove", &w.root]).await?;
+        git(app, &w.repo, &["worktree", "remove", "--force", &w.root]).await?;
     }
     w.state = WorktreeState::Removed;
     w.cleanup_note = None;
-    // A branch fully merged into its base is not needed to restore: the folder restarts from the base.
-    if let Some(base) = &w.base_branch
-        && git(app, &w.repo, &["merge-base", "--is-ancestor", &format!("refs/heads/{}", w.branch), &format!("refs/heads/{base}")]).await.is_ok()
-    {
-        let _ = git(app, &w.repo, &["branch", "-d", &w.branch]).await;
-    }
     save(app, w).await
 }
 
-/// Settings → Worktrees "Remove folder": a clean, non-destructive removal.
+/// Settings → Worktrees "Remove folder": removal after Home confirmed the branch.
 pub async fn remove(app: &App, id: &str) -> Result<TaskWorktree> {
     let _action = app.sessions.action_lock().await;
     let _lock = app.worktree_lock.lock().await;
@@ -784,14 +768,13 @@ pub async fn remove(app: &App, id: &str) -> Result<TaskWorktree> {
     Ok(w)
 }
 
-/// Deletes the folder and branch, with uncommitted work, and archives the sessions. Owner confirmation only.
+/// Deletes the folder and the branch (here and on Home, where its tip stays restorable for 30 days) and
+/// archives the sessions. Owner confirmation only.
 pub async fn discard(app: &App, id: &str) -> Result<TaskWorktree> {
     let _action = app.sessions.action_lock().await;
-    // Promotion holds this lock before changing the task record's ownership.
-    let _predraft = app.predraft_lock.lock().await;
     let _lock = app.worktree_lock.lock().await;
     let mut w = get(app, id).await?;
-    ensure!(matches!(w.state, WorktreeState::Active | WorktreeState::Removed), "only an active or removed worktree can be discarded");
+    ensure!(matches!(w.state, WorktreeState::Active | WorktreeState::Removed | WorktreeState::Preparing), "this worktree was already discarded");
     for sid in &w.sessions {
         if let Some(s) = app.sessions.get(sid)
             && (app.sessions.is_busy(&s) || s.quota_pause.is_some() || s.status == SessionStatus::InTerminal || app.sessions.setup_running(sid))
@@ -799,32 +782,32 @@ pub async fn discard(app: &App, id: &str) -> Result<TaskWorktree> {
             bail!("stop the agents of this worktree first");
         }
     }
-    if crate::hostfs::exists(&w.root).await {
-        ensure!(w.state == WorktreeState::Active, "a folder appeared at the removed worktree path; inspect it before discarding");
-        let (top, common) = repository(app, &w.root).await?;
-        ensure!(top == canonical(&w.root).await? && common == w.common_dir, "the folder no longer belongs to this worktree");
-        ensure!(git(app, &w.root, &["branch", "--show-current"]).await? == w.branch, "the worktree is on another branch; inspect it before discarding");
-    }
     app.terminals.close_in(&w.root).await?;
-    // Without its working directory an agent cannot continue: archive it. A discarded editable
-    // context project only detaches idle processes.
-    if w.primary {
-        for sid in w.sessions.clone() {
+    // Without its working directory an agent cannot continue: archive it. A discarded editable context
+    // folder only detaches idle processes.
+    for sid in w.sessions.clone() {
+        if w.primary {
             if app.sessions.get(&sid).is_some_and(|s| s.status != SessionStatus::Closed) {
                 app.sessions.close_locked(app, &sid).await?;
             }
-        }
-    }
-    if !w.primary {
-        for sid in w.sessions.clone() {
+        } else {
             app.sessions.release(app, &sid).await?;
         }
     }
-    if crate::hostfs::exists(&w.root).await {
+    if Path::new(&w.root).exists() {
         git(app, &w.repo, &["worktree", "remove", "--force", &w.root]).await?;
     }
-    if git(app, &w.repo, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{}", w.branch)]).await.is_ok() {
-        git(app, &w.repo, &["branch", "-D", &w.branch]).await?;
+    let _ = git(app, &w.repo, &["branch", "-D", &w.branch]).await;
+    if w.pushed.is_some() || w.from_branch {
+        let body = json!({"branch": w.branch});
+        let deleted = if crate::home_git::here(app) {
+            crate::home_git::delete(app, &w.project_id, &w.branch).await
+        } else {
+            crate::home_link::home_request("POST", &format!("/api/home-git/{}/delete", w.project_id), Some(body)).await.map(|_| ())
+        };
+        if let Err(e) = deleted {
+            tracing::warn!("discard {}: Home kept the branch: {e:#}", w.branch);
+        }
     }
     w.state = WorktreeState::Discarded;
     w.merge = None;
@@ -832,107 +815,15 @@ pub async fn discard(app: &App, id: &str) -> Result<TaskWorktree> {
     Ok(w)
 }
 
-/// Check out locally: moves the branch into the project checkout so the owner can run it there.
-pub async fn handoff(app: &App, id: &str) -> Result<TaskWorktree> {
-    let _action = app.sessions.action_lock().await;
-    let _lock = app.worktree_lock.lock().await;
-    let mut w = get(app, id).await?;
-    ensure!(w.state == WorktreeState::Active && w.primary, "only the active worktree of a session can be checked out locally");
-    ensure!(w.merge.is_none(), "cancel the pending merge first");
-    if let Some(reason) = idle_reason(app, &w, true) {
-        bail!("{reason}");
-    }
-    let dirty = dirty_files(app, &w.root).await?;
-    ensure!(dirty.is_empty(), "commit or discard the {} uncommitted files of the worktree first", dirty.len());
-    let local = dirty_files(app, &w.repo).await?;
-    ensure!(local.is_empty(), "the project checkout {} has {} uncommitted files; commit or stash them first", w.repo, local.len());
-    ensure!(app.terminals.alive_in(&w.repo).is_empty(), "a terminal is open in the project checkout");
-    let ignored = git(app, &w.root, &["ls-files", "--others", "--ignored", "--exclude-standard"]).await?;
-    ensure!(ignored.is_empty(), "the worktree contains ignored files; move or remove them before checking out locally to avoid losing them");
-    let busy_here = app.sessions.list().iter().any(|s| !w.sessions.contains(&s.id) && crate::terminals::inside(&s.cwd, &w.repo) && app.sessions.is_busy(s));
-    ensure!(!busy_here, "an agent is running in the project checkout");
-    let previous = match git(app, &w.repo, &["branch", "--show-current"]).await? {
-        b if b.is_empty() => git(app, &w.repo, &["rev-parse", "HEAD"]).await?,
-        b => b,
-    };
-    for sid in w.sessions.clone() {
-        app.sessions.release(app, &sid).await?;
-    }
-    app.terminals.close_in(&w.root).await?;
-    git(app, &w.repo, &["worktree", "remove", &w.root]).await?;
-    if let Err(e) = git(app, &w.repo, &["switch", "--no-overwrite-ignore", &w.branch]).await {
-        git(app, &w.repo, &["worktree", "add", &w.root, &w.branch]).await?;
-        return Err(e);
-    }
-    move_sessions(app, &w, &w.root, &w.repo).await?;
-    w.state = WorktreeState::HandedOff;
-    w.handoff_from = Some(previous.clone());
-    save(app, &w).await?;
-    notice(app, &w, &format!("Branch {} is now checked out in {} (previously {previous}). Use Move back to worktree to return.", w.branch, w.repo)).await;
-    Ok(w)
-}
-
-/// Returns a handed-off branch to its worktree and restores the checkout's previous branch.
-pub async fn handback(app: &App, id: &str) -> Result<TaskWorktree> {
-    let _action = app.sessions.action_lock().await;
-    let _lock = app.worktree_lock.lock().await;
-    let mut w = get(app, id).await?;
-    ensure!(w.state == WorktreeState::HandedOff, "this branch is not checked out locally");
-    if let Some(reason) = idle_reason(app, &w, true) {
-        bail!("{reason}");
-    }
-    ensure!(app.terminals.alive_in(&w.repo).is_empty(), "a terminal is open in the project checkout");
-    ensure!(!app.sessions.list().iter().any(|s| !w.sessions.contains(&s.id) && crate::terminals::inside(&s.cwd, &w.repo) && app.sessions.is_busy(s)), "an agent is running in the project checkout");
-    let current = git(app, &w.repo, &["branch", "--show-current"]).await?;
-    ensure!(current == w.branch, "the project checkout is on {current:?}, not {}", w.branch);
-    let local = dirty_files(app, &w.repo).await?;
-    ensure!(local.is_empty(), "the project checkout has {} uncommitted files; commit them on {} first", local.len(), w.branch);
-    // Read the task branch's include rules before switching the project checkout away from it.
-    let included = included_files(app, &w.repo).await?;
-    let previous = w.handoff_from.clone().context("previous checkout unknown")?;
-    let is_branch = git(app, &w.repo, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{previous}")]).await.is_ok();
-    for sid in w.sessions.clone() {
-        app.sessions.release(app, &sid).await?;
-    }
-    if is_branch {
-        git(app, &w.repo, &["switch", "--no-overwrite-ignore", &previous]).await?;
-    } else {
-        git(app, &w.repo, &["switch", "--no-overwrite-ignore", "--detach", &previous]).await?;
-    }
-    git(app, &w.repo, &["worktree", "add", &w.root, &w.branch]).await?;
-    let copied = copy_files(&w.repo, &w.root, &included).await;
-    move_sessions(app, &w, &w.repo, &w.root).await?;
-    w.state = WorktreeState::Active;
-    w.handoff_from = None;
-    save(app, &w).await?;
-    copied.context("branch moved back to its worktree, but copying included files failed")?;
-    notice(app, &w, &format!("Branch {} is back in its worktree {}.", w.branch, w.root)).await;
-    Ok(w)
-}
-
-async fn move_sessions(app: &App, w: &TaskWorktree, from: &str, to: &str) -> Result<()> {
-    for sid in &w.sessions {
-        if let Some(s) = app.sessions.get(sid)
-            && crate::terminals::inside(&s.cwd, from)
-        {
-            let rest = s.cwd[from.len()..].to_string();
-            let cwd = format!("{to}{rest}");
-            app.sessions.update(app, sid, move |s| s.cwd = cwd).await?;
-        }
-    }
-    Ok(())
-}
-
 /// Merge into base: the owner's button, or `by_agent` from `launchpad work finish`. Returns at once; the
-/// merge runs as soon as the agents are idle; uncommitted files in the target checkout block it only
-/// when the merge would overwrite them.
+/// merge runs on Home as soon as the agents are idle and the branch is pushed.
 pub async fn request_merge(app: &App, id: &str, by_agent: bool) -> Result<TaskWorktree> {
     let mut w = {
         let _lock = app.worktree_lock.lock().await;
         let mut w = get(app, id).await?;
         ensure!(w.state == WorktreeState::Active, "only an active worktree can be merged");
-        let base = w.base_branch.clone().context("this worktree started from a detached checkout: there is no branch to merge into")?;
-        ensure!(crate::hostfs::is_dir(&w.root).await, "the worktree folder is missing");
+        ensure!(w.pull_request.is_none(), "this branch continues a pull request: merge it on GitHub");
+        let base = w.base_branch.clone().context("this worktree has no base branch to merge into")?;
         let retries = w.merge.as_ref().filter(|m| m.by_agent && by_agent).map(|m| m.agent_retries).unwrap_or(0);
         w.merge = Some(MergeRequest { phase: MergePhase::Waiting, reason: format!("Waiting to merge into {base}"), by_agent, agent_retries: retries, requested_at: now_ms() });
         save(app, &w).await?;
@@ -951,15 +842,15 @@ pub async fn request_merge(app: &App, id: &str, by_agent: bool) -> Result<TaskWo
     Ok(w)
 }
 
-/// `launchpad work finish`: requests the merge of every worktree of the session, or turns the
-/// primary worktree into a Local PR when the launch chose it.
+/// `launchpad work finish`: requests the merge of every worktree of the session, or opens a Local PR of the
+/// primary worktree's branch when the launch chose it.
 pub async fn finish(app: &App, session_id: &str) -> Result<String> {
     let when_done = app.sessions.get(session_id).and_then(|s| s.launch_spec.worktree).map(|o| o.when_done).unwrap_or_default();
     if when_done == crate::model::WhenDone::LocalPr {
         return finish_local_pr(app, session_id).await;
     }
     let all = for_session(app, session_id).await?;
-    let records: Vec<_> = all.into_iter().filter(|w| w.state == WorktreeState::Active && w.base_branch.is_some()).collect();
+    let records: Vec<_> = all.into_iter().filter(|w| w.state == WorktreeState::Active && w.base_branch.is_some() && w.pull_request.is_none()).collect();
     ensure!(!records.is_empty(), "this session has no Launchpad worktree to merge");
     for w in &records {
         ready_to_finish(app, w).await?;
@@ -970,7 +861,7 @@ pub async fn finish(app: &App, session_id: &str) -> Result<String> {
         lines.push(format!("- {} into {}", w.branch, w.base_branch.as_deref().unwrap_or_default()));
     }
     Ok(format!(
-        "Merge requested:\n{}\nLaunchpad merges after your turn ends, when the target checkout is clean. End your turn now and report the merge as requested, not as done. Do not merge yourself.",
+        "Merge requested:\n{}\nLaunchpad pushes your branches to Home and merges them there after your turn ends. End your turn now and report the merge as requested, not as done. Do not merge yourself.",
         lines.join("\n")
     ))
 }
@@ -984,20 +875,24 @@ async fn ready_to_finish(app: &App, w: &TaskWorktree) -> Result<()> {
     Ok(())
 }
 
-/// Turns the session's primary worktree into a Local PR. Idempotent: a second call returns the same Local PR.
+/// Opens a Local PR of the session's primary branch on Home. Idempotent: a second call returns the same
+/// Local PR. The session's other branches join the same change set when they become Local PRs.
 async fn finish_local_pr(app: &App, session_id: &str) -> Result<String> {
     let all = for_session(app, session_id).await?;
-    let w = all.iter().find(|w| w.primary && matches!(w.state, WorktreeState::Active | WorktreeState::Predraft)).context("this session has no Launchpad worktree to turn into a Local PR")?;
-    ready_to_finish(app, w).await?;
+    let mut w = all.iter().find(|w| w.primary && w.state == WorktreeState::Active).cloned().context("this session has no Launchpad worktree to turn into a Local PR")?;
+    ensure!(w.pull_request.is_none(), "this branch continues a pull request: push your commits instead of opening a Local PR");
+    ready_to_finish(app, &w).await?;
+    push(app, &mut w).await.context("push the branch to Home")?;
     let title = app.sessions.get(session_id).map(|s| s.title).filter(|t| !t.trim().is_empty());
-    let p = crate::predrafts::create(app, crate::predrafts::Create { cwd: Some(w.root.clone()), title, ..Default::default() }).await?;
+    let p = crate::predrafts::open_for_branch(app, &w.project_id, &w.branch, w.base_branch.as_deref(), Some(session_id), title).await?;
+    mark_predraft(app, &w.id, &p.id).await?;
     let others: Vec<String> = all.iter().filter(|o| !o.primary && o.state == WorktreeState::Active).map(|o| format!("`{}`", o.branch)).collect();
     let mut text = format!(
-        "Local PR opened from branch `{}` (id {}), based on `{}`. Now set its title and description: write the description to a file, then run `{} pr update --title \"…\" --body-file <file>` in `{}`. Then end your turn and report the Local PR as opened for review. Do not push or open a pull request on GitHub.",
-        p.branch, p.id, p.base_branch, app.cli_command_in(&p.root), p.root
+        "Local PR opened on Home from branch `{}` (id {}), based on `{}`. Now set its title and description: write the description to a file, then run `{} pr update --title \"…\" --body-file <file>` in `{}`. Then end your turn and report the Local PR as opened for review. Do not open a pull request on GitHub.",
+        p.branch, p.id, p.base_branch, app.cli_command_in(&w.root), w.root
     );
     if !others.is_empty() {
-        text.push_str(&format!(" The branches of your other worktrees ({}) stay local for the owner to review.", others.join(", ")));
+        text.push_str(&format!(" The branches of your other worktrees ({}) can join the same change set: run `{} pr create` in each of them.", others.join(", "), app.cli_command_in(&w.root)));
     }
     Ok(text)
 }
@@ -1012,15 +907,12 @@ pub async fn cancel_merge(app: &App, id: &str) -> Result<TaskWorktree> {
 }
 
 fn conflict_message(app: &App, w: &TaskWorktree, reason: &str, session_id: &str) -> String {
+    let base = w.base_branch.as_deref().unwrap_or_default();
     format!(
-        "Launchpad could not merge branch `{}` into `{}`: {reason}\nIn your worktree `{}`, rebase onto `{}` (for example `git rebase {}`), resolve the conflicts, re-run the relevant checks, and commit. Then run `{} work finish --session-id {session_id}` again. Do not merge into `{}` yourself.\nWhen you finish this recovery turn, make your final message a concise, self-contained summary of the original task and this recovery: lead with the overall outcome, preserve the substantive results from your previous task summary, and update the checks actually performed and their results, remaining work or limitations, and merge status. Report the merge as requested, not completed. The user sees this as the run's final message, so include the task results even though this is a follow-up turn.",
+        "Launchpad could not merge branch `{}` into `{base}`: {reason}\nIn your worktree `{}`, run `git fetch origin`, rebase onto `origin/{base}`, resolve the conflicts, re-run the relevant checks, and commit. Then run `{} work finish --session-id {session_id}` again. Do not merge into `{base}` yourself.\nWhen you finish this recovery turn, make your final message a concise, self-contained summary of the original task and this recovery: lead with the overall outcome, preserve the substantive results from your previous task summary, and update the checks actually performed and their results, remaining work or limitations, and merge status. Report the merge as requested, not completed. The user sees this as the run's final message, so include the task results even though this is a follow-up turn.",
         w.branch,
-        w.base_branch.as_deref().unwrap_or_default(),
         w.root,
-        w.base_branch.as_deref().unwrap_or_default(),
-        w.base_branch.as_deref().unwrap_or_default(),
         app.cli_command_in(&w.root),
-        w.base_branch.as_deref().unwrap_or_default(),
     )
 }
 
@@ -1033,9 +925,8 @@ pub async fn fix_with_agent(app: &App, id: &str) -> Result<()> {
     app.sessions.send(app, &session, &conflict_message(app, &w, &m.reason, &session), vec![]).await
 }
 
-/// One merge attempt. Never stashes, resets, cleans or commits anyone's changes, and never forces.
+/// One merge attempt: push the branch, then Home fast-forwards the base branch.
 async fn attempt(app: &App, id: &str) {
-    let mut push = None;
     let outcome = {
         let _action = app.sessions.action_lock().await;
         let _lock = app.worktree_lock.lock().await;
@@ -1044,15 +935,12 @@ async fn attempt(app: &App, id: &str) {
         if m.phase != MergePhase::Waiting {
             return;
         }
-        let result = try_merge(app, &w).await;
-        let result = match result {
-            Ok(Step::Merged(head, base)) => {
+        let result = match try_merge(app, &mut w).await {
+            Ok(Step::Merged(head, note)) => {
                 let into = w.base_branch.clone().unwrap_or_default();
-                w.remote_sync_note = Some(format!("Remote sync: local merge saved; push of {into} requested."));
-                push = Some((w.clone(), into.clone(), head.clone()));
                 w.merge = None;
-                w.merged = Some(Merged { base: Some(base), into: into.clone(), head: head.clone(), at: now_ms() });
-                notice(app, &w, &format!("Launchpad merged {} into {into} ({}).", w.branch, &head[..12.min(head.len())])).await;
+                w.merged = Some(Merged { base: Some(w.base_commit.clone()), into: into.clone(), head: head.clone(), note: note.clone(), at: now_ms() });
+                notice(app, &w, &format!("Launchpad merged {} into {into} ({}). {note}", w.branch, &head[..12.min(head.len())])).await;
                 None
             }
             Ok(Step::Wait(reason)) => {
@@ -1072,27 +960,11 @@ async fn attempt(app: &App, id: &str) {
             }
         };
         if let Err(e) = save(app, &w).await {
-            push = None;
             tracing::warn!("worktree merge {id}: {e:#}");
         }
         result.map(|r| (w, r))
     };
-    // Network publication runs after local success is saved and all action locks are released.
-    if let Some((w, base, head)) = push {
-        let app = app.clone();
-        tokio::spawn(async move {
-            let note = crate::remote_sync::push(&app, &w.repo, &base, &head).await;
-            let _lock = app.worktree_lock.lock().await;
-            if let Ok(mut current) = get(&app, &w.id).await
-                && current.merged.as_ref().is_some_and(|m| m.head == head)
-            {
-                current.remote_sync_note = Some(note.clone());
-                if let Err(e) = save(&app, &current).await { tracing::warn!("save remote sync: {e:#}"); }
-            }
-            notice(&app, &w, &note).await;
-        });
-    }
-    // The agent fixes conflicts itself, after the locks are released.
+    // The agent rebases itself, after the locks are released.
     if let Some((w, (Some(session), reason))) = outcome
         && let Err(e) = app.sessions.send_follow_up(app, &session, &conflict_message(app, &w, &reason, &session), false).await
     {
@@ -1106,12 +978,12 @@ enum Step {
     Conflict(String),
 }
 
-async fn try_merge(app: &App, w: &TaskWorktree) -> Result<Step> {
+async fn try_merge(app: &App, w: &mut TaskWorktree) -> Result<Step> {
     let base = w.base_branch.clone().context("no base branch")?;
     if let Some(reason) = idle_agent_reason(app, w, false) {
         return Ok(Step::Wait(format!("Waiting: {reason}")));
     }
-    ensure!(crate::hostfs::is_dir(&w.root).await, "the worktree folder is missing");
+    ensure!(Path::new(&w.root).is_dir(), "the worktree folder is missing");
     let dirty = dirty_files(app, &w.root).await?;
     if !dirty.is_empty() {
         return Ok(Step::Conflict(format!("the worktree has {} uncommitted files ({}); commit them first", dirty.len(), dirty.iter().take(5).cloned().collect::<Vec<_>>().join(", "))));
@@ -1119,58 +991,33 @@ async fn try_merge(app: &App, w: &TaskWorktree) -> Result<Step> {
     ensure!(!operation_in_progress(app, &w.root).await, "a Git operation is in progress in the worktree");
     let branch = git(app, &w.root, &["branch", "--show-current"]).await?;
     ensure!(branch == w.branch, "the worktree is on {branch:?} instead of {}", w.branch);
-    let Some(target) = checkout_of(app, &w.repo, &base).await? else {
-        return Ok(Step::Wait(format!("Waiting: no checkout has {base} checked out. Check out {base} in {} to continue.", w.repo)));
+    if let Err(e) = push(app, w).await {
+        return Ok(Step::Wait(format!("Waiting: the branch is not on Home yet ({e:#})")));
+    }
+    let head = w.pushed.clone().context("the branch is not on Home")?;
+    let outcome = if crate::home_git::here(app) {
+        let project = crate::projects::get(app, &w.project_id).await?.context("the folder no longer exists")?;
+        crate::home_git::merge(app, &project, &w.branch, &head, &base).await?
+    } else {
+        let v = crate::home_link::home_request("POST", &format!("/api/home-git/{}/merge", w.project_id), Some(json!({"branch": w.branch, "head": head, "base": base}))).await?;
+        serde_json::from_value(v)?
     };
-    // Uncommitted or untracked files in the target do not block: `merge --ff-only` keeps them and
-    // refuses atomically when the merge would overwrite one of them.
-    let target_dirty = !dirty_files(app, &target).await?.is_empty();
-    if operation_in_progress(app, &target).await {
-        return Ok(Step::Wait(format!("Waiting: a Git operation is in progress in {target}.")));
-    }
-    if app.sessions.list().iter().any(|s| !w.sessions.contains(&s.id) && crate::terminals::inside(&s.cwd, &target) && !crate::terminals::inside(&s.cwd, &w.root) && app.sessions.is_busy(s)) {
-        return Ok(Step::Wait(format!("Waiting: an agent is running in {target}.")));
-    }
-    let head = git(app, &w.root, &["rev-parse", "HEAD"]).await?;
-    let base_head = git(app, &w.root, &["rev-parse", &format!("refs/heads/{base}")]).await?;
-    if git(app, &w.root, &["merge-base", "--is-ancestor", &head, &base_head]).await.is_ok() {
-        return Ok(Step::Merged(head, w.merged.as_ref().and_then(|m| m.base.clone()).unwrap_or_else(|| w.base_commit.clone())));
-    }
-    let needs_rebase = git(app, &w.root, &["merge-base", "--is-ancestor", &base_head, &head]).await.is_err();
-    if needs_rebase && !git(app, &w.root, &["rev-list", "--merges", &format!("{base_head}..{head}"), "--"]).await?.is_empty() {
-        bail!("branch {} contains merge commits; integrate {base} manually while preserving merge resolutions, then request the merge again", w.branch);
-    }
-    if needs_rebase
-        && let Err(e) = git(app, &w.root, &["rebase", &base_head]).await
-    {
-        let files = git(app, &w.root, &["diff", "--name-only", "--diff-filter=U"]).await.unwrap_or_default();
-        git(app, &w.root, &["rebase", "--abort"]).await.context("could not abort the failed rebase")?;
-        let files = files.lines().take(10).collect::<Vec<_>>().join(", ");
-        return Ok(Step::Conflict(if files.is_empty() { format!("rebasing onto {base} failed: {e:#}") } else { format!("rebasing onto {base} conflicts in {files}") }));
-    }
-    let head = git(app, &w.root, &["rev-parse", "HEAD"]).await?;
-    if let Err(e) = git(app, &target, &["merge", "--ff-only", &head]).await {
-        if target_dirty {
-            return Ok(Step::Wait(format!("Waiting: uncommitted changes in {target} would be overwritten by the merge ({e:#}). Commit or remove them to continue.")));
-        }
-        return Err(e.context(format!("fast-forward of {base} in {target}")));
-    }
-    Ok(Step::Merged(head, base_head))
+    Ok(match outcome {
+        crate::home_git::MergeOutcome::Merged { head, note } => Step::Merged(head, note),
+        crate::home_git::MergeOutcome::NeedsRebase { reason, .. } => Step::Conflict(reason),
+    })
 }
 
-/// Promotes the session's worktree into a pre-draft, which then owns its folder and branch.
-pub async fn mark_predraft(app: &App, root: &str, predraft_id: &str) -> Result<()> {
+/// Links the worktree to the Local PR of its branch.
+pub async fn mark_predraft(app: &App, id: &str, predraft_id: &str) -> Result<()> {
     let _lock = app.worktree_lock.lock().await;
-    if let Some(mut w) = list(app).await?.into_iter().find(|w| w.root == root && w.state == WorktreeState::Active) {
-        w.state = WorktreeState::Predraft;
-        w.predraft_id = Some(predraft_id.to_string());
-        w.merge = None;
-        save(app, &w).await?;
-    }
-    Ok(())
+    let mut w = get(app, id).await?;
+    w.predraft_id = Some(predraft_id.to_string());
+    w.merge = None;
+    save(app, &w).await
 }
 
-/// After Archive: remove the clean worktrees whose sessions are all archived.
+/// After Archive: remove the worktrees whose sessions are all archived.
 pub async fn after_archive(app: &App, session_id: &str) {
     let Ok(records) = for_session(app, session_id).await else { return };
     for w in records.into_iter().filter(|w| w.state == WorktreeState::Active) {
@@ -1198,8 +1045,8 @@ fn last_activity(app: &App, w: &TaskWorktree) -> i64 {
     w.sessions.iter().filter_map(|id| app.sessions.get(id)).map(|s: Session| s.status_since).max().unwrap_or(w.created_at)
 }
 
-/// Retention: keeps the newest `keep` clean worktrees of idle agents; older clean ones are removed (Resume
-/// restores them). Dirty, busy and pending-merge worktrees always stay.
+/// Retention: keeps the newest `keep` worktrees of idle agents; older ones are removed once Home has their
+/// branch (Resume clones them again). Busy and pending-merge worktrees always stay.
 async fn retention(app: &App) {
     let keep = app.config.get().worktrees.keep as usize;
     let Ok(records) = list(app).await else { return };
@@ -1213,14 +1060,22 @@ async fn retention(app: &App) {
     }
 }
 
-/// Retries waiting merges every 15 s and applies retention every hour (and at startup).
+/// Retries waiting merges every 15 s, snapshots running worktrees every five minutes, and applies retention
+/// every hour (and at startup).
 pub fn spawn(app: &App) {
+    if !app.paths.role.runs_agents() {
+        return;
+    }
     let app = app.clone();
     tokio::spawn(async move {
         let mut tick: u64 = 0;
+        let mut last = HashMap::new();
         loop {
             if tick.is_multiple_of(240) {
                 retention(&app).await;
+            }
+            if tick > 0 && tick.is_multiple_of(SNAPSHOT_EVERY.as_secs() / 15) {
+                snapshots(&app, &mut last).await;
             }
             if let Ok(records) = list(&app).await {
                 for w in records.iter().filter(|w| w.merge.as_ref().is_some_and(|m| m.phase == MergePhase::Waiting)) {

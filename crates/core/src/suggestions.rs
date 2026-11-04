@@ -221,6 +221,15 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
                 ),
             });
             s.status = "posted".into();
+            // On a runner, the Local PR is Home's: the note goes there, then the suggestion is marked here.
+            if !crate::home_git::here(app) {
+                let p = predrafts::update_anywhere(app, id, predrafts::Patch { notes: Some(p.notes.clone()), ..Default::default() }).await?;
+                let (suggestion_id, suggestion_json) = (s.id.clone(), serde_json::to_string(&s)?);
+                app.state_db.call(move |c| Ok(c.execute("UPDATE draft_comment SET json=?1 WHERE id=?2", rusqlite::params![suggestion_json, suggestion_id])?)).await?;
+                app.bus.publish("predrafts", "updated", json!(p));
+                app.bus.publish("suggestions", "updated", json!(s));
+                return Ok(s);
+            }
             let predraft_id = id.clone();
             let predraft_json = serde_json::to_string(&p)?;
             let suggestion_id = s.id.clone();

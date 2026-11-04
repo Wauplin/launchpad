@@ -130,6 +130,10 @@ async fn workspaces(s: &Server) -> ToRunner {
     ToRunner::Workspaces { workspaces: launchpad_core::workspace::list(&s.app).await.unwrap_or_default() }
 }
 
+async fn folders(s: &Server) -> Option<ToRunner> {
+    launchpad_core::projects::home_folders(&s.app).await.ok().map(|projects| ToRunner::Folders { projects })
+}
+
 const PING: std::time::Duration = std::time::Duration::from_secs(25);
 
 async fn send(tx: &mut futures_util::stream::SplitSink<WebSocket, Message>, msg: &ToRunner) -> bool {
@@ -179,6 +183,9 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
     if !send(&mut tx, &workspaces(&s).await).await {
         return;
     }
+    if let Some(f) = folders(&s).await && !send(&mut tx, &f).await {
+        return;
+    }
     let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<ToRunner>();
     let conn = s.app.runners.connect(&s.app, &runner.id, compat, guard, out_tx);
     let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING, PING);
@@ -190,13 +197,14 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
                 if !send(&mut tx, &msg).await { break }
             }
             delivered = bus.recv() => {
-                // Workspaces are Home's: every runner gets each new snapshot.
-                let changed = match delivered {
-                    Ok(d) => d.text.contains(r#""topic":"workspaces""#),
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => true,
-                    Err(_) => false,
+                // Workspaces and Git folders are Home's: every runner gets each new snapshot.
+                let (w, f) = match delivered {
+                    Ok(d) => (d.text.contains(r#""topic":"workspaces""#), d.text.contains(r#""topic":"projects""#)),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => (true, true),
+                    Err(_) => (false, false),
                 };
-                if changed && !send(&mut tx, &workspaces(&s).await).await { break }
+                if w && !send(&mut tx, &workspaces(&s).await).await { break }
+                if f && let Some(f) = folders(&s).await && !send(&mut tx, &f).await { break }
             }
             _ = ping.tick() => {
                 // A silent runner (sleeping laptop, dead network) is dropped after three missed pings.
@@ -226,8 +234,8 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
                         let runner_id = runner.id.clone();
                         tokio::spawn(async move {
                             let res = match crate::ROUTER.get() {
-                                Some(router) if path.starts_with("/api/workspaces") => crate::home_client::local(&app, router, &method, &path, body, &[]).await,
-                                _ => Err(anyhow::anyhow!("runners may only change workspaces on Home")),
+                                Some(router) if crate::home_client::home_accepts(&path) => crate::home_client::local(&app, router, &method, &path, body, &[]).await,
+                                _ => Err(anyhow::anyhow!("runners may only send requests about records Home owns")),
                             };
                             let (status, body) = res.unwrap_or_else(|e| (400, json!({"error": format!("{e:#}")}).to_string()));
                             out.send_to(&runner_id, ToRunner::Res { id, status, body });
@@ -262,9 +270,6 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
                 Some(r) if !served => Some(r),
                 _ => return next.run(req).await,
             }
-        }
-        ["api", "projects"] | ["api", "projects", "clone"] if method == axum::http::Method::POST => {
-            return ApiError::bad_request("Home has no folders of its own yet: add folders from a runner's window").into_response();
         }
         ["api", "projects", id, rest @ ..] if !get || rest == ["branches"] => match launchpad_core::projects::get(&s.app, id).await.ok().flatten().and_then(|p| p.runner_id) {
             Some(r) => Some(r),
@@ -306,6 +311,10 @@ async fn launch_runner(s: &Server, body: Option<&str>) -> Result<String, ApiErro
     let available = s.app.runners.available();
     if let Some(project) = project {
         let p = launchpad_core::projects::get(&s.app, &project).await?.ok_or_else(|| ApiError::bad_request("no such folder"))?;
+        // A Git folder of Home runs on any runner: it clones the folder on first use.
+        if p.home_git {
+            return available.into_iter().next().ok_or_else(|| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "no runner takes launches now: connect one, or check its guard in Settings → Home and runners"));
+        }
         let r = p.runner_id.ok_or_else(|| ApiError::bad_request(format!("{} is not on a runner", p.name)))?;
         if !available.contains(&r) {
             let all = runners::list(&s.app).await?;

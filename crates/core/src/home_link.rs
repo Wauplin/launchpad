@@ -136,3 +136,37 @@ pub fn space_token(url: &str) -> Option<String> {
     let home = std::env::var("HF_HOME").map(std::path::PathBuf::from).ok().or_else(|| dirs::home_dir().map(|h| h.join(".cache/huggingface")))?;
     std::fs::read_to_string(home.join("token")).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
 }
+
+type Reply = std::pin::Pin<Box<dyn std::future::Future<Output = Result<(u16, String)>> + Send>>;
+type Requester = Box<dyn Fn(String, String, Option<String>) -> Reply + Send + Sync>;
+static REQUESTER: std::sync::OnceLock<Requester> = std::sync::OnceLock::new();
+
+/// Runner: how core services send API requests to Home (the tunnel, set by the server).
+pub fn set_requester(r: Requester) {
+    let _ = REQUESTER.set(r);
+}
+
+/// Runner: an API request to Home through the tunnel. Errors carry Home's message.
+pub async fn home_request(method: &str, path: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value> {
+    let r = REQUESTER.get().context("this daemon has no Home")?;
+    let (status, text) = r(method.into(), path.into(), body.map(|b| b.to_string())).await?;
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    if !(200..300).contains(&status) {
+        anyhow::bail!("{}", value["error"].as_str().map(str::to_string).unwrap_or_else(|| format!("Home answered {status}")));
+    }
+    Ok(value)
+}
+
+/// Home refreshes a folder's mirror from its remote (created on first use). Local on Home and `all`.
+pub async fn refresh_mirror(app: &App, project_id: &str) -> Result<()> {
+    if crate::home_git::here(app) {
+        let p = crate::projects::get(app, project_id).await?.context("no such folder")?;
+        let existed = crate::home_git::mirror(app, project_id).join("HEAD").exists();
+        crate::home_git::ensure(app, &p).await?;
+        if existed {
+            crate::home_git::refresh(app, &p).await?;
+        }
+        return Ok(());
+    }
+    home_request("POST", &format!("/api/home-git/{project_id}/refresh"), None).await.map(|_| ())
+}

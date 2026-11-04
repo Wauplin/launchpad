@@ -31,7 +31,9 @@ pub async fn git_dir(repo: &Path) -> Option<PathBuf> {
 
 /// Remote URLs from the git config: `[(name, url)]`.
 pub async fn remotes(repo: &Path) -> Vec<(String, String)> {
-    let Some(dir) = git_dir(repo).await else { return vec![] };
+    // A bare repository (Home Git mirrors) is its own Git directory.
+    let bare = crate::hostfs::is_file(&repo.join("HEAD")).await && crate::hostfs::is_dir(&repo.join("objects")).await;
+    let Some(dir) = (if bare { Some(repo.to_path_buf()) } else { git_dir(repo).await }) else { return vec![] };
     // Worktrees keep their config in the main repository (`commondir`).
     let common = crate::hostfs::read_to_string(dir.join("commondir"))
         .await

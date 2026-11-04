@@ -230,6 +230,8 @@ pub mod proto {
         Res { id: u64, status: u16, body: String },
         /// Every workspace (Home owns them), on connect and after each change.
         Workspaces { workspaces: Vec<crate::workspace::Workspace> },
+        /// Every Git folder of Home, on connect and after each change.
+        Folders { projects: Vec<crate::model::Project> },
         Pong,
     }
 }

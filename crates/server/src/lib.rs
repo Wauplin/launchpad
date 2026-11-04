@@ -5,6 +5,7 @@ mod browser;
 mod auth;
 mod code;
 mod error;
+mod git_http;
 mod home_client;
 mod hosts;
 mod items;
@@ -96,6 +97,7 @@ pub(crate) fn router(server: Server) -> Router {
         .merge(hosts::router())
         .merge(push::router())
         .merge(runners::router())
+        .merge(git_http::router())
         .route("/ws", axum::routing::get(ws::handler))
         .merge(auth::router())
         .fallback(ui::serve)

@@ -91,7 +91,7 @@ const PredraftRow = memo(function PredraftRow({ p, project, session }: { p: Pred
 
 const BranchRow = memo(function BranchRow({ i, session }: { i: WorktreeInfo; session: Session | undefined }) {
   const w = i.worktree;
-  const state = w.merge ? "merge requested" : w.state === "handed_off" ? "in the checkout" : null;
+  const state = w.merge ? "merge requested" : w.push_note ? "not on Home" : null;
   return <ReviewRow
     icon="branch" title={session?.title ?? w.branch}
     meta={<>

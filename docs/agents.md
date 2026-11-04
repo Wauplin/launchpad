@@ -107,7 +107,7 @@ flowchart LR
     A[Launch] --> B["New worktree<br/>branch lp/task-name"]
     B --> C{When done}
     C -->|Keep branch for review| D[Review in Changes]
-    C -->|Merge into base| E[Rebase + fast-forward]
+    C -->|Merge into base| E[Fast-forward on Home]
     C -->|Open a Local PR| F
     D --> E
     D --> F[Create Local PR]
@@ -116,11 +116,12 @@ flowchart LR
     H --> E
 ```
 
-- **When done** is remembered per folder: **Keep branch for review** (default), **Open a Local PR** or **Merge into &lt;base&gt;**. With **Open a Local PR**, the agent runs `launchpad work finish` when it is done: Launchpad turns the worktree into a Local PR (same folder and branch), and the agent sets its title and description. You review and publish it.
-- Merges wait until the agents are idle and the worktree is clean, then rebase and fast-forward. Launchpad never stashes, resets or force-pushes. Conflicts go back to the agent.
-- After a successful merge, Launchpad tries to push exactly the merged commit to the base branch’s upstream (or the same branch on `origin`) in the background. It never forces a push or retries automatically. Task branches (`lp/`) stay local. A failed push keeps the local merge and appears in the worktree card and session trace. Each Git sync command has a 10-second timeout and cannot ask for credentials.
-- A per-folder **Worktree setup** command and `.worktreeinclude` files prepare new worktrees (dependencies, `.env` files).
-- Clean worktrees of archived agents are removed after a retention limit (`[worktrees] keep`). The branch stays, and **Resume** restores the folder.
+- Every agent in a Git folder works in a fresh worktree cloned from Home Git before it starts; your own checkouts are never used. Its branch (`lp/…`) goes back to Home at the end of every turn, and running worktrees are snapshotted to Home every five minutes.
+- **When done** is remembered per folder: **Keep branch for review** (default), **Open a Local PR** or **Merge into &lt;base&gt;**. With **Open a Local PR**, the agent runs `launchpad work finish` when it is done: Launchpad opens a Local PR of its branch on Home, and the agent sets its title and description. You review and publish it.
+- Merges wait until the agents are idle and the worktree is clean, push the branch to Home, then Home fast-forwards the base branch and pushes it to the folder's remote. If the base branch moved, the agent rebases first. Launchpad never stashes, resets or force-pushes. A failed push keeps the merge on Home and appears in the worktree card and session trace.
+- A per-folder **Worktree setup** command prepares new worktrees (dependencies).
+- Worktrees of archived agents are removed after a retention limit (`[worktrees] keep`), once Home has their branch; uncommitted files go to a `lp-scratch/…` branch first. **Resume** clones the folder again.
+- Home keeps every previous tip of a Launchpad branch for 30 days: the folder page lists them under **Launchpad branches**, with **Restore**.
 
 ## Scheduling
 

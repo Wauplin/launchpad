@@ -1,0 +1,506 @@
+//! Home Git: a bare mirror of every Git folder in use, served to runners as their `origin`.
+//!
+//! A mirror (`<data_dir>/git/<folder-id>.git`) follows the folder's remote for every branch except Launchpad
+//! branches (`lp/…`, `lp-scratch/…`), which only runners push. Only Home writes the mirrored base branches,
+//! through Merge or Publish. Every previous tip of a Launchpad branch is kept as a real ref
+//! (`refs/kept/<time>/<branch>`) for 30 days, also after force pushes and deletes, with Restore.
+//!
+//! Runners reach a mirror with Git's smart HTTP protocol (`git http-backend`) through their tunnel's
+//! credential; agents push through their runner, never with a credential of their own.
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use anyhow::{Context, Result, bail, ensure};
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+use crate::App;
+use crate::exec::Io;
+use crate::model::Project;
+use crate::util::now_ms;
+
+/// Previous branch tips and leftover branches are kept this long.
+pub const KEEP_MS: i64 = 30 * 24 * 3600 * 1000;
+
+/// Refuses pushes to anything but Launchpad branches and snapshots, except imports by a runner daemon.
+const PRE_RECEIVE: &str = r#"#!/bin/sh
+[ "$LP_IMPORT" = 1 ] && exit 0
+while read old new ref; do
+  case "$ref" in
+    refs/heads/lp/*|refs/heads/lp-scratch/*|refs/lp-snapshots/*) ;;
+    *) echo "Home Git: only Launchpad branches (lp/...) can be pushed here; $ref changes through Merge or Publish in Launchpad"; exit 1 ;;
+  esac
+done
+"#;
+
+pub fn root(app: &App) -> PathBuf {
+    app.paths.data_dir.join("git")
+}
+
+pub fn mirror(app: &App, project_id: &str) -> PathBuf {
+    root(app).join(format!("{project_id}.git"))
+}
+
+/// Home Git lives in this daemon (Home, or a single-process `all` daemon).
+pub fn here(app: &App) -> bool {
+    app.paths.role != crate::role::Role::Runner
+}
+
+fn lock(app: &App, project_id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    app.suggestion_locks.get(&format!("home-git:{project_id}"))
+}
+
+/// A noninteractive Git command in `dir`, bounded by `secs`.
+pub(crate) async fn git_in(app: &App, dir: &Path, args: &[&str], secs: u64) -> Result<String> {
+    let mut cmd = crate::procs::command(&app.env, "git", Some(dir));
+    cmd.process_tree().args(args).stdin(Io::Null)
+        .env("GIT_TERMINAL_PROMPT", "0").env("GIT_ASKPASS", "true")
+        .env("GCM_INTERACTIVE", "Never").env("SSH_ASKPASS", "true").env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes");
+    let out = tokio::time::timeout(Duration::from_secs(secs), cmd.output()).await
+        .with_context(|| format!("git {} timed out after {secs} seconds", args.first().copied().unwrap_or_default()))??;
+    ensure!(out.status.success(), "git {}: {}", args.first().copied().unwrap_or_default(), String::from_utf8_lossy(&out.stderr).trim());
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+async fn git(app: &App, dir: &Path, args: &[&str]) -> Result<String> {
+    git_in(app, dir, args, 60).await
+}
+
+/// Where the mirror fetches from: the folder's remote, or (single-process daemon) the folder itself.
+fn upstream(app: &App, p: &Project) -> Option<String> {
+    if let Some(url) = p.remote_url.clone().filter(|u| !u.trim().is_empty()) {
+        return Some(url);
+    }
+    (app.paths.role == crate::role::Role::All && crate::hosts::loc::host_of(&p.path).is_none() && Path::new(&p.path).join(".git").exists()).then(|| p.path.clone())
+}
+
+/// Creates the mirror of a Git folder on first use and fetches it. Returns its path.
+pub async fn ensure(app: &App, p: &Project) -> Result<PathBuf> {
+    ensure!(here(app), "Home Git runs on Home");
+    let dir = mirror(app, &p.id);
+    if dir.join("HEAD").exists() && dir.join("hooks/pre-receive").exists() {
+        return Ok(dir);
+    }
+    let lock = lock(app, &p.id);
+    let _lock = lock.lock().await;
+    if dir.join("hooks/pre-receive").exists() {
+        return Ok(dir);
+    }
+    let partial = root(app).join(format!(".{}.creating", p.id));
+    let _ = tokio::fs::remove_dir_all(&partial).await;
+    tokio::fs::create_dir_all(&partial).await?;
+    git(app, &partial, &["init", "--quiet", "--bare", "--initial-branch=main"]).await?;
+    for (k, v) in [("gc.auto", "0"), ("receive.denyDeleteCurrent", "true"), ("uploadpack.allowAnySHA1InWant", "true"), ("core.logAllRefUpdates", "false")] {
+        git(app, &partial, &["config", k, v]).await?;
+    }
+    if let Some(url) = upstream(app, p) {
+        git(app, &partial, &["remote", "add", "origin", &url]).await?;
+        git(app, &partial, &["config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/heads/*"]).await?;
+        for negative in ["^refs/heads/lp/*", "^refs/heads/lp-scratch/*"] {
+            git(app, &partial, &["config", "--add", "remote.origin.fetch", negative]).await?;
+        }
+        git(app, &partial, &["config", "--add", "remote.origin.fetch", "+refs/tags/*:refs/tags/*"]).await?;
+    }
+    write_hook(&partial).await?;
+    tokio::fs::create_dir_all(root(app)).await?;
+    let _ = tokio::fs::remove_dir_all(&dir).await;
+    tokio::fs::rename(&partial, &dir).await?;
+    drop(_lock);
+    if upstream(app, p).is_some() {
+        refresh(app, p).await.with_context(|| format!("first fetch of {}", p.name))?;
+    }
+    // A Home restored from a backup gets its Launchpad branches back.
+    crate::home_backup::restore_bundle(app, &p.id).await?;
+    Ok(dir)
+}
+
+async fn write_hook(dir: &Path) -> Result<()> {
+    let hook = dir.join("hooks/pre-receive");
+    tokio::fs::create_dir_all(hook.parent().unwrap()).await?;
+    tokio::fs::write(&hook, PRE_RECEIVE).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).await?;
+    }
+    Ok(())
+}
+
+/// Fetches the folder's remote into the mirror (every branch but Launchpad branches) and follows its
+/// default branch. Launchpad branches never change here.
+pub async fn refresh(app: &App, p: &Project) -> Result<()> {
+    let dir = mirror(app, &p.id);
+    ensure!(dir.join("HEAD").exists(), "{} has no mirror on Home yet", p.name);
+    let lock = lock(app, &p.id);
+    let _lock = lock.lock().await;
+    if git(app, &dir, &["remote"]).await?.lines().all(|r| r != "origin") {
+        return Ok(());
+    }
+    git_in(app, &dir, &["fetch", "--quiet", "--prune", "--no-recurse-submodules", "origin"], 15 * 60).await?;
+    if let Ok(out) = git_in(app, &dir, &["ls-remote", "--symref", "origin", "HEAD"], 60).await
+        && let Some(branch) = out.lines().find_map(|l| l.strip_prefix("ref: refs/heads/").and_then(|s| s.split_once('\t').map(|(b, _)| b.to_string())))
+        && git(app, &dir, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")]).await.is_ok()
+    {
+        git(app, &dir, &["symbolic-ref", "HEAD", &format!("refs/heads/{branch}")]).await?;
+    }
+    Ok(())
+}
+
+/// The folder's default branch on Home.
+pub async fn default_branch(app: &App, project_id: &str) -> Result<String> {
+    let dir = mirror(app, project_id);
+    let head = git(app, &dir, &["symbolic-ref", "--short", "HEAD"]).await?;
+    Ok(head)
+}
+
+/// Base branches (everything but Launchpad branches), most recent first, with the default branch first.
+pub async fn base_branches(app: &App, project_id: &str) -> Result<(Option<String>, Vec<String>)> {
+    let dir = mirror(app, project_id);
+    let current = default_branch(app, project_id).await.ok();
+    let list = git(app, &dir, &["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads"]).await?;
+    let mut names: Vec<String> = list.lines().filter(|b| !b.is_empty() && !b.starts_with("lp/") && !b.starts_with("lp-scratch/")).map(str::to_string).collect();
+    if let Some(c) = &current {
+        names.retain(|b| b != c);
+        names.insert(0, c.clone());
+    }
+    Ok((current, names))
+}
+
+/// Commit of a ref in the mirror, `None` when it does not exist.
+pub async fn tip(app: &App, project_id: &str, refname: &str) -> Result<Option<String>> {
+    let dir = mirror(app, project_id);
+    Ok(git(app, &dir, &["rev-parse", "--verify", "--quiet", &format!("{refname}^{{commit}}")]).await.ok().filter(|s| !s.is_empty()))
+}
+
+/// Launchpad branch tips: `refs/heads/…` → commit.
+pub async fn launchpad_refs(app: &App, project_id: &str) -> Result<BTreeMap<String, String>> {
+    let dir = mirror(app, project_id);
+    let out = git(app, &dir, &["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/lp/", "refs/heads/lp-scratch/"]).await?;
+    Ok(out.lines().filter_map(|l| l.split_once(' ').map(|(r, c)| (r.to_string(), c.to_string()))).collect())
+}
+
+/// After a push: keeps the previous tip of every changed Launchpad branch, forwards followed branches to
+/// GitHub and tells windows. `session`: the pushing session, if any.
+pub async fn after_push(app: &App, project_id: &str, before: &BTreeMap<String, String>, session: Option<&str>) -> Result<()> {
+    let after = launchpad_refs(app, project_id).await?;
+    let dir = mirror(app, project_id);
+    let at = now_ms();
+    let mut changed = vec![];
+    for (refname, old) in before {
+        if after.get(refname) != Some(old) {
+            let branch = refname.trim_start_matches("refs/heads/");
+            git(app, &dir, &["update-ref", &format!("refs/kept/{at}/{branch}"), old]).await?;
+            changed.push(branch.to_string());
+        }
+    }
+    changed.extend(after.keys().filter(|r| !before.contains_key(*r)).map(|r| r.trim_start_matches("refs/heads/").to_string()));
+    if changed.is_empty() {
+        return Ok(());
+    }
+    crate::home_backup::changed();
+    app.bus.publish("home_git", "pushed", serde_json::json!({"project_id": project_id, "branches": changed, "session_id": session}));
+    for branch in &changed {
+        if let Some(head) = after.get(&format!("refs/heads/{branch}"))
+            && let Some(follow) = follow(app, project_id, branch).await?
+        {
+            let (app, project_id, branch, head) = (app.clone(), project_id.to_string(), branch.clone(), head.clone());
+            tokio::spawn(async move { forward(&app, &project_id, &branch, &head, &follow).await });
+        }
+    }
+    Ok(())
+}
+
+/// A Launchpad branch whose commits Home pushes to GitHub after each push from a runner: a published Local
+/// PR or a session that continues a GitHub pull request. Never forced.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct Follow {
+    /// Remote name in the mirror or URL.
+    pub remote: String,
+    pub branch: String,
+    /// The pull request, for notices.
+    pub url: String,
+    /// The session told about each push, when there is one.
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+
+pub async fn set_follow(app: &App, project_id: &str, branch: &str, follow: &Follow) -> Result<()> {
+    let (p, b, json) = (project_id.to_string(), branch.to_string(), serde_json::to_string(follow)?);
+    app.state_db.call(move |c| {
+        c.execute("INSERT INTO git_follow (project_id, branch, json) VALUES (?1, ?2, ?3) ON CONFLICT (project_id, branch) DO UPDATE SET json = ?3", [p, b, json])?;
+        Ok(())
+    }).await
+}
+
+pub async fn follow(app: &App, project_id: &str, branch: &str) -> Result<Option<Follow>> {
+    let (p, b) = (project_id.to_string(), branch.to_string());
+    let json: Option<String> = app.state_db.call(move |c| {
+        use rusqlite::OptionalExtension;
+        Ok(c.query_row("SELECT json FROM git_follow WHERE project_id = ?1 AND branch = ?2", [p, b], |r| r.get(0)).optional()?)
+    }).await?;
+    Ok(json.and_then(|j| serde_json::from_str(&j).ok()))
+}
+
+/// Pushes a followed branch to GitHub, without force. The result shows in the session.
+async fn forward(app: &App, project_id: &str, branch: &str, head: &str, follow: &Follow) {
+    let dir = mirror(app, project_id);
+    let lock = app.suggestion_locks.get(&format!("home-git-forward:{project_id}:{branch}"));
+    let _lock = lock.lock().await;
+    let text = match git_in(app, &dir, &["push", "--quiet", &follow.remote, &format!("{head}:refs/heads/{}", follow.branch)], 300).await {
+        Ok(_) => format!("Home pushed {} to {} ({}).", &head[..12.min(head.len())], follow.url, follow.branch),
+        Err(e) => format!("Home could not push {branch} to {}: {e:#}. Rebase onto the pull request branch (`git pull --rebase` from it) and push to Home again; Home never force-pushes.", follow.url),
+    };
+    if let Some(session) = &follow.session_id {
+        crate::sessions::notice_anywhere(app, session, &text).await;
+    }
+}
+
+/// A Launchpad branch on Home with its previous tips.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct HomeBranch {
+    pub name: String,
+    /// None: deleted; only previous tips remain.
+    pub head: Option<String>,
+    pub subject: String,
+    #[ts(type = "number")]
+    pub committed_at: i64,
+    pub kept: Vec<KeptTip>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct KeptTip {
+    pub commit: String,
+    pub subject: String,
+    /// When the branch moved away from this commit.
+    #[ts(type = "number")]
+    pub replaced_at: i64,
+}
+
+/// Launchpad branches and their kept tips, newest first.
+pub async fn branches(app: &App, project_id: &str) -> Result<Vec<HomeBranch>> {
+    let dir = mirror(app, project_id);
+    if !dir.join("HEAD").exists() {
+        return Ok(vec![]);
+    }
+    let fmt = "--format=%(refname)%00%(objectname)%00%(subject)%00%(committerdate:unix)";
+    let heads = git(app, &dir, &["for-each-ref", fmt, "refs/heads/lp/", "refs/heads/lp-scratch/"]).await?;
+    let kept = git(app, &dir, &["for-each-ref", fmt, "refs/kept/"]).await?;
+    let mut out: BTreeMap<String, HomeBranch> = BTreeMap::new();
+    for line in heads.lines() {
+        let f: Vec<&str> = line.split('\0').collect();
+        if f.len() < 4 { continue }
+        let name = f[0].trim_start_matches("refs/heads/").to_string();
+        out.insert(name.clone(), HomeBranch { name, head: Some(f[1].into()), subject: f[2].into(), committed_at: f[3].parse::<i64>().unwrap_or(0) * 1000, kept: vec![] });
+    }
+    for line in kept.lines() {
+        let f: Vec<&str> = line.split('\0').collect();
+        if f.len() < 4 { continue }
+        let Some((at, name)) = f[0].trim_start_matches("refs/kept/").split_once('/') else { continue };
+        let b = out.entry(name.to_string()).or_insert_with(|| HomeBranch { name: name.to_string(), head: None, subject: String::new(), committed_at: 0, kept: vec![] });
+        b.kept.push(KeptTip { commit: f[1].into(), subject: f[2].into(), replaced_at: at.parse().unwrap_or(0) });
+    }
+    let mut list: Vec<HomeBranch> = out.into_values().collect();
+    for b in &mut list {
+        b.kept.sort_by_key(|k| std::cmp::Reverse(k.replaced_at));
+        b.kept.dedup_by(|a, b| a.commit == b.commit);
+        if b.committed_at == 0 {
+            b.committed_at = b.kept.first().map(|k| k.replaced_at).unwrap_or(0);
+        }
+    }
+    list.sort_by_key(|b| std::cmp::Reverse(b.committed_at));
+    Ok(list)
+}
+
+/// Restore: points a Launchpad branch back at one of its kept tips. The current tip is kept in turn.
+pub async fn restore(app: &App, project_id: &str, branch: &str, commit: &str) -> Result<()> {
+    ensure!(branch.starts_with("lp/") || branch.starts_with("lp-scratch/"), "only Launchpad branches can be restored");
+    let dir = mirror(app, project_id);
+    let kept = git(app, &dir, &["for-each-ref", "--format=%(objectname)", &format!("--points-at={commit}"), "refs/kept/"]).await?;
+    ensure!(!kept.is_empty(), "this commit is not a kept tip of {branch}");
+    let before = launchpad_refs(app, project_id).await?;
+    git(app, &dir, &["update-ref", &format!("refs/heads/{branch}"), commit]).await?;
+    after_push(app, project_id, &before, None).await
+}
+
+/// Deletes a Launchpad branch on Home; its tip stays restorable.
+pub async fn delete(app: &App, project_id: &str, branch: &str) -> Result<()> {
+    ensure!(branch.starts_with("lp/") || branch.starts_with("lp-scratch/"), "only Launchpad branches can be deleted");
+    let before = launchpad_refs(app, project_id).await?;
+    if before.contains_key(&format!("refs/heads/{branch}")) {
+        git(app, &mirror(app, project_id), &["update-ref", "-d", &format!("refs/heads/{branch}")]).await?;
+        after_push(app, project_id, &before, None).await?;
+    }
+    Ok(())
+}
+
+/// The outcome of a merge on Home.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MergeOutcome {
+    /// The base branch now points at `head`; `note` tells how the push to the remote went.
+    Merged { head: String, note: String },
+    /// The base branch moved: the branch must be rebased onto it first (by its agent).
+    NeedsRebase { base: String, reason: String },
+}
+
+/// Merge on Home: fast-forwards `base` to the reviewed `head` of `branch`, then pushes `base` to the
+/// folder's remote (best effort, never forced). A branch behind `base` must be rebased by its agent first.
+pub async fn merge(app: &App, p: &Project, branch: &str, head: &str, base: &str) -> Result<MergeOutcome> {
+    ensure!(!base.starts_with('-') && !base.starts_with("lp/"), "invalid base branch {base}");
+    let _ = refresh(app, p).await;
+    let lock = lock(app, &p.id);
+    let _lock = lock.lock().await;
+    let dir = mirror(app, &p.id);
+    let current = tip(app, &p.id, &format!("refs/heads/{branch}")).await?.with_context(|| format!("{branch} is not on Home; push it first"))?;
+    ensure!(current == head, "{branch} changed since review; review again");
+    let base_tip = tip(app, &p.id, &format!("refs/heads/{base}")).await?.with_context(|| format!("{base} does not exist on Home"))?;
+    if base_tip == head || git(app, &dir, &["merge-base", "--is-ancestor", head, &base_tip]).await.is_ok() {
+        return Ok(MergeOutcome::Merged { head: base_tip, note: format!("{branch} is already part of {base}.") });
+    }
+    if git(app, &dir, &["merge-base", "--is-ancestor", &base_tip, head]).await.is_err() {
+        return Ok(MergeOutcome::NeedsRebase { base: base.into(), reason: format!("{base} moved on Home ({}); {branch} must be rebased onto it", &base_tip[..12.min(base_tip.len())]) });
+    }
+    git(app, &dir, &["update-ref", &format!("refs/heads/{base}"), head, &base_tip]).await?;
+    crate::home_backup::changed();
+    let note = if git(app, &dir, &["remote"]).await?.lines().any(|r| r == "origin") {
+        match git_in(app, &dir, &["push", "--quiet", "origin", &format!("{head}:refs/heads/{base}")], 300).await {
+            Ok(_) => format!("Merged into {base} and pushed to the remote."),
+            Err(e) => format!("Merged into {base} on Home; the push to the remote failed: {e:#}. Push {base} from Home again or update it on the remote; a later refresh follows the remote."),
+        }
+    } else {
+        format!("Merged into {base} on Home (this folder has no remote).")
+    };
+    app.bus.publish("home_git", "merged", serde_json::json!({"project_id": p.id, "branch": branch, "base": base}));
+    Ok(MergeOutcome::Merged { head: head.into(), note })
+}
+
+/// Fetches an open pull request's head into a new Launchpad branch, for a session that continues it.
+pub async fn pull_request(app: &App, p: &Project, number: u64, branch: &str) -> Result<String> {
+    ensure!(branch.starts_with("lp/"), "invalid branch");
+    let dir = ensure(app, p).await?;
+    let lock = lock(app, &p.id);
+    let _lock = lock.lock().await;
+    let before = launchpad_refs(app, &p.id).await?;
+    git_in(app, &dir, &["fetch", "--quiet", "--no-tags", "origin", &format!("+refs/pull/{number}/head:refs/heads/{branch}")], 300).await
+        .with_context(|| format!("could not fetch pull request #{number}"))?;
+    drop(_lock);
+    after_push(app, &p.id, &before, None).await?;
+    tip(app, &p.id, &format!("refs/heads/{branch}")).await?.context("pull request head missing")
+}
+
+/// Pushes a commit from the mirror to a remote branch (Publish). Never forced.
+pub async fn push(app: &App, project_id: &str, remote: &str, commit: &str, branch: &str) -> Result<()> {
+    ensure!(!remote.starts_with('-') && !branch.starts_with('-'), "invalid remote");
+    git_in(app, &mirror(app, project_id), &["push", "--quiet", remote, &format!("{commit}:refs/heads/{branch}")], 300).await.map(|_| ())
+}
+
+/// Deletes kept tips and leftover branches older than 30 days.
+pub async fn prune(app: &App) -> Result<()> {
+    let Ok(mut entries) = tokio::fs::read_dir(root(app)).await else { return Ok(()) };
+    let cutoff = now_ms() - KEEP_MS;
+    while let Some(e) = entries.next_entry().await? {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if !name.ends_with(".git") { continue }
+        let dir = e.path();
+        let kept = git(app, &dir, &["for-each-ref", "--format=%(refname)", "refs/kept/"]).await.unwrap_or_default();
+        for r in kept.lines() {
+            if r.trim_start_matches("refs/kept/").split('/').next().and_then(|t| t.parse::<i64>().ok()).is_some_and(|t| t < cutoff) {
+                git(app, &dir, &["update-ref", "-d", r]).await?;
+            }
+        }
+        let scratch = git(app, &dir, &["for-each-ref", "--format=%(refname) %(committerdate:unix)", "refs/heads/lp-scratch/"]).await.unwrap_or_default();
+        for l in scratch.lines() {
+            if let Some((r, t)) = l.split_once(' ')
+                && t.parse::<i64>().is_ok_and(|t| t * 1000 < cutoff)
+            {
+                git(app, &dir, &["update-ref", "-d", r]).await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Removes the mirror of a folder that left Home.
+pub async fn forget(app: &App, project_id: &str) {
+    let _ = tokio::fs::remove_dir_all(mirror(app, project_id)).await;
+}
+
+pub fn spawn(app: &App) {
+    if !here(app) {
+        return;
+    }
+    let app = app.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(6 * 3600));
+        loop {
+            tick.tick().await;
+            if let Err(e) = prune(&app).await {
+                tracing::warn!("Home Git prune: {e:#}");
+            }
+        }
+    });
+}
+
+/// Environment of `git http-backend` for one request on a mirror.
+#[allow(clippy::too_many_arguments)]
+pub fn backend_env(app: &App, path_info: &str, method: &str, query: &str, content_type: Option<&str>, encoding: Option<&str>, protocol: Option<&str>, import: bool) -> Vec<(String, String)> {
+    let mut env = vec![
+        ("GIT_PROJECT_ROOT".to_string(), root(app).to_string_lossy().into_owned()),
+        ("GIT_HTTP_EXPORT_ALL".into(), "1".into()),
+        ("PATH_INFO".into(), path_info.into()),
+        ("REQUEST_METHOD".into(), method.into()),
+        ("QUERY_STRING".into(), query.into()),
+        ("REMOTE_USER".into(), "launchpad".into()),
+        ("REMOTE_ADDR".into(), "127.0.0.1".into()),
+        ("LP_IMPORT".into(), if import { "1" } else { "0" }.into()),
+    ];
+    if let Some(t) = content_type { env.push(("CONTENT_TYPE".into(), t.into())); }
+    if let Some(e) = encoding { env.push(("HTTP_CONTENT_ENCODING".into(), e.into())); }
+    if let Some(p) = protocol { env.push(("GIT_PROTOCOL".into(), p.into())); }
+    env
+}
+
+/// Splits `<folder-id>.git/<rest>` and checks the folder is a Home Git folder of this daemon.
+pub async fn resolve_path(app: &App, rest: &str) -> Result<(Project, String)> {
+    let (repo, tail) = rest.split_once('/').unwrap_or((rest, ""));
+    let id = repo.strip_suffix(".git").context("not a Home Git path")?;
+    ensure!(matches!(tail, "info/refs" | "git-upload-pack" | "git-receive-pack" | "HEAD"), "unsupported Git path");
+    let p = crate::projects::get(app, id).await?.context("no such folder on Home")?;
+    ensure!(p.home_git, "{} is not a Git folder of Home", p.name);
+    Ok((p, format!("/{id}.git/{tail}")))
+}
+
+/// Per-request secrets for the runner-local Git endpoint: the daemon's own fetches and pushes, and each
+/// session's worktrees (so Home knows which session pushed and refuses a session that moved away).
+pub fn token(app: &App, scope: &str) -> Result<String> {
+    use hmac::{KeyInit, Mac};
+    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(app.paths.token()?.as_bytes()).map_err(|e| anyhow::anyhow!("{e}"))?;
+    mac.update(format!("launchpad-git:{scope}").as_bytes());
+    Ok(format!("{scope}:{}", hex::encode(mac.finalize().into_bytes())))
+}
+
+/// The scope of a valid token: `daemon` or `session:<id>`.
+pub fn verify(app: &App, header: &str) -> Option<String> {
+    let (scope, _) = header.rsplit_once(':')?;
+    let expected = token(app, scope).ok()?;
+    (expected.len() == header.len() && expected.bytes().zip(header.bytes()).fold(0u8, |a, (x, y)| a | (x ^ y)) == 0).then(|| scope.to_string())
+}
+
+/// Header carrying `token` on requests to the runner-local Git endpoint.
+pub const TOKEN_HEADER: &str = "X-Launchpad-Git";
+/// Header naming the pushing session, from a runner to Home.
+pub const SESSION_HEADER: &str = "X-Launchpad-Session";
+/// A runner daemon's import of a folder without a remote: every ref may be written.
+pub const IMPORT_HEADER: &str = "X-Launchpad-Import";
+
+/// Home: refuses Git requests of a session that now runs elsewhere (another runner or generation).
+pub fn check_session(app: &App, runner_id: Option<&str>, session: &str) -> Result<()> {
+    if let Some(s) = app.sessions.get(session)
+        && s.runner_id.as_deref() != runner_id
+    {
+        bail!("this session now runs on another runner; this runner can no longer push its branches");
+    }
+    Ok(())
+}

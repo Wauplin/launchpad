@@ -17,6 +17,7 @@ use crate::error::{ApiError, ApiResult};
 pub fn router() -> Router<Server> {
     Router::new()
         .route("/api/projects", get(list_projects).post(add_project))
+        .route("/api/projects/remote", post(add_remote))
         .route("/api/projects/discover", post(discover))
         .route("/api/projects/browse", get(browse_local))
         .route("/api/projects/{id}", get(get_project).patch(patch_project).delete(delete_project))
@@ -55,6 +56,7 @@ pub fn router() -> Router<Server> {
         .route("/api/sessions/{id}/trace", get(trace))
         .route("/api/sessions/{id}/input", post(input).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/sessions/{id}/interrupt", post(interrupt))
+        .route("/api/sessions/{id}/notice", post(notice))
         .route("/api/sessions/{id}/processes", get(session_processes))
         .route("/api/sessions/{id}/processes/stop", post(stop_session_process))
         .route("/api/sessions/{id}/answer", post(answer))
@@ -142,8 +144,39 @@ async fn add_project(State(s): State<Server>, Json(b): Json<AddProject>) -> ApiR
         }
         None => launchpad_core::paths::expand_home(b.path.trim()),
     };
-    let p = projects::register(&s.app, &path, false, &b.workspace_id).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
-    Ok(Json(p))
+    // A runner's Git checkout becomes a folder of Home; the runner works in its own clones of it.
+    let p = if s.app.paths.role == launchpad_core::role::Role::Runner && b.host.is_none() && launchpad_core::git::git_dir(&path).await.is_some() {
+        projects::add_to_home(&s.app, &path, &b.workspace_id).await
+    } else {
+        projects::register(&s.app, &path, false, &b.workspace_id).await
+    };
+    Ok(Json(p.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
+}
+
+#[derive(Deserialize)]
+struct AddRemote {
+    name: String,
+    /// Empty: a folder without a remote, imported by the runner that adds it.
+    #[serde(default)]
+    url: String,
+    workspace_id: String,
+}
+
+/// Home: a Git folder by its remote (a runner adding a checkout).
+async fn add_remote(State(s): State<Server>, Json(b): Json<AddRemote>) -> ApiResult<Project> {
+    Ok(Json(projects::register_remote(&s.app, &b.name, &b.url, &b.workspace_id).await.map_err(bad)?))
+}
+
+/// Runner: a change to a Git folder of Home goes to Home, and the runner keeps Home's answer.
+async fn home_folder_change(s: &Server, p: &Project, method: &str, body: Option<Value>) -> Result<Option<Value>, ApiError> {
+    if s.app.paths.role != launchpad_core::role::Role::Runner || !p.home_git {
+        return Ok(None);
+    }
+    let v = launchpad_core::home_link::home_request(method, &format!("/api/projects/{}", p.id), body).await.map_err(bad)?;
+    if let Ok(updated) = serde_json::from_value::<Project>(v.clone()) {
+        projects::store_home(&s.app, vec![updated], false).await?;
+    }
+    Ok(Some(v))
 }
 
 // ---------------------------------------------------------------- workspaces
@@ -216,12 +249,19 @@ async fn patch_project(State(s): State<Server>, Path(id): Path<String>, Json(pat
     if s.auth.remote() && patch.worktree_setup.is_some() {
         return Err(ApiError::bad_request("Edit worktree setup commands on the host while remote access is enabled"));
     }
+    let p = projects::get(&s.app, &id).await?.ok_or_else(|| ApiError::not_found("no such project"))?;
+    if home_folder_change(&s, &p, "PATCH", Some(serde_json::to_value(&patch).map_err(|e| ApiError::bad_request(format!("{e}")))?)).await?.is_some() {
+        return Ok(Json(projects::get(&s.app, &id).await?.ok_or_else(|| ApiError::not_found("no such project"))?));
+    }
     Ok(Json(projects::update(&s.app, &id, patch).await?))
 }
 
 /// Unregisters a project. For a temporary project: stops its sessions and deletes the folder.
 async fn delete_project(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
     let p = projects::get(&s.app, &id).await?.ok_or_else(|| ApiError::not_found("no such project"))?;
+    if home_folder_change(&s, &p, "DELETE", None).await?.is_some() {
+        return Ok(Json(json!({"ok": true})));
+    }
     if p.is_temp {
         s.app.sessions.close_in(&s.app, &p.path).await?;
         projects::delete_temp(&s.app, &id).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
@@ -233,6 +273,14 @@ async fn delete_project(State(s): State<Server>, Path(id): Path<String>) -> ApiR
 
 async fn branches(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
     let p = projects::get(&s.app, &id).await?.ok_or_else(|| ApiError::not_found("no such project"))?;
+    if p.home_git {
+        // Base branches are Home's: its mirror follows the remote.
+        if !launchpad_core::home_git::here(&s.app) {
+            return Ok(Json(launchpad_core::home_link::home_request("GET", &format!("/api/projects/{id}/branches"), None).await.map_err(bad)?));
+        }
+        let (current, list) = launchpad_core::home_git::base_branches(&s.app, &id).await.unwrap_or((None, vec![]));
+        return Ok(Json(json!({"current": current, "branches": list})));
+    }
     let (current, list) = launchpad_core::git::branches(&s.app.env, std::path::Path::new(&p.path)).await.unwrap_or((None, vec![]));
     Ok(Json(json!({"current": current, "branches": list})))
 }
@@ -424,6 +472,20 @@ async fn input(State(s): State<Server>, Path(id): Path<String>, headers: axum::h
     b.images.extend(images);
     let client_id = headers.get("Idempotency-Key").and_then(|v| v.to_str().ok()).map(str::to_owned);
     s.app.sessions.send_with_context(&s.app, &id, &b.text, b.images, b.context, client_id).await.map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+struct Notice {
+    text: String,
+}
+
+/// A notice from Home (Home Git, Local PRs) in a session that runs here.
+async fn notice(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<Notice>) -> ApiResult<Value> {
+    if s.app.sessions.get(&id).is_none() {
+        return Err(ApiError::not_found("no such session"));
+    }
+    s.app.sessions.sink(&s.app, &id).emit(launchpad_core::model::EventBody::Notice { text: b.text.chars().take(2000).collect() }).await;
     Ok(Json(json!({"ok": true})))
 }
 

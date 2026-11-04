@@ -518,14 +518,12 @@ pub struct ContextProject {
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
 #[serde(default)]
 pub struct WorktreeOptions {
-    /// Branch to start from. None: the branch currently checked out in the project checkout.
+    /// Branch to start from. None: the folder's default branch on Home.
     pub base: Option<String>,
-    /// Copy the uncommitted changes of the project checkout into the new worktree.
-    pub include_changes: bool,
     /// What happens when the agent runs `launchpad work finish`.
     pub when_done: WhenDone,
-    /// Continue this pull request: start from its head and let the agent push to its branch.
-    /// `base`, `include_changes` and `when_done` do not apply.
+    /// Continue this pull request: start from its head; Home pushes the agent's commits to its branch.
+    /// `base` and `when_done` do not apply.
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<PullRequestRef>,
@@ -610,6 +608,9 @@ pub struct Project {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub runner_id: Option<String>,
+    /// A Git folder served by Home Git: Home owns the record and the branches; runners clone it on first use.
+    #[serde(default)]
+    pub home_git: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

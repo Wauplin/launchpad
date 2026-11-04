@@ -40,8 +40,19 @@ struct Clone {
 }
 
 async fn clone(State(s): State<Server>, Json(b): Json<Clone>) -> ApiResult<Project> {
-    let p = project_clone::clone(&s.app, &b.repo, b.host.as_deref(), &b.workspace_id).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
-    Ok(Json(p))
+    // Folders of Home: Home mirrors the repository, runners clone it on first use.
+    if b.host.is_none() && s.app.paths.role == launchpad_core::role::Role::Runner {
+        let v = launchpad_core::home_link::home_request("POST", "/api/projects/clone", Some(serde_json::json!({"repo": b.repo, "workspace_id": b.workspace_id}))).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+        let p: Project = serde_json::from_value(v).map_err(|e| ApiError::bad_request(format!("{e}")))?;
+        launchpad_core::projects::store_home(&s.app, vec![p.clone()], false).await?;
+        return Ok(Json(launchpad_core::projects::get(&s.app, &p.id).await?.unwrap_or(p)));
+    }
+    let p = if b.host.is_none() {
+        project_clone::clone_to_home(&s.app, &b.repo, &b.workspace_id).await
+    } else {
+        project_clone::clone(&s.app, &b.repo, b.host.as_deref(), &b.workspace_id).await
+    };
+    Ok(Json(p.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }
 
 async fn trace_backup(State(s): State<Server>) -> Json<serde_json::Value> {

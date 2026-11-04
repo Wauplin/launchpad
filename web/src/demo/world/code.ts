@@ -622,16 +622,16 @@ export function codeWorld() {
   const created = (m: number) => clock.ago(m);
   const task = (id: string, root: string, session: string, project: string, extra: Partial<WorktreeInfo["worktree"]>, info: Partial<WorktreeInfo>): WorktreeInfo => ({
     worktree: {
-      id, sessions: [session], project_id: project, repo: `${ROOT}/${codeProjectName(project)}`, common_dir: `${ROOT}/${codeProjectName(project)}/.git`, root, subdir: "",
+      id, sessions: [session], project_id: project, repo: `${ROOT}/${codeProjectName(project)}`, root,
       branch: codeRoots[root].branch, base_branch: "main", base_commit: project === P.storefront ? DEMO_COMMITS.storefrontHead : project === P.billing ? DEMO_COMMITS.billingHead : DEMO_COMMITS.docsHead,
-      primary: true, state: "active", merge: null, merged: null, predraft_id: null, handoff_from: null, cleanup_note: null, created_at: created(30), ...extra,
+      primary: true, state: "active", merge: null, merged: null, predraft_id: null, cleanup_note: null, pushed: null, push_note: null, leftovers: null, created_at: created(30), ...extra,
     },
-    project_name: codeProjectName(project), path: root, exists: true, dirty_files: 0, ahead: 0, behind: 0, target_checkout: `${ROOT}/${codeProjectName(project)}`, ...info,
+    project_name: codeProjectName(project), path: root, exists: true, dirty_files: 0, ahead: 0, behind: 0, unpushed: false, ...info,
   });
   const taskWorktrees: WorktreeInfo[] = [
     task("demo-wt-checkout", WT.checkout, "demo-s-checkout", P.storefront, { created_at: created(26) }, { ahead: 2 }),
     task("demo-wt-invoices", WT.invoices, "demo-s-invoices", P.billing, { created_at: created(5) }, { dirty_files: 1 }),
-    task("demo-wt-refunds", WT.refunds, "demo-s-docs", P.docs, { state: "predraft", predraft_id: "demo-pr-refunds", created_at: created(185) }, { ahead: 1 }),
+    task("demo-wt-refunds", WT.refunds, "demo-s-docs", P.docs, { predraft_id: "demo-pr-refunds", created_at: created(185) }, { ahead: 1 }),
   ];
   return { codeTrees, codeRoots, codeCommits, taskWorktrees };
 }

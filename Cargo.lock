@@ -2741,6 +2741,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hkdf",
+ "hmac",
  "ignore",
  "libc",
  "notify",

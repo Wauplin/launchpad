@@ -32,10 +32,10 @@ An item page has **Conversation**, **Changes** and **Review threads** tabs, and 
 
 Paste a link to a pull request, or to one of its comments, in the composer prompt (or add it as context) and say what to change. When the folder's `origin` or `upstream` is the PR's repository and **Run in** is **New worktree**, **Push to PR #N** is checked by default:
 
-- Launchpad reads the PR on GitHub, fetches its head (`pull/N/head`) and creates the worktree from it.
-- The agent commits, then pushes with `git push <remote> HEAD:<PR branch>`. The remote is `origin`, a remote pointing to the PR's branch repository, or that fork's URL derived from `origin`. It never force-pushes; if the branch moved, it rebases on it and pushes again.
-- The worktree is never merged locally and cannot become a Local PR: the pull request is the review.
-- Uncheck **Push to PR** to keep the work local in a normal worktree.
+- Launchpad reads the PR on GitHub; Home fetches its head (`pull/N/head`) into the session's branch, and the runner creates the worktree from it.
+- The agent commits; its branch goes to Home at the end of every turn, and Home pushes it to the PR branch (`origin`, or the fork's URL derived from it). Home never force-pushes; if the PR branch moved, the session shows it and the agent rebases on it.
+- The worktree is never merged by Launchpad and cannot become a Local PR: the pull request is the review.
+- Uncheck **Push to PR** to keep the work on Home in a normal worktree.
 
 Pushing to a fork's branch needs write access to it ("Allow edits by maintainers" or your own fork).
 
@@ -51,7 +51,7 @@ A suggestion appears as a card on the item's Conversation tab and in **Review �
 
 ## Local PRs
 
-A Local PR is a pull request that exists only on your machine: a branch in its own worktree, a title, a description and review notes. Publish it to GitHub when it is worth it, or merge it locally.
+A Local PR is a pull request that exists only in Launchpad: a branch on Home Git, a title, a description and review notes. Review and publish it from any device, also while the machine that ran the agent sleeps. Publish it to GitHub when it is worth it, or merge it on Home.
 
 ![A Local PR with a note for the agent](images/localpr.webp)
 
@@ -63,16 +63,17 @@ flowchart LR
     D -->|Notes| E[Agent updates the branch]
     E --> D
     D --> F[Publish to GitHub]
-    D --> G[Merge locally]
+    D --> G[Merge on Home]
     D --> H[Discard]
 ```
 
-- **Create**: choose **Run in → New Local PR** in the composer, or let an agent run `launchpad pr create`.
+- **Create**: choose **Run in → New Local PR** in the composer, or let an agent run `launchpad pr create` in its worktree. Local PRs opened by one agent form a **change set**: their pages link to each other, and **Publish all** publishes them together and links the pull requests to each other.
 - **Review**: the agent keeps the title and description up to date with `launchpad pr update`. **Notes** (general or per file) go back to the agent as one message.
-- **Publish**: choose a remote branch name and GitHub draft or ready, then confirm. Launchpad pushes the branch and creates the PR. Check **From my fork** when you cannot push to `origin`: Launchpad pushes to your existing GitHub fork (a configured remote, or the origin URL with your login) and opens the PR from it. While a publication runs, agents cannot change the branch. After publication, the Local PR stays open to agents: its agent (or a new one launched in it) pushes new commits to the published branch. If the push fails and the remote shows that nothing arrived, the Local PR unlocks itself. Otherwise a banner offers **Unlock**: agents can work again, and a branch that was already pushed keeps its name for the next Publish.
-- **Merge locally**: rebases the branch onto the local base branch and fast-forwards it. Then it tries to push the merged base branch to its upstream (or the same branch on `origin`) in the background. Push failure keeps the local merge and is shown on the Local PR; it never forces or retries automatically.
+- **Publish**: choose a remote branch name and GitHub draft or ready, then confirm. Home pushes exactly the commit you reviewed (a newer push asks you to review again) and creates the PR. Check **From my fork** when you cannot push to `origin`: Home pushes to your existing GitHub fork and opens the PR from it. After publication, the Local PR stays open to agents: new commits on its branch reach the published branch through Home, never forced. If the push fails and the remote shows that nothing arrived, the Local PR unlocks itself. Otherwise a banner offers **Unlock**, and a branch that was already pushed keeps its name for the next Publish.
+- **Merge**: Home fast-forwards the base branch to the reviewed commit, then pushes the base branch to the folder's remote. A failed push keeps the merge on Home and is shown on the Local PR; it never forces or retries automatically. If the base branch moved, send a note asking the agent to rebase.
+- **Discard** deletes the branch on Home. Its tip stays restorable for 30 days (folder page → Launchpad branches).
 
-Publication and merges wait until the agents are idle and the worktree is clean.
+Publication and merges wait until the Local PR's agent is idle.
 
 ## Review
 

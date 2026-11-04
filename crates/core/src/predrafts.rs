@@ -1,4 +1,9 @@
-//! Local pull requests. Only `publish` writes to a remote; `merge_local` only changes local branches.
+//! Local pull requests, on Home: a Launchpad branch of Home Git under review. Diff and review read Home's
+//! mirror, so they work while the runner that wrote the branch sleeps. Only `publish` writes to GitHub, and
+//! it pushes exactly the reviewed commit. Local PRs opened by one session form a change set.
+//!
+//! On a runner, every request goes to Home (the server forwards them); `open_for_branch` and `get` do it for
+//! core callers.
 use crate::{App, model::SessionStatus};
 use anyhow::{Context, Result, ensure};
 use reqwest::Method;
@@ -16,12 +21,13 @@ pub struct Note {
 pub struct Predraft {
     pub id: String,
     pub project_id: String,
-    pub root: String,
+    /// The Launchpad branch on Home.
     pub branch: String,
     pub base_branch: String,
     pub initial_base: String,
     pub title: String,
     pub body: String,
+    /// The session that works on it last.
     pub session_id: Option<String>,
     pub notes: Vec<Note>,
     pub archived: bool,
@@ -36,41 +42,43 @@ pub struct Predraft {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub push_repo: Option<String>,
     pub created_at: i64,
+    /// How the last merge or publication reached the remote.
     #[serde(default)]
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_sync_note: Option<String>,
-    /// Merged into the local base branch; remote synchronization is best effort.
+    /// Merged into the base branch on Home; the push to the remote is best effort.
     #[serde(default)]
     pub merged: Option<LocalMerge>,
-    /// Sessions already told to push to the published PR.
+    /// Local PRs opened by the same session: reviewed and published together, linked to each other.
     #[serde(default)]
-    #[ts(skip)]
-    pub push_told: Vec<String>,
+    pub change_set: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 pub struct LocalMerge {
-    /// The checkout whose base branch was fast-forwarded.
-    pub checkout: String,
-    /// The merged commit, after any rebase onto the local base branch.
+    /// The merged commit, now the tip of the base branch.
     pub head: String,
     pub at: i64,
 }
 impl Predraft {
-    /// Still a Local PR under review: not discarded, published or merged locally.
+    /// Still a Local PR under review: not discarded, published or merged.
     pub fn is_open(&self) -> bool {
         !self.archived && self.published_url.is_none() && self.merged.is_none()
     }
-    /// Agents may work in it: an open Local PR outside publication, or a published one, whose
-    /// agents then push to the published branch.
+    /// Agents may work on it: an open Local PR, or a published one (Home pushes their commits to the PR).
     pub fn agents_can_work(&self) -> bool {
-        !self.archived && self.merged.is_none() && (self.published_url.is_some() || self.pushed_head.is_none())
+        !self.archived && self.merged.is_none()
     }
 }
-#[derive(Default, Deserialize)]
+#[derive(Default, Deserialize, Serialize)]
 pub struct Create {
     pub project_id: Option<String>,
+    /// An agent's worktree (`launchpad pr create`): its branch is pushed to Home first.
     pub cwd: Option<String>,
+    /// A Launchpad branch on Home.
+    pub branch: Option<String>,
+    pub base_branch: Option<String>,
+    pub session_id: Option<String>,
     pub title: Option<String>,
     pub body: Option<String>,
 }
@@ -93,35 +101,31 @@ pub struct Publish {
 pub(crate) struct PushTarget {
     pub(crate) remote: String,
     pub(crate) repo: String,
-    /// A configured remote (not a bare URL), so the local branch can track it.
-    pub(crate) named: bool,
 }
 /// The URL of `fork` built from the origin URL, keeping its scheme (SSH or HTTPS).
-fn fork_url(origin_url: &str, origin_repo: &str, fork: &str) -> Option<String> {
+pub(crate) fn fork_url(origin_url: &str, origin_repo: &str, fork: &str) -> Option<String> {
     let trimmed = origin_url.trim_end_matches('/');
     let suffix = if trimmed.ends_with(".git") { ".git" } else { "" };
     let base = trimmed.strip_suffix(suffix)?.strip_suffix(origin_repo)?;
     Some(format!("{base}{fork}{suffix}"))
 }
-pub(crate) async fn push_target(project_path: &str, fork: Option<&str>) -> Result<PushTarget> {
-    let remotes = crate::git::remotes(Path::new(project_path)).await;
+/// The mirror's remote (`origin`, the folder's remote) or the owner's fork.
+pub(crate) async fn push_target(mirror: &Path, fork: Option<&str>) -> Result<PushTarget> {
+    let remotes = crate::git::remotes(mirror).await;
     let (origin_url, origin_repo) = remotes
         .iter()
         .find(|(n, _)| n == "origin")
         .and_then(|(_, u)| Some((u.clone(), crate::git::github_repo(u)?)))
-        .context("origin must be a GitHub repository")?;
+        .context("the folder's remote must be a GitHub repository")?;
     let Some(fork) = fork.filter(|f| *f != origin_repo) else {
-        return Ok(PushTarget { remote: "origin".into(), repo: origin_repo, named: true });
+        return Ok(PushTarget { remote: "origin".into(), repo: origin_repo });
     };
-    if let Some((name, _)) = remotes.iter().find(|(_, u)| crate::git::github_repo(u).as_deref() == Some(fork)) {
-        return Ok(PushTarget { remote: name.clone(), repo: fork.to_string(), named: true });
-    }
     let url = fork_url(&origin_url, &origin_repo, fork).context("cannot derive the fork URL from origin")?;
-    Ok(PushTarget { remote: url, repo: fork.to_string(), named: false })
+    Ok(PushTarget { remote: url, repo: fork.to_string() })
 }
 /// The signed-in user's fork of `origin`, checked on GitHub.
-async fn user_fork(app: &App, project_path: &str) -> Result<String> {
-    let origin = push_target(project_path, None).await?.repo;
+async fn user_fork(app: &App, mirror: &Path) -> Result<String> {
+    let origin = push_target(mirror, None).await?.repo;
     let login = app.github.get("/user").await?["login"].as_str().context("GitHub login missing")?.to_string();
     let name = origin.split('/').nth(1).context("repository name")?;
     let fork = format!("{login}/{name}");
@@ -184,207 +188,112 @@ pub fn link_skill() -> Result<()> {
     }
     Ok(())
 }
-async fn git(app: &App, root: &str, args: &[&str]) -> Result<String> {
-    crate::procs::output(&app.env, "git", args, Some(Path::new(root))).await
+async fn git(app: &App, dir: &Path, args: &[&str]) -> Result<String> {
+    crate::home_git::git_in(app, dir, args, 120).await
+}
+fn ensure_home(app: &App) -> Result<()> {
+    ensure!(crate::home_git::here(app), "Local PRs live on Home");
+    Ok(())
 }
 pub async fn list(app: &App) -> Result<Vec<Predraft>> {
+    if !crate::home_git::here(app) {
+        return Ok(serde_json::from_value(crate::home_link::home_request("GET", "/api/predrafts", None).await?)?);
+    }
     let mut rows: Vec<Predraft> = app
         .state_db
         .call(|c| {
             let mut st = c.prepare("SELECT json FROM predraft")?;
-            let texts = st
-                .query_map([], |r| r.get::<_, String>(0))?
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-            texts
-                .into_iter()
-                .map(|s| Ok(serde_json::from_str(&s)?))
-                .collect()
+            let texts = st.query_map([], |r| r.get::<_, String>(0))?.collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(texts.into_iter().filter_map(|s| serde_json::from_str(&s).ok()).collect())
         })
         .await?;
-    for p in &mut rows {
-        // A crash between worktree creation and session persistence can still be recovered by cwd.
-        if p.session_id
-            .as_ref()
-            .is_none_or(|id| app.sessions.get(id).is_none())
-        {
-            p.session_id = app
-                .sessions
-                .list()
-                .into_iter()
-                .find(|s| crate::hosts::loc::within(&s.cwd, &p.root))
-                .map(|s| s.id);
-        }
-    }
     rows.sort_by_key(|p| std::cmp::Reverse(p.created_at));
     Ok(rows)
 }
 pub async fn get(app: &App, id: &str) -> Result<Predraft> {
-    list(app)
-        .await?
-        .into_iter()
-        .find(|p| p.id == id)
-        .context("pre-draft not found")
-}
-pub async fn check_session_work(app: &App, root: &str) -> Result<()> {
-    if let Some(p) = list(app).await?.into_iter().find(|p| crate::hosts::loc::within(root, &p.root)) {
-        ensure!(
-            !p.archived && (p.pushed_head.is_none() || p.published_url.is_some()),
-            "this pre-draft was discarded or publication has started; finish publication in its review page"
-        );
+    if !crate::home_git::here(app) {
+        return Ok(serde_json::from_value(crate::home_link::home_request("GET", &format!("/api/predrafts/{id}/record"), None).await?)?);
     }
-    Ok(())
-}
-pub async fn resolve(app: &App, cwd: &str) -> Result<Predraft> {
-    let root = crate::hosts::loc::rehost(cwd, &git(app, cwd, &["rev-parse", "--show-toplevel"]).await?);
-    list(app)
-        .await?
-        .into_iter()
-        .find(|p| p.root == root && p.is_open())
-        .context("no local pre-draft in this worktree")
+    list(app).await?.into_iter().find(|p| p.id == id).context("Local PR not found")
 }
 pub async fn save(app: &App, p: &Predraft) -> Result<()> {
+    ensure_home(app)?;
     let id = p.id.clone();
     let text = serde_json::to_string(p)?;
     app.state_db.call(move |c| { c.execute("INSERT INTO predraft (id,json) VALUES (?1,?2) ON CONFLICT(id) DO UPDATE SET json=excluded.json", rusqlite::params![id,text])?; Ok(()) }).await?;
     app.bus.publish("predrafts", "updated", json!(p));
     Ok(())
 }
+/// The open Local PR of a branch.
+pub async fn for_branch(app: &App, project_id: &str, branch: &str) -> Result<Option<Predraft>> {
+    Ok(list(app).await?.into_iter().find(|p| p.project_id == project_id && p.branch == branch && p.is_open()))
+}
+/// `launchpad pr create|show|update` in a worktree: the Local PR of its branch.
+pub async fn resolve(app: &App, cwd: &str) -> Result<Predraft> {
+    let w = crate::worktrees::find_by_path(app, cwd).await?.context("this folder is not a Launchpad worktree")?;
+    for_branch(app, &w.project_id, &w.branch).await?.context("no Local PR for this branch yet; run launchpad pr create")
+}
+/// A Local PR of a Launchpad branch (Home, or forwarded there). An open Local PR of the same branch is
+/// returned, now linked to `session_id`.
+pub async fn open_for_branch(app: &App, project_id: &str, branch: &str, base: Option<&str>, session_id: Option<&str>, title: Option<String>) -> Result<Predraft> {
+    let q = Create { project_id: Some(project_id.into()), branch: Some(branch.into()), base_branch: base.map(str::to_string), session_id: session_id.map(str::to_string), title, ..Default::default() };
+    if !crate::home_git::here(app) {
+        return Ok(serde_json::from_value(crate::home_link::home_request("POST", "/api/predrafts", Some(serde_json::to_value(&q)?)).await?)?);
+    }
+    create_record(app, q).await
+}
 pub async fn create(app: &App, q: Create) -> Result<Predraft> {
-    let _lock = app.predraft_lock.lock().await;
-    let (project, existing) = if let Some(id) = q.project_id {
-        (
-            crate::projects::get(app, &id)
-                .await?
-                .context("project not found")?,
-            None,
-        )
-    } else {
-        let cwd = q.cwd.context("project_id or cwd required")?;
-        if let Ok(p) = resolve(app, &cwd).await {
-            return Ok(p);
+    if let Some(cwd) = q.cwd.clone() {
+        // An agent's worktree: Home gets the branch first, then opens its Local PR.
+        let mut w = crate::worktrees::find_by_path(app, &cwd).await?.context("run this in a Launchpad worktree")?;
+        ensure!(w.pull_request.is_none(), "this worktree continues a pull request; push your commits to it instead of creating a Local PR");
+        crate::worktrees::push(app, &mut w).await.context("push the branch to Home")?;
+        let session = q.session_id.clone().or_else(|| w.sessions.last().cloned());
+        let p = open_for_branch(app, &w.project_id, &w.branch, w.base_branch.as_deref(), session.as_deref(), q.title.clone()).await?;
+        crate::worktrees::mark_predraft(app, &w.id, &p.id).await?;
+        if q.body.is_some() || q.title.is_some() {
+            return update_anywhere(app, &p.id, Patch { title: q.title, body: q.body, notes: None }).await;
         }
-        let root = crate::hosts::loc::rehost(&cwd, &git(app, &cwd, &["rev-parse", "--show-toplevel"]).await?);
-        if let Some(pr) = crate::worktrees::pull_request_at(app, &root).await {
-            anyhow::bail!("this worktree continues {}; push your commits to it instead of creating a Local PR", pr.url);
-        }
-        let source = crate::code::open(app, &root, None).await?;
-        (source.project, Some(root))
-    };
-    git(app, &project.path, &["fetch", "origin"]).await?;
-    let base_branch = match git(
-        app,
-        &project.path,
-        &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-    )
-    .await
-    {
-        Ok(b) => b
-            .strip_prefix("origin/")
-            .context("origin default branch")?
-            .to_string(),
-        Err(_) => {
-            let remote = git(
-                app,
-                &project.path,
-                &["ls-remote", "--symref", "origin", "HEAD"],
-            )
-            .await?;
-            remote
-                .lines()
-                .find_map(|l| {
-                    l.strip_prefix("ref: refs/heads/")
-                        .and_then(|s| s.split_once('\t').map(|(b, _)| b.to_string()))
-                })
-                .context("origin default branch not found")?
-        }
-    };
-    let initial_base = git(
-        app,
-        &project.path,
-        &[
-            "rev-parse",
-            "--verify",
-            &format!("refs/remotes/origin/{base_branch}^{{commit}}"),
-        ],
-    )
-    .await?;
-    let id = uuid::Uuid::new_v4().to_string();
-    let title = q.title.unwrap_or_else(|| "Local pull request".into());
-    // A Launchpad task worktree becomes the pre-draft itself: same folder, branch and commits.
-    if let Some(root) = &existing
-        && let Ok(root) = crate::hostfs::canonicalize(root).await.map(|r| r.to_string_lossy().into_owned())
-        && let Some(w) = crate::worktrees::find_by_path(app, &root).await?.filter(|w| w.root == root && w.primary)
-    {
-        let user = app.github.get("/user").await.ok().and_then(|u| u["login"].as_str().map(str::to_string));
-        let slug = w.branch.trim_start_matches("lp/").to_string();
-        let p = Predraft {
-            default_remote_branch: format!("{}/{}", user.unwrap_or_else(|| "local".into()), slug),
-            id,
-            project_id: project.id,
-            root: w.root.clone(),
-            branch: w.branch.clone(),
-            base_branch,
-            initial_base,
-            title,
-            body: q.body.unwrap_or_default(),
-            session_id: w.sessions.last().cloned(),
-            notes: vec![],
-            archived: false,
-            published_url: None,
-            published_number: None,
-            remote_branch: None,
-            pushed_head: None,
-            push_repo: None,
-            created_at: crate::util::now_ms(),
-            remote_sync_note: None,
-            merged: None,
-            push_told: vec![],
-        };
-        save(app, &p).await?;
-        crate::worktrees::mark_predraft(app, &w.root, &p.id).await?;
         return Ok(p);
     }
-    let slug = format!("{}-{}", crate::compose::slug_from(&title), &id[..8]);
-    let branch = format!("lp/{slug}");
-    let parent = crate::projects::projects_root(app, crate::hosts::loc::host_of(&project.path))?
-        .join(".worktrees")
-        .join(&project.id);
-    crate::hostfs::create_dir_all(&parent).await?;
-    let root = parent.join(&slug).to_string_lossy().to_string();
-    let start = if let Some(cwd) = &existing {
-        ensure!(
-            git(app, cwd, &["status", "--porcelain"]).await?.is_empty(),
-            "commit existing changes before creating a pre-draft"
-        );
-        git(app, cwd, &["rev-parse", "HEAD"]).await?
-    } else {
-        initial_base.clone()
+    create_record(app, q).await
+}
+/// Home: the Local PR of a branch, created or found.
+async fn create_record(app: &App, q: Create) -> Result<Predraft> {
+    ensure_home(app)?;
+    let _lock = app.predraft_lock.lock().await;
+    let project_id = q.project_id.clone().context("project_id required")?;
+    let project = crate::projects::get(app, &project_id).await?.context("folder not found")?;
+    ensure!(project.home_git, "{} is not a Git folder of Home", project.name);
+    let branch = q.branch.clone().context("branch required")?;
+    ensure!(branch.starts_with("lp/"), "a Local PR needs a Launchpad branch (lp/…)");
+    if let Some(mut p) = list(app).await?.into_iter().find(|p| p.project_id == project_id && p.branch == branch && p.is_open()) {
+        if q.session_id.is_some() && p.session_id != q.session_id {
+            p.session_id = q.session_id.clone();
+            save(app, &p).await?;
+        }
+        return Ok(p);
+    }
+    let dir = crate::home_git::ensure(app, &project).await?;
+    let base_branch = match q.base_branch.clone().filter(|b| !b.is_empty()) {
+        Some(b) => b,
+        None => crate::home_git::default_branch(app, &project_id).await?,
     };
-    git(
-        app,
-        &project.path,
-        &["worktree", "add", "-b", &branch, &root, &start],
-    )
-    .await?;
-    let user = app
-        .github
-        .get("/user")
-        .await
-        .ok()
-        .and_then(|u| u["login"].as_str().map(str::to_string));
-    let default_remote_branch = format!("{}/{}", user.unwrap_or_else(|| "local".into()), slug);
-    let root = crate::hostfs::canonicalize(&root).await?.to_string_lossy().to_string();
+    let initial_base = git(app, &dir, &["rev-parse", "--verify", &format!("refs/heads/{base_branch}^{{commit}}")]).await.with_context(|| format!("{base_branch} not found on Home"))?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let slug = branch.trim_start_matches("lp/").to_string();
+    let user = app.github.get("/user").await.ok().and_then(|u| u["login"].as_str().map(str::to_string));
     let p = Predraft {
-        default_remote_branch,
+        default_remote_branch: format!("{}/{}", user.unwrap_or_else(|| "local".into()), slug),
         id,
-        project_id: project.id,
-        root,
+        project_id,
         branch,
         base_branch,
         initial_base,
-        title,
+        title: q.title.unwrap_or_else(|| "Local pull request".into()),
         body: q.body.unwrap_or_default(),
-        session_id: None,
+        change_set: q.session_id.clone(),
+        session_id: q.session_id,
         notes: vec![],
         archived: false,
         published_url: None,
@@ -395,78 +304,38 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
         created_at: crate::util::now_ms(),
         remote_sync_note: None,
         merged: None,
-        push_told: vec![],
     };
-    if let Err(e) = save(app, &p).await {
-        let _ = git(app, &project.path, &["worktree", "remove", &p.root]).await;
-        let _ = git(app, &project.path, &["branch", "-D", &p.branch]).await;
-        return Err(e);
-    }
+    save(app, &p).await?;
     Ok(p)
 }
-/// Where agents push the commits of a published Local PR: remote (name or URL) and branch.
-pub async fn published_push(p: &Predraft, project_path: &str) -> Option<(String, String, String)> {
-    let url = p.published_url.clone()?;
-    let branch = p.remote_branch.clone()?;
-    let target = push_target(project_path, p.push_repo.as_deref()).await.ok()?;
-    Some((url, target.remote, branch))
-}
-/// Launch instructions for an agent in a Local PR worktree; after publication, it pushes to the PR.
-pub async fn work_instruction(app: &App, p: &Predraft) -> String {
-    if p.published_url.is_some() {
-        let project = crate::projects::get(app, &p.project_id).await.ok().flatten();
-        if let Some((url, remote, branch)) = match &project { Some(project) => published_push(p, &project.path).await, None => None } {
-            return format!("You are working in a dedicated git worktree on branch `{}`. Do not remove this worktree. {}", p.branch, crate::worktrees::push_instruction(&url, &remote, &branch));
-        }
+/// Launch instructions for an agent that works on a Local PR's branch.
+pub fn instruction(app: &App, p: &Predraft, cwd: &str) -> String {
+    match &p.published_url {
+        Some(url) => format!(
+            "You are continuing Local PR {} (branch `{}`), published as {url}. Commit your work on this branch; Launchpad pushes it to Home and Home pushes it to the pull request. Never force-push or rewrite commits that are already pushed. Do not open another pull request. Comments and reviews still go through `launchpad suggest`; never post them yourself.",
+            p.id, p.branch
+        ),
+        None => format!(
+            "You are working on Local PR {} (branch `{}`). Commit your work on this branch; Launchpad pushes it to Home. Do not open a pull request on GitHub. When done, set the title and description with `{} pr update --title \"…\" --body-file <file>`.",
+            p.id, p.branch, app.cli_command_in(cwd)
+        ),
     }
-    instruction(app, p)
-}
-/// Once per session: tells an agent of a published Local PR to push its commits there.
-/// Its earlier instructions said not to push. Returns the text to append to the message.
-pub async fn published_note(app: &App, session_id: &str, cwd: &str) -> Option<String> {
-    let _lock = app.predraft_lock.lock().await;
-    let mut p = list(app).await.ok()?.into_iter().find(|p| p.published_url.is_some() && !p.archived && crate::hosts::loc::within(cwd, &p.root))?;
-    if p.push_told.iter().any(|s| s == session_id) {
-        return None;
-    }
-    let project = crate::projects::get(app, &p.project_id).await.ok()??;
-    let (url, remote, branch) = published_push(&p, &project.path).await?;
-    p.push_told.push(session_id.to_string());
-    save(app, &p).await.ok()?;
-    Some(format!("Launchpad: this Local PR is now published. {}", crate::worktrees::push_instruction(&url, &remote, &branch)))
-}
-pub fn instruction(app: &App, p: &Predraft) -> String {
-    format!(
-        "You are working in a dedicated git worktree on branch `{}`. Commit your work on this branch. Do not push and do not open a pull request on GitHub. Do not remove this worktree. When done, set the title and description with `{} pr update --title \"…\" --body-file <file>`. Pre-draft id: {}.",
-        p.branch,
-        app.cli_command_in(&p.root),
-        p.id
-    )
 }
 
 fn editable(p: &Predraft) -> Result<()> {
-    ensure!(p.is_open(), "this pre-draft is archived, published or merged locally");
+    ensure!(p.is_open(), "this Local PR is archived, published or merged");
     Ok(())
 }
-fn idle(app: &App, p: &Predraft) -> Result<()> {
-    agents_idle(app, p)?;
-    let open = app.terminals.alive_in(&p.root).len();
-    ensure!(
-        open == 0,
-        "{open} terminal(s) are open in the worktree; close them first"
-    );
-    Ok(())
-}
-/// Merge locally ignores open terminals: only agents block it.
+/// The agent of the Local PR is not running.
 fn agents_idle(app: &App, p: &Predraft) -> Result<()> {
     ensure!(
-        !app.sessions.list().iter().any(|s| crate::hosts::loc::within(&s.cwd, &p.root)
-            && (app.sessions.is_busy(s) || s.status == SessionStatus::InTerminal)),
-        "the worktree has an active agent; wait for it to finish"
+        !p.session_id.as_ref().and_then(|id| app.sessions.get(id)).is_some_and(|s| app.sessions.is_busy(&s) || s.status == SessionStatus::InTerminal),
+        "the agent of this Local PR is running; wait for it to finish"
     );
     Ok(())
 }
 pub async fn update(app: &App, id: &str, q: Patch) -> Result<Predraft> {
+    ensure_home(app)?;
     let _lock = app.predraft_lock.lock().await;
     let mut p = get(app, id).await?;
     editable(&p)?;
@@ -483,111 +352,67 @@ pub async fn update(app: &App, id: &str, q: Patch) -> Result<Predraft> {
     save(app, &p).await?;
     Ok(p)
 }
+/// `update` here or on Home.
+pub async fn update_anywhere(app: &App, id: &str, q: Patch) -> Result<Predraft> {
+    if crate::home_git::here(app) {
+        return update(app, id, q).await;
+    }
+    let body = json!({"title": q.title, "body": q.body, "notes": q.notes});
+    Ok(serde_json::from_value(crate::home_link::home_request("PATCH", &format!("/api/predrafts/{id}"), Some(body)).await?)?)
+}
 pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
+    ensure_home(app)?;
     let p = get(app, id).await?;
-    let status = p
-        .session_id
-        .as_ref()
-        .and_then(|id| app.sessions.get(id))
-        .map(|s| s.status.as_str().to_string());
-    // A removed project leaves the record readable so it can be discarded.
+    let status = p.session_id.as_ref().and_then(|id| app.sessions.get(id)).map(|s| s.status.as_str().to_string());
+    // A removed folder leaves the record readable so it can be discarded.
     let Some(project) = crate::projects::get(app, &p.project_id).await? else {
-        return Ok(
-            json!({"predraft":p,"status":status,"files":[],"commits":[],"base_ahead":0,"dirty":false,"project_missing":true}),
-        );
+        return Ok(json!({"predraft":p,"status":status,"files":[],"commits":[],"base_ahead":0,"project_missing":true}));
     };
+    let set = change_set(app, &p).await?;
+    let dir = crate::home_git::ensure(app, &project).await?;
     if fetch {
-        git(app, &project.path, &["fetch", "origin"]).await?;
+        crate::home_git::refresh(app, &project).await?;
     }
-    if p.archived || (p.published_url.is_some() || p.merged.is_some()) && !crate::hostfs::exists(&p.root).await {
-        return Ok(json!({"predraft":p,"status":status,"files":[],"commits":[],"base_ahead":0}));
+    let head = crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.branch)).await?;
+    let base = crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.base_branch)).await?;
+    let (Some(head), Some(base)) = (head, base) else {
+        return Ok(json!({"predraft":p,"status":status,"files":[],"commits":[],"base_ahead":0,"project_id":project.id,"change_set":set,"default_remote_branch":p.remote_branch.clone().unwrap_or_else(|| p.default_remote_branch.clone())}));
+    };
+    if p.archived {
+        return Ok(json!({"predraft":p,"status":status,"files":[],"commits":[],"base_ahead":0,"change_set":set}));
     }
-    let head = git(
-        app,
-        &project.path,
-        &[
-            "rev-parse",
-            "--verify",
-            &format!("refs/heads/{}^{{commit}}", p.branch),
-        ],
-    )
-    .await?;
-    let base = git(
-        app,
-        &project.path,
-        &[
-            "rev-parse",
-            "--verify",
-            &format!("refs/remotes/origin/{}^{{commit}}", p.base_branch),
-        ],
-    )
-    .await?;
-    let merge_base = git(app, &project.path, &["merge-base", &base, &head]).await?;
-    let patch = git(
-        app,
-        &project.path,
-        &[
-            "-c",
-            "core.quotepath=false",
-            "diff",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--no-color",
-            "--find-renames",
-            &format!("{base}...{head}"),
-            "--",
-        ],
-    )
-    .await?;
-    let commits = git(
-        app,
-        &project.path,
-        &["log", "--format=%h %s", &format!("{base}..{head}"), "--"],
-    )
-    .await?;
-    let ahead = git(
-        app,
-        &project.path,
-        &["rev-list", "--count", &format!("{head}..{base}")],
-    )
-    .await?
-    .parse::<u64>()?;
-    let dirty = git(app, &p.root, &["status", "--porcelain"]).await?;
-    let remote = p
-        .remote_branch
-        .clone()
-        .unwrap_or_else(|| p.default_remote_branch.clone());
-    Ok(
-        json!({"predraft":p,"status":status,"head":head,"base":merge_base,"base_ahead":ahead,"dirty":!dirty.is_empty(),"commits":commits.lines().collect::<Vec<_>>(),"files":crate::items::parse_diff(&patch),"project_id":project.id,"fallback":false,"default_remote_branch":remote}),
-    )
+    let merge_base = git(app, &dir, &["merge-base", &base, &head]).await?;
+    let patch = git(app, &dir, &["-c", "core.quotepath=false", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", &format!("{base}...{head}"), "--"]).await?;
+    let commits = git(app, &dir, &["log", "--format=%h %s", &format!("{base}..{head}"), "--"]).await?;
+    let ahead = git(app, &dir, &["rev-list", "--count", &format!("{head}..{base}")]).await?.parse::<u64>()?;
+    let remote = p.remote_branch.clone().unwrap_or_else(|| p.default_remote_branch.clone());
+    Ok(json!({"predraft":p,"status":status,"head":head,"base":merge_base,"base_ahead":ahead,"commits":commits.lines().collect::<Vec<_>>(),"files":crate::items::parse_diff(&patch),"project_id":project.id,"fallback":false,"default_remote_branch":remote,"change_set":set}))
+}
+/// The other Local PRs of the same change set, with their folders.
+async fn change_set(app: &App, p: &Predraft) -> Result<Vec<Value>> {
+    let Some(set) = &p.change_set else { return Ok(vec![]) };
+    let projects = crate::projects::list(app).await?;
+    Ok(list(app).await?.into_iter().filter(|o| o.change_set.as_ref() == Some(set) && o.id != p.id && !o.archived).map(|o| {
+        let folder = projects.iter().find(|f| f.id == o.project_id).map(|f| f.name.clone()).unwrap_or_default();
+        json!({"id": o.id, "title": o.title, "folder": folder, "branch": o.branch, "published_url": o.published_url, "merged": o.merged.is_some()})
+    }).collect())
 }
 pub async fn feedback(app: &App, id: &str) -> Result<()> {
+    ensure_home(app)?;
     let _lock = app.predraft_lock.lock().await;
     let mut p = get(app, id).await?;
     editable(&p)?;
-    idle(app, &p)?;
-    let session = p
-        .session_id
-        .as_ref()
-        .context("this pre-draft has no linked session")?;
-    ensure!(
-        app.sessions.get(session).is_some_and(|s| crate::hosts::loc::within(&s.cwd, &p.root)),
-        "session is not in the pre-draft worktree"
-    );
+    agents_idle(app, &p)?;
+    let session = p.session_id.clone().context("this Local PR has no linked session")?;
     ensure!(!p.notes.is_empty(), "write review notes first");
     let message = format!(
-        "Please address these local pre-draft review notes, commit your changes, and update the title and description with launchpad pr update. Do not push or publish.\n\n{}",
-        p.notes
-            .iter()
-            .map(|n| format!("{}:\n{}", n.path.as_deref().unwrap_or("General"), n.text))
-            .collect::<Vec<_>>()
-            .join("\n\n")
+        "Please address these Local PR review notes on branch `{}`, commit your changes, and update the title and description with launchpad pr update. Do not open a pull request on GitHub.\n\n{}",
+        p.branch,
+        p.notes.iter().map(|n| format!("{}:\n{}", n.path.as_deref().unwrap_or("General"), n.text)).collect::<Vec<_>>().join("\n\n")
     );
-    let message = format!("{message}\n\n{}", instruction(app, &p));
-    let session = session.clone();
     let sent_notes = p.notes.clone();
     drop(_lock);
-    app.sessions.send(app, &session, &message, vec![]).await?;
+    crate::sessions::send_anywhere(app, &session, &message).await?;
     let _lock = app.predraft_lock.lock().await;
     p = get(app, id).await?;
     if p.notes == sent_notes {
@@ -596,250 +421,73 @@ pub async fn feedback(app: &App, id: &str) -> Result<()> {
     }
     Ok(())
 }
-/// Caller holds the session action lock, work gate and pre-draft lock.
-async fn cleanup(app: &App, p: &Predraft, delete_branch: bool) -> Result<()> {
-    idle(app, p)?;
-    let Some(project) = crate::projects::get(app, &p.project_id).await? else {
-        // Without its project there is no repository to run git in: close the sessions and keep the files on disk.
-        app.sessions.close_in_locked(app, &p.root).await?;
-        return Ok(());
-    };
-    if crate::hostfs::exists(&p.root).await {
-        ensure!(
-            git(
-                app,
-                &p.root,
-                &["status", "--porcelain", "--untracked-files=all"]
-            )
-            .await?
-            .is_empty(),
-            "worktree has uncommitted changes; commit or remove them before cleanup"
-        );
-        app.sessions.close_in_locked(app, &p.root).await?;
-        git(app, &project.path, &["worktree", "remove", &p.root]).await?;
-    }
-    if delete_branch
-        && git(
-            app,
-            &project.path,
-            &["show-ref", "--verify", &format!("refs/heads/{}", p.branch)],
-        )
-        .await
-        .is_ok()
-    {
-        git(app, &project.path, &["branch", "-D", &p.branch]).await?;
-    }
-    Ok(())
-}
-/// Restore only the session link changed by a failed launch, preserving concurrent title/notes edits.
-pub(crate) async fn rollback_launch_link(app: &App, before: &Predraft, failed_session: &str) -> Result<()> {
-    let _lock = app.predraft_lock.lock().await;
-    let mut current = get(app, &before.id).await?;
-    if current.session_id.as_deref() == Some(failed_session) {
-        current.session_id = before.session_id.clone();
-        save(app, &current).await?;
-    }
-    Ok(())
-}
-
-/// Roll back a new pre-draft whose launch failed before starting a harness. The caller holds
-/// the work gate, and this record has never been published or used by an agent.
-pub(crate) async fn abandon_launch(app: &App, mut p: Predraft) {
-    let _lock = app.predraft_lock.lock().await;
-    let result: Result<()> = async {
-        let project = crate::projects::get(app, &p.project_id).await?.context("project no longer exists")?;
-        if crate::hostfs::exists(&p.root).await {
-            git(app, &project.path, &["worktree", "remove", "--force", &p.root]).await?;
-        }
-        git(app, &project.path, &["branch", "-D", &p.branch]).await?;
-        p.archived = true;
-        p.session_id = None;
-        save(app, &p).await
-    }.await;
-    if let Err(e) = result { tracing::warn!("could not clean up failed pre-draft launch {}: {e:#}", p.id); }
-}
-
+/// Discard: archives the Local PR and deletes its branch on Home (the tip stays restorable for 30 days).
 pub async fn discard(app: &App, id: &str) -> Result<Predraft> {
-    let _action = app.sessions.action_lock().await;
-    let _work = app.sessions.allow_work().await;
+    ensure_home(app)?;
     let _lock = app.predraft_lock.lock().await;
     let mut p = get(app, id).await?;
     editable(&p)?;
-    ensure!(
-        p.pushed_head.is_none(),
-        "branch was pushed during publication; retry Publish before archiving"
-    );
-    cleanup(app, &p, true).await?;
+    agents_idle(app, &p)?;
+    ensure!(p.pushed_head.is_none(), "branch was pushed during publication; retry Publish before discarding");
+    if crate::projects::get(app, &p.project_id).await?.is_some() {
+        crate::home_git::delete(app, &p.project_id, &p.branch).await?;
+    }
     p.archived = true;
     save(app, &p).await?;
     Ok(p)
 }
-/// Merge locally: rebase the branch onto the local base branch when needed, then fast-forward the
-/// checkout that has the base branch checked out, then best-effort pushes the merged base.
+/// Merge on Home: fast-forwards the base branch to the reviewed commit, then pushes it to the folder's remote
+/// (best effort). A branch behind its base goes back to its agent for a rebase.
 pub async fn merge_local(app: &App, id: &str, q: MergeLocal) -> Result<Predraft> {
-    let _action = app.sessions.action_lock().await;
-    let _work = app.sessions.allow_work().await;
+    ensure_home(app)?;
     let _lock = app.predraft_lock.lock().await;
     let mut p = get(app, id).await?;
     editable(&p)?;
-    ensure!(
-        p.pushed_head.is_none(),
-        "publication has started; finish it with Publish instead"
-    );
+    ensure!(p.pushed_head.is_none(), "publication has started; finish it with Publish instead");
     agents_idle(app, &p)?;
-    let project = crate::projects::get(app, &p.project_id)
-        .await?
-        .context("project not found")?;
-    let base = p.base_branch.clone();
-    ensure!(crate::hostfs::is_dir(&p.root).await, "the worktree folder is missing");
-    let dirty = crate::worktrees::dirty_files(app, &p.root).await?;
-    ensure!(
-        dirty.is_empty(),
-        "the worktree has {} uncommitted files ({}); commit or remove them before merging",
-        dirty.len(),
-        dirty.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
-    );
-    ensure!(
-        !crate::worktrees::operation_in_progress(app, &p.root).await,
-        "a Git operation is in progress in the worktree"
-    );
-    ensure!(
-        git(app, &p.root, &["branch", "--show-current"]).await? == p.branch,
-        "worktree is on a different branch"
-    );
-    let head = git(app, &p.root, &["rev-parse", "HEAD"]).await?;
-    ensure!(head == q.head, "branch changed since review; refresh and review again");
-    let target = crate::worktrees::checkout_of(app, &project.path, &base)
-        .await?
-        .with_context(|| format!("no checkout has {base} checked out; check out {base} in {} first", project.path))?;
-    // Uncommitted files in the target block only when the fast-forward would overwrite them.
-    let target_dirty = !crate::worktrees::dirty_files(app, &target).await?.is_empty();
-    ensure!(
-        !crate::worktrees::operation_in_progress(app, &target).await,
-        "a Git operation is in progress in {target}"
-    );
-    ensure!(
-        !app.sessions.list().iter().any(|s| crate::hosts::loc::within(&s.cwd, &target)
-            && !crate::hosts::loc::within(&s.cwd, &p.root)
-            && app.sessions.is_busy(s)),
-        "an agent is running in {target}; wait for it to finish"
-    );
-    let base_head = git(app, &p.root, &["rev-parse", "--verify", &format!("refs/heads/{base}^{{commit}}")]).await?;
-    let mut tip = head.clone();
-    if git(app, &p.root, &["merge-base", "--is-ancestor", &head, &base_head]).await.is_err() {
-        if git(app, &p.root, &["merge-base", "--is-ancestor", &base_head, &head]).await.is_err() {
-            ensure!(
-                git(app, &p.root, &["rev-list", "--merges", &format!("{base_head}..{head}"), "--"]).await?.is_empty(),
-                "branch {} contains merge commits; integrate {base} manually, then merge again",
-                p.branch
-            );
-            if let Err(e) = git(app, &p.root, &["rebase", &base_head]).await {
-                let files = git(app, &p.root, &["diff", "--name-only", "--diff-filter=U"]).await.unwrap_or_default();
-                git(app, &p.root, &["rebase", "--abort"]).await.context("could not abort the failed rebase")?;
-                let files = files.lines().take(10).collect::<Vec<_>>().join(", ");
-                anyhow::bail!(
-                    "{}; nothing was merged. Ask the agent to rebase onto {base}, then merge again",
-                    if files.is_empty() { format!("rebasing onto {base} failed: {e:#}") } else { format!("rebasing onto {base} conflicts in {files}") }
-                );
-            }
-            tip = git(app, &p.root, &["rev-parse", "HEAD"]).await?;
+    let project = crate::projects::get(app, &p.project_id).await?.context("folder not found")?;
+    match crate::home_git::merge(app, &project, &p.branch, &q.head, &p.base_branch).await? {
+        crate::home_git::MergeOutcome::Merged { head, note } => {
+            p.remote_sync_note = Some(note);
+            p.merged = Some(LocalMerge { head, at: crate::util::now_ms() });
+            save(app, &p).await?;
+            Ok(p)
         }
-        if let Err(e) = git(app, &target, &["merge", "--ff-only", &tip]).await {
-            if target_dirty {
-                anyhow::bail!("uncommitted changes in {target} would be overwritten by the merge ({e:#}); commit or remove them, then merge again");
-            }
-            return Err(e.context(format!("fast-forward of {base} in {target}")));
+        crate::home_git::MergeOutcome::NeedsRebase { reason, .. } => {
+            anyhow::bail!("{reason}; nothing was merged. Ask the agent to rebase onto {} (review note and Send to agent), then merge again", p.base_branch)
         }
     }
-    p.remote_sync_note = Some(format!("Remote sync: local merge saved; push of {base} requested."));
-    p.merged = Some(LocalMerge { checkout: target, head: tip.clone(), at: crate::util::now_ms() });
-    save(app, &p).await?;
-    if app.config.get().remove_published_worktree
-        && let Err(e) = cleanup(app, &p, false).await
-    {
-        tracing::warn!("Local PR merged locally; worktree kept: {e:#}");
-    }
-    let (app, id, repo, session) = (app.clone(), p.id.clone(), project.path.clone(), p.session_id.clone());
-    tokio::spawn(async move {
-        let note = crate::remote_sync::push(&app, &repo, &base, &tip).await;
-        let _lock = app.predraft_lock.lock().await;
-        if let Ok(mut current) = get(&app, &id).await {
-            current.remote_sync_note = Some(note.clone());
-            if let Err(e) = save(&app, &current).await { tracing::warn!("save remote sync: {e:#}"); }
-        }
-        if let Some(session) = session { app.sessions.sink(&app, &session).emit(crate::model::EventBody::Notice { text: note }).await; }
-    });
-    Ok(p)
 }
 pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
+    ensure_home(app)?;
     // Serialize retries of this publication without holding any global gate during network I/O.
     let publication = app.suggestion_locks.get(&format!("predraft-publish:{id}"));
     let _publication = publication.lock().await;
-    // A retry keeps the target of the first attempt. Look up the fork before taking the gates.
     let first = get(app, id).await?;
+    let mirror = crate::home_git::mirror(app, &first.project_id);
+    // A retry keeps the target of the first attempt.
     let fork = match (&first.pushed_head, q.fork, first.published_url.is_some()) {
         (Some(_), _, _) | (_, _, true) => first.push_repo.clone(),
-        (None, true, false) => {
-            let project = crate::projects::get(app, &first.project_id).await?.context("project not found")?;
-            Some(user_fork(app, &project.path).await?)
-        }
+        (None, true, false) => Some(user_fork(app, &mirror).await?),
         (None, false, false) => None,
     };
-    let _action = app.sessions.action_lock().await;
-    let _work = app.sessions.allow_work().await;
     let _lock = app.predraft_lock.lock().await;
     let mut p = get(app, id).await?;
     if p.published_url.is_some() {
         return Ok(p);
     }
     editable(&p)?;
-    idle(app, &p)?;
     ensure!(!p.title.trim().is_empty(), "title is empty");
-    git(
-        app,
-        &p.root,
-        &["check-ref-format", "--branch", &q.remote_branch],
-    )
-    .await?;
+    git(app, &mirror, &["check-ref-format", "--branch", &q.remote_branch]).await?;
     ensure!(!q.remote_branch.starts_with('-'), "invalid remote branch");
-    ensure!(
-        git(
-            app,
-            &p.root,
-            &["status", "--porcelain", "--untracked-files=all"]
-        )
-        .await?
-        .is_empty(),
-        "commit all changes before publishing"
-    );
-    let project = crate::projects::get(app, &p.project_id)
-        .await?
-        .context("project not found")?;
-    let origin = push_target(&project.path, None).await?.repo;
-    let target = push_target(&project.path, fork.as_deref()).await?;
-    let head = git(app, &p.root, &["rev-parse", "HEAD"]).await?;
-    let branch_head = git(
-        app,
-        &project.path,
-        &[
-            "rev-parse",
-            "--verify",
-            &format!("refs/heads/{}^{{commit}}", p.branch),
-        ],
-    )
-    .await?;
-    ensure!(
-        head == q.head && branch_head == q.head,
-        "branch changed since review; refresh and review again"
-    );
-    ensure!(
-        git(app, &p.root, &["branch", "--show-current"]).await? == p.branch,
-        "worktree is on a different branch"
-    );
+    let origin = push_target(&mirror, None).await?.repo;
+    let target = push_target(&mirror, fork.as_deref()).await?;
+    // Home pushes exactly the reviewed commit; a newer push asks for another review.
+    let head = crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.branch)).await?.context("the branch is not on Home")?;
+    ensure!(head == q.head, "the branch changed since review; review again");
     if let Some(remote) = &p.remote_branch {
         ensure!(remote == &q.remote_branch, "retry with the same remote branch");
     }
-    // Freeze new turns before releasing the action/work gates, even during ls-remote.
     if let Some(pushed) = &p.pushed_head {
         ensure!(pushed == &head, "publication already started for a different head");
     }
@@ -847,17 +495,14 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
     p.push_repo = fork.clone();
     save(app, &p).await?;
     drop(_lock);
-    drop(_work);
-    drop(_action);
     if p.remote_branch.is_none() {
         let available: Result<()> = async {
-            let exists = git(app, &p.root, &["ls-remote", "--heads", &target.remote, &format!("refs/heads/{}", q.remote_branch)]).await?;
+            let exists = crate::home_git::git_in(app, &mirror, &["ls-remote", "--heads", &target.remote, &format!("refs/heads/{}", q.remote_branch)], 60).await?;
             ensure!(exists.is_empty(), "remote branch already exists; choose a new name");
             Ok(())
         }.await;
         let _lock = app.predraft_lock.lock().await;
-        // Preserve concurrent edits. Nothing was pushed if this read-only check failed,
-        // so release the claim and allow edits/discard or a different remote branch.
+        // Nothing was pushed if this read-only check failed: release the claim.
         p = get(app, id).await?;
         if let Err(e) = available {
             p.pushed_head = None;
@@ -868,11 +513,10 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
         p.remote_branch = Some(q.remote_branch.clone());
         save(app, &p).await?;
     }
-    let pushed = git(app, &p.root, &["push", &target.remote, &format!("{head}:refs/heads/{}", q.remote_branch)]).await;
-    if let Err(e) = pushed {
+    if let Err(e) = crate::home_git::push(app, &p.project_id, &target.remote, &head, &q.remote_branch).await {
         // Unlock only when the remote proves nothing arrived; otherwise the claim stays for Publish or Unlock.
         let _lock = app.predraft_lock.lock().await;
-        if remote_branch_head(app, &p.root, &target.remote, &q.remote_branch).await.is_ok_and(|h| h.is_none()) {
+        if remote_branch_head(app, &mirror, &target.remote, &q.remote_branch).await.is_ok_and(|h| h.is_none()) {
             p = get(app, id).await?;
             release(&mut p);
             save(app, &p).await?;
@@ -880,84 +524,94 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
         }
         return Err(e.context(format!("push to {} failed; retry Publish or Unlock the Local PR", target.repo)));
     }
-    if target.named {
-        git(app, &project.path, &["branch", &format!("--set-upstream-to={}/{}", target.remote, q.remote_branch), &p.branch]).await?;
-    }
     let owner = target.repo.split('/').next().context("repository owner")?;
     let pr_head = if target.repo == origin { q.remote_branch.clone() } else { format!("{owner}:{}", q.remote_branch) };
     let repo = origin;
     let mut query = reqwest::Url::parse(&format!("https://api.github.com/repos/{repo}/pulls"))?;
-    query
-        .query_pairs_mut()
-        .append_pair("state", "all")
-        .append_pair("head", &format!("{owner}:{}", q.remote_branch));
-    let candidates = app
-        .github
-        .get(&format!(
-            "{}?{}",
-            query.path(),
-            query.query().unwrap_or_default()
-        ))
-        .await?;
+    query.query_pairs_mut().append_pair("state", "all").append_pair("head", &format!("{owner}:{}", q.remote_branch));
+    let candidates = app.github.get(&format!("{}?{}", query.path(), query.query().unwrap_or_default())).await?;
     let found = candidates
         .as_array()
-        .and_then(|a| {
-            a.iter().find(|v| {
-                v["head"]["ref"] == q.remote_branch
-                    && v["head"]["sha"] == head
-                    && v["base"]["ref"] == p.base_branch
-            })
-        })
+        .and_then(|a| a.iter().find(|v| v["head"]["ref"] == q.remote_branch && v["head"]["sha"] == head && v["base"]["ref"] == p.base_branch))
         .cloned();
+    let body = with_links(&p.body, &published_siblings(app, &p).await?);
     let pr = if let Some(v) = found {
         v
     } else {
-        app.github.request(Method::POST, &format!("/repos/{repo}/pulls"), Some(json!({"title":p.title,"body":p.body,"head":pr_head,"base":p.base_branch,"draft":q.draft})), false).await?.value
+        app.github.request(Method::POST, &format!("/repos/{repo}/pulls"), Some(json!({"title":p.title,"body":body,"head":pr_head,"base":p.base_branch,"draft":q.draft})), false).await?.value
     };
-    let _action = app.sessions.action_lock().await;
-    let _work = app.sessions.allow_work().await;
     let _lock = app.predraft_lock.lock().await;
     p = get(app, id).await?;
-    p.published_url = Some(
-        pr["html_url"]
-            .as_str()
-            .context("PR URL missing")?
-            .to_string(),
-    );
+    p.published_url = Some(pr["html_url"].as_str().context("PR URL missing")?.to_string());
     p.published_number = pr["number"].as_u64();
     save(app, &p).await?;
-    if app.config.get().remove_published_worktree
-        && let Err(e) = cleanup(app, &p, false).await
-    {
-        tracing::warn!("PR published; worktree kept: {e:#}");
-    }
+    // Later commits of the branch reach the pull request through Home.
+    let follow = crate::home_git::Follow { remote: target.remote.clone(), branch: q.remote_branch.clone(), url: p.published_url.clone().unwrap_or_default(), session_id: p.session_id.clone() };
+    crate::home_git::set_follow(app, &p.project_id, &p.branch, &follow).await?;
     Ok(p)
+}
+/// Published pull requests of the other Local PRs of the change set.
+async fn published_siblings(app: &App, p: &Predraft) -> Result<Vec<String>> {
+    let Some(set) = &p.change_set else { return Ok(vec![]) };
+    Ok(list(app).await?.into_iter().filter(|o| o.change_set.as_ref() == Some(set) && o.id != p.id).filter_map(|o| o.published_url).collect())
+}
+const LINKS: &str = "\n\n---\nPart of a change set: ";
+fn with_links(body: &str, links: &[String]) -> String {
+    let body = body.split(LINKS).next().unwrap_or(body);
+    if links.is_empty() { body.to_string() } else { format!("{body}{LINKS}{}", links.join(", ")) }
+}
+/// Publish all: publishes every open Local PR of a change set (each with its default remote branch), then
+/// links the pull requests to each other. A failure stops there; publishing again resumes.
+pub async fn publish_set(app: &App, id: &str, draft: bool) -> Result<Vec<Predraft>> {
+    ensure_home(app)?;
+    let p = get(app, id).await?;
+    let set = p.change_set.clone().context("this Local PR is not part of a change set")?;
+    let members: Vec<Predraft> = list(app).await?.into_iter().filter(|o| o.change_set.as_ref() == Some(&set) && !o.archived && o.merged.is_none()).collect();
+    for m in &members {
+        if m.published_url.is_some() {
+            continue;
+        }
+        let head = crate::home_git::tip(app, &m.project_id, &format!("refs/heads/{}", m.branch)).await?.with_context(|| format!("{} is not on Home", m.branch))?;
+        let remote_branch = m.remote_branch.clone().unwrap_or_else(|| m.default_remote_branch.clone());
+        publish(app, &m.id, Publish { remote_branch, draft, head, fork: false }).await.with_context(|| format!("publish {}", m.title))?;
+    }
+    let published: Vec<Predraft> = list(app).await?.into_iter().filter(|o| o.change_set.as_ref() == Some(&set) && o.published_url.is_some()).collect();
+    for m in &published {
+        let others: Vec<String> = published.iter().filter(|o| o.id != m.id).filter_map(|o| o.published_url.clone()).collect();
+        let (Some(url), Some(number)) = (&m.published_url, m.published_number) else { continue };
+        let Some(repo) = crate::git::github_repo(url.split("/pull/").next().unwrap_or_default()) else { continue };
+        if let Err(e) = app.github.request(Method::PATCH, &format!("/repos/{repo}/pulls/{number}"), Some(json!({"body": with_links(&m.body, &others)})), false).await {
+            tracing::warn!("link {url} to its change set: {e:#}");
+        }
+    }
+    Ok(published)
 }
 
 /// The commit of a remote branch, `None` when the branch does not exist.
-async fn remote_branch_head(app: &App, root: &str, remote: &str, branch: &str) -> Result<Option<String>> {
-    let out = git(app, root, &["ls-remote", "--heads", remote, &format!("refs/heads/{branch}")]).await?;
+async fn remote_branch_head(app: &App, mirror: &Path, remote: &str, branch: &str) -> Result<Option<String>> {
+    let out = crate::home_git::git_in(app, mirror, &["ls-remote", "--heads", remote, &format!("refs/heads/{branch}")], 60).await?;
     Ok(out.split_whitespace().next().map(str::to_string))
 }
-/// Ends an unfinished publication so agents can change the branch again.
+/// Ends an unfinished publication.
 fn release(p: &mut Predraft) {
     p.pushed_head = None;
     p.remote_branch = None;
     p.push_repo = None;
 }
-/// Owner click: unlock a Local PR whose publication did not finish. A branch that already
-/// reached the remote keeps its name and target, so the next Publish updates it.
+/// Owner click: unlock a Local PR whose publication did not finish. A branch that already reached the
+/// remote keeps its name and target, so the next Publish updates it.
 pub async fn unlock(app: &App, id: &str) -> Result<Predraft> {
+    ensure_home(app)?;
     let publication = app.suggestion_locks.get(&format!("predraft-publish:{id}"));
     let _publication = publication.lock().await;
     let p = get(app, id).await?;
     editable(&p)?;
     ensure!(p.pushed_head.is_some(), "publication has not started");
+    let mirror = crate::home_git::mirror(app, &p.project_id);
     let remote = match &p.remote_branch {
         Some(branch) => {
-            let project = crate::projects::get(app, &p.project_id).await?.context("project not found")?;
-            let target = push_target(&project.path, p.push_repo.as_deref()).await?;
-            remote_branch_head(app, &p.root, &target.remote, branch).await.context("could not read the remote branch; try again")?
+            let target = push_target(&mirror, p.push_repo.as_deref()).await?;
+            remote_branch_head(app, &mirror, &target.remote, branch).await.context("could not read the remote branch; try again")?
         }
         None => None,
     };

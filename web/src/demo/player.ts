@@ -209,7 +209,7 @@ function mergeWorktree(c: Ctx, branch: string) {
   g.committed = true;
   g.merged_into = "main";
   const wt = c.w.agentWorktrees.find((t) => t.sessions.includes(c.sessionId) || t.branch === branch);
-  const merged = { base: wt?.base_commit ?? null, into: "main", head: g.commits.at(-1)!.id, at: clock.now() };
+  const merged = { base: wt?.base_commit ?? null, into: "main", head: g.commits.at(-1)!.id, note: "", at: clock.now() };
   if (wt) wt.merged = merged;
   if (c.live) {
     // The Files/worktree area keeps its own records of the same folders.

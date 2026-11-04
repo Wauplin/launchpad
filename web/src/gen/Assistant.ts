@@ -5,4 +5,8 @@
  * remembered launch defaults. None: the first subscription profile and its defaults. Changing the model of an
  * assistant thread (Summary → Run) saves it here for the next threads.
  */
-export type Assistant = { profile: string | null, model: string | null, effort: string | null, auto_mode: boolean, };
+export type Assistant = { profile: string | null, model: string | null, effort: string | null, 
+/**
+ * Automatically accept new actionable proposals from assistant threads.
+ */
+auto_mode: boolean, };

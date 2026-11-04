@@ -256,10 +256,16 @@ export const threadState = (item: Item) => (item.merged ? "merged" : item.isDraf
 
 // ---------------------------------------------------------------- Local PRs and suggestions
 
-const predraft = (p: Partial<Predraft> & Pick<Predraft, "id" | "project_id" | "root" | "branch" | "title" | "body">): Predraft => ({
-  base_branch: "main", initial_base: "", session_id: null, notes: [], archived: false, published_url: null, published_number: null,
-  default_remote_branch: p.branch.replace(/^lp\//, ""), remote_branch: null, pushed_head: null, created_at: clock.ago(60), merged: null, ...p,
-});
+/** Demo only: the worktree folder that shows each Local PR's changes (real Local PRs live on Home Git). */
+const predraftRoots: Record<string, string> = {};
+export const predraftRoot = (p: Predraft) => predraftRoots[p.id] ?? "";
+const predraft = ({ root, ...p }: Partial<Predraft> & Pick<Predraft, "id" | "project_id" | "branch" | "title" | "body"> & { root: string }): Predraft => {
+  predraftRoots[p.id] = root;
+  return {
+    base_branch: "main", initial_base: "", session_id: null, notes: [], archived: false, published_url: null, published_number: null,
+    default_remote_branch: p.branch.replace(/^lp\//, ""), remote_branch: null, pushed_head: null, created_at: clock.ago(60), merged: null, change_set: p.session_id ?? null, ...p,
+  };
+};
 
 export function githubWorld() {
   threadSeq = 0;
@@ -289,7 +295,7 @@ export function githubWorld() {
       id: "demo-pr-prices", project_id: P.storefront, root: WT.prices, branch: "lp/format-prices", initial_base: DEMO_COMMITS.storefrontPrev, created_at: clock.ago(60 * 24),
       title: "Format prices in the visitor's locale", body: "`formatMoney` now uses the browser's locale by default instead of `en-US`.",
       notes: [{ path: null, text: "Keep `en-US` for server-side rendering, where there is no navigator." }],
-      merged: { checkout: `${ROOT}/storefront`, head: DEMO_COMMITS.pricesMerged, at: clock.ago(60 * 20) },
+      merged: { head: DEMO_COMMITS.pricesMerged, at: clock.ago(60 * 20) },
     }),
   ];
   const suggestions: Suggestion[] = [{

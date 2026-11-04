@@ -1,5 +1,5 @@
 // Task worktrees of a session: the header chip and the Summary next steps share one card with every
-// end action (merge, check out locally, pre-draft PR, discard). Git work runs in the daemon.
+// end action (merge on Home, Local PR, discard). Branches live on Home Git; the folder is a disposable clone.
 
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -23,11 +23,12 @@ export function worktreeState(i: WorktreeInfo): string {
   const w = i.worktree;
   const base = w.base_branch ?? "base";
   if (w.state === "discarded") return "discarded";
-  if (w.state === "predraft") return "Local PR";
-  if (w.state === "handed_off") return "checked out locally";
+  if (w.state === "preparing") return "cloning from Home";
   if (w.merge) return w.merge.phase === "waiting" ? "merge waiting" : w.merge.phase === "conflict" ? "merge conflict" : "merge failed";
   if (w.state === "removed") return "folder removed";
   if (i.dirty_files) return `${i.dirty_files} uncommitted`;
+  if (w.push_note) return "not on Home";
+  if (w.predraft_id) return "Local PR";
   if (i.ahead) return `${i.ahead} ahead of ${base}`;
   if (w.merged) return `merged into ${w.merged.into}`;
   return `same as ${base}`;
@@ -57,7 +58,7 @@ export function WorktreeChip({ session }: { session: Session }) {
 /** Summary → Next steps: one card per worktree of the session. */
 export function WorktreeSteps({ session }: { session: Session }) {
   const list = useSessionWorktrees(session.id).data ?? [];
-  return <>{list.filter((i) => i.worktree.state !== "discarded" && i.worktree.state !== "predraft").map((i) => (
+  return <>{list.filter((i) => i.worktree.state !== "discarded").map((i) => (
     <div key={i.worktree.id} className="border-t border-line-2 py-2 first:border-0"><WorktreeCard info={i} session={session} /></div>
   ))}</>;
 }
@@ -88,19 +89,19 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   let text: string;
-  if (w.state === "removed") text = `Clean folder removed by cleanup; the branch keeps the commits. Sending a message restores it.`;
-  else if (w.state === "handed_off") text = `Branch checked out in ${w.repo}, so you can run it there.`;
-  else if (w.state === "predraft") text = "Promoted to a Local PR.";
-  else if (w.state === "discarded") text = "Discarded: folder and branch deleted.";
+  if (w.state === "removed") text = `Folder removed after Home saved the branch. Sending a message clones it again.${w.leftovers ? ` ${w.leftovers.files} uncommitted file${w.leftovers.files === 1 ? " is" : "s are"} on ${w.leftovers.branch}.` : ""}`;
+  else if (w.state === "preparing") text = "Cloning from Home Git before the agent starts.";
+  else if (w.state === "discarded") text = "Discarded: folder and branch deleted. The branch tip stays restorable on Home for 30 days.";
   else if (w.merge) text = w.merge.reason;
   else {
     const parts = [];
     if (base) parts.push(i.ahead ? `${i.ahead} commit${i.ahead === 1 ? "" : "s"} ahead of ${base}` : w.merged ? `merged into ${w.merged.into}` : `no commit beyond ${base}`);
     if (base && i.behind) parts.push(`${i.behind} behind`);
     if (i.dirty_files) parts.push(`${i.dirty_files} uncommitted file${i.dirty_files === 1 ? "" : "s"}`);
-    text = parts.join(" · ") || "Detached worktree.";
+    parts.push(i.unpushed ? "new commits go to Home at the end of the turn" : "saved on Home");
+    text = parts.join(" · ");
   }
-  const canMerge = w.state === "active" && !w.merge && !!base && i.ahead > 0;
+  const canMerge = w.state === "active" && !w.merge && !!base && i.ahead > 0 && !w.pull_request && !w.predraft_id;
   return (
     <div className="grid gap-1.5 text-xs">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -110,28 +111,27 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
       </div>
       <div className={warn(i) ? "text-attn" : "text-ink-2"}>{text}</div>
       {w.state === "active" && <div className="truncate font-mono text-[11px] text-ink-3" title={i.path}>{i.path}</div>}
-      {canMerge && i.target_checkout === null && <div className="text-[11px] text-ink-3">No checkout has {base} checked out: the merge waits until one does.</div>}
-      {w.remote_sync_note && <div className="text-[12px] text-ink-2">{w.remote_sync_note}</div>}
+      {w.push_note && <div className="text-[12px] text-attn">{w.push_note}</div>}
+      {w.merged?.note && <div className="text-[12px] text-ink-2">{w.merged.note}</div>}
+      {w.pull_request && <div className="text-[12px] text-ink-2">Continues <a href={w.pull_request.url} target="_blank" rel="noreferrer">#{w.pull_request.number}</a>: Home pushes each new commit to {w.pull_request.head_branch}.</div>}
       {w.cleanup_note && w.state === "active" && !i.ahead && <div className="text-[11px] text-ink-3">Cleanup: {w.cleanup_note}</div>}
       <div className="flex flex-wrap gap-1.5">
         {canMerge && mergeAsk && <div className="grid w-full gap-1.5 rounded-lg border border-line bg-chrome p-2">
           <b>Merge {w.branch} into {base}?</b>
           <ul className="m-0 list-disc pl-4 text-ink-2">
-            <li>Waits until the agent is idle. Uncommitted files in {i.target_checkout ?? `the checkout of ${base}`} are kept; the merge waits only if it would overwrite them.</li>
-            <li>Rebases the branch onto {base} if needed, then fast-forwards {base} ({i.ahead} commit{i.ahead === 1 ? "" : "s"}). Then tries to push the merged base branch; a failure keeps the local merge.</li>
-            <li>A conflict goes back to the agent; nothing is forced.</li>
+            <li>Waits until the agent is idle, then pushes the branch to Home.</li>
+            <li>Home fast-forwards {base} ({i.ahead} commit{i.ahead === 1 ? "" : "s"}), then pushes {base} to the folder's remote; a failed push keeps the merge on Home.</li>
+            <li>If {base} moved, the agent rebases first; nothing is forced.</li>
           </ul>
           <div className="flex gap-1.5"><button className="btn btn-sm btn-primary" disabled={busy} onClick={() => { setMergeAsk(false); void act("merge"); }}>Merge</button><button className="btn btn-sm" onClick={() => setMergeAsk(false)}>Cancel</button></div>
         </div>}
-        {canMerge && !mergeAsk && <button className="btn btn-sm btn-primary" disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : `Rebase onto ${base} if needed and fast-forward ${base}${i.target_checkout ? ` in ${i.target_checkout}` : ""}. Then tries to push the merged base branch. Waits only if uncommitted files there would be overwritten.`} onClick={() => (isPhone ? setMergeAsk(true) : void act("merge"))}>Merge into {base}</button>}
+        {canMerge && !mergeAsk && <button className="btn btn-sm btn-primary" disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : `Home fast-forwards ${base} to this branch and pushes ${base} to the folder's remote. If ${base} moved, the agent rebases first.`} onClick={() => (isPhone ? setMergeAsk(true) : void act("merge"))}>Merge into {base}</button>}
         {w.merge && w.merge.phase !== "waiting" && session && <button className="btn btn-sm btn-primary" disabled={busy} title="Send the problem to the agent: it rebases, resolves and asks to merge again" onClick={() => void act("fix", "Sent to the agent")}>Fix with agent</button>}
         <TerminalMenu cwd={i.path} small phone={isPhone} align="left" />
         {w.merge && <button className="btn btn-sm" disabled={busy} onClick={() => void act("cancel-merge")}>Cancel merge</button>}
-        {w.state === "active" && w.primary && !w.merge && <button className="btn btn-sm" disabled={busy || running} title={`Check out ${w.branch} in ${w.repo} to run it there. Both folders must be clean.`} onClick={() => void act("handoff", "Branch checked out locally")}>Check out locally</button>}
-        {w.state === "handed_off" && <button className="btn btn-sm" disabled={busy || running} title="Restore the previous branch in the folder checkout and move the agent back to its worktree" onClick={() => void act("handback", "Back in the worktree")}>Move back to worktree</button>}
-        {w.state === "active" && w.primary && !w.merge && <button className="btn btn-sm" disabled={busy} title="Turn this branch into a Local PR, published to GitHub only with your click" onClick={() => void predraft()}>Create Local PR</button>}
+        {w.state === "active" && w.primary && !w.merge && !w.pull_request && <button className="btn btn-sm" disabled={busy} title="Turn this branch into a Local PR, published to GitHub only with your click" onClick={() => void predraft()}>Create Local PR</button>}
         {w.state === "removed" && <button className="btn btn-sm" disabled={busy} onClick={() => void act("restore", "Worktree restored")}>Restore folder</button>}
-        {(w.state === "active" || w.state === "removed") && <button className="btn btn-sm text-gh-closed" disabled={busy || running} title={`Delete the folder and the branch, including uncommitted and unmerged work${w.primary ? ", and archive its agents" : ""}`} onClick={() => { if (!confirm) return setConfirm(true); setConfirm(false); void act("discard", "Worktree discarded"); }}>{confirm ? `Confirm: delete ${i.ahead ? `${i.ahead} unmerged commits and ` : ""}the folder` : "Discard"}</button>}
+        {(w.state === "active" || w.state === "removed") && <button className="btn btn-sm text-gh-closed" disabled={busy || running} title={`Delete the folder and the branch, including uncommitted work${w.primary ? ", and archive its agents" : ""}. The branch tip stays restorable on Home for 30 days.`} onClick={() => { if (!confirm) return setConfirm(true); setConfirm(false); void act("discard", "Worktree discarded"); }}>{confirm ? `Confirm: delete ${i.ahead ? `${i.ahead} unmerged commits and ` : ""}the folder` : "Discard"}</button>}
         {confirm && <button className="btn btn-sm" onClick={() => setConfirm(false)}>Cancel</button>}
       </div>
     </div>

@@ -25,4 +25,8 @@ workspace_id: string | null,
 /**
  * On Home: the runner whose disk has this folder. None: this daemon's disk.
  */
-runner_id?: string, };
+runner_id?: string, 
+/**
+ * A Git folder served by Home Git: Home owns the record and the branches; runners clone it on first use.
+ */
+home_git: boolean, };

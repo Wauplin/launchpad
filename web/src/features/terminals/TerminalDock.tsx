@@ -5,7 +5,6 @@ import { HostLabel } from "@/components/HostLabel";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
-import type { Predraft } from "@/gen/Predraft";
 import type { TerminalInfo } from "@/gen/TerminalInfo";
 import { Icon, type IconName } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
@@ -32,15 +31,12 @@ function useCurrentFolder(fallback: TerminalInfo | undefined): string | null {
   const scope = useScope();
   const sessions = useSessions().data;
   const selected = useLayout((s) => s.selectedSession);
-  const qc = useQueryClient();
   const path = location.pathname;
   const search = location.search as Record<string, unknown>;
   let m = path.match(/^\/projects\/([^/]+)\/code$/);
   if (m && typeof search.root === "string") return search.root;
   m = path.match(/^\/projects\/([^/]+)(\/code)?$/);
   if (m) return projects?.find((p) => p.id === m![1])?.path ?? null;
-  m = path.match(/^\/predrafts\/([^/]+)$/);
-  if (m) return qc.getQueryData<{ predraft: Predraft }>(["predrafts", m[1]])?.predraft.root ?? null;
   if (path === "/agents") {
     const id = typeof search.session === "string" ? search.session : selected;
     const s = sessions?.find((s) => s.id === id);

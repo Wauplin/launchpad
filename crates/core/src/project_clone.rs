@@ -112,6 +112,13 @@ pub async fn refresh_suggestions(app: &App) -> Result<Vec<CloneSuggestion>> {
     suggestions(app).await
 }
 
+/// A GitHub repository as a Git folder of Home: Home mirrors it; runners clone it on first use. A repository
+/// already in another workspace becomes a second folder.
+pub async fn clone_to_home(app: &App, input: &str, workspace_id: &str) -> Result<Project> {
+    let (owner, repo) = parse_repo(input)?;
+    crate::projects::register_remote(app, &repo, &format!("https://github.com/{owner}/{repo}.git"), workspace_id).await
+}
+
 /// Clones into `<projects_root>/<name>` with `gh repo clone` (its configured protocol and credentials),
 /// or `git clone` over HTTPS without a signed-in GitHub CLI. A hidden staging folder keeps Discover from listing a
 /// partial clone; no prompt can block the request.

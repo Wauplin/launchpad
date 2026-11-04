@@ -108,10 +108,20 @@ impl Paths {
         let cli = std::env::current_exe().unwrap_or_else(|_| "launchpad".into());
         let cli = cli.to_string_lossy();
         let cli = cli.trim_end_matches(" (deleted)");
+        // A runner (its own folders) and an isolated daemon (its own port) need the same settings in the CLI.
+        let mut vars = vec![("LAUNCHPAD_ENV", self.app_env.name().to_string())];
+        if self.role != crate::role::Role::All {
+            vars.push(("LAUNCHPAD_ROLE", self.role.name().to_string()));
+        }
+        if std::env::var("LAUNCHPAD_PORT").is_ok() {
+            vars.push(("LAUNCHPAD_PORT", self.port.to_string()));
+        }
         if cfg!(windows) {
-            format!("$env:LAUNCHPAD_ENV = '{}'; & '{}'", self.app_env.name(), cli.replace('\'', "''"))
+            let set: String = vars.iter().map(|(k, v)| format!("$env:{k} = '{v}'; ")).collect();
+            format!("{set}& '{}'", cli.replace('\'', "''"))
         } else {
-            format!("LAUNCHPAD_ENV={} '{}'", self.app_env.name(), cli.replace('\'', "'\\''"))
+            let set: Vec<String> = vars.iter().map(|(k, v)| format!("{k}={v}")).collect();
+            format!("{} '{}'", set.join(" "), cli.replace('\'', "'\\''"))
         }
     }
 

@@ -45,9 +45,9 @@ const hash40 = (seed: string) => {
 export function taskWorktree(sessionId: string, projectId: string, slug: string, createdAt: number): TaskWorktree {
   const repo = `${ROOT}/${FOLDER[projectId] ?? projectId}`;
   return {
-    id: `wt-${sessionId}`, sessions: [sessionId], project_id: projectId, repo, common_dir: `${repo}/.git`, root: `${ROOT}/.worktrees/${projectId}/${slug}`,
-    subdir: "", branch: `lp/${slug}-${sessionId.replace(/^demo-(s|run)-/, "").replace(/[^a-z0-9]/gi, "").slice(0, 8)}`, base_branch: "main", base_commit: hash40(`${projectId}:main`),
-    primary: true, state: "active", merge: null, merged: null, predraft_id: null, handoff_from: null, cleanup_note: null, created_at: createdAt,
+    id: `wt-${sessionId}`, sessions: [sessionId], project_id: projectId, repo, root: `${ROOT}/.worktrees/${projectId}/${slug}`,
+    branch: `lp/${slug}-${sessionId.replace(/^demo-(s|run)-/, "").replace(/[^a-z0-9]/gi, "").slice(0, 8)}`, base_branch: "main", base_commit: hash40(`${projectId}:main`),
+    primary: true, state: "active", merge: null, merged: null, predraft_id: null, cleanup_note: null, pushed: null, push_note: null, leftovers: null, created_at: createdAt,
   };
 }
 
@@ -123,7 +123,7 @@ export function agentsWorld() {
     if (b.worktree && b.project) {
       const wt = taskWorktree(b.id, b.project, b.worktree, clock.ago(b.minutesAgo));
       state.agentWorktrees.push(wt);
-      b = { ...b, cwd: wt.root, spec: { ...b.spec, worktree: { base: null, include_changes: false, when_done: b.scenario?.options.merge ? "merge" : "keep" } } };
+      b = { ...b, cwd: wt.root, spec: { ...b.spec, worktree: { base: null, when_done: b.scenario?.options.merge ? "merge" : "keep" } } };
     }
     if (b.scenario) b = { ...b, spec: { permission_mode: b.scenario.options.permission, ...b.spec } };
     const s = demoSession(b, state.events, events);
@@ -306,7 +306,7 @@ export function agentsWorld() {
   const proposals: Proposal[] = [
     { id: "demo-prop-empty-cart", workspace_id: WS.acme, session_id: "demo-s-ask-acme", title: "Fix the empty-cart 500 in the invoices API",
       note: "Issue #77 mentions you: `GET /invoices` returns 500 when the cart is empty. The fix is likely a missing empty check.",
-      body: { kind: "launch", spec: defaultSpec({ harness: "codex", profile: "codex-plus", target: { kind: "project", project_id: P.billing }, worktree: { base: null, include_changes: false, when_done: "keep" }, text: "Fix acme-labs/billing-api#77: GET /invoices returns 500 when the cart is empty. Add a regression test.", workspace_id: WS.acme }) },
+      body: { kind: "launch", spec: defaultSpec({ harness: "codex", profile: "codex-plus", target: { kind: "project", project_id: P.billing }, worktree: { base: null, when_done: "keep" }, text: "Fix acme-labs/billing-api#77: GET /invoices returns 500 when the cart is empty. Add a regression test.", workspace_id: WS.acme }) },
       state: "proposed", result_id: "demo-s-proposed-cart", replaced_by: null, error: null, created_at: clock.ago(31), updated_at: clock.ago(31) },
     { id: "demo-prop-links", workspace_id: WS.acme, session_id: "demo-s-ask-acme", title: "Weekly docs link check",
       note: "Broken links in docs were reported twice this month. A weekly check catches them before customers do.",
@@ -325,7 +325,7 @@ export function agentsWorld() {
   // Scheduled: one launch that waits for the Claude 5-hour quota reset.
   const schedules: ScheduledLaunch[] = [{
     id: "demo-sched-guide", title: "Write the v2 API migration guide", created_at: clock.ago(50), status: "queued", error: null, resume_session_id: null,
-    spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.docs }, worktree: { base: null, include_changes: false, when_done: "keep" }, text: "Write the v2 API migration guide: every breaking change with a before/after example.", workspace_id: WS.acme }),
+    spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.docs }, worktree: { base: null, when_done: "keep" }, text: "Write the v2 API migration guide: every breaking change with a before/after example.", workspace_id: WS.acme }),
     conditions: [{ kind: "quota", harness: "claude", window: "five_hour" }] satisfies LaunchDelay[],
     ready_at: clock.ago(-QUOTA_RESET_MINUTES),
   }];

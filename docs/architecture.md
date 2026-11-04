@@ -62,6 +62,12 @@ Replication (`replica.rs`): on a runner, `Sessions::store` and `Sink::emit` also
 
 On Home, `runners::relay` sends launches to the runner of the folder (or the first available runner) and every session or folder request to its runner, except the record, events, images and trace, which Home serves. Relayed requests carry only `Idempotency-Key` and are marked `X-Launchpad-From-Home`, which the runner logs for launches.
 
+Home Git (`home_git.rs`): Home (and an `all` daemon) keeps a bare mirror per Git folder in `<data_dir>/git/<id>.git`. Its fetch refspecs follow every branch and tag of the folder's remote except `lp/*` and `lp-scratch/*`; a `pre-receive` hook accepts pushes only to those and `refs/lp-snapshots/*`. Runners speak Git's smart HTTP protocol to `/api/git/<id>.git` (served by `git http-backend`, authenticated by the runner credential, session named by `X-Launchpad-Session`); after each `receive-pack`, Home compares the Launchpad refs, keeps every replaced tip as `refs/kept/<ms>/<branch>` (pruned after 30 days) and pushes followed branches (`git_follow`: published Local PRs, Push to PR sessions) to GitHub. `/api/home-git/<id>/…` serves refresh, branches, Restore, delete, merge and pull request branches.
+
+Runner side (`repo_cache.rs`, `worktrees.rs`): `<data_dir>/repos/<id>` is a clone whose `origin` is the runner-local endpoint `/git/<id>.git` and whose `upstream` is the folder's remote (fetched first for objects). The endpoint accepts only HMAC tokens derived from the daemon token (`daemon`, or `session:<id>` in each worktree's `config.worktree`) and forwards to Home with the runner credential; an `all` daemon serves its mirrors directly. `worktrees::plan` records a worktree at launch; `prepare` (background start task) syncs and adds it; every turn end pushes with `--force-with-lease`; a five-minute task pushes snapshots (a commit of all files built in a temporary index); removal pushes first and saves uncommitted files to `lp-scratch/…`.
+
+Local PRs (`predrafts.rs`) are Home records for `(folder, lp branch)`; detail, Merge (`home_git::merge`) and Publish (`home_git::push` of the reviewed commit) read the mirror. Runners forward `/api/predrafts` to Home, except `create`/`resolve` by worktree. `change_set` is the creating session; `publish_set` publishes the open members and links the pull requests. Home backups add one bundle per mirror; `git_restore.json` lists the bundles a restored Home applies when it recreates each mirror.
+
 ## Sessions and harnesses
 
 Every harness maps to the same model:
@@ -72,7 +78,7 @@ Every harness maps to the same model:
 
 Adapters (`crates/core/src/harness/`) translate each native protocol into these events and own everything native: startup, resume, model discovery, quota readings, terminal commands. See [Harness adapters](harness-adapters.md).
 
-A launch only does local work in the request: it creates the worktree from the local base, saves the session as Starting and returns. A background task then makes a bounded, best-effort fast-forward update of the base from its upstream (falling back to the same branch on `origin`), fast-forwards the untouched task branch, runs worktree setup and starts the harness; Stop cancels it between steps. Dirty or busy base checkouts stay unchanged. Successful task and Local PR merges save local success first, then push the exact merged commit in a background task outside the session action lock. Sync uses host-aware process groups, noninteractive credentials and a 10-second timeout per Git command; failures are recorded in the UI and session notices and never undo a local merge. Task branches (`lp/`) are never synchronized automatically.
+A launch only does local work in the request: it records the session (Starting) and its planned worktrees, then returns. A background task has Home refresh its mirror, clones or fetches the runner's repository cache, adds the worktrees, runs worktree setup and starts the harness; Stop cancels it between steps. A worktree that cannot be prepared fails the session visibly. Merges and publications run on Home and never touch a checkout of the owner.
 
 ## Storage
 
@@ -81,7 +87,7 @@ A launch only does local work in the request: it creates the worktree from the l
 | `config.toml` | Settings, profiles, presets | Edited in Settings or by hand |
 | `state.db` (SQLite, WAL) | Sessions, events, drafts, Local PRs, suggestions, schedules, devices | Your data; back it up |
 | `cache.db` (SQLite) | GitHub payloads as JSON | Disposable, rebuilt on demand |
-| Home backup (`home_backup.rs`) | `state.db` copies (`VACUUM INTO`) and `config.toml` by content hash, one manifest per backup, written last | Home only; last day kept, restored on an empty boot |
+| Home backup (`home_backup.rs`) | `state.db` copies (`VACUUM INTO`), `config.toml` and Home Git bundles by content hash, one manifest per backup, written last | Home only; last day kept, restored on an empty boot |
 | Harness folders | Native conversations (`~/.claude`, `~/.codex`, OpenCode data) | Owned by each harness |
 
 Rust types shared with the UI derive `ts_rs::TS`, so the API is typed end to end without an OpenAPI spec.

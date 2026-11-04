@@ -137,7 +137,9 @@ function useOverlay(scale: number) {
 
 /** Makes `p` the target of a draft (keeping a Local PR target kind), and drops it from the context folders. */
 function withFolder(s: LaunchSpec, p: Project): LaunchSpec {
-  return { ...s, target: { kind: s.target.kind === "predraft" ? "predraft" : "project", project_id: p.id }, context_projects: s.context_projects.filter((c) => c.project_id !== p.id) };
+  // Git folders of Home always run in a fresh worktree.
+  const worktree = p.home_git && s.target.kind !== "predraft" ? (s.worktree ?? { base: null, when_done: p.when_done }) : s.worktree;
+  return { ...s, worktree, target: { kind: s.target.kind === "predraft" ? "predraft" : "project", project_id: p.id }, context_projects: s.context_projects.filter((c) => c.project_id !== p.id) };
 }
 
 function Token({ warn, title, children }: { warn?: boolean; title?: string; children: React.ReactNode }) {
@@ -461,7 +463,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             onPaste={(e) => { if (launching || attachmentRead.current) return; const files = pastedImages(e); if (files) void addAttachments(files); }}
             document={{ text: spec.text, mentions: spec.mentions, skills: spec.skills, context_projects: spec.context_projects, github_refs: spec.github_refs, agent_traces: spec.agent_traces }}
             onDocumentChange={(doc) => set((s) => ({ ...s, ...doc }))}
-            root={existing?.root ?? source?.cwd ?? target?.path ?? null}
+            root={source?.cwd ?? target?.path ?? null}
             harness={spec.harness}
             profile={spec.profile}
             repo={repo}
@@ -516,11 +518,11 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               const predraft = existingPrChoices.find((p) => v === `predraft:${p.id}`);
               if (worktree) set((s) => ({ ...s, target: { kind: "session_folder", session_id: worktree.source.id }, worktree: null }));
               else if (predraft) set((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: predraft.id }, worktree: null }));
-              else if (v === "worktree" || v === "project" || v === "predraft") set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, include_changes: false, when_done: "keep" }) : null }));
+              else if (v === "worktree" || v === "project" || v === "predraft") set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, when_done: "keep" }) : null }));
             }}>
               {spec.target.kind === "session_folder" && !selectedWorktree && <option value="session_folder">Previous agent’s folder</option>}
               {gitTarget && <option value="worktree">New worktree</option>}
-              <option value="project">{gitTarget ? "Checkout" : "Folder (no Git)"}</option>
+              {!target.home_git && <option value="project">{gitTarget ? "Checkout" : "Folder (no Git)"}</option>}
               {gitTarget && <option value="predraft">New Local PR</option>}
               {!!worktreeChoices.length && <optgroup label="Existing worktrees">{worktreeChoices.map((w) => <option key={w.id} value={`worktree:${w.id}`} disabled={w.busy}>{w.branch}{w.busy ? " · Agent active" : ""}</option>)}</optgroup>}
               {existing && !existingPrChoices.some((p) => p.id === existing.id) && <option value={`predraft:${existing.id}`} disabled>Local PR: {existing.title} · Unavailable</option>}
@@ -528,25 +530,21 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "A new scratch folder" : "—"}</div>}
             {taskWorktrees.isFetching && !taskWorktrees.data && target && <div className="mt-1 text-xs text-ink-3">Loading existing worktrees…</div>}
             {taskWorktrees.isError && target && <div className="mt-1 text-xs text-danger-ink">Could not load existing worktrees. <button className="underline" onClick={() => void taskWorktrees.refetch()}>Retry</button></div>}
-            {existing && <div className="mt-1 break-all text-xs text-ink-3">{existing.root}</div>}
+            {existing && <div className="mt-1 break-all text-xs text-ink-3">Branch {existing.branch} on Home</div>}
             {spec.target.kind === "session_folder" && <div className="mt-1 break-all text-xs text-ink-3">{source?.cwd ?? "Source session unavailable"}</div>}
             {target && spec.target.kind === "project" && !worktreeMode && <div className="mt-1 text-xs text-ink-3">{gitTarget ? <TargetCheckout projectId={target.id} /> : "Runs in the folder"}</div>}
-            {worktreeMode && <div className="mt-1 text-xs text-ink-3" title="Launchpad creates a new branch and folder before the agent starts; your checkout is not modified.">{pushToPr ? `Starts from the head of PR #${pushToPr.number}; your checkout stays untouched` : "Your checkout stays untouched"}</div>}
+            {worktreeMode && <div className="mt-1 text-xs text-ink-3" title="Before the agent starts, the runner clones the folder from Home Git into a fresh worktree on a new branch. The branch goes back to Home at the end of every turn.">{pushToPr ? `A fresh clone of PR #${pushToPr.number} from Home Git` : "A fresh clone from Home Git"}</div>}
           </Field>
         </div>}
 
         {worktreeMode && target && <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-line-2 bg-chrome px-2.5 py-1.5 text-xs text-ink-2">
-          {detectedPr && <label className="inline-flex items-center gap-1.5" title="The worktree starts from the pull request's head and the agent pushes its commits to the PR branch (never force). Uncheck to keep the work local.">
+          {detectedPr && <label className="inline-flex items-center gap-1.5" title="The worktree starts from the pull request's head and Home pushes the agent's commits to the PR branch after each turn (never force). Uncheck to keep the work on Home.">
             <input type="checkbox" className="accent-teal" checked={!!pushToPr} onChange={(e) => setPrOptOut(e.target.checked ? null : `${detectedPr.repo}#${detectedPr.number}`)} />
             Push to PR #{detectedPr.number}
           </label>}
           {!pushToPr && <>
-          <span className="inline-flex items-center gap-1">From<Branch projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="current branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { include_changes: false, when_done: "keep" }), base } }))} /></span>
-          <label className="inline-flex items-center gap-1.5" title="Copy the uncommitted changes of your checkout into the new worktree (only when starting from the current branch)">
-            <input type="checkbox" className="accent-teal" disabled={!!spec.worktree?.base && spec.worktree.base !== targetBranches.data?.current} checked={!!spec.worktree?.include_changes} onChange={(e) => set((s) => ({ ...s, worktree: { ...s.worktree!, include_changes: e.target.checked } }))} />
-            Copy uncommitted changes
-          </label>
-          <label className="inline-flex items-center gap-1.5 whitespace-nowrap" title="Merge: the agent asks Launchpad to merge when it is done; Launchpad waits for a clean checkout, rebases and fast-forwards, and conflicts go back to the agent. Open a Local PR: the agent turns its worktree into a Local PR with a title and description for you to review and publish.">
+          <span className="inline-flex items-center gap-1">From<Branch projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="default branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { when_done: "keep" }), base } }))} /></span>
+          <label className="inline-flex items-center gap-1.5 whitespace-nowrap" title="Merge: the agent asks Launchpad to merge when it is done; Home fast-forwards the base branch, and a base that moved goes back to the agent for a rebase. Open a Local PR: the agent opens a Local PR of its branch on Home, with a title and description for you to review and publish.">
             When done
             <select className="field-input h-6 py-0 text-xs" aria-label="When done" value={spec.worktree?.when_done ?? "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project" onChange={(e) => {
               const whenDone = e.target.value as WhenDone;

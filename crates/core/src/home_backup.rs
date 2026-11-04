@@ -8,12 +8,16 @@
 //!
 //! Pruning keeps every backup of the last day (and always the newest), then removes objects no kept manifest
 //! needs. `cache.db` is not backed up: it is rebuilt from GitHub.
+//!
+//! Home Git: each mirror adds a bundle (`git/<folder-id>.bundle`) of its Launchpad branches and kept tips, minus
+//! what the folder's remote has (a full bundle without a remote). After a restore, a mirror is cloned from the
+//! remote again on first use, then gets its bundle (`git_restore.json` lists them).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use ts_rs::TS;
@@ -144,6 +148,15 @@ pub struct Backups {
     /// `total_changes()` of the state database at the last backup.
     changes: Arc<Mutex<Option<i64>>>,
     running: Arc<tokio::sync::Mutex<()>>,
+    /// Per mirror: the hash of its refs and the bundle object saved for them.
+    bundles: Arc<Mutex<std::collections::HashMap<String, (String, Object)>>>,
+}
+
+static GIT_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Home Git changed: the next backup runs even if the database did not.
+pub fn changed() {
+    GIT_CHANGED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 impl Backups {
@@ -201,7 +214,8 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
     let backups = app.home_backups.clone();
     let _one = backups.running.lock().await;
     let current = app.state_db.call(|c| Ok(c.query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))?)).await?;
-    if !force && *backups.changes.lock().unwrap() == Some(current) {
+    let git_changed = GIT_CHANGED.swap(false, std::sync::atomic::Ordering::Relaxed);
+    if !force && !git_changed && *backups.changes.lock().unwrap() == Some(current) {
         return Ok(false);
     }
     let (db, changes) = snapshot(app).await?;
@@ -216,6 +230,13 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
         }
         objects.push(Object { name: name.into(), sha256: hash, size });
     }
+    match bundles(app, &store, &existing).await {
+        Ok(mut b) => objects.append(&mut b),
+        Err(e) => {
+            changed();
+            return Err(e.context("bundle Home Git"));
+        }
+    }
     let now = now_ms();
     let manifest = Manifest { format: 1, created_at: now, commit: crate::COMMIT.into(), objects };
     store.put(&app.env, &manifest_key(now), serde_json::to_vec_pretty(&manifest)?).await?;
@@ -225,6 +246,85 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
         tracing::warn!("home backup: pruning: {e:#}");
     }
     Ok(true)
+}
+
+/// One bundle per mirror: Launchpad branches, kept tips and leftovers the remote does not have.
+async fn bundles(app: &App, store: &Store, existing: &std::collections::HashSet<String>) -> Result<Vec<Object>> {
+    let mut out = vec![];
+    let Ok(mut entries) = tokio::fs::read_dir(crate::home_git::root(app)).await else { return Ok(out) };
+    while let Some(e) = entries.next_entry().await? {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Some(id) = name.strip_suffix(".git").filter(|n| !n.starts_with('.')) else { continue };
+        let dir = e.path();
+        let refs = crate::home_git::git_in(app, &dir, &["for-each-ref", "--format=%(objectname) %(refname)"], 60).await?;
+        let refs_hash = hex::encode(Sha256::digest(refs.as_bytes()));
+        if let Some((h, o)) = app.home_backups.bundles.lock().unwrap().get(id).cloned()
+            && h == refs_hash
+            && existing.contains(&blob_key(&o.sha256))
+        {
+            out.push(o);
+            continue;
+        }
+        let ours: Vec<&str> = refs.lines().filter_map(|l| l.split_once(' ').map(|(_, r)| r)).filter(|r| r.starts_with("refs/heads/lp") || r.starts_with("refs/kept/")).collect();
+        let theirs: Vec<String> = refs.lines().filter_map(|l| l.split_once(' ')).filter(|(_, r)| !(r.starts_with("refs/heads/lp") || r.starts_with("refs/kept/") || r.starts_with("refs/lp-snapshots/"))).map(|(c, _)| format!("^{c}")).collect();
+        let has_remote = crate::home_git::git_in(app, &dir, &["remote"], 10).await?.lines().any(|r| r == "origin");
+        let file = app.paths.data_dir.join(format!("bundle-{}.partial", uuid::Uuid::new_v4()));
+        let file_s = file.to_string_lossy().into_owned();
+        let mut args: Vec<String> = vec!["bundle".into(), "create".into(), "--quiet".into(), file_s.clone()];
+        if has_remote {
+            if ours.is_empty() {
+                app.home_backups.bundles.lock().unwrap().remove(id);
+                continue;
+            }
+            args.extend(ours.iter().map(|r| r.to_string()));
+            args.extend(theirs);
+        } else {
+            args.push("--all".into());
+        }
+        let refs_args: Vec<&str> = args.iter().map(String::as_str).collect();
+        // Nothing new beyond the remote: Git refuses an empty bundle.
+        if let Err(e) = crate::home_git::git_in(app, &dir, &refs_args, 600).await {
+            let _ = tokio::fs::remove_file(&file).await;
+            if format!("{e:#}").contains("empty bundle") { continue }
+            return Err(e);
+        }
+        let data = tokio::fs::read(&file).await;
+        let _ = tokio::fs::remove_file(&file).await;
+        let data = data?;
+        let hash = hex::encode(Sha256::digest(&data));
+        let size = data.len() as u64;
+        if !existing.contains(&blob_key(&hash)) {
+            store.put(&app.env, &blob_key(&hash), data).await?;
+        }
+        let o = Object { name: format!("git/{id}.bundle"), sha256: hash, size };
+        app.home_backups.bundles.lock().unwrap().insert(id.to_string(), (refs_hash, o.clone()));
+        out.push(o);
+    }
+    Ok(out)
+}
+
+fn git_restore_file(paths: &crate::paths::Paths) -> PathBuf {
+    paths.data_dir.join("git_restore.json")
+}
+
+/// After a restore: applies a mirror's bundle once the mirror exists again (cloned from the remote).
+pub async fn restore_bundle(app: &App, project_id: &str) -> Result<()> {
+    let file = git_restore_file(&app.paths);
+    let Ok(text) = tokio::fs::read_to_string(&file).await else { return Ok(()) };
+    let mut pending: std::collections::BTreeMap<String, String> = serde_json::from_str(&text).unwrap_or_default();
+    let Some(hash) = pending.get(project_id).cloned() else { return Ok(()) };
+    let store = Store::parse(&app.config.get().home.backup).context("no backup destination to restore Home Git from")?;
+    let data = store.get(&app.env, &blob_key(&hash)).await?;
+    ensure!(hex::encode(Sha256::digest(&data)) == hash, "the Home Git bundle of {project_id} does not match its hash");
+    let path = app.paths.data_dir.join(format!("restore-{project_id}.bundle"));
+    tokio::fs::write(&path, data).await?;
+    let dir = crate::home_git::mirror(app, project_id);
+    let result = crate::home_git::git_in(app, &dir, &["fetch", "--quiet", &path.to_string_lossy(), "+refs/*:refs/*"], 600).await;
+    let _ = tokio::fs::remove_file(&path).await;
+    result.context("apply the Home Git bundle (the remote may have lost commits Launchpad branches build on)")?;
+    pending.remove(project_id);
+    tokio::fs::write(&file, serde_json::to_vec(&pending)?).await?;
+    Ok(())
 }
 
 async fn prune(store: &Store, env: &UserEnv, now: i64) -> Result<()> {
@@ -267,6 +367,8 @@ pub async fn restore_if_empty(paths: &crate::paths::Paths, env: &UserEnv) -> Res
         };
         files.push((path, data));
     }
+    let git: std::collections::BTreeMap<String, String> = m.objects.iter().filter_map(|o| Some((o.name.strip_prefix("git/")?.strip_suffix(".bundle")?.to_string(), o.sha256.clone()))).collect();
+    files.push((git_restore_file(paths), serde_json::to_vec(&git)?));
     paths.ensure_dirs()?;
     for (path, data) in files {
         write_atomic(&path, &data)?;
