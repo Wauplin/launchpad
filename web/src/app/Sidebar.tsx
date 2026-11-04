@@ -2,6 +2,8 @@ import { useKnowledgeUnseen } from "@/lib/knowledge";
 import { useInboxNeeds } from "@/features/inbox/data";
 import { useReviewCount } from "@/features/review/data";
 import { useAskCount } from "@/features/ask/count";
+import { botInitial, botState, botThread, useBots } from "@/lib/bots";
+import type { Bot } from "@/gen/Bot";
 import { openWindow, newWindowWord, useScope } from "@/lib/workspace";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -163,6 +165,36 @@ function FolderList({ folders, sessions }: { folders: Project[]; sessions: Sessi
   );
 }
 
+/** A bot's row: its initial, its name and the state of its current session (a dot, never a count). */
+const BotLink = memo(function BotLink({ bot, thread }: { bot: Bot; thread: Session[] }) {
+  const state = botState(thread);
+  return (
+    <Link to="/bots/$id" params={{ id: bot.id }} className="flex h-[28px] items-center gap-2 rounded-md px-[9px] text-[13px] text-ink no-underline hover:bg-sunk" activeProps={{ className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)] font-semibold" }}>
+      <span className="grid size-[16px] flex-none place-items-center rounded-[4px] bg-teal-soft text-[10px] font-semibold text-teal-ink" aria-hidden>{botInitial(bot.settings.name)}</span>
+      <span className="min-w-0 flex-1 truncate">{bot.settings.name}</span>
+      {state === "needs" && <span className="size-[7px] rounded-full bg-attn" title="Needs you" />}
+      {state === "paused" && <span className="size-[7px] rounded-full border border-attn" title="Quota paused" />}
+      {state === "running" && <span className="lp-spin" title="Working" />}
+    </Link>
+  );
+});
+
+/** Bots: Ask Launchpad (built in) first, then the workspace's bots. */
+function BotList({ proposals, sessions }: { proposals: number; sessions: Session[] }) {
+  const scope = useScope();
+  const bots = (useBots().data ?? []).filter((b) => !scope.workspace || b.workspace_id === scope.workspace.id);
+  return (
+    <div className="flex flex-col gap-px" data-tour="sidebar.bots">
+      <SideLabel end={<Link to="/bots" search={{ new: true } as never} className="iconbtn size-[22px]!" title="New bot" aria-label="New bot"><Icon name="plus" size={13} /></Link>}><Link to="/bots" className="text-inherit no-underline hover:underline">Bots</Link></SideLabel>
+      <NavItem tour="sidebar.ask" to="/ask" icon="spark" end={proposals > 0 ? <span className="rounded-full bg-teal-soft px-1.5 text-[11px] font-semibold text-teal-ink tabular-nums" title={`${proposals} proposals wait for your tap`}>{proposals}</span> : undefined}>
+        Ask Launchpad
+      </NavItem>
+      {bots.map((b) => <BotLink key={b.id} bot={b} thread={botThread(sessions, b.id)} />)}
+      {bots.length === 0 && <Link to="/bots" search={{ new: true } as never} className="mx-[9px] my-1 text-[12px] text-teal-ink no-underline hover:underline">+ New bot</Link>}
+    </div>
+  );
+}
+
 export function Sidebar() {
   const { theme, toggle } = useTheme();
   const needs = useInboxNeeds();
@@ -186,10 +218,8 @@ export function Sidebar() {
   const shownTemp = allTemp ? temp : tempActive;
   return (
     <aside className="flex w-[200px] flex-none flex-col gap-px overflow-y-auto border-r border-line bg-chrome px-2 py-2.5">
-      <nav aria-label="Places" data-tour="sidebar.nav" className="flex flex-col gap-px">
-      <NavItem tour="sidebar.ask" to="/ask" icon="spark" end={proposals > 0 ? <span className="rounded-full bg-teal-soft px-1.5 text-[11px] font-semibold text-teal-ink tabular-nums" title={`${proposals} proposals wait for your tap`}>{proposals}</span> : undefined}>
-        Ask
-      </NavItem>
+      <BotList proposals={proposals} sessions={sessions} />
+      <nav aria-label="Places" data-tour="sidebar.nav" className="mt-2 flex flex-col gap-px border-t border-line-2 pt-2">
       <NavItem tour="sidebar.inbox" to="/" icon="inbox" end={needs > 0 ? <span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold text-attn tabular-nums" title={`${needs} for you: unread review requests, mentions and assignments. The Inbox "For you" filter lists them.`} aria-label={`${needs} for you`}>{needs}</span> : undefined}>
         Inbox
       </NavItem>

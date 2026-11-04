@@ -60,7 +60,7 @@ async fn history(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<V
     Ok(Json(bots::history(&s.app, &id).await.map_err(bad)?))
 }
 async fn diff(State(s): State<Server>, Path((id, change)): Path<(String, i64)>) -> ApiResult<Value> {
-    Ok(Json(json!({"diff": bots::diff(&s.app, &id, change).await.map_err(bad)?})))
+    Ok(Json(json!({"patch": bots::diff(&s.app, &id, change).await.map_err(bad)?})))
 }
 async fn restore(State(s): State<Server>, Path((id, change)): Path<(String, i64)>) -> ApiResult<Bot> {
     Ok(Json(bots::restore(&s.app, &id, change).await.map_err(bad)?))

@@ -19,6 +19,8 @@ const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/terminals", component: lazyRouteComponent(() => import("@/mobile/TerminalsView"), "TerminalsView") }),
   createRoute({ getParentRoute: () => root, path: "/inbox", component: InboxView }),
   createRoute({ getParentRoute: () => root, path: "/ask", component: lazyRouteComponent(() => import("@/features/ask/AskView"), "AskView"), validateSearch: (s: Record<string, unknown>): { q?: string; proposal?: string } => ({ ...(typeof s.q === "string" && s.q ? { q: s.q } : {}), ...(typeof s.proposal === "string" && s.proposal ? { proposal: s.proposal } : {}) }) }),
+  createRoute({ getParentRoute: () => root, path: "/bots", component: lazyRouteComponent(() => import("@/features/bots/BotsView"), "BotsView"), validateSearch: (s: Record<string, unknown>): { new?: boolean } => (s.new === true || s.new === "true" || s.new === 1 ? { new: true } : {}) }),
+  createRoute({ getParentRoute: () => root, path: "/bots/$id", component: lazyRouteComponent(() => import("@/features/bots/BotsView"), "BotPage") }),
   createRoute({ getParentRoute: () => root, path: "/predrafts/$id", component: lazyRouteComponent(() => import("@/features/predrafts/PredraftView"), "PredraftView") }),
   createRoute({
     getParentRoute: () => root,

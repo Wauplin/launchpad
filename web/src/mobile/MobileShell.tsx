@@ -79,6 +79,7 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
       {button(null, "Everything", `${projects} folders`)}
       {workspaces.map((w) => button(w.id, w.name, `${folderCount(all, w.id)} folders`))}
       <div className="seclabel px-4 pt-4 pb-1">Go to</div>
+      <MenuLink to="/bots" icon="spark" onClick={onClose}>Bots</MenuLink>
       <MenuLink to="/projects" icon="folder" onClick={onClose}>Folders</MenuLink>
       <MenuLink to="/knowledge" icon="book" onClick={onClose}>Knowledge</MenuLink>
       <MenuLink to="/terminals" icon="term" onClick={onClose}>Terminals</MenuLink>
