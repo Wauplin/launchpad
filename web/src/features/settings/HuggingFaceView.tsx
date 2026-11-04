@@ -1,4 +1,4 @@
-import { managedTraceDestination, externalSetup } from "@/lib/deployment";
+import { delegatedAccess, managedTraceDestination, externalSetup } from "@/lib/deployment";
 import { SpaceSettingsButton } from "@/components/SpaceSettingsButton";
 // Settings → Hugging Face: the hf CLI of this computer and the optional trace backup to a bucket.
 
@@ -8,7 +8,7 @@ import { ErrorState, Loading, SettingRow, useSaveState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { externalLinkProps } from "@/lib/platform";
-import { useConfig } from "@/lib/queries";
+import { useConfig, useStatus } from "@/lib/queries";
 import type { SignInCheck } from "@/gen/SignInCheck";
 import { CliCheckRow } from "./ProfilesView";
 import { Card, ConfigError, SavedInput, SettingsPage, usePatchConfig } from "./SettingsView";
@@ -18,6 +18,28 @@ type BackupInfo = { check: SignInCheck; account: string | null; error: string | 
 const INSTALL_URL = "https://huggingface.co/docs/huggingface_hub/en/guides/cli";
 
 export function HuggingFaceView() {
+  const role = useStatus().data?.role;
+  if (!role) return <Loading what="Home settings" />;
+  return role === "home" ? <HomeHuggingFace /> : <TraceSyncView />;
+}
+
+function HomeHuggingFace() {
+  const login = useQuery({ queryKey: ["home-hf-login"], queryFn: () => api.get<BackupInfo>("/api/setup/trace-backup"), refetchInterval: 60_000 });
+  const backup = useQuery({ queryKey: ["home-backup"], queryFn: () => api.get<{ destination: string | null; last_complete_at: number | null; error: string | null }>("/api/home/backup"), refetchInterval: 30_000 });
+  return <SettingsPage tour="settings.trace-sync" title="Hugging Face" intro="Home requires a Hugging Face login and a private backup bucket. Backup is always on.">
+    <Card title="Hugging Face login">
+      {login.isPending ? <Loading /> : login.isError ? <ErrorState error={login.error} /> : <span className="text-[13px] text-ink-2">{login.data?.check.signed_in ? `Signed in${login.data.account ? ` as ${login.data.account}` : ""}` : "Sign-in required"}</span>}
+      {delegatedAccess() ? <a href="/_home/setup" className="btn btn-sm w-fit">Hugging Face sign-in</a> : <span className="text-[12px] text-ink-3">Run hf auth login on Home to connect the account.</span>}
+    </Card>
+    <Card title="Required Home backup">
+      <p className="m-0 text-[13px] text-ink-2">The private bucket stores Home’s database and session trace records, Git branch bundles, plain folders and assets. Backup cannot be turned off.</p>
+      {backup.isPending ? <Loading /> : backup.isError ? <ErrorState error={backup.error} /> : backup.data?.error ? <ErrorState error={backup.data.error} /> : <span className="text-[13px] text-ink-2">{backup.data?.last_complete_at ? `Last complete backup ${formatAge(backup.data.last_complete_at)} ago` : "Waiting for the first complete backup"}</span>}
+      <span className="text-[12px] text-ink-3">The bucket mount is managed by the Home deployment. Native harness files remain on their runners until their transfer is implemented.</span>
+    </Card>
+  </SettingsPage>;
+}
+
+function TraceSyncView() {
   const config = useConfig();
   const patch = usePatchConfig();
   const { state, error, run } = useSaveState();

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set up Launchpad Home</title>
+<style>body{margin:0;background:#f4f6f8;color:#202733;font:15px system-ui,sans-serif}main{max-width:620px;margin:8vh auto;padding:28px;background:white;border:1px solid #dce1e7;border-radius:14px}h1{font-size:24px}p{line-height:1.5}button,a.action{display:inline-block;padding:12px 16px;border:1px solid #ccd4dd;border-radius:7px;background:#126b66;color:white;font:inherit;text-decoration:none;cursor:pointer}button:disabled{opacity:.5;cursor:default}.actions{display:flex;gap:10px;flex-wrap:wrap}code{font-size:20px;letter-spacing:2px}#error{color:#a21c28}small{color:#576577}[hidden]{display:none!important}</style>
+<main><h1>Set up Launchpad Home</h1><p>Sign in to Hugging Face to use Home. Backup is required: Home’s records, branches and assets are kept in its private bucket.</p>
+<p id="status">Checking sign-in…</p><p id="error" role="status"></p><p><small id="bucket"></small></p>
+<div id="device" hidden><p>Open the Hugging Face sign-in page and approve this code:</p><p><code id="code"></code></p><p><a id="link" class="action" target="_blank" rel="noopener noreferrer">Open Hugging Face</a></p></div>
+<div class="actions"><button id="login" disabled>Sign in to Hugging Face</button><button id="check">Check again</button><a class="action" id="home" href="/" hidden>Open Home</a></div>
+<p><small>The sign-in runs only when you click. Home saves it in the private bucket. Agent turns and terminals run on paired runners.</small></p></main>
+<script>
+let csrf="", started=false, busy=false;
+const el=id=>document.getElementById(id);
+function show(s){csrf=s.csrf;el("status").textContent=s.signed_in?`Signed in as ${s.account}`:s.running?"Waiting for Hugging Face approval…":"Hugging Face sign-in is required.";el("error").textContent=s.error||"";el("bucket").textContent=`Private backup bucket: ${s.bucket} · Backup is always on`;el("login").disabled=s.running||s.signed_in;el("check").disabled=s.running;el("home").hidden=!s.signed_in;el("device").hidden=!s.running||!s.link;el("code").textContent=s.code||"";if(s.link)el("link").href=s.link;if(s.signed_in&&(started||location.pathname!=="/_home/setup"))location.replace("/");}
+async function request(path,body){const r=await fetch(path,{cache:"no-store",...(body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,csrf})}:{})});if(!r.ok)throw Error("Could not reach Home setup. Reload this page.");show(await r.json());}
+async function poll(){if(busy)return;busy=true;try{await request("/_home/status");}catch(e){el("error").textContent=e.message;}finally{busy=false;}}
+el("login").onclick=async()=>{started=true;el("login").disabled=true;try{await request("/_home/login",{});}catch(e){el("error").textContent=e.message;}};
+el("check").onclick=async()=>{try{await request("/_home/check",{});}catch(e){el("error").textContent=e.message;}};
+poll();setInterval(poll,2000);
+</script></html>

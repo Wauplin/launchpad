@@ -56,7 +56,7 @@ When Home starts on an empty data folder, it restores the newest complete backup
 
 ## Credentials and tools
 
-Home’s image includes Claude Code, Codex, OpenCode, `gh` and `hf` for discovery, usage and quota checks. Home’s Setup and profile pages lead to the vault and runner pairing; native install and sign-in terminals run on the runner.
+Home’s image includes Claude Code, Codex, OpenCode, `gh` and `hf` for discovery, usage and quota checks. A hosted Home requires HF sign-in at first start and keeps it in the private bucket. Its backup is mandatory, with status in Settings → Hugging Face instead of optional trace-sync controls. Home’s Setup and profile pages lead to the vault and runner pairing; native install and sign-in terminals run on the runner.
 
 Home keeps every credential agents use: open **Settings → Credentials and tools** (on Home, or on a runner, which forwards to Home).
 

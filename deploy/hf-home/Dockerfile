@@ -25,11 +25,11 @@ COPY deploy/hf-space/supervisor/install_tools.py /opt/space/install_tools.py
 RUN --mount=type=cache,target=/root/.npm python3 /opt/space/install_tools.py
 RUN git config --system credential.https://github.com.helper '!gh auth git-credential'
 COPY deploy/hf-space/requirements.txt /opt/home/requirements.txt
-RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r /opt/home/requirements.txt
+RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r /opt/home/requirements.txt && ln -s /opt/venv/bin/hf /usr/local/bin/hf && ln -s /opt/venv/bin/uv /usr/local/bin/uv
 RUN userdel node && useradd --uid 1000 --create-home --shell /bin/bash user
 COPY --from=build /launchpad /usr/local/bin/launchpad
 COPY deploy/hf-space/gateway/__init__.py deploy/hf-space/gateway/proxy.py /opt/home/gateway/
-COPY deploy/hf-home/main.py /opt/home/main.py
+COPY deploy/hf-home/main.py deploy/hf-home/login.py deploy/hf-home/setup.html /opt/home/
 ENV PATH=/opt/venv/bin:/usr/local/bin:/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/home/user
 WORKDIR /opt/home
 USER user

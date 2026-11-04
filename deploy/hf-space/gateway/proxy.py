@@ -57,7 +57,7 @@ class Proxy:
         headers.update(Host=self.host, Origin=self.origin, Authorization=f"Bearer {self.token}")
         return headers
 
-    async def handle(self, request):
+    async def handle(self, request, *, body=None):
         path = self.guard(request)
         if denied(path) or path.startswith("/_space"):
             raise web.HTTPNotFound()
@@ -67,7 +67,7 @@ class Proxy:
             return await self.socket(request, url, headers)
         assert self.client
         async with self.client.request(request.method, url, headers=headers,
-                                       data=request.content.iter_chunked(65536), allow_redirects=False) as upstream:
+                                       data=body if body is not None else request.content.iter_chunked(65536), allow_redirects=False) as upstream:
             clean = {k: v for k, v in upstream.headers.items() if k.lower() not in HOP | {"set-cookie"}}
             clean["Cache-Control"] = "no-store" if path.startswith("/api/") else clean.get("Cache-Control", "no-cache")
             response = web.StreamResponse(status=upstream.status, headers=clean)

@@ -12,9 +12,37 @@ from aiohttp import web
 import tomlkit
 
 from gateway.proxy import Proxy, canonical_path
+from login import Login
+
+
+def validate_config(method, value):
+    if not isinstance(value, dict):
+        raise ValueError("Expected a configuration object")
+    if method == "PUT" and value.get("home", {}).get("backup") != "/backups":
+        raise ValueError("Home backup is required and its bucket mount is managed by the deployment")
+    if any(k.startswith("trace_backup_") for k in value) or value.get("trace_backup", {}).get("enabled"):
+        raise ValueError("Home backup is always on; legacy trace sync settings do not apply")
 
 
 class HomeProxy(Proxy):
+    def __init__(self, origin, token, login, port=7319):
+        super().__init__(origin, token, port)
+        self.login = login
+
+    async def handle(self, request):
+        path = self.guard(request)
+        response = await self.login.handle(request, path)
+        if response is not None:
+            return response
+        body = None
+        if path == "/api/config" and request.method in ("PUT", "PATCH"):
+            body = await request.read()
+            try:
+                validate_config(request.method, json.loads(body))
+            except (ValueError, AttributeError):
+                return web.json_response({"error": "Home backup is required and managed by the deployment; legacy trace sync settings do not apply"}, status=400)
+        return await super().handle(request, body=body)
+
     def guard(self, request):
         path = canonical_path(request.raw_path)
         machine = (path in ("/api/runners/request", "/api/runners/tunnel")
@@ -54,6 +82,7 @@ def configure(backup, config):
     document = tomlkit.parse(config.read_text() if config.exists() else "")
     document.setdefault("server", {}).update(bind="127.0.0.1", public_origin="https://" + os.environ["SPACE_HOST"], auto_tailnet=False)
     document.setdefault("home", {})["backup"] = str(backup)
+    document.setdefault("trace_backup", {})["enabled"] = False
     config.write_text(tomlkit.dumps(document))
     config.chmod(0o600)
 
@@ -66,7 +95,11 @@ async def main():
     await verify_private(space)
     backup = Path("/backups")
     home = Path.home()
+    os.environ["HF_HOME"] = str(backup / "home/credentials/huggingface")
+    Path(os.environ["HF_HOME"]).mkdir(parents=True, exist_ok=True)
     configure(backup, home / ".config/launchpad/config.toml")
+    login = Login(os.environ.get("LP_HOME_BUCKET", space + "-bucket"))
+    await login.check()
     env = dict(os.environ, LAUNCHPAD_HOME_BACKUP=str(backup), LAUNCHPAD_PORT="7319", LAUNCHPAD_DELEGATED_ACCESS="true")
     daemon = await asyncio.create_subprocess_exec("launchpad", "daemon", "--role", "home", env=env)
     stop = asyncio.Event()
@@ -89,7 +122,7 @@ async def main():
                 await asyncio.sleep(1)
             else:
                 raise RuntimeError("Home did not start within ten minutes")
-        proxy = HomeProxy("https://" + host, token_path.read_text().strip(), port=7319)
+        proxy = HomeProxy("https://" + host, token_path.read_text().strip(), login, port=7319)
         app = web.Application(client_max_size=4 << 30)
         app.on_startup.append(proxy.start)
         app.on_cleanup.append(proxy.close)
@@ -106,6 +139,7 @@ async def main():
         if daemon.returncode is not None and not stop.is_set():
             raise RuntimeError(f"Home exited with {daemon.returncode}")
     finally:
+        await login.close()
         if runner:
             await runner.cleanup()
         if daemon.returncode is None:
