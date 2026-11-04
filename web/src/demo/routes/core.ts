@@ -6,6 +6,8 @@ import type { Workspace } from "@/gen/Workspace";
 import { clock, DemoError, githubDemo, notInDemo, publish, route } from "../daemon";
 import { world } from "../world";
 import { ORG, ROOT } from "../world/ids";
+import { fakeSha } from "../world/github";
+import { toast } from "@/components/Toast";
 
 route("GET", "/api/status", () => world.status);
 route("GET", "/api/config", () => ({ config: world.config, error: null, remote: false }));
@@ -98,6 +100,19 @@ route("DELETE", "/api/projects/:id", ({ params }) => {
   const p = projectOf(params.id);
   world.projects = world.projects.filter((x) => x.id !== p.id);
   projectsChanged();
+  return { ok: true };
+});
+/** Home Git: Launchpad branches of the folder's task worktrees and Local PRs, one with a previous tip. */
+route("GET", "/api/home-git/:id/branches", ({ params }) => {
+  const p = projectOf(params.id);
+  const names = [...new Set([...world.taskWorktrees.filter((i) => i.worktree.project_id === p.id).map((i) => i.worktree.branch), ...world.predrafts.filter((d) => d.project_id === p.id).map((d) => d.branch)])];
+  return names.map((name, i) => ({
+    name, head: fakeSha(`${name}:head`), subject: i === 0 ? "Address review notes" : "Work in progress", committed_at: clock.ago(30 + i * 90),
+    kept: i === 0 ? [{ commit: fakeSha(`${name}:before`), subject: "First draft", replaced_at: clock.ago(45) }] : [],
+  }));
+});
+route("POST", "/api/home-git/:id/restore", ({ body }) => {
+  toast(`Demo: ${String(body?.branch ?? "the branch")} would point back to ${String(body?.commit ?? "").slice(0, 8)} on Home. Nothing changed.`);
   return { ok: true };
 });
 route("GET", "/api/projects/:id/branches", ({ params }) => {

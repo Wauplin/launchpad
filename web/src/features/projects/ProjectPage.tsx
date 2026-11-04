@@ -11,6 +11,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Project } from "@/gen/Project";
 import { toastError } from "@/components/Toast";
 import type { Predraft } from "@/gen/Predraft";
+import type { HomeBranch } from "@/gen/HomeBranch";
 import { useComposer } from "@/stores/composer";
 import { RepoItems } from "@/features/github/RepoItems";
 import { Link, useParams, useSearch } from "@tanstack/react-router";
@@ -131,6 +132,7 @@ export function ProjectPage() {
             </div>
           </>
         )}
+        {p.home_git && <HomeBranches projectId={p.id} predrafts={predrafts} />}
         <ProjectAgents title="All agents" sessions={sessions} empty="No agents in this folder yet." />
         </>}
       </div>
@@ -249,3 +251,51 @@ const ProjectAgentRow = memo(function ProjectAgentRow({ s }: { s: Session }) {
     </button>
   );
 });
+
+const BRANCH_ROW = 52;
+
+/** Launchpad branches on Home Git, with every previous tip (kept 30 days) and Restore. */
+function HomeBranches({ projectId, predrafts }: { projectId: string; predrafts: Predraft[] }) {
+  const q = useQuery({ queryKey: ["home-git", projectId, "branches"], queryFn: () => api.get<HomeBranch[]>(`/api/home-git/${projectId}/branches`) });
+  const [open, setOpen] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const rows = q.data ?? [];
+  const v = useVirtualizer({ count: rows.length, getScrollElement: () => scrollRef.current, estimateSize: () => BRANCH_ROW, overscan: 6, useFlushSync: false });
+  if (q.isError || !rows.length) return null;
+  const selected = rows.find((b) => b.name === open);
+  return <>
+    <div className="seclabel">Launchpad branches · {rows.length}</div>
+    <div ref={scrollRef} className="max-h-[312px] overflow-y-auto rounded-lg border border-line">
+      <div className="relative" style={{ height: v.getTotalSize() }}>
+        {v.getVirtualItems().map((r) => <div key={rows[r.index].name} className="absolute inset-x-0" style={{ top: r.start, height: BRANCH_ROW }}>
+          <BranchRow b={rows[r.index]} draft={predrafts.find((d) => d.branch === rows[r.index].name)} open={open === rows[r.index].name} onToggle={() => setOpen((o) => o === rows[r.index].name ? null : rows[r.index].name)} />
+        </div>)}
+      </div>
+    </div>
+    {selected && <KeptTips projectId={projectId} b={selected} />}
+  </>;
+}
+
+const BranchRow = memo(function BranchRow({ b, draft, open, onToggle }: { b: HomeBranch; draft?: Predraft; open: boolean; onToggle: () => void }) {
+  return <div className="flex h-full items-center gap-2.5 border-b border-line-2 px-4 text-xs">
+    <Icon name="branch" size={14} className="text-ink-3" />
+    <span className="grid min-w-0 flex-1">
+      <span className="flex min-w-0 items-center gap-2"><span className="truncate font-mono font-semibold">{b.name}</span>{draft && <Link to="/predrafts/$id" params={{ id: draft.id }} className="truncate text-teal-ink">Local PR · {draft.title}</Link>}</span>
+      <span className="truncate text-[12px] text-ink-3">{b.head ? `${b.head.slice(0, 8)} ${b.subject}` : "deleted"} · {new Date(b.committed_at).toLocaleString()}</span>
+    </span>
+    {b.kept.length > 0 && <button className="btn btn-sm" aria-expanded={open} onClick={onToggle}>{b.kept.length} previous tip{b.kept.length === 1 ? "" : "s"}</button>}
+  </div>;
+});
+
+function KeptTips({ projectId, b }: { projectId: string; b: HomeBranch }) {
+  const qc = useQueryClient();
+  const restore = (commit: string) => api.post(`/api/home-git/${projectId}/restore`, { branch: b.name, commit }).then(() => { toast(`${b.name} restored to ${commit.slice(0, 8)}`); return qc.invalidateQueries({ queryKey: ["home-git", projectId] }); }, toastError);
+  return <div className="grid gap-1 rounded-lg border border-line p-3 text-xs">
+    <b className="font-mono">{b.name}: previous tips</b>
+    <span className="text-ink-3">Kept for 30 days after the branch moved away from them. Restore points the branch back; the current tip is kept in turn.</span>
+    {b.kept.map((k) => <div key={`${k.commit}${k.replaced_at}`} className="flex min-h-[32px] items-center gap-2">
+      <span className="min-w-0 flex-1 truncate"><span className="font-mono">{k.commit.slice(0, 8)}</span> {k.subject} <span className="text-ink-3">· replaced {new Date(k.replaced_at).toLocaleString()}</span></span>
+      <ConfirmButton consequence={`Points ${b.name} on Home back to ${k.commit.slice(0, 8)}. Runners fetch it on their next sync; the current tip stays restorable.`} confirmLabel="Restore" onConfirm={() => restore(k.commit)}>Restore</ConfirmButton>
+    </div>)}
+  </div>;
+}
