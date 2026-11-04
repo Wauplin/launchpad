@@ -142,7 +142,9 @@ function TestTool({ tool }: { tool: Tool }) {
 }
 
 function Tools({ v, onDone }: { v: VaultOverview; onDone: () => unknown }) {
-  const [editing, setEditing] = useState<Tool | null>(null);
+  // `?tool=<id>` (a tool added from an Ask card) opens its form, to paste the token.
+  const asked = new URLSearchParams(location.search).get("tool");
+  const [editing, setEditing] = useState<Tool | null>(() => v.tools.find((t) => t.id === asked) ?? null);
   const workspaces = useWorkspaces().data ?? [];
   const wsName = (id: string) => (id === "*" ? "every workspace" : workspaces.find((w) => w.id === id)?.name ?? id);
   const exportToml = () => void api.get<{ toml: string }>("/api/vault/tools.toml").then((r) => navigator.clipboard.writeText(r.toml)).then(() => toast("Copied the tools as TOML"), toastError);

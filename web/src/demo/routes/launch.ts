@@ -298,6 +298,7 @@ route("POST", "/api/proposals/:id/accept", (r) => {
     else if (b.kind === "schedule") p.result_id = schedule(spec!, b.conditions, null, p.title).id;
     else if (b.kind === "cron") p.result_id = createCron(spec!, b.schedule, b.conditions).id;
     else if (b.kind === "message") { sendMessage(found(b.session_id), b.text, `${p.id}-msg`); p.result_id = b.session_id; }
+    else if (b.kind === "tool") p.result_id = b.tool.id;
     p.state = "started";
     p.error = null;
   } catch (e) {

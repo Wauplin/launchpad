@@ -134,7 +134,7 @@ enum Command {
     },
     /// Store an inert proposal for the owner to start from the Ask page; never starts anything.
     Propose {
-        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset"])]
+        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool"])]
         kind: String,
         #[arg(long)]
         title: String,

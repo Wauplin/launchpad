@@ -77,6 +77,7 @@ async fn call_home(op: String, body: serde_json::Value) -> anyhow::Result<(u16, 
 /// for reading) and Home Git.
 pub(crate) fn home_owned(path: &str) -> bool {
     path == "/api/workspaces" || path.starts_with("/api/workspaces/") || path.starts_with("/api/home-git/") || path.starts_with("/api/plain/") || path.starts_with("/api/knowledge/") || path.starts_with("/api/vault")
+        || path == "/api/proposals" || path.starts_with("/api/proposals/")
         || (path.starts_with("/api/sessions/") && path.ends_with("/access"))
 }
 
