@@ -3,14 +3,18 @@
 Work in progress: this implements the first parts of the [Home and runners plan](https://wauplin-launchpad-bots-research.static.hf.space/index.html) (H1 to H3). The single-process mode (`launchpad daemon`, role `all`) is Home and a runner in one process: it uses Home Git too.
 
 - **Home** (`launchpad daemon --role home`) keeps every record and runs no agents or terminals.
-- **Runners** (`launchpad daemon --role runner`) run agents. A runner works in its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`) and never reuses a single-process install's data.
+- **Runners** (`launchpad daemon --role runner`) run agents. A runner works in its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`) and port (7320), and never reuses a single-process install's data.
 
-For a private Space POC that runs beside an existing install, use the [Home-only deployment and laptop instructions](../deploy/hf-home/README.md). Use a separate runner port and the same source commit as Home.
+For a Home in a private Space, see the [Home-only deployment](../deploy/hf-home/README.md).
 
 ## Pair a runner
 
+On a Home in a Space, open **Settings → Home and runners** and copy the install command. Run it on a Linux machine. It checks the machine, installs Home's own build next to any other Launchpad, starts the runner as a user service, then asks for approval. Run it again to update the runner. See [Add a runner](../deploy/hf-home/README.md#add-a-runner).
+
+On another Home, pair by hand:
+
 1. Start the runner daemon on the machine: `launchpad daemon --role runner`.
-2. Run `launchpad connect <Home address>` there. It prints a code such as `34Z-K9Z` and waits. For a Home in a private Hugging Face Space, the runner sends your HF token (`HF_TOKEN` or the `hf auth login` token) to pass the Space's sign-in.
+2. Run `launchpad connect <Home address>` there (with `LAUNCHPAD_ROLE=runner`). It prints a code such as `34Z-K9Z` and waits. For a Home in a private Hugging Face Space, the runner sends your HF token (`HF_TOKEN` or the `hf auth login` token) to pass the Space's sign-in.
 3. On Home, open **Settings → Home and runners**, check that the code matches and click **Approve**. Requests expire after ten minutes.
 
 The runner keeps one outbound WebSocket to Home (no inbound port) and reconnects on its own. **Remove** on Home disconnects a runner; it must pair again.
@@ -19,7 +23,7 @@ The runner keeps one outbound WebSocket to Home (no inbound port) and reconnects
 
 A launch on Home (from the phone, another browser, a schedule) in a Git folder goes to the first runner that takes launches: it clones the folder from Home Git on first use. A folder that exists only on one runner's disk (a scratch folder, a folder without Git) goes to that runner. Follow-ups, Stop, answers and the other session actions on Home go to the session's runner; Home serves the record, the events and the trace itself. When that runner is offline, paused or refuses launches from other devices, Home says so and starts nothing.
 
-Profiles (including vault login IDs), workspaces and Git folders belong to Home: a runner shows Home's and sends its changes to Home, so they need Home to be reachable. **Clone from GitHub** registers the repository on Home, from any window. **Add folder** on a runner's window registers a local checkout's remote on Home (a checkout without a remote is imported into Home Git); the runner then works in its own clones, never in your checkout. Each runner keeps a local log of the launches that came from elsewhere (Settings → This runner).
+Profiles (including vault login IDs), workspaces and Git folders belong to Home: a runner shows Home's and sends its changes to Home, so they need Home to be reachable. **Clone from GitHub** registers the repository on Home, from any window; it is the first tab of **Add folders**, and the only way to add a Git folder on Home itself. **Add folder → Browse** on a runner's window (it warns that Home backs the folder up to its cloud bucket) registers a local checkout's remote on Home (a checkout without a remote is imported into Home Git); the runner then works in its own clones, never in your checkout. Each runner keeps a local log of the launches that came from elsewhere (Settings → This runner).
 
 ## Sessions on Home
 
@@ -42,7 +46,7 @@ Home keeps a mirror of every Git folder: every branch of the folder's remote, pl
 
 ## Plain and asset folders
 
-A **plain folder** has no Git: Home stores its files (Add folders → **New plain folder**, or add a folder without Git from Browse, which copies its files once). Runners work in a synced copy: it comes down from Home before a session starts and goes back at the end of every turn. One agent works in a plain folder at a time; another launch fails until the first agent is archived. Changes compares with the start of the session. Home keeps every overwritten version and every deleted file for 30 days: the folder page lists them under **Versions and trash**, with **Restore**.
+A **plain folder** has no Git: Home stores its files (Add folders → **New plain folder**, or add a folder without Git from Browse on a runner, which copies its files once). Runners work in a synced copy: it comes down from Home before a session starts and goes back at the end of every turn. One agent works in a plain folder at a time; another launch fails until the first agent is archived. Changes compares with the start of the session. Home keeps every overwritten version and every deleted file for 30 days: the folder page lists them under **Versions and trash**, with **Restore**.
 
 An **asset folder** holds large or generated files of a Git folder (datasets, media, model files) outside Git. An agent runs `launchpad assets create <path> --session-id <id>` in its worktree: the path is mapped in `.launchpad/assets.toml` (committed), kept out of Git, and synced like a plain folder, so later sessions on that branch get the same files. Assets are shared, not pinned per commit.
 
@@ -56,14 +60,15 @@ When Home starts on an empty data folder, it restores the newest complete backup
 
 ## Credentials and tools
 
-Home’s image includes Claude Code, Codex, OpenCode, `gh` and `hf` for discovery, usage and quota checks. A hosted Home opens on a setup page with three required steps: Hugging Face sign-in (it unlocks the private bucket and creates the `LP_HOME_KEY` Space secret that encrypts credentials), GitHub sign-in for the Inbox, clones and publication, and a first profile (Claude Code or Codex subscription sign-in, stored in the vault). Home opens only when all three are done; Settings → GitHub links back to the setup page. Each login starts only on a click. Credentials in the bucket (vault secrets in backups, Home's own logins) are encrypted; other data stays as plain files you can browse. Agents never get Home's logins. Its backup is mandatory, with status in Settings → Hugging Face instead of optional trace-sync controls. Home’s Setup and profile pages lead to the vault and runner pairing; native install and sign-in terminals run on the runner.
+Home’s image includes Claude Code, Codex, OpenCode, `gh` and `hf` for discovery, usage and quota checks. A hosted Home opens on a setup page that leads from an empty Home to a first agent: Hugging Face sign-in, the credential key (generated or your own, saved by you, then kept as the `LP_HOME_KEY` Space secret after a restart you confirm), GitHub sign-in, an SSH key made by Home (you add its public key on GitHub), the Git identity, a first profile (Claude Code or Codex subscription sign-in, stored in the vault, with its default model and effort), a workspace with a first cloned folder, then a runner and a first agent. Home opens when the first seven steps are done. Each sign-in and restart starts only on a click. Credentials in the bucket (vault secrets in backups, Home's own logins) are encrypted; other data stays as plain files you can browse. Agents never get Home's logins. Its backup is mandatory, with status in Settings → Hugging Face instead of optional trace-sync controls. On Home, the **Setup** page lists the same steps with their state and where to change them.
 
 Home keeps every credential agents use: open **Settings → Credentials and tools** (on Home, or on a runner, which forwards to Home).
 
 - **Harness logins:** a Claude Code token (`claude setup-token`) and a Codex ChatGPT login (paste its `auth.json`; from then on only Home refreshes it, so do not use that login elsewhere). A profile can name its login; otherwise the harness's first login is used.
 - **Tokens and the SSH key:** tokens and API keys for tools, and one private SSH key. Secrets are write-only: Launchpad never shows them again.
-- **Tools:** each entry says how a runner installs the CLI (GitHub release, download URL, `cargo`, `uv tool` or `npm`), which variables get a placeholder (for example `GH_TOKEN`), on which hosts the proxy adds which token (Bearer, Basic, a header or a query parameter), and in which workspaces it is granted. GitHub CLI and Hugging Face CLI are ready-made; **Copy as TOML** exports the list. The composer's options can switch a granted tool off for one launch.
+- **Tools:** adding a tool asks only for its API token, with a link to create one. For GitHub CLI and Hugging Face CLI, **Use Home's token** lends Home's own login instead (agents then act with Home's full access: a fine-grained token is safer). The **Advanced** section holds the rest. Each entry says how a runner installs the CLI (GitHub release, download URL, `cargo`, `uv tool` or `npm`), which variables get a placeholder (for example `GH_TOKEN`), on which hosts the proxy adds which token (Bearer, Basic, a header or a query parameter), and in which workspaces it is granted. GitHub CLI and Hugging Face CLI are ready-made; **Copy as TOML** exports the list. The composer's options can switch a granted tool off for one launch.
 - **Git identity:** the author of agents' commits on every runner.
+- **SSH key:** the vault shows its public key, to add on GitHub.
 
 When a session starts, its runner gets a **lease** from Home: the session's login, its granted tools and their tokens. The runner keeps the lease in its proxy's memory only. Agents see placeholders: when a request goes to a host of the lease, the proxy adds the real token and records host, method and path in the session's access log (Summary → Credentials), naming actions such as "opened PR #3421". Other traffic passes through untouched. What a request may do is decided by the token's scopes: use fine-grained tokens. **Revoke** (Summary → Credentials, or the list of active leases) stops adding the tokens at once while the runner is connected; Stop and Archive end the lease too, and a runner that cannot reach Home drops it after an hour. The SSH key never leaves Home: sessions get an ssh-agent socket whose list and sign requests go to Home.
 

@@ -182,6 +182,73 @@ pub fn templates() -> Vec<Tool> {
     ]
 }
 
+/// A login of Home itself whose token can be copied into the vault (Home's own `gh` and `hf` logins).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HomeToken {
+    Github,
+    Huggingface,
+}
+
+/// Help shown next to a template's token field.
+#[derive(Clone, Debug, Serialize, TS)]
+pub struct TemplateHelp {
+    /// The template's tool ID.
+    pub id: String,
+    /// Where the owner creates the token.
+    pub token_url: String,
+    /// Home's own login that can fill the token instead.
+    pub home_token: Option<HomeToken>,
+}
+
+/// Token help of each template, by template ID.
+pub fn template_help() -> Vec<TemplateHelp> {
+    let help = |id: &str, url: &str, home: Option<HomeToken>| TemplateHelp { id: id.into(), token_url: url.into(), home_token: home };
+    vec![
+        help("gh", "https://github.com/settings/personal-access-tokens/new", Some(HomeToken::Github)),
+        help("hf", "https://huggingface.co/settings/tokens/new?tokenType=fineGrained", Some(HomeToken::Huggingface)),
+        help("openrouter", "https://openrouter.ai/settings/keys", None),
+    ]
+}
+
+/// Home's own token for `source`: GitHub from `GH_TOKEN`/`GITHUB_TOKEN` or `gh auth token`, Hugging Face from
+/// `HF_TOKEN` or the `hf` token file. Only on Home; the daemon inherits `GH_CONFIG_DIR` and `HF_HOME`.
+async fn home_token(app: &App, source: HomeToken) -> Option<String> {
+    if app.paths.role != crate::role::Role::Home {
+        return None;
+    }
+    let env = |k: &str| app.env.get(k).map(str::trim).filter(|v| !v.is_empty()).map(str::to_string);
+    match source {
+        HomeToken::Github => match env("GH_TOKEN").or_else(|| env("GITHUB_TOKEN")) {
+            Some(t) => Some(t),
+            None => crate::procs::output(&app.env, "gh", &["auth", "token", "--hostname", "github.com"], None).await.ok().filter(|t| !t.is_empty() && !t.contains(char::is_whitespace)),
+        },
+        HomeToken::Huggingface => env("HF_TOKEN").or_else(|| crate::profiles::hf_token(|k| app.env.get(k).map(str::to_string))),
+    }
+}
+
+/// Home's logins whose token can fill a vault entry.
+pub async fn home_tokens(app: &App) -> Vec<HomeToken> {
+    let mut out = vec![];
+    for source in [HomeToken::Github, HomeToken::Huggingface] {
+        if home_token(app, source).await.is_some() {
+            out.push(source);
+        }
+    }
+    out
+}
+
+/// Stores Home's own token for `source` in the entry `id` (kind Token). The token is never returned.
+pub async fn put_from_home(app: &App, id: &str, name: &str, source: HomeToken) -> Result<VaultEntry> {
+    anyhow::ensure!(app.paths.role == crate::role::Role::Home, "only Home can lend its own login");
+    let what = match source {
+        HomeToken::Github => "GitHub (gh auth login on Home)",
+        HomeToken::Huggingface => "Hugging Face (hf auth login on Home)",
+    };
+    let token = home_token(app, source).await.with_context(|| format!("Home has no {what} token"))?;
+    put(app, id, Kind::Token, name, &token).await
+}
+
 fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 60 && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
@@ -230,6 +297,10 @@ pub struct VaultOverview {
     pub entries: Vec<VaultEntry>,
     pub tools: Vec<Tool>,
     pub templates: Vec<Tool>,
+    /// Token help of the templates, by template ID.
+    pub template_help: Vec<TemplateHelp>,
+    /// Home's own logins that can fill a token (only on Home).
+    pub home_tokens: Vec<HomeToken>,
     /// Harness logins the vault can keep.
     pub logins: Vec<LoginKind>,
     pub git_name: String,
@@ -250,7 +321,7 @@ pub struct LoginKind {
 
 fn detail_of(kind: Kind, secret: &str) -> String {
     match kind {
-        Kind::SshKey => ssh_public(secret).map(|p| p.split_whitespace().take(2).collect::<Vec<_>>().join(" ")).unwrap_or_else(|| "private key".into()),
+        Kind::SshKey => "private key".into(),
         Kind::CodexLogin => codex_claims(secret)
             .map(|c| {
                 let auth = &c["https://api.openai.com/auth"];
@@ -267,10 +338,15 @@ fn detail_of(kind: Kind, secret: &str) -> String {
     }
 }
 
-fn ssh_public(private: &str) -> Option<String> {
-    // The public key is derived on demand by ssh-keygen in `ssh_agent`; here only a short label.
-    let first = private.lines().next()?;
-    Some(if first.contains("OPENSSH") { "OpenSSH key".into() } else { first.trim_matches('-').trim().to_string() })
+/// `<type> <base64>` of a private key without a passphrase, from `ssh-keygen -y` (Home's own data folder).
+async fn ssh_public(app: &App, private: &str) -> Result<String> {
+    let path = app.paths.data_dir.join(format!("key-{}.tmp", uuid::Uuid::new_v4()));
+    crate::paths::write_private(&path, &format!("{}\n", private.trim_end()))?;
+    let out = tokio::process::Command::new("ssh-keygen").args(["-y", "-P", "", "-f"]).arg(&path).stdin(std::process::Stdio::null()).output().await;
+    let _ = std::fs::remove_file(&path);
+    let out = out.context("ssh-keygen is not installed")?;
+    anyhow::ensure!(out.status.success(), "this is not a private key without a passphrase");
+    Ok(String::from_utf8_lossy(&out.stdout).split_whitespace().take(2).collect::<Vec<_>>().join(" "))
 }
 
 /// Every entry, without secrets.
@@ -318,7 +394,9 @@ pub async fn put(app: &App, id: &str, kind: Kind, name: &str, value: &str) -> Re
         Kind::ClaudeLogin => anyhow::ensure!(!value.contains(char::is_whitespace), "paste the token printed by claude setup-token"),
         Kind::Token => anyhow::ensure!(!value.contains(['\n', '\r']), "a token is one line"),
     }
-    let entry = VaultEntry { id: id.into(), kind, name: if name.trim().is_empty() { id.into() } else { name.trim().into() }, detail: detail_of(kind, &value), updated_at: now_ms() };
+    // An SSH key shows its public key, to add on GitHub.
+    let detail = if kind == Kind::SshKey { ssh_public(app, &value).await? } else { detail_of(kind, &value) };
+    let entry = VaultEntry { id: id.into(), kind, name: if name.trim().is_empty() { id.into() } else { name.trim().into() }, detail, updated_at: now_ms() };
     let (e, kind_s) = (entry.clone(), serde_json::to_value(kind)?.as_str().unwrap_or_default().to_string());
     app.state_db
         .call(move |c| {

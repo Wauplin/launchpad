@@ -1,8 +1,6 @@
 import unittest
 
-import base64
-
-from onboarding import claude_token, device_prompt, parse_key, seal, unique_id, unseal
+from onboarding import claude_token, derive_key, device_prompt, noreply_email, seal, unique_id, unseal
 
 
 class DevicePrompt(unittest.TestCase):
@@ -38,15 +36,23 @@ class DevicePrompt(unittest.TestCase):
 
 
 class Sealing(unittest.TestCase):
-    def test_roundtrip_and_legacy(self):
-        key = parse_key(base64.b64encode(bytes(range(32))).decode())
+    def test_roundtrip(self):
+        key = derive_key("correct horse battery")
+        self.assertEqual(len(key), 32)
+        self.assertEqual(key, derive_key("  correct horse battery\n"))
+        self.assertNotEqual(key, derive_key("correct horse battery2"))
+        self.assertIsNone(derive_key("short"))
         sealed = seal(key, b"hf_token")
         self.assertNotIn(b"hf_token", sealed)
         self.assertEqual(unseal(key, sealed), b"hf_token")
-        self.assertEqual(unseal(key, b"plain"), b"plain")  # From before encryption.
         with self.assertRaises(ValueError):
-            unseal(None, sealed)
-        self.assertIsNone(parse_key("c2hvcnQ="))
+            unseal(key, b"plain")
+
+
+class Email(unittest.TestCase):
+    def test_noreply(self):
+        self.assertEqual(noreply_email({"id": "42", "login": "octo"}), "42+octo@users.noreply.github.com")
+        self.assertEqual(noreply_email({}), "")
 
 
 class UniqueId(unittest.TestCase):

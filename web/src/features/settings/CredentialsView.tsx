@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { HomeToken } from "@/gen/HomeToken";
 import type { LeaseInfo } from "@/gen/LeaseInfo";
 import type { ProxyAuth } from "@/gen/ProxyAuth";
 import type { Tool } from "@/gen/Tool";
@@ -147,7 +148,7 @@ function Tools({ v, onDone }: { v: VaultOverview; onDone: () => unknown }) {
           <ConfirmButton icon="trash" consequence={`Removes ${t.name}. New sessions no longer get it.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/vault/tools/${t.id}`).then(onDone, toastError)}>Remove</ConfirmButton>
         </div>
       ))}
-      {editing ? <ToolEditor tool={editing} credentials={v.entries.filter((e) => e.kind === "token").map((e) => e.id)} onClose={() => setEditing(null)} onDone={onDone} /> : (
+      {editing ? <ToolEditor tool={editing} v={v} onClose={() => setEditing(null)} onDone={onDone} /> : (
         <div className="flex flex-wrap gap-2">
           {v.templates.filter((t) => !v.tools.some((x) => x.id === t.id)).map((t) => <button key={t.id} className="btn btn-sm" onClick={() => setEditing(t)}>Add {t.name}</button>)}
           <button className="btn btn-sm" onClick={() => setEditing({ id: "", name: "", install: null, credential: null, env: [], hosts: [], workspaces: ["*"] })}>Add another tool</button>
@@ -157,49 +158,97 @@ function Tools({ v, onDone }: { v: VaultOverview; onDone: () => unknown }) {
   );
 }
 
-function ToolEditor({ tool, credentials, onClose, onDone }: { tool: Tool; credentials: string[]; onClose: () => void; onDone: () => unknown }) {
+const HOME_TOKEN_LABEL: Record<HomeToken, string> = { github: "GitHub", huggingface: "Hugging Face" };
+
+/** The short tool form: the API token first, everything else under Advanced (prefilled from the template). */
+function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview; onClose: () => void; onDone: () => unknown }) {
   const workspaces = useWorkspaces().data ?? [];
+  const custom = !tool.id;
+  const help = v.template_help.find((h) => h.id === tool.id);
+  const homeToken = help?.home_token && v.home_tokens.includes(help.home_token) ? help.home_token : null;
   const [t, setT] = useState<Tool>(tool);
   const [hosts, setHosts] = useState(tool.hosts.map((h) => `${h.host} ${authText(h.auth)}`).join("\n"));
+  const [token, setToken] = useState("");
+  const [useHome, setUseHome] = useState(false);
   const [busy, setBusy] = useState(false);
   const set = (patch: Partial<Tool>) => setT((x) => ({ ...x, ...patch }));
   const id = t.id || slug(t.name);
-  const save = () => {
+  const tokens = v.entries.filter((e) => e.kind === "token");
+  // A custom tool's token is saved under the tool's ID unless Advanced names another entry.
+  const credential = t.credential || (custom && (token.trim() || useHome) ? id : null);
+  const stored = tokens.find((e) => e.id === credential);
+  const needsToken = !!credential && !stored && !token.trim() && !useHome;
+  const save = async () => {
     setBusy(true);
-    const body: Tool = { ...t, id, hosts: parseHosts(hosts) };
-    void api.put(`/api/vault/tools/${id}`, body).then(() => { toast(`Saved ${t.name}`); onClose(); return onDone(); }, toastError).finally(() => setBusy(false));
+    try {
+      if (credential && useHome && homeToken) await api.post(`/api/vault/entries/${credential}/from-home`, { source: homeToken, name: stored?.name ?? t.name });
+      else if (credential && token.trim()) await api.put(`/api/vault/entries/${credential}`, { kind: "token", name: stored?.name ?? t.name, value: token });
+      const body: Tool = { ...t, id, credential, hosts: parseHosts(hosts) };
+      await api.put(`/api/vault/tools/${id}`, body);
+      toast(`Saved ${t.name}`);
+      onClose();
+      await onDone();
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setBusy(false);
+    }
   };
   const all = t.workspaces.includes("*");
   const toggleWs = (w: string) => set({ workspaces: t.workspaces.includes(w) ? t.workspaces.filter((x) => x !== w) : [...t.workspaces.filter((x) => x !== "*"), w] });
   const kinds: [ToolInstallKind | "none", string][] = [["none", "Nothing to install"], ["github_release", "GitHub release"], ["url", "Download URL"], ["cargo", "cargo install"], ["uv", "uv tool install"], ["npm", "npm package"]];
   return (
-    <div className="grid gap-1 rounded-[8px] border border-line-2 px-3 text-[13px]">
-      <SettingRow label="Name"><input className="field-input" value={t.name} onChange={(e) => set({ name: e.target.value })} /><input className="field-input w-[160px] font-mono" value={id} onChange={(e) => set({ id: slug(e.target.value) })} disabled={!!tool.id && tool.name !== ""} aria-label="ID" /></SettingRow>
-      <SettingRow label="Install" hint="Runs on each runner, in its own folder. {arch} becomes amd64 or arm64.">
-        <select className="field-input" value={t.install?.kind ?? "none"} onChange={(e) => set({ install: e.target.value === "none" ? null : { kind: e.target.value as ToolInstallKind, source: t.install?.source ?? "", asset: t.install?.asset ?? "" } })}>
-          {kinds.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-        </select>
-        {t.install && <input className="field-input min-w-[220px] flex-1 font-mono" value={t.install.source} placeholder={t.install.kind === "github_release" ? "owner/repo" : t.install.kind === "url" ? "https://…" : "package"} onChange={(e) => set({ install: { ...t.install!, source: e.target.value.trim() } })} />}
-        {t.install?.kind === "github_release" && <input className="field-input min-w-[200px] font-mono" value={t.install.asset} placeholder="tool_*_linux_{arch}.tar.gz" onChange={(e) => set({ install: { ...t.install!, asset: e.target.value.trim() } })} />}
-      </SettingRow>
-      <SettingRow label="Token" hint="The vault entry the proxy adds on the hosts below.">
-        <select className="field-input" value={t.credential ?? ""} onChange={(e) => set({ credential: e.target.value || null })}>
-          <option value="">None</option>
-          {[...new Set([...credentials, ...(t.credential ? [t.credential] : [])])].map((c) => <option key={c} value={c}>{c}{credentials.includes(c) ? "" : " (not added yet)"}</option>)}
-        </select>
-      </SettingRow>
-      <SettingRow label="Variables" hint="Set to a placeholder in the agent's environment, for example SLACK_TOKEN."><input className="field-input min-w-[260px] flex-1 font-mono" value={t.env.join(", ")} onChange={(e) => set({ env: e.target.value.split(/[\s,]+/).filter(Boolean) })} /></SettingRow>
-      <SettingRow label="Hosts" hint={<>One per line: <code className="font-mono">host bearer</code>, <code className="font-mono">host basic user</code>, <code className="font-mono">host header Name [prefix]</code> or <code className="font-mono">host query param</code>. <code className="font-mono">*.example.com</code> covers subdomains.</>}>
-        <textarea className="field-input min-h-[70px] min-w-[300px] flex-1 font-mono text-[12px]" value={hosts} onChange={(e) => setHosts(e.target.value)} spellCheck={false} />
-        <span className="text-[11px] text-ink-3">{parseHosts(hosts).map((h) => `${h.host}: ${AUTH_LABEL[h.auth.kind]}`).join(" · ")}</span>
-      </SettingRow>
-      <SettingRow label="Granted in" hint="Sessions of these workspaces get the tool and its token.">
-        <FilterChips label="Granted in">
-          <FilterChip active={all} onClick={() => set({ workspaces: all ? [] : ["*"] })}>Every workspace</FilterChip>
-          {workspaces.map((w) => <FilterChip key={w.id} active={all || t.workspaces.includes(w.id)} onClick={() => toggleWs(w.id)}>{w.name}</FilterChip>)}
-        </FilterChips>
-      </SettingRow>
-      <div className="flex gap-2 py-2.5"><button className="btn btn-sm btn-primary" disabled={busy || !t.name.trim() || !id} onClick={save}>Save tool</button><button className="btn btn-sm" onClick={onClose}>Cancel</button></div>
+    <div className="grid gap-2.5 rounded-[8px] border border-line-2 p-3 text-[13px]">
+      {custom ? (
+        <label className="grid gap-1"><span className="text-ink-2">Name</span><input className="field-input w-[280px] max-w-full" value={t.name} onChange={(e) => set({ name: e.target.value })} placeholder="Slack" autoFocus /></label>
+      ) : <div className="text-[13px] font-semibold">{t.name}</div>}
+      <div className="grid gap-1">
+        <span className="flex flex-wrap items-center gap-2"><span className="text-ink-2">API token</span>{help && <a className="text-[12px] text-teal-ink hover:underline" href={help.token_url} target="_blank" rel="noreferrer">Create a token</a>}</span>
+        {useHome && homeToken ? (
+          <div className="grid gap-1.5 rounded-[6px] bg-attn-soft px-2.5 py-2 text-[12px]">
+            <span className="text-attn">Agents will act with Home's own {HOME_TOKEN_LABEL[homeToken]} login and its full access. A fine-grained token limited to what agents need is safer.</span>
+            <button className="btn btn-sm w-fit" onClick={() => setUseHome(false)}>Paste a token instead</button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            <input className="field-input w-[360px] max-w-full font-mono" type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder={stored ? "Leave empty to keep the current token" : "Paste the token"} />
+            {homeToken && <button className="btn btn-sm" onClick={() => { setUseHome(true); setToken(""); }}>Use Home's {HOME_TOKEN_LABEL[homeToken]} token</button>}
+          </div>
+        )}
+        {stored && <span className="text-[12px] text-ink-3">Saved as {stored.name} ({stored.detail}), updated {formatAge(stored.updated_at)} ago.</span>}
+        {custom && <span className="text-[12px] text-ink-3">Set the hosts that receive the token and the variables under Advanced.</span>}
+      </div>
+      <details className="rounded-[6px] border border-line-2 px-3">
+        <summary className="cursor-pointer py-2 text-[12px] text-ink-2">Advanced: ID, install, variables, hosts, workspaces</summary>
+        <SettingRow label="Name"><input className="field-input" value={t.name} onChange={(e) => set({ name: e.target.value })} /><input className="field-input w-[160px] font-mono" value={id} onChange={(e) => set({ id: slug(e.target.value) })} disabled={!custom} aria-label="ID" /></SettingRow>
+        <SettingRow label="Install" hint="Runs on each runner, in its own folder. {arch} becomes amd64 or arm64.">
+          <select className="field-input" value={t.install?.kind ?? "none"} onChange={(e) => set({ install: e.target.value === "none" ? null : { kind: e.target.value as ToolInstallKind, source: t.install?.source ?? "", asset: t.install?.asset ?? "" } })}>
+            {kinds.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </select>
+          {t.install && <input className="field-input min-w-[220px] flex-1 font-mono" value={t.install.source} placeholder={t.install.kind === "github_release" ? "owner/repo" : t.install.kind === "url" ? "https://…" : "package"} onChange={(e) => set({ install: { ...t.install!, source: e.target.value.trim() } })} />}
+          {t.install?.kind === "github_release" && <input className="field-input min-w-[200px] font-mono" value={t.install.asset} placeholder="tool_*_linux_{arch}.tar.gz" onChange={(e) => set({ install: { ...t.install!, asset: e.target.value.trim() } })} />}
+        </SettingRow>
+        <SettingRow label="Token ID" hint="The vault entry the proxy adds on the hosts below. Empty: no token.">
+          <input className="field-input w-[200px] font-mono" list="vault-token-ids" value={t.credential ?? ""} placeholder={custom ? id || "my-tool" : ""} onChange={(e) => set({ credential: slug(e.target.value) || null })} />
+          <datalist id="vault-token-ids">{tokens.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</datalist>
+        </SettingRow>
+        <SettingRow label="Variables" hint="Set to a placeholder in the agent's environment, for example SLACK_TOKEN."><input className="field-input min-w-[260px] flex-1 font-mono" value={t.env.join(", ")} onChange={(e) => set({ env: e.target.value.split(/[\s,]+/).filter(Boolean) })} /></SettingRow>
+        <SettingRow label="Hosts" hint={<>One per line: <code className="font-mono">host bearer</code>, <code className="font-mono">host basic user</code>, <code className="font-mono">host header Name [prefix]</code> or <code className="font-mono">host query param</code>. <code className="font-mono">*.example.com</code> covers subdomains.</>}>
+          <textarea className="field-input min-h-[70px] min-w-[300px] flex-1 font-mono text-[12px]" value={hosts} onChange={(e) => setHosts(e.target.value)} spellCheck={false} />
+          <span className="text-[11px] text-ink-3">{parseHosts(hosts).map((h) => `${h.host}: ${AUTH_LABEL[h.auth.kind]}`).join(" · ")}</span>
+        </SettingRow>
+        <SettingRow label="Granted in" hint="Sessions of these workspaces get the tool and its token.">
+          <FilterChips label="Granted in">
+            <FilterChip active={all} onClick={() => set({ workspaces: all ? [] : ["*"] })}>Every workspace</FilterChip>
+            {workspaces.map((w) => <FilterChip key={w.id} active={all || t.workspaces.includes(w.id)} onClick={() => toggleWs(w.id)}>{w.name}</FilterChip>)}
+          </FilterChips>
+        </SettingRow>
+      </details>
+      <div className="flex flex-wrap items-center gap-2">
+        <button className="btn btn-sm btn-primary" disabled={busy || !t.name.trim() || !id || needsToken} onClick={() => void save()}>Save on Home</button>
+        <button className="btn btn-sm" onClick={onClose}>Cancel</button>
+        {needsToken && <span className="text-[12px] text-ink-3">Paste the token first.</span>}
+      </div>
     </div>
   );
 }

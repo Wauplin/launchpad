@@ -57,9 +57,12 @@ impl Paths {
             config_dir: home.join(".config").join(suffix),
             data_dir: home.join(".local/share").join(suffix),
             // `LAUNCHPAD_PORT` lets isolated checks (with their own `HOME`) run next to the dev daemon.
-            port: std::env::var("LAUNCHPAD_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(match app_env {
-                AppEnv::Prod => 7317,
-                AppEnv::Dev => 7318,
+            // A runner has its own port too, so it runs next to a single-process install on the same laptop.
+            port: std::env::var("LAUNCHPAD_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(match (app_env, role) {
+                (AppEnv::Prod, crate::role::Role::Runner) => 7320,
+                (AppEnv::Dev, crate::role::Role::Runner) => 7321,
+                (AppEnv::Prod, _) => 7317,
+                (AppEnv::Dev, _) => 7318,
             }),
             role,
         }

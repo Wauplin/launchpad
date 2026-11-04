@@ -20,6 +20,27 @@ import { WelcomeGate } from "@/onboarding/WelcomeGate";
 const TourRoot = lazy(() => import("@/onboarding/tour/TourRoot").then((m) => ({ default: m.TourRoot })));
 const AddFolderDialog = lazy(() => import("@/features/projects/AddFolder").then((m) => ({ default: m.AddFolderDialog })));
 
+/** Home is served directly in the Hugging Face Space page, whose mini header (Space name, menu) is a pill fixed 20 px
+ * from the top and 24 px from the right, 40 px tall, hidden below 640 px. Its width follows the Space ID, whose
+ * length matches the first label of the `*.hf.space` host. Keep the top bar's buttons out of it (see TopBar). A
+ * parent Space shell (deploy/hf-space) sets these itself, so only a page embedded directly by the Hub does it. */
+function useHubPillInset() {
+  useLayoutEffect(() => {
+    const host = location.hostname;
+    if (window.parent === window || window.top !== window.parent || !host.endsWith(".hf.space")) return;
+    const wide = matchMedia("(min-width: 640px)");
+    const root = document.documentElement.style;
+    const apply = () => {
+      const on = wide.matches;
+      root.setProperty("--lp-host-inset-right", on ? `${Math.round(36 + 150 + 9.5 * host.split(".")[0].length)}px` : "0px");
+      root.setProperty("--lp-host-inset-top", on ? "64px" : "0px");
+    };
+    apply();
+    wide.addEventListener("change", apply);
+    return () => wide.removeEventListener("change", apply);
+  }, []);
+}
+
 export function Shell() {
   const addOpen = useAddFolder((s) => s.open);
   const scale = useZoomScale();
@@ -29,6 +50,7 @@ export function Shell() {
     document.documentElement.style.setProperty("--lp-zoom", String(scale));
   }, [scale]);
   useWorkspaceSync();
+  useHubPillInset();
   return (
     <div className="flex h-full flex-col">
       <IconSprite />

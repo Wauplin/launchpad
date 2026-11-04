@@ -4,7 +4,7 @@
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
-use launchpad_core::vault::{self, VaultEntry, Kind, LeaseInfo, LoginKind, Tool, VaultOverview};
+use launchpad_core::vault::{self, HomeToken, VaultEntry, Kind, LeaseInfo, LoginKind, Tool, VaultOverview};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -15,6 +15,7 @@ pub fn router() -> Router<Server> {
     Router::new()
         .route("/api/vault", get(overview))
         .route("/api/vault/entries/{id}", put(put_entry).delete(delete_entry))
+        .route("/api/vault/entries/{id}/from-home", post(entry_from_home))
         .route("/api/vault/tools/{id}", put(put_tool).delete(delete_tool))
         .route("/api/vault/tools.toml", get(export))
         .route("/api/vault/identity", put(identity))
@@ -33,7 +34,7 @@ async fn overview(State(s): State<Server>) -> ApiResult<VaultOverview> {
         .iter()
         .filter_map(|r| r.descriptor.vault_login.map(|l| LoginKind { harness: r.descriptor.id.as_str().into(), name: r.descriptor.name.into(), kind: l.kind, how: l.how.into() }))
         .collect();
-    Ok(Json(VaultOverview { entries: vault::entries(&s.app).await?, tools: vault::tools(&s.app).await?, templates: vault::templates(), logins, git_name: home.git_name, git_email: home.git_email }))
+    Ok(Json(VaultOverview { entries: vault::entries(&s.app).await?, tools: vault::tools(&s.app).await?, templates: vault::templates(), template_help: vault::template_help(), home_tokens: vault::home_tokens(&s.app).await, logins, git_name: home.git_name, git_email: home.git_email }))
 }
 
 #[derive(Deserialize)]
@@ -46,6 +47,18 @@ struct EntryBody {
 
 async fn put_entry(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<EntryBody>) -> ApiResult<VaultEntry> {
     Ok(Json(vault::put(&s.app, &id, b.kind, &b.name, &b.value).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct FromHomeBody {
+    source: HomeToken,
+    #[serde(default)]
+    name: String,
+}
+
+/// Copies Home's own GitHub or Hugging Face token into an entry. Only on Home; the token is never returned.
+async fn entry_from_home(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<FromHomeBody>) -> ApiResult<VaultEntry> {
+    Ok(Json(vault::put_from_home(&s.app, &id, &b.name, b.source).await.map_err(bad)?))
 }
 
 async fn delete_entry(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {

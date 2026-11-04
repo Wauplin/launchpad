@@ -292,7 +292,7 @@ pub async fn connect(paths: &launchpad_core::paths::Paths, url: &str, name: Opti
     let body: serde_json::Value = res.json().await.unwrap_or_default();
     anyhow::ensure!(status.is_success(), "Home refused the request: {}", body["error"].as_str().unwrap_or(status.as_str()));
     let link = Link { url: url.clone(), id: body["id"].as_str().unwrap_or_default().into(), secret: body["secret"].as_str().unwrap_or_default().into() };
-    println!("Approve this runner on Home: Settings → Home and runners.\nCode: {}\nWaiting…", body["code"].as_str().unwrap_or("?"));
+    println!("Approve this runner on Home: the setup page or Settings → Home and runners.\nCode: {}\nWaiting…", body["code"].as_str().unwrap_or("?"));
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10 * 60);
     while tokio::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_secs(3)).await;

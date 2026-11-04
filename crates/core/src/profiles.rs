@@ -189,7 +189,7 @@ fn lookup(app: &App, host: Option<&str>, model: Option<&str>, name: &str) -> Res
 }
 
 /// The token file of `huggingface_hub`: `HF_TOKEN_PATH`, else `$HF_HOME/token`, else `~/.cache/huggingface/token`.
-fn hf_token(get: impl Fn(&str) -> Option<String>) -> Option<String> {
+pub fn hf_token(get: impl Fn(&str) -> Option<String>) -> Option<String> {
     let path = match (get("HF_TOKEN_PATH"), get("HF_HOME"), get("XDG_CACHE_HOME")) {
         (Some(p), _, _) => crate::paths::expand_home(&p),
         (None, Some(home), _) => crate::paths::expand_home(&home).join("token"),

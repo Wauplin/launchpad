@@ -1,12 +1,17 @@
-"""Home's first-start setup: Hugging Face with the credential key, GitHub and a first profile. All three are required.
+"""Home's onboarding: the steps between an empty Space and a first agent.
+
+Required before Home opens: Hugging Face, the credential key, GitHub, an SSH key, the Git identity, a profile and a
+first folder. Then, optional on this page: pair a runner and run a first agent.
 
 Only fixed CLI logins run, and only after an owner click. Their output stays in memory and is never logged.
-Credentials are encrypted with `LP_HOME_KEY` (a Space secret): Home's own logins in the bucket (decrypted only
-into this container's local disk) and the vault secrets in Home's backups. Everything else is stored plain.
+Credentials are encrypted with a key derived from `LP_HOME_KEY` (a Space secret the owner chooses or generates here):
+Home's own logins in the bucket (decrypted only into this container's local disk) and the vault secrets in Home's
+backups. Everything else is stored plain.
 """
 import asyncio
 import base64
 import errno
+import hashlib
 import hmac
 import os
 from pathlib import Path
@@ -15,6 +20,8 @@ import re
 import secrets
 import shutil
 import signal
+import tempfile
+import time
 
 import aiohttp
 from aiohttp import web
@@ -32,8 +39,12 @@ RETRY = re.compile(r"Press\s*Enter\s*to\s*retry")
 TIMEOUT = 900
 MAGIC = b"LPSEALED1"
 KEY_SECRET = "LP_HOME_KEY"
+MIN_KEY = 12
 LOGINS = {"claude": "claude_login", "codex": "codex_login"}  # Harnesses whose login Home keeps in its vault.
 NAMES = {"claude": "Claude Code", "codex": "Codex"}
+# Owner choices kept in Home's onboarding record (`dismissed`), so they survive restarts and restores.
+SSH_DONE, PROFILE_DONE, AGENT_DONE = "home:ssh", "home:profile", "home:first-agent"
+FIRST_PROMPT = "What is this project about? Give a short overview of its purpose, structure and main parts."
 
 
 def device_prompt(output):
@@ -57,25 +68,27 @@ def unique_id(base, taken):
     return value
 
 
-def parse_key(value):
-    try:
-        key = base64.b64decode(value.strip(), validate=True)
-    except ValueError:
+def derive_key(passphrase):
+    """The 32-byte AES key from the LP_HOME_KEY passphrase (scrypt with a fixed salt: the passphrase is the secret)."""
+    value = passphrase.strip()
+    if len(value) < MIN_KEY:
         return None
-    return key if len(key) == 32 else None
+    return hashlib.scrypt(value.encode(), salt=b"launchpad-home-key", n=1 << 15, r=8, p=1, maxmem=1 << 26, dklen=32)
+
+
+def new_passphrase():
+    return "lp-" + secrets.token_urlsafe(30)
 
 
 def seal(key, data):
-    """Same format as Home's backups: MAGIC || nonce || AES-256-GCM ciphertext and tag."""
+    """MAGIC || nonce || AES-256-GCM ciphertext and tag."""
     nonce = os.urandom(12)
     return MAGIC + nonce + AESGCM(key).encrypt(nonce, data, None)
 
 
 def unseal(key, data):
     if not data.startswith(MAGIC):
-        return data  # From before encryption.
-    if key is None:
-        raise ValueError("This object is encrypted: the LP_HOME_KEY Space secret is missing")
+        raise ValueError("Not an encrypted file")
     rest = data[len(MAGIC):]
     return AESGCM(key).decrypt(rest[:12], rest[12:], None)
 
@@ -86,6 +99,10 @@ def write_private(path, data):
     temporary.write_bytes(data)
     temporary.chmod(0o600)
     temporary.replace(path)
+
+
+def noreply_email(user):
+    return f"{user['id']}+{user['login']}@users.noreply.github.com" if user.get("id") and user.get("login") else ""
 
 
 class Login:
@@ -198,39 +215,38 @@ class Login:
 
 
 class Setup:
-    def __init__(self, space, bucket, credentials, key):
-        self.space, self.bucket = space, bucket
-        self.key = key  # From the LP_HOME_KEY Space secret; None until encryption is set up.
+    def __init__(self, space, host, bucket, credentials, key):
+        self.space, self.host, self.bucket = space, host, bucket
+        self.key = key  # Derived from the LP_HOME_KEY Space secret; None until the owner sets it here.
         self.csrf = secrets.token_hex(32)
         self.sealed = credentials / "sealed"
-        self.legacy = credentials
         self.hf_home = Path(os.environ["HF_HOME"])
         self.gh_dir = Path(os.environ["GH_CONFIG_DIR"])
         self.files = {"huggingface": (self.hf_home / "token", self.sealed / "huggingface-token"),
                       "github": (self.gh_dir / "hosts.yml", self.sealed / "gh-hosts.yml")}
         self.hf = {"done": False, "account": None, "error": None}
-        self.github = {"done": False, "account": None, "error": None}
-        self.profile = {"done": False, "profiles": [], "missing": None, "logins": []}
-        self.encryption = {"state": "on" if key else "off", "error": None, "manual_key": None}
+        self.github = {"done": False, "account": None, "error": None, "user": {}}
+        # "off": no key yet; "restarting": the owner saved a key and Home restarts to use it; "manual": the owner
+        # must add the secret in the Space settings.
+        self.encryption = {"state": "on" if key else "off", "error": None}
+        self.passphrase = None  # A key generated or typed on this page, until Home restarts with it.
+        self.home = {}  # What Home's daemon has: SSH key, identity, profiles, folders, runners.
+        self.home_at = 0.0
         self.login = None
         self.lock = asyncio.Lock()
         self.api = None  # Set once the daemon is up: async (method, path, body=None) -> JSON.
+        self.binary = Path(shutil.which("launchpad") or "/usr/local/bin/launchpad")
+        self.binary_sha = None
 
     # ------------------------------------------------------------------ credentials at rest
 
     def restore(self):
-        """Decrypt Home's logins from the bucket; encrypt and remove plain-text copies from before encryption."""
-        legacy = {"huggingface": self.legacy / "huggingface/token", "github": self.legacy / "gh/hosts.yml"}
-        for name, (local, sealed) in self.files.items():
-            if sealed.exists() and self.key:
+        """Decrypt Home's own logins from the bucket into the container's disk."""
+        if not self.key:
+            return
+        for local, sealed in self.files.values():
+            if sealed.exists():
                 write_private(local, unseal(self.key, sealed.read_bytes()))
-            elif legacy[name].exists() and not local.exists():
-                write_private(local, legacy[name].read_bytes())
-            if self.key and local.exists():
-                self.save(name)
-        if self.key:
-            for folder in ("huggingface", "gh"):
-                shutil.rmtree(self.legacy / folder, ignore_errors=True)
 
     def save(self, name, key=None):
         key = key or self.key
@@ -238,29 +254,37 @@ class Setup:
         if key and local.exists():
             write_private(sealed, seal(key, local.read_bytes()))
 
-    async def enable_encryption(self):
-        """After the HF sign-in: create the key, keep it as a Space secret and restart Home once to use it."""
-        if self.key or self.encryption["state"] in ("restarting", "manual"):
-            return
-        key = os.urandom(32)
-        value = base64.b64encode(key).decode()
-        self.save("huggingface", key)
-        try:
-            from huggingface_hub import HfApi, get_token
-            api = HfApi(token=get_token())
-            await asyncio.to_thread(api.add_space_secret, self.space, KEY_SECRET, value,
-                                    description="Encrypts Launchpad Home's credentials in the bucket. Never share or delete it.")
-            self.encryption = {"state": "restarting", "error": None, "manual_key": None}
-            asyncio.get_running_loop().call_later(2, lambda: asyncio.ensure_future(self.restart(api)))
-        except Exception:
-            self.encryption = {"state": "manual", "manual_key": value,
-                               "error": "This Hugging Face login cannot add Space secrets. Add the secret below in the Space settings, then restart the Space."}
+    def hf_api(self):
+        from huggingface_hub import HfApi, get_token
+        return HfApi(token=get_token())
 
-    async def restart(self, api):
+    async def save_key(self, passphrase):
+        """Keep the key as a Space secret, then restart Home to use it. Runs only on the owner's Restart click."""
+        if self.key:
+            raise ValueError("Encryption is already on")
+        if not self.hf["done"]:
+            raise ValueError("Sign in to Hugging Face first")
+        key = derive_key(passphrase)
+        if key is None:
+            raise ValueError(f"Use a key of at least {MIN_KEY} characters")
+        self.passphrase = passphrase.strip()
+        # Home's HF login is sealed with the new key now, so Home finds it after the restart.
+        self.save("huggingface", key)
+        api = self.hf_api()
         try:
-            await asyncio.to_thread(api.restart_space, self.space)
+            await asyncio.to_thread(api.add_space_secret, self.space, KEY_SECRET, self.passphrase,
+                                    description="Encrypts Launchpad Home's credentials in the bucket. Never share or delete it.")
         except Exception:
-            pass  # Adding a secret restarts the Space on its own.
+            self.encryption = {"state": "manual", "error": None}
+            return
+        self.encryption = {"state": "restarting", "error": None}
+        asyncio.get_running_loop().call_later(1, lambda: asyncio.ensure_future(self.restart()))
+
+    async def restart(self):
+        try:
+            await asyncio.to_thread(self.hf_api().restart_space, self.space)
+        except Exception:
+            pass  # Saving a secret restarts the Space too.
 
     # ------------------------------------------------------------------ checks
 
@@ -293,37 +317,61 @@ class Setup:
 
     async def check_github(self):
         try:
-            # A stored token is enough (no network); the account name is best effort.
+            # A stored token is enough (no network); the account details are best effort.
             stored = self.secret() or (self.gh_dir / "hosts.yml").exists()
             if not stored or not await self.gh("auth", "token", "--hostname", "github.com"):
-                self.github = {"done": False, "account": None, "error": None}
+                self.github = {"done": False, "account": None, "error": None, "user": {}}
                 return
-            self.github = {"done": True, "account": await self.gh("api", "user", "--jq", ".login"), "error": None}
+            user = {}
+            raw = await self.gh("api", "user", "--jq", "[.login, .name // \"\", .id] | @tsv")
+            if raw:
+                login, name, uid = (raw.split("\t") + ["", "", ""])[:3]
+                user = {"login": login, "name": name or login, "id": uid}
+            self.github = {"done": True, "account": user.get("login"), "error": None, "user": user}
         except (OSError, asyncio.TimeoutError):
-            self.github = {"done": False, "account": None, "error": "Could not check the GitHub login."}
+            self.github = {"done": False, "account": None, "error": "Could not check the GitHub login.", "user": {}}
 
-    async def check_profiles(self):
-        """Done when a profile can run: its harness login is in the vault (or it needs no vault login)."""
-        if not self.api:
+    async def check_home(self, force=False):
+        """Reads the daemon's side of the setup. Cheap local calls, at most every second."""
+        if not self.api or not self.unlocked or (not force and time.monotonic() - self.home_at < 1):
             return
+        self.home_at = time.monotonic()
         config = (await self.api("GET", "/api/config"))["config"]
-        entries = (await self.api("GET", "/api/vault"))["entries"]
-        ready, missing = [], None
+        vault = await self.api("GET", "/api/vault")
+        marks = set((await self.api("GET", "/api/onboarding")).get("dismissed", []))
+        workspaces = await self.api("GET", "/api/workspaces")
+        projects = await self.api("GET", "/api/projects")
+        runners = await self.api("GET", "/api/runners")
+        entries = vault["entries"]
+        ssh = next((e for e in entries if e["kind"] == "ssh_key"), None)
+        profiles, missing = [], None
         for p in config["profiles"]:
             kind = LOGINS.get(p["harness"])
             ok = kind is None or any(e["kind"] == kind and (not p.get("login") or e["id"] == p["login"]) for e in entries)
             if ok:
-                ready.append(p["name"])
+                profiles.append({k: p.get(k) for k in ("id", "name", "harness", "model", "effort")})
             elif missing is None:
                 missing = {"name": p["name"], "harness": p["harness"]}
-        logins = sorted({h for h, kind in LOGINS.items() if any(e["kind"] == kind for e in entries)})
-        self.profile = {"done": bool(ready), "profiles": ready, "missing": missing, "logins": logins}
+        agent = AGENT_DONE in marks
+        if not agent and runners:
+            agent = bool(await self.api("GET", "/api/sessions"))
+        self.home = {
+            "ssh": {"done": bool(ssh) and SSH_DONE in marks, "public_key": f"{ssh['detail']} launchpad-home" if ssh else None},
+            "identity": {"done": bool(vault["git_name"].strip() and vault["git_email"].strip()), "name": vault["git_name"], "email": vault["git_email"]},
+            "profile": {"done": bool(profiles) and PROFILE_DONE in marks, "ready": bool(profiles), "profiles": profiles, "missing": missing},
+            "folders": {"done": bool(workspaces) and bool(projects), "workspaces": [{"id": w["id"], "name": w["name"]} for w in workspaces],
+                        "projects": [{"id": p["id"], "name": p["name"], "workspace_id": p.get("workspace_id")} for p in projects]},
+            "runner": {"done": any(r["connected"] for r in runners),
+                       "runners": [{"id": r["runner"]["id"], "name": r["runner"]["name"], "code": r["runner"]["code"], "state": r["runner"]["state"],
+                                    "connected": r["connected"], "compat": r.get("compat")} for r in runners]},
+            "agent": {"done": agent},
+        }
 
     async def check(self):
         await self.check_hf()
         await self.check_github()
         try:
-            await self.check_profiles()
+            await self.check_home(force=True)
         except Exception:
             pass
 
@@ -337,17 +385,30 @@ class Setup:
         """Home's data may be used: signed in to HF with encryption on."""
         return self.hf["done"] and self.key is not None
 
+    def step(self, name):
+        return self.home.get(name, {}).get("done", False)
+
     @property
     def complete(self):
-        return self.unlocked and self.github["done"] and self.profile["done"]
+        """Home opens once these are done; the runner and the first agent are optional here."""
+        return self.unlocked and self.github["done"] and all(self.step(s) for s in ("ssh", "identity", "profile", "folders"))
+
+    def install_command(self):
+        url = f"https://{self.host}/_home/runner/install.sh"
+        return f'curl -fsSL -H "Authorization: Bearer ${{HF_TOKEN:-$(cat ~/.cache/huggingface/token)}}" {url} | bash'
 
     def status(self):
+        github = {k: v for k, v in self.github.items() if k != "user"}
+        user = self.github.get("user") or {}
         return {
-            "csrf": self.csrf, "bucket": self.bucket, "space": self.space, "complete": self.complete,
-            "huggingface": dict(self.hf, done=self.unlocked, signed_in=self.hf["done"]),
-            "encryption": self.encryption,
-            "github": dict(self.github, secret=self.secret()),
-            "profile": dict(self.profile, ready=self.api is not None),
+            "csrf": self.csrf, "bucket": self.bucket, "space": self.space, "complete": self.complete, "unlocked": self.unlocked,
+            "huggingface": dict(self.hf, done=self.hf["done"], signed_in=self.hf["done"]),
+            "key": {"done": self.key is not None, "state": self.encryption["state"], "error": self.encryption["error"],
+                    "pending": self.passphrase is not None},
+            "github": dict(github, secret=self.secret(), suggest={"name": user.get("name", ""), "email": noreply_email(user)}),
+            **{k: self.home.get(k, {"done": False}) for k in ("ssh", "identity", "profile", "folders", "runner", "agent")},
+            "install": self.install_command(),
+            "first_prompt": FIRST_PROMPT,
             "login": self.login.status() if self.login else None,
         }
 
@@ -362,7 +423,7 @@ class Setup:
                 env = dict(base, HF_HUB_DISABLE_UPDATE_CHECK="1", PYTHONUNBUFFERED="1")
                 self.login = Login(tool, ("hf", "auth", "login", "--force", "--format", "agent"), env, self.hf_done)
             elif not self.unlocked:
-                raise ValueError("Finish the Hugging Face step first")
+                raise ValueError("Finish the Hugging Face and key steps first")
             elif tool == "github":
                 if self.secret():
                     raise ValueError("GitHub uses the GH_TOKEN Space secret; remove it in the Space settings to sign in here")
@@ -405,11 +466,8 @@ class Setup:
 
     async def hf_done(self, _):
         await self.check_hf()
-        if self.hf["done"]:
-            if self.key:
-                self.save("huggingface")
-            else:
-                await self.enable_encryption()
+        if self.hf["done"] and self.key:
+            self.save("huggingface")
 
     async def github_done(self, _):
         self.save("github")
@@ -438,7 +496,36 @@ class Setup:
             config["profiles"].append({"id": unique_id(harness, {p["id"] for p in config["profiles"]}),
                                        "name": NAMES[harness], "harness": harness, "login": entry})
         await self.api("PUT", "/api/config", config)
-        await self.check_profiles()
+        await self.check_home(force=True)
+
+    async def create_ssh_key(self):
+        """An ed25519 key pair made on Home. The private key goes to the vault (encrypted in backups) and never
+        leaves Home: sessions use it through a forwarded ssh-agent."""
+        vault = await self.api("GET", "/api/vault")
+        if any(e["kind"] == "ssh_key" for e in vault["entries"]):
+            return
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "id_ed25519"
+            process = await asyncio.create_subprocess_exec(
+                "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "launchpad-home", "-f", str(path),
+                stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+            if await process.wait() != 0:
+                raise ValueError("Could not create the SSH key")
+            private = path.read_text()
+        await self.api("PUT", "/api/vault/entries/ssh-key", {"kind": "ssh_key", "name": "Home SSH key", "value": private})
+
+    async def set_profile(self, body):
+        config = (await self.api("GET", "/api/config"))["config"]
+        profile = next((p for p in config["profiles"] if p["id"] == body.get("id")), None)
+        if not profile:
+            raise ValueError("This profile no longer exists")
+        for field in ("model", "effort"):
+            value = body.get(field)
+            profile[field] = str(value).strip()[:120] if value else None
+        await self.api("PUT", "/api/config", config)
+
+    async def mark(self, item):
+        await self.api("PATCH", "/api/onboarding", {"dismiss": [item]})
 
     async def close(self):
         if self.login:
@@ -462,11 +549,56 @@ class Setup:
             self.login.send_code(code)
         elif path == "/_home/check":
             await self.check()
-        elif path == "/_home/finish":
-            if not self.complete:
-                raise ValueError("Finish the setup steps first")
+        elif path == "/_home/key/new":
+            # Sent once for the owner's clipboard or key file. The page never displays it.
+            if self.key:
+                raise ValueError("Encryption is already on")
+            self.passphrase = new_passphrase()
+            return {"passphrase": self.passphrase}
+        elif path == "/_home/key/copy":
+            if not self.passphrase:
+                raise ValueError("Generate or enter a key first")
+            return {"passphrase": self.passphrase}
+        elif path == "/_home/key/save":
+            await self.save_key(str(body.get("key") or self.passphrase or ""))
+        elif path == "/_home/restart":
+            if self.encryption["state"] not in ("restarting", "manual"):
+                raise ValueError("Nothing needs a restart")
+            self.encryption["state"] = "restarting"
+            await self.restart()
+        elif not self.unlocked or not self.api:
+            raise ValueError("Finish the Hugging Face and key steps first")
+        elif path == "/_home/ssh":
+            await self.create_ssh_key()
+        elif path == "/_home/ssh/done":
+            await self.mark(SSH_DONE)
+        elif path == "/_home/profile":
+            await self.set_profile(body)
+            await self.mark(PROFILE_DONE)
+        elif path == "/_home/agent":
+            await self.mark(AGENT_DONE)
         else:
             raise web.HTTPNotFound()
+        await self.check_home(force=True)
+        return None
+
+    # ------------------------------------------------------------------ runner install
+
+    def install_script(self, commit):
+        if self.binary_sha is None:
+            self.binary_sha = hashlib.sha256(self.binary.read_bytes()).hexdigest()
+        text = Path(__file__).with_name("install-runner.sh").read_text()
+        for name, value in (("HOME_URL", f"https://{self.host}"), ("COMMIT", commit), ("SHA256", self.binary_sha)):
+            text = text.replace(f"@{name}@", value)
+        return text
+
+    async def runner_file(self, request, path):
+        if path == "/_home/runner/install.sh":
+            status = await self.api("GET", "/api/status")
+            return web.Response(text=self.install_script(status.get("commit", "")), content_type="text/x-shellscript",
+                                headers={"Cache-Control": "no-store"})
+        return web.FileResponse(self.binary, headers={"Cache-Control": "no-store", "Content-Type": "application/octet-stream",
+                                                      "Content-Disposition": "attachment; filename=launchpad"})
 
     # ------------------------------------------------------------------ routes
 
@@ -477,18 +609,26 @@ class Setup:
     async def handle(self, request, path):
         """A response for setup routes and while setup is unfinished; None lets the request through."""
         if path == "/_home/status" and request.method == "GET":
+            try:
+                await self.check_home()
+            except Exception:
+                pass  # The page shows the last known state.
             return web.json_response(self.status(), headers={"Cache-Control": "no-store"})
+        if path in ("/_home/runner/install.sh", "/_home/runner/launchpad") and request.method in ("GET", "HEAD"):
+            if not self.unlocked or not self.api:
+                return web.Response(status=503, text="echo 'Finish Home setup first.' >&2; exit 1\n")
+            return await self.runner_file(request, path)
         if path.startswith("/_home/") and request.method == "POST":
             body = await request.json()
             if not isinstance(body, dict) or not hmac.compare_digest(str(body.get("csrf", "")).encode(), self.csrf.encode()):
                 raise web.HTTPForbidden(text="Reload the setup page")
             try:
-                await self.action(path, body)
+                extra = await self.action(path, body)
             except ValueError as error:
                 return web.json_response({"error": str(error)}, status=409)
             except aiohttp.ClientResponseError:
-                return web.json_response({"error": "Home did not accept the change. Check Settings in Home."}, status=502)
-            return web.json_response(self.status(), headers={"Cache-Control": "no-store"})
+                return web.json_response({"error": "Home did not accept the change. Try again."}, status=502)
+            return web.json_response(dict(self.status(), **(extra or {})), headers={"Cache-Control": "no-store"})
         page = not path.startswith("/api/") and path != "/ws"
         if path == "/_home/setup" or (page and not self.complete):
             return self.page()

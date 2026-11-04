@@ -450,14 +450,14 @@ async fn main() -> Result<()> {
         Command::Daemon { role } => {
             init_tracing();
             let role = launchpad_core::role::Role::parse(&role)?;
-            // Keep the port of `LAUNCHPAD_PORT` or the environment; a runner gets its own folders.
-            let paths = if role == paths.role { paths } else { Paths { port: paths.port, ..Paths::for_role(paths.app_env, role) } };
+            // A runner gets its own folders and port (`LAUNCHPAD_PORT` overrides the port).
+            let paths = if role == paths.role { paths } else { Paths::for_role(paths.app_env, role) };
             tracing::info!("env {}, role {}, data in {}", paths.app_env.name(), role.name(), paths.data_dir.display());
             let app = launchpad_core::App::start(paths).await?;
             launchpad_server::serve(app).await
         }
         Command::Connect { url, name } => {
-            let runner = Paths { port: paths.port, ..Paths::for_role(paths.app_env, launchpad_core::role::Role::Runner) };
+            let runner = Paths::for_role(paths.app_env, launchpad_core::role::Role::Runner);
             launchpad_server::connect(&runner, &url, name).await
         }
         Command::Status => {

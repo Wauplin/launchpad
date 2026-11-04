@@ -8,8 +8,7 @@
 //!
 //! Credentials: with `LAUNCHPAD_HOME_KEY` (base64 of 32 random bytes; the hosted Home keeps it in a Space
 //! secret), the vault's secrets are sealed with AES-256-GCM inside the backup copy of `state.db`, and opened again
-//! on restore. Everything else stays plain, so the bucket can be browsed and deduplicated. Backups from the
-//! earlier fully sealed layout (`home/sealed/`) are restored once, then deleted after the next complete backup.
+//! on restore. Everything else stays plain, so the bucket can be browsed and deduplicated.
 //!
 //! Pruning keeps every backup of the last day (and always the newest), then removes objects no kept manifest
 //! needs. `cache.db` is not backed up: it is rebuilt from GitHub.
@@ -68,10 +67,6 @@ impl Store {
     }
 
     async fn get(&self, env: &UserEnv, key: &str) -> Result<Vec<u8>> {
-        open(sealing_key(), self.get_raw(env, key).await?).with_context(|| format!("decrypt {key}"))
-    }
-
-    async fn get_raw(&self, env: &UserEnv, key: &str) -> Result<Vec<u8>> {
         match self {
             Store::Bucket(b) => {
                 let mut cmd = crate::procs::command(env, "hf", None);
@@ -179,8 +174,6 @@ impl Backups {
 const MAGIC: &[u8] = b"LPSEALED1";
 /// Where backups go.
 const ROOT: &str = "home";
-/// The earlier layout with every object sealed: read once to restore, then deleted.
-const LEGACY: &str = "home/sealed";
 /// A sealed vault secret in a backup copy of `state.db`.
 const SEALED_SECRET: &str = "lpsealed1:";
 
@@ -209,11 +202,10 @@ fn seal(key: &[u8; 32], data: &[u8]) -> Result<Vec<u8>> {
     Ok([MAGIC, &nonce, &sealed].concat())
 }
 
-/// Opens a sealed object (earlier layout); plain objects pass through unchanged.
-fn open(key: Option<&[u8; 32]>, data: Vec<u8>) -> Result<Vec<u8>> {
+/// Opens a sealed value.
+fn open(key: &[u8; 32], data: Vec<u8>) -> Result<Vec<u8>> {
     use aes_gcm::{Aes256Gcm, KeyInit, aead::Aead};
-    let Some(rest) = data.strip_prefix(MAGIC) else { return Ok(data) };
-    let key = key.context("this backup is encrypted: set LAUNCHPAD_HOME_KEY")?;
+    let rest = data.strip_prefix(MAGIC).context("not an encrypted value")?;
     ensure!(rest.len() >= 12 + 16, "truncated encrypted object");
     let (nonce, sealed) = rest.split_at(12);
     let nonce: [u8; 12] = nonce.try_into()?;
@@ -229,12 +221,9 @@ fn manifest_key(at: i64) -> String {
     format!("{ROOT}/backup/{t}/manifest.json")
 }
 
-/// An object by hash, from the current layout or, after a restore from the earlier sealed layout, that one.
+/// An object by hash.
 async fn get_blob(store: &Store, env: &UserEnv, hash: &str) -> Result<Vec<u8>> {
-    let data = match store.get(env, &blob_key(hash)).await {
-        Ok(d) => d,
-        Err(e) => store.get(env, &format!("{LEGACY}/blobs/sha256/{hash}")).await.map_err(|_| e)?,
-    };
+    let data = store.get(env, &blob_key(hash)).await?;
     ensure!(hex::encode(Sha256::digest(&data)) == hash, "backup object {hash} does not match its hash");
     Ok(data)
 }
@@ -292,7 +281,7 @@ fn open_secret(key: Option<&[u8; 32]>, value: &str) -> Result<String> {
     use base64::Engine;
     let Some(rest) = value.strip_prefix(SEALED_SECRET) else { return Ok(value.to_string()) };
     let key = key.context("this backup's vault is encrypted: set LAUNCHPAD_HOME_KEY (the LP_HOME_KEY Space secret)")?;
-    let data = open(Some(key), base64::engine::general_purpose::STANDARD.decode(rest)?)?;
+    let data = open(key, base64::engine::general_purpose::STANDARD.decode(rest)?)?;
     Ok(String::from_utf8(data)?)
 }
 
@@ -482,12 +471,6 @@ async fn prune(store: &Store, env: &UserEnv, now: i64) -> Result<()> {
             store.remove(env, &key).await?;
         }
     }
-    // A complete backup exists in the current layout: the earlier sealed one goes.
-    for prefix in ["backup", "blobs/sha256"] {
-        for key in store.list(env, &format!("{LEGACY}/{prefix}")).await? {
-            store.remove(env, &key).await?;
-        }
-    }
     Ok(())
 }
 
@@ -500,10 +483,7 @@ pub async fn restore_if_empty(paths: &crate::paths::Paths, env: &UserEnv) -> Res
     let configured = std::fs::read_to_string(paths.config_file()).ok().and_then(|t| toml::from_str::<crate::config::Config>(&t).ok()).map(|c| c.home.backup);
     let destination = configured.filter(|d| !d.trim().is_empty()).or_else(|| std::env::var("LAUNCHPAD_HOME_BACKUP").ok());
     let Some(store) = destination.as_deref().and_then(Store::parse) else { return Ok(None) };
-    let mut all = manifests(&store, env, ROOT).await?;
-    if all.is_empty() {
-        all = manifests(&store, env, LEGACY).await?;
-    }
+    let all = manifests(&store, env, ROOT).await?;
     let Some((key, m)) = all.first() else { return Ok(None) };
     let mut files: Vec<(PathBuf, Vec<u8>)> = vec![];
     for o in &m.objects {
@@ -591,11 +571,9 @@ mod tests {
         let key = parse_key("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=").unwrap();
         let sealed = seal(&key, b"state").unwrap();
         assert!(sealed.starts_with(MAGIC) && !sealed.windows(5).any(|w| w == b"state"));
-        assert_eq!(open(Some(&key), sealed.clone()).unwrap(), b"state");
-        // Plain-text objects from before encryption still restore; a wrong or missing key never opens a sealed one.
-        assert_eq!(open(Some(&key), b"plain".to_vec()).unwrap(), b"plain");
-        assert!(open(Some(&[7; 32]), sealed.clone()).is_err());
-        assert!(open(None, sealed).is_err());
+        assert_eq!(open(&key, sealed.clone()).unwrap(), b"state");
+        // A wrong key never opens a sealed value.
+        assert!(open(&[7; 32], sealed).is_err());
         assert!(parse_key("c2hvcnQ=").is_none());
         // Vault secrets inside a backup copy of state.db.
         let sealed = seal_secret(&key, "sk-ant-oat01-abc").unwrap();
@@ -603,9 +581,6 @@ mod tests {
         assert_eq!(open_secret(Some(&key), &sealed).unwrap(), "sk-ant-oat01-abc");
         assert_eq!(open_secret(None, "plain").unwrap(), "plain");
         assert!(open_secret(None, &sealed).is_err());
-        // Sealed by the Space gateway (Python `cryptography`), which recovers config.toml with the same format.
-        let python = hex::decode("4c505345414c45443100000000000000000000000068cedab3955cfac960c7c7994747a29ecb0a873b743cdd078fbf59").unwrap();
-        assert_eq!(open(Some(&key), python).unwrap(), b"from python");
     }
 
     #[test]

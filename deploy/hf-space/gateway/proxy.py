@@ -55,6 +55,9 @@ class Proxy:
                    if k.lower() not in HOP | IDENTITY | connection
                    and not k.lower().startswith(("x-forwarded-", "x-hf-", "x-auth-", "sec-websocket-"))}
         headers.update(Host=self.host, Origin=self.origin, Authorization=f"Bearer {self.token}")
+        # The body is passed through unchanged: never let the client library ask for an encoding the caller cannot read.
+        if not any(k.lower() == "accept-encoding" for k in headers):
+            headers["Accept-Encoding"] = "identity"
         return headers
 
     async def handle(self, request, *, body=None):

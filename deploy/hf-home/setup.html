@@ -2,73 +2,216 @@
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Set up Launchpad Home</title>
 <style>
-:root{--board:#e6eaf0;--paper:#fff;--chrome:#f4f6f9;--ink:#17202b;--ink-2:#4b5767;--ink-3:#596779;--line:#c4ccd7;--line-2:#e9ecf1;--teal:#0d7266;--teal-ink:#0a5c52;--teal-soft:#e2f1ee;--attn:#8a5d00;--danger-ink:#a40e26;--code:#f6f8fa;--font:"Ubuntu Sans","Ubuntu",system-ui,"Segoe UI",sans-serif;--mono:"Ubuntu Sans Mono","Ubuntu Mono",ui-monospace,Menlo,monospace}
-@media (prefers-color-scheme:dark){:root{--board:#090d12;--paper:#0d1117;--chrome:#161b22;--ink:#e6edf3;--ink-2:#b6c2cf;--ink-3:#98a6b7;--line:#3d4652;--line-2:#262d36;--teal:#3fb6a5;--teal-ink:#6fd0c1;--teal-soft:#10302c;--attn:#e3b341;--danger-ink:#ff8f8f;--code:#161b22}}
+:root{--board:#e6eaf0;--paper:#fff;--chrome:#f4f6f9;--ink:#17202b;--ink-2:#4b5767;--ink-3:#596779;--line:#c4ccd7;--line-2:#e9ecf1;--teal:#0d7266;--teal-ink:#0a5c52;--teal-soft:#e2f1ee;--attn:#8a5d00;--attn-soft:#fbf3dc;--danger-ink:#a40e26;--code:#f6f8fa;--font:"Ubuntu Sans","Ubuntu",system-ui,"Segoe UI",sans-serif;--mono:"Ubuntu Sans Mono","Ubuntu Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root{--board:#090d12;--paper:#0d1117;--chrome:#161b22;--ink:#e6edf3;--ink-2:#b6c2cf;--ink-3:#98a6b7;--line:#3d4652;--line-2:#262d36;--teal:#3fb6a5;--teal-ink:#6fd0c1;--teal-soft:#10302c;--attn:#e3b341;--attn-soft:#2b2410;--danger-ink:#ff8f8f;--code:#161b22}}
 *{box-sizing:border-box}body{margin:0;background:var(--board);color:var(--ink);font:13px/1.5 var(--font)}
-main{max-width:640px;margin:6vh auto;padding:0 16px}
+main{max-width:720px;margin:max(6vh,72px) auto 48px;padding:0 16px}
 .card{background:var(--paper);border:1px solid var(--line-2);border-radius:12px;box-shadow:0 1px 2px rgb(23 32 43/6%),0 8px 24px rgb(23 32 43/8%);overflow:hidden}
-header{padding:22px 24px 14px}h1{margin:0 0 4px;font-size:18px;font-weight:650}header p{margin:0;color:var(--ink-2)}
-ol{list-style:none;margin:0;padding:0}li{border-top:1px solid var(--line-2);padding:16px 24px;display:grid;grid-template-columns:28px 1fr;gap:0 12px}
+header{padding:22px 24px 16px}h1{margin:0 0 4px;font-size:18px;font-weight:650}header p{margin:0;color:var(--ink-2)}
+.progress{height:4px;border-radius:2px;background:var(--line-2);margin-top:14px;overflow:hidden}.progress span{display:block;height:100%;background:var(--teal);transition:width .3s}
+.progress-text{margin-top:6px;font-size:12px;color:var(--ink-3)}
+ol.steps{list-style:none;margin:0;padding:0}ol.steps>li{border-top:1px solid var(--line-2);padding:14px 24px;display:grid;grid-template-columns:28px 1fr;gap:0 12px}
+ol.steps>li.active{background:linear-gradient(var(--teal-soft),var(--teal-soft)) left/3px 100% no-repeat}
 .dot{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-size:12px;font-weight:650;color:var(--ink-3)}
-li.done .dot{background:var(--teal);border-color:var(--teal);color:#fff}li.active .dot{border-color:var(--teal);color:var(--teal-ink)}
-h2{margin:1px 0 2px;font-size:15px;font-weight:650}.state{color:var(--ink-2)}li.done .state{color:var(--teal-ink)}
-.body{grid-column:2;display:grid;gap:10px;margin-top:10px}.body[hidden]{display:none}
+ol.steps>li.done .dot{background:var(--teal);border-color:var(--teal);color:#fff}ol.steps>li.active .dot{border-color:var(--teal);color:var(--teal-ink)}
+h2{margin:1px 0 0;font-size:15px;font-weight:650;display:flex;gap:8px;align-items:center}.tag{font-size:11px;font-weight:500;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:0 7px}
+.state{color:var(--ink-2)}ol.steps>li.done .state{color:var(--teal-ink)}
+.body{grid-column:2;display:grid;gap:10px;margin-top:10px;min-width:0}.stack{display:grid;gap:10px;min-width:0}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-button,a.btn{font:inherit;font-size:13px;padding:6px 12px;border-radius:6px;border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer;text-decoration:none}
+p{margin:0}
+button,a.btn{font:inherit;font-size:13px;padding:6px 12px;border-radius:6px;border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
 button.primary,a.primary{background:var(--teal);border-color:var(--teal);color:#fff}button:disabled{opacity:.5;cursor:default}
 button.link{border:0;background:none;color:var(--ink-3);padding:6px 4px;text-decoration:underline}
-.device{border:1px solid var(--line-2);background:var(--chrome);border-radius:8px;padding:12px;display:grid;gap:8px}
+.box{border:1px solid var(--line-2);background:var(--chrome);border-radius:8px;padding:12px;display:grid;gap:8px}
+.box.attn{background:var(--attn-soft);border-color:color-mix(in srgb,var(--attn) 35%,transparent)}
 .code{font:600 20px var(--mono);letter-spacing:2px}small,.hint{color:var(--ink-3);font-size:12px}
-.error{color:var(--danger-ink)}input{font:12px var(--mono);padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink);flex:1;min-width:200px}
+.error{color:var(--danger-ink)}
+input[type=text],input[type=password],input[type=email],select,textarea{font:13px var(--font);padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink);min-width:0}
+input.mono,textarea.mono{font:12px var(--mono)}
+.grow{flex:1;min-width:180px}
+label.field{display:grid;gap:3px;color:var(--ink-2);font-size:12px}
+label.choice{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border:1px solid var(--line-2);border-radius:8px;cursor:pointer}
+label.choice:has(input:checked){border-color:var(--teal);background:var(--teal-soft)}
+label.check{display:flex;gap:8px;align-items:center}
+ul.reasons{margin:0;padding-left:18px;color:var(--ink-2)}
+pre.cmd{margin:0;white-space:pre-wrap;word-break:break-all;font:12px/1.5 var(--mono);background:var(--code);border:1px solid var(--line-2);border-radius:6px;padding:10px}
+.list{display:grid;border:1px solid var(--line-2);border-radius:8px;max-height:260px;overflow-y:auto}
+.list>div{display:flex;gap:8px;align-items:center;padding:6px 10px;border-top:1px solid var(--line-2);min-height:40px}.list>div:first-child{border-top:0}
+.list .who{flex:1;min-width:0}.list .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px var(--mono)}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border:1px solid var(--line);border-radius:999px;font-size:12px;background:var(--paper);cursor:pointer}
+.chip.on{border-color:var(--teal);background:var(--teal-soft);color:var(--teal-ink)}
+.ok{color:var(--teal-ink)}
 footer{padding:14px 24px;border-top:1px solid var(--line-2);background:var(--chrome);display:flex;gap:12px;align-items:center;justify-content:space-between}
+a{color:var(--teal-ink)}a.btn{color:var(--ink)}a.primary{color:#fff}textarea{resize:none}
 code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4px;border-radius:4px}[hidden]{display:none!important}
+.spin{width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 <main><div class="card">
-<header><h1>Set up Launchpad Home</h1><p>Home keeps your sessions, branches and settings in its private bucket; credentials there are encrypted. Agents run on the runners you pair. Three sign-ins are needed before Home opens.</p></header>
-<ol>
-<li id="s-huggingface"><span class="dot">1</span><div><h2>Hugging Face</h2><div class="state"></div></div>
-  <div class="body"><p class="hint" style="margin:0">Home uses this login for its private bucket <b id="bucket"></b>. Right after it, Home creates an encryption key, keeps it as the <code>LP_HOME_KEY</code> secret of this Space, and restarts once. Credentials in the bucket are then encrypted with it: the vault in backups and Home's own logins. Other data stays as plain files you can browse.</p>
-  <div class="row"><button class="primary" data-login="huggingface">Sign in to Hugging Face</button></div>
-  <div id="manual" class="device" hidden><span>Open <a id="secrets" target="_blank" rel="noopener noreferrer">the Space settings</a>, add a secret named <code>LP_HOME_KEY</code> with this value, then restart the Space. Keep a copy somewhere safe: without it, the stored credentials cannot be read.</span>
-  <div class="row"><input id="manual-key" readonly aria-label="LP_HOME_KEY value"><button id="copy-key">Copy</button></div></div></div></li>
-<li id="s-github"><span class="dot">2</span><div><h2>GitHub</h2><div class="state"></div></div>
-  <div class="body"><p class="hint" style="margin:0">Used by the Inbox, issues, pull requests, private clones and publication. Home keeps this login encrypted in its bucket. Agents never get it: they get their own tokens from Credentials and tools.</p>
+<header><h1>Set up Launchpad Home</h1><p>Home keeps your sessions, branches and settings in a private bucket. Agents run on your own machines. This takes about five minutes.</p>
+<div class="progress"><span id="bar"></span></div><div class="progress-text" id="progress"></div></header>
+<ol class="steps">
+<li id="s-huggingface"><span class="dot"></span><div><h2>Hugging Face</h2><div class="state"></div></div>
+  <div class="body"><p class="hint">Home uses this login to reach its private bucket <b id="bucket"></b>.</p>
+  <div class="row"><button class="primary" data-login="huggingface">Sign in to Hugging Face</button></div></div></li>
+
+<li id="s-key"><span class="dot"></span><div><h2>Credential key</h2><div class="state"></div></div>
+  <div class="body">
+  <div id="key-form" class="stack">
+    <p class="hint">Home encrypts every credential it stores (logins, tokens, SSH key) with this key. Save it somewhere safe: you need it to restore Home if its Space is ever deleted.</p>
+    <label class="choice"><input type="radio" name="keymode" value="generate" checked><span><b>Generate a strong key</b> (recommended)<br><small>Home never displays it. Copy it to your password manager or download it as a file.</small></span></label>
+    <label class="choice"><input type="radio" name="keymode" value="own"><span><b>Use my own key</b><br><small>Choose a passphrase, or enter the key of an earlier Home to read its saved credentials.</small></span></label>
+    <div id="key-generate" class="row"><button id="key-copy">Copy key</button><button id="key-download">Download key file</button><small id="key-saved-note"></small></div>
+    <div id="key-own" class="row" hidden><input type="password" id="own-key" class="grow mono" autocomplete="new-password" placeholder="At least 12 characters" aria-label="Your key"><input type="password" id="own-key2" class="grow mono" autocomplete="new-password" placeholder="Repeat it" aria-label="Repeat your key"></div>
+    <label class="check"><input type="checkbox" id="key-kept"> I saved this key in a safe place, like a password manager.</label>
+    <div class="box attn"><b>Home must restart to finish this step</b>
+      <ul class="reasons"><li>It saves your key as the <code>LP_HOME_KEY</code> secret of this Space.</li><li>It turns on encryption for the credentials in its bucket.</li><li>It keeps your Hugging Face sign-in.</li></ul>
+      <small>The restart takes about a minute. This page reconnects by itself.</small>
+      <div class="row"><button class="primary" id="key-save" disabled>Save key and restart Home</button></div></div>
+  </div>
+  <div id="key-manual" class="box attn" hidden><b>Add the key to the Space yourself</b>
+    <p>This Hugging Face login cannot change the Space settings. Open <a id="secrets" target="_blank" rel="noopener noreferrer">the Space settings</a>, add a secret named <code>LP_HOME_KEY</code> and paste your key as its value. Saving the secret restarts Home.</p>
+    <div class="row"><button id="key-copy-manual">Copy key</button><button id="restart">I added it: restart Home</button></div></div>
+  <div id="key-restarting" class="box" hidden><span class="row"><span class="spin"></span>Home is restarting with your key. This page reconnects by itself.</span></div>
+  </div></li>
+
+<li id="s-github"><span class="dot"></span><div><h2>GitHub</h2><div class="state"></div></div>
+  <div class="body"><p class="hint">Used by the Inbox, issues, pull requests, private clones and publication. Home keeps this login encrypted. Agents never get it: they get their own tokens from Credentials and tools.</p>
   <div class="row"><button class="primary" data-login="github">Sign in to GitHub</button></div></div></li>
-<li id="s-profile"><span class="dot">3</span><div><h2>First profile</h2><div class="state"></div></div>
-  <div class="body"><p class="hint" style="margin:0" id="profile-hint">A profile is how agents run. Sign in with your subscription: Home keeps the login encrypted in its vault and lends it to runners for each session.</p>
-  <div class="row"><button class="primary" data-login="claude">Sign in to Claude Code</button><button class="primary" data-login="codex">Sign in to Codex (ChatGPT)</button></div></div></li>
+
+<li id="s-ssh"><span class="dot"></span><div><h2>SSH key</h2><div class="state"></div></div>
+  <div class="body"><p class="hint">Home created an SSH key for your agents. They use it to push over SSH; the private key never leaves Home. Add the public key to your GitHub account:</p>
+  <div class="row"><textarea id="ssh-pub" class="grow mono" rows="2" readonly aria-label="Public SSH key"></textarea><button id="ssh-copy">Copy</button></div>
+  <p class="hint">Open the GitHub page below, paste the key, name it “Launchpad Home” and click <b>Add SSH key</b>. <a href="https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account" target="_blank" rel="noopener noreferrer">How to add an SSH key</a></p>
+  <div class="row"><a class="btn" href="https://github.com/settings/ssh/new" target="_blank" rel="noopener noreferrer">Open GitHub SSH settings</a><button class="primary" id="ssh-done">I added it</button><button class="link" id="ssh-skip">Skip for now</button></div></div></li>
+
+<li id="s-identity"><span class="dot"></span><div><h2>Git identity</h2><div class="state"></div></div>
+  <div class="body"><p class="hint">The author of your agents' commits, on every runner.</p>
+  <div class="row"><label class="field grow">Name<input type="text" id="git-name" autocomplete="name"></label><label class="field grow">Email<input type="email" id="git-email" autocomplete="email"></label></div>
+  <small id="git-email-hint">Your GitHub noreply address keeps your email private.</small>
+  <div class="row"><button class="primary" id="git-save">Save</button></div></div></li>
+
+<li id="s-profile"><span class="dot"></span><div><h2>Agent profile</h2><div class="state"></div></div>
+  <div class="body">
+  <div id="profile-login" class="stack"><p class="hint" id="profile-hint">A profile is how agents run. Sign in with your subscription: Home keeps the login encrypted and lends it to runners for each session.</p>
+  <div class="row"><button class="primary" data-login="claude">Sign in to Claude Code</button><button class="primary" data-login="codex">Sign in to Codex (ChatGPT)</button></div></div>
+  <div id="profile-model" class="stack" hidden><p class="hint"><b id="profile-name"></b> is ready. Choose the model and effort its agents use by default. You can change them for each launch.</p>
+  <div class="row"><label class="field grow">Model<select id="model"></select></label><label class="field grow">Effort<select id="effort"></select></label></div>
+  <div class="row"><button class="primary" id="profile-save">Continue</button></div></div></div></li>
+
+<li id="s-folders"><span class="dot"></span><div><h2>Workspace and first folder</h2><div class="state"></div></div>
+  <div class="body"><p class="hint">A workspace groups related folders, for example “Work” and “Personal”. Create at least one, then clone a repository from GitHub into it.</p>
+  <div class="row" id="ws-chips"></div>
+  <div class="row"><input type="text" id="ws-name" class="grow" placeholder="Workspace name, for example Personal" aria-label="Workspace name"><button id="ws-create">Create workspace</button></div>
+  <div id="clone" class="stack" hidden><small id="clone-into"></small>
+    <div class="row"><input type="text" id="repo" class="grow mono" placeholder="owner/name, or filter your repositories" aria-label="Repository" spellcheck="false"><button class="primary" id="repo-clone" disabled>Clone</button></div>
+    <div class="list" id="repos"></div><small id="cloning"></small></div>
+  <div class="row" id="folders-next" hidden><button class="primary" id="folders-done">Continue</button></div></div></li>
+
+<li id="s-runner"><span class="dot"></span><div><h2>Connect a runner <span class="tag">recommended</span></h2><div class="state"></div></div>
+  <div class="body"><p class="hint">Agents run on your own Linux machines, called runners. On your laptop or a server, run this in a terminal:</p>
+  <div class="row"><pre class="cmd grow" id="install"></pre><button id="install-copy">Copy</button></div>
+  <small>It checks the machine first (Linux x86_64, bubblewrap, Git, a Hugging Face sign-in), installs a runner next to any other Launchpad, then asks you to approve it here.</small>
+  <small id="runners-hint" hidden>Approve only the request whose code matches the one in your terminal.</small>
+  <div class="list" id="runners" hidden></div>
+  <div class="row"><button class="link" id="runner-skip">Skip for now</button></div></div></li>
+
+<li id="s-agent"><span class="dot"></span><div><h2>Run your first agent <span class="tag">recommended</span></h2><div class="state"></div></div>
+  <div class="body"><p class="hint">Ask an agent about your project. It works in its own copy of the folder and changes nothing.</p>
+  <div class="row"><label class="field grow">Folder<select id="agent-folder"></select></label><label class="field grow">Profile<select id="agent-profile"></select></label><label class="field grow">Runner<select id="agent-runner"></select></label></div>
+  <label class="field">Prompt<textarea id="agent-prompt" rows="2"></textarea></label>
+  <div class="row"><button class="primary" id="agent-run">Run agent</button><button class="link" id="agent-skip">Skip for now</button></div></div></li>
 </ol>
-<div id="device" class="device" hidden><span id="device-what"></span><div class="row" id="code-row"><span class="code" id="code"></span><button id="copy-code">Copy</button></div>
+<div id="device" class="box" hidden><span id="device-what"></span><div class="row" id="code-row"><span class="code" id="code"></span><button id="copy-code">Copy</button></div>
   <div class="row"><a id="link" class="btn primary" target="_blank" rel="noopener noreferrer">Open sign-in page</a><button id="cancel">Cancel</button></div>
-  <div class="row" id="paste" hidden><input id="paste-code" autocomplete="off" spellcheck="false" placeholder="Code from the sign-in page" aria-label="Authorization code"><button class="primary" id="paste-send">Continue</button></div>
+  <div class="row" id="paste" hidden><input type="text" id="paste-code" class="grow mono" autocomplete="off" spellcheck="false" placeholder="Code from the sign-in page" aria-label="Authorization code"><button class="primary" id="paste-send">Continue</button></div>
   <small id="device-note">The code expires after a few minutes. This page updates when you approve it.</small></div>
-<footer><span><span id="error" class="error" role="status"></span><small id="note">Every sign-in starts only when you click.</small></span><a id="open" class="btn primary" href="/" hidden>Open Home</a></footer>
+<footer><span><span id="error" class="error" role="status"></span><small id="note">Sign-ins and restarts start only when you click.</small></span><a id="open" class="btn" href="/" hidden>Open Home</a></footer>
 </div></main>
 <script>
-const $=s=>document.querySelector(s);let csrf="",st=null,actionError="";
+const $=s=>document.querySelector(s);
+let keyTried=false,csrf="",st=null,actionError="",busy=false,generatedKey=null,keyKept=false,sshRequested=false,modelsFor=null,foldersOpen=false,skipped=new Set(JSON.parse(sessionStorage.getItem("lp-setup-skipped")||"[]")),repos=null,cloningRepo=null,wsChosen=null;
 const NAMES={huggingface:"Hugging Face",github:"GitHub",codex:"Codex",claude:"Claude Code"};
 const STEP={huggingface:"huggingface",github:"github",codex:"profile",claude:"profile"};
+const ORDER=["huggingface","key","github","ssh","identity","profile","folders","runner","agent"];
+const REQUIRED=ORDER.slice(0,7);
+const count=(n,w)=>n?`${n} ${w}${n===1?"":"s"}`:`no ${w}`;
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const skip=k=>{skipped.add(k);sessionStorage.setItem("lp-setup-skipped",JSON.stringify([...skipped]));render(st);};
+function isDone(s,k){if(k==="folders")return s.folders.done&&!foldersOpen;if(k==="runner"||k==="agent")return s[k].done||skipped.has(k);return s[k].done;}
+
 function render(s){
-  st=s;csrf=s.csrf;$("#bucket").textContent=s.bucket;
+  if(!s)return;st=s;csrf=s.csrf;$("#bucket").textContent=s.bucket;
   const login=s.login&&s.login.running?s.login:null;
-  const steps={huggingface:s.huggingface,github:s.github,profile:s.profile};
-  const active=["huggingface","github","profile"].find(k=>!steps[k].done);
-  const enc=s.encryption,hf=s.huggingface,gh=s.github,pr=s.profile;
-  for(const k in steps){
-    const li=$("#s-"+k),v=steps[k];li.className=v.done?"done":k===active?"active":"";
-    li.querySelector(".dot").textContent=v.done?"✓":{huggingface:1,github:2,profile:3}[k];
-    li.querySelector(".body").hidden=k!==active;
-  }
-  $("#s-huggingface .state").textContent=hf.done?`Signed in as ${hf.account} · encryption on`:
-    enc.state==="restarting"?`Signed in as ${hf.account}. Home is restarting to turn on encryption…`:
-    enc.state==="manual"?`Signed in as ${hf.account}. Add the encryption key to finish this step.`:
-    hf.signed_in?`Signed in as ${hf.account}. Encryption is not set up yet.`:"Not signed in";
+  const active=ORDER.find(k=>!isDone(s,k));
+  const done=REQUIRED.filter(k=>s[k].done).length;
+  $("#bar").style.width=`${Math.round(100*ORDER.filter(k=>isDone(s,k)).length/ORDER.length)}%`;
+  $("#progress").textContent=s.complete?"Home is ready. Connect a runner and run a first agent, or open Home now.":`${done} of ${REQUIRED.length} required steps done`;
+  ORDER.forEach((k,i)=>{const li=$("#s-"+k),d=isDone(s,k)&&s[k].done;li.className=d?"done":k===active?"active":"";
+    li.querySelector(".dot").textContent=d?"✓":i+1;li.querySelector(".body").hidden=k!==active;});
+  const hf=s.huggingface,key=s.key,gh=s.github,pr=s.profile,fo=s.folders,ru=s.runner;
+  $("#s-huggingface .state").textContent=hf.done?`Signed in as ${hf.account}`:"Not signed in";
+  $("#s-key .state").textContent=key.done?"Encryption on":key.state==="restarting"?"Home is restarting…":key.state==="manual"?"Waiting for the LP_HOME_KEY secret":"Not set";
   $("#s-github .state").textContent=gh.done?`Signed in${gh.account?` as ${gh.account}`:""}${gh.secret?" (GH_TOKEN Space secret)":""}`:gh.secret?"The GH_TOKEN Space secret did not work. Check it in the Space settings.":"Not connected";
-  $("#s-profile .state").textContent=pr.done?`Ready: ${pr.profiles.join(", ")}`:pr.missing?`${pr.missing.name} needs its login`:"No profile yet";
-  $("#profile-hint").textContent=pr.missing?`The profile ${pr.missing.name} has no login in Home's vault yet. Sign in below: Home keeps the login encrypted and lends it to runners for each session.`:"A profile is how agents run. Sign in with your subscription: Home keeps the login encrypted in its vault and lends it to runners for each session.";
-  document.querySelectorAll("[data-login]").forEach(b=>{const t=b.dataset.login;b.disabled=!!login||(STEP[t]==="profile"&&!pr.ready)||(t==="github"&&gh.secret)||(t==="huggingface"&&["restarting","manual"].includes(enc.state));});
-  $("#manual").hidden=enc.state!=="manual";
-  if(enc.state==="manual"){$("#manual-key").value=enc.manual_key;$("#secrets").href=`https://huggingface.co/spaces/${s.space}/settings`;}
+  $("#s-ssh .state").textContent=s.ssh.done?"Added":s.ssh.public_key?"Created: add it to GitHub":"Not created";
+  $("#s-identity .state").textContent=s.identity.done?`${s.identity.name} <${s.identity.email}>`:"Not set";
+  $("#s-profile .state").textContent=pr.done?`Ready: ${(pr.profiles||[]).map(p=>`${p.name}${p.model?` · ${p.model}`:""}${p.effort?` · ${p.effort}`:""}`).join(", ")}`:pr.ready?"Choose a model":pr.missing?`${pr.missing.name} needs its login`:"No profile yet";
+  $("#s-folders .state").textContent=fo.done?`${(fo.workspaces||[]).map(w=>w.name).join(", ")} · ${(fo.projects||[]).length} folder${(fo.projects||[]).length===1?"":"s"}`:"No folder yet";
+  const live=(ru.runners||[]).filter(r=>r.connected);
+  $("#s-runner .state").textContent=live.length?`Connected: ${live.map(r=>r.name).join(", ")}`:skipped.has("runner")?"Skipped":"No runner yet";
+  $("#s-agent .state").textContent=s.agent.done?"Done":skipped.has("agent")?"Skipped":live.length?"Ready to run":"Needs a connected runner";
+
+  // Key step.
+  const mode=document.querySelector("input[name=keymode]:checked").value;
+  $("#key-form").hidden=key.state!=="off";$("#key-manual").hidden=key.state!=="manual";$("#key-restarting").hidden=key.state!=="restarting";
+  $("#key-generate").hidden=mode!=="generate";$("#key-own").hidden=mode!=="own";
+  if(active==="key"&&key.state==="off"&&mode==="generate"&&!generatedKey&&!busy&&!keyTried)newKey();
+  const own=$("#own-key").value.trim(),own2=$("#own-key2").value.trim();
+  const ownOk=own.length>=12&&own===own2;
+  $("#key-save").disabled=busy||!$("#key-kept").checked||(mode==="generate"?!generatedKey:!ownOk);
+  if(key.state==="manual")$("#secrets").href=`https://huggingface.co/spaces/${s.space}/settings`;
+
+  // SSH step.
+  if(active==="ssh"&&!s.ssh.public_key&&!sshRequested){sshRequested=true;act("/_home/ssh",{});}
+  $("#ssh-pub").value=s.ssh.public_key||"Creating the key…";$("#ssh-copy").disabled=!s.ssh.public_key;
+
+  // Identity step.
+  if(active==="identity"&&!$("#git-name").dataset.filled){$("#git-name").dataset.filled="1";$("#git-name").value=s.identity.name||gh.suggest.name||"";$("#git-email").value=s.identity.email||gh.suggest.email||"";}
+  $("#git-email-hint").hidden=!gh.suggest.email||$("#git-email").value!==gh.suggest.email;
+
+  // Profile step.
+  $("#profile-login").hidden=pr.ready;$("#profile-model").hidden=!pr.ready;
+  $("#profile-hint").textContent=pr.missing?`The profile ${pr.missing.name} has no login in Home's vault yet. Sign in below: Home keeps the login encrypted and lends it to runners for each session.`:"A profile is how agents run. Sign in with your subscription: Home keeps the login encrypted and lends it to runners for each session.";
+  if(active==="profile"&&pr.ready)loadModels(pr.profiles[0]);
+  document.querySelectorAll("[data-login]").forEach(b=>{const t=b.dataset.login;b.disabled=busy||!!login||(t==="github"&&gh.secret);});
+
+  // Folders step.
+  const ws=fo.workspaces||[];
+  if(!ws.some(w=>w.id===wsChosen))wsChosen=ws.length?ws[ws.length-1].id:null;
+  $("#ws-chips").innerHTML=ws.map(w=>`<button class="chip${w.id===wsChosen?" on":""}" data-ws="${esc(w.id)}">${esc(w.name)} · ${count((fo.projects||[]).filter(p=>p.workspace_id===w.id).length,"folder")}</button>`).join("");
+  document.querySelectorAll("[data-ws]").forEach(b=>b.onclick=()=>{wsChosen=b.dataset.ws;render(st);});
+  $("#ws-name").placeholder=ws.length?"Another workspace (optional)":"Workspace name, for example Personal";
+  $("#clone").hidden=!ws.length;$("#clone-into").textContent=`Clone a repository into ${(ws.find(w=>w.id===wsChosen)||{}).name||"the workspace"} (choose another workspace above):`;
+  if(active==="folders"&&ws.length&&repos===null)loadRepos();
+  renderRepos();
+  if(active==="folders")foldersOpen=true;
+  $("#folders-next").hidden=!fo.done;
+
+  // Runner step.
+  $("#install").textContent=s.install;
+  const rows=(ru.runners||[]).slice().reverse();
+  $("#runners").hidden=!rows.length;$("#runners-hint").hidden=!rows.some(r=>r.state==="pending");
+  $("#runners").innerHTML=rows.map(r=>r.state==="pending"?`<div><span class="who"><b>${esc(r.name)}</b> asks to connect</span><span class="code" title="Compare with the code in the terminal">${esc(r.code)}</span><button class="primary" data-approve="${esc(r.id)}">Approve</button></div>`
+    :`<div><span class="who"><b>${esc(r.name)}</b></span>${r.connected?`<span class="ok">✓ connected</span>`:`<span class="row hint"><span class="spin"></span>approved, connecting…</span>`}</div>`).join("");
+  document.querySelectorAll("[data-approve]").forEach(b=>b.onclick=()=>api("POST",`/api/runners/${b.dataset.approve}/approve`,{}));
+
+  // Agent step.
+  fill("#agent-folder",(fo.projects||[]).map(p=>[p.id,p.name]));
+  fill("#agent-profile",(pr.profiles||[]).map(p=>[p.id,p.name]));
+  fill("#agent-runner",live.map(r=>[r.id,r.name]));
+  if(!$("#agent-prompt").value)$("#agent-prompt").value=s.first_prompt;
+  $("#agent-run").disabled=busy||!live.length||!(fo.projects||[]).length||!(pr.profiles||[]).length;
+
+  // Sign-in in progress.
   $("#device").hidden=!login;
   if(login){
     const body=$(`#s-${STEP[login.tool]} .body`);body.hidden=false;if($("#device").parentNode!==body)body.appendChild($("#device"));
@@ -80,22 +223,89 @@ function render(s){
     $("#device-note").textContent=terminal?"The code is sent to Claude Code on Home; the token it creates goes straight into the vault.":"The code expires after a few minutes. This page updates when you approve it.";
   }
   const failed=s.login&&!s.login.running&&s.login.error;
-  $("#error").textContent=actionError||failed||enc.error||hf.error||gh.error||"";$("#note").hidden=!!$("#error").textContent;
-  $("#open").hidden=!s.complete;
+  $("#error").textContent=actionError||failed||key.error||hf.error||gh.error||"";$("#note").hidden=!!$("#error").textContent;
+  $("#open").hidden=!s.complete;$("#open").className=`btn${s.complete&&!active?" primary":""}`;
+  $("#open").textContent=s.complete&&active?"Skip and open Home":"Open Home";
 }
-async function call(path,body){
-  if(body)actionError="";
-  try{const r=await fetch(path,{cache:"no-store",...(body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,csrf})}:{})});
+function fill(sel,items){const el=$(sel),v=el.value,html=items.map(([id,n])=>`<option value="${esc(id)}">${esc(n)}</option>`).join("");if(el.dataset.html!==html){el.innerHTML=html;el.dataset.html=html;if(items.some(([id])=>id===v))el.value=v;}}
+async function newKey(){keyTried=true;busy=true;try{const r=await post("/_home/key/"+(st.key.pending?"copy":"new"),{});if(r)generatedKey=r.passphrase;}finally{busy=false;render(st);}}
+function copy(button,text,label="Copy"){navigator.clipboard.writeText(text).then(()=>{button.textContent="Copied";setTimeout(()=>button.textContent=label,1500);},()=>{actionError="Could not copy. Use Download key file instead.";render(st);});}
+async function loadModels(p){
+  const id=`${p.id}:${p.harness}`;if(modelsFor===id)return;modelsFor=id;
+  try{const d=await api("GET",`/api/harness/${p.harness}/defaults`);const models=d.models||[];
+    $("#profile-name").textContent=p.name;
+    fill("#model",[["","Default"+(d.model?` (${d.model})`:"")],...models.map(m=>[m.id,m.display_name||m.id])]);
+    const efforts=()=>{const m=models.find(m=>m.id===$("#model").value);const list=(m&&m.efforts.length?m.efforts:d.efforts)||[];fill("#effort",[["","Default"+(d.effort?` (${d.effort})`:"")],...list.map(e=>[e,e])]);};
+    $("#model").value=p.model||"";efforts();$("#effort").value=p.effort||"";$("#model").onchange=efforts;
+  }catch{$("#profile-name").textContent=p.name;fill("#model",[["","Default"]]);fill("#effort",[["","Default"]]);}
+}
+async function loadRepos(){repos=[];try{repos=await api("POST","/api/projects/clone/suggestions",{})||[];}catch{repos=[];}renderRepos();}
+function renderRepos(){
+  const typed=$("#repo").value.trim().toLowerCase(),cloned=new Set((st?.folders.projects||[]).map(p=>p.name.toLowerCase()));
+  const list=(repos||[]).filter(r=>!typed||r.repo.toLowerCase().includes(typed)).slice(0,30);
+  $("#repos").innerHTML=repos===null?"":list.length?list.map(r=>`<div><span class="name">${esc(r.repo)}</span>${cloned.has(r.repo.split("/")[1].toLowerCase())?`<span class="ok">✓ cloned</span>`:`<button data-clone="${esc(r.repo)}"${cloningRepo||!wsChosen?" disabled":""}>Clone</button>`}</div>`).join(""):`<div class="hint">${repos.length?"No match. Type owner/name and click Clone.":"Loading your repositories… You can also type owner/name."}</div>`;
+  document.querySelectorAll("[data-clone]").forEach(b=>b.onclick=()=>clone(b.dataset.clone));
+  $("#repo-clone").disabled=!!cloningRepo||!wsChosen||!$("#repo").value.trim().includes("/");
+  $("#cloning").innerHTML=cloningRepo?`<span class="row"><span class="spin"></span>Cloning ${esc(cloningRepo)}. Large repositories take a few minutes.</span>`:"";
+}
+async function clone(repo){cloningRepo=repo;renderRepos();try{await api("POST","/api/projects/clone",{repo,workspace_id:wsChosen});$("#repo").value="";await refresh();}finally{cloningRepo=null;renderRepos();}}
+async function api(method,path,body,headers={}){
+  actionError="";
+  try{const r=await fetch(path,{method,cache:"no-store",headers:{...(body!==undefined?{"Content-Type":"application/json"}:{}),...headers},body:body!==undefined?JSON.stringify(body):undefined});
+    const text=await r.text();const j=text?JSON.parse(text):null;
+    if(!r.ok){actionError=(j&&j.error)||`Home answered ${r.status}`;render(st);return null;}
+    if(method!=="GET")refresh();return j;}
+  catch{actionError="Could not reach Home. Try again.";render(st);return null;}
+}
+async function post(path,body){
+  actionError="";
+  try{const r=await fetch(path,{method:"POST",cache:"no-store",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,csrf})});
     const j=await r.json().catch(()=>({error:"Could not reach Home setup. Reload this page."}));
-    if(!r.ok){actionError=j.error||"Home setup did not answer. Reload this page.";if(st)render(st);return;}if(actionError.startsWith("Could not reach")||actionError.startsWith("Home is restarting"))actionError="";render(j);}
-  catch{actionError=st&&st.encryption.state==="restarting"?"Home is restarting with encryption on. This page reconnects by itself.":"Could not reach Home setup. Reload this page.";if(st)render(st);}
+    if(!r.ok){actionError=j.error||"Home setup did not answer. Reload this page.";render(st);return null;}
+    render(j);return j;}
+  catch{actionError=st&&st.key.state==="restarting"?"":"Could not reach Home setup. Reload this page.";render(st);return null;}
 }
-document.querySelectorAll("[data-login]").forEach(b=>b.onclick=()=>call("/_home/login",{tool:b.dataset.login}));
-$("#cancel").onclick=()=>call("/_home/cancel",{});
-$("#paste-send").onclick=async()=>{const code=$("#paste-code").value.trim();if(!code)return;await call("/_home/code",{code});$("#paste-code").value="";};
-function copy(button,text){navigator.clipboard.writeText(text).then(()=>{button.textContent="Copied";setTimeout(()=>button.textContent="Copy",1500);});}
-$("#copy-key").onclick=e=>copy(e.target,$("#manual-key").value);
+async function act(path,body){busy=true;render(st);try{return await post(path,body);}finally{busy=false;render(st);}}
+async function refresh(){
+  try{const r=await fetch("/_home/status",{cache:"no-store"});if(!r.ok)throw new Error();const j=await r.json();
+    if(actionError.startsWith("Could not reach"))actionError="";render(j);}
+  catch{if(st&&st.key.state!=="restarting"){actionError="Could not reach Home setup. Reload this page.";render(st);}}
+}
+
+document.querySelectorAll("[data-login]").forEach(b=>b.onclick=()=>act("/_home/login",{tool:b.dataset.login}));
+$("#cancel").onclick=()=>post("/_home/cancel",{});
+$("#paste-send").onclick=async()=>{const code=$("#paste-code").value.trim();if(!code)return;await post("/_home/code",{code});$("#paste-code").value="";};
 $("#copy-code").onclick=e=>copy(e.target,$("#code").textContent);
-$("#open").onclick=async e=>{e.preventDefault();await call("/_home/finish",{});if(st&&st.complete)location.replace("/");};
-call("/_home/status");setInterval(()=>{if(!document.hidden)call("/_home/status")},2000);
+document.querySelectorAll("input[name=keymode]").forEach(r=>r.onchange=()=>{$("#key-kept").checked=false;render(st);});
+["#own-key","#own-key2","#key-kept"].forEach(s=>$(s).addEventListener("input",()=>render(st)));
+$("#key-copy").onclick=e=>generatedKey&&copy(e.target,generatedKey,"Copy key");
+$("#key-copy-manual").onclick=async e=>{const r=await post("/_home/key/copy",{});if(r)copy(e.target,r.passphrase,"Copy key");};
+$("#key-download").onclick=()=>{if(!generatedKey)return;const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([`Launchpad Home credential key for ${st.space}\nKeep it secret. Home needs it to read its saved credentials.\n\n${generatedKey}\n`],{type:"text/plain"}));a.download="launchpad-home-key.txt";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
+$("#key-save").onclick=()=>{const mode=document.querySelector("input[name=keymode]:checked").value;act("/_home/key/save",{key:mode==="own"?$("#own-key").value:generatedKey});};
+$("#restart").onclick=()=>act("/_home/restart",{});
+$("#ssh-copy").onclick=e=>copy(e.target,$("#ssh-pub").value);
+$("#ssh-done").onclick=$("#ssh-skip").onclick=()=>act("/_home/ssh/done",{});
+$("#git-name").oninput=$("#git-email").oninput=()=>render(st);
+$("#git-save").onclick=async()=>{const name=$("#git-name").value.trim(),email=$("#git-email").value.trim();if(!name||!email.includes("@")){actionError="Enter a name and an email address.";render(st);return;}busy=true;await api("PUT","/api/vault/identity",{name,email});busy=false;};
+$("#profile-save").onclick=()=>act("/_home/profile",{id:st.profile.profiles[0].id,model:$("#model").value||null,effort:$("#effort").value||null});
+$("#ws-create").onclick=async()=>{const name=$("#ws-name").value.trim()||(st.folders.workspaces.length?"":"Personal");if(!name)return;const w=await api("POST","/api/workspaces",{name});if(w){wsChosen=w.id;$("#ws-name").value="";}};
+$("#ws-name").onkeydown=e=>{if(e.key==="Enter")$("#ws-create").click();};
+$("#repo").oninput=renderRepos;
+$("#repo").onkeydown=e=>{if(e.key==="Enter"&&!$("#repo-clone").disabled)$("#repo-clone").click();};
+$("#repo-clone").onclick=()=>clone($("#repo").value.trim());
+$("#folders-done").onclick=()=>{foldersOpen=false;render(st);};
+$("#install-copy").onclick=e=>copy(e.target,st.install);
+$("#runner-skip").onclick=()=>skip("runner");
+$("#agent-skip").onclick=()=>skip("agent");
+$("#agent-run").onclick=async()=>{
+  const folder=$("#agent-folder").value,profile=st.profile.profiles.find(p=>p.id===$("#agent-profile").value),project=st.folders.projects.find(p=>p.id===folder);
+  if(!profile||!project)return;busy=true;render(st);
+  const spec={mentions:[],skills:[],permission_mode:"yolo",allow_paid_usage:false,harness:profile.harness,profile:profile.id,budget_usd:null,target:{kind:"project",project_id:folder},
+    worktree:{base:null,when_done:"keep"},text:$("#agent-prompt").value.trim()||st.first_prompt,attachments:[],presets:[],context_projects:[],github_refs:[],files:[],agent_traces:[],
+    model:null,effort:null,workspace_id:project.workspace_id||null,tools_off:[],runner_id:$("#agent-runner").value||null};
+  const s=await api("POST","/api/sessions",spec,{"Idempotency-Key":crypto.randomUUID()});busy=false;
+  if(s&&s.id){await post("/_home/agent",{});location.replace(`/agents?session=${encodeURIComponent(s.id)}`);}else render(st);
+};
+$("#open").onclick=e=>{e.preventDefault();location.replace("/");};
+refresh();setInterval(()=>{if(!document.hidden)refresh();},2000);
 </script></html>

@@ -13,7 +13,7 @@ import { Empty, ErrorState, FilterChip, FilterChips, Loading, Tabs, Token } from
 import { api } from "@/lib/api";
 import { useHosts } from "@/lib/hosts";
 import { usePhone } from "@/lib/phone";
-import { useConfig, useProjects } from "@/lib/queries";
+import { useConfig, useProjects, useStatus } from "@/lib/queries";
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { WorkspacePicker, defaultWorkspace } from "@/features/workspaces/WorkspacePicker";
 import { Sheet } from "@/mobile/Sheet";
@@ -33,7 +33,7 @@ export function AddFolderDialog() {
   if (phone) return <Sheet title="Add folders" full onClose={close}><Body onClose={close} /></Sheet>;
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 p-6" onClick={close}>
-      <div role="dialog" aria-label="Add folders" className="flex max-h-[86vh] w-[640px] max-w-full flex-col overflow-hidden rounded-xl border border-line bg-paper shadow-[0_20px_60px_-20px_rgba(23,32,43,.6)]" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-label="Add folders" className="flex max-h-[calc(86vh/var(--lp-zoom,1))] w-[640px] max-w-full flex-col overflow-hidden rounded-xl border border-line bg-paper shadow-[0_20px_60px_-20px_rgba(23,32,43,.6)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-line-2 px-4 py-2.5">
           <b className="flex-1 text-[15px]">Add folders</b>
           <button className="iconbtn" aria-label="Close" title="Close" onClick={close}><Icon name="x" size={14} /></button>
@@ -51,7 +51,9 @@ function Body({ onClose }: { onClose: () => void }) {
   const projects = useProjects().data ?? [];
   const workspaces = useWorkspaces().data ?? [];
   const current = useScope().workspace;
-  const [tab, setTab] = useState<"browse" | "clone" | "plain">("browse");
+  const role = useStatus().data?.role;
+  // Clone first everywhere; Home never holds untracked projects, so it has no Browse.
+  const [tab, setTab] = useState<"browse" | "clone" | "plain">("clone");
   const [machine, setMachine] = useState<string | null>(null);
   const host = hosts.some((h) => h.host.id === machine) ? machine : null;
   const hostInfo = hosts.find((h) => h.host.id === host);
@@ -64,9 +66,10 @@ function Body({ onClose }: { onClose: () => void }) {
   const browse = useQuery({
     queryKey: ["browse", host, at],
     queryFn: () => api.get<Browse>(`${host ? `/api/hosts/${host}/browse` : "/api/projects/browse"}${at ? `?path=${encodeURIComponent(at)}` : ""}`),
+    enabled: tab === "browse",
   });
   useEffect(() => { if (browse.data) setTyped(browse.data.path); }, [browse.data]);
-  const discover = useQuery({ queryKey: ["discover", host], queryFn: () => api.post<Discovered[]>("/api/projects/discover", { host }), staleTime: 60_000 });
+  const discover = useQuery({ queryKey: ["discover", host], queryFn: () => api.post<Discovered[]>("/api/projects/discover", { host }), staleTime: 60_000, enabled: tab === "browse" });
   // A folder is known by its location (`host:/path` on hosts), the same form as Project.path.
   const location = (native: string) => (host ? `${host}:${native}` : native);
   const registered = useMemo(() => new Set(projects.map((p) => p.path)), [projects]);
@@ -109,7 +112,7 @@ function Body({ onClose }: { onClose: () => void }) {
   return (
     <>
       <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto p-4">
-        <Tabs label="How to add" value={tab} onChange={setTab} items={[{ id: "browse", label: "Browse", icon: "folder" }, { id: "clone", label: "Clone from GitHub", icon: "branch" }, { id: "plain", label: "New plain folder", icon: "plus" }]} />
+        <Tabs label="How to add" className="min-h-[33px]" value={tab} onChange={setTab} items={[{ id: "clone" as const, label: "Clone from GitHub", icon: "branch" as const }, ...(role === "home" ? [] : [{ id: "browse" as const, label: "Browse", icon: "folder" as const }]), { id: "plain" as const, label: "New plain folder", icon: "plus" as const }]} />
         <FilterChips label="Machine">
           <FilterChip active={host === null} onClick={() => setMachine(null)}>This computer</FilterChip>
           {hosts.map((h) => <FilterChip key={h.host.id} active={host === h.host.id} title={h.state === "connected" ? h.host.destination : h.error ?? h.state} onClick={() => setMachine(h.host.id)}>{h.host.id}{h.state !== "connected" && <span className="text-danger-ink">·</span>}</FilterChip>)}
@@ -119,6 +122,7 @@ function Body({ onClose }: { onClose: () => void }) {
           <CloneFromGitHub key={host ?? "local"} host={host} root={host ? `${host}:${hostInfo?.host.projects_root ?? ""}` : config?.projects_root} workspace={chosen} onDone={onClose} />
         ) : (
           <>
+            {role === "runner" && <p className="rounded-[6px] bg-attn-soft px-2.5 py-2 text-[12px] text-attn">Folders added here are tracked by Home and backed up to Home's cloud bucket: Git folders send their branches, folders without Git have their files copied.</p>}
             {suggestions.length > 0 && (
               <section className="grid gap-1">
                 <div className="seclabel">Git repositories in the folders root</div>

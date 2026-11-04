@@ -33,9 +33,9 @@ function HomeHuggingFace() {
     </Card>
     <Card title="Required Home backup">
       <p className="m-0 text-[13px] text-ink-2">The private bucket stores Home’s database and session trace records, the vault, Git branch bundles, plain folders and assets. Backup cannot be turned off.</p>
-      {backup.data && <span className={`text-[13px] ${backup.data.credentials_encrypted ? "text-gh-open" : "text-attn"}`}>{backup.data.credentials_encrypted ? "Credentials (vault secrets and Home’s own logins) are encrypted with the LP_HOME_KEY secret of this Space; other data is stored as plain files. Keep a copy of the key: without it, the stored credentials cannot be read." : "Credentials are not encrypted yet: finish Home setup to turn encryption on."}</span>}
+      {backup.data && <span className={`text-[13px] ${backup.data.credentials_encrypted ? "text-gh-open" : "text-attn"}`}>{backup.data.credentials_encrypted ? "Credentials (vault secrets and Home’s own logins) are encrypted with your credential key, kept as the LP_HOME_KEY secret of this Space. Other data is stored as plain files." : "Credentials are not encrypted yet: finish Home setup to turn encryption on."}</span>}
       {backup.isPending ? <Loading /> : backup.isError ? <ErrorState error={backup.error} /> : backup.data?.error ? <ErrorState error={backup.data.error} /> : <span className="text-[13px] text-ink-2">{backup.data?.last_complete_at ? `Last complete backup ${formatAge(backup.data.last_complete_at)} ago` : "Waiting for the first complete backup"}</span>}
-      <span className="text-[12px] text-ink-3">The bucket mount is managed by the Home deployment. Native harness files remain on their runners until their transfer is implemented.</span>
+      <span className="text-[12px] text-ink-3">The bucket mount is managed by the Home deployment.</span>
     </Card>
   </SettingsPage>;
 }

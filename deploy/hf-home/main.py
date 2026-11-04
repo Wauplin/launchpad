@@ -1,5 +1,6 @@
 """Private Home-only Space. The Hub authenticates visitors; runners keep their own credential."""
 import asyncio
+import base64
 import hashlib
 import json
 import os
@@ -12,7 +13,7 @@ from aiohttp import web
 import tomlkit
 
 from gateway.proxy import Proxy, canonical_path
-from onboarding import Setup, parse_key, unseal
+from onboarding import MIN_KEY, Setup, derive_key
 
 
 def validate_config(method, value):
@@ -65,20 +66,18 @@ async def verify_private(space):
                 raise RuntimeError("Home requires a private Space: anonymous Hub metadata must be denied")
 
 
-def configure(backup, config, key):
+def configure(backup, config):
     if not backup.is_mount() or not os.access(backup, os.W_OK):
         raise RuntimeError("Mount the private backup bucket read-write at /backups before starting Home")
     config.parent.mkdir(parents=True, exist_ok=True)
     # Recover settings before adding the fixed front door. The daemon restores state.db itself.
     if not config.exists():
-        # Backups live under home; home/sealed is the earlier fully encrypted layout, read once.
-        roots = [backup / "home"] + ([backup / "home/sealed"] if key else [])
-        root = next((r for r in roots if any((r / "backup").glob("*/manifest.json"))), None)
-        manifests = sorted((root / "backup").glob("*/manifest.json"), reverse=True) if root else []
+        root = backup / "home"
+        manifests = sorted((root / "backup").glob("*/manifest.json"), reverse=True)
         if manifests:
-            manifest = json.loads(unseal(key, manifests[0].read_bytes()))
+            manifest = json.loads(manifests[0].read_bytes())
             obj = next(o for o in manifest["objects"] if o["name"] == "config.toml")
-            data = unseal(key, (root / "blobs/sha256" / obj["sha256"]).read_bytes())
+            data = (root / "blobs/sha256" / obj["sha256"]).read_bytes()
             if hashlib.sha256(data).hexdigest() != obj["sha256"]:
                 raise RuntimeError("Backup config failed its checksum")
             config.write_bytes(data)
@@ -99,19 +98,19 @@ async def main():
     backup = Path("/backups")
     home = Path.home()
     secret = os.environ.pop("LP_HOME_KEY", "").strip()
-    key = parse_key(secret) if secret else None
+    key = derive_key(secret) if secret else None
     if secret and key is None:
-        raise RuntimeError("The LP_HOME_KEY Space secret must be base64 of 32 bytes. Restore its original value.")
+        raise RuntimeError(f"The LP_HOME_KEY Space secret must have at least {MIN_KEY} characters. Restore its original value.")
     # Home's own HF and GitHub logins: decrypted on this container's disk, encrypted in the bucket.
     os.environ["HF_HOME"] = str(home / ".cache/huggingface")
     os.environ["GH_CONFIG_DIR"] = str(home / ".config/gh")
-    configure(backup, home / ".config/launchpad/config.toml", key)
-    setup = Setup(space, os.environ.get("LP_HOME_BUCKET", space + "-bucket"), backup / "home/credentials", key)
+    configure(backup, home / ".config/launchpad/config.toml")
+    setup = Setup(space, host, os.environ.get("LP_HOME_BUCKET", space + "-bucket"), backup / "home/credentials", key)
     setup.restore()
     await setup.check()
     env = dict(os.environ, LAUNCHPAD_HOME_BACKUP=str(backup), LAUNCHPAD_PORT="7319", LAUNCHPAD_DELEGATED_ACCESS="true")
     if key:
-        env["LAUNCHPAD_HOME_KEY"] = secret
+        env["LAUNCHPAD_HOME_KEY"] = base64.b64encode(key).decode()
     daemon = await asyncio.create_subprocess_exec("launchpad", "daemon", "--role", "home", env=env)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -146,7 +145,10 @@ async def main():
                 return data
 
         setup.api = api
-        await setup.check_profiles()
+        try:
+            await setup.check_home(force=True)
+        except Exception:
+            pass  # The setup page checks again.
         app = web.Application(client_max_size=4 << 30)
         app.on_startup.append(proxy.start)
         app.on_cleanup.append(proxy.close)

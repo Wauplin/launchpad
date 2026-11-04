@@ -186,6 +186,11 @@ route("GET", "/api/vault", () => ({
   ],
   tools: [demoTemplates[0]],
   templates: demoTemplates,
+  template_help: [
+    { id: "gh", token_url: "https://github.com/settings/personal-access-tokens/new", home_token: "github" },
+    { id: "hf", token_url: "https://huggingface.co/settings/tokens/new?tokenType=fineGrained", home_token: "huggingface" },
+  ],
+  home_tokens: [],
   logins: [
     { harness: "claude", name: "Claude Code", kind: "claude_login", how: "Run claude setup-token on any machine and paste the token it prints." },
     { harness: "codex", name: "Codex", kind: "codex_login", how: "Sign in with codex login (ChatGPT) on any machine and paste the whole ~/.codex/auth.json." },
@@ -196,6 +201,7 @@ route("GET", "/api/vault", () => ({
 route("GET", "/api/vault/leases", () => []);
 route("GET", "/api/vault/tools.toml", () => ({ toml: "[[tools]]\nid = \"gh\"\n" }));
 route("PUT", "/api/vault/entries/:id", notInDemo);
+route("POST", "/api/vault/entries/:id/from-home", notInDemo);
 route("DELETE", "/api/vault/entries/:id", notInDemo);
 route("PUT", "/api/vault/tools/:id", notInDemo);
 route("DELETE", "/api/vault/tools/:id", notInDemo);

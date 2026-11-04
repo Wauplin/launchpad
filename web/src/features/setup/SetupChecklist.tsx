@@ -30,6 +30,7 @@ import { NotificationsCard } from "@/features/settings/DevicesView";
 import { usePatchConfig } from "@/features/settings/SettingsView";
 import { useOnboarding, usePatchOnboarding } from "@/onboarding/data";
 import { SUMMARY_KEY } from "./summary";
+import { HomeSetup } from "./HomeSetup";
 
 export const FIRST_PROMPT = "Explain how this repository is organized and how to run its tests.";
 
@@ -75,16 +76,7 @@ function useRecheckOnSetupExit(recheck: () => void) {
 
 export function SetupChecklist() {
   const role = useStatus().data?.role;
-  if (role === "home") return <div className="grid gap-3 rounded-lg border border-line bg-paper p-4 text-[13px] text-ink-2">
-    <b className="text-ink">Set up Home and a runner</b>
-    <p className="m-0">Home keeps credentials and reads usage and quotas. Agent turns and terminals run on paired runners.</p>
-    <div className="flex flex-wrap gap-2">
-      <Link to="/settings/credentials" className="btn btn-sm">Credentials and tools</Link>
-      <Link to="/settings/profiles" className="btn btn-sm">Profiles</Link>
-      <Link to="/settings/runners" className="btn btn-sm btn-primary">Home and runners</Link>
-    </div>
-    <p className="m-0 text-[12px] text-ink-3">Add a harness login to the vault, select it in a profile, then connect a runner. Install and sign-in commands for the runner run on that machine.</p>
-  </div>;
+  if (role === "home") return <HomeSetup />;
   if (!role) return <Loading what="Home settings" />;
   return <MachineSetupChecklist />;
 }
