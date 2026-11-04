@@ -12,7 +12,7 @@ from aiohttp import web
 import tomlkit
 
 from gateway.proxy import Proxy, canonical_path
-from login import Login
+from onboarding import Setup
 
 
 def validate_config(method, value):
@@ -25,13 +25,13 @@ def validate_config(method, value):
 
 
 class HomeProxy(Proxy):
-    def __init__(self, origin, token, login, port=7319):
+    def __init__(self, origin, token, setup, port=7319):
         super().__init__(origin, token, port)
-        self.login = login
+        self.setup = setup
 
     async def handle(self, request):
         path = self.guard(request)
-        response = await self.login.handle(request, path)
+        response = await self.setup.handle(request, path)
         if response is not None:
             return response
         body = None
@@ -95,18 +95,21 @@ async def main():
     await verify_private(space)
     backup = Path("/backups")
     home = Path.home()
-    os.environ["HF_HOME"] = str(backup / "home/credentials/huggingface")
+    credentials = backup / "home/credentials"
+    os.environ["HF_HOME"] = str(credentials / "huggingface")
     Path(os.environ["HF_HOME"]).mkdir(parents=True, exist_ok=True)
     configure(backup, home / ".config/launchpad/config.toml")
-    login = Login(os.environ.get("LP_HOME_BUCKET", space + "-bucket"))
-    await login.check()
-    env = dict(os.environ, LAUNCHPAD_HOME_BACKUP=str(backup), LAUNCHPAD_PORT="7319", LAUNCHPAD_DELEGATED_ACCESS="true")
+    setup = Setup(os.environ.get("LP_HOME_BUCKET", space + "-bucket"), credentials)
+    await setup.check()
+    # Home's own GitHub login (setup step 2) lives in the private bucket; agents never get it.
+    env = dict(os.environ, GH_CONFIG_DIR=str(setup.gh_dir), LAUNCHPAD_HOME_BACKUP=str(backup), LAUNCHPAD_PORT="7319",
+               LAUNCHPAD_DELEGATED_ACCESS="true")
     daemon = await asyncio.create_subprocess_exec("launchpad", "daemon", "--role", "home", env=env)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
-    runner = None
+    runner = api_client = None
     try:
         token_path = home / ".local/share/launchpad/token"
         async with aiohttp.ClientSession() as client:
@@ -122,7 +125,20 @@ async def main():
                 await asyncio.sleep(1)
             else:
                 raise RuntimeError("Home did not start within ten minutes")
-        proxy = HomeProxy("https://" + host, token_path.read_text().strip(), login, port=7319)
+        proxy = HomeProxy("https://" + host, token_path.read_text().strip(), setup, port=7319)
+        api_client = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60))
+        api_headers = {"Host": host, "Origin": "https://" + host, "Authorization": f"Bearer {proxy.token}"}
+
+        async def api(method, path, body=None):
+            async with api_client.request(method, "http://127.0.0.1:7319" + path, json=body, headers=api_headers) as res:
+                text = await res.text()
+                data = json.loads(text) if text.strip().startswith(("{", "[")) else {}
+                if res.status >= 400:
+                    raise ValueError((data.get("error") if isinstance(data, dict) else None) or f"Home answered {res.status}")
+                return data
+
+        setup.api = api
+        await setup.check_profiles()
         app = web.Application(client_max_size=4 << 30)
         app.on_startup.append(proxy.start)
         app.on_cleanup.append(proxy.close)
@@ -139,7 +155,9 @@ async def main():
         if daemon.returncode is not None and not stop.is_set():
             raise RuntimeError(f"Home exited with {daemon.returncode}")
     finally:
-        await login.close()
+        await setup.close()
+        if api_client:
+            await api_client.close()
         if runner:
             await runner.cleanup()
         if daemon.returncode is None:

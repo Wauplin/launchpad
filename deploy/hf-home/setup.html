@@ -1,19 +1,87 @@
 <!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Set up Launchpad Home</title>
-<style>body{margin:0;background:#f4f6f8;color:#202733;font:15px system-ui,sans-serif}main{max-width:620px;margin:8vh auto;padding:28px;background:white;border:1px solid #dce1e7;border-radius:14px}h1{font-size:24px}p{line-height:1.5}button,a.action{display:inline-block;padding:12px 16px;border:1px solid #ccd4dd;border-radius:7px;background:#126b66;color:white;font:inherit;text-decoration:none;cursor:pointer}button:disabled{opacity:.5;cursor:default}.actions{display:flex;gap:10px;flex-wrap:wrap}code{font-size:20px;letter-spacing:2px}#error{color:#a21c28}small{color:#576577}[hidden]{display:none!important}</style>
-<main><h1>Set up Launchpad Home</h1><p>Sign in to Hugging Face to use Home. Backup is required: Home’s records, branches and assets are kept in its private bucket.</p>
-<p id="status">Checking sign-in…</p><p id="error" role="status"></p><p><small id="bucket"></small></p>
-<div id="device" hidden><p>Open the Hugging Face sign-in page and approve this code:</p><p><code id="code"></code></p><p><a id="link" class="action" target="_blank" rel="noopener noreferrer">Open Hugging Face</a></p></div>
-<div class="actions"><button id="login" disabled>Sign in to Hugging Face</button><button id="check">Check again</button><a class="action" id="home" href="/" hidden>Open Home</a></div>
-<p><small>The sign-in runs only when you click. Home saves it in the private bucket. Agent turns and terminals run on paired runners.</small></p></main>
+<style>
+:root{--board:#e6eaf0;--paper:#fff;--chrome:#f4f6f9;--ink:#17202b;--ink-2:#4b5767;--ink-3:#596779;--line:#c4ccd7;--line-2:#e9ecf1;--teal:#0d7266;--teal-ink:#0a5c52;--teal-soft:#e2f1ee;--attn:#8a5d00;--danger-ink:#a40e26;--code:#f6f8fa;--font:"Ubuntu Sans","Ubuntu",system-ui,"Segoe UI",sans-serif;--mono:"Ubuntu Sans Mono","Ubuntu Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root{--board:#090d12;--paper:#0d1117;--chrome:#161b22;--ink:#e6edf3;--ink-2:#b6c2cf;--ink-3:#98a6b7;--line:#3d4652;--line-2:#262d36;--teal:#3fb6a5;--teal-ink:#6fd0c1;--teal-soft:#10302c;--attn:#e3b341;--danger-ink:#ff8f8f;--code:#161b22}}
+*{box-sizing:border-box}body{margin:0;background:var(--board);color:var(--ink);font:13px/1.5 var(--font)}
+main{max-width:640px;margin:6vh auto;padding:0 16px}
+.card{background:var(--paper);border:1px solid var(--line-2);border-radius:12px;box-shadow:0 1px 2px rgb(23 32 43/6%),0 8px 24px rgb(23 32 43/8%);overflow:hidden}
+header{padding:22px 24px 14px}h1{margin:0 0 4px;font-size:18px;font-weight:650}header p{margin:0;color:var(--ink-2)}
+ol{list-style:none;margin:0;padding:0}li{border-top:1px solid var(--line-2);padding:16px 24px;display:grid;grid-template-columns:28px 1fr;gap:0 12px}
+.dot{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-size:12px;font-weight:650;color:var(--ink-3)}
+li.done .dot{background:var(--teal);border-color:var(--teal);color:#fff}li.active .dot{border-color:var(--teal);color:var(--teal-ink)}
+h2{margin:1px 0 2px;font-size:15px;font-weight:650}.state{color:var(--ink-2)}li.done .state{color:var(--teal-ink)}
+.body{grid-column:2;display:grid;gap:10px;margin-top:10px}.body[hidden]{display:none}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,a.btn{font:inherit;font-size:13px;padding:6px 12px;border-radius:6px;border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer;text-decoration:none}
+button.primary,a.primary{background:var(--teal);border-color:var(--teal);color:#fff}button:disabled{opacity:.5;cursor:default}
+button.link{border:0;background:none;color:var(--ink-3);padding:6px 4px;text-decoration:underline}
+.device{border:1px solid var(--line-2);background:var(--chrome);border-radius:8px;padding:12px;display:grid;gap:8px}
+.code{font:600 20px var(--mono);letter-spacing:2px}small,.hint{color:var(--ink-3);font-size:12px}
+.error{color:var(--danger-ink)}input{font:12px var(--mono);padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink);flex:1;min-width:200px}
+footer{padding:14px 24px;border-top:1px solid var(--line-2);background:var(--chrome);display:flex;gap:12px;align-items:center;justify-content:space-between}
+code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4px;border-radius:4px}[hidden]{display:none!important}
+</style>
+<main><div class="card">
+<header><h1>Set up Launchpad Home</h1><p>Home keeps your sessions, branches and settings in its private bucket. Agents run on the runners you pair.</p></header>
+<ol>
+<li id="s-huggingface"><span class="dot">1</span><div><h2>Hugging Face</h2><div class="state"></div></div>
+  <div class="body"><p class="hint" style="margin:0">Required. Home uses this login for its private backup bucket <b id="bucket"></b>. It is saved in that bucket and never given to agents.</p>
+  <div class="row"><button class="primary" data-login="huggingface">Sign in to Hugging Face</button></div></div></li>
+<li id="s-github"><span class="dot">2</span><div><h2>GitHub</h2><div class="state"></div></div>
+  <div class="body"><p class="hint" style="margin:0">Used by the Inbox, issues, pull requests, private clones and publication. Agents get their own tokens from Credentials and tools.</p>
+  <div class="row"><button class="primary" data-login="github">Sign in to GitHub</button><button class="link" data-skip="github">Skip for now</button></div></div></li>
+<li id="s-profile"><span class="dot">3</span><div><h2>First profile</h2><div class="state"></div></div>
+  <div class="body"><p class="hint" style="margin:0">A profile is how agents run. Home keeps its login in the vault and leases it to runners per session.</p>
+  <div class="row"><button class="primary" data-login="codex">Sign in to Codex (ChatGPT)</button><button id="claude-show">Use Claude Code</button><button class="link" data-skip="profile">Skip for now</button></div>
+  <div id="claude" class="device" hidden><span>Run <code>claude setup-token</code> on any computer, then paste the token it prints.</span>
+  <div class="row"><input id="claude-token" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-oat01-…" aria-label="Claude Code token"><button class="primary" id="claude-save">Save</button></div></div></div></li>
+</ol>
+<div id="device" class="device" hidden><span id="device-what">Open the sign-in page and enter this code:</span><span class="code" id="code"></span>
+  <div class="row"><a id="link" class="btn primary" target="_blank" rel="noopener noreferrer">Open sign-in page</a><button id="cancel">Cancel</button></div><small>The code expires after a few minutes. This page updates when you approve it.</small></div>
+<footer><span><span id="error" class="error" role="status"></span><small id="note">Every sign-in starts only when you click.</small></span><a id="open" class="btn primary" href="/" hidden>Open Home</a></footer>
+</div></main>
 <script>
-let csrf="", started=false, busy=false;
-const el=id=>document.getElementById(id);
-function show(s){csrf=s.csrf;el("status").textContent=s.signed_in?`Signed in as ${s.account}`:s.running?"Waiting for Hugging Face approval…":"Hugging Face sign-in is required.";el("error").textContent=s.error||"";el("bucket").textContent=`Private backup bucket: ${s.bucket} · Backup is always on`;el("login").disabled=s.running||s.signed_in;el("check").disabled=s.running;el("home").hidden=!s.signed_in;el("device").hidden=!s.running||!s.link;el("code").textContent=s.code||"";if(s.link)el("link").href=s.link;if(s.signed_in&&(started||location.pathname!=="/_home/setup"))location.replace("/");}
-async function request(path,body){const r=await fetch(path,{cache:"no-store",...(body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,csrf})}:{})});if(!r.ok)throw Error("Could not reach Home setup. Reload this page.");show(await r.json());}
-async function poll(){if(busy)return;busy=true;try{await request("/_home/status");}catch(e){el("error").textContent=e.message;}finally{busy=false;}}
-el("login").onclick=async()=>{started=true;el("login").disabled=true;try{await request("/_home/login",{});}catch(e){el("error").textContent=e.message;}};
-el("check").onclick=async()=>{try{await request("/_home/check",{});}catch(e){el("error").textContent=e.message;}};
-poll();setInterval(poll,2000);
+const $=s=>document.querySelector(s);let csrf="",st=null,actionError="";
+const NAMES={huggingface:"Hugging Face",github:"GitHub",codex:"Codex"};
+function render(s){
+  st=s;csrf=s.csrf;$("#bucket").textContent=s.bucket;
+  const login=s.login&&s.login.running?s.login:null;
+  const steps={huggingface:s.huggingface,github:s.github,profile:s.profile};
+  const ok={huggingface:s.huggingface.done,github:s.github.done||s.github.skipped,profile:s.profile.done||s.profile.skipped};
+  const active=["huggingface","github","profile"].find(k=>!ok[k]);
+  for(const k in steps){
+    const li=$("#s-"+k),v=steps[k];li.className=v.done?"done":k===active?"active":"";
+    li.querySelector(".dot").textContent=v.done?"✓":{huggingface:1,github:2,profile:3}[k];
+    li.querySelector(".state").textContent=k==="huggingface"?(v.done?`Signed in as ${v.account}`:"Not signed in"):
+      k==="github"?(v.done?`Signed in as ${v.account}${v.secret?" (GH_TOKEN Space secret)":""}`:v.skipped?"Skipped. Connect it later in Settings → GitHub.":v.secret?"The GH_TOKEN Space secret did not work. Check it in the Space settings.":"Not connected"):
+      (v.done?`Ready: ${v.profiles.join(", ")}`:v.skipped?"Skipped. Add one later in Settings → Profiles.":"No profile yet");
+    const show=k===active||(s.complete&&k!=="huggingface"&&!v.done);
+    li.querySelector(".body").hidden=!show;
+  }
+  document.querySelectorAll("button").forEach(b=>{if(b.id!=="cancel")b.disabled=!!login});
+  if(!s.profile.ready)document.querySelectorAll('[data-login="codex"],#claude-save').forEach(b=>b.disabled=true);
+  if(s.github.secret)$('[data-login="github"]').disabled=true;
+  $("#device").hidden=!login;
+  if(login){const body=$("#s-"+(login.tool==="codex"?"profile":login.tool)+" .body");body.hidden=false;if($("#device").parentNode!==body)body.appendChild($("#device"));}
+  if(login){$("#device-what").textContent=login.link?`Open the ${NAMES[login.tool]} sign-in page and enter this code:`:`Starting the ${NAMES[login.tool]} sign-in…`;$("#code").textContent=login.code||"";$("#link").hidden=!login.link;if(login.link)$("#link").href=login.link;}
+  const failed=s.login&&!s.login.running&&s.login.error;
+  $("#error").textContent=actionError||failed||s.huggingface.error||"";$("#note").hidden=!!$("#error").textContent;
+  $("#open").hidden=!s.complete;
+}
+async function call(path,body){
+  if(body)actionError="";
+  try{const r=await fetch(path,{cache:"no-store",...(body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,csrf})}:{})});
+    const j=await r.json().catch(()=>({error:"Could not reach Home setup. Reload this page."}));
+    if(!r.ok){actionError=j.error||"Home setup did not answer. Reload this page.";if(st)render(st);return;}if(actionError.startsWith("Could not reach"))actionError="";render(j);}
+  catch{actionError="Could not reach Home setup. Reload this page.";if(st)render(st);}
+}
+document.querySelectorAll("[data-login]").forEach(b=>b.onclick=()=>call("/_home/login",{tool:b.dataset.login}));
+document.querySelectorAll("[data-skip]").forEach(b=>b.onclick=()=>call("/_home/skip",{step:b.dataset.skip}));
+$("#cancel").onclick=()=>call("/_home/cancel",{});
+$("#claude-show").onclick=()=>{$("#claude").hidden=false;$("#claude-token").focus();};
+$("#claude-save").onclick=async()=>{const token=$("#claude-token").value.trim();if(!token)return;await call("/_home/claude",{token});if(st&&st.profile.done){$("#claude-token").value="";$("#claude").hidden=true;}};
+$("#open").onclick=async e=>{e.preventDefault();await call("/_home/finish",{});if(st&&st.complete)location.replace("/");};
+call("/_home/status");setInterval(()=>{if(!document.hidden)call("/_home/status")},2000);
 </script></html>

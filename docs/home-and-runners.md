@@ -56,7 +56,7 @@ When Home starts on an empty data folder, it restores the newest complete backup
 
 ## Credentials and tools
 
-Home’s image includes Claude Code, Codex, OpenCode, `gh` and `hf` for discovery, usage and quota checks. A hosted Home requires HF sign-in at first start and keeps it in the private bucket. Its backup is mandatory, with status in Settings → Hugging Face instead of optional trace-sync controls. Home’s Setup and profile pages lead to the vault and runner pairing; native install and sign-in terminals run on the runner.
+Home’s image includes Claude Code, Codex, OpenCode, `gh` and `hf` for discovery, usage and quota checks. A hosted Home opens on a three-step setup page at first start: Hugging Face sign-in (required, it unlocks the private bucket), GitHub sign-in for the Inbox, clones and publication, and a first profile (a Codex ChatGPT device login, or a Claude Code `setup-token` pasted into the vault). GitHub and the profile can be skipped; Settings → GitHub links back to the setup page. Each login is a fixed device flow that starts only on a click, and Home's own logins stay in the private bucket, away from agents. Its backup is mandatory, with status in Settings → Hugging Face instead of optional trace-sync controls. Home’s Setup and profile pages lead to the vault and runner pairing; native install and sign-in terminals run on the runner.
 
 Home keeps every credential agents use: open **Settings → Credentials and tools** (on Home, or on a runner, which forwards to Home).
 

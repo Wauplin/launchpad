@@ -628,9 +628,23 @@ fn changed(app: &App) {
 pub fn spawn(app: &App) {
     let app = app.clone();
     tokio::spawn(async move {
+        // Log a failure once when it starts or changes, not at every poll (a missing GitHub login can last days).
+        let mut last: Option<String> = None;
         loop {
-            if let Err(e) = app.inbox.sync(&app).await {
-                tracing::warn!("inbox sync: {e:#}");
+            match app.inbox.sync(&app).await {
+                Ok(_) if last.take().is_some() => tracing::info!("inbox sync: working again"),
+                Ok(_) => {}
+                Err(e) => {
+                    let message = format!("{e:#}");
+                    if last.as_deref() != Some(message.as_str()) {
+                        if message.contains("gh auth token") {
+                            tracing::info!("inbox sync paused: GitHub is not signed in ({message})");
+                        } else {
+                            tracing::warn!("inbox sync: {message}");
+                        }
+                        last = Some(message);
+                    }
+                }
             }
             let seconds = app.inbox.status.read().await.poll_interval.max(60);
             tokio::time::sleep(std::time::Duration::from_secs(seconds)).await;
