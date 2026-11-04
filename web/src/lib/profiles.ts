@@ -75,7 +75,9 @@ export function useQuotas(): QuotaEntry[] {
       const i = profiles.findIndex((p) => e.q.profiles.includes(p.id));
       return i < 0 ? profiles.length : i;
     };
+    // `vault:default:<harness>` repeats the first vault login of a harness.
     return Object.entries(quotas ?? {})
+      .filter(([key]) => !key.startsWith("vault:default:"))
       .flatMap(([key, q]) => (q ? [{ key, harness: q.harness as HarnessKind, names: q.profiles.map((id) => profiles.find((p) => p.id === id)?.name ?? id), q }] : []))
       .sort((a, b) => order(a) - order(b));
   }, [quotas, profiles]);
@@ -88,9 +90,10 @@ export function quotaFor(status: Status | undefined, harness: string, profile: s
     const q = Object.values(quotas).find((x) => x?.profiles.includes(profile));
     if (q) return q;
     // A profile of another account that is not monitored (yet) has no reading.
-    return null;
+    if (!quotas[`vault:default:${harness}`]) return null;
   }
-  return quotas[harness] ?? null;
+  // Logins in Home's vault: the harness's first login, else the machine's default login.
+  return quotas[`vault:default:${harness}`] ?? quotas[harness] ?? null;
 }
 
 /** A reading older than 15 minutes, or with an error, does not confirm the quota. */

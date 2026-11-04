@@ -50,10 +50,34 @@ pub struct HarnessDescriptor {
     /// Variables that select the subscription login (a configuration folder): profiles with different values
     /// are different accounts, each with its own quota monitor.
     pub account_env: &'static [&'static str],
+    /// The login a contained session gets from Home's vault, and the hosts where the proxy adds it.
+    pub vault_login: Option<VaultLogin>,
     /// Documented environment variables offered in the profile editor.
     pub env_vars: &'static [EnvVarDoc],
     /// Ready-made profiles offered by Settings → Profiles → New profile.
     pub profile_templates: &'static [ProfileTemplate],
+}
+
+/// A harness login kept in Home's vault.
+#[derive(Clone, Copy, Serialize, TS)]
+pub struct VaultLogin {
+    pub kind: crate::vault::Kind,
+    #[ts(skip)]
+    #[serde(skip)]
+    pub hosts: &'static [&'static str],
+    /// How the owner gets the secret, shown in Settings → Credentials and tools.
+    pub how: &'static str,
+}
+
+/// What an adapter gets to set up the login of a contained session.
+pub struct LoginSetup<'a> {
+    /// The session's harness home (`HOME` in the jail).
+    pub home: &'a Path,
+    pub login: &'a crate::vault::LeaseLogin,
+    /// The placeholder agents see instead of the secret.
+    pub placeholder: String,
+    /// `http://127.0.0.1:<port>/lp/<key>`: append `/<host>` for a base URL through the proxy.
+    pub proxy_base: String,
 }
 
 /// One environment variable the harness CLI reads, as documented by its vendor.
@@ -168,6 +192,11 @@ pub trait Harness: Send + Sync {
         crate::signin::SignIn { signed_in: None, detail: None }
     }
     fn spawn_services(&self, _app: &App) {}
+    /// Prepares the vault login of a contained session in its harness home (placeholders only) and returns its
+    /// variables. Called again at each lease renewal.
+    fn contained_login(&self, _setup: &LoginSetup) -> Result<Vec<(String, String)>> {
+        Ok(vec![])
+    }
     /// Polls the included quota of one subscription login (see `quota::QuotaAccount`) and publishes it with
     /// `StatusHandle::update_quota`. Called once per account while a profile uses it; the task is aborted
     /// when no profile uses it anymore.

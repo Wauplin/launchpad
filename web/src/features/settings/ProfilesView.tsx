@@ -1,3 +1,4 @@
+import { useVault } from "./CredentialsView";
 import { externalSetup } from "@/lib/deployment";
 import { SpaceSettingsButton } from "@/components/SpaceSettingsButton";
 // Settings → Profiles: how Launchpad runs each coding agent (a harness, the login or key that pays for it, and its
@@ -51,11 +52,27 @@ function parseLimit(l: LimitDraft): SpendLimit | undefined {
   return usd && Number.isInteger(count) && hours >= 1 && hours <= 744 ? { usd, hours } : undefined;
 }
 
+/** The harness login in Home's vault this profile uses (Settings → Credentials and tools). */
+function VaultLoginSelect({ kind, value, onChange }: { kind: string; value: string | null; onChange: (v: string | null) => void }) {
+  const vault = useVault();
+  const logins = (vault.data?.entries ?? []).filter((e) => e.kind === kind);
+  return (
+    <span className="grid gap-1">
+      <select className="field-input h-[28px] w-fit text-xs" aria-label="Login" value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
+        <option value="">First login in the vault</option>
+        {logins.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+        {value && !logins.some((l) => l.id === value) && <option value={value}>{value} (not in the vault)</option>}
+      </select>
+      <span className="text-xs text-ink-3">Contained sessions use a login kept on Home, never the machine's. Add logins in Settings → Credentials and tools.</span>
+    </span>
+  );
+}
+
 let nextKey = 0;
 const toDraft = (v: Profile): Draft => ({ ...v, key: `saved-${v.id}`, env: Object.entries(v.env).map(([k, x]) => [k, x ?? ""]), budget: v.budget_usd == null ? "" : String(v.budget_usd), limits: v.spend_limits.map(toLimitDraft), saved: true, template: null });
 
 /** Key order does not matter in the comparison with the saved profiles. */
-const canonical = (v: Profile) => [v.id, v.name, v.harness, Object.entries(v.env).sort(), v.model, v.effort, v.billing, v.budget_usd, v.models_url, v.spend_limits.map((l) => [l.usd, l.hours]), v.send_credentials];
+const canonical = (v: Profile) => [v.id, v.name, v.harness, Object.entries(v.env).sort(), v.model, v.effort, v.billing, v.budget_usd, v.models_url, v.spend_limits.map((l) => [l.usd, l.hours]), v.send_credentials, v.login];
 
 function slug(name: string, taken: string[]) {
   const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "profile";
@@ -206,7 +223,7 @@ export function ProfilesView() {
     for (let i = 2; name && taken.includes(name); i++) name = `${base} ${i}`;
     const billing = t?.billing ?? (h.capabilities.quota ? "subscription" : "pay_as_you_go");
     const key = `new-${nextKey++}`;
-    setDrafts((all) => all && [...all, { key, id: "", name, harness: h.id, env: t ? t.env.map(([k, v]) => [k, v]) : [], model: null, effort: null, billing, budget: "", limits: [], models_url: t?.models_url ?? null, send_credentials: false, saved: false, template: t }]);
+    setDrafts((all) => all && [...all, { key, id: "", name, harness: h.id, env: t ? t.env.map(([k, v]) => [k, v]) : [], model: null, effort: null, billing, budget: "", limits: [], models_url: t?.models_url ?? null, send_credentials: false, login: null, saved: false, template: t }]);
     setOpen((o) => new Set(o).add(key));
     setAdding(false);
   };
@@ -467,6 +484,10 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
               <span className="text-xs text-ink-3">An OpenAI-compatible model list whose models replace the {harness?.name ?? "harness"} models in the composer, for a profile that uses another provider.{providerModels.data ? ` ${providerModels.data.length} models with tool use.` : ""}</span>
             </span>
           </div>
+          {harness?.vault_login && <div className={row}>
+            <b className="pt-1 font-[650]">Login</b>
+            <VaultLoginSelect kind={harness.vault_login.kind} value={d.login} onChange={(login) => onChange((x) => ({ ...x, login }))} />
+          </div>}
           <div className={row}>
             <b className="pt-1 font-[650]">SSH hosts</b>
             <label className="flex items-start gap-2">

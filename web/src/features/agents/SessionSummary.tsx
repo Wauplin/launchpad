@@ -1,3 +1,4 @@
+import { SessionAccess } from "./SessionAccess";
 import { openExternal } from "@/lib/platform";
 import { FollowUpAgent } from "./FollowUpAgent";
 import { WorktreeSteps, useSessionWorktrees } from "./Worktrees";
@@ -166,6 +167,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
     {!working && <StateBand session={s} />}<FollowUpBands sessionId={s.id} /><QuotaBand session={s} />
     {pendingQuestions.length > 0 && <Section title="Needs your decision">{pendingQuestions.map((question) => <AskCard key={question.request_id} row={question} sessionId={s.id} live={s.live} />)}</Section>}
     <Section title="Run"><dl className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">{metadata.map(([key, value]) => <Fragment key={key}><dt className="text-ink-3">{key}</dt><dd className="break-words whitespace-pre-wrap">{value}</dd></Fragment>)}</dl></Section>
+    {!s.imported_from && <SessionAccess session={s} wrap={(body) => <Section title="Credentials">{body}</Section>} />}
     <Section title="Task · first prompt"><Fold lines={4} label="Show full task"><div className="whitespace-pre-wrap">{split ? split.typed : prompt}</div>{split && <Instructions blocks={split.instructions} className="mt-1" />}</Fold></Section>
     {final && <Section title={s.imported_from || s.status === "stopped" || unfinished ? "Last agent message" : "Final message"} actions={<><button className="btn btn-sm" onClick={() => void copyText(final.text).then(() => toast("Copied"))}>Copy</button><button className="btn btn-sm" onClick={() => void copyText(renderedText(finalRef.current, final.text)).then(() => toast("Copied as text"))}>Copy as text</button></>}><Fold lines={30} label="Show full message"><div ref={finalRef}><Markdown text={final.text} runShell /></div></Fold></Section>}
     <Section title="Next steps">

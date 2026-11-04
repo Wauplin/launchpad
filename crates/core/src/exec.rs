@@ -164,6 +164,11 @@ impl Cmd {
         }
         self
     }
+    /// Runs the command in a jail (on this computer).
+    pub fn jail(&mut self, jail: Option<Arc<crate::jail::Jail>>) -> &mut Self {
+        self.env = self.env.jailed(jail);
+        self
+    }
     pub fn current_dir(&mut self, p: impl AsRef<Path>) -> &mut Self {
         self.cwd = Some(p.as_ref().to_path_buf());
         self
@@ -202,10 +207,24 @@ impl Cmd {
 
     fn local(&self) -> tokio::process::Command {
         let resolved = self.env.which(&self.program).unwrap_or_else(|| self.program.clone().into());
-        let mut cmd = tokio::process::Command::new(resolved);
+        let mut cmd = match self.env.jail() {
+            // A jailed process: bubblewrap runs the program with only the kept machine variables.
+            Some(jail) => {
+                // Symlinks on the way (`~/.local/bin/x` → …/current/…) may not exist in the jail: run the target.
+                let resolved = std::fs::canonicalize(&resolved).unwrap_or(resolved);
+                let mut cmd = tokio::process::Command::new("bwrap");
+                cmd.env_clear().envs(jail.environment(self.env.vars())).args(jail.args(self.cwd.as_deref())).arg("--").arg(&resolved).args(&self.args);
+                cmd
+            }
+            None => {
+                let mut cmd = tokio::process::Command::new(resolved);
+                cmd.env_clear().envs(self.env.vars().iter()).args(&self.args);
+                cmd
+            }
+        };
         #[cfg(windows)]
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW: pipes carry harness output.
-        cmd.env_clear().envs(self.env.vars().iter()).args(&self.args).envs(self.envs.iter().map(|(k, v)| (k, v)));
+        cmd.envs(self.envs.iter().map(|(k, v)| (k, v)));
         if let Some(cwd) = &self.cwd {
             cmd.current_dir(cwd);
         }

@@ -212,6 +212,9 @@ pub mod proto {
         Items { items: Vec<(u64, serde_json::Value)> },
         /// A change made in a window of the runner that Home owns (workspaces), for Home's API.
         Req { id: u64, method: String, path: String, body: Option<String> },
+        /// A request about the runner's own sessions (leases, ssh-agent), answered with `ToRunner::Res`.
+        /// Home knows the runner from the tunnel; windows can never send it.
+        Call { id: u64, op: String, body: serde_json::Value },
         Ping,
     }
 
@@ -232,6 +235,10 @@ pub mod proto {
         Workspaces { workspaces: Vec<crate::workspace::Workspace> },
         /// Every Git folder of Home, on connect and after each change.
         Folders { projects: Vec<crate::model::Project> },
+        /// Home revoked a lease: the runner drops its tokens at once.
+        Revoke { lease_id: String },
+        /// Quota readings of Home's logins (`vault:<id>`), on connect and when they change.
+        Quotas { quotas: std::collections::BTreeMap<String, crate::status::QuotaStatus> },
         Pong,
     }
 }

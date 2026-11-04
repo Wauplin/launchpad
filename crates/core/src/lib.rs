@@ -58,6 +58,12 @@ pub mod prompt_context;
 pub mod session_git;
 pub mod workspace;
 pub mod worktrees;
+pub mod vault;
+pub mod ssh_agent;
+pub mod proxy;
+pub mod contain;
+pub mod jail;
+pub mod tool_install;
 
 /// Source revision embedded in the running binary.
 pub const COMMIT: &str = env!("LAUNCHPAD_COMMIT");
@@ -95,6 +101,8 @@ pub struct App {
     /// Live runner tunnels (Home).
     pub runners: runners::Hub,
     pub home_backups: home_backup::Backups,
+    /// The runner proxy that adds Home's tokens to contained sessions' requests.
+    pub proxy: proxy::Proxy,
 }
 
 impl App {
@@ -142,6 +150,7 @@ impl App {
             trace_backup: trace_backup::BackupStatus::default(),
             runners: runners::Hub::default(),
             home_backups: home_backup::Backups::default(),
+            proxy: proxy::Proxy::default(),
         };
         predrafts::link_skill()?;
         app.sessions.load(&app).await?;
@@ -241,6 +250,9 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     session_git::GitHistory::export_all(&cfg)?;
     workspace::Workspace::export_all(&cfg)?;
     runners::RunnerStatus::export_all(&cfg)?;
+    vault::VaultOverview::export_all(&cfg)?;
+    vault::LeaseInfo::export_all(&cfg)?;
+    proxy::Access::export_all(&cfg)?;
     home_link::RemoteLaunch::export_all(&cfg)?;
     home_backup::BackupInfo::export_all(&cfg)?;
     worktrees::WorktreeInfo::export_all(&cfg)?;

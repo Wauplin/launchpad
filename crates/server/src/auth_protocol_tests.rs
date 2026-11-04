@@ -23,6 +23,7 @@ async fn front_door_protocol() {
         models_url: None,
         spend_limits: vec![],
         send_credentials: false,
+        login: None,
     };
     profile
         .env
@@ -39,6 +40,7 @@ async fn front_door_protocol() {
         trace_backup: Default::default(),
         runners: Default::default(),
         home_backups: Default::default(),
+        proxy: Default::default(),
         paths: Arc::new(fixture.0.clone()),
         config: config.clone(),
         state_db: state_db.clone(),

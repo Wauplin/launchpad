@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
         id: "permission-check".into(), name: "Permission check".into(),
         harness: HarnessKind::parse("codex").unwrap(),
         env: [("PERMISSION_CHECK_FIXTURE".into(), "1".into())].into(),
-        model: None, effort: None, billing: Default::default(), budget_usd: None, models_url: None, spend_limits: vec![], send_credentials: false,
+        model: None, effort: None, billing: Default::default(), budget_usd: None, models_url: None, spend_limits: vec![], send_credentials: false, login: None,
     });
     config.save(settings)?;
     let state_db = core::db::open_state(&paths.state_db())?;
@@ -51,6 +51,7 @@ async fn main() -> Result<()> {
         trace_backup: Default::default(),
         runners: Default::default(),
         home_backups: Default::default(),
+        proxy: Default::default(),
         paths: Arc::new(paths.clone()), config, state_db, cache_db: cache_db.clone(), status, hosts,
         harnesses: core::harness::Registry::new(&env), github: core::github::GitHub::new(env.clone(), cache_db), env, bus,
         sessions: core::sessions::Sessions::new(), inbox: core::inbox::Inbox::new(), models: Default::default(),

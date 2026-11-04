@@ -26,6 +26,7 @@ async fn fixture() -> (Fixture, App, Predraft) {
         trace_backup: Default::default(),
         runners: Default::default(),
         home_backups: Default::default(),
+        proxy: Default::default(),
         push: crate::push::Push::new(paths.clone()), paths, config, state_db,
         github: crate::github::GitHub::new(env.clone(), cache_db.clone()), cache_db,
         harnesses: crate::harness::Registry::new(&env), env, status, bus, hosts,

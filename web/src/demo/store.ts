@@ -67,7 +67,7 @@ export function refreshCounts() {
 export const defaultSpec = (patch: Partial<LaunchSpec> = {}): LaunchSpec => ({
   mentions: [], skills: [], permission_mode: "yolo", allow_paid_usage: false, harness: "claude", profile: "claude-max", budget_usd: null,
   target: { kind: "none" }, worktree: null, text: "", attachments: [], presets: [], context_projects: [], github_refs: [], files: [],
-  agent_traces: [], model: null, effort: null, workspace_id: null, ...patch,
+  agent_traces: [], model: null, effort: null, workspace_id: null, tools_off: [], runner_id: null, ...patch,
 });
 
 let counter = 0;

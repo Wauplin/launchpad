@@ -41,6 +41,8 @@ export const emptySpec = (): LaunchSpec => ({
   effort: null,
   permission_mode: "yolo",
   workspace_id: null,
+  tools_off: [],
+  runner_id: null,
 });
 
 /** What a Launch button starts from: a project, GitHub items, text. */

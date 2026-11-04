@@ -145,13 +145,92 @@ fn wanted(app: &App) -> BTreeMap<String, (QuotaAccount, Vec<String>)> {
     out
 }
 
+/// Logins live in Home's vault (Linux runners and Home): Home monitors each login once for every runner, and
+/// runners receive its readings.
+pub fn vault_quotas() -> bool {
+    cfg!(target_os = "linux")
+}
+
+/// The reading key of a vault login: `vault:<id>`, or `vault:default:<harness>` for the harness's first login.
+pub fn vault_key(harness: HarnessKind, login: Option<&str>) -> String {
+    match login {
+        Some(id) => format!("vault:{id}"),
+        None => format!("vault:default:{}", harness.as_str()),
+    }
+}
+
+/// Home: one monitor per vault login, with Home's own copy of the login.
+async fn vault_wanted(app: &App) -> BTreeMap<String, (QuotaAccount, Vec<String>)> {
+    let mut out = BTreeMap::new();
+    if app.paths.role == crate::role::Role::Runner {
+        return out;
+    }
+    for harness in crate::harness::REGISTRATIONS.iter().filter(|r| r.descriptor.vault_login.is_some()).map(|r| r.descriptor.id) {
+        let Ok(logins) = crate::vault::logins(app, harness).await else { continue };
+        for e in logins {
+            match crate::vault::login_home(app, &e.id).await {
+                Ok((_, env)) => {
+                    let key = vault_key(harness, Some(&e.id));
+                    out.insert(key.clone(), (QuotaAccount { key, harness, env }, vec![e.name.clone()]));
+                }
+                Err(err) => tracing::warn!("quota of {}: {err:#}", e.id),
+            }
+        }
+    }
+    out
+}
+
+/// Runner: the readings Home sent replace the vault readings here.
+pub fn apply_home_readings(app: &App, quotas: BTreeMap<String, QuotaStatus>) {
+    app.status.update(|s| {
+        s.quotas.retain(|k, _| !k.starts_with("vault:"));
+        s.quotas.extend(quotas);
+    });
+}
+
+/// Home: vault readings, with the first login of each harness as its default.
+fn vault_readings(app: &App) -> BTreeMap<String, QuotaStatus> {
+    let all = app.status.get().quotas;
+    let mut out: BTreeMap<String, QuotaStatus> = all.iter().filter(|(k, _)| k.starts_with("vault:")).map(|(k, v)| (k.clone(), v.clone())).collect();
+    for harness in crate::harness::REGISTRATIONS.iter().filter(|r| r.descriptor.vault_login.is_some()).map(|r| r.descriptor.id) {
+        let first = out.iter().filter(|(k, v)| !k.starts_with("vault:default:") && v.harness == harness.as_str()).map(|(k, v): (&String, &QuotaStatus)| (k.clone(), v.clone())).next();
+        if let Some((_, v)) = first {
+            out.insert(vault_key(harness, None), v);
+        }
+    }
+    out
+}
+
 /// Starts a quota monitor for each wanted login and stops those no longer wanted.
 fn spawn_monitors(app: &App) {
     let app = app.clone();
     tokio::spawn(async move {
         let mut tasks: HashMap<String, tokio::task::JoinHandle<()>> = HashMap::new();
+        let mut sent = String::new();
+        let mut tick = 0u32;
         loop {
-            let wanted = wanted(&app);
+            tick += 1;
+            let wanted = if vault_quotas() {
+                // Logins change rarely: read the vault every minute.
+                if tick % 12 != 1 && app.paths.role != crate::role::Role::Runner {
+                    let readings = vault_readings(&app);
+                    let text = serde_json::to_string(&readings).unwrap_or_default();
+                    if text != sent || tick.is_multiple_of(12) {
+                        sent = text;
+                        app.status.update(|s| s.quotas.extend(readings.iter().filter(|(k, _)| k.starts_with("vault:default:")).map(|(k, v)| (k.clone(), v.clone()))));
+                        app.runners.broadcast(crate::runners::proto::ToRunner::Quotas { quotas: readings });
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    continue;
+                }
+                if app.paths.role == crate::role::Role::Runner {
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    continue;
+                }
+                vault_wanted(&app).await
+            } else {
+                wanted(&app)
+            };
             tasks.retain(|key, task| {
                 let keep = wanted.contains_key(key);
                 if !keep { task.abort(); }

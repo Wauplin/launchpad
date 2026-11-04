@@ -445,6 +445,10 @@ pub struct LaunchSpec {
     pub effort: Option<String>,
     /// The workspace of the window that launched it. A new scratch folder joins it; other targets keep their own.
     pub workspace_id: Option<String>,
+    /// Tools of Home's registry switched off for this launch (they are granted per workspace).
+    pub tools_off: Vec<String>,
+    /// The runner chosen for this launch (for example a Local VM for Docker). None: Home picks one.
+    pub runner_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]

@@ -24,6 +24,7 @@ mod terminals;
 mod tailnet;
 mod worktrees;
 mod ui;
+mod vault;
 mod ws;
 
 use std::sync::Arc;
@@ -98,6 +99,7 @@ pub(crate) fn router(server: Server) -> Router {
         .merge(hosts::router())
         .merge(push::router())
         .merge(runners::router())
+        .merge(vault::router())
         .merge(git_http::router())
         .merge(plain_http::router())
         .route("/ws", axum::routing::get(ws::handler))

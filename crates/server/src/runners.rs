@@ -241,6 +241,17 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
                             out.send_to(&runner_id, ToRunner::Res { id, status, body });
                         });
                     }
+                    Ok(FromRunner::Call { id, op, body }) => {
+                        let (app, out) = (s.app.clone(), s.app.runners.clone());
+                        let runner_id = runner.id.clone();
+                        tokio::spawn(async move {
+                            let (status, body) = match launchpad_core::vault::runner_call(&app, Some(&runner_id), &op, body).await {
+                                Ok(v) => (200, v.to_string()),
+                                Err(e) => (400, json!({"error": format!("{e:#}")}).to_string()),
+                            };
+                            out.send_to(&runner_id, ToRunner::Res { id, status, body });
+                        });
+                    }
                     Ok(FromRunner::Ping) => { if !send(&mut tx, &ToRunner::Pong).await { break } }
                     Ok(FromRunner::Hello { .. }) => {}
                     Err(e) => tracing::warn!("runner {}: bad message: {e}", runner.id),
@@ -265,7 +276,7 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
     let runner = match parts.as_slice() {
         ["api", "sessions"] if method == axum::http::Method::POST => None,
         ["api", "sessions", id, rest @ ..] if *id != "search" => {
-            let served = get && matches!(rest, [] | ["events"] | ["events", "page"] | ["trace"] | ["images", ..]);
+            let served = get && matches!(rest, [] | ["events"] | ["events", "page"] | ["trace"] | ["images", ..] | ["access"]);
             match s.app.sessions.get(id).and_then(|x| x.runner_id) {
                 Some(r) if !served => Some(r),
                 _ => return next.run(req).await,

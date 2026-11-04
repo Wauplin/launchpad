@@ -33,6 +33,8 @@ pub enum Item {
     /// A folder registered or changed on the runner (its disk has it).
     Project { project: crate::model::Project },
     ForgetProject { id: String },
+    /// A request of a contained session that received a token (`proxy.rs`), for Home's access log.
+    Access { access: crate::proxy::Access },
 }
 
 /// Queues an item in the caller's transaction (runner only; replicas of other instances never go back).
@@ -103,6 +105,23 @@ pub(crate) fn set_acked(c: &Connection, runner_id: &str, n: u64) -> Result<()> {
     Ok(())
 }
 
+/// Home: one access log entry of a runner's session.
+pub(crate) async fn apply_access(app: &App, runner_id: &str, n: u64, access: crate::proxy::Access) -> Result<()> {
+    let id = runner_id.to_string();
+    let session = access.session_id.clone();
+    app.state_db
+        .call(move |c| {
+            let tx = c.transaction()?;
+            crate::contain::insert_access(&tx, &access)?;
+            set_acked(&tx, &id, n)?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await?;
+    app.bus.publish("vault", "access", serde_json::json!({"session_id": session}));
+    Ok(())
+}
+
 /// Stores one item from a runner on Home. Items at or below the acknowledged number are replays and skipped.
 pub async fn ingest(app: &App, runner_id: &str, n: u64, item: serde_json::Value) -> Result<()> {
     if n <= acked_for(app, runner_id).await? {
@@ -110,6 +129,7 @@ pub async fn ingest(app: &App, runner_id: &str, n: u64, item: serde_json::Value)
     }
     match serde_json::from_value::<Item>(item) {
         Ok(item @ (Item::Project { .. } | Item::ForgetProject { .. })) => crate::projects::apply_replica(app, runner_id, n, item).await,
+        Ok(Item::Access { access }) => apply_access(app, runner_id, n, access).await,
         Ok(item) => app.sessions.apply_replica(app, runner_id, n, item).await,
         Err(e) => {
             // An item this Home cannot read (another build) is skipped, never retried forever.

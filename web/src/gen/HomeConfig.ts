@@ -8,4 +8,8 @@ export type HomeConfig = {
  * Where Home backs up its database every minute: `hf://buckets/<namespace>/<bucket>` or a local folder.
  * Empty: no backup.
  */
-backup: string, };
+backup: string, 
+/**
+ * The Git identity of agents' commits on every runner (runners never use the machine's Git config).
+ */
+git_name: string, git_email: string, };

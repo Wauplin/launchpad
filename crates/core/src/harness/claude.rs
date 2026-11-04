@@ -117,7 +117,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     for d in &spec.add_dirs {
         args.extend(["--add-dir".into(), d.clone()]);
     }
-    let mut cmd = crate::procs::child_command(&app.env.on(spec.host.as_deref()), "claude", Some(&spec.cwd));
+    let mut cmd = crate::procs::child_command(&app.env.on(spec.host.as_deref()).jailed(spec.jail.clone()), "claude", Some(&spec.cwd));
     cmd.process_tree().args(&args)
         .envs(spec.env.iter().cloned())
         .env("LAUNCHPAD_ENV", app.paths.app_env.name())
@@ -928,6 +928,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
             cost: true,
         },
         account_env: &["CLAUDE_CONFIG_DIR"],
+        vault_login: Some(super::VaultLogin { kind: crate::vault::Kind::ClaudeLogin, hosts: &["api.anthropic.com"], how: "Run claude setup-token on any machine and paste the token it prints." }),
         env_vars: ENV_VARS,
         profile_templates: PROFILE_TEMPLATES,
     },
@@ -1037,6 +1038,18 @@ impl super::Harness for Adapter {
         // Skip the trust dialog for folders created by Launchpad.
         if is_temp { &[("CLAUDE_CODE_SANDBOXED", "1")] } else { &[] }
     }
+    /// The setup token goes in the proxy; Claude Code sends the placeholder to the proxy's base URL.
+    fn contained_login(&self, setup: &super::LoginSetup) -> Result<Vec<(String, String)>> {
+        let state = setup.home.join(".claude/.claude.json");
+        if !state.exists() {
+            std::fs::create_dir_all(setup.home.join(".claude"))?;
+            std::fs::write(&state, json!({"hasCompletedOnboarding": true, "bypassPermissionsModeAccepted": true}).to_string())?;
+        }
+        Ok(vec![
+            ("CLAUDE_CODE_OAUTH_TOKEN".into(), setup.placeholder.clone()),
+            ("ANTHROPIC_BASE_URL".into(), format!("{}/api.anthropic.com", setup.proxy_base)),
+        ])
+    }
     fn title_command(
         &self,
         app: &App,
@@ -1090,8 +1103,13 @@ fn spawn_quota(app: &App, account: crate::quota::QuotaAccount) -> tokio::task::J
         let config_dir = account.env.iter().find(|(k, _)| k == "CLAUDE_CONFIG_DIR").map(|(_, v)| std::path::PathBuf::from(v))
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".claude"));
         let mut rate_limit_delay = 0;
+        // A login of Home's vault carries its token (`claude setup-token`).
+        let vault_token = account.env.iter().find(|(k, _)| k == "CLAUDE_CODE_OAUTH_TOKEN").map(|(_, v)| v.clone());
         loop {
-            let mut result = claude_usage(&client, &config_dir).await;
+            let mut result = match &vault_token {
+                Some(token) => usage_with_token(&client, token).await,
+                None => claude_usage(&client, &config_dir).await,
+            };
             // Expired, missing (macOS Keychain) or rejected tokens: Claude Code reads usage itself and refreshes its own token.
             if let Err(e) = &result
                 && e.downcast_ref::<UsageRateLimited>().is_none()
@@ -1151,6 +1169,10 @@ async fn claude_usage(client: &reqwest::Client, config_dir: &std::path::Path) ->
     {
         bail!("Claude OAuth token expired");
     }
+    usage_with_token(client, token).await
+}
+
+async fn usage_with_token(client: &reqwest::Client, token: &str) -> Result<QuotaPair> {
     let res = client
         .get("https://api.anthropic.com/api/oauth/usage")
         .bearer_auth(token)

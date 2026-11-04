@@ -47,7 +47,8 @@ pub struct HarnessStatus {
 }
 
 /// The included quota of one subscription login (a harness, and the account variables of its profiles).
-#[derive(Clone, Debug, Default, Serialize, TS)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
+#[serde(default)]
 pub struct QuotaStatus {
     pub harness: String,
     /// Subscription profiles using this login, in configuration order.

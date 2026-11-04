@@ -90,6 +90,15 @@ pub struct StartSpec {
     pub add_dirs: Vec<String>,
     /// Profile environment overrides; adapters add them to every native process of the session.
     pub env: Vec<(String, String)>,
+    /// The session's jail (`contain::apply`); adapters start every native process of the session in it.
+    pub jail: Option<std::sync::Arc<crate::jail::Jail>>,
+}
+
+impl StartSpec {
+    /// The environment of the session's native processes: profile overrides and the jail.
+    pub fn process_env(&self, base: &crate::shellenv::UserEnv) -> crate::shellenv::UserEnv {
+        base.on(self.host.as_deref()).with(&self.env).jailed(self.jail.clone())
+    }
 }
 
 fn unanswered_requests(events: &[EventBody]) -> Vec<String> {
@@ -584,6 +593,7 @@ impl Sessions {
                 if owned { self.publish_counts(app); app.bus.publish("sessions", "changed", Value::Null); }
             }
             Item::Project { .. } | Item::ForgetProject { .. } => return crate::projects::apply_replica(app, runner_id, n, item).await,
+            Item::Access { access } => return crate::replica::apply_access(app, runner_id, n, access).await,
         }
         Ok(())
     }
@@ -1003,6 +1013,7 @@ impl Sessions {
                 effort,
                 add_dirs,
                 env,
+                jail: None,
             };
             app.bus.publish("sessions", "updated", serde_json::to_value(session.light())?);
             self.inner.records.lock().unwrap().insert(id.clone(), session);
@@ -1146,11 +1157,17 @@ impl Sessions {
         let id = start.session_id.clone();
         let instance = self.inner.next_instance.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         sink.instance = instance;
-        let live = app
-            .harnesses
-            .get(harness)
-            .start(app, start, sink.clone())
-            .await?;
+        let start = crate::contain::apply(app, start).await?;
+        let live = match app.harnesses.get(harness).start(app, start, sink.clone()).await {
+            Ok(live) => live,
+            Err(e) => {
+                // A harness that did not start holds no lease.
+                if self.live(&id).is_none() {
+                    crate::contain::release(app, &id).await;
+                }
+                return Err(e);
+            }
+        };
         self.inner
             .live
             .lock()
@@ -1221,6 +1238,7 @@ impl Sessions {
             effort: s.effort.clone(),
             add_dirs,
             env,
+            jail: None,
         };
         let live = self.attach(app, s.harness, start, self.sink(app, id)).await?;
         Ok(live)
@@ -1813,6 +1831,7 @@ impl Sessions {
                 // A failed Codex stop must retain the attachment and its busy state even
                 // after the background shutdown marker clears. Never forget live commands.
                 live.stop().await?;
+                crate::contain::release(&app, &session_id).await;
                 {
                     let mut attached = this.inner.live.lock().unwrap();
                     if attached.get(&session_id).is_some_and(|(current, _)| *current == instance) {
@@ -1850,6 +1869,7 @@ impl Sessions {
         self.inner.budget_interrupts.lock().unwrap().remove(id);
         self.inner.stop_requests.lock().unwrap().insert(id.to_string());
         self.detach(app, id).await?;
+        crate::contain::release(app, id).await;
         let sink = self.sink(app, id);
         sink.set_status(SessionStatus::Closed).await;
         self.update(app, id, |s| {

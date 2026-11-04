@@ -27,6 +27,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
             cost: true,
         },
         account_env: &[],
+        vault_login: None,
         env_vars: &[],
         profile_templates: &[super::ProfileTemplate {
             kind: super::ProfileKind::Provider,
@@ -83,7 +84,7 @@ impl super::Harness for Adapter {
         }
     }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
-        let mut command = crate::procs::child_command(&app.env.on(spec.host.as_deref()), "opencode", Some(&spec.cwd));
+        let mut command = crate::procs::child_command(&spec.process_env(&app.env), "opencode", Some(&spec.cwd));
         command
             .arg("acp")
             .env("LAUNCHPAD_ENV", app.paths.app_env.name())
@@ -93,7 +94,7 @@ impl super::Harness for Adapter {
             let mcp = crate::browser::mcp_config(app, &spec);
             // Native config is merged. Explicitly disable every existing server and permission key,
             // rather than assuming an empty object erases the owner's configuration.
-            let env = app.env.on(spec.host.as_deref()).with(&spec.env);
+            let env = spec.process_env(&app.env);
             let raw = crate::procs::output(&env, "opencode", &["debug", "config"], Some(&spec.cwd)).await?;
             let current: serde_json::Value = serde_json::from_str(&raw)?;
             let mut permission = serde_json::Map::new();

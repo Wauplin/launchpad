@@ -17,6 +17,8 @@ pub struct UserEnv {
     vars: Arc<BTreeMap<String, String>>,
     /// An SSH host: `vars` then holds only overrides, added to the host's own login-shell environment.
     host: Option<Arc<str>>,
+    /// Processes started with this environment run in this jail (`jail.rs`), on this computer.
+    jail: Option<Arc<crate::jail::Jail>>,
 }
 
 impl UserEnv {
@@ -35,12 +37,12 @@ impl UserEnv {
         // Launchpad's own environment name must not leak either: an agent running `launchpad` commands
         // talks to the instance that started it, which the agent sets explicitly when needed.
         vars.remove("LAUNCHPAD_ENV");
-        UserEnv { vars: Arc::new(vars), host: None }
+        UserEnv { vars: Arc::new(vars), host: None, jail: None }
     }
 
     /// The environment of processes on an SSH host (`exec.rs` runs them through its helper).
     pub fn for_host(id: &str) -> UserEnv {
-        UserEnv { vars: Arc::new(BTreeMap::new()), host: Some(id.into()) }
+        UserEnv { vars: Arc::new(BTreeMap::new()), host: Some(id.into()), jail: None }
     }
 
     /// This environment, or the host's when `host` is set.
@@ -59,7 +61,20 @@ impl UserEnv {
     pub fn with(&self, overrides: &[(String, String)]) -> UserEnv {
         let mut vars = (*self.vars).clone();
         vars.extend(overrides.iter().cloned());
-        UserEnv { vars: Arc::new(vars), host: self.host.clone() }
+        UserEnv { vars: Arc::new(vars), host: self.host.clone(), jail: self.jail.clone() }
+    }
+
+    /// This environment for processes in `jail` (None: unchanged). Hosts are never jailed from here.
+    pub fn jailed(&self, jail: Option<Arc<crate::jail::Jail>>) -> UserEnv {
+        let mut env = self.clone();
+        if env.host.is_none() && jail.is_some() {
+            env.jail = jail;
+        }
+        env
+    }
+
+    pub fn jail(&self) -> Option<&Arc<crate::jail::Jail>> {
+        self.jail.as_ref()
     }
 
     pub fn vars(&self) -> &BTreeMap<String, String> {

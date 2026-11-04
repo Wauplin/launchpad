@@ -46,4 +46,12 @@ agent_traces: Array<AgentTraceRef>, model: string | null, effort: string | null,
 /**
  * The workspace of the window that launched it. A new scratch folder joins it; other targets keep their own.
  */
-workspace_id: string | null, };
+workspace_id: string | null, 
+/**
+ * Tools of Home's registry switched off for this launch (they are granted per workspace).
+ */
+tools_off: Array<string>, 
+/**
+ * The runner chosen for this launch (for example a Local VM for Docker). None: Home picks one.
+ */
+runner_id: string | null, };

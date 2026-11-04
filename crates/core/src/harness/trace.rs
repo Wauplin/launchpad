@@ -11,6 +11,10 @@ pub struct TraceFile {
 
 pub fn environment(app: &App, session: &Session) -> Result<UserEnv> {
     let host = crate::hosts::loc::host_of(&session.cwd);
+    let contained = crate::contain::trace_overrides(app, session);
+    if !contained.is_empty() {
+        return Ok(app.env.on(host).with(&contained));
+    }
     let overrides = crate::profiles::env(app, session.harness, &session.launch_spec, session.model.as_deref(), host)?;
     Ok(app.env.on(host).with(&overrides))
 }

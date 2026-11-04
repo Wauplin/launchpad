@@ -53,10 +53,31 @@ async fn to_home(method: &str, path: &str, body: Option<String>) -> anyhow::Resu
     }
 }
 
+/// Sends a lease call to Home through the tunnel.
+async fn call_home(op: String, body: serde_json::Value) -> anyhow::Result<(u16, String)> {
+    let id = HOME.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    HOME.pending.lock().unwrap().insert(id, tx);
+    let sent = HOME.tx.lock().unwrap().as_ref().is_some_and(|t| t.send(FromRunner::Call { id, op, body }).is_ok());
+    if !sent {
+        HOME.pending.lock().unwrap().remove(&id);
+        anyhow::bail!("Home is unreachable");
+    }
+    match tokio::time::timeout(Duration::from_secs(60), rx).await {
+        Ok(Ok(res)) => Ok(res),
+        Ok(Err(_)) => anyhow::bail!("Home disconnected before answering"),
+        Err(_) => {
+            HOME.pending.lock().unwrap().remove(&id);
+            anyhow::bail!("Home did not answer within a minute")
+        }
+    }
+}
+
 /// Requests about records Home owns, which a runner sends to Home: workspace changes (the runner keeps a copy
 /// for reading) and Home Git.
 pub(crate) fn home_owned(path: &str) -> bool {
-    path == "/api/workspaces" || path.starts_with("/api/workspaces/") || path.starts_with("/api/home-git/") || path.starts_with("/api/plain/")
+    path == "/api/workspaces" || path.starts_with("/api/workspaces/") || path.starts_with("/api/home-git/") || path.starts_with("/api/plain/") || path.starts_with("/api/vault")
+        || (path.starts_with("/api/sessions/") && path.ends_with("/access"))
 }
 
 /// Home: requests a runner may send through its tunnel (as Home's owner).
@@ -85,6 +106,7 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
 
 pub fn spawn(app: App, router: Router) {
     launchpad_core::home_link::set_requester(Box::new(|method, path, body| Box::pin(async move { to_home(&method, &path, body).await })));
+    launchpad_core::home_link::set_caller(Box::new(|op, body| Box::pin(call_home(op, body))));
     tokio::spawn(async move {
         let mut backoff = Duration::from_secs(2);
         loop {
@@ -216,6 +238,8 @@ async fn serve(app: &App, router: &Router, tx: &mut Tx, rx: &mut Rx, res_tx: tok
                     Ok(ToRunner::Workspaces { workspaces }) => launchpad_core::workspace::replace_all(app, workspaces).await?,
                     Ok(ToRunner::Folders { projects }) => launchpad_core::projects::store_home(app, projects, true).await?,
                     Ok(ToRunner::Ack { n }) => replica::acked(app, n).await?,
+                    Ok(ToRunner::Revoke { lease_id }) => launchpad_core::contain::revoked(app, &lease_id).await,
+                    Ok(ToRunner::Quotas { quotas }) => launchpad_core::quota::apply_home_readings(app, quotas),
                     Ok(ToRunner::Refuse { reason }) => return Ok(Some(reason)),
                     Ok(_) => {}
                     Err(e) => tracing::warn!("Home sent a bad message: {e}"),

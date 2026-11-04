@@ -41,6 +41,9 @@ pub struct HomeConfig {
     /// Where Home backs up its database every minute: `hf://buckets/<namespace>/<bucket>` or a local folder.
     /// Empty: no backup.
     pub backup: String,
+    /// The Git identity of agents' commits on every runner (runners never use the machine's Git config).
+    pub git_name: String,
+    pub git_email: String,
 }
 
 /// Ask Launchpad: the profile, model and effort of the assistant session, kept apart from the composer's
@@ -115,6 +118,9 @@ pub struct Profile {
     /// start. Otherwise the host resolves them from its own login shell. Literal values are always sent.
     #[serde(default)]
     pub send_credentials: bool,
+    /// The harness login in Home's vault (Settings → Credentials and tools). None: the harness's first login.
+    #[serde(default)]
+    pub login: Option<String>,
 }
 
 /// At most `usd` of reported cost in any `hours`-long rolling window.

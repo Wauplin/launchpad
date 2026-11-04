@@ -433,7 +433,11 @@ impl Terminals {
         Ok(())
     }
 
-    async fn spawn(&self, app: &App, mut info: TerminalInfo, argv: Vec<String>, env: Vec<(String, String)>, recipe: Recipe) -> Result<TerminalInfo> {
+    async fn spawn(&self, app: &App, info: TerminalInfo, argv: Vec<String>, env: Vec<(String, String)>, recipe: Recipe) -> Result<TerminalInfo> {
+        self.spawn_in(app, info, argv, env, recipe, None).await
+    }
+
+    async fn spawn_in(&self, app: &App, mut info: TerminalInfo, mut argv: Vec<String>, env: Vec<(String, String)>, recipe: Recipe, jail: Option<Arc<crate::jail::Jail>>) -> Result<TerminalInfo> {
         crate::role::ensure_runs_agents(app.paths.role)?;
         // The PTY would otherwise start the process in another folder.
         if !crate::hostfs::is_dir(&info.cwd).await {
@@ -446,9 +450,23 @@ impl Terminals {
             return self.spawn_remote(app, info, &host, argv, env, recipe).await;
         }
         let pair = portable_pty::native_pty_system().openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })?;
+        if let Some(jail) = &jail {
+            // The session's jail: its own home, placeholders and proxy, none of the machine's variables.
+            let program = app.env.which(&argv[0]).and_then(|p| std::fs::canonicalize(p).ok()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| argv[0].clone());
+            let mut wrapped: Vec<String> = vec!["bwrap".into()];
+            wrapped.extend(jail.args(Some(std::path::Path::new(&info.cwd))).into_iter().map(|a| a.to_string_lossy().into_owned()));
+            wrapped.push("--".into());
+            wrapped.push(program);
+            wrapped.extend(argv.into_iter().skip(1));
+            argv = wrapped;
+        }
         let mut cmd = CommandBuilder::from_argv(argv.iter().map(Into::into).collect());
         cmd.env_clear();
-        for (k, v) in app.env.vars() {
+        let base: Vec<(String, String)> = match &jail {
+            Some(jail) => jail.environment(app.env.vars()),
+            None => app.env.vars().iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        };
+        for (k, v) in base {
             cmd.env(k, v);
         }
         cmd.env("TERM", "xterm-256color");
@@ -713,8 +731,13 @@ impl Terminals {
             None => false,
         };
         let argv = tui_command(app, s, is_temp)?;
-        // The TUI uses the same profile environment as the headless process (account, API key).
-        let mut env = crate::profiles::env(app, s.harness, &s.launch_spec, s.model.as_deref(), crate::hosts::loc::host_of(&s.cwd))?;
+        // A contained session's TUI runs in its jail, with its lease; otherwise the same profile environment as
+        // the headless process (account, API key).
+        let contained = crate::contain::auxiliary(app, s, std::path::Path::new(&s.cwd)).await?;
+        let mut env = match &contained {
+            Some((env, _)) => env.clone(),
+            None => crate::profiles::env(app, s.harness, &s.launch_spec, s.model.as_deref(), crate::hosts::loc::host_of(&s.cwd))?,
+        };
         env.extend(app.harnesses.get(s.harness).terminal_env(is_temp).iter().map(|(k, v)| (k.to_string(), v.to_string())));
         let project = match &s.project_id {
             Some(id) => crate::projects::get(app, id).await.ok().flatten(),
@@ -741,7 +764,7 @@ impl Terminals {
             busy: None,
             notice: None,
         };
-        self.spawn(app, info, argv, env, Recipe::Tui).await
+        self.spawn_in(app, info, argv, env, Recipe::Tui, contained.map(|(_, jail)| jail)).await
     }
 }
 

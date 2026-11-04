@@ -1096,6 +1096,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
             cost: false,
         },
         account_env: &["CODEX_HOME"],
+        vault_login: Some(super::VaultLogin { kind: crate::vault::Kind::CodexLogin, hosts: &["chatgpt.com"], how: "Sign in with codex login (ChatGPT) on any machine and paste the whole ~/.codex/auth.json. Home refreshes it from then on: do not use that login elsewhere." }),
         env_vars: ENV_VARS,
         profile_templates: PROFILE_TEMPLATES,
     },
@@ -1154,19 +1155,38 @@ impl super::Harness for Adapter {
         }
     }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
-        if spec.env.is_empty() && spec.host.is_none() {
+        if spec.env.is_empty() && spec.host.is_none() && spec.jail.is_none() {
             return start(app, &self.server, &self.threads, spec, sink).await;
         }
         let (server, threads) = {
             let mut servers = self.profile_servers.lock().unwrap();
             servers.entry((spec.host.clone(), spec.env.clone())).or_insert_with(|| {
-                let server = CodexServer::new(self.env.on(spec.host.as_deref()).with(&spec.env));
+                let server = CodexServer::new(spec.process_env(&self.env));
                 let threads = Threads::default();
                 spawn_router(app, &server, &threads);
                 (server, threads)
             }).clone()
         };
         start(app, &server, &threads, spec, sink).await
+    }
+    /// Placeholders in `auth.json` (with a fresh `last_refresh`, so Codex never refreshes) and the ChatGPT
+    /// endpoints pointed at the proxy, which adds the access token Home keeps fresh.
+    fn contained_login(&self, setup: &super::LoginSetup) -> Result<Vec<(String, String)>> {
+        let dir = setup.home.join(".codex");
+        std::fs::create_dir_all(&dir)?;
+        let now = time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339)?;
+        let mut tokens = json!({"id_token": crate::vault::unsigned_jwt(&setup.login.claims), "access_token": setup.placeholder, "refresh_token": setup.placeholder});
+        if let Some(a) = &setup.login.account_id {
+            tokens["account_id"] = Value::String(a.clone());
+        }
+        let auth = json!({"OPENAI_API_KEY": null, "tokens": tokens, "last_refresh": now});
+        std::fs::write(dir.join("auth.json"), serde_json::to_string_pretty(&auth)?)?;
+        let base = &setup.proxy_base;
+        let config = format!(
+            "chatgpt_base_url = \"{base}/chatgpt.com/backend-api/\"\nmodel_provider = \"launchpad\"\ncheck_for_update_on_startup = false\n\n[model_providers.launchpad]\nname = \"OpenAI\"\nbase_url = \"{base}/chatgpt.com/backend-api/codex\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n"
+        );
+        std::fs::write(dir.join("config.toml"), config)?;
+        Ok(vec![])
     }
     async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<super::trace::TraceFile>> {
         let id = super::trace::conversation(session)?;

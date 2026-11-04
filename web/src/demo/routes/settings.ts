@@ -173,6 +173,35 @@ function connect(id: string) {
 route("GET", "/api/runners", () => []);
 route("GET", "/api/runner/launches", () => []);
 route("GET", "/api/home/backup", () => ({ destination: null, last_complete_at: null, error: null }));
+
+// Credentials and tools: a sample vault. Secrets never reach the browser, in the demo either.
+const demoTemplates = [
+  { id: "gh", name: "GitHub CLI", install: { kind: "github_release" as const, source: "cli/cli", asset: "gh_*_linux_{arch}.tar.gz" }, credential: "github", env: ["GH_TOKEN", "GITHUB_TOKEN"], hosts: [{ host: "api.github.com", auth: { kind: "bearer" as const } }, { host: "github.com", auth: { kind: "basic" as const, user: "x-access-token" } }], workspaces: ["*"] },
+  { id: "hf", name: "Hugging Face CLI", install: { kind: "uv" as const, source: "huggingface_hub", asset: "" }, credential: "huggingface", env: ["HF_TOKEN"], hosts: [{ host: "huggingface.co", auth: { kind: "bearer" as const } }], workspaces: ["*"] },
+];
+route("GET", "/api/vault", () => ({
+  entries: [
+    { id: "claude-max", kind: "claude_login", name: "Claude Max", detail: "…k3Qa", updated_at: clock.now() - 86_400_000 },
+    { id: "github", kind: "token", name: "GitHub fine-grained", detail: "…9fZ2", updated_at: clock.now() - 3 * 86_400_000 },
+  ],
+  tools: [demoTemplates[0]],
+  templates: demoTemplates,
+  logins: [
+    { harness: "claude", name: "Claude Code", kind: "claude_login", how: "Run claude setup-token on any machine and paste the token it prints." },
+    { harness: "codex", name: "Codex", kind: "codex_login", how: "Sign in with codex login (ChatGPT) on any machine and paste the whole ~/.codex/auth.json." },
+  ],
+  git_name: "Demo Owner",
+  git_email: "owner@example.com",
+}));
+route("GET", "/api/vault/leases", () => []);
+route("GET", "/api/vault/tools.toml", () => ({ toml: "[[tools]]\nid = \"gh\"\n" }));
+route("PUT", "/api/vault/entries/:id", notInDemo);
+route("DELETE", "/api/vault/entries/:id", notInDemo);
+route("PUT", "/api/vault/tools/:id", notInDemo);
+route("DELETE", "/api/vault/tools/:id", notInDemo);
+route("PUT", "/api/vault/identity", notInDemo);
+route("POST", "/api/vault/leases/:id/revoke", notInDemo);
+route("GET", "/api/sessions/:id/access", () => []);
 route("GET", "/api/hosts", () => world.status.hosts);
 route("GET", "/api/hosts/ssh-config", () => world.sshConfig);
 route("POST", "/api/hosts", ({ body }) => {

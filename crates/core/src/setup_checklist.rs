@@ -658,6 +658,7 @@ pub async fn profile_from_login(app: &App, harness: &str) -> anyhow::Result<crat
         models_url: None,
         spend_limits: vec![],
         send_credentials: false,
+        login: None,
     };
     config.profiles.push(p.clone());
     config.validate()?;

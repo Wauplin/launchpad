@@ -146,6 +146,25 @@ pub fn set_requester(r: Requester) {
     let _ = REQUESTER.set(r);
 }
 
+type CallReply = std::pin::Pin<Box<dyn std::future::Future<Output = Result<(u16, String)>> + Send>>;
+type Caller = Box<dyn Fn(String, serde_json::Value) -> CallReply + Send + Sync>;
+static CALLER: std::sync::OnceLock<Caller> = std::sync::OnceLock::new();
+
+pub fn set_caller(c: Caller) {
+    let _ = CALLER.set(c);
+}
+
+/// Runner: a call about its own sessions (`vault::runner_call` on Home), through the tunnel.
+pub async fn home_call(op: &str, body: serde_json::Value) -> Result<serde_json::Value> {
+    let c = CALLER.get().context("this runner is not connected to a Home: run launchpad connect")?;
+    let (status, text) = c(op.into(), body).await?;
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    if !(200..300).contains(&status) {
+        anyhow::bail!("{}", value["error"].as_str().map(str::to_string).unwrap_or_else(|| format!("Home answered {status}")));
+    }
+    Ok(value)
+}
+
 /// Runner: an API request to Home through the tunnel. Errors carry Home's message.
 pub async fn home_request(method: &str, path: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value> {
     let r = REQUESTER.get().context("this daemon has no Home")?;

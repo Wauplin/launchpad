@@ -3,25 +3,30 @@ import type { EnvVarDoc } from "./EnvVarDoc";
 import type { HarnessCapabilities } from "./HarnessCapabilities";
 import type { HarnessKind } from "./HarnessKind";
 import type { ProfileTemplate } from "./ProfileTemplate";
+import type { VaultLogin } from "./VaultLogin";
 
-export type HarnessDescriptor = { id: HarnessKind, name: string, icon_svg: string, color: string, working_message: string, capabilities: HarnessCapabilities,
+export type HarnessDescriptor = { id: HarnessKind, name: string, icon_svg: string, color: string, working_message: string, capabilities: HarnessCapabilities, 
 /**
  * Browser-only isolation, shown in the extension without harness identity checks.
  */
-browser_isolation: string,
+browser_isolation: string, 
 /**
  * Model prefixes with native pricing; empty means no model restriction.
  */
-cost_model_prefixes: Array<string>,
+cost_model_prefixes: Array<string>, 
 /**
  * Variables that select the subscription login (a configuration folder): profiles with different values
  * are different accounts, each with its own quota monitor.
  */
-account_env: Array<string>,
+account_env: Array<string>, 
+/**
+ * The login a contained session gets from Home's vault, and the hosts where the proxy adds it.
+ */
+vault_login: VaultLogin | null, 
 /**
  * Documented environment variables offered in the profile editor.
  */
-env_vars: Array<EnvVarDoc>,
+env_vars: Array<EnvVarDoc>, 
 /**
  * Ready-made profiles offered by Settings → Profiles → New profile.
  */

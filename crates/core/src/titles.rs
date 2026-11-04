@@ -59,7 +59,14 @@ async fn title(app: &App, session: &Session) -> Result<Option<Named>> {
     let Some(mut cmd) = adapter.title_command(app, session, &cwd) else {
         return Ok(Some(Named { title: Some(session.title.clone()), cost_usd: None, cost_unavailable: false }));
     };
-    cmd.envs(crate::profiles::env(app, session.harness, &session.launch_spec, session.model.as_deref(), None)?);
+    match crate::contain::auxiliary(app, session, &cwd).await? {
+        Some((env, jail)) => {
+            cmd.jail(Some(jail)).envs(env);
+        }
+        None => {
+            cmd.envs(crate::profiles::env(app, session.harness, &session.launch_spec, session.model.as_deref(), None)?);
+        }
+    }
     cmd.arg(prompt).stdin(crate::exec::Io::Null);
     cmd.kill_on_drop(true);
     let output = cmd.output();

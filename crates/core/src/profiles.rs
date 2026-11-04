@@ -62,6 +62,26 @@ pub fn profile_env(app: &App, v: &Profile, model: Option<&str>, host: Option<&st
         .collect()
 }
 
+/// The environment of a profile in a contained session: `${NAME}` references resolve to the placeholders of the
+/// session's granted tools (`refs`), never to the machine's variables.
+pub fn contained_env(app: &App, harness: HarnessKind, spec: &LaunchSpec, model: Option<&str>, refs: &std::collections::BTreeMap<String, String>) -> Result<Vec<(String, String)>> {
+    let Some(v) = resolve(app, harness, spec)? else { return Ok(vec![]) };
+    let model = model.or(v.model.as_deref());
+    v.env
+        .iter()
+        .map(|(key, value)| {
+            let value = expand(value, |name| {
+                if name == "LAUNCHPAD_MODEL" {
+                    return model.map(str::to_string).context("${LAUNCHPAD_MODEL} needs a model: choose one in the composer or a default model for the profile");
+                }
+                refs.get(name).cloned().with_context(|| format!("${{{name}}} is not a variable of a tool granted to this session: add it in Settings → Credentials and tools on Home"))
+            })
+            .with_context(|| format!("{key} of the profile {:?}", v.name))?;
+            Ok((key.clone(), value))
+        })
+        .collect()
+}
+
 /// Resolves the `${NAME}` references left for a host (see `profile_env`) from its login-shell environment,
 /// with the same `HF_TOKEN` fallback as on this computer. Runs in the host helper.
 pub fn host_values(login: &crate::shellenv::UserEnv, env: &[(String, String)]) -> Result<Vec<(String, String)>> {
@@ -86,6 +106,10 @@ pub fn host_values(login: &crate::shellenv::UserEnv, env: &[(String, String)]) -
 /// adapter, such as `CLAUDE_CONFIG_DIR`) that its profile sets, unexpanded. Profiles with the same key
 /// share one quota monitor. Specs without a profile use the harness's default login.
 pub fn account(app: &App, harness: HarnessKind, spec: &LaunchSpec) -> String {
+    if crate::quota::vault_quotas() && crate::vault::Kind::login_of(harness).is_some() {
+        let login = spec.profile.as_deref().and_then(|id| app.config.get().profile(id).and_then(|p| p.login.clone()));
+        return crate::quota::vault_key(harness, login.as_deref());
+    }
     match spec.profile.as_deref().and_then(|id| app.config.get().profile(id).cloned()).filter(|p| p.harness == harness) {
         Some(p) => account_of(&p),
         None => harness.as_str().to_string(),
@@ -151,7 +175,8 @@ fn lookup(app: &App, host: Option<&str>, model: Option<&str>, name: &str) -> Res
     if name == "LAUNCHPAD_MODEL" {
         return model.map(str::to_string).context("${LAUNCHPAD_MODEL} needs a model: choose one in the composer or a default model for the profile");
     }
-    if host.is_some() {
+    // Contained sessions never read the machine's variables: `contain` resolves them from the lease.
+    if host.is_some() || crate::contain::contained(app, None) {
         return Ok(format!("${{{name}}}"));
     }
     if let Some(v) = app.env.get(name).filter(|v| !v.is_empty()) {
@@ -247,7 +272,7 @@ mod tests {
         let profile = |env: &[(&str, &str)]| Profile {
             id: "p".into(), name: "P".into(), harness: crate::harness::claude::ID,
             env: env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
-            model: None, effort: None, billing: Billing::Subscription, budget_usd: None, models_url: None, spend_limits: vec![], send_credentials: false,
+            model: None, effort: None, billing: Billing::Subscription, budget_usd: None, models_url: None, spend_limits: vec![], send_credentials: false, login: None,
         };
         assert_eq!(account_of(&profile(&[])), "claude");
         // Variables other than the login folder do not change the account.
