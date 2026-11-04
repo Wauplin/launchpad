@@ -148,6 +148,39 @@ pub async fn refresh(app: &App, p: &Project) -> Result<()> {
     Ok(())
 }
 
+/// Home: where Files reads a Git folder. The mirror is bare, so Home keeps a read-only checkout of the
+/// default branch that borrows the mirror's objects, with every branch as `origin/<branch>`.
+pub fn browse_dir(app: &App, project_id: &str) -> PathBuf {
+    app.paths.data_dir.join("browse").join(project_id)
+}
+
+/// Home: creates or updates the browse copy of a Git folder (at most every 30 seconds). Returns its path.
+pub async fn browse_copy(app: &App, p: &Project) -> Result<PathBuf> {
+    static FRESH: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>> = std::sync::LazyLock::new(Default::default);
+    let mirror = ensure(app, p).await?;
+    let dir = browse_dir(app, &p.id);
+    let lock = app.suggestion_locks.get(&format!("home-browse:{}", p.id));
+    let _lock = lock.lock().await;
+    if dir.join(".git").exists() && FRESH.lock().unwrap().get(&p.id).is_some_and(|t| t.elapsed() < Duration::from_secs(30)) {
+        return Ok(dir);
+    }
+    let branch = default_branch(app, &p.id).await.unwrap_or_else(|_| "main".into());
+    if !dir.join(".git").exists() {
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        tokio::fs::create_dir_all(dir.parent().context("browse folder")?).await?;
+        let (m, d) = (mirror.to_string_lossy().into_owned(), dir.to_string_lossy().into_owned());
+        git_in(app, dir.parent().unwrap(), &["clone", "--quiet", "--shared", "--no-checkout", &m, &d], 600).await?;
+    } else {
+        git_in(app, &dir, &["fetch", "--quiet", "--prune", "origin"], 600).await?;
+    }
+    // An empty mirror (no commit yet) has nothing to show.
+    if git(app, &dir, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/origin/{branch}")]).await.is_ok() {
+        git(app, &dir, &["checkout", "--quiet", "--force", "--detach", &format!("origin/{branch}")]).await?;
+    }
+    FRESH.lock().unwrap().insert(p.id.clone(), std::time::Instant::now());
+    Ok(dir)
+}
+
 /// The folder's default branch on Home.
 pub async fn default_branch(app: &App, project_id: &str) -> Result<String> {
     let dir = mirror(app, project_id);
