@@ -119,6 +119,12 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - Off by default. Adapters export native traces unchanged (`Harness::native_trace`); never synthesize native traces from normalized events. Launchpad metadata goes in `launchpad.json` and `launchpad-events-*.jsonl`.
 - Never log in, change bucket visibility or delete remote files. Imported traces are read-only replicas: locally owned session IDs always win, and replicas are never re-exported.
 
+### Home and runners
+
+- Home (`--role home`) runs no agents or terminals; runners run them and replicate records and events through `home_outbox` (same transaction as their copy, dropped only after Home's `Ack`). Never apply runner items outside `Sessions::apply_replica`/`projects::apply_replica`, and keep the generation check.
+- Home's relay serves records, events, images and traces itself and forwards every other session or folder request to its runner. Workspaces are Home's; runners forward their changes.
+- Home backups: content-addressed objects, the manifest written last, restore only from a complete manifest whose hashes match. Pruning under `home/` is allowed (last day, newest kept); never touch other prefixes. Test backups with a local folder destination, never a real bucket.
+
 ### Hugging Face Space
 
 - The control plane talks to the shell only through `/_space/status`, `/_space/connections`, `/_space/login` and `POST /_space/action/<name>`. Updates need an owner click and a verified checkpoint; they stop running agents first and the next boot resumes them once (claimed in `space/update-resumed.json` before resuming, never more than one hour late). Edited Dockerfiles are never overwritten. See `deploy/hf-space/README.md`.
