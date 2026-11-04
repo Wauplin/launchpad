@@ -240,7 +240,7 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
                         let runner_id = runner.id.clone();
                         tokio::spawn(async move {
                             let res = match crate::ROUTER.get() {
-                                Some(router) if crate::home_client::home_accepts(&path) => crate::home_client::local(&app, router, &method, &path, body, &[]).await,
+                                Some(router) if crate::home_client::home_accepts(path.split('?').next().unwrap_or_default()) => crate::home_client::local(&app, router, &method, &path, body, &[]).await,
                                 _ => Err(anyhow::anyhow!("runners may only send requests about records Home owns")),
                             };
                             let (status, body) = res.unwrap_or_else(|e| (400, json!({"error": format!("{e:#}")}).to_string()));
