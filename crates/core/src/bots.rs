@@ -398,9 +398,9 @@ mod tests {
     fn a_new_session_starts_when_the_thread_cannot_continue() {
         let bot = BotSettings { name: "Scout".into(), profile: Some("a".into()), folder: "f".into(), ..Default::default() };
         assert_eq!(rotation(&bot, None), Some("first"));
-        assert_eq!(rotation(&bot, Some((SessionStatus::Done, Some("a"), Some("f")))), None);
-        assert_eq!(rotation(&bot, Some((SessionStatus::Failed, Some("b"), Some("f")))), Some("profile"));
-        assert_eq!(rotation(&bot, Some((SessionStatus::Done, Some("a"), Some("g")))), Some("folder"));
+        assert_eq!(rotation(&bot, Some((SessionStatus::Waiting, Some("a"), Some("f")))), None);
+        assert_eq!(rotation(&bot, Some((SessionStatus::Error, Some("b"), Some("f")))), Some("profile"));
+        assert_eq!(rotation(&bot, Some((SessionStatus::Waiting, Some("a"), Some("g")))), Some("folder"));
         assert_eq!(rotation(&bot, Some((SessionStatus::Closed, Some("a"), Some("f")))), Some("archived"));
     }
 }
