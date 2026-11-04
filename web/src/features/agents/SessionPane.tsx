@@ -15,7 +15,7 @@ import type { SessionProcess } from "@/gen/SessionProcess";
 import { useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@/gen/Session";
@@ -397,6 +397,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
             <CostLimit session={s} badge />
           </> : <>
             <StatusBadge s={s} />
+            {s.launch_spec.bot && <Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} className="text-teal-ink hover:underline" title="This session belongs to a bot's thread">{s.launch_spec.bot.name}</Link>}
             <span className="truncate" title={`Started ${new Date(s.started_at).toLocaleString()}`}>{sessionPlace(s, projectName(projects, s.project_id, s.cwd))}</span>
             <HostLabel path={s.cwd} />
             <WorktreeChip session={s} />
