@@ -388,3 +388,83 @@ impl Hub {
         }
     }
 }
+
+/// Home: the runner for a new session. The one chosen in the composer, the one whose disk has the folder, or
+/// the first that takes launches from other devices.
+pub async fn launch_runner(app: &App, spec: &crate::model::LaunchSpec) -> Result<String> {
+    use crate::model::Target;
+    let project = match &spec.target {
+        Target::Project { project_id } | Target::Predraft { project_id } => Some(project_id.clone()),
+        _ => None,
+    };
+    let available = app.runners.available();
+    let name_of = |id: String| async move {
+        list(app).await.ok().and_then(|l| l.into_iter().find(|x| x.runner.id == id)).map(|x| x.runner.name)
+    };
+    let refused = |name: Option<String>, fallback: &str| anyhow::anyhow!("{} does not take this launch now: it is offline, paused, refuses launches from other devices or needs an update", name.unwrap_or_else(|| fallback.into()));
+    if let Some(r) = &spec.runner_id {
+        anyhow::ensure!(available.contains(r), refused(name_of(r.clone()).await, "The chosen runner"));
+        if let Some(project) = &project {
+            let p = crate::projects::get(app, project).await?.context("no such folder")?;
+            anyhow::ensure!(p.home_git || p.plain || p.runner_id.as_deref() == Some(r.as_str()), "{} exists only on another runner's disk", p.name);
+        }
+        return Ok(r.clone());
+    }
+    let first = |available: Vec<String>| available.into_iter().next().context("no runner takes launches now: connect one, or check its guard in Settings → Home and runners");
+    let Some(project) = project else { return first(available) };
+    let p = crate::projects::get(app, &project).await?.context("no such folder")?;
+    // A Git folder of Home runs on any runner: it clones the folder on first use. A plain folder syncs.
+    if p.home_git || p.plain {
+        return first(available);
+    }
+    let r = p.runner_id.with_context(|| format!("{} is not on a runner", p.name))?;
+    anyhow::ensure!(available.contains(&r), refused(name_of(r.clone()).await, "Its runner"));
+    Ok(r)
+}
+
+fn answer<T: serde::de::DeserializeOwned>(status: u16, body: &str) -> Result<T> {
+    anyhow::ensure!((200..300).contains(&status), "{}", serde_json::from_str::<serde_json::Value>(body).ok().and_then(|v| v["error"].as_str().map(str::to_string)).unwrap_or_else(|| body.to_string()));
+    Ok(serde_json::from_str(body)?)
+}
+
+/// Starts a session where agents run: here, or on Home through a runner (sent once, never retried).
+pub async fn launch_anywhere(app: &App, spec: crate::model::LaunchSpec, id: String, automatic: bool) -> Result<crate::model::Session> {
+    if app.paths.role != crate::role::Role::Home {
+        return if automatic { app.sessions.launch_automatic(app, spec, id).await } else { app.sessions.launch_with_id(app, spec, id).await };
+    }
+    let runner = launch_runner(app, &spec).await?;
+    let (status, body) = app.runners.request_with(&runner, "POST", "/api/sessions", Some(serde_json::to_string(&spec)?), vec![("idempotency-key".into(), id)]).await?;
+    answer(status, &body)
+}
+
+/// A session action (`close`, `stop`, …) wherever the session runs.
+pub async fn session_action(app: &App, id: &str, action: &str) -> Result<()> {
+    match app.sessions.get(id).and_then(|s| s.runner_id).filter(|_| app.paths.role == crate::role::Role::Home) {
+        Some(r) => {
+            let (status, body) = app.runners.request(&r, "POST", &format!("/api/sessions/{id}/{action}"), None).await?;
+            answer::<serde_json::Value>(status, &body).map(|_| ())
+        }
+        None => match action {
+            "close" => app.sessions.close(app, id).await.map(|_| ()),
+            _ => bail!("unknown session action {action}"),
+        },
+    }
+}
+
+/// A message to a session wherever it runs. `files` are attachments the session's machine stores.
+pub async fn send_anywhere(app: &App, id: &str, text: &str, files: Vec<crate::model::FileAttachment>, key: Option<String>) -> Result<()> {
+    match app.sessions.get(id).and_then(|s| s.runner_id).filter(|_| app.paths.role == crate::role::Role::Home) {
+        Some(r) => {
+            let headers = key.map(|k| vec![("idempotency-key".to_string(), k)]).unwrap_or_default();
+            let (status, body) = app.runners.request_with(&r, "POST", &format!("/api/sessions/{id}/input"), Some(serde_json::json!({"text": text, "files": files}).to_string()), headers).await?;
+            answer::<serde_json::Value>(status, &body).map(|_| ())
+        }
+        None => {
+            let (text, images) = crate::attachments::for_message(app, id, text, &files).await?;
+            match key {
+                Some(k) => app.sessions.send_with_id(app, id, &text, images, k).await,
+                None => app.sessions.send(app, id, &text, images).await,
+            }
+        }
+    }
+}

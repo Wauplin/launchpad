@@ -337,11 +337,7 @@ async fn run(app: &App, record: ScheduledLaunch, automatic: bool) -> Result<Sess
         match app.sessions.get(&record.id) {
             Some(s) => Ok(s),
             None => {
-                if automatic {
-                    app.sessions.launch_automatic(app, record.spec.clone(), record.id.clone()).await
-                } else {
-                    app.sessions.launch_with_id(app, record.spec.clone(), record.id.clone()).await
-                }
+                crate::runners::launch_anywhere(app, record.spec.clone(), record.id.clone(), automatic).await
             }
         }
     };

@@ -317,43 +317,8 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
     }
 }
 
-/// The runner for a new session: the one whose disk has its folder, else the first that takes launches from
-/// other devices.
+/// The runner for a new session (`runners::launch_runner`).
 async fn launch_runner(s: &Server, body: Option<&str>) -> Result<String, ApiError> {
     let spec: launchpad_core::model::LaunchSpec = serde_json::from_str(body.unwrap_or("{}")).map_err(|e| ApiError::bad_request(format!("{e}")))?;
-    let project = match &spec.target {
-        launchpad_core::model::Target::Project { project_id } | launchpad_core::model::Target::Predraft { project_id } => Some(project_id.clone()),
-        _ => None,
-    };
-    let available = s.app.runners.available();
-    // A runner chosen in the composer (a Local VM for Docker).
-    if let Some(r) = &spec.runner_id {
-        if !available.contains(r) {
-            let all = runners::list(&s.app).await?;
-            let name = all.iter().find(|x| &x.runner.id == r).map(|x| x.runner.name.clone()).unwrap_or_else(|| "The chosen runner".into());
-            return Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{name} does not take this launch now: it is offline, paused, refuses launches from other devices or needs an update")));
-        }
-        if let Some(project) = &project {
-            let p = launchpad_core::projects::get(&s.app, project).await?.ok_or_else(|| ApiError::bad_request("no such folder"))?;
-            if !(p.home_git || p.plain) && p.runner_id.as_deref() != Some(r.as_str()) {
-                return Err(ApiError::bad_request(format!("{} exists only on another runner's disk", p.name)));
-            }
-        }
-        return Ok(r.clone());
-    }
-    if let Some(project) = project {
-        let p = launchpad_core::projects::get(&s.app, &project).await?.ok_or_else(|| ApiError::bad_request("no such folder"))?;
-        // A Git folder of Home runs on any runner: it clones the folder on first use.
-        if p.home_git || p.plain {
-            return available.into_iter().next().ok_or_else(|| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "no runner takes launches now: connect one, or check its guard in Settings → Home and runners"));
-        }
-        let r = p.runner_id.ok_or_else(|| ApiError::bad_request(format!("{} is not on a runner", p.name)))?;
-        if !available.contains(&r) {
-            let all = runners::list(&s.app).await?;
-            let name = all.iter().find(|x| x.runner.id == r).map(|x| x.runner.name.clone()).unwrap_or_else(|| "Its runner".into());
-            return Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{name} does not take this launch now: it is offline, paused, refuses launches from other devices or needs an update")));
-        }
-        return Ok(r);
-    }
-    available.into_iter().next().ok_or_else(|| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "no runner takes launches now: connect one, or check its guard in Settings → Home and runners"))
+    runners::launch_runner(&s.app, &spec).await.map_err(|e| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{e:#}")))
 }

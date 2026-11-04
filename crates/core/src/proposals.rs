@@ -298,10 +298,10 @@ async fn accept_inner(app: &App, id: &str, close_thread: bool) -> Result<Proposa
                 if app.sessions.get(&id).is_some() {
                     return Ok(id);
                 }
-                Ok(app.sessions.launch_with_id(app, spec, id).await?.id)
+                Ok(crate::runners::launch_anywhere(app, spec, id, false).await?.id)
             }
             ProposalBody::Message { session_id, text } => {
-                app.sessions.send_with_id(app, &session_id, &text, vec![], format!("proposal-{}", p.id)).await?;
+                crate::runners::send_anywhere(app, &session_id, &text, vec![], Some(format!("proposal-{}", p.id))).await?;
                 Ok(session_id)
             }
             ProposalBody::Schedule { spec, conditions } => Ok(crate::schedules::create(app, spec, conditions).await?.id),
@@ -444,8 +444,7 @@ pub async fn recover(app: &App) -> Result<()> {
 pub async fn ask(app: &App, workspace_id: Option<String>, text: String, attachments: Vec<crate::model::FileAttachment>) -> Result<crate::model::Session> {
     ensure!(!text.trim().is_empty() || !attachments.is_empty(), "the message is empty");
     if let Some(s) = thread(app, workspace_id.as_deref()) {
-        let (text, images) = crate::attachments::for_message(app, &s.id, &text, &attachments).await?;
-        app.sessions.send(app, &s.id, &text, images).await?;
+        crate::runners::send_anywhere(app, &s.id, &text, attachments, None).await?;
         return app.sessions.get(&s.id).context("the assistant session disappeared");
     }
     let config = app.config.get();
@@ -461,7 +460,7 @@ pub async fn ask(app: &App, workspace_id: Option<String>, text: String, attachme
         workspace_id,
         ..Default::default()
     };
-    app.sessions.launch(app, spec).await
+    crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), false).await
 }
 
 /// Remembers a model change of an assistant thread as the assistant's default (never the composer's).

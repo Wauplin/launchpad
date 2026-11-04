@@ -264,11 +264,7 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
 }
 
 async fn launch(app: &App, record: &CronAgent, automatic: bool) -> Result<Session> {
-    let result = if automatic {
-        app.sessions.launch_automatic(app, record.spec.clone(), uuid::Uuid::new_v4().to_string()).await
-    } else {
-        app.sessions.launch(app, record.spec.clone()).await
-    };
+    let result = crate::runners::launch_anywhere(app, record.spec.clone(), uuid::Uuid::new_v4().to_string(), automatic).await;
     let outcome = match &result {
         Ok(_) => "Started".to_string(),
         Err(e) => format!("Launch failed: {e:#}"),

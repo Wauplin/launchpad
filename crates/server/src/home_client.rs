@@ -91,6 +91,9 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
     use axum::response::IntoResponse;
     let path = req.uri().path();
     let forwarded = home_owned(path) && (req.method() != axum::http::Method::GET || !(path == "/api/workspaces" || path.starts_with("/api/workspaces/")));
+    // The trace of a session that ran on another runner (a bot's earlier session, a context trace): Home has it.
+    let elsewhere = req.method() == axum::http::Method::GET && path.strip_prefix("/api/sessions/").and_then(|r| r.strip_suffix("/trace")).is_some_and(|id| !id.contains('/') && s.app.sessions.get(id).is_none());
+    let forwarded = forwarded || elsewhere;
     if s.app.paths.role != role::Role::Runner || !forwarded {
         return next.run(req).await;
     }
