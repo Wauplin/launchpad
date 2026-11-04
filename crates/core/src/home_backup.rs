@@ -259,7 +259,9 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
 /// One bundle per mirror: Launchpad branches, kept tips and leftovers the remote does not have.
 async fn bundles(app: &App, store: &Store, existing: &std::collections::HashSet<String>) -> Result<Vec<Object>> {
     let mut out = vec![];
-    let Ok(mut entries) = tokio::fs::read_dir(crate::home_git::root(app)).await else { return Ok(out) };
+    // A fresh restore has pending bundles but no mirror directory yet.
+    tokio::fs::create_dir_all(crate::home_git::root(app)).await?;
+    let mut entries = tokio::fs::read_dir(crate::home_git::root(app)).await?;
     while let Some(e) = entries.next_entry().await? {
         let name = e.file_name().to_string_lossy().into_owned();
         let Some(id) = name.strip_suffix(".git").filter(|n| !n.starts_with('.')) else { continue };
