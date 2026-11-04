@@ -12,7 +12,7 @@ from aiohttp import web
 import tomlkit
 
 from gateway.proxy import Proxy, canonical_path
-from onboarding import Setup
+from onboarding import Setup, parse_key, unseal
 
 
 def validate_config(method, value):
@@ -65,17 +65,20 @@ async def verify_private(space):
                 raise RuntimeError("Home requires a private Space: anonymous Hub metadata must be denied")
 
 
-def configure(backup, config):
+def configure(backup, config, key):
     if not backup.is_mount() or not os.access(backup, os.W_OK):
         raise RuntimeError("Mount the private backup bucket read-write at /backups before starting Home")
     config.parent.mkdir(parents=True, exist_ok=True)
     # Recover settings before adding the fixed front door. The daemon restores state.db itself.
     if not config.exists():
-        manifests = sorted((backup / "home/backup").glob("*/manifest.json"), reverse=True)
+        # Encrypted backups live under home/sealed; plain-text ones from before encryption under home.
+        roots = ([backup / "home/sealed"] if key else []) + [backup / "home"]
+        root = next((r for r in roots if any((r / "backup").glob("*/manifest.json"))), None)
+        manifests = sorted((root / "backup").glob("*/manifest.json"), reverse=True) if root else []
         if manifests:
-            manifest = json.loads(manifests[0].read_text())
+            manifest = json.loads(unseal(key, manifests[0].read_bytes()))
             obj = next(o for o in manifest["objects"] if o["name"] == "config.toml")
-            data = (backup / "home/blobs/sha256" / obj["sha256"]).read_bytes()
+            data = unseal(key, (root / "blobs/sha256" / obj["sha256"]).read_bytes())
             if hashlib.sha256(data).hexdigest() != obj["sha256"]:
                 raise RuntimeError("Backup config failed its checksum")
             config.write_bytes(data)
@@ -95,15 +98,20 @@ async def main():
     await verify_private(space)
     backup = Path("/backups")
     home = Path.home()
-    credentials = backup / "home/credentials"
-    os.environ["HF_HOME"] = str(credentials / "huggingface")
-    Path(os.environ["HF_HOME"]).mkdir(parents=True, exist_ok=True)
-    configure(backup, home / ".config/launchpad/config.toml")
-    setup = Setup(os.environ.get("LP_HOME_BUCKET", space + "-bucket"), credentials)
+    secret = os.environ.pop("LP_HOME_KEY", "").strip()
+    key = parse_key(secret) if secret else None
+    if secret and key is None:
+        raise RuntimeError("The LP_HOME_KEY Space secret must be base64 of 32 bytes. Restore its original value.")
+    # Home's own HF and GitHub logins: decrypted on this container's disk, encrypted in the bucket.
+    os.environ["HF_HOME"] = str(home / ".cache/huggingface")
+    os.environ["GH_CONFIG_DIR"] = str(home / ".config/gh")
+    configure(backup, home / ".config/launchpad/config.toml", key)
+    setup = Setup(space, os.environ.get("LP_HOME_BUCKET", space + "-bucket"), backup / "home/credentials", key)
+    setup.restore()
     await setup.check()
-    # Home's own GitHub login (setup step 2) lives in the private bucket; agents never get it.
-    env = dict(os.environ, GH_CONFIG_DIR=str(setup.gh_dir), LAUNCHPAD_HOME_BACKUP=str(backup), LAUNCHPAD_PORT="7319",
-               LAUNCHPAD_DELEGATED_ACCESS="true")
+    env = dict(os.environ, LAUNCHPAD_HOME_BACKUP=str(backup), LAUNCHPAD_PORT="7319", LAUNCHPAD_DELEGATED_ACCESS="true")
+    if key:
+        env["LAUNCHPAD_HOME_KEY"] = secret
     daemon = await asyncio.create_subprocess_exec("launchpad", "daemon", "--role", "home", env=env)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

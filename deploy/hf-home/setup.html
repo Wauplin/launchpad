@@ -24,64 +24,76 @@ footer{padding:14px 24px;border-top:1px solid var(--line-2);background:var(--chr
 code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4px;border-radius:4px}[hidden]{display:none!important}
 </style>
 <main><div class="card">
-<header><h1>Set up Launchpad Home</h1><p>Home keeps your sessions, branches and settings in its private bucket. Agents run on the runners you pair.</p></header>
+<header><h1>Set up Launchpad Home</h1><p>Home keeps your sessions, branches and settings in its private bucket, encrypted. Agents run on the runners you pair. Three sign-ins are needed before Home opens.</p></header>
 <ol>
 <li id="s-huggingface"><span class="dot">1</span><div><h2>Hugging Face</h2><div class="state"></div></div>
-  <div class="body"><p class="hint" style="margin:0">Required. Home uses this login for its private backup bucket <b id="bucket"></b>. It is saved in that bucket and never given to agents.</p>
-  <div class="row"><button class="primary" data-login="huggingface">Sign in to Hugging Face</button></div></div></li>
+  <div class="body"><p class="hint" style="margin:0">Home uses this login for its private bucket <b id="bucket"></b>. Right after it, Home creates an encryption key, keeps it as the <code>LP_HOME_KEY</code> secret of this Space, and restarts once. Everything Home stores in the bucket is then encrypted with it: backups, the vault and its own logins.</p>
+  <div class="row"><button class="primary" data-login="huggingface">Sign in to Hugging Face</button></div>
+  <div id="manual" class="device" hidden><span>Open <a id="secrets" target="_blank" rel="noopener noreferrer">the Space settings</a>, add a secret named <code>LP_HOME_KEY</code> with this value, then restart the Space. Keep a copy somewhere safe: without it, the backups cannot be read.</span>
+  <div class="row"><input id="manual-key" readonly aria-label="LP_HOME_KEY value"><button id="copy-key">Copy</button></div></div></div></li>
 <li id="s-github"><span class="dot">2</span><div><h2>GitHub</h2><div class="state"></div></div>
-  <div class="body"><p class="hint" style="margin:0">Used by the Inbox, issues, pull requests, private clones and publication. Agents get their own tokens from Credentials and tools.</p>
-  <div class="row"><button class="primary" data-login="github">Sign in to GitHub</button><button class="link" data-skip="github">Skip for now</button></div></div></li>
+  <div class="body"><p class="hint" style="margin:0">Used by the Inbox, issues, pull requests, private clones and publication. Home keeps this login encrypted in its bucket. Agents never get it: they get their own tokens from Credentials and tools.</p>
+  <div class="row"><button class="primary" data-login="github">Sign in to GitHub</button></div></div></li>
 <li id="s-profile"><span class="dot">3</span><div><h2>First profile</h2><div class="state"></div></div>
-  <div class="body"><p class="hint" style="margin:0">A profile is how agents run. Home keeps its login in the vault and leases it to runners per session.</p>
-  <div class="row"><button class="primary" data-login="codex">Sign in to Codex (ChatGPT)</button><button id="claude-show">Use Claude Code</button><button class="link" data-skip="profile">Skip for now</button></div>
-  <div id="claude" class="device" hidden><span>Run <code>claude setup-token</code> on any computer, then paste the token it prints.</span>
-  <div class="row"><input id="claude-token" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-oat01-…" aria-label="Claude Code token"><button class="primary" id="claude-save">Save</button></div></div></div></li>
+  <div class="body"><p class="hint" style="margin:0" id="profile-hint">A profile is how agents run. Sign in with your subscription: Home keeps the login encrypted in its vault and lends it to runners for each session.</p>
+  <div class="row"><button class="primary" data-login="claude">Sign in to Claude Code</button><button class="primary" data-login="codex">Sign in to Codex (ChatGPT)</button></div></div></li>
 </ol>
-<div id="device" class="device" hidden><span id="device-what">Open the sign-in page and enter this code:</span><span class="code" id="code"></span>
-  <div class="row"><a id="link" class="btn primary" target="_blank" rel="noopener noreferrer">Open sign-in page</a><button id="cancel">Cancel</button></div><small>The code expires after a few minutes. This page updates when you approve it.</small></div>
+<div id="device" class="device" hidden><span id="device-what"></span><span class="code" id="code"></span>
+  <div class="row"><a id="link" class="btn primary" target="_blank" rel="noopener noreferrer">Open sign-in page</a><button id="cancel">Cancel</button></div>
+  <div class="row" id="paste" hidden><input id="paste-code" autocomplete="off" spellcheck="false" placeholder="Code from the sign-in page" aria-label="Authorization code"><button class="primary" id="paste-send">Continue</button></div>
+  <small id="device-note">The code expires after a few minutes. This page updates when you approve it.</small></div>
 <footer><span><span id="error" class="error" role="status"></span><small id="note">Every sign-in starts only when you click.</small></span><a id="open" class="btn primary" href="/" hidden>Open Home</a></footer>
 </div></main>
 <script>
 const $=s=>document.querySelector(s);let csrf="",st=null,actionError="";
-const NAMES={huggingface:"Hugging Face",github:"GitHub",codex:"Codex"};
+const NAMES={huggingface:"Hugging Face",github:"GitHub",codex:"Codex",claude:"Claude Code"};
+const STEP={huggingface:"huggingface",github:"github",codex:"profile",claude:"profile"};
 function render(s){
   st=s;csrf=s.csrf;$("#bucket").textContent=s.bucket;
   const login=s.login&&s.login.running?s.login:null;
   const steps={huggingface:s.huggingface,github:s.github,profile:s.profile};
-  const ok={huggingface:s.huggingface.done,github:s.github.done||s.github.skipped,profile:s.profile.done||s.profile.skipped};
-  const active=["huggingface","github","profile"].find(k=>!ok[k]);
+  const active=["huggingface","github","profile"].find(k=>!steps[k].done);
+  const enc=s.encryption,hf=s.huggingface,gh=s.github,pr=s.profile;
   for(const k in steps){
     const li=$("#s-"+k),v=steps[k];li.className=v.done?"done":k===active?"active":"";
     li.querySelector(".dot").textContent=v.done?"✓":{huggingface:1,github:2,profile:3}[k];
-    li.querySelector(".state").textContent=k==="huggingface"?(v.done?`Signed in as ${v.account}`:"Not signed in"):
-      k==="github"?(v.done?`Signed in as ${v.account}${v.secret?" (GH_TOKEN Space secret)":""}`:v.skipped?"Skipped. Connect it later in Settings → GitHub.":v.secret?"The GH_TOKEN Space secret did not work. Check it in the Space settings.":"Not connected"):
-      (v.done?`Ready: ${v.profiles.join(", ")}`:v.skipped?"Skipped. Add one later in Settings → Profiles.":"No profile yet");
-    const show=k===active||(s.complete&&k!=="huggingface"&&!v.done);
-    li.querySelector(".body").hidden=!show;
+    li.querySelector(".body").hidden=k!==active;
   }
-  document.querySelectorAll("button").forEach(b=>{if(b.id!=="cancel")b.disabled=!!login});
-  if(!s.profile.ready)document.querySelectorAll('[data-login="codex"],#claude-save').forEach(b=>b.disabled=true);
-  if(s.github.secret)$('[data-login="github"]').disabled=true;
+  $("#s-huggingface .state").textContent=hf.done?`Signed in as ${hf.account} · encryption on`:
+    enc.state==="restarting"?`Signed in as ${hf.account}. Home is restarting to turn on encryption…`:
+    enc.state==="manual"?`Signed in as ${hf.account}. Add the encryption key to finish this step.`:
+    hf.signed_in?`Signed in as ${hf.account}. Encryption is not set up yet.`:"Not signed in";
+  $("#s-github .state").textContent=gh.done?`Signed in${gh.account?` as ${gh.account}`:""}${gh.secret?" (GH_TOKEN Space secret)":""}`:gh.secret?"The GH_TOKEN Space secret did not work. Check it in the Space settings.":"Not connected";
+  $("#s-profile .state").textContent=pr.done?`Ready: ${pr.profiles.join(", ")}`:pr.missing?`${pr.missing.name} needs its login`:"No profile yet";
+  $("#profile-hint").textContent=pr.missing?`The profile ${pr.missing.name} has no login in Home's vault yet. Sign in below: Home keeps the login encrypted and lends it to runners for each session.`:"A profile is how agents run. Sign in with your subscription: Home keeps the login encrypted in its vault and lends it to runners for each session.";
+  document.querySelectorAll("[data-login]").forEach(b=>{const t=b.dataset.login;b.disabled=!!login||(STEP[t]==="profile"&&!pr.ready)||(t==="github"&&gh.secret)||(t==="huggingface"&&["restarting","manual"].includes(enc.state));});
+  $("#manual").hidden=enc.state!=="manual";
+  if(enc.state==="manual"){$("#manual-key").value=enc.manual_key;$("#secrets").href=`https://huggingface.co/spaces/${s.space}/settings`;}
   $("#device").hidden=!login;
-  if(login){const body=$("#s-"+(login.tool==="codex"?"profile":login.tool)+" .body");body.hidden=false;if($("#device").parentNode!==body)body.appendChild($("#device"));}
-  if(login){$("#device-what").textContent=login.link?`Open the ${NAMES[login.tool]} sign-in page and enter this code:`:`Starting the ${NAMES[login.tool]} sign-in…`;$("#code").textContent=login.code||"";$("#link").hidden=!login.link;if(login.link)$("#link").href=login.link;}
+  if(login){
+    const body=$(`#s-${STEP[login.tool]} .body`);body.hidden=false;if($("#device").parentNode!==body)body.appendChild($("#device"));
+    const terminal=login.tool==="claude";
+    $("#device-what").textContent=!login.link?`Starting the ${NAMES[login.tool]} sign-in…`:terminal?(login.needs_code?"Open the Claude sign-in page, approve, then paste the code it shows:":"Finishing the Claude Code sign-in…"):`Open the ${NAMES[login.tool]} sign-in page and enter this code:`;
+    $("#code").textContent=login.code||"";$("#code").hidden=!login.code;
+    $("#link").hidden=!login.link||(terminal&&!login.needs_code);if(login.link)$("#link").href=login.link;
+    $("#paste").hidden=!login.needs_code;
+    $("#device-note").textContent=terminal?"The code is sent to Claude Code on Home; the token it creates goes straight into the vault.":"The code expires after a few minutes. This page updates when you approve it.";
+  }
   const failed=s.login&&!s.login.running&&s.login.error;
-  $("#error").textContent=actionError||failed||s.huggingface.error||"";$("#note").hidden=!!$("#error").textContent;
+  $("#error").textContent=actionError||failed||enc.error||hf.error||gh.error||"";$("#note").hidden=!!$("#error").textContent;
   $("#open").hidden=!s.complete;
 }
 async function call(path,body){
   if(body)actionError="";
   try{const r=await fetch(path,{cache:"no-store",...(body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,csrf})}:{})});
     const j=await r.json().catch(()=>({error:"Could not reach Home setup. Reload this page."}));
-    if(!r.ok){actionError=j.error||"Home setup did not answer. Reload this page.";if(st)render(st);return;}if(actionError.startsWith("Could not reach"))actionError="";render(j);}
-  catch{actionError="Could not reach Home setup. Reload this page.";if(st)render(st);}
+    if(!r.ok){actionError=j.error||"Home setup did not answer. Reload this page.";if(st)render(st);return;}if(actionError.startsWith("Could not reach")||actionError.startsWith("Home is restarting"))actionError="";render(j);}
+  catch{actionError=st&&st.encryption.state==="restarting"?"Home is restarting with encryption on. This page reconnects by itself.":"Could not reach Home setup. Reload this page.";if(st)render(st);}
 }
 document.querySelectorAll("[data-login]").forEach(b=>b.onclick=()=>call("/_home/login",{tool:b.dataset.login}));
-document.querySelectorAll("[data-skip]").forEach(b=>b.onclick=()=>call("/_home/skip",{step:b.dataset.skip}));
 $("#cancel").onclick=()=>call("/_home/cancel",{});
-$("#claude-show").onclick=()=>{$("#claude").hidden=false;$("#claude-token").focus();};
-$("#claude-save").onclick=async()=>{const token=$("#claude-token").value.trim();if(!token)return;await call("/_home/claude",{token});if(st&&st.profile.done){$("#claude-token").value="";$("#claude").hidden=true;}};
+$("#paste-send").onclick=async()=>{const code=$("#paste-code").value.trim();if(!code)return;await call("/_home/code",{code});$("#paste-code").value="";};
+$("#copy-key").onclick=()=>navigator.clipboard.writeText($("#manual-key").value);
 $("#open").onclick=async e=>{e.preventDefault();await call("/_home/finish",{});if(st&&st.complete)location.replace("/");};
 call("/_home/status");setInterval(()=>{if(!document.hidden)call("/_home/status")},2000);
 </script></html>

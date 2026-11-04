@@ -25,14 +25,15 @@ export function HuggingFaceView() {
 
 function HomeHuggingFace() {
   const login = useQuery({ queryKey: ["home-hf-login"], queryFn: () => api.get<BackupInfo>("/api/setup/trace-backup"), refetchInterval: 60_000 });
-  const backup = useQuery({ queryKey: ["home-backup"], queryFn: () => api.get<{ destination: string | null; last_complete_at: number | null; error: string | null }>("/api/home/backup"), refetchInterval: 30_000 });
+  const backup = useQuery({ queryKey: ["home-backup"], queryFn: () => api.get<{ destination: string | null; last_complete_at: number | null; error: string | null; encrypted: boolean }>("/api/home/backup"), refetchInterval: 30_000 });
   return <SettingsPage tour="settings.trace-sync" title="Hugging Face" intro="Home requires a Hugging Face login and a private backup bucket. Backup is always on.">
     <Card title="Hugging Face login">
       {login.isPending ? <Loading /> : login.isError ? <ErrorState error={login.error} /> : <span className="text-[13px] text-ink-2">{login.data?.check.signed_in ? `Signed in${login.data.account ? ` as ${login.data.account}` : ""}` : "Sign-in required"}</span>}
       {delegatedAccess() ? <a href="/_home/setup" className="btn btn-sm w-fit">Hugging Face sign-in</a> : <span className="text-[12px] text-ink-3">Run hf auth login on Home to connect the account.</span>}
     </Card>
     <Card title="Required Home backup">
-      <p className="m-0 text-[13px] text-ink-2">The private bucket stores Home’s database and session trace records, Git branch bundles, plain folders and assets. Backup cannot be turned off.</p>
+      <p className="m-0 text-[13px] text-ink-2">The private bucket stores Home’s database and session trace records, the vault, Git branch bundles, plain folders and assets. Backup cannot be turned off.</p>
+      {backup.data && <span className={`text-[13px] ${backup.data.encrypted ? "text-gh-open" : "text-attn"}`}>{backup.data.encrypted ? "Encrypted with the LP_HOME_KEY secret of this Space. Keep a copy of it: without it, the backups cannot be read." : "Not encrypted yet: finish Home setup to turn encryption on."}</span>}
       {backup.isPending ? <Loading /> : backup.isError ? <ErrorState error={backup.error} /> : backup.data?.error ? <ErrorState error={backup.data.error} /> : <span className="text-[13px] text-ink-2">{backup.data?.last_complete_at ? `Last complete backup ${formatAge(backup.data.last_complete_at)} ago` : "Waiting for the first complete backup"}</span>}
       <span className="text-[12px] text-ink-3">The bucket mount is managed by the Home deployment. Native harness files remain on their runners until their transfer is implemented.</span>
     </Card>

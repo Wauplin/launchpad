@@ -3,4 +3,8 @@
 /**
  * Shown in Settings → Home and runners.
  */
-export type BackupInfo = { destination: string | null, last_complete_at: number | null, error: string | null, };
+export type BackupInfo = { destination: string | null, last_complete_at: number | null, error: string | null, 
+/**
+ * Objects are sealed with `LAUNCHPAD_HOME_KEY`.
+ */
+encrypted: boolean, };
