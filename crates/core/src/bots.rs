@@ -336,7 +336,7 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
     let bot = get(app, id).await?;
     ensure!(!automatic || !bot.paused, "{} is paused", bot.settings.name);
     if let Some(e) = &bot.settings_error {
-        bail!("bot.toml cannot be used ({e}); fix it in the bot's Files tab");
+        bail!("bot.toml cannot be used ({e}); fix it in the bot's Instructions tab");
     }
     let s = &bot.settings;
     let config = app.config.get();
@@ -381,10 +381,13 @@ pub fn instruction(bot: &BotLaunch, cli: &str) -> String {
     let mut out = format!(
         "You are {name}, a Launchpad bot: a persistent agent with one thread that continues across sessions. The owner's instructions for you (BOT.md):\n\n<bot-instructions>\n{instructions}\n</bot-instructions>\n\n\
 Memory: the workspace knowledge base ($LAUNCHPAD_KB) is your only memory. Keep your own notes in `bots/{slug}/` (for example `{cli} kb write bots/{slug}/notes.md`): what you learned about the owner's preferences and your work that a later session needs. Shared facts go in the usual folders of the knowledge base.\n\
-Work: prepare changes for the owner's review by default (branches, Local PRs, suggestions); act directly on GitHub or elsewhere only when the owner explicitly asks. You cannot edit BOT.md or bot.toml: when they should change, tell the owner what to change.",
+Work: prepare changes for the owner's review by default (branches, Local PRs, suggestions); act directly on GitHub or elsewhere only when the owner explicitly asks. You cannot edit BOT.md or bot.toml: when they should change, tell the owner what to change.\n\
+Routines: when the owner wants you to do something on your own later or again (every morning, when CI fails, when another agent is done), propose a routine for yourself and tell the owner it waits for their click: `{cli} propose routine --title \"Daily check\" --spec-file routine.json`, where the file holds {{\"bot_id\": \"{id}\", \"title\": \"Daily check\", \"instructions\": \"<what you do at each run>\", \"trigger\": {triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}}. A run arrives in this thread as a message starting with “Routine”; end it with a short report, or with exactly `no_update` when there is nothing to report.",
         name = bot.name,
         instructions = bot.instructions.trim(),
         slug = bot.slug,
+        id = bot.id,
+        triggers = crate::crons::TRIGGER_FORMS,
     );
     if let Some(p) = &bot.previous {
         out.push_str(&format!(

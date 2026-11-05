@@ -20,6 +20,8 @@ use crate::{
 /// Runs later than this (daemon stopped, old GitHub activity) are skipped instead of started.
 const MISSED_GRACE_MS: i64 = 60 * 60_000;
 const RUNS_KEPT: usize = 50;
+/// The JSON forms of a trigger, for agents that propose routines.
+pub const TRIGGER_FORMS: &str = r#"{"kind": "schedule"} | {"kind": "github", "repo": "owner/name" or null for the workspace's repositories, "events": ["review_requested" | "mentioned" | "assigned" | "ci_activity" | "release" | "any"]} | {"kind": "session_done", "folder": "<folder id>" or null for any folder of the workspace}"#;
 /// The final message of a run with nothing to report.
 pub const NO_UPDATE: &str = "no_update";
 

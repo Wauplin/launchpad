@@ -56,6 +56,19 @@ pub enum ProposalBody {
         #[serde(skip_serializing_if = "Option::is_none")]
         folder: Option<String>,
     },
+    /// A new routine of a bot: its runs are messages to the bot's thread. A bot proposes only its own routines.
+    Routine {
+        bot_id: String,
+        title: String,
+        /// What the bot does at each run.
+        instructions: String,
+        #[serde(default)]
+        trigger: crate::crons::Trigger,
+        #[serde(default)]
+        schedule: String,
+        #[serde(default)]
+        conditions: Vec<CronCondition>,
+    },
     /// A new tool in Home's registry. Adding it asks for nothing secret; the owner pastes the token after.
     /// Its token is always a new vault entry named like the tool, never an existing one.
     Tool {
@@ -150,13 +163,14 @@ pub async fn instruction(app: &App, workspace_id: Option<&str>, cli: &str) -> St
         None => "every workspace (Everything)".into(),
     };
     let ws_arg = workspace_id.map(|id| format!(" --workspace {id}")).unwrap_or_default();
+    let routine_triggers = crate::crons::TRIGGER_FORMS;
     let cmd = if cfg!(windows) { format!("$env:LAUNCHPAD_TOKEN='{token}'; {cli}") } else { format!("LAUNCHPAD_TOKEN={token} {cli}") };
     format!(
         "You are Ask Launchpad, the owner's assistant inside Launchpad, scoped to {ws}. You turn requests into proposals. Depending on the owner’s auto mode setting, actionable proposals may start immediately or wait for a tap. You never start agents, send messages, schedule, publish or post to GitHub yourself, and you do not edit files.\n\n\
 Read Launchpad state with these read-only commands (JSON output):\n\
 - `{cmd} folders list{ws_arg}`\n- `{cmd} bots list{ws_arg}` (bots: persistent agents with one thread each, their job and current session)\n- `{cmd} sessions list{ws_arg}` and `{cmd} sessions show <session-id>`\n- `{cmd} profiles list` (profiles and the quota of each subscription login)\n- `{cmd} presets list` (only presets with agent=true belong in proposed agent launch specs; Ask-only instructions guide you, not the launched agent)\n- `{cmd} inbox list{ws_arg}`\n- `{cmd} schedules list{ws_arg}`\n- `{cmd} proposals list{ws_arg}` (proposal ids, titles, states and contents)\n- `{cmd} trace <session-id>` for an agent's full trace\n\n\
-Write proposals with `{cmd} propose <launch|message|schedule|cron|status|preset|tool|bot> --title \"…\" [--note \"…\"] [--replaces <proposal-id>] --spec-file <file.json>`. The JSON file holds:\n\
-- launch: {{\"spec\": <launch spec>}}\n- message: {{\"session_id\": \"…\", \"text\": \"…\"}}\n- schedule: {{\"spec\": <launch spec>, \"conditions\": [{{\"kind\": \"in\", \"minutes\": 30}} | {{\"kind\": \"at\", \"at\": <unix ms>}} | {{\"kind\": \"agents\", \"session_ids\": [\"…\"]}} | {{\"kind\": \"quota\", \"harness\": \"claude\", \"window\": \"five_hour\"}}]}}\n- cron: {{\"spec\": <launch spec>, \"schedule\": \"0 9 * * 1\", \"conditions\": []}}\n- status: {{\"session_ids\": [\"…\"]}}\n- preset: {{\"label\": \"…\", \"text\": \"<sentence added to prompts>\", \"agent\": true}} creates a preset; add \"preset_id\": \"<id from presets list>\" to update that preset instead (give its full new label, text and agent flag; its Ask Launchpad availability stays as is). Presets cannot be deleted through proposals; tell the owner to delete them in Settings → Presets.\n- tool: {{\"tool\": {{\"id\": \"slack\", \"name\": \"Slack CLI\", \"install\": {{\"kind\": \"github_release\" | \"url\" | \"cargo\" | \"uv\" | \"npm\", \"source\": \"…\", \"asset\": \"…\"}} or null, \"credential\": \"slack\", \"env\": [\"SLACK_TOKEN\"], \"hosts\": [{{\"host\": \"slack.com\", \"auth\": {{\"kind\": \"bearer\"}}}}], \"workspaces\": [\"*\"], \"check_url\": \"https://slack.com/api/auth.test\"}}, \"token_url\": \"https://…\"}} adds a tool to Home's registry when the owner taps it; the owner then pastes its token. Accepting a tool whose ID already exists changes nothing.\n- bot: {{\"name\": \"Scout\", \"instructions\": \"# Scout\\n\\n<its job and how the owner likes it done>\", \"profile\": \"<profile id>\", \"folder\": \"<folder id>\" or null for its own new folder}} creates a bot in this workspace when the owner taps it; it starts nothing. Propose a bot when the owner wants a recurring helper with its own memory; to give an existing bot a task, propose a message to its current session.\n\
+Write proposals with `{cmd} propose <launch|message|schedule|cron|status|preset|tool|bot|routine> --title \"…\" [--note \"…\"] [--replaces <proposal-id>] --spec-file <file.json>`. The JSON file holds:\n\
+- launch: {{\"spec\": <launch spec>}}\n- message: {{\"session_id\": \"…\", \"text\": \"…\"}}\n- schedule: {{\"spec\": <launch spec>, \"conditions\": [{{\"kind\": \"in\", \"minutes\": 30}} | {{\"kind\": \"at\", \"at\": <unix ms>}} | {{\"kind\": \"agents\", \"session_ids\": [\"…\"]}} | {{\"kind\": \"quota\", \"harness\": \"claude\", \"window\": \"five_hour\"}}]}}\n- cron: {{\"spec\": <launch spec>, \"schedule\": \"0 9 * * 1\", \"conditions\": []}}\n- status: {{\"session_ids\": [\"…\"]}}\n- preset: {{\"label\": \"…\", \"text\": \"<sentence added to prompts>\", \"agent\": true}} creates a preset; add \"preset_id\": \"<id from presets list>\" to update that preset instead (give its full new label, text and agent flag; its Ask Launchpad availability stays as is). Presets cannot be deleted through proposals; tell the owner to delete them in Settings → Presets.\n- tool: {{\"tool\": {{\"id\": \"slack\", \"name\": \"Slack CLI\", \"install\": {{\"kind\": \"github_release\" | \"url\" | \"cargo\" | \"uv\" | \"npm\", \"source\": \"…\", \"asset\": \"…\"}} or null, \"credential\": \"slack\", \"env\": [\"SLACK_TOKEN\"], \"hosts\": [{{\"host\": \"slack.com\", \"auth\": {{\"kind\": \"bearer\"}}}}], \"workspaces\": [\"*\"], \"check_url\": \"https://slack.com/api/auth.test\"}}, \"token_url\": \"https://…\"}} adds a tool to Home's registry when the owner taps it; the owner then pastes its token. Accepting a tool whose ID already exists changes nothing.\n- bot: {{\"name\": \"Scout\", \"instructions\": \"# Scout\\n\\n<its job and how the owner likes it done>\", \"profile\": \"<profile id>\", \"folder\": \"<folder id>\" or null for its own new folder}} creates a bot in this workspace when the owner taps it; it starts nothing. Propose a bot when the owner wants a recurring helper with its own memory; to give an existing bot a task, propose a message to its current session.\n- routine: {{\"bot_id\": \"<bot id>\", \"title\": \"Daily check\", \"instructions\": \"<what the bot does at each run>\", \"trigger\": {routine_triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}} adds a routine to an existing bot: its runs are messages to the bot's thread, ending with a report or `no_update`. Prefer it to a cron when the work belongs to a bot.\n\
 A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"target\": {{\"kind\": \"project\", \"project_id\": \"<folder id>\"}} or {{\"kind\": \"temp\"}}, \"worktree\": {{\"base\": null, \"include_changes\": false, \"when_done\": \"keep\"}} for Git folders (null for the checkout; `when_done` is \"keep\", \"merge\" or \"local_pr\"), \"github_refs\": [], \"presets\": [<preset ids>]}}; other fields take their defaults. Launchpad validates each proposal with the launch preview and refuses invalid ones; read the error and fix the file. Paid usage stays off. Prefer one proposal per independent task, a message proposal to steer an existing agent, a status proposal to answer \"what needs me\", and a schedule with a quota condition for work that should wait for quota. When auto mode is enabled, actionable proposals, including crons, start immediately; otherwise they need the owner's tap.\n\n\
 When refining an earlier waiting proposal, find it with `proposals list` and use `--replaces <proposal-id>` so only the refined card waits. Only proposed or failed cards in this workspace can be replaced; starting, started, dismissed, uncertain and already replaced cards cannot. Tell the owner which card was replaced. The note on the new card is optional.\n\nAnswer in short sentences. After proposing, tell the owner what each card does and check its returned state. In manual mode they can accept it in the thread. Automatically accepted proposals keep the thread open; manual acceptance of the last unfinished proposal closes it."
     )
@@ -197,9 +211,10 @@ fn sanitize(spec: &mut LaunchSpec, workspace_id: &Option<String>) -> Result<()> 
 pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     ensure!(!c.title.trim().is_empty(), "give the proposal a title");
     let mut body = c.body;
-    let workspace_id = match (&c.workspace_id, &c.session_id) {
+    let author = c.session_id.as_deref().and_then(|sid| app.sessions.get(sid));
+    let mut workspace_id = match (&c.workspace_id, &author) {
         (Some(w), _) => Some(w.clone()),
-        (None, Some(sid)) => app.sessions.get(sid).and_then(|s| match s.launch_spec.target { Target::Assistant { workspace_id } => workspace_id, _ => None }),
+        (None, Some(s)) => match &s.launch_spec.target { Target::Assistant { workspace_id } => workspace_id.clone(), _ => None },
         _ => None,
     };
     let mut result_id = None;
@@ -240,6 +255,19 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
                 let p = crate::projects::get(app, f).await?.with_context(|| format!("no folder {f} (see `folders list`)"))?;
                 ensure!(p.workspace_id.as_deref() == Some(ws), "{} belongs to another workspace", p.name);
             }
+        }
+        ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, .. } => {
+            let bot = crate::bots::get(app, bot_id).await.with_context(|| format!("no bot {bot_id} (see `bots list`)"))?;
+            // Ask Launchpad proposes routines for any bot; a bot's session only for its own bot.
+            if let Some(s) = author.as_ref().filter(|s| !s.launch_spec.target.is_assistant()) {
+                ensure!(s.launch_spec.bot.as_ref().is_some_and(|b| &b.id == bot_id), "a bot proposes only its own routines");
+            }
+            ensure!(!title.trim().is_empty(), "give the routine a name");
+            ensure!(!instructions.trim().is_empty(), "write what the bot does at each run");
+            if *trigger == crate::crons::Trigger::Schedule {
+                crate::crons::next_after(schedule, now_ms()).context("invalid cron schedule")?;
+            }
+            workspace_id = Some(bot.workspace_id);
         }
         ProposalBody::Preset { preset_id, label, text, .. } => {
             ensure!(!label.trim().is_empty(), "give the preset a label");
@@ -333,6 +361,7 @@ async fn accept_inner(app: &App, id: &str, close_thread: bool) -> Result<Proposa
             }
             ProposalBody::Schedule { spec, conditions } => Ok(crate::schedules::create(app, spec, conditions).await?.id),
             ProposalBody::Cron { spec, schedule, conditions } => Ok(crate::crons::create(app, spec, schedule, conditions, Default::default(), None).await?.id),
+            ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions } => Ok(crate::crons::create_for_bot(app, &bot_id, crate::crons::BotRoutine { title, instructions, trigger, schedule, conditions }).await?.id),
             ProposalBody::Status { .. } => bail!("a status card has nothing to start"),
             ProposalBody::Tool { mut tool, .. } => {
                 let tools = crate::vault::tools(app).await?;

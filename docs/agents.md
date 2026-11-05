@@ -52,10 +52,10 @@ The **Agents** list groups sessions by state:
 - **Needs you**: an open question, or a finished, failed or interrupted run you have not seen yet.
 - **Running**: starting, working, or waiting on background commands.
 - **Quota paused**: held until subscription quota is available again.
-- **Done**, **Stopped**, **Interrupted**, **Failed**, **In terminal**, **Cron**, **Scheduled** and **Archived** for local sessions.
+- **Done**, **Stopped**, **Interrupted**, **Failed**, **In terminal** and **Archived** for local sessions. Routines and scheduled launches are on the **Schedules** page.
 - **Synced traces**, below Archived: read-only traces imported from other instances, collapsed by default. Search reveals matching traces in this group. Open one to read it or use it as context for a new local agent; it cannot be resumed or archived here.
 
-A session counts as seen after it was on screen for 1.5 seconds in a window you used recently. With no session selected, the dashboard shows what needs you, what runs, quota usage and scheduled launches.
+A session counts as seen after it was on screen for 1.5 seconds in a window you used recently. With no session selected, the dashboard shows what needs you, what runs, quota usage and what comes next (scheduled launches and routines).
 
 ```mermaid
 stateDiagram-v2
@@ -125,10 +125,13 @@ flowchart LR
 
 ## Scheduling
 
-**Launch ▾** offers **Start later…** and **Repeat on a schedule…**.
+**Launch ▾** offers **Start later…** and **Repeat on a schedule…**. The **Schedules** page (sidebar) lists everything that starts on its own: **Routines** and **Scheduled launches**.
 
 - **Start conditions** (combine several; all must be met): after a delay, at a date and time, after other agents are Done, when a quota resets.
-- **Cron agents** run a 5-field cron schedule in the server's time zone. Each run is a normal session. Missed runs are skipped, never caught up.
+- **Routines** run again and again. **Repeat on a schedule…** turns a launch into a routine: each run starts a new agent with the same prompt, on a 5-field cron schedule in the server's time zone. A [bot's routines](bots.md#routines) send their task to the bot's thread instead, and can also start on GitHub activity or when another agent is done.
+- Each run ends with a short report, or with `no_update` when there is nothing to report: a quiet run never notifies you and does not count as Needs you. Each routine shows its last runs as **Report**, **No update**, **Skipped** (with the reason), **Failed** or **Interrupted**, its last successful run and its next run. A routine whose last run failed shows a count next to Schedules in the sidebar.
+- Runs are claimed before they start and never repeated after a crash. A run more than one hour late (Launchpad was stopped) or with unmet conditions is skipped, never caught up. **Run now** starts a run at once, whatever the trigger and conditions.
+- The **Morning brief** is a routine of Ask Launchpad: weekdays at 8:30 it writes in its thread what needs you and what was handled. Add it from Schedules and edit its time there.
 - **Send later…** delivers a message to an existing session at a later time.
 
 ## Quota protection and costs
@@ -146,7 +149,7 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ## Ask Launchpad
 
-**Ask** is an assistant for the current workspace. It reads your folders, agents, inbox and quotas, and proposes launches, messages, schedules, crons, presets, tools and [bots](bots.md) as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create cron**, **Save preset**, **Add tool** or **Create bot**. Ask Launchpad is the built-in bot: it is listed first under **Bots** in the sidebar. Any agent can also propose a tool it needs; after **Add tool**, paste its token. **Edit** moves a proposal into the composer.
+**Ask** is an assistant for the current workspace. It reads your folders, agents, inbox and quotas, and proposes launches, messages, schedules, routines, presets, tools and [bots](bots.md) as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create cron**, **Save preset**, **Add tool** or **Create bot**. Ask Launchpad is the built-in bot: it is listed first under **Bots** in the sidebar. Any agent can also propose a tool it needs; after **Add tool**, paste its token. **Edit** moves a proposal into the composer.
 
 ![Ask Launchpad with two proposals](images/ask.webp)
 

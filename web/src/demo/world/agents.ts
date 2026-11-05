@@ -325,6 +325,11 @@ export function agentsWorld() {
       ...end(2), status("waiting"),
     ] });
   const proposals: Proposal[] = [
+    // The Maintainer proposes a routine for itself (shown in its Routines tab and on the Ask page).
+    { id: "demo-prop-review-routine", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "Review requests on storefront",
+      note: "So I review pull requests as soon as GitHub asks you for a review, and prepare my review as a suggestion.",
+      body: { kind: "routine", bot_id: "demo-bot-maintainer", title: "Review requests", instructions: "Review each pull request below. Prepare your review as a suggestion for me to post; do not post it yourself. Report one line per pull request with your verdict.", trigger: { kind: "github", repo: "acme-labs/storefront", events: ["review_requested"] }, schedule: "", conditions: [] },
+      state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(12), updated_at: clock.ago(12) },
     { id: "demo-prop-empty-cart", workspace_id: WS.acme, session_id: "demo-s-ask-acme", title: "Fix the empty-cart 500 in the invoices API",
       note: "Issue #77 mentions you: `GET /invoices` returns 500 when the cart is empty. The fix is likely a missing empty check.",
       body: { kind: "launch", spec: defaultSpec({ harness: "codex", profile: "codex-plus", target: { kind: "project", project_id: P.billing }, worktree: { base: null, when_done: "keep" }, text: "Fix acme-labs/billing-api#77: GET /invoices returns 500 when the cart is empty. Add a regression test.", workspace_id: WS.acme }) },

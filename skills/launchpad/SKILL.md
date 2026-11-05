@@ -49,7 +49,9 @@ When the prompt lists reference agent traces, load one only if it helps the task
 
 ## Launchpad state (read only)
 
-To look up Launchpad state, use the JSON commands `launchpad folders list`, `launchpad bots list`, `launchpad sessions list`, `launchpad sessions show <session-id>`, `launchpad profiles list`, `launchpad presets list`, `launchpad inbox list` `launchpad schedules list` and `launchpad proposals list`; most accept `--workspace <id or name>`. They never change anything. Only the Ask Launchpad assistant writes proposals (`launchpad propose …`); other agents do not.
+To look up Launchpad state, use the JSON commands `launchpad folders list`, `launchpad bots list`, `launchpad sessions list`, `launchpad sessions show <session-id>`, `launchpad profiles list`, `launchpad presets list`, `launchpad inbox list` `launchpad schedules list` and `launchpad proposals list`; most accept `--workspace <id or name>`. They never change anything. The Ask Launchpad assistant writes proposals (`launchpad propose …`). Other agents propose only tools (above), and a bot only routines for itself (its first instructions give the format).
+
+A message that starts with `Routine “<name>” · <what started it>` is a background run of a routine: nobody watches it. Prepare work for the owner's review unless the routine's instructions ask you to publish, then end with a short report, or with exactly `no_update` when there is nothing to report (Launchpad then stays silent).
 
 ## Platform shell syntax
 

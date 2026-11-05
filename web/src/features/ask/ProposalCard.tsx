@@ -13,12 +13,29 @@ import { useProfiles } from "@/lib/profiles";
 import { useProjects, useSessions } from "@/lib/queries";
 import { useComposer } from "@/stores/composer";
 import { useWorkspace } from "@/stores/workspace";
+import { useBots } from "@/lib/bots";
+import { triggerSummary } from "@/lib/routines";
 import { useLayout } from "@/stores/layout";
 import { StatusBadge } from "@/features/agents/SessionBits";
 
 export const useProposalList = (enabled = true) => useQuery({ enabled, queryKey: ["proposals"], queryFn: () => api.get<Proposal[]>("/api/proposals"), staleTime: 30_000 });
 
-const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create cron", status: "", preset: "Save preset", tool: "Add tool", bot: "Create bot" };
+const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create routine", status: "", preset: "Save preset", tool: "Add tool", bot: "Create bot", routine: "Add routine" };
+
+/** A routine card: the bot, when it runs and what it does at each run. Adding it starts nothing now. */
+function RoutineBody({ body }: { body: Extract<Proposal["body"], { kind: "routine" }> }) {
+  const bots = useBots().data ?? [];
+  const projects = useProjects().data ?? [];
+  return (
+    <>
+      <span className="flex flex-wrap gap-1">
+        <Token icon="refresh" tone="warn">Routine of {bots.find((b) => b.id === body.bot_id)?.settings.name ?? "a bot"}</Token>
+        <Token>{triggerSummary(body, (id) => projects.find((p) => p.id === id)?.name ?? "a folder")}</Token>
+      </span>
+      <p className="m-0 line-clamp-4 text-[12px] whitespace-pre-wrap text-ink-2">{body.instructions}</p>
+    </>
+  );
+}
 
 /** A bot card: its name, profile, folder and instructions (BOT.md). Creating it starts nothing. */
 function BotBody({ body }: { body: Extract<Proposal["body"], { kind: "bot" }> }) {
@@ -139,25 +156,26 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
   const session = started && (p.body.kind === "launch" || p.body.kind === "message") ? sessions.find((s) => s.id === p.result_id) : undefined;
   const statusSessions = p.body.kind === "status" ? p.body.session_ids.map((id) => sessions.find((s) => s.id === id)).filter((s): s is Session => !!s) : [];
   return (
-    <article id={anchor ? `proposal-${p.id}` : undefined} data-tour="proposal.card" data-tour-id={p.id} tabIndex={-1} className={`grid gap-2 rounded-xl border bg-paper p-3 ${p.body.kind === "cron" && !started ? "border-attn-line" : "border-line"}`}>
+    <article id={anchor ? `proposal-${p.id}` : undefined} data-tour="proposal.card" data-tour-id={p.id} tabIndex={-1} className={`grid gap-2 rounded-xl border bg-paper p-3 ${(p.body.kind === "cron" || p.body.kind === "routine") && !started ? "border-attn-line" : "border-line"}`}>
       <div className="flex items-start gap-2">
-        <Icon name={p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : p.body.kind === "tool" ? "term" : p.body.kind === "bot" ? "spark" : "play"} size={14} className="mt-0.5 flex-none text-ink-3" />
+        <Icon name={p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" || p.body.kind === "routine" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : p.body.kind === "tool" ? "term" : p.body.kind === "bot" ? "spark" : "play"} size={14} className="mt-0.5 flex-none text-ink-3" />
         <div className="min-w-0 flex-1">
           <b className="block text-[13px]">{p.title}</b>
           {p.note && <p className="m-0 text-[12px] text-ink-2">{p.note}</p>}
         </div>
       </div>
       {spec && <SpecTokens spec={spec} />}
-      {p.body.kind === "cron" && <Token tone="warn" icon="refresh">Creates a repeating agent · {p.body.schedule}</Token>}
+      {p.body.kind === "cron" && <Token tone="warn" icon="refresh">Creates a routine · {p.body.schedule}</Token>}
       {p.body.kind === "schedule" && <Token tone="warn" icon="clock">{p.body.conditions.length} start condition{p.body.conditions.length === 1 ? "" : "s"}</Token>}
       {spec && !started && <p className="m-0 line-clamp-3 text-[12px] whitespace-pre-wrap text-ink-2">{spec.text}</p>}
       {p.body.kind === "message" && !started && <p className="m-0 line-clamp-3 text-[12px] whitespace-pre-wrap text-ink-2">To “{sessions.find((s) => s.id === (p.body as { session_id: string }).session_id)?.title ?? "an agent"}”: {p.body.text}</p>}
       {p.body.kind === "preset" && <PresetBody body={p.body} />}
       {p.body.kind === "tool" && <ToolBody body={p.body} />}
       {p.body.kind === "bot" && <BotBody body={p.body} />}
+      {p.body.kind === "routine" && <RoutineBody body={p.body} />}
       {statusSessions.length > 0 && <div className="grid">{statusSessions.map((s) => <SessionRow key={s.id} s={s} />)}</div>}
       {session && <SessionRow s={session} />}
-      {started && !session && p.body.kind !== "status" && <span className="text-[12px] text-gh-open"><Icon name="check" size={11} /> {p.body.kind === "schedule" ? "Scheduled: see Agents → Scheduled" : p.body.kind === "cron" ? "Cron created: see Agents → Cron" : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : "Started"}</span>}
+      {started && !session && p.body.kind !== "status" && <span className="text-[12px] text-gh-open"><Icon name="check" size={11} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : "Started"}</span>}
       {p.state === "replaced" && <span className="text-[12px] text-ink-3">Replaced{p.replaced_by && <> · <Link to="/ask" search={{ proposal: p.replaced_by }} onClick={() => useWorkspace.getState().switchTo(p.workspace_id)} className="underline">View replacement</Link></>}</span>}
       {p.state === "dismissed" && <span className="text-[12px] text-ink-3">Dismissed</span>}
       {p.state === "failed" && p.error && <ErrorState error={p.error} />}

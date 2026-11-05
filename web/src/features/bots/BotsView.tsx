@@ -32,6 +32,7 @@ import { useCrons, useHarnessDefaults, useProjects, useSessions } from "@/lib/qu
 import { routineState, triggerSummary } from "@/lib/routines";
 import { NewRoutine, RoutineDetails, RunStrip } from "@/features/schedules/Routines";
 import type { CronAgent } from "@/gen/CronAgent";
+import { ProposalCard, useProposalList } from "@/features/ask/ProposalCard";
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
 
@@ -338,10 +339,13 @@ function RoutinesPanel({ bot, routines }: { bot: Bot; routines: CronAgent[] }) {
   const folder = projects.find((p) => p.id === bot.settings.folder);
   const repo = folder && !folder.plain ? folder.gh_repo ?? folder.gh_upstream ?? null : null;
   const harness = profiles.find((p) => p.id === bot.settings.profile)?.harness ?? null;
+  // Routines the bot (or Ask Launchpad) proposed for it, waiting for your click.
+  const proposed = (useProposalList().data ?? []).filter((p) => p.body.kind === "routine" && p.body.bot_id === bot.id && (p.state === "proposed" || p.state === "failed"));
   return <div data-tour="bots.routines">
     <Section title="Routines" action={!adding && <button className="btn btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={12} />New routine</button>}>
       <p className="m-0 text-[12px] text-ink-2">A routine sends {bot.settings.name} a task by itself: on a schedule, on GitHub activity, or when another agent is done. Each run goes to its thread and ends with a short report, or with no update, which never notifies you.{bot.paused ? ` ${bot.settings.name} is paused: no routine starts until you resume it.` : ""}</p>
       {adding && <NewRoutine bot={bot} repo={repo} harness={harness} onDone={() => setAdding(false)} />}
+      {proposed.map((p) => <ProposalCard key={p.id} p={p} />)}
       {!adding && routines.length === 0 && <button className="btn btn-sm btn-primary w-fit" data-tour="bots.routine-new" onClick={() => setAdding(true)}><Icon name="plus" size={12} />Add a routine</button>}
     </Section>
     {routines.map((r) => <Section key={r.id} title={<button className="flex w-full min-w-0 items-center gap-2 text-left normal-case" aria-expanded={open === r.id} onClick={() => setOpen(open === r.id ? null : r.id)}><span className="min-w-0 flex-1 truncate">{r.title}</span><RunStrip history={r.history} count={10} /></button>}>

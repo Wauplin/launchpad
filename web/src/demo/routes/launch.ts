@@ -317,6 +317,12 @@ route("POST", "/api/proposals/:id/accept", (r) => {
     else if (b.kind === "cron") p.result_id = createCron(spec!, b.schedule, b.conditions).id;
     else if (b.kind === "message") { sendMessage(found(b.session_id), b.text, `${p.id}-msg`); p.result_id = b.session_id; }
     else if (b.kind === "tool") p.result_id = b.tool.id;
+    else if (b.kind === "routine") {
+      const bot = world.bots.find((x) => x.id === b.bot_id);
+      if (!bot) throw new DemoError(400, "this bot no longer exists");
+      const profile = world.config.profiles.find((x) => x.id === bot.settings.profile);
+      p.result_id = createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: bot.settings.profile ?? null, target: { kind: "project", project_id: bot.settings.folder }, text: b.instructions, workspace_id: bot.workspace_id }, b.schedule, b.conditions, b.trigger, { title: b.title, bot_id: bot.id, bot_paused: bot.paused }).id;
+    }
     p.state = "started";
     p.error = null;
   } catch (e) {

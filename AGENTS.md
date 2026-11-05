@@ -30,7 +30,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - **Never stop or restart the production daemon (port 7317)** unless the owner asks: it runs the agents, maybe including you. Restarting a daemon interrupts its running turns and ends its terminals.
 - **Nothing reaches GitHub without an owner click.** Automated checks must not post comments or reviews, request reviewers, change labels, state or draft status, merge real items, publish Local PRs, post real suggestions, or mute real threads. Local unread markers, viewed markers and unsent drafts are safe. Use throwaway local bare remotes for publication checks.
 - Agent-written comments and reviews go through `launchpad suggest comment|review` (reviews need `--head <inspected commit>`; Local PRs use `--predraft <id>`). The CLI never publishes.
-- Automated checks must close the terminals they open, never type into harness TUIs, pause or delete test crons, cancel test follow-ups and scheduled launches, discard test worktrees (use throwaway repositories), close throwaway browsers and servers, cancel test HF jobs and remove test SSH hosts.
+- Automated checks must close the terminals they open, never type into harness TUIs, pause or delete test routines, cancel test follow-ups and scheduled launches, discard test worktrees (use throwaway repositories), close throwaway browsers and servers, cancel test HF jobs and remove test SSH hosts.
 - Never run setup fixes that change the real machine's configuration, never enable trace backup against a real account, and use **Send test notification** only on throwaway Web Push subscriptions.
 - Never refresh the Claude OAuth token; only read it. Never log in, refresh tokens or copy credentials to hosts on the owner's behalf.
 - Never retry an uncertain operation automatically after a crash (launch/send claims, quota continuations, scheduled launches, Ask proposals, merges, browser actions, GitHub posts). Show the uncertainty and let the owner check.
@@ -57,11 +57,13 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - Permission modes (YOLO default, Ask for approval, Auto) use native mechanisms only; never implement Auto by blindly accepting requests. Typed replies cannot grant permissions.
 - The initial launch prompt gets `compose::append_initial_summary_instruction`; follow-up messages stay verbatim. Keep the typed text first in `render_prompt`.
 - Agent trace context is referenced by `launchpad trace <id> --through <seq>`, never inlined. Missing traces fail visibly.
-- Scheduled launches and crons claim before launching (crons advance `next_run_at` first) and never catch up: runs more than one hour late or with unmet conditions are skipped. All start conditions must be met (AND). Quota conditions need a fresh reading. Dependencies use `Session::dependency_done()` / `dependencyDone`.
+- Scheduled launches and routines (code: crons) claim before launching (schedules advance `next_run_at`, GitHub triggers their watermark, every run writes a history entry first) and never catch up: runs more than one hour late or with unmet conditions are skipped. A run claimed but not started when Launchpad stopped becomes Failed, never retried. All start conditions must be met (AND). Quota conditions need a fresh reading. Dependencies use `Session::dependency_done()` / `dependencyDone`.
+- Routine triggers: schedule, new Inbox activity (GitHub notifications; one run per check for all new matching threads) and another agent's turn ending Done. A routine's own runs never trigger routines. Routines of a bot (or Ask Launchpad) send a message to its thread (`crons::bot_message`, first line `Routine “…” · …`) and skip while that thread is working; other routines launch their spec. Pausing a bot pauses its routines and incoming hooks, never the owner's messages.
+- A turn whose final message is `no_update` (`crons::is_no_update` / `isNoUpdate`) never notifies. Home marks it seen only when its thread had nothing unseen when the run started, so a quiet run never hides an earlier result.
 - Attachments upload once (`upload:<mime>;<sha256>` references); non-image files go to `<data_dir>/attachments/<session-id>/`, never into the project checkout.
 - Model capacity retries: only terminal capacity/overload failures, five-minute persisted deadline, at most five per session, cancelled by Resume, input, Stop or Archive.
 - Immediate Launch and session input use UUID `Idempotency-Key` headers and durable `browser_operation` claims. Keep authentication before retry middleware.
-- Notifications (desktop and Web Push) only for completed turns, failures, unexpected interruptions, automatic quota/cost stops and automatic resumption. Push payloads never contain code or messages.
+- Notifications (desktop and Web Push) only for completed turns, failures, unexpected interruptions, automatic quota/cost stops and automatic resumption. Push payloads never contain code or messages. Home sends Web Push for runners' sessions when their replicated status changes (subscriptions live on Home); runners keep their desktop notification and forward Telegram.
 
 ### Profiles, quota and costs
 
@@ -152,7 +154,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 
 - The knowledge base (`kb.rs`, store `kb-<workspace id>` in the plain store tables) is the only agent memory. Only Home writes it, through `kb::apply` (one writer at a time, author and line counts in `plain_history.meta`); never commit a `kb-` store with `plain::commit`. Writes name the content they started from; a changed base keeps both versions (`.concurrent-<id>` sibling), never a silent overwrite.
 - Every contained session gets its workspace's mirror read-only (`$LAUNCHPAD_KB`) and the harness's own memory off through `Harness::contained_memory`; keep harness identity branches in the adapters. Agents write only with `launchpad kb` (session CLI token, `/api/kb`); Home takes the author from its own session record, never from the runner.
-- The gardener is a normal launch the owner starts (or schedules with a cron) from the Knowledge page; memory import reads a runner's harness memories only on an owner click.
+- The gardener is a normal launch the owner starts (or repeats as a routine) from the Knowledge page; memory import reads a runner's harness memories only on an owner click.
 
 ### Credentials and the jail
 

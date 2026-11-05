@@ -3,6 +3,7 @@ import type { CronCondition } from "./CronCondition";
 import type { LaunchDelay } from "./LaunchDelay";
 import type { LaunchSpec } from "./LaunchSpec";
 import type { Tool } from "./Tool";
+import type { Trigger } from "./Trigger";
 
 export type ProposalBody = { "kind": "launch", spec: LaunchSpec, } | { "kind": "message", session_id: string, text: string, } | { "kind": "schedule", spec: LaunchSpec, conditions: Array<LaunchDelay>, } | { "kind": "cron", spec: LaunchSpec, schedule: string, conditions: Array<CronCondition>, } | { "kind": "status", session_ids: Array<string>, } | { "kind": "preset", preset_id?: string, label: string, text: string, agent: boolean, } | { "kind": "bot", name: string, 
 /**
@@ -12,7 +13,11 @@ instructions: string, profile?: string,
 /**
  * A folder of the workspace. None: a new plain folder named after the bot.
  */
-folder?: string, } | { "kind": "tool", tool: Tool, 
+folder?: string, } | { "kind": "routine", bot_id: string, title: string, 
+/**
+ * What the bot does at each run.
+ */
+instructions: string, trigger: Trigger, schedule: string, conditions: Array<CronCondition>, } | { "kind": "tool", tool: Tool, 
 /**
  * Where the owner creates the token.
  */
