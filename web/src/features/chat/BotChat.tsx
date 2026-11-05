@@ -37,10 +37,12 @@ import { api } from "@/lib/api";
 import { pastedImages } from "@/lib/attachments";
 import { daemonAsset } from "@/lib/connection";
 import { formatAge } from "@/lib/format";
+import { usePhone } from "@/lib/phone";
 import { useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
 import { isRunning } from "@/lib/sessionStatus";
 import { sendPresence } from "@/lib/ws";
+import { QuickChips } from "./QuickChips";
 import { chatRows, stepsLabel, type ChatCard, type ChatItem, type ChatSession } from "./chatRows";
 
 /** Today kinds that are a ready click in a bot's chat: Send, Post, Review & publish. */
@@ -352,6 +354,7 @@ function BotComposer({ bot, current, fresh, rotation, needsProfile, onCancelFres
   const qc = useQueryClient();
   const harness = useHarnessInfo(current?.harness ?? null);
   const acceptsImages = harness ? harness.capabilities.images : true;
+  const phone = usePhone();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -364,8 +367,8 @@ function BotComposer({ bot, current, fresh, rotation, needsProfile, onCancelFres
   // Typed text never grants a permission; a harness that cannot take messages while it works waits for the turn end.
   const busyTurn = !fresh && !!current && isRunning(current) && !current.open_question && !!harness && !harness.capabilities.messages_while_running;
   const blocked = (answering && ask!.permission) || busyTurn;
-  const send = async () => {
-    const t = text.trim();
+  const send = async (typed = text) => {
+    const t = typed.trim();
     if ((!t && !files.length) || busy || reading || blocked) return;
     setBusy(true);
     try {
@@ -394,6 +397,7 @@ function BotComposer({ bot, current, fresh, rotation, needsProfile, onCancelFres
         </div>}
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => { void attachments.add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
         <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
+        {phone && !text && !files.length && !answering && !blocked && !busy && <QuickChips onSend={(t) => void send(t)} onFill={(t) => { setText(t); requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(t.length, t.length); } }); }} />}
         <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
           <textarea ref={ref} rows={1} value={text} disabled={busy || blocked} aria-label={`Message ${bot.settings.name}`}
             placeholder={busyTurn ? `${bot.settings.name} is working: Stop it or wait for the turn to end.` : blocked ? "Choose a decision on the approval card." : answering ? `Answer or message ${bot.settings.name}…` : `Message ${bot.settings.name}…`}

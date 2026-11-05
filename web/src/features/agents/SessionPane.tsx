@@ -58,7 +58,7 @@ function act(id: string, action: "session.archive" | "session.stop" | "session.r
 
 type PendingAsk = { request_id: string; count: number; permission: boolean } | null;
 
-/** The session message box; Now cards on the phone reuse it for Reply. */
+/** The session message box (on the phone, opened by Reply in the bottom bar). */
 export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, dropImages, inputRef: ref, onSent }: { acceptsImages: boolean; sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null>; inputRef: React.RefObject<HTMLTextAreaElement | null>; onSent: () => void }) {
   const promptSession = useSession(sessionId);
   const promptProjects = useProjects().data ?? [];
@@ -200,7 +200,10 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const phone = usePhone();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  useEffect(() => setExpanded(false), [sessionId]);
+  // Phone: the message box opens from Reply in the bottom bar, and stays open while it holds a draft.
+  const [replying, setReplying] = useState(false);
+  const hasDraft = useMessageDrafts((st) => !!st.drafts[sessionId]);
+  useEffect(() => { setExpanded(false); setReplying(false); }, [sessionId]);
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
@@ -348,7 +351,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
     </> : <button className="btn btn-sm btn-primary" title="Continue this session in Launchpad" onClick={() => (tui ? setReattaching(true) : void act(s.id, "session.resume"))}>Re-attach</button>
   ) : s.status === "waiting" && s.open_question ? (
     <>
-      <button className="btn btn-sm btn-primary" title={ask?.permission ? "Review the requested operation" : "Show the question and focus the message box"} onClick={() => { setExpanded(false); setView("trace"); setAnswering((n) => n + 1); }}>{ask?.permission ? "Review approval" : "Answer"}</button>
+      <button className="btn btn-sm btn-primary" title={ask?.permission ? "Review the requested operation" : "Show the question and focus the message box"} onClick={() => { setExpanded(false); setReplying(true); setView("trace"); setAnswering((n) => n + 1); }}>{ask?.permission ? "Review approval" : "Answer"}</button>
       {s.live && <button className="iconbtn text-danger" title="Stop the agent while it waits for your decision" aria-label="Stop agent" onClick={() => void act(s.id, "session.stop")}><Icon name="stop" size={14} /></button>}
     </>
   ) : s.status === "waiting" ? (
@@ -362,6 +365,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
     <button className="btn btn-sm btn-primary" title={s.status === "closed" ? "Re-attach this archived session; send its original task if it never started" : "Continue the unfinished task"} onClick={() => { void (s.status === "closed" ? act(s.id, "session.resume") : api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }).catch(toastError)); setView("trace"); }}>Resume</button>
   ) : null;
   const archivePrimary = s.status === "waiting" && !s.open_question && !changed && !gitUnknown && !gitLoading;
+  const canReply = !s.imported_from && !childrenOpen;
 
   return (
     <div className={`relative flex h-full min-h-0 min-w-0 flex-col bg-paper ${readingExpanded ? "session-expanded" : ""}`}
@@ -398,7 +402,6 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
             <HostLabel path={s.cwd} />
             <StatusBadge s={s} />
             <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{sessionPlace(s, projectName(projects, s.project_id, s.cwd))} <Icon name="chev" size={12} /></button>
-            <span className="ml-auto flex flex-wrap justify-end gap-1">{primary}</span>
             <RunSettingsChip session={s} open={() => setView("summary")} />
             <PaidUsageToggle session={s} badge />
             <CostLimit session={s} badge />
@@ -544,7 +547,15 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       </ShellCodeContext.Provider>
       </CodeLinksContext.Provider>
       <div className={readingExpanded ? "hidden" : "contents"}>
-      {!s.imported_from && !childrenOpen && <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={!quotaPaused && s.open_question && ask?.permission ? "Choose a decision on the approval card." : placeholder} disabled={!!(!quotaPaused && s.open_question && ask?.permission) || s.status === "in_terminal" || quotaMessageBlocked || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={!quotaPaused && s.open_question && s.live ? ask : null} />}
+      {canReply && (!phone || replying || hasDraft) && <MessageBox acceptsImages={!!harness?.capabilities.images} onSent={() => setView("trace")} key={s.id} dropImages={dropImages} inputRef={inputRef} sessionId={s.id} placeholder={!quotaPaused && s.open_question && ask?.permission ? "Choose a decision on the approval card." : placeholder} disabled={!!(!quotaPaused && s.open_question && ask?.permission) || s.status === "in_terminal" || quotaMessageBlocked || (running && !s.open_question && !harness?.capabilities.messages_while_running)} ask={!quotaPaused && s.open_question && s.live ? ask : null} />}
+      {/* Phone: the main action and Reply under your thumb. */}
+      {phone && (canReply || primary) && <div className="session-bottom-bar flex flex-none items-center gap-2 border-t border-line-2 px-3 py-2" data-tour="session.bottom-bar">
+        {canReply && <button className="btn flex-1" aria-pressed={replying || hasDraft} disabled={hasDraft} title={hasDraft ? "The message box keeps your draft" : undefined}
+          onClick={() => { if (replying) setReplying(false); else { setReplying(true); requestAnimationFrame(() => inputRef.current?.focus()); } }}>
+          <Icon name="comment" size={14} />{replying && !hasDraft ? "Hide reply" : "Reply"}
+        </button>}
+        {primary && <span className="session-bottom-primary flex min-w-0 flex-1 items-center gap-2">{primary}</span>}
+      </div>}
       </div>
     </div>
   );

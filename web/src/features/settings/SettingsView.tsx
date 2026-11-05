@@ -17,6 +17,7 @@ import { DEFAULT_ZOOM, ZOOM_LEVELS, useZoom } from "@/lib/zoom";
 import { useConfig, type ConfigResponse } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
 import { useScope } from "@/lib/workspace";
+import { PhoneSettings } from "./PhoneSettings";
 
 /** A section of a Settings page. */
 export function Card({ title, end, children, id, tour }: { title: string; end?: React.ReactNode; children: React.ReactNode; id?: string; tour?: string }) {
@@ -56,10 +57,9 @@ export function SettingsPage({ title, intro, info, actions, children, tour }: { 
       {e.label}
     </Link>
   );
+  // The phone lists the pages on /settings (PhoneSettings); each page links back to it.
   const nav = phone ? (
-    <nav className="phone-tabs flex gap-1.5" aria-label="Settings pages">
-      {[...WORKSPACE_NAV, ...groups.flatMap((g) => g.items)].map((e) => <Link key={e.to} to={e.to} className="btn" activeOptions={{ exact: !!e.exact }} activeProps={{ "aria-pressed": true } as never}>{e.to === "/settings/workspace" ? workspace.name : e.label}</Link>)}
-    </nav>
+    <Link to="/settings" className="btn btn-ghost w-fit px-1! no-underline"><Icon name="chev" size={14} className="rotate-90" />All settings</Link>
   ) : (
     <nav className="sticky top-0 grid content-start gap-3 self-start pt-1" aria-label="Settings pages">
       <div className="grid gap-0.5">
@@ -84,8 +84,7 @@ export function SettingsPage({ title, intro, info, actions, children, tour }: { 
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4" data-tour={tour}>
           {title && (
             <div className="flex flex-wrap items-center gap-2">
-              {/* On the phone, the pressed tab above names the page. */}
-              {!phone && <h1 className="m-0 text-[18px] font-semibold">{title}</h1>}
+              <h1 className={`m-0 font-semibold ${phone ? "text-[15px]" : "text-[18px]"}`}>{title}</h1>
               {info && <span className="text-ink-3" title={info} aria-label={info}><Icon name="info" size={14} /></span>}
               {actions && <span className="ml-auto flex flex-wrap gap-2">{actions}</span>}
               {intro && <p className="m-0 w-full text-[13px] text-ink-2">{intro}</p>}
@@ -133,27 +132,29 @@ export function ConfigError() {
   return <div role="alert" className="rounded-lg bg-attn-soft px-3 py-2 text-[12px] text-attn">config.toml has an error, the previous settings are in use: {q.data.error}</div>;
 }
 
-const LAYOUTS: { id: LayoutChoice; label: string }[] = [{ id: "auto", label: "Automatic" }, { id: "phone", label: "Phone" }, { id: "desktop", label: "Desktop" }];
+export const LAYOUTS: { id: LayoutChoice; label: string }[] = [{ id: "auto", label: "Automatic" }, { id: "phone", label: "Phone" }, { id: "desktop", label: "Desktop" }];
 
-/** Settings → Appearance (this device only). */
+/** Settings → Appearance (this device only); the phone shows its list of settings instead. */
 export function SettingsView() {
   const phone = usePhone();
+  return phone ? <PhoneSettings /> : <Appearance />;
+}
+
+function Appearance() {
   const { zoom, setZoom } = useZoom();
   const { theme, toggle } = useTheme();
   const layout = layoutChoice();
   return (
     <SettingsPage title="Appearance" intro="How Launchpad looks in this browser. Other devices keep their own choices.">
       <Card title="Display">
-        {!phone && (
-          <SettingRow label="Zoom" hint="Scales the whole interface." scope="device">
-            <label className="grid w-full gap-2">
-              <span className="font-semibold">{ZOOM_LEVELS[zoom]}%{zoom === DEFAULT_ZOOM ? " (default)" : ""}</span>
-              <input aria-label="Interface zoom" type="range" min={0} max={4} step={1} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-full accent-teal" />
-              <span className="flex justify-between text-[12px] text-ink-2">{ZOOM_LEVELS.map((z) => <span key={z}>{z}%</span>)}</span>
-            </label>
-          </SettingRow>
-        )}
-        <SettingRow label="Theme" hint={phone ? "Also in the workspace menu." : "Also switchable from the sidebar."} scope="device">
+        <SettingRow label="Zoom" hint="Scales the whole interface." scope="device">
+          <label className="grid w-full gap-2">
+            <span className="font-semibold">{ZOOM_LEVELS[zoom]}%{zoom === DEFAULT_ZOOM ? " (default)" : ""}</span>
+            <input aria-label="Interface zoom" type="range" min={0} max={4} step={1} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-full accent-teal" />
+            <span className="flex justify-between text-[12px] text-ink-2">{ZOOM_LEVELS.map((z) => <span key={z}>{z}%</span>)}</span>
+          </label>
+        </SettingRow>
+        <SettingRow label="Theme" hint="Also switchable from the sidebar." scope="device">
           <div className="flex gap-1.5" role="group" aria-label="Theme">
             {(["light", "dark"] as const).map((t) => <button key={t} className="lp-chip" aria-pressed={theme === t} onClick={() => { if (theme !== t) toggle(); }}><Icon name={t === "light" ? "sun" : "moon"} size={12} />{t === "light" ? "Light" : "Dark"}</button>)}
           </div>

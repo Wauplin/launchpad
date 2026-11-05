@@ -1,5 +1,5 @@
 // An open question of the agent with its options. Answers go to the harness at once (single choice) or
-// with Send answer (multiple choice). Shared by the trace and the phone Now page.
+// with Send answer (multiple choice). Shared by the trace, Today cards and bot chats.
 
 import { useState } from "react";
 import { toastError } from "@/components/Toast";

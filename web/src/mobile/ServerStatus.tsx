@@ -1,12 +1,53 @@
+// The phone's status button: the connection dot, and an amber warning with its count when something needs a look
+// (connection, Home, runners, machines, harnesses, quota, spending limits, GitHub rate limit). The sheet says why
+// and links to the place that fixes it, then shows the quota meters.
+
 import { Icon } from "@/components/Icon";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { HostChip, useConnection } from "@/app/Connection";
 import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import type { QuotaWindow } from "@/gen/QuotaWindow";
-import { formatAge, resetLabel } from "@/lib/format";
+import { useInbox } from "@/features/inbox/data";
+import { formatAge, formatReset, resetLabel } from "@/lib/format";
+import { linkLabel } from "@/lib/hosts";
 import { useStatus } from "@/lib/queries";
 import { spendLabel, spendPercent, useQuotas, windowLabel } from "@/lib/profiles";
+import { outdatedLabel, useOfflineRunners, useOutdatedRunners } from "@/lib/runners";
 import { Sheet } from "./Sheet";
+
+type Warning = { key: string; text: string; to?: string };
+
+/** What needs a look, most serious first. Empty when all is well. */
+function useStatusWarnings(): Warning[] {
+  const { data } = useStatus();
+  const { online, since } = useConnection();
+  const harnesses = useHarnesses();
+  const quotas = useQuotas();
+  const outdated = useOutdatedRunners().map((r) => r.runner.name);
+  const offline = useOfflineRunners();
+  const limits = useInbox().data?.limits ?? {};
+  const out: Warning[] = [];
+  if (!online) out.push({ key: "offline", text: `Not connected to ${data?.host || "the daemon"}${since ? ` since ${new Date(since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}. Showing what was last received.` });
+  if (!data) return out;
+  if (data.role === "runner" && data.home && data.home.state !== "connected") out.push({ key: "home", text: `Home is not reachable (${data.home.state.replace("_", " ")})${data.home.message ? `: ${data.home.message}` : ""}.`, to: "/settings/runners" });
+  if (data.role === "runner" && data.home?.compat === "outdated") out.push({ key: "self-outdated", text: "This runner needs an update: Home sends it no new sessions.", to: "/settings/runners" });
+  if (outdated.length) out.push({ key: "outdated", text: `${outdatedLabel(outdated)}: no new sessions until then.`, to: "/settings/runners" });
+  if (offline.length) out.push({ key: "runners-offline", text: `${offline.join(", ")} ${offline.length === 1 ? "is" : "are"} offline.`, to: "/settings/runners" });
+  for (const h of data.hosts) if (h.state !== "connected") out.push({ key: `host-${h.host.id}`, text: `${h.host.id} is ${linkLabel[h.state].toLowerCase()}.`, to: "/settings/hosts" });
+  // Home runs no agents: its runners report their own harnesses.
+  if (data.role !== "home") for (const h of harnesses) if (!data.harnesses[h.id]?.version) out.push({ key: `harness-${h.id}`, text: `${h.name} is not found on this machine.` });
+  for (const e of quotas) {
+    const name = e.names.length ? e.names.join(" · ") : (harnesses.find((h) => h.id === e.harness)?.name ?? e.harness);
+    const full = [["5 hours", e.q.five_hour], ["weekly", e.q.weekly]].filter(([, w]) => w && (w as QuotaWindow).used_percent >= 90).map(([l]) => l);
+    if (full.length) out.push({ key: `quota-${e.key}`, text: `${name}: ${full.join(" and ")} quota over 90% used.` });
+    if (e.q.quota_error) out.push({ key: `quota-error-${e.key}`, text: `${name}: quota reading unavailable.` });
+    else if (e.q.quota_at != null && Date.now() - e.q.quota_at > 15 * 60_000) out.push({ key: `quota-stale-${e.key}`, text: `${name}: quota read ${formatAge(e.q.quota_at)} ago.` });
+  }
+  for (const v of data.spend) if (v.windows.some((w) => w.used_usd >= w.limit_usd)) out.push({ key: `spend-${v.profile}`, text: `${v.name} reached a spending limit.` });
+  for (const [k, v] of Object.entries(limits)) if (v.remaining < 500) out.push({ key: `github-${k}`, text: `GitHub ${k}: ${v.remaining} calls left, resets ${formatReset(v.reset_at)}.` });
+  return out;
+}
 
 function WindowUsage({ label, quota, color }: { label: string; quota: QuotaWindow | null; color: string }) {
   return <div className="grid gap-1.5">
@@ -28,15 +69,21 @@ function StatusDetails() {
   const { data, error } = useStatus();
   const allHarnesses = useHarnesses();
   const quotas = useQuotas();
-  const { online } = useConnection();
   const [, tick] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => tick((n) => n + 1), 30_000);
     return () => clearInterval(timer);
   }, []);
+  const warnings = useStatusWarnings();
   return <div className="grid gap-4 p-4 text-[14px]">
     <HostChip />
-    {!online && <p className="text-attn">Offline · showing the last received quota readings.</p>}
+    {warnings.length > 0 && <section aria-label="Warnings" className="grid gap-1 rounded-lg border border-attn-line bg-attn-soft p-3">
+      {warnings.map((w) => <div key={w.key} className="flex min-h-11 items-center gap-2 text-[13px]">
+        <Icon name="alert" size={14} className="shrink-0 text-attn" />
+        <span className="min-w-0 flex-1 break-words">{w.text}</span>
+        {w.to && <Link to={w.to} className="btn btn-sm shrink-0 no-underline">Open</Link>}
+      </div>)}
+    </section>}
     {!data ? <p className="text-ink-3">{error ? "Server status is unavailable. Waiting to reconnect…" : "Loading quota status…"}</p> : <>
       <h2 className="font-semibold">Subscription quotas</h2>
       {quotas.length === 0 && <p className="text-ink-3">No subscription profile is monitored.</p>}
@@ -75,9 +122,13 @@ function StatusDetails() {
 
 export function ServerStatus() {
   const [open, setOpen] = useState(false);
+  const warnings = useStatusWarnings().length;
   return <>
-    <button type="button" className="phone-connection iconbtn shrink-0" aria-label="Server status and quotas" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
-      <Icon name="window" size={16} /><HostChip compact iconOnly />
+    <button type="button" className="phone-connection iconbtn shrink-0" aria-label={`Server status and quotas${warnings ? `: ${warnings} warning${warnings === 1 ? "" : "s"}` : ""}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
+      {warnings
+        ? <span className="inline-flex items-center gap-0.5 font-semibold text-attn"><Icon name="alert" size={16} /><span className="text-[12px] tabular-nums">{warnings}</span></span>
+        : <Icon name="window" size={16} />}
+      <HostChip compact iconOnly />
     </button>
     {open && <Sheet title="Server status and quotas" onClose={() => setOpen(false)}><StatusDetails /></Sheet>}
   </>;

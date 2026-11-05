@@ -1,4 +1,4 @@
-// Inbox data shared by the page, the sidebar count, the phone tab badge and the Review tab, kept apart
+// Inbox data shared by the page, the sidebar count and the phone tab badge, kept apart
 // from the page so those do not load it.
 
 import { useQuery } from "@tanstack/react-query";

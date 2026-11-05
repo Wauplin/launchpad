@@ -33,7 +33,7 @@ export const settings: Chapter = {
     {
       id: "settings.devices", route: "/settings/devices", anchor: "devices.pair",
       title: "Your phone",
-      body: "Pair a phone or another browser with a QR code. Every paired browser has full access; the phone layout keeps Today, Agents, Bots and Inbox one tap away.",
+      body: "Pair a phone or another browser with a QR code. Every paired browser has full access; the phone layout keeps Today, Agents, Ask and Inbox one tap away, and every other place in More.",
       tryIt: { text: "create a pairing link.", done: qrShown, doIt: () => clickAnchor("devices.pair") },
     },
     {

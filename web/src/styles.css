@@ -525,6 +525,8 @@ button {
   line-height: 20px;
 }
 .lp-phone .session-message-input > .iconbtn { flex-shrink: 0; }
+/* Session bottom bar: Reply and the main action share the width. */
+.lp-phone .session-bottom-primary > .btn { flex: 1; justify-content: center; }
 
 /* Shared phone page chrome; explicit feature classes leave desktop zoom/layout intact. */
 .lp-phone .btn,
@@ -640,6 +642,8 @@ button {
 .lp-phone .agent-row-line-2 { padding-right: 88px; }
 /* Bot chat: the steps line and the Open trace / Open in Agents links. */
 .lp-phone .chat-tap { min-height: 44px; display: inline-flex; align-items: center; }
+.lp-phone [data-tour="chat.chips"] .lp-chip { min-height: 44px; white-space: nowrap; }
+.lp-phone .phone-choice { min-height: 44px; padding-inline: 14px; }
 .lp-phone .page-header h1 { font-size: 16px; white-space: normal; overflow-wrap: anywhere; }
 
 /* Demo mode (src/demo/) and the tour overlay (src/onboarding/tour/). One dimming element, no blur. */

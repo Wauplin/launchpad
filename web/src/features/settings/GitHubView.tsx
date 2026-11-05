@@ -9,6 +9,7 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { Empty, Loading, SettingRow, useSaveState } from "@/components/ui";
 import { useInbox } from "@/features/inbox/data";
 import { openExternal } from "@/lib/platform";
+import { usePhone } from "@/lib/phone";
 import { formatAge } from "@/lib/format";
 import { useConfig, useProjects } from "@/lib/queries";
 import { useWorkspaces } from "@/lib/workspace";
@@ -46,17 +47,19 @@ export function GitHubView() {
 
 type Orphan = { repo: string; count: number; last: number };
 
+// The phone puts the two 44 px buttons on their own line.
 const ROW = 52;
+const PHONE_ROW = 108;
 
-const OrphanRow = memo(function OrphanRow({ r }: { r: Orphan }) {
+const OrphanRow = memo(function OrphanRow({ r, phone }: { r: Orphan; phone: boolean }) {
   const workspaces = useWorkspaces().data ?? [];
   return (
-    <div className="flex h-[52px] items-center gap-2 border-b border-line-2 px-3 text-[13px]">
-      <span className="grid min-w-0 flex-1">
+    <div className={`flex items-center gap-2 border-b border-line-2 px-3 text-[13px] ${phone ? "h-[108px] flex-wrap content-center [&>.btn]:flex-1" : "h-[52px]"}`}>
+      <span className={`grid min-w-0 ${phone ? "basis-full" : "flex-1"}`}>
         <b className="truncate font-mono text-[12px]">{r.repo}</b>
         <span className="text-[12px] text-ink-3">{r.count} notification{r.count === 1 ? "" : "s"} · {formatAge(r.last)} ago</span>
       </span>
-      <Popover viewport align="right" width={240} trigger={({ open, toggle }) => <button className="btn btn-sm" aria-expanded={open} onClick={toggle}>Add to<Icon name="chev" size={11} /></button>}>
+      <Popover viewport align="right" width={240} className={phone ? "flex-1" : ""} trigger={({ open, toggle }) => <button className={`btn btn-sm ${phone ? "w-full" : ""}`} aria-expanded={open} onClick={toggle}>Add to<Icon name="chev" size={11} /></button>}>
         {(close) => <>
           <div className="seclabel px-2 pt-1 pb-0.5">Add {r.repo} to</div>
           {workspaces.map((w) => <MenuItem key={w.id} label={w.name} onClick={() => { close(); useAddFolder.getState().show({ repo: r.repo, workspaceId: w.id }); }} />)}
@@ -69,6 +72,8 @@ const OrphanRow = memo(function OrphanRow({ r }: { r: Orphan }) {
 
 /** Repositories with notifications and no folder in any workspace, latest activity first. */
 function ReposWithoutFolder() {
+  const phone = usePhone();
+  const row = phone ? PHONE_ROW : ROW;
   const inbox = useInbox();
   const projects = useProjects().data;
   const orphans = useMemo(() => {
@@ -85,14 +90,14 @@ function ReposWithoutFolder() {
     return [...by.values()].sort((a, b) => b.last - a.last);
   }, [inbox.data, projects]);
   const ref = useRef<HTMLDivElement>(null);
-  const v = useVirtualizer({ count: orphans.length, getScrollElement: () => ref.current, estimateSize: () => ROW, overscan: 6, useFlushSync: false });
+  const v = useVirtualizer({ count: orphans.length, getScrollElement: () => ref.current, estimateSize: () => row, overscan: 6, useFlushSync: false });
   return (
     <Card title="Repositories without a folder" tour="settings.github-repos">
       <span className="text-[12px] text-ink-3">They have GitHub notifications for you but no folder in any workspace, so no Inbox shows them. Add one to a workspace to see its items there, or check them on GitHub.</span>
       {inbox.isLoading ? <Loading what="notifications" /> : orphans.length === 0 ? <Empty icon="pr">Every repository with notifications has a folder.</Empty> : (
-        <div ref={ref} className="overflow-y-auto rounded-md border border-line" style={{ maxHeight: 8 * ROW + 2 }}>
+        <div ref={ref} className="overflow-y-auto rounded-md border border-line" style={{ maxHeight: (phone ? 4 : 8) * row + 2 }}>
           <div className="relative" style={{ height: v.getTotalSize() }}>
-            {v.getVirtualItems().map((it) => <div key={orphans[it.index].repo} className="absolute inset-x-0" style={{ top: it.start }}><OrphanRow r={orphans[it.index]} /></div>)}
+            {v.getVirtualItems().map((it) => <div key={orphans[it.index].repo} className="absolute inset-x-0" style={{ top: it.start }}><OrphanRow r={orphans[it.index]} phone={phone} /></div>)}
           </div>
         </div>
       )}

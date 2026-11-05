@@ -1,102 +1,50 @@
-// Phone shell (hosting report, section 05): a top bar with the workspace sheet (workspaces with their counts,
-// other places) and the connection, one page at a
-// time, and bottom tabs (Today · Agents · Bots · Inbox). Same daemon, rules and feature components
-// as the desktop shell; only the frame differs. Every action stays a visible button.
+// Phone shell: a top bar with the workspace sheet (workspaces with their counts, nothing else), the page title and
+// a status that warns, one page at a time, and bottom tabs (Today · Agents · Ask · Inbox · More). Ask opens the
+// chat of the workspace's default bot (`askTarget`); More holds the other places. Same daemon, rules and feature
+// components as the desktop shell; only the frame differs. Every action stays a visible button.
 
 import { recordingZoom } from "@/lib/zoom";
 import { lazy, Suspense } from "react";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { useLayoutEffect, useState, type ReactNode } from "react";
+import { useLayoutEffect, useState } from "react";
 import { IconSprite, Icon, type IconName } from "@/components/Icon";
 import { Toasts } from "@/components/Toast";
 import { HostPrompts } from "@/app/HostPrompt";
 import { Composer } from "@/features/launch/Composer";
 import { TerminalDock } from "@/features/terminals/TerminalDock";
-import { useTerminalsHere } from "@/features/terminals/lib";
 import { useInboxNeeds } from "@/features/inbox/data";
 import { useTodayCount } from "@/features/today/data";
-import { useScope, useWorkspaces, useWorkspaceSync } from "@/lib/workspace";
+import { useScope, useWorkspaceSync } from "@/lib/workspace";
 import { useSessions } from "@/lib/queries";
-import { describeCount, useWorkspaceCounts, workspaceInitial } from "@/features/workspaces/counts";
-import { NewWorkspaceForm, NoWorkspace } from "@/features/workspaces/WorkspaceMenu";
-import { useKnowledgeUnseen } from "@/lib/knowledge";
+import { useWorkspaceCounts } from "@/features/workspaces/counts";
+import { NoWorkspace } from "@/features/workspaces/WorkspaceMenu";
+import { askTarget, useBots } from "@/lib/bots";
 import { isRunning } from "@/lib/sessionStatus";
-import { setLayoutChoice } from "@/lib/phone";
-import { useTheme } from "@/stores/theme";
-import { useWorkspace } from "@/stores/workspace";
-import { Sheet } from "./Sheet";
 import { ServerStatus } from "./ServerStatus";
-import { pageTitle } from "./PhoneHeader";
+import { MORE_PLACES, pageTitle } from "./PhoneHeader";
+import { WorkspaceSheet } from "./WorkspaceSheet";
 
 const AddFolderDialog = lazy(() => import("@/features/projects/AddFolder").then((m) => ({ default: m.AddFolderDialog })));
 
-function Tab({ to, icon, label, count, highlight, exact = false }: { to: string; icon: IconName; label: string; count?: number; highlight?: boolean; exact?: boolean }) {
+/** A bottom tab. `active` overrides the router's match (More covers several places, Ask one bot page). */
+function Tab({ to, params, search, icon, label, count, highlight, exact = false, active, tour }: { to: string; params?: Record<string, string>; search?: Record<string, unknown>; icon: IconName; label: string; count?: number; highlight?: boolean; exact?: boolean; active?: boolean; tour?: string }) {
+  const on = "!text-teal-ink font-semibold";
   return (
     <Link
       to={to}
-      className="relative flex min-h-[54px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] text-ink-3 no-underline"
-      activeProps={{ className: "!text-teal-ink font-semibold" }}
+      params={params as never}
+      search={search as never}
+      data-tour={tour}
+      className={`relative flex min-h-[54px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] text-ink-3 no-underline ${active ? on : ""}`}
+      activeProps={active === undefined ? { className: on } : { className: active ? on : "" }}
+      aria-current={active ? "page" : undefined}
       activeOptions={{ exact, includeSearch: false }}
     >
       <Icon name={icon} size={20} />
       {label}
       {!!count && <span className={`absolute top-1.5 left-[calc(50%+6px)] min-w-[18px] rounded-full px-1 text-center text-[11px] leading-[18px] font-bold ${highlight ? "bg-attn text-white" : "bg-sunk text-ink-2"}`}>{count}</span>}
     </Link>
-  );
-}
-
-/** A place in the menu, with its count like the laptop sidebar (`attn`: something needs you). */
-function MenuLink({ to, icon, children, onClick, count, attn }: { to: string; icon: IconName; children: ReactNode; onClick: () => void; count?: number; attn?: boolean }) {
-  return <Link to={to} onClick={onClick} className="flex min-h-12 items-center gap-3 border-b border-line-2 px-4 text-[15px] text-ink no-underline">
-    <Icon name={icon} size={18} className="text-ink-3" /><span className="min-w-0 flex-1 truncate">{children}</span>
-    {!!count && <span className={`min-w-[22px] rounded-full px-1.5 text-center text-[13px] leading-[22px] font-semibold tabular-nums ${attn ? "bg-attn-soft text-attn" : "bg-sunk text-ink-2"}`}>{count}</span>}
-  </Link>;
-}
-
-/** The workspaces with what waits in each (never their content), secondary pages and device settings. */
-function WorkspaceMenu({ onClose }: { onClose: () => void }) {
-  const { current, switchTo } = useWorkspace();
-  const workspaces = useWorkspaces().data ?? [];
-  const counts = useWorkspaceCounts();
-  const [creating, setCreating] = useState(false);
-  const { theme, toggle } = useTheme();
-  const terminalsHere = useTerminalsHere();
-  const knowledgeNew = useKnowledgeUnseen();
-  const pick = (id: string) => { switchTo(id); onClose(); };
-  return (
-    <Sheet title="Workspaces" onClose={onClose}>
-      <div data-tour="phone.workspaces">
-        {workspaces.map((w) => {
-          const on = current === w.id;
-          const n = on ? 0 : counts[w.id]?.total ?? 0;
-          return (
-            <button key={w.id} className={`flex min-h-12 w-full items-center gap-3 border-b border-line-2 px-4 text-left text-[15px] ${on ? "font-semibold text-teal-ink" : ""}`} aria-pressed={on} title={on ? undefined : describeCount(counts[w.id])} onClick={() => pick(w.id)}>
-              <span className={`grid size-[28px] flex-none place-items-center rounded-[7px] text-[13px] font-semibold ${on ? "bg-teal text-white" : "bg-sunk text-ink-2"}`} aria-hidden>{workspaceInitial(w.name)}</span>
-              <span className="flex-1 truncate">{w.name}</span>
-              {n > 0 && <span className="min-w-[22px] rounded-full bg-attn-soft px-1.5 text-center text-[13px] leading-[22px] font-semibold text-attn tabular-nums" aria-label={describeCount(counts[w.id])}>{n}</span>}
-              {on && <Icon name="check" size={16} />}
-            </button>
-          );
-        })}
-        {creating ? <NewWorkspaceForm onDone={onClose} onCancel={() => setCreating(false)} /> : (
-          <button className="flex min-h-12 w-full items-center gap-3 border-b border-line-2 px-4 text-left text-[15px] text-teal-ink" onClick={() => setCreating(true)}>
-            <span className="grid size-[28px] flex-none place-items-center rounded-[7px] border border-dashed border-line" aria-hidden><Icon name="plus" size={14} /></span>New workspace
-          </button>
-        )}
-      </div>
-      <div className="seclabel px-4 pt-4 pb-1">Go to</div>
-      <MenuLink to="/schedules" icon="clock" onClick={onClose}>Schedules</MenuLink>
-      <MenuLink to="/projects" icon="folder" onClick={onClose}>Folders</MenuLink>
-      <MenuLink to="/knowledge" icon="book" onClick={onClose} count={knowledgeNew}>Knowledge</MenuLink>
-      {terminalsHere && <MenuLink to="/terminals" icon="term" onClick={onClose}>Terminals</MenuLink>}
-      <MenuLink to="/settings" icon="sliders" onClick={onClose}>Settings</MenuLink>
-      <div className="seclabel px-4 pt-4 pb-1">This device</div>
-      <div className="flex flex-wrap gap-2 px-4 pb-4">
-        <button className="btn" aria-pressed={theme === "dark"} onClick={toggle}><Icon name={theme === "dark" ? "moon" : "sun"} size={16} />{theme === "dark" ? "Dark theme" : "Light theme"}</button>
-        <button className="btn" title="Use the laptop layout on this device (reloads)" onClick={() => setLayoutChoice("desktop")}>Use desktop layout</button>
-      </div>
-    </Sheet>
   );
 }
 
@@ -133,6 +81,10 @@ export function MobileShell() {
   // What waits in the other workspaces, shown on the button that opens the sheet.
   const counts = useWorkspaceCounts();
   const inMenu = Object.entries(counts).reduce((n, [id, c]) => n + (id === scope.workspace.id ? 0 : c.total), 0);
+  // Ask: the chat of the workspace's default bot, or the New bot form when the workspace has none.
+  const ask = askTarget(useBots().data ?? [], scope.workspace.id);
+  const onAsk = !!ask && path === `/bots/${ask.id}`;
+  const onMore = !onAsk && MORE_PLACES.some((p) => path === p || path.startsWith(`${p}/`));
   const terminals = path.startsWith("/terminals");
   const viewport = useTerminalViewport(terminals);
   const workspaceName = scope.workspace.name;
@@ -141,11 +93,11 @@ export function MobileShell() {
       <IconSprite />
       {/* Equal side columns keep every section title centered on the viewport. */}
       <header className="grid min-h-12 flex-none grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-chrome px-2">
-        <button className="btn btn-ghost max-w-full min-w-0 justify-self-start px-2!" aria-label={`Workspace: ${workspaceName}. Open the menu${inMenu > 0 ? ` (${inMenu} waiting)` : ""}`} onClick={() => setMenu(true)}>
+        <button className="btn btn-ghost max-w-full min-w-0 justify-self-start px-2!" aria-label={`Workspace: ${workspaceName}. Change workspace${inMenu > 0 ? ` (${inMenu} waiting)` : ""}`} onClick={() => setMenu(true)}>
           <span className="truncate font-semibold text-ink">{workspaceName}</span><Icon name="chev" size={14} className="shrink-0" />
           {inMenu > 0 && <span className="shrink-0 rounded-full bg-attn-soft px-1.5 text-[11px] leading-[18px] font-semibold text-attn tabular-nums" title={`${inMenu} waiting in Today of other workspaces`}>{inMenu}</span>}
         </button>
-        <b className="max-w-[40vw] min-w-0 truncate text-center text-[15px]">{pageTitle(path)}</b>
+        <b className="max-w-[40vw] min-w-0 truncate text-center text-[15px]">{onAsk ? "Ask" : pageTitle(path)}</b>
         <div className="flex min-w-0 justify-end"><ServerStatus /></div>
       </header>
       <main className="relative min-h-0 flex-1 overflow-hidden">
@@ -156,13 +108,14 @@ export function MobileShell() {
       {!viewport?.keyboard && <nav className="flex flex-none border-t border-line bg-chrome pb-[env(safe-area-inset-bottom)]" aria-label="Main">
         <Tab to="/" icon="okcircle" label="Today" count={today} highlight exact />
         <Tab to="/agents" icon="agents" label="Agents" count={running} />
-        <Link to="/bots" className="flex min-h-[54px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold text-teal-ink no-underline" activeProps={{ "aria-current": "page" } as never}>
-          <span className="grid size-8 place-items-center rounded-full bg-teal text-white"><Icon name="spark" size={18} /></span><span className="text-[11px]">Bots</span>
-        </Link>
+        {ask
+          ? <Tab to="/bots/$id" params={{ id: ask.id }} search={{}} icon="spark" label="Ask" active={onAsk} tour="phone.ask" />
+          : <Tab to="/bots" search={{ new: true }} icon="spark" label="Ask" active={false} tour="phone.ask" />}
         <Tab to="/inbox" icon="inbox" label="Inbox" count={inbox} highlight />
+        <Tab to="/more" icon="more" label="More" active={onMore} tour="phone.more-tab" />
       </nav>}
       <Composer />
-      {menu && <WorkspaceMenu onClose={() => setMenu(false)} />}
+      {menu && <WorkspaceSheet onClose={() => setMenu(false)} />}
       <Toasts />
       <HostPrompts />
       {addOpen && <Suspense fallback={null}><AddFolderDialog /></Suspense>}

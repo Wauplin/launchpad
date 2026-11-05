@@ -4,9 +4,13 @@ import { Icon } from "@/components/Icon";
 import { Popover } from "@/components/Popover";
 import { useRouterState } from "@tanstack/react-router";
 
+/** Places of the More tab (the tab shows as current on them). */
+export const MORE_PLACES = ["/more", "/bots", "/schedules", "/projects", "/knowledge", "/terminals", "/settings", "/setup"];
+
 /** The title the phone shell's top bar shows for a path. */
 export function pageTitle(path: string): string {
   if (path === "/") return "Today";
+  if (path === "/more") return "More";
   if (path.startsWith("/agents")) return "Agents";
   if (path.startsWith("/inbox")) return "Inbox";
   if (path.startsWith("/github")) return "GitHub";
