@@ -5,14 +5,10 @@ pub mod self_update;
 pub mod attachments;
 pub mod away;
 pub mod bots;
-pub mod channels;
-pub mod hooks;
-pub mod telegram;
 pub mod browser;
 pub mod code;
 pub mod compose;
 pub mod config;
-pub mod crons;
 pub mod db;
 pub mod drafts;
 pub mod events;
@@ -22,24 +18,17 @@ pub mod github;
 pub mod harness;
 pub mod hostfs;
 pub mod hosts;
-pub mod inbox;
-pub mod items;
 pub mod model;
 pub mod notify;
-pub mod onboarding;
 pub mod operations;
 pub mod paths;
 pub mod predrafts;
 pub mod procs;
-pub mod project_clone;
 pub mod projects;
-pub mod proposals;
-pub mod schedules;
 pub mod session_pages;
 pub mod sessions;
 pub mod session_token;
 pub mod shellenv;
-pub mod setup_checklist;
 pub mod signin;
 pub mod spend;
 pub mod status;
@@ -55,7 +44,6 @@ pub mod kb;
 pub mod repo_cache;
 pub mod analytics;
 pub mod review_state;
-pub mod suggestions;
 pub mod terminals;
 pub mod trace_backup;
 pub(crate) mod trace_sync;
@@ -76,6 +64,11 @@ pub mod token_relay;
 pub mod handoff;
 pub mod burst;
 pub mod mcp;
+pub mod ext;
+pub mod locks;
+pub mod diff;
+pub mod routines;
+pub mod launchpad_cli;
 
 /// Build information stamped by the `launchpad` binary (its `build.rs`), so a new commit relinks only the binary
 /// instead of rebuilding this crate.
@@ -113,9 +106,8 @@ pub struct App {
     pub harnesses: harness::Registry,
     pub sessions: sessions::Sessions,
     pub github: github::GitHub,
-    pub inbox: inbox::Inbox,
     pub models: harness::ModelCache,
-    pub suggestion_locks: suggestions::Locks,
+    pub suggestion_locks: locks::Locks,
     pub predraft_lock: Arc<tokio::sync::Mutex<()>>,
     /// Serializes task worktree creation, merges and cleanup. Take the session action lock first.
     pub worktree_lock: Arc<tokio::sync::Mutex<()>>,
@@ -128,6 +120,8 @@ pub struct App {
     pub home_backups: home_backup::Backups,
     /// The runner proxy that adds Home's tokens to contained sessions' requests.
     pub proxy: proxy::Proxy,
+    /// State of the crates above the core (`ext::Extras`).
+    pub extras: ext::Extras,
 }
 
 impl App {
@@ -181,9 +175,8 @@ impl App {
             harnesses,
             sessions: sessions::Sessions::new(),
             github,
-            inbox: inbox::Inbox::new(),
             models: harness::ModelCache::default(),
-            suggestion_locks: suggestions::Locks::default(),
+            suggestion_locks: locks::Locks::default(),
             predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
             worktree_lock: Arc::new(tokio::sync::Mutex::new(())),
             terminals: terminals::Terminals::default(),
@@ -193,42 +186,28 @@ impl App {
             runners: runners::Hub::default(),
             home_backups: home_backup::Backups::default(),
             proxy: proxy::Proxy::default(),
+            extras: ext::Extras::default(),
         };
         predrafts::link_skill()?;
         app.sessions.load(&app).await?;
-        schedules::recover(&app).await?;
-        proposals::recover(&app).await?;
         if let Err(e) = ask_bot::seed(&app).await {
             tracing::warn!("default bot and tools: {e:#}");
         }
-        schedules::spawn(&app);
         {
             let app = app.clone();
             tokio::spawn(async move { if let Err(e) = attachments::collect_garbage(&app).await { tracing::warn!("upload cleanup: {e:#}"); } });
         }
-        {
-            let dir = app.paths.data_dir.join("images");
-            tokio::spawn(async move {
-                loop {
-                    if let Err(e) = items::collect_images(&dir).await { tracing::warn!("image cleanup: {e:#}"); }
-                    tokio::time::sleep(std::time::Duration::from_secs(86400)).await;
-                }
-            });
-        }
         trace_backup::spawn(&app);
         home_backup::spawn(&app);
         burst::spawn(&app);
-        crons::spawn(&app);
         status::spawn_monitors(&app);
         quota::spawn(&app);
         app.harnesses.spawn_services(&app);
         harness::spawn_model_refresh(&app);
-        inbox::spawn(&app);
         projects::spawn(&app);
         home_git::spawn(&app);
         plain::spawn(&app);
         kb::spawn(&app);
-        channels::spawn(&app);
         if let Err(e) = projects::adopt_git_folders(&app).await {
             tracing::warn!("Home Git folders: {e:#}");
         }
@@ -255,79 +234,68 @@ impl App {
     }
 }
 
-/// Writes the TypeScript versions of the types shared with the UI (ts-rs).
-pub fn gen_types(out: &std::path::Path) -> Result<()> {
-    use ts_rs::TS;
+/// The ts-rs settings for `gen_types` of every crate, writing to `out`.
+pub fn types_config(out: &std::path::Path) -> Result<ts_rs::Config> {
     std::fs::create_dir_all(out)?;
     // Timestamps are i64 in Rust; they fit in a JS number.
-    let cfg = ts_rs::Config::new().with_out_dir(out).with_large_int("number");
-    predrafts::Predraft::export_all(&cfg)?;
-    suggestions::Suggestion::export_all(&cfg)?;
-    channels::Channel::export_all(&cfg)?;
-    channels::OutboxMessage::export_all(&cfg)?;
-    telegram::TelegramStatus::export_all(&cfg)?;
-    hooks::Hook::export_all(&cfg)?;
-    hooks::CreatedHook::export_all(&cfg)?;
-    config::Config::export_all(&cfg)?;
-    burst::BurstOverview::export_all(&cfg)?;
-    mcp::McpServer::export_all(&cfg)?;
-    status::Status::export_all(&cfg)?;
-    analytics::AgentRun::export_all(&cfg)?;
-    signin::SignInCheck::export_all(&cfg)?;
-    model::Session::export_all(&cfg)?;
-    model::MessageContext::export_all(&cfg)?;
-    model::SessionProcess::export_all(&cfg)?;
-    model::SessionEvent::export_all(&cfg)?;
-    session_pages::SessionEventPage::export_all(&cfg)?;
-    model::Project::export_all(&cfg)?;
-    model::HarnessDefaults::export_all(&cfg)?;
-    harness::HarnessDescriptor::export_all(&cfg)?;
-    projects::Discovered::export_all(&cfg)?;
-    projects::ProjectPatch::export_all(&cfg)?;
-    sessions::Preview::export_all(&cfg)?;
-    schedules::ScheduledLaunch::export_all(&cfg)?;
-    crons::CronAgent::export_all(&cfg)?;
-    github::GhItem::export_all(&cfg)?;
-    project_clone::CloneSuggestion::export_all(&cfg)?;
-    inbox::InboxSnapshot::export_all(&cfg)?;
-    inbox::ThreadPreview::export_all(&cfg)?;
-    terminals::TerminalInfo::export_all(&cfg)?;
-    terminals::TerminalFolders::export_all(&cfg)?;
-    code::CodeSources::export_all(&cfg)?;
-    code::FileList::export_all(&cfg)?;
-    prompt_context::PathResults::export_all(&cfg)?;
-    prompt_context::SkillResults::export_all(&cfg)?;
-    code::CodeFile::export_all(&cfg)?;
-    code::SearchResult::export_all(&cfg)?;
-    code::CommitInfo::export_all(&cfg)?;
-    session_git::GitFile::export_all(&cfg)?;
-    session_git::GitStatus::export_all(&cfg)?;
-    session_git::GitDiff::export_all(&cfg)?;
-    session_git::GitHistory::export_all(&cfg)?;
-    workspace::Workspace::export_all(&cfg)?;
-    runners::RunnerStatus::export_all(&cfg)?;
-    vault::VaultOverview::export_all(&cfg)?;
-    vault::ToolTest::export_all(&cfg)?;
-    vault::LeaseInfo::export_all(&cfg)?;
-    proxy::Access::export_all(&cfg)?;
-    home_link::RemoteLaunch::export_all(&cfg)?;
-    home_backup::BackupInfo::export_all(&cfg)?;
-    worktrees::WorktreeInfo::export_all(&cfg)?;
-    home_git::HomeBranch::export_all(&cfg)?;
-    home_git::MergeOutcome::export_all(&cfg)?;
-    plain::Change::export_all(&cfg)?;
-    plain::Tree::export_all(&cfg)?;
-    plain::AssetInfo::export_all(&cfg)?;
-    kb::Notes::export_all(&cfg)?;
-    kb::Hit::export_all(&cfg)?;
-    kb::NativeMemory::export_all(&cfg)?;
-    hosts::HostStatus::export_all(&cfg)?;
-    hosts::sshconfig::SshConfigHost::export_all(&cfg)?;
-    proposals::Proposal::export_all(&cfg)?;
-    bots::Bot::export_all(&cfg)?;
-    onboarding::OnboardingState::export_all(&cfg)?;
-    setup_checklist::Checklist::export_all(&cfg)?;
-    setup_checklist::ChecklistSummary::export_all(&cfg)?;
+    Ok(ts_rs::Config::new().with_out_dir(out).with_large_int("number"))
+}
+
+/// Writes the TypeScript versions of this crate's types shared with the UI (ts-rs).
+pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
+    use ts_rs::TS;
+    predrafts::Predraft::export_all(cfg)?;
+    config::Config::export_all(cfg)?;
+    burst::BurstOverview::export_all(cfg)?;
+    mcp::McpServer::export_all(cfg)?;
+    status::Status::export_all(cfg)?;
+    analytics::AgentRun::export_all(cfg)?;
+    signin::SignInCheck::export_all(cfg)?;
+    model::Session::export_all(cfg)?;
+    model::MessageContext::export_all(cfg)?;
+    model::SessionProcess::export_all(cfg)?;
+    model::SessionEvent::export_all(cfg)?;
+    session_pages::SessionEventPage::export_all(cfg)?;
+    model::Project::export_all(cfg)?;
+    model::HarnessDefaults::export_all(cfg)?;
+    harness::HarnessDescriptor::export_all(cfg)?;
+    projects::Discovered::export_all(cfg)?;
+    projects::ProjectPatch::export_all(cfg)?;
+    sessions::Preview::export_all(cfg)?;
+    github::GhItem::export_all(cfg)?;
+    terminals::TerminalInfo::export_all(cfg)?;
+    terminals::TerminalFolders::export_all(cfg)?;
+    code::CodeSources::export_all(cfg)?;
+    code::FileList::export_all(cfg)?;
+    prompt_context::PathResults::export_all(cfg)?;
+    prompt_context::SkillResults::export_all(cfg)?;
+    code::CodeFile::export_all(cfg)?;
+    code::SearchResult::export_all(cfg)?;
+    code::CommitInfo::export_all(cfg)?;
+    session_git::GitFile::export_all(cfg)?;
+    session_git::GitStatus::export_all(cfg)?;
+    session_git::GitDiff::export_all(cfg)?;
+    session_git::GitHistory::export_all(cfg)?;
+    workspace::Workspace::export_all(cfg)?;
+    runners::RunnerStatus::export_all(cfg)?;
+    vault::VaultOverview::export_all(cfg)?;
+    vault::ToolTest::export_all(cfg)?;
+    vault::LeaseInfo::export_all(cfg)?;
+    proxy::Access::export_all(cfg)?;
+    home_link::RemoteLaunch::export_all(cfg)?;
+    home_backup::BackupInfo::export_all(cfg)?;
+    worktrees::WorktreeInfo::export_all(cfg)?;
+    home_git::HomeBranch::export_all(cfg)?;
+    home_git::MergeOutcome::export_all(cfg)?;
+    plain::Change::export_all(cfg)?;
+    plain::Tree::export_all(cfg)?;
+    plain::AssetInfo::export_all(cfg)?;
+    kb::Notes::export_all(cfg)?;
+    kb::Hit::export_all(cfg)?;
+    kb::NativeMemory::export_all(cfg)?;
+    hosts::HostStatus::export_all(cfg)?;
+    hosts::sshconfig::SshConfigHost::export_all(cfg)?;
+    bots::Bot::export_all(cfg)?;
     Ok(())
 }
 

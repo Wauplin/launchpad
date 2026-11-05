@@ -64,7 +64,7 @@ pub(crate) fn status_notification(before: SessionStatus, after: SessionStatus, q
 /// The caller selects an eligible event and checks active-window suppression.
 pub(crate) fn session(app: &App, s: &Session, event: SessionNotification) {
     // Home's Telegram chat has its own switch (Settings → Channels).
-    crate::telegram::notify(app, s, event.key());
+    crate::ext::extensions().notify_channels(app, s, event.key());
     if !app.config.get().agents.notify {
         return;
     }

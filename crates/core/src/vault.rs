@@ -156,7 +156,7 @@ pub fn placeholder(id: &str) -> String {
 }
 
 /// The Launchpad CLI tool: sessions granted it are told what they may do with `launchpad`
-/// (`proposals::cli_reference`) at their access level. It needs no install (the runner puts `launchpad` on PATH)
+/// (`launchpad_cli::cli_reference`) at their access level. It needs no install (the runner puts `launchpad` on PATH)
 /// and no token (the session's own CLI token). Home adds it once, granted everywhere (`ask_bot::seed`).
 pub const LAUNCHPAD_TOOL: &str = "launchpad";
 
@@ -429,7 +429,7 @@ pub async fn test_tool(app: &App, id: &str) -> Result<ToolTest> {
     })
 }
 
-pub(crate) async fn secret(app: &App, id: &str) -> Result<Option<(Kind, String)>> {
+pub async fn secret(app: &App, id: &str) -> Result<Option<(Kind, String)>> {
     let id = id.to_string();
     app.state_db
         .call(move |c| {

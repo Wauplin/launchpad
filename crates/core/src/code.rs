@@ -327,7 +327,7 @@ async fn commit_diff_file_at(env: &UserEnv, root: &Path, sha: &str, path: &str) 
         args.push(previous);
     }
     let patch = run_raw(env, root, &args).await?;
-    let parsed = crate::items::parse_diff(&String::from_utf8_lossy(&patch));
+    let parsed = crate::diff::parse_diff(&String::from_utf8_lossy(&patch));
     file["patch"] = parsed.iter().find(|f| f["filename"] == path).map(|f| f["patch"].clone()).unwrap_or(serde_json::json!(""));
     file["language"] = serde_json::json!(language(path).map(|(id, _)| id));
     Ok(file)

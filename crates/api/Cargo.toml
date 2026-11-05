@@ -1,0 +1,24 @@
+[package]
+name = "launchpad-api"
+version = "0.1.0"
+edition = "2024"
+
+# No doctests: skips a rustdoc pass on every `cargo test`.
+[lib]
+doctest = false
+
+[dependencies]
+anyhow = "1.0.104"
+axum = { version = "0.8.9", features = ["ws", "macros"] }
+futures-util = "0.3.34"
+launchpad-automation = { version = "0.1.0", path = "../automation" }
+launchpad-channels = { version = "0.1.0", path = "../channels" }
+launchpad-core = { version = "0.1.0", path = "../core" }
+launchpad-github = { version = "0.1.0", path = "../github" }
+launchpad-http = { version = "0.1.0", path = "../http" }
+launchpad-setup = { version = "0.1.0", path = "../setup" }
+mime_guess = "2.0.5"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["full"] }
+uuid = { version = "1.26.1", features = ["v4"] }

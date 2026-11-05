@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/harness", "crates/server", "crates/cli", "desktop/src-tauri"]
-default-members = ["crates/core", "crates/harness", "crates/server", "crates/cli"]
+members = ["crates/core", "crates/harness", "crates/channels", "crates/github", "crates/automation", "crates/setup", "crates/http", "crates/api", "crates/server", "crates/cli", "desktop/src-tauri"]
+default-members = ["crates/core", "crates/harness", "crates/channels", "crates/github", "crates/automation", "crates/setup", "crates/http", "crates/api", "crates/server", "crates/cli"]
 
 [workspace.package]
 edition = "2024"

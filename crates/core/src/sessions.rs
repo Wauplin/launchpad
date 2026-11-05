@@ -116,7 +116,7 @@ fn unanswered_requests(events: &[EventBody]) -> Vec<String> {
 const RAW_LINES_CAP: i64 = 20_000;
 
 #[derive(Debug)]
-pub(crate) struct FollowUpBusy;
+pub struct FollowUpBusy;
 impl std::fmt::Display for FollowUpBusy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("The session is running, in a terminal or awaiting an answer; the follow-up stays queued.") }
 }
@@ -604,7 +604,7 @@ impl Sessions {
     /// Home: a runner's session left Running, so routines settle and trigger. The runner keeps its own desktop
     /// notification and forwards Telegram.
     fn replica_turn_ended(&self, app: &App, s: &Session) {
-        crate::crons::turn_ended(app, s);
+        crate::ext::extensions().turn_ended(app, s);
     }
 
     /// Applies a change to a session record, stores it, and pushes it to the UI.
@@ -882,7 +882,7 @@ impl Sessions {
         }
         if let Some(r) = &spec.routine {
             prompt.push_str("\n\n");
-            prompt.push_str(&crate::crons::instruction(r));
+            prompt.push_str(&crate::routines::instruction(r));
         }
         if let Some(bot) = &spec.bot {
             prompt.push_str("\n\n");
@@ -1053,7 +1053,7 @@ impl Sessions {
             let (images, attachment_dir, instruction) = crate::attachments::prepare(app, crate::hosts::loc::host_of(&cwd), &id, &spec.attachments).await?;
             if let Some(dir) = attachment_dir { preview.add_dirs.push(dir.to_string_lossy().into_owned()); }
             preview.prompt.push_str(&instruction);
-            if !matches!(spec.target, Target::Browser { .. }) { preview.prompt.push_str(&format!("\n\n{}", crate::suggestions::instruction(app, &id, &cwd))); }
+            if !matches!(spec.target, Target::Browser { .. }) && let Some(text) = crate::ext::extensions().suggestion_instruction(app, &id, &cwd) { preview.prompt.push_str(&format!("\n\n{text}")); }
             let now = now_ms();
             let session = Session {
                 imported_from: None,
@@ -2332,11 +2332,11 @@ impl Sink {
         }
         // A turn that ends with `no_update` (a routine with nothing to report) never notifies; Home's routine
         // records decide whether it leaves Needs you (`crons::turn_ended`).
-        let silent = status == SessionStatus::Waiting && self.sessions.get(&self.id).is_some_and(|s| crate::crons::is_no_update(s.last_message.as_deref()));
+        let silent = status == SessionStatus::Waiting && self.sessions.get(&self.id).is_some_and(|s| crate::routines::is_no_update(s.last_message.as_deref()));
         if before.status.is_running() && !status.is_running() && crate::home_git::here(&self.app)
             && let Some(s) = self.sessions.get(&self.id)
         {
-            crate::crons::turn_ended(&self.app, &s);
+            crate::ext::extensions().turn_ended(&self.app, &s);
         }
         self.sessions.publish_counts(&self.app);
         if let Some(event) = crate::notify::status_notification(before.status, status, before.open_question, manual_stop, budget_stop)

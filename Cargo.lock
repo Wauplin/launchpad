@@ -2683,16 +2683,80 @@ name = "launchpad"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.22.1",
  "clap",
+ "launchpad-api",
+ "launchpad-automation",
+ "launchpad-channels",
  "launchpad-core",
+ "launchpad-github",
  "launchpad-harness",
  "launchpad-server",
+ "launchpad-setup",
  "reqwest",
  "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "launchpad-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "futures-util",
+ "launchpad-automation",
+ "launchpad-channels",
+ "launchpad-core",
+ "launchpad-github",
+ "launchpad-http",
+ "launchpad-setup",
+ "mime_guess",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "launchpad-automation"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "chrono-tz",
+ "croner",
+ "launchpad-core",
+ "launchpad-harness",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "ts-rs",
+ "uuid",
+]
+
+[[package]]
+name = "launchpad-channels"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "launchpad-core",
+ "rand 0.10.3",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tokio",
+ "tracing",
+ "ts-rs",
+ "uuid",
 ]
 
 [[package]]
@@ -2754,6 +2818,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "launchpad-github"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "launchpad-core",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tokio",
+ "tracing",
+ "ts-rs",
+ "uuid",
+]
+
+[[package]]
 name = "launchpad-harness"
 version = "0.1.0"
 dependencies = [
@@ -2771,6 +2853,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "launchpad-http"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "launchpad-core",
+ "reqwest",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "launchpad-server"
 version = "0.1.0"
 dependencies = [
@@ -2781,6 +2875,7 @@ dependencies = [
  "futures-util",
  "hex",
  "launchpad-core",
+ "launchpad-http",
  "mime_guess",
  "qrcode",
  "rand 0.10.3",
@@ -2794,6 +2889,24 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "launchpad-setup"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "launchpad-core",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+ "ts-rs",
  "uuid",
 ]
 

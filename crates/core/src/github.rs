@@ -27,6 +27,27 @@ pub struct GitHub {
     recent: Arc<RwLock<RecentItems>>,
 }
 
+// An Inbox thread (a GitHub notification), listed by `launchpad-github` `inbox`.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct Thread {
+    pub id: String,
+    pub repo: String,
+    pub title: String,
+    pub kind: String,
+    pub number: Option<u64>,
+    pub url: String,
+    pub subject_path: Option<String>,
+    pub reason: String,
+    pub unread: bool,
+    pub local_unread: bool,
+    pub updated_at: String,
+    pub state: Option<String>,
+    pub participants: Vec<String>,
+    pub participant_count: u64,
+    pub review_decision: Option<String>,
+    pub checks: Option<String>,
+}
+
 /// An issue or a pull request, as shown in suggestions and context chips.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct GhItem {

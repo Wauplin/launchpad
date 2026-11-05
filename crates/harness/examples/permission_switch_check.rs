@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
         proxy: Default::default(),
         paths: Arc::new(paths.clone()), config, state_db, cache_db: cache_db.clone(), status, hosts,
         harnesses: core::harness::Registry::new(&env), github: core::github::GitHub::new(env.clone(), cache_db), env, bus,
-        sessions: core::sessions::Sessions::new(), inbox: core::inbox::Inbox::new(), models: Default::default(),
+        sessions: core::sessions::Sessions::new(), models: Default::default(), extras: Default::default(),
         suggestion_locks: Default::default(),
         predraft_lock: Arc::new(tokio::sync::Mutex::new(())), worktree_lock: Arc::new(tokio::sync::Mutex::new(())),
         terminals: Default::default(),

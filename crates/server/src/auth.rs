@@ -458,7 +458,7 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
     // Runners authenticate these with their own credential, checked by the handlers.
     // Incoming hooks authenticate with their own secret, checked by the handler.
     if crate::runners::runner_path(path) || crate::burst::runner_path(path) || crate::git_http::git_path(path) || crate::plain_http::runner_request(path, req.headers())
-        || (req.method() == Method::POST && crate::channels::hook_path(path)) {
+        || (req.method() == Method::POST && launchpad_http::hook_path(path)) {
         return private_response(next.run(req).await, true);
     }
     // Session-scoped CLI token: verify the durable generation and restrict the router surface before relays.
@@ -906,6 +906,15 @@ fetch('/api/devices').then(r=>{if(r.ok){location.replace(destination());}
 else{document.getElementById('name').value='Desktop';form.requestSubmit();}}).catch(()=>{message.textContent='Could not reach daemon. Try again.';});
 }
 </script></body></html>"#;
+
+impl launchpad_http::FrontDoor for Auth {
+    fn remote(&self) -> bool {
+        Auth::remote(self)
+    }
+    fn origin(&self) -> String {
+        Auth::origin(self)
+    }
+}
 
 #[cfg(test)]
 mod tests {

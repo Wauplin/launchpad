@@ -3,6 +3,7 @@
 //! The environment comes from `LAUNCHPAD_ENV` (`prod` by default, `dev` for development).
 
 mod browser;
+mod extensions;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -527,6 +528,7 @@ async fn askpass(paths: &Paths, host: &str, prompt: &str) -> Result<()> {
 async fn main() -> Result<()> {
     launchpad_core::set_build(env!("LAUNCHPAD_COMMIT"), env!("LAUNCHPAD_SOURCE"));
     launchpad_harness::install();
+    launchpad_core::ext::install(Box::new(extensions::Extensions));
     let paths = Paths::from_env();
     if let Ok(host) = std::env::var("LAUNCHPAD_ASKPASS") {
         let prompt = std::env::args().nth(1).unwrap_or_default();
@@ -622,7 +624,8 @@ async fn main() -> Result<()> {
             let paths = if role == paths.role { paths } else { Paths::for_role(paths.app_env, role) };
             tracing::info!("env {}, role {}, data in {}", paths.app_env.name(), role.name(), paths.data_dir.display());
             let app = launchpad_core::App::start(paths).await?;
-            launchpad_server::serve(app).await?;
+            extensions::start(&app).await?;
+            launchpad_server::serve(app, launchpad_api::router()).await?;
             // A runner that just installed Home's build starts it in this process.
             launchpad_core::self_update::restart_if_updated();
             Ok(())
@@ -649,7 +652,7 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::GenTypes { out } => launchpad_core::gen_types(&out),
+        Command::GenTypes { out } => extensions::gen_types(&out),
     }
 }
 

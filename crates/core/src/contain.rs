@@ -185,7 +185,7 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     // The Launchpad CLI tool: what the session may do with `launchpad`, at its access level.
     if let Some(access) = lease.launchpad {
         instructions.push('\n');
-        instructions.push_str(&crate::proposals::cli_reference(&app.paths.cli_command(), kb.as_ref().map(|(ws, _)| ws.as_str()), access));
+        instructions.push_str(&crate::launchpad_cli::cli_reference(&app.paths.cli_command(), kb.as_ref().map(|(ws, _)| ws.as_str()), access));
     }
     env.extend(harness.contained_memory(&home, &instructions)?);
     env.extend(harness.contained_history(&home)?);

@@ -1,0 +1,16 @@
+[package]
+name = "launchpad-http"
+version = "0.1.0"
+edition = "2024"
+
+# No doctests: skips a rustdoc pass on every `cargo test`.
+[lib]
+doctest = false
+
+[dependencies]
+anyhow = "1.0.104"
+axum = { version = "0.8.9", features = ["ws", "macros"] }
+launchpad-core = { version = "0.1.0", path = "../core" }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "stream"] }
+serde_json = "1.0.151"
+tracing = "0.1.44"

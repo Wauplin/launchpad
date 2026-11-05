@@ -189,7 +189,7 @@ impl Session {
         (self.status.is_done() && !self.open_question) || (self.status == SessionStatus::Closed && self.archived_done)
     }
 
-    pub(crate) fn change_status(&mut self, status: SessionStatus) {
+    pub fn change_status(&mut self, status: SessionStatus) {
         self.archived_done = status == SessionStatus::Closed && self.dependency_done();
         self.status = status;
     }

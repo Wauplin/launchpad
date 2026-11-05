@@ -20,7 +20,7 @@ use tower::ServiceExt;
 const PING: Duration = Duration::from_secs(25);
 
 /// Marks requests that arrived from Home through the tunnel.
-pub const FROM_HOME: &str = "x-launchpad-from-home";
+pub use launchpad_http::FROM_HOME;
 
 type Head = (u16, Vec<(String, String)>);
 type BodyTx = tokio::sync::mpsc::UnboundedSender<Result<bytes::Bytes, std::io::Error>>;

@@ -1,36 +1,19 @@
 //! HTTP + WebSocket server; loopback plus discovered tailnet access, or a configured gateway.
 
-mod api;
-mod bots;
 mod burst;
 mod browser;
-mod channels;
 mod auth;
-mod agent_auth;
-mod code;
-mod error;
 mod exchange;
 mod git_http;
 mod plain_http;
-mod kb_http;
-mod mcp;
 mod home_client;
-mod hosts;
-mod items;
 mod operations;
-mod predrafts;
-mod review_state;
 mod routes;
 mod runners;
-mod setup;
-mod suggestions;
-mod proposals;
-mod prompt_context;
 mod terminals;
 mod tailnet;
 mod worktrees;
 mod ui;
-mod vault;
 mod wire;
 mod ws;
 
@@ -40,7 +23,8 @@ use anyhow::{Context, Result};
 use axum::Router;
 use launchpad_core::App;
 
-pub use error::ApiError;
+pub use launchpad_http::ApiError;
+use launchpad_http::{Ctx, agent_auth, error};
 
 #[derive(Clone)]
 pub struct Server {
@@ -53,7 +37,8 @@ pub use home_client::connect;
 /// The daemon's own router, for API requests that arrive through a runner tunnel.
 pub(crate) static ROUTER: std::sync::OnceLock<Router> = std::sync::OnceLock::new();
 
-pub async fn serve(app: App) -> Result<()> {
+/// Serves the daemon's API: this crate's routes and `api` (`launchpad_api::router`).
+pub async fn serve(app: App, api: Router<Ctx>) -> Result<()> {
     let port = app.paths.port;
     let mut config = app.config.get().server;
     // A Burst runner listens on every interface: Home reaches it through the HF Jobs proxy, and its router only
@@ -67,7 +52,7 @@ pub async fn serve(app: App) -> Result<()> {
     let auth = Arc::new(auth::Auth::new(&app.paths, &config, app.state_db.clone()).await?);
     let server = Server { app: app.clone(), auth };
     let server_for_burst = server.clone();
-    let router = router(server);
+    let router = router(server, api);
     let _ = ROUTER.set(router.clone());
     if app.paths.role == launchpad_core::role::Role::Runner {
         home_client::spawn(app.clone(), router.clone());
@@ -91,32 +76,19 @@ pub async fn serve(app: App) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn router(server: Server) -> Router {
+pub(crate) fn router(server: Server, api: Router<Ctx>) -> Router {
     let operations = operations::Operations::new(server.app.state_db.clone());
+    let ctx = Ctx { app: server.app.clone(), auth: server.auth.clone() };
     Router::new()
         .merge(routes::router())
-        .merge(api::router())
+        .merge(api.with_state(ctx))
         .merge(browser::router())
-        .merge(code::router())
-        .merge(items::router())
-        .merge(predrafts::router())
-        .merge(review_state::router())
-        .merge(suggestions::router())
-        .merge(proposals::router())
-        .merge(bots::router())
-        .merge(channels::router())
-        .merge(prompt_context::router())
         .merge(terminals::router())
         .merge(worktrees::router())
-        .merge(setup::router())
-        .merge(hosts::router())
         .merge(runners::router())
         .merge(burst::router())
-        .merge(mcp::router())
-        .merge(vault::router())
         .merge(git_http::router())
         .merge(plain_http::router())
-        .merge(kb_http::router())
         .route("/ws", axum::routing::get(ws::handler))
         .merge(auth::router())
         .fallback(ui::serve)

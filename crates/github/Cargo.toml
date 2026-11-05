@@ -1,0 +1,22 @@
+[package]
+name = "launchpad-github"
+version = "0.1.0"
+edition = "2024"
+
+# No doctests: skips a rustdoc pass on every `cargo test`.
+[lib]
+doctest = false
+
+[dependencies]
+anyhow = "1.0.104"
+hex = "0.4.3"
+launchpad-core = { version = "0.1.0", path = "../core" }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "http2", "stream"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+tokio = { version = "1.53.1", features = ["full"] }
+tracing = "0.1.44"
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "uuid-impl", "no-serde-warnings"] }
+uuid = { version = "1.26.1", features = ["v4", "serde"] }

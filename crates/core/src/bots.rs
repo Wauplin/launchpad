@@ -285,7 +285,7 @@ pub async fn set_paused(app: &App, id: &str, paused: bool) -> Result<Bot> {
     get(app, id).await?;
     let id2 = id.to_string();
     app.state_db.call(move |c| Ok(c.execute("UPDATE bot SET paused = ?2 WHERE id = ?1", params![id2, paused])?)).await?;
-    crate::crons::set_bot_paused(app, id, paused).await?;
+    crate::ext::extensions().bot_paused(app, id, paused).await?;
     app.bus.publish("bots", "changed", serde_json::json!({"id": id}));
     get(app, id).await
 }
@@ -294,7 +294,7 @@ pub async fn set_paused(app: &App, id: &str, paused: bool) -> Result<Bot> {
 pub async fn delete(app: &App, id: &str) -> Result<()> {
     ensure_home(app)?;
     ensure!(thread(app, id).iter().all(|s| !s.status.is_running()), "the bot is working: stop it first");
-    crate::crons::delete_for_bot(app, id).await?;
+    crate::ext::extensions().bot_deleted(app, id).await?;
     let (id2, st) = (id.to_string(), store(id));
     app.state_db.call(move |c| {
         let tx = c.transaction()?;
@@ -433,7 +433,7 @@ Routines: when the owner wants you to do something on your own later or again (e
         instructions = bot.instructions.trim(),
         slug = bot.slug,
         id = bot.id,
-        triggers = crate::crons::TRIGGER_FORMS,
+        triggers = crate::routines::TRIGGER_FORMS,
     );
     if let Some(p) = &bot.previous {
         out.push_str(&format!(

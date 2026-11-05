@@ -386,7 +386,7 @@ pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
     let commits = git(app, &dir, &["log", "--format=%h %s", &format!("{base}..{head}"), "--"]).await?;
     let ahead = git(app, &dir, &["rev-list", "--count", &format!("{head}..{base}")]).await?.parse::<u64>()?;
     let remote = p.remote_branch.clone().unwrap_or_else(|| p.default_remote_branch.clone());
-    Ok(json!({"predraft":p,"status":status,"head":head,"base":merge_base,"base_ahead":ahead,"commits":commits.lines().collect::<Vec<_>>(),"files":crate::items::parse_diff(&patch),"project_id":project.id,"fallback":false,"default_remote_branch":remote,"change_set":set}))
+    Ok(json!({"predraft":p,"status":status,"head":head,"base":merge_base,"base_ahead":ahead,"commits":commits.lines().collect::<Vec<_>>(),"files":crate::diff::parse_diff(&patch),"project_id":project.id,"fallback":false,"default_remote_branch":remote,"change_set":set}))
 }
 /// The other Local PRs of the same change set, with their folders.
 async fn change_set(app: &App, p: &Predraft) -> Result<Vec<Value>> {
