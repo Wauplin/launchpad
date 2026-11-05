@@ -70,7 +70,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
         <span className="flex items-center gap-1 text-[12px] whitespace-nowrap text-ink-3">
           {informative(s) ? <StatusBadge s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{formatAge(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
         </span>
-        <span className={`col-span-2 line-clamp-2 text-[12px] leading-[1.3] text-ink-3 ${dim ? "" : canMarkUnread ? "pr-14" : "pr-7"}`} title={line ? `${project} · ${line}` : project}>
+        <span className={`col-span-2 line-clamp-2 text-[12px] leading-[1.3] text-ink-3 ${dim ? "" : canMarkUnread ? "agent-row-line-2 pr-14" : "agent-row-line-1 pr-7"}`} title={line ? `${project} · ${line}` : project}>
           <HostLabel path={s.cwd} className="mr-1 align-[1px]" /><span className="text-ink-2">{sessionPlace(s, project)}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
         </span>
       </button>
@@ -80,7 +80,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
         aria-label={`Mark ${s.title} unread`}
         disabled={acting}
         onClick={() => void act(true)}
-        className="absolute bottom-2 right-9 flex h-6 w-6 items-center justify-center rounded text-ink-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-sunk hover:text-ink disabled:cursor-wait [@media(hover:none)]:opacity-100"
+        className="agent-row-action agent-row-unread absolute bottom-2 right-9 flex h-6 w-6 items-center justify-center rounded text-ink-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-sunk hover:text-ink disabled:cursor-wait [@media(hover:none)]:opacity-100"
       >
         <Icon name="mail" size={14} />
       </button>}
@@ -90,7 +90,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
         aria-label={`${action} ${s.title}`}
         disabled={acting}
         onClick={() => void act()}
-        className={`absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded text-ink-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-sunk hover:text-ink disabled:cursor-wait [@media(hover:none)]:opacity-100 ${acting ? "opacity-100" : ""}`}
+        className={`agent-row-action absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded text-ink-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-sunk hover:text-ink disabled:cursor-wait [@media(hover:none)]:opacity-100 ${acting ? "opacity-100" : ""}`}
       >
         {acting ? <span className="lp-spin" /> : <Icon name={stop ? "stop" : "archive"} size={14} />}
       </button>}

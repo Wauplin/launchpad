@@ -16,34 +16,19 @@ import { useTerminalsHere } from "@/features/terminals/lib";
 import { useInboxNeeds } from "@/features/inbox/data";
 import { useReviewCount } from "@/features/review/data";
 import { folderCount, useScope, useWorkspaces, useWorkspaceSync } from "@/lib/workspace";
-import { useProjects, useSessions } from "@/lib/queries";
+import { useCrons, useProjects, useSessions } from "@/lib/queries";
+import { useKnowledgeUnseen } from "@/lib/knowledge";
+import { useProposalCount } from "@/features/proposals/count";
+import { useOutboxCount } from "@/features/outbox/data";
 import { isRunning, needsYou } from "@/lib/sessionStatus";
 import { setLayoutChoice } from "@/lib/phone";
 import { useTheme } from "@/stores/theme";
 import { useWorkspace } from "@/stores/workspace";
 import { Sheet } from "./Sheet";
 import { ServerStatus } from "./ServerStatus";
+import { pageTitle } from "./PhoneHeader";
 
 const AddFolderDialog = lazy(() => import("@/features/projects/AddFolder").then((m) => ({ default: m.AddFolderDialog })));
-
-function pageTitle(path: string): string {
-  if (path.startsWith("/now")) return "Now";
-  if (path.startsWith("/agents")) return "Agents";
-  if (path.startsWith("/review")) return "Review";
-  if (path.startsWith("/inbox") || path === "/") return "Inbox";
-  if (path.startsWith("/outbox")) return "Outbox";
-  if (path.startsWith("/github")) return "GitHub";
-  if (path.startsWith("/predrafts")) return "Local PR";
-  if (path.startsWith("/proposals")) return "Proposals";
-  if (path.startsWith("/terminals")) return "Terminals";
-  if (path.startsWith("/settings")) return "Settings";
-  if (path.startsWith("/setup")) return "Setup";
-  if (path.startsWith("/knowledge")) return "Knowledge";
-  if (path.startsWith("/schedules")) return "Schedules";
-  if (path.startsWith("/bots")) return "Bots";
-  if (path.startsWith("/projects")) return path.endsWith("/code") ? "Files" : "Folders";
-  return "Launchpad";
-}
 
 function Tab({ to, icon, label, count, highlight }: { to: string; icon: IconName; label: string; count?: number; highlight?: boolean }) {
   return (
@@ -60,8 +45,12 @@ function Tab({ to, icon, label, count, highlight }: { to: string; icon: IconName
   );
 }
 
-function MenuLink({ to, icon, children, onClick }: { to: string; icon: IconName; children: ReactNode; onClick: () => void }) {
-  return <Link to={to} onClick={onClick} className="flex min-h-12 items-center gap-3 border-b border-line-2 px-4 text-[15px] text-ink no-underline"><Icon name={icon} size={18} className="text-ink-3" />{children}</Link>;
+/** A place in the menu, with its count like the laptop sidebar (`attn`: something needs you). */
+function MenuLink({ to, icon, children, onClick, count, attn }: { to: string; icon: IconName; children: ReactNode; onClick: () => void; count?: number; attn?: boolean }) {
+  return <Link to={to} onClick={onClick} className="flex min-h-12 items-center gap-3 border-b border-line-2 px-4 text-[15px] text-ink no-underline">
+    <Icon name={icon} size={18} className="text-ink-3" /><span className="min-w-0 flex-1 truncate">{children}</span>
+    {!!count && <span className={`min-w-[22px] rounded-full px-1.5 text-center text-[13px] leading-[22px] font-semibold tabular-nums ${attn ? "bg-attn-soft text-attn" : "bg-sunk text-ink-2"}`}>{count}</span>}
+  </Link>;
 }
 
 /** Workspace switch, secondary pages and device settings. */
@@ -72,6 +61,11 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
   const projects = all?.length ?? 0;
   const { theme, toggle } = useTheme();
   const terminalsHere = useTerminalsHere();
+  const scope = useScope();
+  const proposals = useProposalCount();
+  const toSend = useOutboxCount();
+  const knowledgeNew = useKnowledgeUnseen();
+  const brokenRoutines = (useCrons().data ?? []).filter((c) => scope.hasSpec(c.spec) && ["failed", "interrupted"].includes(c.history.at(-1)?.outcome ?? "")).length;
   const pick = (id: string | null) => { switchTo(id); onClose(); };
   const button = (id: string | null, label: string, detail: string) => (
     <button key={id ?? "all"} className={`flex min-h-12 w-full items-center gap-3 border-b border-line-2 px-4 text-left text-[15px] ${current === id ? "font-semibold text-teal-ink" : ""}`} aria-pressed={current === id} onClick={() => pick(id)}>
@@ -84,11 +78,11 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
       {button(null, "Everything", `${projects} folders`)}
       {workspaces.map((w) => button(w.id, w.name, `${folderCount(all, w.id)} folders`))}
       <div className="seclabel px-4 pt-4 pb-1">Go to</div>
-      <MenuLink to="/proposals" icon="spark" onClick={onClose}>Proposals</MenuLink>
-      <MenuLink to="/schedules" icon="clock" onClick={onClose}>Schedules</MenuLink>
-      <MenuLink to="/outbox" icon="send" onClick={onClose}>Outbox</MenuLink>
+      <MenuLink to="/proposals" icon="spark" onClick={onClose} count={proposals} attn>Proposals</MenuLink>
+      <MenuLink to="/schedules" icon="clock" onClick={onClose} count={brokenRoutines} attn>Schedules</MenuLink>
+      <MenuLink to="/outbox" icon="send" onClick={onClose} count={toSend}>Outbox</MenuLink>
       <MenuLink to="/projects" icon="folder" onClick={onClose}>Folders</MenuLink>
-      <MenuLink to="/knowledge" icon="book" onClick={onClose}>Knowledge</MenuLink>
+      <MenuLink to="/knowledge" icon="book" onClick={onClose} count={knowledgeNew}>Knowledge</MenuLink>
       {terminalsHere && <MenuLink to="/terminals" icon="term" onClick={onClose}>Terminals</MenuLink>}
       <MenuLink to="/settings" icon="sliders" onClick={onClose}>Settings</MenuLink>
       <div className="seclabel px-4 pt-4 pb-1">This device</div>
@@ -131,6 +125,8 @@ export function MobileShell() {
   const running = sessions.filter(isRunning).length;
   const publish = useReviewCount();
   const inbox = useInboxNeeds();
+  // What waits in the menu's places, shown on the button that opens it.
+  const inMenu = useProposalCount() + useOutboxCount();
   const terminals = path.startsWith("/terminals");
   const viewport = useTerminalViewport(terminals);
   const workspaceName = scope.workspace?.name ?? "Everything";
@@ -139,8 +135,9 @@ export function MobileShell() {
       <IconSprite />
       {/* Equal side columns keep every section title centered on the viewport. */}
       <header className="grid min-h-12 flex-none grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-chrome px-2">
-        <button className="btn btn-ghost max-w-full min-w-0 justify-self-start px-2!" aria-label={`Workspace: ${workspaceName}. Open the menu`} onClick={() => setMenu(true)}>
+        <button className="btn btn-ghost max-w-full min-w-0 justify-self-start px-2!" aria-label={`Workspace: ${workspaceName}. Open the menu${inMenu > 0 ? ` (${inMenu} waiting)` : ""}`} onClick={() => setMenu(true)}>
           <span className="truncate font-semibold text-ink">{workspaceName}</span><Icon name="chev" size={14} className="shrink-0" />
+          {inMenu > 0 && <span className="shrink-0 rounded-full bg-attn-soft px-1.5 text-[11px] leading-[18px] font-semibold text-attn tabular-nums" title={`${inMenu} waiting in Proposals and the Outbox`}>{inMenu}</span>}
         </button>
         <b className="max-w-[40vw] min-w-0 truncate text-center text-[15px]">{pageTitle(path)}</b>
         <div className="flex min-w-0 justify-end"><ServerStatus /></div>

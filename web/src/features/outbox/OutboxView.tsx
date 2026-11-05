@@ -22,6 +22,7 @@ type Row = { kind: "message"; m: OutboxMessage; at: number } | { kind: "suggesti
 const KIND_LABEL: Record<OutboxMessage["kind"], string> = { slack: "Slack", discord: "Discord", generic: "Webhook" };
 
 export function OutboxView() {
+  const phone = usePhone();
   const messages = useOutboxMessages();
   const suggestions = useAllSuggestions();
   const [tab, setTab] = useState<OutboxTab>("to_send");
@@ -35,15 +36,20 @@ export function OutboxView() {
   const tabOf = (r: Row) => (r.kind === "message" ? messageTab(r.m) : suggestionTab(r.s));
   const count = (t: OutboxTab) => rows.filter((r) => tabOf(r) === t).length;
   const shown = rows.filter((r) => tabOf(r) === tab);
+  const tabs = <Tabs label="Outbox" value={tab} onChange={setTab} items={[{ id: "to_send", label: "To send", count: count("to_send") }, { id: "sent", label: "Sent", count: count("sent") }, { id: "discarded", label: "Discarded", count: count("discarded") }]} />;
+  const channels = <Link to="/settings/channels" className="btn btn-sm no-underline"><Icon name="sliders" size={12} />Channels</Link>;
   const error = messages.error ?? suggestions.error;
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="outbox.page">
-      <PageHeader
-        title="Outbox"
-        meta={<span>Messages agents drafted for other people. Nothing is sent before you click Send. Messages to your own Telegram chat go out directly.</span>}
-        actions={<Link to="/settings/channels" className="btn btn-sm no-underline"><Icon name="sliders" size={12} />Channels</Link>}
-        tabs={<Tabs label="Outbox" value={tab} onChange={setTab} items={[{ id: "to_send", label: "To send", count: count("to_send") }, { id: "sent", label: "Sent", count: count("sent") }, { id: "discarded", label: "Discarded", count: count("discarded") }]} />}
-      />
+      {phone
+        // The shell's top bar shows the title.
+        ? <div className="phone-page-header flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-1.5">{tabs}</div>
+        : <PageHeader
+          title="Outbox"
+          meta={<span>Messages agents drafted for other people. Nothing is sent before you click Send. Messages to your own Telegram chat go out directly.</span>}
+          actions={channels}
+          tabs={tabs}
+        />}
       {error ? <ErrorState className="m-4" error={error} /> : messages.isLoading || suggestions.isLoading ? <Loading what="the Outbox" /> : <OutboxList rows={shown} tab={tab} />}
     </div>
   );

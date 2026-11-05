@@ -81,7 +81,7 @@ export function ProposalsView() {
   const search = useSearch({ strict: false }) as { proposal?: string };
   const proposals = (useProposalList().data ?? []).filter((p) => !workspace || (p.workspace_id ?? null) === workspace);
   const header = phone
-    ? <PhoneHeader title="Proposals" subtitle={scope.workspace?.name ?? "Everything"} />
+    ? <PhoneHeader title="Proposals" />
     : <PageHeader icon={<Icon name="spark" size={18} className="text-teal-ink" />} title="Proposals" meta={<>{scope.workspace?.name ?? "Everything"} · cards your bots and agents wrote with the Launchpad CLI; nothing starts without your click</>} />;
   return (
     <div className="flex h-full min-h-0 flex-col">

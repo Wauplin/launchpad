@@ -69,7 +69,8 @@ export function SettingsPage({ title, intro, info, actions, children, tour }: { 
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4" data-tour={tour}>
           {title && (
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="m-0 text-[18px] font-semibold">{title}</h1>
+              {/* On the phone, the pressed tab above names the page. */}
+              {!phone && <h1 className="m-0 text-[18px] font-semibold">{title}</h1>}
               {info && <span className="text-ink-3" title={info} aria-label={info}><Icon name="info" size={14} /></span>}
               {actions && <span className="ml-auto flex flex-wrap gap-2">{actions}</span>}
               {intro && <p className="m-0 w-full text-[13px] text-ink-2">{intro}</p>}
@@ -137,7 +138,7 @@ export function SettingsView() {
             </label>
           </SettingRow>
         )}
-        <SettingRow label="Theme" hint="Also switchable from the sidebar." scope="device">
+        <SettingRow label="Theme" hint={phone ? "Also in the workspace menu." : "Also switchable from the sidebar."} scope="device">
           <div className="flex gap-1.5" role="group" aria-label="Theme">
             {(["light", "dark"] as const).map((t) => <button key={t} className="lp-chip" aria-pressed={theme === t} onClick={() => { if (theme !== t) toggle(); }}><Icon name={t === "light" ? "sun" : "moon"} size={12} />{t === "light" ? "Light" : "Dark"}</button>)}
           </div>
@@ -201,25 +202,31 @@ export function PresetsView() {
   );
 }
 
-/** Settings → Notifications: this browser's push subscription and the daemon-wide switch. */
 /** Settings → Notifications: desktop notifications here, and Telegram for the phone. */
 export function NotificationsView() {
   const q = useConfig();
   const patch = usePatchConfig();
   const { state, error, run } = useSaveState();
   const notify = q.data?.config.agents.notify;
+  const phone = usePhone();
+  const desktop = (
+    <Card title="Desktop notifications">
+      <SettingRow label="Agent notifications" hint="Desktop notifications on the machine that runs the agent." scope="all" state={state} error={error}>
+        {notify === undefined ? <Loading /> : <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" className="accent-teal" checked={notify} onChange={(e) => void run(() => patch({ notify: e.target.checked }))} />Send notifications</label>}
+      </SettingRow>
+    </Card>
+  );
+  const telegram = (
+    <Card title={phone ? "On this phone" : "Your phone"}>
+      <p className="m-0 text-[13px] text-ink-2">Get finished agents and routine reports on your phone through Telegram.</p>
+      <div><Link to={"/settings/channels" as never} className="btn btn-sm no-underline">Open Settings → Channels</Link></div>
+    </Card>
+  );
   return (
     <SettingsPage title="Notifications" intro="When an agent finishes, fails or stops on its own.">
       <ConfigError />
-      <Card title="All devices">
-        <SettingRow label="Agent notifications" hint="Desktop notifications on the machine that runs the agent." scope="all" state={state} error={error}>
-          {notify === undefined ? <Loading /> : <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" className="accent-teal" checked={notify} onChange={(e) => void run(() => patch({ notify: e.target.checked }))} />Send notifications</label>}
-        </SettingRow>
-      </Card>
-      <Card title="Your phone">
-        <p className="m-0 text-[13px] text-ink-2">Get finished agents and routine reports on your phone through Telegram.</p>
-        <div><Link to={"/settings/channels" as never} className="btn btn-sm no-underline">Open Settings → Channels</Link></div>
-      </Card>
+      {/* A phone gets its notifications through Telegram: show that first there. */}
+      {phone ? <>{telegram}{desktop}</> : <>{desktop}{telegram}</>}
     </SettingsPage>
   );
 }

@@ -189,7 +189,7 @@ export function ProjectsView() {
   const title = w ? `Folders in ${w.name}` : "Folders";
   return (
     <div className="h-full overflow-y-auto">
-      {phone ? <PhoneHeader title={title} subtitle={`${mine.length} folder${mine.length === 1 ? "" : "s"}`} primary={add} /> : <PageHeader title={title} meta={`${mine.length} folder${mine.length === 1 ? "" : "s"}${w ? "" : ` · ${workspaces.length} workspace${workspaces.length === 1 ? "" : "s"}`}`} actions={add} />}
+      {phone ? <PhoneHeader title="Folders" subtitle={`${mine.length} folder${mine.length === 1 ? "" : "s"}`} primary={add} /> : <PageHeader title={title} meta={`${mine.length} folder${mine.length === 1 ? "" : "s"}${w ? "" : ` · ${workspaces.length} workspace${workspaces.length === 1 ? "" : "s"}`}`} actions={add} />}
       <div className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
         {unassigned.length > 0 && <UnassignedFolders folders={unassigned} workspaces={workspaces} />}
         {mine.length === 0 ? <Empty icon="folder" action={add}>{w ? `No folder in ${w.name} yet.` : "No folder yet."}</Empty> : sections.map((x) => (

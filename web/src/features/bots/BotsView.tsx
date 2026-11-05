@@ -94,7 +94,7 @@ export function BotsView() {
   const creating = !!search.new || (bots.isSuccess && mine.length === 0);
   const close = () => void navigate({ to: "/bots", search: {} as never });
   const header = phone
-    ? <PhoneHeader title="Bots" subtitle={scope.workspace?.name ?? "Everything"} primary={!creating ? <Link to="/bots" search={{ new: true } as never} className="btn btn-sm btn-primary"><Icon name="plus" size={12} />New bot</Link> : undefined} />
+    ? <PhoneHeader title="Bots" primary={!creating ? <Link to="/bots" search={{ new: true } as never} className="btn btn-sm btn-primary"><Icon name="plus" size={12} />New bot</Link> : undefined} />
     : <PageHeader icon={<Icon name="spark" size={18} className="text-teal-ink" />} title="Bots" meta={<>{scope.workspace?.name ?? "Everything"} · persistent agents with one thread, memory in the knowledge base and files on Home</>} actions={!creating && <Link to="/bots" search={{ new: true } as never} className="btn btn-sm btn-primary" data-tour="bots.new"><Icon name="plus" size={12} />New bot</Link>} />;
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.page">
