@@ -16,17 +16,19 @@ Ask Launchpad has no special treatment: its `BOT.md` and `bot.toml` are edited, 
 
 | Level | What it allows |
 | --- | --- |
-| `read` | Read Launchpad state: `launchpad folders\|bots\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list`, `launchpad trace`. |
+| `read` | Read Launchpad state: `launchpad folders\|bots\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list`, `launchpad today`, `launchpad activity list`, `launchpad trace`. |
 | `propose` (default) | Read, and write proposals (`launchpad propose …`) that wait for your click. Agents that are not bots always get this level. |
-| `admin` | Propose, and change Launchpad itself with the admin actions of the action list, as `launchpad do <group>.<verb>` or the short verb `launchpad <group> <verb>` (for example `launchpad session archive <id>`), or with `launchpad api <method> <path>`: bots (their `BOT.md` and `bot.toml` included), routines, scheduled launches, workspaces, dismissing proposals, accepting a proposal whose action is an admin action (tool and preset cards wait for you), launching agents and messaging sessions, MCP tool switches. Ask Launchpad starts with this level. |
+| `admin` | Propose, and change Launchpad itself with the admin actions of the action list, as `launchpad do <group>.<verb>` or the short verb `launchpad <group> <verb>` (for example `launchpad session archive <id>`), or with `launchpad api <method> <path>`: bots (their `BOT.md` and `bot.toml` included), routines, scheduled launches, workspaces, folder settings (name, description, When done, workspace), shared settings (presets, notifications, GitHub poll interval, worktrees kept), dismissing proposals, accepting a proposal whose action is an admin action (tool cards wait for you), launching agents and messaging sessions, MCP tool switches. Ask Launchpad starts with this level. |
 
-No level reaches GitHub, the Outbox, channels, credentials, devices, terminals, hosts, runners, setup fixes, backups, Burst, `config.toml` (including presets and folder settings) or paid usage: those stay your clicks. A change of level applies to running sessions within ten minutes. Remove a workspace from the tool (or switch it off for one launch) and its sessions can no longer read Launchpad state at all.
+No level reaches GitHub, the Outbox, channels, credentials, devices, terminals, hosts, runners, setup fixes, backups, Burst, the rest of `config.toml` (profiles included), folder setup commands or paid usage: those stay your clicks. Each direct admin change is recorded on Home with the values before: the bot's chat shows it as a **Changed** line (each changed value as "before → after") with **Undo**, and `launchpad activity list` lists them. A change of level applies to running sessions within ten minutes. Remove a workspace from the tool (or switch it off for one launch) and its sessions can no longer read Launchpad state at all.
 
 ## Proposals
 
-A proposal is an inert card: a launch, a message to a session, a scheduled launch, a cron, a status card, a preset, a tool, a bot, a routine or a new `BOT.md`. Cards wait in [Today](today.md) → Approve, on the bot's **Proposals** tab and under the session that wrote them. **Start** (or Send, Schedule, Add routine, Apply to BOT.md) acts; **Edit** opens a launch in the composer and marks the card "Edited in the composer", so it no longer waits; **Dismiss** drops it. **Start all** and **Dismiss all** act on every waiting card of every kind, after one confirmation that lists them. Paid usage is always off for proposals.
+A proposal is an inert card: a launch, a message to a session, a scheduled launch, a cron, a status card, a preset, a tool, a bot, a routine, a new `BOT.md` or a ready click. Cards wait in [Today](today.md) → Approve, on the bot's **Proposals** tab and under the session that wrote them. **Start** (or Send, Schedule, Add routine, Apply to BOT.md) acts; **Edit** opens a launch in the composer and marks the card "Edited in the composer", so it no longer waits; **Dismiss** drops it. **Start all** and **Dismiss all** act on every waiting card of every kind, after one confirmation that lists them. Paid usage is always off for proposals.
 
-`proposals` in `bot.toml` sets the bot's proposal mode: `manual` (the default: every card waits for your click) or `auto` (new launches, messages, schedules and presets apply at once; crons, routines, bots, tools and `BOT.md` changes still wait).
+A **ready click** prepares an action that stays yours: merge a branch, publish or merge a Local PR, post a suggestion, send an Outbox message, mark Inbox threads done. The card shows what it acts on and the button of that action; the click runs the same call as the button on its page, with the same confirmation. Accepting the card never runs it, and Start all and auto mode skip it.
+
+`proposals` in `bot.toml` sets the bot's proposal mode: `manual` (the default: every card waits for your click) or `auto` (new launches, messages and schedules apply at once; crons, routines, presets, bots, tools, `BOT.md` changes and ready clicks still wait).
 
 ## Create a bot
 
@@ -65,7 +67,7 @@ The bot's page is a chat over the whole thread. It opens at the newest message; 
 - your message, and the bot's last answer;
 - one steps line ("12 steps · 3 min 10 s") that opens the list of steps, and **Open trace**, which opens the session in Agents with its full trace, terminal and files;
 - its open questions and approval cards, answered in place;
-- the cards it wrote during the turn, at that turn: proposals, drafts and suggestions that wait for your click (**Send**, **Post**, **Review & publish**), **Changed** lines for its knowledge base notes and bot files, and a **Changes** card with the branch (**Merge** when it is safe, otherwise **Review changes**);
+- the cards it wrote during the turn, at that turn: proposals, drafts and suggestions that wait for your click (**Send**, **Post**, **Review & publish**), **Changed** lines for its knowledge base notes and for what it changed directly (with **Undo**), and a **Changes** card with the branch (**Merge** when it is safe, otherwise **Review changes**);
 - a line when the turn failed or was interrupted, with **Continue** on the last turn.
 
 A routine run that ends with no update is one muted line. A divider marks the start of each session, with the reason when the profile or folder changed, and **Open in Agents**. While the bot works, a live line shows the current step and **Stop**.

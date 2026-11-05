@@ -33,7 +33,15 @@ Profiles live in `config.toml` (see [Configuration](configuration.md#profiles)).
 
 ## Launching an agent
 
-Click **Launch** (top bar, folder pages, inbox rows, or any **▶** button). The composer opens as a side drawer:
+The top bar has one field with three buttons:
+
+- **Launch** starts an agent at once with the text, the page as context and the folder's defaults (on a folder page, that folder). If it cannot start within a few seconds, the composer opens instead.
+- **Ask** sends the text to a bot of the workspace and opens its chat in the Ask panel (see [Ask Launchpad](#ask-launchpad)).
+- **Options** opens the full composer with the text.
+
+The page you look at is the context: a folder, a GitHub item, an agent's trace, a Local PR or a settings page. A chip in the field names it; **✕** removes it. The primary button follows the page: Launch on folder, agent and Local PR pages, Ask elsewhere (Launch when the workspace has no bot). **Enter** runs the primary button and **Shift+Enter** adds a line.
+
+Folder pages, inbox rows and every **▶** button open the composer too. The composer opens as a side drawer:
 
 - **Prompt.** Type `@` for files and folders, `/` for skills and `#` for folders, agent traces and GitHub items. Paste or drop images and files (up to eight files, 5 MB each).
 - **Folder and Run in.** A folder of the workspace, or **Temporary folder** for a question or a task that needs no folder (see [Temporary folders](#temporary-folders)). In a Git folder: **New worktree** (default), **Checkout**, or **New Local PR** (see [GitHub](github.md#local-prs)). When the prompt or the context names one pull request of the folder's repository (for example a pasted link to a review comment), **Push to PR #N** is checked: the worktree starts from the PR head and the agent pushes its commits to the PR branch (see [GitHub](github.md#continue-a-pull-request)).
@@ -41,7 +49,7 @@ Click **Launch** (top bar, folder pages, inbox rows, or any **▶** button). The
 - **Options.** Profile, model, effort, permission mode, paid usage, cost limit, presets and start conditions. The summary line shows only non-default values and warnings.
 - **Preview prompt** shows exactly what the agent will receive.
 
-The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the Launch button while you collect more context.
+The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the **Options** button while you collect more context.
 
 New launches ask the agent to end its first task with a short, self-contained summary. Follow-up messages are sent unchanged, except the first message after a Local PR is published, which tells the agent to push to the published branch from now on.
 
@@ -154,7 +162,9 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ## Ask Launchpad
 
-**Ask Launchpad** is a [bot](bots.md#ask-launchpad) that every workspace starts with. It reads your folders, agents, inbox and quotas with the Launchpad CLI tool, and proposes launches, messages, schedules, routines, presets, tools and bots as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create routine**, **Save preset**, **Add tool** or **Create bot**, unless its `bot.toml` sets `proposals = "auto"`. With admin access to the Launchpad CLI, it also changes bots, routines, schedules and workspaces when you ask. It remembers what it learns about you in its notes, like any bot, and you edit, replace or delete it like any bot. The field at the top of [Today](today.md) sends a message to a bot of the workspace (Ask Launchpad first) and opens its page.
+**Ask Launchpad** is a [bot](bots.md#ask-launchpad) that every workspace starts with. It reads your folders, agents, inbox and quotas with the Launchpad CLI tool, and proposes launches, messages, schedules, routines, presets, tools and bots as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create routine**, **Save preset**, **Add tool** or **Create bot**, unless its `bot.toml` sets `proposals = "auto"`. With admin access to the Launchpad CLI, it also changes bots, routines, schedules, workspaces, folder settings and shared settings when you ask; each change shows in its chat as a **Changed** line with **Undo**. Merges, publishing, posts, sends and Inbox Done stay your clicks: it prepares them as ready cards (see [Bots](bots.md#proposals)). It remembers what it learns about you in its notes, like any bot, and you edit, replace or delete it like any bot.
+
+**Ask** in the top bar sends your text, with the page as context, to the workspace's default bot: the oldest bot with admin access (Ask Launchpad unless you changed it), else the oldest bot. The bot's chat opens in the **Ask panel** at the right of the page; its menu picks another bot of the workspace, and on a bot's page Ask talks to that bot. The panel has **New session**, a link to the bot's page and **Close**.
 
 ![Ask Launchpad with two proposals](images/ask.webp)
 

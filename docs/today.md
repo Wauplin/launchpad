@@ -10,7 +10,7 @@ Cards are sorted by filter, then newest first. Each filter is a chip with its co
 | --- | --- | --- |
 | **Answer** | An agent asks a question. | The answer choices, in place. **Open agent** to type another answer. |
 | **Review** | A finished agent you have not seen; a failed or interrupted agent; a Local PR not yet published. | Finished: **Merge into &lt;base&gt;** when it is safe, otherwise **Review changes**; **Archive**; **Mark seen**. Failed: **Resume**, **Archive**, **Mark seen**. Local PR: **Review & publish**. |
-| **Approve** | A proposal card from a bot or an agent. | **Start** (or Send, Schedule, Add routine, Apply to BOT.md), **Edit**, **Dismiss**. **Start all** starts every waiting card after one confirmation. |
+| **Approve** | A proposal card from a bot or an agent. | **Start** (or Send, Schedule, Add routine, Apply to BOT.md), **Edit**, **Dismiss**. **Start all** starts every waiting card after one confirmation. A ready card has the button of its action (for example **Merge** or **Post**) and **Dismiss**; Start all skips it. |
 | **Send** | A message an agent drafted for an outgoing channel. | Edit it, then **Send** (with a confirmation) or **Discard**. An uncertain send offers **It arrived** or **Discard**. |
 | **GitHub** | A suggestion (a comment or review written by an agent) and an open review request. | Suggestion: **Edit**, **Post**, **Discard**. Review request: **Review with agent**, **Open PR**. |
 | **Fix** | A routine whose last run failed, and a runner that runs another build. | **Open routine**, **Open runners**. |
@@ -18,8 +18,6 @@ Cards are sorted by filter, then newest first. Each filter is a chip with its co
 **Merge into &lt;base&gt;** shows only when the merge is safe: the agent is Done, its runner is connected, the branch is on Home with new commits, nothing is uncommitted and the base branch did not move. The card stays until the merge is complete; a merge that waits or fails keeps the card with **Review changes**.
 
 **Done** lists what you handled in the last 30 days and what happened (for example "Sent to team-chat"), with a link to the agent.
-
-On the laptop, the field above the cards sends a message to a bot of the workspace (Ask Launchpad first) and opens its page.
 
 ## Counts
 

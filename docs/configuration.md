@@ -73,6 +73,8 @@ Credentials and tools live in Home's database, never in `config.toml`: edit them
 
 Each `[[presets]]` entry has `id`, `label`, `text` and two independent availability flags: `ask_launchpad` (defaults to `false`) and `agent` (defaults to `true`). Enable either or both in Settings → Presets. Agent availability covers the composer, steering and Send later.
 
+A bot with admin access to the Launchpad CLI can change a few shared settings when you ask it in chat: presets, `notify`, the GitHub poll interval and the number of worktrees kept. Each change has **Undo** in the chat. Every other setting stays yours.
+
 The daemon watches the file and applies most changes live. Changes to `[server]` need a daemon restart.
 
 ### Profiles
@@ -123,7 +125,9 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 | `launchpad work finish\|add-project` | Request a worktree merge or open a Local PR, or add another folder to a task (used by agents) |
 | `launchpad trace <session> [--through <seq>]` | Print the stored trace of a session |
 | `launchpad folders\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list` | Read Launchpad state as JSON |
-| `launchpad propose launch\|message\|schedule\|cron\|status\|preset\|tool\|bot\|routine` | Store a proposal (sessions with propose or admin access to the Launchpad CLI tool); the owner starts it, except one-time starts of a bot in auto mode |
+| `launchpad today` | Print what waits for the owner (the [Today](today.md) list) as JSON |
+| `launchpad activity list` | List what sessions with admin access changed directly, with the values before |
+| `launchpad propose launch\|message\|schedule\|cron\|status\|preset\|tool\|bot\|routine\|bot-instructions\|ready` | Store a proposal (sessions with propose or admin access to the Launchpad CLI tool); the owner starts it, except one-time starts of a bot in auto mode. `ready` prepares an owner click (merge, publish, post, send, Inbox done) |
 | `launchpad api <GET\|POST\|PUT\|PATCH\|DELETE> <path> [--body-file <file.json>]` | Call Launchpad's API directly: sessions with admin access only, limited to Launchpad's own records |
 
 Agents receive the exact binary path and environment in their prompt. The [launchpad skill](../skills/launchpad/SKILL.md) documents these commands for them; the daemon links it into `~/.agents/skills/launchpad` at startup.

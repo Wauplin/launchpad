@@ -85,7 +85,7 @@ Home starts with one workspace, **Personal**; the rail at the left edge shows yo
 
 ### Launch your first agent
 
-1. Click **Launch** in the top bar.
+1. Click **Options** next to the field in the top bar. (On a folder page, typing the task in the field and clicking **Launch** starts at once with the folder's defaults.)
 2. Write the task. Type `@` to mention files, `/` for skills and `#` for folders, agent traces and GitHub items.
 3. Choose the folder. **Run in → New worktree** (the default in Git folders) gives the agent its own branch.
 4. Click **Launch**.
