@@ -164,7 +164,7 @@ async fn call_home(op: String, body: serde_json::Value) -> anyhow::Result<(u16, 
 /// Requests about records Home owns, which a runner sends to Home: workspace changes (the runner keeps a copy
 /// for reading) and Home Git.
 pub(crate) fn home_owned(path: &str) -> bool {
-    path == "/api/workspaces" || path.starts_with("/api/workspaces/") || path.starts_with("/api/home-git/") || path.starts_with("/api/plain/") || path.starts_with("/api/knowledge/") || path.starts_with("/api/vault")
+    path == "/api/workspaces" || path.starts_with("/api/workspaces/") || path.starts_with("/api/home-git/") || path.starts_with("/api/plain/") || path.starts_with("/api/knowledge/") || path.starts_with("/api/vault") || path == "/api/mcp" || path.starts_with("/api/mcp/")
         || path == "/api/proposals" || path.starts_with("/api/proposals/")
         || path == "/api/bots" || path.starts_with("/api/bots/") || path == "/api/context/bots"
         || (path.starts_with("/api/sessions/") && path.ends_with("/access"))

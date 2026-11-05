@@ -199,6 +199,27 @@ route("GET", "/api/vault", () => ({
   git_email: "owner@example.com",
 }));
 route("GET", "/api/vault/leases", () => []);
+
+// MCP servers: a sample server whose destructive tool is off.
+let demoMcp = [{
+  id: "gmail", name: "Gmail", url: "https://mcp.example.com/gmail", auth: { kind: "bearer" as const }, workspaces: ["*"],
+  tools: [
+    { name: "search_messages", description: "Search your mailbox", read_only: true, destructive: false },
+    { name: "draft_reply", description: "Create a draft reply (not sent)", read_only: false, destructive: false },
+    { name: "send_message", description: "Send an email", read_only: false, destructive: true },
+  ],
+  tools_off: ["send_message"], refreshed_at: clock.now() - 3_600_000, error: null as string | null,
+}];
+route("GET", "/api/mcp", () => demoMcp);
+route("PUT", "/api/mcp/:id", notInDemo);
+route("DELETE", "/api/mcp/:id", notInDemo);
+route("POST", "/api/mcp/:id/refresh", ({ params }) => demoMcp.find((s) => s.id === params.id));
+route("PUT", "/api/mcp/:id/tools/:tool", ({ params, body }) => {
+  const on = (body as { on: boolean }).on;
+  demoMcp = demoMcp.map((s) => s.id !== params.id ? s : { ...s, tools_off: on ? s.tools_off.filter((t) => t !== params.tool) : [...s.tools_off.filter((t) => t !== params.tool), params.tool] });
+  return demoMcp.find((s) => s.id === params.id);
+});
+route("GET", "/api/burst", () => ({ config: world.config.home.burst, unavailable: "Burst runners are started by Home", month_usd: 0, runs: [] }));
 route("GET", "/api/vault/tools.toml", () => ({ toml: "[[tools]]\nid = \"gh\"\n" }));
 route("PUT", "/api/vault/entries/:id", notInDemo);
 route("POST", "/api/vault/entries/:id/from-home", notInDemo);

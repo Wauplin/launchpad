@@ -179,6 +179,9 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
         None => "Your harness's own memory is off in Launchpad, and this session has no workspace, so no knowledge base: do not write memory files.\n".into(),
     };
     env.extend(harness.contained_memory(&home, &instructions)?);
+    // MCP servers of Home: a local address on the runner proxy for each one granted.
+    let servers: Vec<(String, String)> = lease.mcp.iter().map(|m| (crate::mcp::harness_name(&m.id), format!("{base}/mcp/{}", m.id))).collect();
+    harness.contained_mcp(&home, &servers)?;
     let vm = outside_jail(app);
     let mut binds = vec![];
     if lease.ssh {

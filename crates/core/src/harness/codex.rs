@@ -1199,6 +1199,23 @@ impl super::Harness for Adapter {
         }
         Ok(vec![])
     }
+    /// `[mcp_servers.<name>]` with a Streamable HTTP `url` in `$CODEX_HOME/config.toml`, rewritten each start.
+    fn contained_mcp(&self, home: &std::path::Path, servers: &[(String, String)]) -> Result<()> {
+        let dir = home.join(".codex");
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("config.toml");
+        let config = std::fs::read_to_string(&path).unwrap_or_default();
+        const MARK: &str = "# Launchpad MCP servers (rewritten at each start)";
+        let mut kept = config.split(MARK).next().unwrap_or_default().trim_end().to_string();
+        if !servers.is_empty() {
+            kept.push_str(&format!("\n\n{MARK}\n"));
+            for (name, url) in servers {
+                kept.push_str(&format!("[mcp_servers.{name}]\nurl = \"{url}\"\n"));
+            }
+        }
+        std::fs::write(&path, format!("{}\n", kept.trim_end()))?;
+        Ok(())
+    }
     fn native_memories(&self, home: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {
         let dir = home.join(".codex/memories");
         if dir.is_dir() { vec![("memories".into(), dir)] } else { vec![] }

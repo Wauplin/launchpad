@@ -17,9 +17,9 @@ import { useConfig, type ConfigResponse } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
 
 /** A section of a Settings page. */
-export function Card({ title, end, children, id }: { title: string; end?: React.ReactNode; children: React.ReactNode; id?: string }) {
+export function Card({ title, end, children, id, tour }: { title: string; end?: React.ReactNode; children: React.ReactNode; id?: string; tour?: string }) {
   return (
-    <section id={id} className="overflow-hidden rounded-[10px] border border-line">
+    <section id={id} data-tour={tour} className="overflow-hidden rounded-[10px] border border-line">
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-chrome px-3.5 py-2.5 text-[13px]">
         <b className="font-semibold text-ink">{title}</b>
         {end && <span className="ml-auto flex max-w-full flex-wrap justify-end gap-1.5">{end}</span>}

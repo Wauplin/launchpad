@@ -252,6 +252,8 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     hooks::Hook::export_all(&cfg)?;
     hooks::CreatedHook::export_all(&cfg)?;
     config::Config::export_all(&cfg)?;
+    burst::BurstOverview::export_all(&cfg)?;
+    mcp::McpServer::export_all(&cfg)?;
     status::Status::export_all(&cfg)?;
     analytics::AgentRun::export_all(&cfg)?;
     signin::SignInCheck::export_all(&cfg)?;

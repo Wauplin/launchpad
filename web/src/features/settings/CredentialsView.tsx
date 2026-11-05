@@ -18,6 +18,7 @@ import { formatAge } from "@/lib/format";
 import { useSessions } from "@/lib/queries";
 import { useWorkspaces } from "@/lib/workspace";
 import { Card, SettingsPage } from "./SettingsView";
+import { McpServers } from "./McpServers";
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
 
@@ -62,6 +63,7 @@ function Vault({ v }: { v: VaultOverview }) {
         </div>
       </Card>
       <Tools v={v} onDone={refresh} />
+      <McpServers />
       <Identity v={v} onDone={refresh} />
       <Leases />
     </>

@@ -42,6 +42,11 @@ export const settings: Chapter = {
       body: "Bind your own Telegram chat to get notifications and talk to Ask Launchpad or a bot from anywhere. Add Slack, Discord or webhook channels for agents' messages to other people: those wait in the Outbox. Incoming hooks let CI and scripts message a bot.",
     },
     {
+      id: "settings.mcp", route: "/settings/credentials", anchor: "settings.mcp",
+      title: "MCP servers",
+      body: "Add a remote MCP server once, with its token: agents on every machine reach it through Home, and the token never leaves Home. Switch off each tool agents must not use; a launch can leave a server out.",
+    },
+    {
       id: "settings.machines", route: "/settings/hosts", anchor: "settings.machines",
       title: "SSH machines",
       body: "Folders can live on other computers over SSH. Agents run there with the same controls; each machine shows its checks. Credentials are never copied.",

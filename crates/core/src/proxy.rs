@@ -232,6 +232,11 @@ async fn handle(inner: Arc<Inner>, req: Request<Incoming>) -> Result<Response<Bo
         let mut parts = rest.splitn(3, '/');
         let (key, host, tail) = (parts.next().unwrap_or(""), parts.next().unwrap_or("").to_string(), parts.next().unwrap_or(""));
         let Some(active) = proxy.by_key(key) else { return Ok(full(StatusCode::FORBIDDEN, "unknown or revoked Launchpad lease")) };
+        // MCP servers of Home: /lp/<key>/mcp/<server>, through Home's gateway.
+        if host == "mcp" {
+            let server = tail.split('/').next().unwrap_or_default().to_string();
+            return Ok(mcp(&inner, &active, &server, req).await);
+        }
         let query = req.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
         let target = format!("/{tail}{query}");
         return Ok(forward(&inner, Some(active), &host, &target, req).await);
@@ -385,6 +390,33 @@ async fn forward(inner: &Inner, active: Option<Arc<Active>>, host: &str, target:
         crate::contain::record_access(app, Access { at: crate::util::now_ms(), session_id: active.session_id.clone(), host: host.into(), method, path, status, action });
     }
     out.body(body).unwrap_or_else(|e| full(StatusCode::BAD_GATEWAY, &format!("{e}")))
+}
+
+/// A request of a session to an MCP server of Home: through the tunnel, or in process in an `all` daemon.
+async fn mcp(inner: &Inner, active: &Active, server: &str, req: Request<Incoming>) -> Response<Body> {
+    let lease_id = active.lease.read().unwrap().id.clone();
+    let granted = active.lease.read().unwrap().mcp.iter().any(|m| m.id == server);
+    if !granted {
+        return full(StatusCode::FORBIDDEN, "this MCP server is not granted to the session");
+    }
+    let method = req.method().as_str().to_string();
+    let headers: Vec<(String, String)> = req.headers().iter().filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string()))).collect();
+    let body: crate::home_link::ByteStream = Box::pin(http_body_util::BodyDataStream::new(req.into_body()).map_err(std::io::Error::other));
+    let reply = match inner.app.get() {
+        Some(app) if crate::vault::here(app) => crate::mcp::gateway(app, None, &lease_id, server, &method, headers, body).await,
+        _ => crate::home_link::http(crate::runners::proto::HttpTarget::Mcp { lease_id, server: server.into() }, &method, "", headers, body).await,
+    };
+    match reply {
+        Ok(reply) => {
+            let mut out = Response::builder().status(reply.status);
+            for (k, v) in &reply.headers {
+                out = out.header(k, v);
+            }
+            let stream = crate::home_link::SyncStream::new(reply.body).map_ok(Frame::data);
+            out.body(BodyExt::boxed(StreamBody::new(stream))).unwrap_or_else(|e| full(StatusCode::BAD_GATEWAY, &format!("{e}")))
+        }
+        Err(e) => full(StatusCode::BAD_GATEWAY, &format!("Launchpad MCP gateway: {e:#}")),
+    }
 }
 
 /// Sends a request of a relayed lease through the tunnel; Home adds the token.

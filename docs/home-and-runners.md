@@ -35,6 +35,12 @@ When a launch from Home finds no runner that takes it (your laptop is off or asl
 
 Burst needs Home to run in a Hugging Face Space, with its Hugging Face login.
 
+## MCP servers
+
+Settings → Credentials and tools → **MCP servers**: add a remote MCP server (Streamable HTTP) with its address and token. Home reads its tools; switch off each tool agents must not use (the server's read only and destructive labels help, but they are hints, not guarantees). A server is granted in every workspace or in chosen ones, and the composer's **Tools** option can leave it out of one launch.
+
+Agents on every runner, Burst included, reach a granted server at a local address on their runner proxy. Each request goes through the tunnel to Home's gateway, which checks the session's lease, hides and refuses the tools that are off, adds the token and forwards the request. The token never leaves Home. Each tool call appears in the session's access log. A tool that is on acts directly with the server's token.
+
 ## Move a session
 
 Between turns, a session can move to another runner: in its Summary, **Runs on** → **Move to…** lists the connected runners and Burst. The old runner pushes the branches, saves uncommitted files to a scratch branch and removes its folders; the new one clones the worktrees again from Home Git on the next message, and the harness resumes the same conversation (Claude Code and Codex). The move increases the session's generation, so the old runner can no longer push its branches or get a lease.

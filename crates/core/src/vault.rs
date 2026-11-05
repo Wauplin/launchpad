@@ -370,7 +370,7 @@ async fn ssh_public(app: &App, private: &str) -> Result<String> {
 pub async fn entries(app: &App) -> Result<Vec<VaultEntry>> {
     app.state_db
         .call(|c| {
-            let mut st = c.prepare("SELECT id, kind, name, detail, updated_at FROM vault WHERE id NOT LIKE 'channel-%' ORDER BY name")?;
+            let mut st = c.prepare("SELECT id, kind, name, detail, updated_at FROM vault WHERE id NOT LIKE 'channel-%' AND id NOT LIKE 'mcp-%' ORDER BY name")?;
             let rows = st
                 .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, i64>(4)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -564,6 +564,9 @@ pub struct Lease {
     /// The runner holds no token (Burst): its proxy sends requests to Home, which adds them (`token_relay`).
     #[serde(default)]
     pub relayed: bool,
+    /// MCP servers granted to the session, reached through Home's gateway (`mcp`).
+    #[serde(default)]
+    pub mcp: Vec<crate::mcp::LeaseMcp>,
 }
 
 /// Login hosts: where the proxy adds a harness login (declared by its adapter).
@@ -731,6 +734,7 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
         git_name: Some(home.git_name).filter(|s| !s.trim().is_empty()),
         git_email: Some(home.git_email).filter(|s| !s.trim().is_empty()),
         relayed: false,
+        mcp: crate::mcp::granted(app, req.workspace_id.as_deref(), &req.tools_off).await?,
     })
 }
 

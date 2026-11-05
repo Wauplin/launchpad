@@ -13,6 +13,7 @@ mod exchange;
 mod git_http;
 mod plain_http;
 mod kb_http;
+mod mcp;
 mod home_client;
 mod hosts;
 mod items;
@@ -113,6 +114,7 @@ pub(crate) fn router(server: Server) -> Router {
         .merge(push::router())
         .merge(runners::router())
         .merge(burst::router())
+        .merge(mcp::router())
         .merge(vault::router())
         .merge(git_http::router())
         .merge(plain_http::router())

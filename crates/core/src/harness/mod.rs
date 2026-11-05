@@ -169,6 +169,11 @@ pub trait Harness: Send + Sync {
     async fn native_trace(&self, _app: &App, _session: &Session) -> Result<Vec<trace::TraceFile>> {
         bail!("native trace export is not supported")
     }
+    /// Points the harness at the MCP servers of a contained session (`(name, local URL)`, Streamable HTTP), in
+    /// its harness home. Called at every start, also with none, so removed servers disappear.
+    fn contained_mcp(&self, _home: &Path, _servers: &[(String, String)]) -> Result<()> {
+        Ok(())
+    }
     /// Puts native trace files (from `native_trace` on another runner) where this harness resumes the
     /// conversation of a moved session, under the session's folder here (`session.cwd`).
     async fn restore_native(&self, _app: &App, _session: &Session, _files: Vec<trace::TraceFile>) -> Result<()> {

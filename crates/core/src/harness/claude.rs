@@ -1061,6 +1061,16 @@ impl super::Harness for Adapter {
             ("ANTHROPIC_BASE_URL".into(), format!("{}/api.anthropic.com", setup.proxy_base)),
         ])
     }
+    /// User-scope servers in `$CLAUDE_CONFIG_DIR/.claude.json`.
+    fn contained_mcp(&self, home: &std::path::Path, servers: &[(String, String)]) -> Result<()> {
+        let path = home.join(".claude/.claude.json");
+        std::fs::create_dir_all(home.join(".claude"))?;
+        let mut state: Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
+        let map: serde_json::Map<String, Value> = servers.iter().map(|(name, url)| (name.clone(), json!({"type": "http", "url": url}))).collect();
+        state["mcpServers"] = Value::Object(map);
+        std::fs::write(&path, serde_json::to_string_pretty(&state)?)?;
+        Ok(())
+    }
     fn contained_memory(&self, home: &std::path::Path, instructions: &str) -> Result<Vec<(String, String)>> {
         let dir = home.join(".claude");
         std::fs::create_dir_all(&dir)?;
