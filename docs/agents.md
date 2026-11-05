@@ -159,7 +159,7 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ![Ask Launchpad with two proposals](images/ask.webp)
 
-Any agent granted the Launchpad CLI tool can propose cards too; they wait on the **Proposals** page (sidebar) and in the session that wrote them. After **Add tool**, paste the tool's token. **Edit** moves a proposal into the composer.
+Any agent granted the Launchpad CLI tool can propose cards too; they wait on the **Proposals** page (sidebar) and in the session that wrote them. After **Add tool**, paste the tool's token. **Edit** moves a proposal into the composer and replaces the card ("Edited in the composer"). **Start all** and **Dismiss all** act on every waiting card after one confirmation.
 
 In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or both for each preset. The Presets button adds selected instructions after your message, in settings order. Bots can also propose a new preset or new values (label, text, agent availability) for an existing one; they cannot delete presets. Agent availability includes launches, steering and Send later. For example, a bots-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
 

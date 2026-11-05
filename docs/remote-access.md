@@ -69,6 +69,8 @@ Screens narrower than 720 px get a phone layout (or choose it in **Settings → 
 
 - **Now**: what needs you, with answer buttons in place, and open terminals.
 - **Agents**, **Ask**, **Review** and **Inbox** tabs.
+- The workspace button at the top left opens the menu: workspaces, other pages (Proposals, Schedules, Outbox, Folders, Knowledge, Settings) and device settings. Pages show their counts there, like the laptop sidebar, and the button shows how many proposals and Outbox messages wait.
+- Each screen has one title, in the top bar.
 - Session pages with Summary, Trace and Changes, a reply box and a terminal key bar. In Summary or Trace, tap the expand icon beside the view tabs to fill the screen with a compact header and hide the reply box. Tap collapse to restore the layout and your draft.
 
 <table>
@@ -82,7 +84,7 @@ Screens narrower than 720 px get a phone layout (or choose it in **Settings → 
 
 Open the paired HTTPS origin in the phone's browser and use **Install** or **Add to Home Screen**.
 
-Get finished agents and routine reports on your phone through Telegram: bind your chat in **Settings → Channels** ([Channels](channels.md)).
+Get finished agents and routine reports on your phone through Telegram: bind your chat in **Settings → Channels** ([Channels](channels.md)). On the phone, **Settings → Notifications** shows the Telegram card first; **Desktop notifications** is the switch for the machine that runs the agent.
 
 ## Run on a headless server
 

@@ -18,13 +18,13 @@ Ask Launchpad has no special treatment: its `BOT.md` and `bot.toml` are edited, 
 | --- | --- |
 | `read` | Read Launchpad state: `launchpad folders\|bots\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list`, `launchpad trace`. |
 | `propose` (default) | Read, and write proposals (`launchpad propose …`) that wait for your click. Agents that are not bots always get this level. |
-| `admin` | Propose, and change Launchpad itself with `launchpad api <method> <path>`: bots (their `BOT.md` and `bot.toml` included), routines, scheduled launches, workspaces, accepting or dismissing proposals, launching agents and messaging sessions, MCP tool switches. Ask Launchpad starts with this level. |
+| `admin` | Propose, and change Launchpad itself with `launchpad api <method> <path>`: bots (their `BOT.md` and `bot.toml` included), routines, scheduled launches, workspaces, dismissing proposals, accepting a proposal whose action admin may run itself (tool and preset cards wait for you), launching agents and messaging sessions, MCP tool switches. Ask Launchpad starts with this level. |
 
-No level reaches GitHub, the Outbox, channels, credentials, devices, terminals, hosts, runners, setup fixes, backups, Burst, `config.toml` or paid usage: those stay your clicks. A change of level applies to running sessions within ten minutes. Remove a workspace from the tool (or switch it off for one launch) and its sessions can no longer read Launchpad state at all.
+No level reaches GitHub, the Outbox, channels, credentials, devices, terminals, hosts, runners, setup fixes, backups, Burst, `config.toml` (including presets and folder settings) or paid usage: those stay your clicks. A change of level applies to running sessions within ten minutes. Remove a workspace from the tool (or switch it off for one launch) and its sessions can no longer read Launchpad state at all.
 
 ## Proposals
 
-A proposal is an inert card: a launch, a message to a session, a scheduled launch, a cron, a status card, a preset, a tool, a bot, a routine or a new `BOT.md`. Cards wait on the bot's **Proposals** tab, under the session that wrote them, and on the **Proposals** page (sidebar). **Start** (or Send, Schedule, Add routine, Apply to BOT.md) acts; **Edit** opens a launch in the composer; **Dismiss** drops it. Paid usage is always off for proposals.
+A proposal is an inert card: a launch, a message to a session, a scheduled launch, a cron, a status card, a preset, a tool, a bot, a routine or a new `BOT.md`. Cards wait on the bot's **Proposals** tab, under the session that wrote them, and on the **Proposals** page (sidebar). **Start** (or Send, Schedule, Add routine, Apply to BOT.md) acts; **Edit** opens a launch in the composer and marks the card "Edited in the composer", so it no longer waits; **Dismiss** drops it. **Start all** and **Dismiss all** act on every waiting card of every kind, after one confirmation that lists them. Paid usage is always off for proposals.
 
 `proposals` in `bot.toml` sets the bot's proposal mode: `manual` (the default: every card waits for your click) or `auto` (new launches, messages, schedules and presets apply at once; crons, routines, bots, tools and `BOT.md` changes still wait).
 
@@ -63,7 +63,7 @@ With a Git folder, each session works in a fresh worktree of Home Git. Without a
 The thread is on the left. The right side has four tabs:
 
 - **Memory**: the bot's notes in the knowledge base (`bots/<slug>/`), the recent changes made by its sessions, and every session of its thread with its status and context use. Correct a note on the Knowledge page; every change can be restored for 30 days.
-- **Proposals**: the cards its sessions wrote, waiting or handled, with **Start all**.
+- **Proposals**: the cards its sessions wrote, waiting or handled, with **Start all** and **Dismiss all**.
 - **Routines**: what the bot does on its own (see below).
 - **Settings**: `BOT.md` (its instructions); how it runs (name, profile, model, folder, permissions, proposal mode and Launchpad CLI access); what it can reach; `bot.toml`, the same settings as a file; **Versions**, every change of both files in the last 30 days with its diff and **Restore previous**; and **Delete bot**. Deleting keeps the bot's sessions, its notes and its folder. A bot cannot edit its files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md`, shown as a diff at the top of this tab (and on the Proposals page) until you click **Apply to BOT.md**; applying fails if `BOT.md` changed in between.
 
