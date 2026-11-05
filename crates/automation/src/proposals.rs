@@ -421,9 +421,7 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
             ProposalBody::Preset { preset_id, label, text, agent } => {
                 let create = preset_id.is_none();
                 let id = preset_id.or(p.result_id.clone()).context("the preset has no ID")?;
-                let mut config = app.config.get();
-                apply_preset(&mut config.presets, &id, create, &label, &text, agent)?;
-                app.config.save(config)?;
+                app.config.update(|config| apply_preset(&mut config.presets, &id, create, &label, &text, agent))?;
                 Ok(id)
             }
         }

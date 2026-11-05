@@ -374,6 +374,8 @@ pub struct ConfigHandle {
     bus: Bus,
     /// Set when the last load failed (the previous config stays in use).
     error: Arc<RwLock<Option<String>>>,
+    /// One write at a time: `update` reads, changes and saves under it, so concurrent writers never lose a change.
+    write: Arc<std::sync::Mutex<()>>,
 }
 
 impl ConfigHandle {
@@ -394,6 +396,7 @@ impl ConfigHandle {
             path,
             bus,
             error: Arc::new(RwLock::new(error)),
+            write: Default::default(),
         };
         handle.watch();
         Ok(handle)
@@ -407,8 +410,24 @@ impl ConfigHandle {
         self.error.read().unwrap().clone()
     }
 
-    /// Rewrites the file (comments are lost) and applies the new config at once.
+    /// Replaces the whole config: rewrites the file (comments are lost) and applies it at once. Changes of a few
+    /// values use `update`, so they never overwrite another writer's change.
     pub fn save(&self, config: Config) -> Result<()> {
+        let _write = self.write.lock().unwrap_or_else(|e| e.into_inner());
+        self.write_file(config)
+    }
+
+    /// Reads the current config, changes it with `f` and saves it, one writer at a time. Nothing is saved when `f`
+    /// fails.
+    pub fn update<T>(&self, f: impl FnOnce(&mut Config) -> Result<T>) -> Result<T> {
+        let _write = self.write.lock().unwrap_or_else(|e| e.into_inner());
+        let mut config = self.get();
+        let out = f(&mut config)?;
+        self.write_file(config)?;
+        Ok(out)
+    }
+
+    fn write_file(&self, config: Config) -> Result<()> {
         config.validate()?;
         let text = toml::to_string_pretty(&config)?;
         let tmp = self.path.with_extension("toml.tmp");
@@ -526,6 +545,7 @@ mod tests {
             path: PathBuf::from("unused"),
             bus,
             error: Arc::new(RwLock::new(None)),
+            write: Default::default(),
         };
         handle.apply(Err(error));
         assert_eq!(handle.error().unwrap(), safe);

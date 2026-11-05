@@ -44,21 +44,15 @@ async fn get_config(State(s): State<Server>) -> Json<Value> {
     Json(config_response(&s, s.app.config.error()))
 }
 
-/// One config.toml change at a time: each handler reads, changes and saves the whole file.
-static CONFIG_WRITE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 async fn put_config(State(s): State<Server>, Json(config): Json<Config>) -> ApiResult<Value> {
-    let _write = CONFIG_WRITE.lock().await;
-    let saved = s.app.config.get();
-    if config.server != saved.server {
-        return Err(crate::error::ApiError::bad_request("Edit [server] in config.toml and restart the daemon"));
-    }
-    if s.auth.remote() && config.commands != saved.commands {
-        return Err(crate::error::ApiError::bad_request("Edit [commands] in config.toml on the host"));
-    }
-    config.validate().map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
-    let profiles_changed = config.profiles != saved.profiles;
-    s.app.config.save(config)?;
+    let remote = s.auth.remote();
+    let profiles_changed = s.app.config.update(|saved| {
+        anyhow::ensure!(config.server == saved.server, "Edit [server] in config.toml and restart the daemon");
+        anyhow::ensure!(!remote || config.commands == saved.commands, "Edit [commands] in config.toml on the host");
+        let changed = config.profiles != saved.profiles;
+        *saved = config;
+        Ok(changed)
+    }).map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
     if profiles_changed {
         // Host checks include each profile with its own environment.
         launchpad_core::hosts::preflight::recheck_all(&s.app);
@@ -82,25 +76,22 @@ struct GeneralPatch {
     browser: Option<String>,
 }
 async fn patch_general_config(State(s): State<Server>, Json(patch): Json<GeneralPatch>) -> ApiResult<Value> {
-    let _write = CONFIG_WRITE.lock().await;
-    let mut config = s.app.config.get();
-    if let Some(v) = patch.trace_backup_enabled { config.trace_backup.enabled = v; }
-    if let Some(v) = patch.trace_backup_bucket { config.trace_backup.bucket = v; }
-    if let Some(v) = patch.trace_backup_prefix { config.trace_backup.prefix = v; }
-    if let Some(value) = patch.projects_root { config.projects_root = value; }
-    if let Some(value) = patch.remove_published_worktree { config.remove_published_worktree = value; }
-    if let Some(value) = patch.presets { config.presets = value; }
-    if let Some(value) = patch.notify { config.agents.notify = value; }
-    if let Some(value) = patch.github_poll_interval_seconds { config.github.poll_interval_seconds = value.max(15); }
-    if let Some(value) = patch.worktrees_keep { config.worktrees.keep = value; }
-    if let Some(value) = patch.browser {
-        if s.auth.remote() {
-            return Err(crate::error::ApiError::bad_request("Edit [commands] in config.toml on the host"));
-        }
-        config.commands.browser = value;
+    if patch.browser.is_some() && s.auth.remote() {
+        return Err(crate::error::ApiError::bad_request("Edit [commands] in config.toml on the host"));
     }
-    config.validate().map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
-    s.app.config.save(config)?;
+    s.app.config.update(|config| {
+        if let Some(v) = patch.trace_backup_enabled { config.trace_backup.enabled = v; }
+        if let Some(v) = patch.trace_backup_bucket { config.trace_backup.bucket = v; }
+        if let Some(v) = patch.trace_backup_prefix { config.trace_backup.prefix = v; }
+        if let Some(value) = patch.projects_root { config.projects_root = value; }
+        if let Some(value) = patch.remove_published_worktree { config.remove_published_worktree = value; }
+        if let Some(value) = patch.presets { config.presets = value; }
+        if let Some(value) = patch.notify { config.agents.notify = value; }
+        if let Some(value) = patch.github_poll_interval_seconds { config.github.poll_interval_seconds = value.max(15); }
+        if let Some(value) = patch.worktrees_keep { config.worktrees.keep = value; }
+        if let Some(value) = patch.browser { config.commands.browser = value; }
+        Ok(())
+    }).map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
     Ok(Json(config_response(&s, None)))
 }
 
@@ -130,22 +121,21 @@ struct SharedPatch {
 }
 
 async fn patch_shared(State(s): State<Server>, Json(patch): Json<SharedPatch>) -> ApiResult<Value> {
-    let _write = CONFIG_WRITE.lock().await;
-    let mut config = s.app.config.get();
-    if let Some(presets) = patch.presets {
+    if let Some(presets) = &patch.presets {
         let mut ids = std::collections::HashSet::new();
-        for p in &presets {
+        for p in presets {
             if p.id.trim().is_empty() || p.label.trim().is_empty() || p.text.trim().is_empty() || !ids.insert(p.id.as_str()) {
                 return Err(crate::error::ApiError::bad_request("each preset needs a unique id, a label and a text"));
             }
         }
-        config.presets = presets;
     }
-    if let Some(v) = patch.notify { config.agents.notify = v; }
-    if let Some(v) = patch.github_poll_interval_seconds { config.github.poll_interval_seconds = v.max(15); }
-    if let Some(v) = patch.worktrees_keep { config.worktrees.keep = v; }
-    config.validate().map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
-    s.app.config.save(config)?;
+    s.app.config.update(|config| {
+        if let Some(presets) = patch.presets { config.presets = presets; }
+        if let Some(v) = patch.notify { config.agents.notify = v; }
+        if let Some(v) = patch.github_poll_interval_seconds { config.github.poll_interval_seconds = v.max(15); }
+        if let Some(v) = patch.worktrees_keep { config.worktrees.keep = v; }
+        Ok(())
+    }).map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
     Ok(Json(shared(&s.app.config.get())))
 }
 

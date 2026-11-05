@@ -93,10 +93,11 @@ async fn identity(State(s): State<Ctx>, Json(b): Json<Identity>) -> ApiResult<Va
     if !vault::here(&s.app) {
         return Err(ApiError::bad_request("the Git identity is kept on Home"));
     }
-    let mut config = s.app.config.get();
-    config.home.git_name = b.name.trim().replace('\n', "");
-    config.home.git_email = b.email.trim().replace('\n', "");
-    s.app.config.save(config)?;
+    s.app.config.update(|config| {
+        config.home.git_name = b.name.trim().replace('\n', "");
+        config.home.git_email = b.email.trim().replace('\n', "");
+        Ok(())
+    })?;
     s.app.bus.publish("vault", "changed", Value::Null);
     Ok(Json(json!({})))
 }

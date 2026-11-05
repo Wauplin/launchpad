@@ -93,6 +93,9 @@ pub async fn record(app: &App, r: Record) -> Result<Activity> {
     ensure!(a.access == actions::ActionAccess::Admin, "only admin actions are recorded");
     let (before, undo) = undo_call(a, &r.args, r.body.as_ref(), r.before.as_ref(), r.result.as_ref());
     let workspace_id = launchpad_core::kb::workspace_of_session(app, &r.session_id).await;
+    // The body only explains a change without values to put back: a large one (a launch spec, a long message) is
+    // not kept, so the list and its bus events stay small.
+    let body = r.body.filter(|b| a.before.is_some() || b.to_string().len() <= 16 << 10);
     let item = Activity {
         id: uuid::Uuid::new_v4().to_string(),
         session_id: r.session_id,
@@ -100,7 +103,7 @@ pub async fn record(app: &App, r: Record) -> Result<Activity> {
         action: r.action,
         args: r.args,
         target: target_of(r.result.as_ref()),
-        body: r.body,
+        body,
         before,
         undo,
         undone_at: None,

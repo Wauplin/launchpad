@@ -131,6 +131,7 @@ function ReadyBody({ p, body }: { p: Proposal; body: Ready }) {
   return (
     <>
       <span className="flex flex-wrap gap-1"><Token icon="alert" tone="warn">Your click · {a.help}</Token></span>
+      {Object.keys(body.input).length > 0 && <span className="text-[12px] text-ink-2 [overflow-wrap:anywhere]">{Object.entries(body.input).map(([k, v]) => `${k.replace(/_/g, " ")}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join(" · ")}</span>}
       {waiting && (name === "worktree.merge" && body.session_id
         ? <BranchActions sessionId={body.session_id} s={session} onMerged={ran}>{link && <Link className="btn btn-sm no-underline" to={link.to as never} params={link.params as never} search={link.search as never}>{link.label}</Link>}</BranchActions>
         : <div className="flex flex-wrap items-center gap-1.5">

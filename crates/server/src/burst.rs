@@ -115,9 +115,10 @@ async fn set_config(State(s): State<Server>, Json(c): Json<launchpad_core::confi
     if !(c.monthly_cap_usd.is_finite() && c.monthly_cap_usd >= 0.0) || c.flavor.trim().is_empty() {
         return Err(ApiError::bad_request("give a monthly cap of 0 or more and a hardware flavor"));
     }
-    let mut config = s.app.config.get();
-    config.home.burst = c;
-    s.app.config.save(config)?;
+    s.app.config.update(|config| {
+        config.home.burst = c;
+        Ok(())
+    })?;
     overview(State(s)).await
 }
 

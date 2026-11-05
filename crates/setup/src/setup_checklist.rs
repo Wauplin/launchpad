@@ -759,27 +759,27 @@ pub async fn profile_from_login(app: &App, harness: &str) -> anyhow::Result<laun
     let kind = launchpad_core::model::HarnessKind::parse(harness).ok_or_else(|| anyhow::anyhow!("unknown harness {harness}"))?;
     let item = profile(app, None).await;
     let login = item.logins.iter().find(|l| l.harness == harness).ok_or_else(|| anyhow::anyhow!("no signed-in {} login without a profile was found", kind.display()))?;
-    let mut config = app.config.get();
-    let base = harness.to_string();
-    let id = (1..100).map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") }).find(|id| config.profile(id).is_none()).ok_or_else(|| anyhow::anyhow!("no free profile ID"))?;
     let descriptor = launchpad_core::harness::registration(kind).descriptor;
-    let p = launchpad_core::config::Profile {
-        id,
-        name: login.name.clone(),
-        harness: kind,
-        env: Default::default(),
-        model: None,
-        effort: None,
-        billing: if descriptor.capabilities.quota { launchpad_core::config::Billing::Subscription } else { launchpad_core::config::Billing::PayAsYouGo },
-        budget_usd: None,
-        models_url: None,
-        spend_limits: vec![],
-        send_credentials: false,
-        login: None,
-    };
-    config.profiles.push(p.clone());
-    config.validate()?;
-    app.config.save(config)?;
+    let p = app.config.update(|config| {
+        let base = harness.to_string();
+        let id = (1..100).map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") }).find(|id| config.profile(id).is_none()).ok_or_else(|| anyhow::anyhow!("no free profile ID"))?;
+        let p = launchpad_core::config::Profile {
+            id,
+            name: login.name.clone(),
+            harness: kind,
+            env: Default::default(),
+            model: None,
+            effort: None,
+            billing: if descriptor.capabilities.quota { launchpad_core::config::Billing::Subscription } else { launchpad_core::config::Billing::PayAsYouGo },
+            budget_usd: None,
+            models_url: None,
+            spend_limits: vec![],
+            send_credentials: false,
+            login: None,
+        };
+        config.profiles.push(p.clone());
+        Ok(p)
+    })?;
     launchpad_core::hosts::preflight::recheck_all(app);
     invalidate();
     Ok(p)

@@ -192,7 +192,7 @@ pub fn path(a: &Action, args: &[&str]) -> anyhow::Result<String> {
         out.push('/');
         if seg.starts_with('{') {
             let v = it.next().expect("counted");
-            anyhow::ensure!(!v.is_empty() && !v.contains('/'), "{v:?} is not an id");
+            anyhow::ensure!(!v.is_empty() && !v.contains('/') && !matches!(*v, "." | ".."), "{v:?} is not an id");
             out.push_str(&encode(v));
         } else {
             out.push_str(seg);

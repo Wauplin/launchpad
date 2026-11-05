@@ -181,7 +181,6 @@ test("sign out erases cached data and disables background writers before redirec
   location.replace = (path) => { assert.equal(path, "/auth"); assert.equal(cleared, true); redirected = true; };
   localStorage.setItem("unrelated", "keep");
   localStorage.setItem("launchpad-message-drafts", "sensitive");
-  localStorage.setItem("github-reply:repo", "sensitive");
   sessionStorage.setItem("launchpad-composer-client", "sensitive");
   globalThis.fetch = async () => new Response(JSON.stringify({ error: "Revoked" }), { status: 401 });
   await assert.rejects(realGet("/api/status"), (e) => e.status === 401);

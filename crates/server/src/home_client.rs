@@ -426,10 +426,11 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
                     Ok(ToRunner::Workspaces { workspaces }) => launchpad_core::workspace::replace_all(app, workspaces).await?,
                     Ok(ToRunner::Folders { projects }) => launchpad_core::projects::store_home(app, projects, true).await?,
                     Ok(ToRunner::Profiles { profiles }) => {
-                        let mut config = app.config.get();
-                        if config.profiles != profiles {
-                            config.profiles = profiles;
-                            app.config.save(config)?;
+                        if app.config.get().profiles != profiles {
+                            app.config.update(|config| {
+                                config.profiles = profiles;
+                                Ok(())
+                            })?;
                         }
                     }
                     Ok(ToRunner::Ack { n }) => replica::acked(app, n).await?,

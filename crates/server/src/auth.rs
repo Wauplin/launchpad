@@ -539,9 +539,10 @@ struct HttpsPort {
 
 fn adopt_https(s: &Server, origin: &str) -> anyhow::Result<Value> {
     // Save only the selected origin, preserving all host-edited commands and environments.
-    let mut config = s.app.config.get();
-    config.server.public_origin = Some(origin.into());
-    s.app.config.save(config)?;
+    s.app.config.update(|config| {
+        config.server.public_origin = Some(origin.into());
+        Ok(())
+    })?;
     s.auth.activate_https(origin)?;
     s.auth.pair(&s.auth.origin())
 }

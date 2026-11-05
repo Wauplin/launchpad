@@ -124,7 +124,8 @@ export function CommandField() {
       toast("Finish the launch options, then Launch.");
     }, 4_200);
   };
-  const primary = ctx.primary === "launch" ? launch : () => void ask();
+  // Without a bot in the workspace, Launch is the primary button (and Enter) everywhere.
+  const primary = ctx.primary === "launch" || !bot ? launch : () => void ask();
   const askLabel = bot ? `Ask ${bot.settings.name}` : "Ask";
   return (
     <div className="flex min-w-[280px] max-w-[760px] flex-1 items-center gap-1.5" data-tour="topbar.field">
