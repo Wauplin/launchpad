@@ -41,7 +41,7 @@ function Vault({ v }: { v: VaultOverview }) {
   const others = v.entries.filter((e) => e.kind === "token" || e.kind === "ssh_key");
   return (
     <>
-      <Card title="Harness logins">
+      <Card title="Harness logins" tour="settings.vault">
         {v.logins.map((l) => {
           const mine = v.entries.filter((e) => e.kind === l.kind);
           return (

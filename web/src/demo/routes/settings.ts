@@ -169,8 +169,9 @@ function connect(id: string) {
   }, 1500);
 }
 
-// Home and runners: the demo runs in one process (role all), so it has no runners, backups or remote launches.
-route("GET", "/api/runners", () => []);
+// Home and runners: the demo runs in one process (role all), except in the "Home & runners" chapter, which
+// switches to the Home role and shows the laptop runner and recent Burst jobs.
+route("GET", "/api/runners", () => (world.status.role === "home" ? world.runners : []));
 route("GET", "/api/runner/launches", () => []);
 route("GET", "/api/home/backup", () => ({ destination: null, last_complete_at: null, error: null }));
 
@@ -219,7 +220,9 @@ route("PUT", "/api/mcp/:id/tools/:tool", ({ params, body }) => {
   demoMcp = demoMcp.map((s) => s.id !== params.id ? s : { ...s, tools_off: on ? s.tools_off.filter((t) => t !== params.tool) : [...s.tools_off.filter((t) => t !== params.tool), params.tool] });
   return demoMcp.find((s) => s.id === params.id);
 });
-route("GET", "/api/burst", () => ({ config: world.config.home.burst, unavailable: "Burst runners are started by Home", month_usd: 0, runs: [] }));
+route("GET", "/api/burst", () => world.status.role === "home"
+  ? { config: world.config.home.burst, unavailable: null, month_usd: 0.01, runs: world.burstRuns }
+  : { config: world.config.home.burst, unavailable: "Burst runners are started by Home", month_usd: 0, runs: [] });
 route("GET", "/api/vault/tools.toml", () => ({ toml: "[[tools]]\nid = \"gh\"\n" }));
 route("PUT", "/api/vault/entries/:id", notInDemo);
 route("POST", "/api/vault/entries/:id/from-home", notInDemo);

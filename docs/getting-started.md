@@ -53,7 +53,7 @@ Open **Launchpad** from your applications. The window connects to the background
 On a fresh install, a welcome dialog offers:
 
 - **Essentials tour** (about 3 minutes): launch an agent, answer it and review its work.
-- **Full tour** (about 10 minutes): adds GitHub, Ask Launchpad, terminals, workspaces, automation and settings.
+- **Full tour** (about 10 minutes): adds GitHub, Ask Launchpad and bots with their routines, terminals, workspaces, automation, settings, and Home with its runners and credentials.
 - **Skip the tour**: go straight to the setup checklist.
 
 ![A tour step on demo data](images/tour.webp)

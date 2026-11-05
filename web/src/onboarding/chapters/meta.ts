@@ -14,6 +14,7 @@ export const CHAPTER_META: ChapterMeta[] = [
   { id: "folders", title: "Folders & workspaces", time: "1:00", essentials: false },
   { id: "automation", title: "Start later, routines & quotas", time: "1:15", essentials: false },
   { id: "settings", title: "Profiles, presets & devices", time: "1:15", essentials: false },
+  { id: "home", title: "Home & runners", time: "0:45", essentials: false },
 ];
 
 export const meta = (id: string) => CHAPTER_META.find((c) => c.id === id)!;

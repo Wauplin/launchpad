@@ -76,7 +76,7 @@ function HomeRunners() {
               ))}
             </Card>
           )}
-          <Card title="Runners">
+          <Card title="Runners" tour="settings.runners">
             {approved.length === 0 ? <Empty icon="term">No runner yet. Add one with the command below.</Empty> : approved.map((r) => (
               <div key={r.runner.id} className="flex flex-wrap items-center gap-2 text-[13px]">
                 <span className="grid min-w-0 flex-1">
@@ -112,7 +112,7 @@ function BurstCard() {
   const capNumber = Number(capValue);
   const used = data.config.monthly_cap_usd > 0 ? Math.min(100, (100 * data.month_usd) / data.config.monthly_cap_usd) : 100;
   return (
-    <Card title="Burst">
+    <Card title="Burst" tour="settings.burst">
       <span className="text-[13px] text-ink-2">When no runner takes a launch (your laptop is off), Home starts it on Burst: an HF Job in your namespace, from Home's own image. The job holds no token: Home adds them. It stops after each turn, once Home has saved everything, and your next message starts a new one.</span>
       <SettingRow label="Burst" hint={data.unavailable && data.config.enabled ? data.unavailable : "Also available on purpose: Runner → Burst in the composer, or Move to → Burst on a session."}>
         <FilterChips label="Burst">
