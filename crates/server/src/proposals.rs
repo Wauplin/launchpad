@@ -1,5 +1,5 @@
-//! Ask Launchpad routes: the assistant thread, inert proposals and the read-only context the assistant's
-//! CLI reads (`/api/context/*`, workspace-scoped JSON without secrets).
+//! Proposals and the read-only context the Launchpad CLI tool reads (`/api/context/*`, workspace-scoped JSON
+//! without secrets).
 
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
@@ -18,7 +18,6 @@ pub fn router() -> Router<Server> {
         .route("/api/proposals/{id}/accept", post(accept))
         .route("/api/proposals/{id}/dismiss", post(dismiss))
         .route("/api/proposals/{id}/recheck", post(recheck))
-        .route("/api/assistant", get(thread).post(ask))
         .route("/api/context/folders", get(folders))
         .route("/api/context/bots", get(bots))
         .route("/api/context/sessions", get(sessions))
@@ -65,21 +64,6 @@ struct Scope {
     workspace: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct Ask {
-    workspace_id: Option<String>,
-    #[serde(default)]
-    text: String,
-    #[serde(default)]
-    attachments: Vec<launchpad_core::model::FileAttachment>,
-}
-
-async fn thread(State(s): State<Server>, Query(q): Query<Scope>) -> Json<Option<Session>> {
-    Json(proposals::thread(&s.app, q.workspace.as_deref()))
-}
-async fn ask(State(s): State<Server>, Json(b): Json<Ask>) -> ApiResult<Session> {
-    Ok(Json(proposals::ask(&s.app, b.workspace_id, b.text, b.attachments).await.map_err(bad)?))
-}
 
 /// The workspace (by ID or name) and its folder IDs; None means every folder.
 async fn scope(s: &Server, workspace: Option<&str>) -> Result<Option<Vec<String>>, ApiError> {
@@ -124,7 +108,6 @@ fn session_json(s: &Session) -> Value {
 async fn sessions(State(s): State<Server>, Query(q): Query<Scope>) -> ApiResult<Value> {
     let ids = scope(&s, q.workspace.as_deref()).await?;
     let list: Vec<Value> = s.app.sessions.list().iter()
-        .filter(|x| !x.launch_spec.target.is_assistant())
         .filter(|x| ids.as_ref().is_none_or(|ids| x.project_id.as_ref().is_some_and(|p| ids.contains(p))))
         .map(session_json).collect();
     Ok(Json(json!(list)))

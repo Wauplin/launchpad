@@ -58,7 +58,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - The initial launch prompt gets `compose::append_initial_summary_instruction`; follow-up messages stay verbatim. Keep the typed text first in `render_prompt`.
 - Agent trace context is referenced by `launchpad trace <id> --through <seq>`, never inlined. Missing traces fail visibly.
 - Scheduled launches and routines (code: crons) claim before launching (schedules advance `next_run_at`, GitHub triggers their watermark, every run writes a history entry first) and never catch up: runs more than one hour late or with unmet conditions are skipped. A run claimed but not started when Launchpad stopped becomes Failed, never retried. All start conditions must be met (AND). Quota conditions need a fresh reading. Dependencies use `Session::dependency_done()` / `dependencyDone`.
-- Routine triggers: schedule, new Inbox activity (GitHub notifications; one run per check for all new matching threads) and another agent's turn ending Done. A routine's own runs never trigger routines. Routines of a bot (or Ask Launchpad) send a message to its thread (`crons::bot_message`, first line `Routine “…” · …`) and skip while that thread is working; other routines launch their spec. Pausing a bot pauses its routines and incoming hooks, never the owner's messages.
+- Routine triggers: schedule, new Inbox activity (GitHub notifications; one run per check for all new matching threads) and another agent's turn ending Done. A routine's own runs never trigger routines. Routines of a bot send a message to its thread (`crons::bot_message`, first line `Routine “…” · …`) and skip while that thread is working; other routines launch their spec. Pausing a bot pauses its routines and incoming hooks, never the owner's messages.
 - A turn whose final message is `no_update` (`crons::is_no_update` / `isNoUpdate`) never notifies. Home marks it seen only when its thread had nothing unseen when the run started, so a quiet run never hides an earlier result.
 - Attachments upload once (`upload:<mime>;<sha256>` references); non-image files go to `<data_dir>/attachments/<session-id>/`, never into the project checkout.
 - Model capacity retries: only terminal capacity/overload failures, five-minute persisted deadline, at most five per session, cancelled by Resume, input, Stop or Archive.
@@ -112,9 +112,9 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 
 ### Bots
 
-- A bot is files on Home (`BOT.md`, `bot.toml`, store `bot-<id>`) plus one thread: the sessions whose `LaunchSpec.bot` names it. `bot.toml` is the only source of its settings; agents never write either file.
+- A bot is files on Home (`BOT.md`, `bot.toml`, store `bot-<id>`) plus one thread: the sessions whose `LaunchSpec.bot` names it. `bot.toml` is the only source of its settings (profile, model, folder, permission mode, proposal mode); no profile means the first subscription profile (`bots::profile_of`). Agents never write either file.
 - A new session of the thread starts only on the first message, a profile or folder change, an archived current session or the owner's New session click; it references the previous trace (`launchpad trace`), never inlines it. Harness compaction handles a full context.
-- Bot sessions are normal sessions (counted once, in Agents); the sidebar shows only a state dot per bot. Their notes go in `bots/<slug>/` of the knowledge base. Creating a bot (form or Ask proposal) starts nothing; Ask's bot proposals never auto-start.
+- Bot sessions are normal sessions (counted once, in Agents); the sidebar shows only a state dot per bot. Their notes go in `bots/<slug>/` of the knowledge base. Creating a bot (form or proposal) starts nothing; bot proposals never auto-start.
 
 ### Channels and the Outbox
 
@@ -123,11 +123,11 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - Messages to the owner's own Telegram chat go out directly (notifications with the desktop notification events and no code, answers to turns started from Telegram, `launchpad send telegram`). Only the chat bound with the single-use code is answered; every other chat is ignored. Updates are claimed (offset saved) before they are handled. Messages from Telegram never enable paid usage. Never call Telegram with a real token in automated checks.
 - Incoming hooks (`POST /hooks/<id>`) skip the browser sign-in and need `X-Launchpad-Hook-Secret` (SHA-256 stored, constant-time compare), one message per hook per 10 seconds; on a private Space callers also need an HF token. The body is a fenced, size-limited block marked as outside data.
 
-### Ask Launchpad
+### Ask Launchpad and proposals
 
-- The assistant writes inert proposals only, with a restricted token allowed only `GET /api/context/*`, `GET /api/sessions/{id}/trace`, `GET /api/status`, `GET|POST /api/proposals` and `POST /api/launch/preview`. Every start needs an owner click; paid usage is forced off. Preset proposals create or update presets in config.toml and never delete them.
-- Assistant threads (`Target::Assistant`) are hidden from normal session lists, counts and remembered launch defaults.
-- Ask Launchpad is the built-in bot (`ask_bot.rs`): its `BOT.md` is a versioned file on Home (store `assistant`), editable by the owner or through a `bot-instructions` proposal with `bot_id` `ask-launchpad` (never auto-accepted). Home reads it in `proposals::ask_spec` and sends it as `LaunchSpec.assistant_instructions`; routines never store a copy. The safety rules and the proposal reference stay built in (`proposals::builtin`) around it and win. Its settings stay in `[assistant]` of config.toml. Reset to default writes the default `BOT.md` as a new version and clears `[assistant]`; threads, proposals and routines stay.
+- Ask Launchpad is a normal bot with no special code path: Home creates it once per workspace (`ask_bot::seed`, recorded in the `seeded` table) with its own plain folder; the owner may edit, replace or delete it, and Home never recreates it. Never add Ask-only branches to sessions, crons, hooks, proposals or the UI.
+- The Launchpad CLI is a tool of Home's registry (`vault::LAUNCHPAD_TOOL`), added once and granted to every workspace. A session granted it gets `proposals::cli_reference` in its memory instructions; the session CLI token reaches `/api/context/*`, `/api/status` and `/api/proposals` only when its lease grants the tool (`agent_auth`).
+- Proposals are inert. Every start needs an owner click, except one-time launches, messages, schedules and presets of a bot whose `bot.toml` says `proposals = "auto"`; crons, routines, bots, tools and BOT.md changes always wait. Paid usage is forced off. A session proposes routines and BOT.md changes only for bots of its own workspace. Preset proposals create or update presets in config.toml and never delete them.
 
 ### Terminals
 

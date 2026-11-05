@@ -183,6 +183,10 @@ impl App {
         app.sessions.load(&app).await?;
         schedules::recover(&app).await?;
         proposals::recover(&app).await?;
+        // Before the schedulers: the first run moves the former assistant's routines to Ask Launchpad.
+        if let Err(e) = ask_bot::seed(&app).await {
+            tracing::warn!("default bot and tools: {e:#}");
+        }
         schedules::spawn(&app);
         {
             let app = app.clone();
@@ -306,7 +310,6 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     hosts::sshconfig::SshConfigHost::export_all(&cfg)?;
     proposals::Proposal::export_all(&cfg)?;
     bots::Bot::export_all(&cfg)?;
-    ask_bot::AskBot::export_all(&cfg)?;
     onboarding::OnboardingState::export_all(&cfg)?;
     setup_checklist::Checklist::export_all(&cfg)?;
     setup_checklist::ChecklistSummary::export_all(&cfg)?;

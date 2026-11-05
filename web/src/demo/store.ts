@@ -56,7 +56,7 @@ export function setStatus(id: string, status: SessionStatus, patch: Partial<Sess
 
 /** Recomputes `Status.sessions` with the shared predicates and publishes the status. */
 export function refreshCounts() {
-  const normal = world.sessions.filter((s) => s.launch_spec.target.kind !== "assistant");
+  const normal = world.sessions;
   const running = normal.filter((s) => ["starting", "working", "background"].includes(s.status)).length;
   const quota_paused = normal.filter((s) => s.status === "quota_paused").length;
   const done = normal.filter((s) => (s.status === "waiting" && (s.open_question || s.seen_at < s.status_since)) || ((s.status === "error" || s.status === "interrupted") && s.seen_at < s.status_since)).length;

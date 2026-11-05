@@ -43,7 +43,7 @@ def summary(session):
 
 async def plan(runtime):
     """What an update would do now: running agents to stop and resume, open terminals, and blockers."""
-    sessions = await runtime.api('GET','/api/sessions?include_assistant=true')
+    sessions = await runtime.api('GET','/api/sessions')
     terminals = await runtime.api('GET','/api/terminals')
     blockers = []
     for s in sessions:
@@ -65,7 +65,7 @@ async def stop_agents(runtime, ids, timeout=60, poll=1):
         except ValueError: pass  # Already finished, or no live process: the status check below decides.
     deadline = time.monotonic()+timeout
     while True:
-        sessions = {s['id']:s for s in await runtime.api('GET','/api/sessions?include_assistant=true')}
+        sessions = {s['id']:s for s in await runtime.api('GET','/api/sessions')}
         left = [id for id in ids if sessions.get(id,{}).get('status') in RUNNING]
         if not left or time.monotonic() >= deadline: return left
         await asyncio.sleep(poll)
@@ -75,7 +75,7 @@ async def resume_agents(runtime, stopped):
     """Resumes the stopped agents in their own sessions with "Continue the unfinished turn."; never raises."""
     resumed, failed, finished = [], [], []
     try:
-        sessions = {s['id']:s for s in await runtime.api('GET','/api/sessions?include_assistant=true')}
+        sessions = {s['id']:s for s in await runtime.api('GET','/api/sessions')}
     except Exception:
         return {'resumed':[],'finished':[],'failed':[dict(s,error='Launchpad did not list sessions') for s in stopped]}
     for s in stopped:

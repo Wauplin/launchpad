@@ -7,12 +7,12 @@ import type { LaunchSpec } from "@/gen/LaunchSpec";
 import { clock, DemoError, publish, route } from "../daemon";
 import { world } from "../world";
 import { ASK_DEFAULT, settingsText } from "../world/bots";
-import type { AskBot } from "@/gen/AskBot";
 import { session, setStatus } from "../store";
 import { createCron, launch, nextDue } from "./launch";
 import type { CronAgent } from "@/gen/CronAgent";
 import { defaultSpec } from "../store";
 import { sendMessage } from "./agents";
+import { pickReply } from "../scenarios";
 
 const botOf = (id: string) => {
   const b = world.bots.find((x) => x.id === id);
@@ -28,7 +28,11 @@ const record = (b: Bot, path: string, before: string, after: string) => {
 };
 const thread = (id: string) => world.sessions.filter((s) => s.launch_spec.bot?.id === id).sort((a, b) => a.started_at - b.started_at);
 
+/** The profile a bot runs with: its own, else the first subscription profile (Home's `bots::profile_of`). */
+const profileOf = (b: Bot) => b.settings.profile ? world.config.profiles.find((p) => p.id === b.settings.profile) : world.config.profiles.find((p) => p.billing === "subscription") ?? world.config.profiles[0];
+
 route("GET", "/api/bots", () => world.bots);
+route("GET", "/api/bots/templates", () => [{ id: "ask-launchpad", name: "Ask Launchpad", instructions: ASK_DEFAULT }]);
 route("GET", "/api/bots/:id", ({ params }) => botOf(params.id));
 route("POST", "/api/bots", ({ body }) => {
   const c = body as { workspace_id: string; name: string; instructions: string; profile: string | null; folder: string | null };
@@ -41,7 +45,7 @@ route("POST", "/api/bots", ({ body }) => {
     publish("projects", "changed", null);
     folder = id;
   }
-  const settings: BotSettings = { name: c.name.trim(), profile: c.profile ?? undefined, folder, permission_mode: "yolo" };
+  const settings: BotSettings = { name: c.name.trim(), profile: c.profile ?? undefined, folder, permission_mode: "yolo", proposals: "manual" };
   const b: Bot = { id: `demo-bot-${slug}-${world.bots.length}`, workspace_id: c.workspace_id, slug, created_at: clock.now(), settings, instructions: c.instructions?.trim() ? `${c.instructions.trim()}\n` : `# ${settings.name}\n`, settings_text: settingsText(settings), settings_error: null, own_folder: !c.folder, paused: false, version: 1 };
   world.bots.push(b);
   record(b, "BOT.md", "", b.instructions);
@@ -70,8 +74,8 @@ route("POST", "/api/bots/:id/routines", ({ params, body }) => {
   const r = body as { title?: string; instructions?: string; trigger?: CronAgent["trigger"]; schedule?: string; conditions?: CronAgent["conditions"]; time_zone?: string };
   if (!r.title?.trim()) throw new DemoError(400, "give the routine a name");
   if (!r.instructions?.trim()) throw new DemoError(400, "write what the bot does at each run");
-  const profile = world.config.profiles.find((p) => p.id === b.settings.profile);
-  return createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: b.settings.profile ?? null, target: { kind: "project", project_id: b.settings.folder }, text: r.instructions.trim(), workspace_id: b.workspace_id }, r.schedule ?? "", r.conditions ?? [], r.trigger ?? { kind: "schedule" }, { title: r.title.trim(), bot_id: b.id, bot_paused: b.paused, ...(r.time_zone ? { time_zone: r.time_zone } : {}) });
+  const profile = profileOf(b);
+  return createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: { kind: "project", project_id: b.settings.folder }, text: r.instructions.trim(), workspace_id: b.workspace_id }, r.schedule ?? "", r.conditions ?? [], r.trigger ?? { kind: "schedule" }, { title: r.title.trim(), bot_id: b.id, bot_paused: b.paused, ...(r.time_zone ? { time_zone: r.time_zone } : {}) });
 });
 route("DELETE", "/api/bots/:id", ({ params }) => {
   world.bots = world.bots.filter((b) => b.id !== params.id);
@@ -88,44 +92,14 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
   if (!text) throw new DemoError(400, "the message is empty");
   const sessions = thread(b.id);
   const current = [...sessions].reverse().find((s) => s.status !== "closed");
-  if (current && !(body as { new_session?: boolean }).new_session && current.launch_spec.profile === (b.settings.profile ?? null)) {
+  const profile = profileOf(b);
+  if (current && !(body as { new_session?: boolean }).new_session && current.launch_spec.profile === (profile?.id ?? null)) {
     sendMessage(current, text, `${current.id}-${current.last_seq + 1}`);
     return session(current.id);
   }
   if (current) setStatus(current.id, "closed");
   const previous = sessions.at(-1);
-  const profile = world.config.profiles.find((p) => p.id === b.settings.profile);
-  const spec = { harness: profile?.harness ?? "claude", profile: b.settings.profile ?? null, target: { kind: "project", project_id: b.settings.folder }, worktree: world.projects.find((p) => p.id === b.settings.folder)?.plain ? null : { base: null, when_done: "keep" }, workspace_id: b.workspace_id, text,
+  const spec = { harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: { kind: "project", project_id: b.settings.folder }, worktree: world.projects.find((p) => p.id === b.settings.folder)?.plain ? null : { base: null, when_done: "keep" }, workspace_id: b.workspace_id, text,
     bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
-  return launch(spec);
-});
-
-// Ask Launchpad, the built-in bot: BOT.md with versions and Reset to default.
-const ASK = "ask-launchpad";
-const askBot = (): AskBot => ({
-  instructions: world.askBot.instructions, default_instructions: ASK_DEFAULT, version: world.askBot.version,
-  builtin: "You are Ask Launchpad, the owner's assistant inside Launchpad, scoped to the current workspace. You turn requests into proposals. You never start agents, send messages, schedule, publish or post to GitHub yourself, and you do not edit files. These rules and the reference below are built into Launchpad. The owner's instructions (BOT.md) say how they want you to work within them; when the two conflict, these rules win.\n\n<bot-instructions>\n(your BOT.md)\n</bot-instructions>\n\nRead Launchpad state with these read-only commands (JSON output): launchpad folders list, bots list, sessions list, profiles list, presets list, inbox list, schedules list, proposals list, trace <session-id>.\n\nWrite proposals with launchpad propose <launch|message|schedule|cron|status|preset|tool|bot|routine|bot-instructions> …",
-  customized: world.askBot.instructions !== ASK_DEFAULT || world.config.assistant.profile != null || world.config.assistant.model != null || world.config.assistant.auto_mode,
-});
-const setAsk = (text: string) => {
-  const b = { id: ASK } as Bot;
-  if (text !== world.askBot.instructions) record(b, "BOT.md", world.askBot.instructions, text);
-  world.askBot.instructions = text;
-  world.askBot.version += 1;
-  publish("bots", "changed", { id: ASK });
-  return askBot();
-};
-route("GET", "/api/assistant/bot", askBot);
-route("PATCH", "/api/assistant/bot", ({ body }) => {
-  const text = (body as { instructions: string }).instructions ?? "";
-  if (!text.trim()) throw new DemoError(400, "BOT.md is empty: use Reset to go back to the default");
-  return setAsk(text.endsWith("\n") ? text : `${text}\n`);
-});
-route("GET", "/api/assistant/bot/history", () => (world.botChanges[ASK] ?? []).map(({ patch: _patch, ...c }) => c));
-route("GET", "/api/assistant/bot/history/:change", ({ params }) => ({ patch: (world.botChanges[ASK] ?? []).find((c) => c.id === Number(params.change))?.patch ?? "" }));
-route("POST", "/api/assistant/bot/restore/:change", () => { throw new DemoError(400, "Demo: restoring a version works on a real Home."); });
-route("POST", "/api/assistant/bot/reset", () => {
-  world.config = { ...world.config, assistant: { profile: null, model: null, effort: null, auto_mode: false } };
-  publish("config", "changed", null);
-  return setAsk(ASK_DEFAULT);
+  return launch(spec, undefined, b.slug === "ask-launchpad" ? pickReply(text, true) : undefined);
 });

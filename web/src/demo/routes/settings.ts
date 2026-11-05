@@ -98,13 +98,11 @@ route("PUT", "/api/config", ({ body }) => {
 type GeneralPatch = Partial<{
   projects_root: string; remove_published_worktree: boolean; presets: Config["presets"]; notify: boolean; github_poll_interval_seconds: number;
   trace_backup_enabled: boolean; trace_backup_bucket: string; trace_backup_prefix: string; worktrees_keep: number; browser: string;
-  assistant_profile: string; assistant_model: string; assistant_effort: string; assistant_auto_mode: boolean;
 }>;
 
 route("PATCH", "/api/config", ({ body }) => {
   const p = (body ?? {}) as GeneralPatch;
   const c: Config = structuredClone(world.config);
-  const opt = (v: string | undefined, old: string | null) => (v === undefined ? old : v || null);
   if (p.trace_backup_enabled !== undefined) {
     c.trace_backup.enabled = p.trace_backup_enabled;
     // The demo simulates both directions without reaching a real bucket.
@@ -120,7 +118,6 @@ route("PATCH", "/api/config", ({ body }) => {
   if (p.github_poll_interval_seconds !== undefined) c.github.poll_interval_seconds = Math.max(15, p.github_poll_interval_seconds);
   if (p.worktrees_keep !== undefined) c.worktrees.keep = p.worktrees_keep;
   if (p.browser !== undefined) c.commands.browser = p.browser;
-  c.assistant = { profile: opt(p.assistant_profile, c.assistant.profile), model: opt(p.assistant_model, c.assistant.model), effort: opt(p.assistant_effort, c.assistant.effort), auto_mode: p.assistant_auto_mode ?? c.assistant.auto_mode };
   return saveConfig(c);
 });
 

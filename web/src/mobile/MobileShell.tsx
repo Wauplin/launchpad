@@ -34,7 +34,7 @@ function pageTitle(path: string): string {
   if (path.startsWith("/outbox")) return "Outbox";
   if (path.startsWith("/github")) return "GitHub";
   if (path.startsWith("/predrafts")) return "Local PR";
-  if (path.startsWith("/ask")) return "Ask";
+  if (path.startsWith("/proposals")) return "Proposals";
   if (path.startsWith("/terminals")) return "Terminals";
   if (path.startsWith("/settings")) return "Settings";
   if (path.startsWith("/setup")) return "Setup";
@@ -84,7 +84,7 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
       {button(null, "Everything", `${projects} folders`)}
       {workspaces.map((w) => button(w.id, w.name, `${folderCount(all, w.id)} folders`))}
       <div className="seclabel px-4 pt-4 pb-1">Go to</div>
-      <MenuLink to="/bots" icon="spark" onClick={onClose}>Bots</MenuLink>
+      <MenuLink to="/proposals" icon="spark" onClick={onClose}>Proposals</MenuLink>
       <MenuLink to="/schedules" icon="clock" onClick={onClose}>Schedules</MenuLink>
       <MenuLink to="/outbox" icon="send" onClick={onClose}>Outbox</MenuLink>
       <MenuLink to="/projects" icon="folder" onClick={onClose}>Folders</MenuLink>
@@ -153,8 +153,8 @@ export function MobileShell() {
       {!viewport?.keyboard && <nav className="flex flex-none border-t border-line bg-chrome pb-[env(safe-area-inset-bottom)]" aria-label="Main">
         <Tab to="/now" icon="alert" label="Now" count={needs} highlight />
         <Tab to="/agents" icon="agents" label="Agents" count={running} />
-        <Link to="/ask" className="flex min-h-[54px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold text-teal-ink no-underline" activeProps={{ "aria-current": "page" } as never}>
-          <span className="grid size-8 place-items-center rounded-full bg-teal text-white"><Icon name="spark" size={18} /></span><span className="text-[11px]">Ask</span>
+        <Link to="/bots" className="flex min-h-[54px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold text-teal-ink no-underline" activeProps={{ "aria-current": "page" } as never}>
+          <span className="grid size-8 place-items-center rounded-full bg-teal text-white"><Icon name="spark" size={18} /></span><span className="text-[11px]">Bots</span>
         </Link>
         <Tab to="/review" icon="pr" label="Review" count={publish} />
         <Tab to="/inbox" icon="inbox" label="Inbox" count={inbox} highlight />

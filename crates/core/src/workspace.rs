@@ -67,6 +67,11 @@ pub async fn create(app: &App, name: &str) -> Result<Workspace> {
     let id = uuid::Uuid::new_v4().to_string();
     let w = Workspace { name: check_name(app, name, &id).await?, id, created_at: now_ms() };
     save(app, &w).await?;
+    if crate::home_git::here(app)
+        && let Err(e) = crate::ask_bot::seed_workspace(app, &w.id).await
+    {
+        tracing::warn!("Ask Launchpad of {}: {e:#}", w.name);
+    }
     Ok(w)
 }
 
@@ -112,9 +117,14 @@ pub async fn project_ids(app: &App, id: &str) -> Result<Vec<String>> {
 /// Deletes an empty workspace. Its folders must first move to another workspace or be removed, so every
 /// folder keeps exactly one workspace.
 pub async fn delete(app: &App, id: &str) -> Result<()> {
-    let folders = project_ids(app, id).await?.len();
+    let ids = project_ids(app, id).await?;
+    let folders = ids.len();
     if folders > 0 {
-        bail!("move or remove its {folders} folder{} first", if folders == 1 { "" } else { "s" });
+        // Bots' own folders (Ask Launchpad's too) count: delete the bot first, then remove its folder.
+        let bots = if crate::home_git::here(app) { crate::bots::list(app).await.unwrap_or_default() } else { vec![] };
+        let own = bots.iter().filter(|b| b.workspace_id == id && b.own_folder && ids.contains(&b.settings.folder)).count();
+        let hint = if own > 0 { format!(" ({own} belong{} to bots: delete the bot in Bots, then remove its folder)", if own == 1 { "s" } else { "" }) } else { String::new() };
+        bail!("move or remove its {folders} folder{} first{hint}", if folders == 1 { "" } else { "s" });
     }
     let id = id.to_string();
     app.state_db.call(move |c| Ok(c.execute("DELETE FROM workspace WHERE id = ?1", [id])?)).await?;

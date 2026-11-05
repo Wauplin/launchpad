@@ -17,7 +17,7 @@ export function MessageContextPicker({ sessionId, value, onChange, disabled }: {
   const sessions = useSessions().data ?? [];
   const session = useSession(sessionId);
   const scope = useScope();
-  const noFolders = session?.launch_spec.target.kind === "assistant" || (session?.launch_spec.target.kind === "browser" && !session.launch_spec.target.project_id);
+  const noFolders = session?.launch_spec.target.kind === "browser" && !session.launch_spec.target.project_id;
   const available = (noFolders ? [] : projects).filter((p) => p.id !== session?.project_id && hostOf(p.path) === hostOf(session?.cwd ?? "") && !value.context_projects.some((c) => c.project_id === p.id));
   const addProject = (id: string) => onChange({ ...value, context_projects: [...value.context_projects, { project_id: id, branch: null, editable: false }] });
   const recent: { key: string; label: string; add: () => void }[] = [];

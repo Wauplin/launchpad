@@ -5,8 +5,19 @@ use serde_json::Value;
 
 use crate::error::ApiError;
 
+/// Launchpad state and proposals: what the Launchpad CLI tool grants (`vault::LAUNCHPAD_TOOL`).
+fn launchpad_tool_path(method: &Method, path: &str) -> bool {
+    (method == Method::GET && (path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals")) || (method == Method::POST && path == "/api/proposals")
+}
+
+/// A contained session whose lease does not grant the Launchpad CLI tool. Sessions without a lease on this
+/// machine (not contained, or before their lease) keep the CLI as before.
+fn tool_off(app: &App, id: &str) -> bool {
+    app.proxy.for_session(id).is_some_and(|a| !a.lease.read().unwrap().tools.iter().any(|t| t.id == launchpad_core::vault::LAUNCHPAD_TOOL))
+}
+
 fn read_allowed(path: &str) -> bool {
-    path == "/api/status" || path.starts_with("/api/context/") || path == "/api/predrafts"
+    path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/predrafts"
         || (path.starts_with("/api/predrafts/") && !path.ends_with("/resolve"))
         || (path.starts_with("/api/sessions/") && path.ends_with("/trace"))
 }
@@ -25,6 +36,9 @@ async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
 pub async fn authorize(app: &App, id: &str, req: Request) -> Result<Request, ApiError> {
     let denied = || ApiError::new(axum::http::StatusCode::FORBIDDEN, "this session CLI token can only read context and prepare local work; use an owner window for this action");
     let path = req.uri().path().to_string();
+    if launchpad_tool_path(req.method(), &path) && tool_off(app, id) {
+        return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "the Launchpad CLI tool is not granted to this session (Settings → Credentials and tools)"));
+    }
     if req.method() == Method::GET {
         if path == "/api/predrafts/resolve" {
             let url = reqwest::Url::parse(&format!("http://local{}", req.uri())).map_err(|_| denied())?;

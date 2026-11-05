@@ -1,7 +1,7 @@
 import { useKnowledgeUnseen } from "@/lib/knowledge";
 import { useInboxNeeds } from "@/features/inbox/data";
 import { useReviewCount } from "@/features/review/data";
-import { useAskCount } from "@/features/ask/count";
+import { useProposalCount } from "@/features/proposals/count";
 import { useOutboxCount } from "@/features/outbox/data";
 import { botInitial, botState, botThread, useBots } from "@/lib/bots";
 import type { Bot } from "@/gen/Bot";
@@ -181,15 +181,15 @@ const BotLink = memo(function BotLink({ bot, thread }: { bot: Bot; thread: Sessi
   );
 });
 
-/** Bots: Ask Launchpad (built in) first, then the workspace's bots. */
+/** Bots of the workspace (Ask Launchpad among them), and the proposals they wrote. */
 function BotList({ proposals, sessions }: { proposals: number; sessions: Session[] }) {
   const scope = useScope();
   const bots = (useBots().data ?? []).filter((b) => !scope.workspace || b.workspace_id === scope.workspace.id);
   return (
     <div className="flex flex-col gap-px" data-tour="sidebar.bots">
       <SideLabel end={<Link to="/bots" search={{ new: true } as never} className="iconbtn size-[22px]!" title="New bot" aria-label="New bot"><Icon name="plus" size={13} /></Link>}><Link to="/bots" className="text-inherit no-underline hover:underline">Bots</Link></SideLabel>
-      <NavItem tour="sidebar.ask" to="/ask" icon="spark" end={proposals > 0 ? <span className="rounded-full bg-teal-soft px-1.5 text-[11px] font-semibold text-teal-ink tabular-nums" title={`${proposals} proposals wait for your tap`}>{proposals}</span> : undefined}>
-        Ask Launchpad
+      <NavItem tour="sidebar.proposals" to="/proposals" icon="spark" end={proposals > 0 ? <span className="rounded-full bg-teal-soft px-1.5 text-[11px] font-semibold text-teal-ink tabular-nums" title={`${proposals} proposals wait for your tap`}>{proposals}</span> : undefined}>
+        Proposals
       </NavItem>
       {bots.map((b) => <BotLink key={b.id} bot={b} thread={botThread(sessions, b.id)} />)}
       {bots.length === 0 && <Link to="/bots" search={{ new: true } as never} className="mx-[9px] my-1 text-[12px] text-teal-ink no-underline hover:underline">+ New bot</Link>}
@@ -202,7 +202,7 @@ export function Sidebar() {
   const needs = useInboxNeeds();
   const toReview = useReviewCount();
   const knowledgeNew = useKnowledgeUnseen();
-  const proposals = useAskCount();
+  const proposals = useProposalCount();
   const toSend = useOutboxCount();
   const scope = useScope();
   const all = useProjects().data ?? [];

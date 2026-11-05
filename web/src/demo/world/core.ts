@@ -20,6 +20,8 @@ export function coreWorld() {
     project(P.docs, "docs", `${ORG}/docs`, "Product documentation"),
     project(P.dotfiles, "dotfiles", null, "Personal configuration", { workspace_id: WS.personal }),
     project(P.scratch, "tmp-1028-csv-cleanup", null, "", { path: `${ROOT}/tmp-1028-csv-cleanup`, is_temp: true }),
+    // Ask Launchpad's own plain folder (Home creates one with the bot).
+    project(P.ask, "Ask Launchpad", null, "", { path: `/home/demo/.local/share/launchpad/plain/${P.ask}`, plain: true }),
   ];
   const workspaces: Workspace[] = [
     { id: WS.acme, name: "Acme", created_at: clock.ago(60 * 24 * 30) },
@@ -35,17 +37,16 @@ export function coreWorld() {
     agents: { notify: true },
     worktrees: { keep: 10 },
     presets: [
-      { id: "implement-review", label: "Implement, then review", text: "Please implement the feature using Claude, then launch a review using Codex.", ask_launchpad: true, agent: false },
-      { id: "tests", label: "Write tests", text: "Add or update tests for the code you change, and run them before you finish.", ask_launchpad: false, agent: true },
-      { id: "commits", label: "Small commits", text: "Commit in small, focused steps with clear messages.", ask_launchpad: false, agent: true },
-      { id: "local-pr", label: "Open a Local PR when done", text: "When the task is done, open a Local PR with `launchpad pr create`.", ask_launchpad: false, agent: true },
+      { id: "implement-review", label: "Implement, then review", text: "Please implement the feature using Claude, then launch a review using Codex.", bots: true, agent: false },
+      { id: "tests", label: "Write tests", text: "Add or update tests for the code you change, and run them before you finish.", bots: false, agent: true },
+      { id: "commits", label: "Small commits", text: "Commit in small, focused steps with clear messages.", bots: false, agent: true },
+      { id: "local-pr", label: "Open a Local PR when done", text: "When the task is done, open a Local PR with `launchpad pr create`.", bots: false, agent: true },
     ],
     profiles: [
       { id: "claude-max", name: "Claude · Max", harness: "claude", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], send_credentials: false, login: null },
       { id: "codex-plus", name: "Codex · Plus", harness: "codex", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], send_credentials: false, login: null },
       { id: "opencode-router", name: "OpenCode · HF router", harness: "opencode", env: { OPENAI_API_KEY: "${HF_TOKEN}" }, model: "open-labs/open-coder-70b", effort: null, billing: "pay_as_you_go", budget_usd: null, models_url: "https://router.example.com/v1/models", spend_limits: [{ usd: 5, hours: 24 }], send_credentials: false, login: null },
     ],
-    assistant: { profile: null, model: null, effort: null, auto_mode: false },
     home: { backup: "", git_name: "", git_email: "", burst: { enabled: true, monthly_cap_usd: 20, flavor: "cpu-basic" }, time_zone: "" },
     runner: { boundary: "jail" },
   };

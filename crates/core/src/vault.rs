@@ -155,10 +155,20 @@ pub fn placeholder(id: &str) -> String {
     format!("lp-placeholder-{id}")
 }
 
-/// Ready-made tools offered by Add tool. They are never added on their own.
+/// The Launchpad CLI tool: sessions granted it are told how to read Launchpad state and write proposals
+/// (`proposals::cli_reference`). It needs no install (the runner puts `launchpad` on PATH) and no token (the
+/// session's own CLI token). Home adds it once, granted everywhere (`ask_bot::seed`).
+pub const LAUNCHPAD_TOOL: &str = "launchpad";
+
+pub fn launchpad_tool() -> Tool {
+    Tool { id: LAUNCHPAD_TOOL.into(), name: "Launchpad CLI".into(), install: None, credential: None, env: vec![], hosts: vec![], workspaces: vec!["*".into()], check_url: None }
+}
+
+/// Ready-made tools offered by Add tool. Only the Launchpad CLI is added on its own, once.
 pub fn templates() -> Vec<Tool> {
     let rule = |host: &str, auth: Auth| HostRule { host: host.into(), auth };
     vec![
+        launchpad_tool(),
         Tool {
             id: "gh".into(),
             name: "GitHub CLI".into(),

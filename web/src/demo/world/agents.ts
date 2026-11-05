@@ -289,10 +289,9 @@ export function agentsWorld() {
   gpu.live = false;
   gpu.ended_at = gpu.status_since;
 
-  // Ask Launchpad: the Acme thread, with a short prerecorded conversation.
-  const assistantCwd = `/home/demo/.local/share/launchpad/assistant/${WS.acme}`;
-  add({ id: "demo-s-ask-acme", title: "Ask Launchpad · Acme", project: null, harness: "claude", minutesAgo: 35, cwd: assistantCwd,
-    spec: { target: { kind: "assistant", workspace_id: WS.acme }, workspace_id: WS.acme, text: "What is running in Acme right now?" },
+  // Ask Launchpad: the Acme bot's thread, with a short prerecorded conversation.
+  add({ id: "demo-s-ask-acme", title: "What is running in Acme right now?", project: P.ask, harness: "claude", minutesAgo: 35, cwd: `/home/demo/.local/share/launchpad/plain/${P.ask}`,
+    spec: { profile: "claude-max", workspace_id: WS.acme, text: "What is running in Acme right now?", bot: { id: "demo-bot-ask-acme", name: "Ask Launchpad", slug: "ask-launchpad", instructions: "", previous: null } },
     events: [
       user("What is running in Acme right now?", false),
       ...tool("Bash", "launchpad sessions list --workspace Acme", "[{\"title\":\"Add a dark-mode toggle to the header\",\"status\":\"working\"},{\"title\":\"Speed up invoice PDF rendering\",\"status\":\"working\"},{\"title\":\"Run the load test on the invoices API\",\"status\":\"background\"}, …]"),
@@ -325,7 +324,7 @@ export function agentsWorld() {
       ...end(2), status("waiting"),
     ] });
   const proposals: Proposal[] = [
-    // The Maintainer proposes a routine for itself (shown in its Routines tab and on the Ask page).
+    // The Maintainer proposes a routine for itself (shown in its Routines tab and on the Proposals page).
     { id: "demo-prop-review-routine", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "Review requests on storefront",
       note: "So I review pull requests as soon as GitHub asks you for a review, and prepare my review as a suggestion.",
       body: { kind: "routine", bot_id: "demo-bot-maintainer", title: "Review requests", instructions: "Review each pull request below. Prepare your review as a suggestion for me to post; do not post it yourself. Report one line per pull request with your verdict.", trigger: { kind: "github", repo: "acme-labs/storefront", events: ["review_requested"] }, schedule: "", conditions: [] },

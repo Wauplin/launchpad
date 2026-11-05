@@ -106,7 +106,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   const [scheduling, setScheduling] = useState(false);
   const [message, setMessage] = useState("");
   const [followUpPresets, setFollowUpPresets] = useState<string[]>([]);
-  const presetSurface = s.launch_spec.target.kind === "assistant" ? "ask_launchpad" : "agent";
+  const presetSurface = s.launch_spec.bot ? "bots" : "agent";
   const allPresets = usePresets(presetSurface);
   const followUpMessage = withPresets(message, followUpPresets, allPresets);
   const [conditions, setConditions] = useState<LaunchDelay[]>([{ kind: "in", minutes: 30 }]);

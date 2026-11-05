@@ -30,7 +30,6 @@ pub struct Config {
     pub presets: Vec<Preset>,
     /// Named harness settings, selectable in the composer beside the base harnesses.
     pub profiles: Vec<Profile>,
-    pub assistant: Assistant,
     pub home: HomeConfig,
     pub runner: RunnerConfig,
 }
@@ -83,19 +82,6 @@ impl Default for BurstConfig {
     fn default() -> Self {
         BurstConfig { enabled: true, monthly_cap_usd: 20.0, flavor: "cpu-basic".into() }
     }
-}
-
-/// Ask Launchpad: the profile, model and effort of the assistant session, kept apart from the composer's
-/// remembered launch defaults. None: the first subscription profile and its defaults. Changing the model of an
-/// assistant thread (Summary → Run) saves it here for the next threads.
-#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
-#[serde(default)]
-pub struct Assistant {
-    pub profile: Option<String>,
-    pub model: Option<String>,
-    pub effort: Option<String>,
-    /// Automatically accept new actionable proposals from assistant threads.
-    pub auto_mode: bool,
 }
 
 /// Network front door. File edits require restart; pairing can apply verified HTTPS live.
@@ -245,9 +231,9 @@ pub struct Preset {
     pub id: String,
     pub label: String,
     pub text: String,
-    /// Available in Ask Launchpad messages.
-    #[serde(default)]
-    pub ask_launchpad: bool,
+    /// Available in messages to bots (formerly `ask_launchpad`).
+    #[serde(default, alias = "ask_launchpad")]
+    pub bots: bool,
     /// Available in agent launches, steering and scheduled follow-ups.
     #[serde(default = "preset_agent_default")]
     pub agent: bool,
@@ -270,7 +256,6 @@ impl Default for Config {
             worktrees: Worktrees::default(),
             profiles: vec![],
             presets: vec![],
-            assistant: Assistant::default(),
             home: HomeConfig::default(),
             runner: RunnerConfig::default(),
         }
@@ -569,7 +554,7 @@ text = "Review the changes."
                 id: "draft-pr".into(),
                 label: "My review".into(),
                 text: "Review the changes.".into(),
-                ask_launchpad: false,
+                bots: false,
                 agent: true,
             }]
         );

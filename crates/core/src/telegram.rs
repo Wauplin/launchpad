@@ -5,7 +5,7 @@
 //!
 //! Messages to the owner's own chat go out directly (owner decision): notifications (the desktop notification events, never
 //! code), the final message of turns started from Telegram, and `launchpad send telegram`. Incoming text goes to
-//! a bot's thread (`/<bot> text`, `/bot <name> text`) or to Ask Launchpad; launches from Telegram never allow paid
+//! a bot's thread (`/<bot> text`, `/bot <name> text`), plain text to the first bot; launches from Telegram never allow paid
 //! usage. An update is marked handled before it is acted on, so a crash never runs a message twice.
 
 use std::collections::HashSet;
@@ -217,10 +217,9 @@ fn session_link(app: &App, id: &str) -> String {
 }
 
 fn session_name(s: &Session) -> String {
-    match (&s.launch_spec.bot, s.launch_spec.target.is_assistant()) {
-        (Some(b), _) => b.name.clone(),
-        (None, true) => "Ask Launchpad".into(),
-        _ => s.harness.display().to_string(),
+    match &s.launch_spec.bot {
+        Some(b) => b.name.clone(),
+        None => s.harness.display().to_string(),
     }
 }
 
@@ -332,7 +331,8 @@ fn same_name(a: &str, b: &str) -> bool {
 async fn help(app: &App) -> String {
     let bots = crate::bots::list(app).await.unwrap_or_default();
     let list = if bots.is_empty() { "no bots yet".to_string() } else { bots.iter().map(|b| format!("/{} ({})", b.slug.replace('-', "_"), b.settings.name)).collect::<Vec<_>>().join(", ") };
-    format!("Write a message to ask Launchpad. To give a bot a task: /<bot> <text> or /bot <name> <text>. Bots: {list}.")
+    let first = bots.first().map(|b| format!("Write a message to talk to {}, your first bot. ", b.settings.name)).unwrap_or_default();
+    format!("{first}To give a bot a task: /<bot> <text> or /bot <name> <text>. Bots: {list}.")
 }
 
 const FROM_TELEGRAM: &str = "\n\n(Sent from Telegram. Your final message of this turn goes back to the owner's chat as plain text: keep it short.)";
@@ -364,7 +364,11 @@ async fn handle(app: &App, msg: &Value) -> Result<()> {
     let sent = match parse(text) {
         Incoming::Start(_) | Incoming::Help => return say(app, &help(app).await).await,
         Incoming::Empty(name) => return say(app, &format!("Add the task after the command, for example /{name} check the open issues.")).await,
-        Incoming::Ask(t) => crate::hooks::deliver(app, crate::hooks::Target::Ask { workspace_id: None }, format!("{t}{FROM_TELEGRAM}"), false, true).await.map(|d| ("Ask Launchpad".to_string(), d)),
+        // A plain message goes to the first bot (Ask Launchpad of the first workspace, unless the owner deleted it).
+        Incoming::Ask(t) => match crate::bots::list(app).await?.into_iter().next() {
+            Some(b) => crate::hooks::deliver(app, crate::hooks::Target::Bot { id: b.id.clone() }, format!("{t}{FROM_TELEGRAM}"), false, true).await.map(|d| (b.settings.name.clone(), d)),
+            None => return say(app, "There is no bot yet: create one in Launchpad (Bots), then write again.").await,
+        },
         Incoming::Bot { name, text } => {
             let bots = crate::bots::list(app).await?;
             match bots.iter().find(|b| same_name(&b.slug, &name) || same_name(&b.settings.name, &name)) {

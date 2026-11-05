@@ -459,10 +459,6 @@ pub struct LaunchSpec {
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routine: Option<RoutineLaunch>,
-    /// An Ask Launchpad thread: the owner's BOT.md of the assistant, read by Home (`ask_bot`). None: the default.
-    #[ts(optional)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub assistant_instructions: Option<String>,
 }
 
 /// What a routine's run tells the agent: the routine, what started this run and the related items.
@@ -502,8 +498,6 @@ pub struct BotHandoff {
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Target {
-    #[default]
-    None,
     Project {
         project_id: String,
     },
@@ -530,17 +524,14 @@ pub enum Target {
     },
     /// A new temporary folder in the projects root.
     Temp,
-    /// The Ask Launchpad assistant of a workspace (None: Everything), in `<data_dir>/assistant/<workspace>`.
-    /// It reads Launchpad state and writes inert proposals through its restricted CLI token.
-    Assistant {
-        #[serde(default)]
-        workspace_id: Option<String>,
-    },
+    /// No target yet. Also any kind this version no longer knows (the former Ask Launchpad threads, `assistant`).
+    #[default]
+    #[serde(other)]
+    None,
 }
 
 impl Target {
     pub fn is_browser(&self) -> bool { matches!(self, Target::Browser { .. }) }
-    pub fn is_assistant(&self) -> bool { matches!(self, Target::Assistant { .. }) }
     /// A browser task without a project: scratch folder, browser tools only.
     pub fn browser_only(&self) -> bool { matches!(self, Target::Browser { project_id: None, .. }) }
     /// The project of a browser task that works in a project.

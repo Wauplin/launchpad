@@ -51,7 +51,7 @@ class Runtime:
                 return await response.json()
 
     async def idle(self):
-        sessions = await self.api('GET','/api/sessions?include_assistant=true')
+        sessions = await self.api('GET','/api/sessions')
         terminals = await self.api('GET','/api/terminals')
         busy = {'working','starting','running','background','quota_paused','in_terminal'}
         if any(s.get('status') in busy for s in sessions): return False

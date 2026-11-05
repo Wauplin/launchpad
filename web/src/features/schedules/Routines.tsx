@@ -101,7 +101,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<(RoutineDraft & { title: string; instructions: string }) | null>(null);
   const [editValid, setEditValid] = useState(true);
-  const inThread = !!cron.bot_id || cron.spec.target.kind === "assistant";
+  const inThread = !!cron.bot_id;
   const preview = useQuery({ queryKey: ["cron-preview", cron.id], queryFn: () => api.post<Preview>("/api/launch/preview", cron.spec), enabled: !inThread });
   const projectId = cron.spec.target.kind === "project" || cron.spec.target.kind === "predraft" ? cron.spec.target.project_id : null;
   const folder = projects.find((p) => p.id === projectId)?.name;
@@ -116,7 +116,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
     setEdit(null);
     toast("Routine saved");
   });
-  const where = cron.bot_id ? <>Posts to {bot ? <Link to="/bots/$id" params={{ id: bot.id }}>{bot.settings.name}</Link> : "its bot"}'s thread</> : cron.spec.target.kind === "assistant" ? <>Posts to <Link to="/ask">Ask Launchpad</Link></> : <>Starts a new agent · {cron.spec.harness ? harnessName(cron.spec.harness) : "Agent"} · {folder ?? "a new scratch folder"}</>;
+  const where = cron.bot_id ? <>Posts to {bot ? <Link to="/bots/$id" params={{ id: bot.id }}>{bot.settings.name}</Link> : "its bot"}'s thread</> : <>Starts a new agent · {cron.spec.harness ? harnessName(cron.spec.harness) : "Agent"} · {folder ?? "a new scratch folder"}</>;
   return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 text-[13px]">
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-lg border border-line bg-chrome p-3">
       {edit ? <>
@@ -166,26 +166,18 @@ export function routineTemplates(repo: string | null): { label: string; title: s
       { label: "CI failures", title: "CI failures", instructions: "Read the failing logs below. If the change itself causes the failure, prepare a fix in a new worktree as a Local PR and report. If it is flaky or unrelated, reply no_update.", draft: { trigger: { kind: "github" as const, repo, events: ["ci_activity" as const] }, schedule: "", conditions: cond } },
     ] : []),
     { label: "After each agent", title: "Review finished work", instructions: "Read what the agent below did. If something looks wrong or unfinished, report it with the file and line. Otherwise reply no_update.", draft: { trigger: { kind: "session_done", folder: null }, schedule: "", conditions: cond } },
+    { label: BRIEF_TITLE, title: BRIEF_TITLE, instructions: BRIEF, draft: { trigger: { kind: "schedule" }, schedule: "30 8 * * 1-5", conditions: cond } },
   ];
 }
 
-/** Ask Launchpad's morning brief: a routine of the assistant, weekdays at 8:30 (edit it after). */
+/** The morning brief: a routine of a bot that has the Launchpad CLI, weekdays at 8:30 (edit it after). */
 export const BRIEF_TITLE = "Morning brief";
 export const BRIEF = "Write my morning brief for this workspace. Read what changed since your previous brief: agents that need me or finished, Inbox threads, Local PRs and suggestions waiting for my click, routine reports, and the quota. Start with what needs me (at most five items, each with its link and one next action), then one line about what was handled. Keep it short. If nothing changed, reply no_update.";
 
-/** Ask Launchpad's starting points: its runs go to the workspace's Ask thread. */
-function askTemplates(): ReturnType<typeof routineTemplates> {
-  const cond = DEFAULT_CRON.conditions.filter((c) => c.kind === "quota_left");
-  return [
-    { label: BRIEF_TITLE, title: BRIEF_TITLE, instructions: BRIEF, draft: { trigger: { kind: "schedule" }, schedule: "30 8 * * 1-5", conditions: cond } },
-    { label: "After each agent", title: "Check finished work", instructions: "Read what the agent below did. If it needs my attention or a follow-up, propose it. Otherwise reply no_update.", draft: { trigger: { kind: "session_done", folder: null }, schedule: "", conditions: cond } },
-  ];
-}
-
-/** Adds a routine to a bot, or to Ask Launchpad (`bot` null, in `workspaceId`): a name, what it does, and when. */
-export function NewRoutine({ bot, workspaceId = null, repo, harness, onDone }: { bot: Bot | null; workspaceId?: string | null; repo: string | null; harness: HarnessKind | null; onDone: () => void }) {
-  const name = bot?.settings.name ?? "Ask Launchpad";
-  const ws = bot?.workspace_id ?? workspaceId;
+/** Adds a routine to a bot: a name, what it does, and when. */
+export function NewRoutine({ bot, repo, harness, onDone }: { bot: Bot; repo: string | null; harness: HarnessKind | null; onDone: () => void }) {
+  const name = bot.settings.name;
+  const ws = bot.workspace_id;
   const qc = useQueryClient();
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -195,8 +187,7 @@ export function NewRoutine({ bot, workspaceId = null, repo, harness, onDone }: {
   const add = async () => {
     setBusy(true);
     try {
-      if (bot) await api.post<CronAgent>(`/api/bots/${bot.id}/routines`, { title: title.trim(), instructions: instructions.trim(), ...draft, time_zone: browserZone() });
-      else await api.post<CronAgent>("/api/launch/crons", { spec: { target: { kind: "assistant", workspace_id: ws }, text: instructions.trim(), workspace_id: ws }, title: title.trim(), ...draft, time_zone: browserZone() });
+      await api.post<CronAgent>(`/api/bots/${bot.id}/routines`, { title: title.trim(), instructions: instructions.trim(), ...draft, time_zone: browserZone() });
       await qc.invalidateQueries({ queryKey: ["crons"] });
       toast(`Routine added to ${name}`);
       onDone();
@@ -204,7 +195,7 @@ export function NewRoutine({ bot, workspaceId = null, repo, harness, onDone }: {
   };
   return <div className="grid gap-2 rounded-lg border border-line bg-paper p-3" data-tour="bots.routine-form">
     {!title && !instructions && <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-ink-3">Start from
-      {(bot ? routineTemplates(repo) : askTemplates()).map((t) => <button key={t.label} className="btn btn-sm" onClick={() => { setTitle(t.title); setInstructions(t.instructions); setDraft(t.draft); }}>{t.label}</button>)}
+      {routineTemplates(repo).map((t) => <button key={t.label} className="btn btn-sm" onClick={() => { setTitle(t.title); setInstructions(t.instructions); setDraft(t.draft); }}>{t.label}</button>)}
     </div>}
     <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input h-[30px] font-normal" maxLength={80} value={title} placeholder="Morning check" onChange={(e) => setTitle(e.target.value)} /></label>
     <label className="grid gap-1 text-[12px] font-semibold text-ink-2">What it does at each run

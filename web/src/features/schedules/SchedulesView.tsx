@@ -26,16 +26,14 @@ import { BRIEF, BRIEF_TITLE, RoutineDetails, RunStrip } from "./Routines";
 
 type Tab = "routines" | "launches";
 
-/** Ask Launchpad's morning brief: a routine of the assistant, weekdays at 8:30 (edit it after). */
-
+/** The morning brief: a routine of a bot (the workspace's first, Ask Launchpad unless you changed it), weekdays at 8:30. */
 export function useCreateBrief() {
   const qc = useQueryClient();
-  const scope = useScope();
-  return async () => {
+  return async (bot: Bot) => {
     try {
-      const r = await api.post<CronAgent>("/api/launch/crons", { spec: { target: { kind: "assistant", workspace_id: scope.workspace?.id ?? null }, text: BRIEF, workspace_id: scope.workspace?.id ?? null }, schedule: "30 8 * * 1-5", conditions: DEFAULT_CRON.conditions.filter((c) => c.kind === "quota_left"), trigger: { kind: "schedule" }, title: BRIEF_TITLE, time_zone: browserZone() });
+      const r = await api.post<CronAgent>(`/api/bots/${bot.id}/routines`, { title: BRIEF_TITLE, instructions: BRIEF, trigger: { kind: "schedule" }, schedule: "30 8 * * 1-5", conditions: DEFAULT_CRON.conditions.filter((c) => c.kind === "quota_left"), time_zone: browserZone() });
       await qc.invalidateQueries({ queryKey: ["crons"] });
-      toast("Morning brief added: weekdays at 8:30, in Ask Launchpad");
+      toast(`Morning brief added: weekdays at 8:30, by ${bot.settings.name}`);
       return r;
     } catch (e) { toastError(e); return null; }
   };
@@ -58,7 +56,9 @@ export function SchedulesView() {
   const launch = launches.find((l) => l.id === search.launch);
   const openSession = (id: string) => void navigate({ to: "/agents", search: { session: id } as never });
   const createBrief = useCreateBrief();
-  const hasBrief = routines.some((r) => r.spec.target.kind === "assistant");
+  const hasBrief = routines.some((r) => !!r.bot_id && r.title === BRIEF_TITLE);
+  const scoped = bots.filter((b) => !scope.workspace || b.workspace_id === scope.workspace.id);
+  const briefBot = scoped.find((b) => b.slug === "ask-launchpad") ?? scoped[0];
   const tabs = <Tabs label="Schedules" value={tab} onChange={(t) => go({ tab: t })} tour="schedules.tabs" items={[{ id: "routines", label: "Routines", count: routines.length || undefined }, { id: "launches", label: "Scheduled launches", count: launches.length || undefined }]} />;
   const header = phone
     ? <PhoneHeader title="Schedules" subtitle={scope.workspace?.name ?? "Everything"} />
@@ -74,7 +74,7 @@ export function SchedulesView() {
       {routines.length > 0 && <div className="grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-lg border border-line" data-tour="schedules.routines">
         {routines.map((r) => <RoutineRow key={r.id} r={r} bot={bots.find((b) => b.id === r.bot_id)} selected={r.id === selected?.id} onClick={() => go({ tab, routine: r.id })} />)}
       </div>}
-      {!hasBrief && <Idea icon="spark" title="Morning brief" body="Ask Launchpad summarizes what needs you, weekdays at 8:30. A quiet morning sends nothing." action={<button className="btn btn-sm btn-primary" data-tour="schedules.brief" onClick={async () => { const r = await createBrief(); if (r) go({ tab, routine: r.id }); }}><Icon name="plus" size={12} />Add the morning brief</button>} />}
+      {!hasBrief && briefBot && <Idea icon="spark" title="Morning brief" body={`${briefBot.settings.name} summarizes what needs you, weekdays at 8:30. A quiet morning sends nothing.`} action={<button className="btn btn-sm btn-primary" data-tour="schedules.brief" onClick={async () => { const r = await createBrief(briefBot); if (r) go({ tab, routine: r.id }); }}><Icon name="plus" size={12} />Add the morning brief</button>} />}
       <Idea icon="agents" title="A bot's routine" body="Give a bot a job that runs by itself: every morning, when a review is requested or CI fails on GitHub, or when another agent is done." action={bots.length ? <Link to="/bots/$id" params={{ id: bots[0].id }} search={{ panel: "routines" } as never} className="btn btn-sm">Open {bots[0].settings.name}'s routines</Link> : <Link to="/bots" search={{ new: true } as never} className="btn btn-sm">Create a bot</Link>} />
       <Idea icon="refresh" title="A launch on a schedule" body="In the composer, the arrow next to Launch → Repeat on a schedule turns any prompt into a routine. Each run starts a new agent." action={<OpenComposer />} />
     </> : launches.length ? <div className="grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-lg border border-line">
@@ -118,9 +118,9 @@ function Idea({ icon, title, body, action }: { icon: "spark" | "agents" | "refre
 
 const RoutineRow = memo(function RoutineRow({ r, bot, selected, onClick }: { r: CronAgent; bot?: Bot; selected: boolean; onClick: () => void }) {
   const projects = useProjects().data ?? [];
-  const owner = bot ? bot.settings.name : r.spec.target.kind === "assistant" ? "Ask Launchpad" : null;
+  const owner = bot ? bot.settings.name : null;
   return <button onClick={onClick} className={`grid min-h-[60px] w-full grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-x-3 border-b border-line px-3 py-2 text-left last:border-b-0 hover:bg-sunk ${selected ? "bg-select" : "bg-paper"}`}>
-    {bot ? <BotAvatar name={bot.settings.name} size={28} /> : <span className="grid size-[28px] place-items-center rounded-[8px] bg-teal-soft text-teal-ink"><Icon name={r.spec.target.kind === "assistant" ? "spark" : "refresh"} size={14} /></span>}
+    {bot ? <BotAvatar name={bot.settings.name} size={28} /> : <span className="grid size-[28px] place-items-center rounded-[8px] bg-teal-soft text-teal-ink"><Icon name="refresh" size={14} /></span>}
     <span className="min-w-0">
       <span className="block truncate text-[13px] font-semibold">{r.title}{owner && <span className="font-normal text-ink-3"> · {owner}</span>}</span>
       <span className="block truncate text-[12px] text-ink-3">{triggerSummary(r, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder")} · {routineState(r, bot?.settings.name)}</span>

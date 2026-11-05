@@ -7,6 +7,7 @@ export const P = {
   docs: "demo-docs",
   dotfiles: "demo-dotfiles",
   scratch: "demo-tmp-csv",
+  ask: "demo-ask-folder",
 } as const;
 export const ROOT = "/home/demo/projects";
 export const ORG = "acme-labs";

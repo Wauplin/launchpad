@@ -35,9 +35,9 @@ import { HomeSetup } from "./HomeSetup";
 export const FIRST_PROMPT = "Explain how this repository is organized and how to run its tests.";
 
 const STARTER_PRESETS = [
-  { id: "write-tests", label: "Write tests", text: "Add or update tests that cover your change, and run the relevant tests before you finish.", ask_launchpad: false, agent: true },
-  { id: "small-commits", label: "Small commits", text: "Commit your work in small, focused steps, each with a short message that says what changed.", ask_launchpad: false, agent: true },
-  { id: "local-pr", label: "Open a Local PR when done", text: "When the work is done and committed, open a Local PR with `launchpad pr create` and a clear title and description.", ask_launchpad: false, agent: true },
+  { id: "write-tests", label: "Write tests", text: "Add or update tests that cover your change, and run the relevant tests before you finish.", bots: false, agent: true },
+  { id: "small-commits", label: "Small commits", text: "Commit your work in small, focused steps, each with a short message that says what changed.", bots: false, agent: true },
+  { id: "local-pr", label: "Open a Local PR when done", text: "When the work is done and committed, open a Local PR with `launchpad pr create` and a clear title and description.", bots: false, agent: true },
 ];
 
 const PAY_CHOICES = [

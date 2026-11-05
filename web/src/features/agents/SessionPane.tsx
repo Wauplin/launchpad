@@ -1,7 +1,7 @@
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
-import { ProposalCard, useProposalList } from "@/features/ask/ProposalCard";
+import { ProposalCard, useProposalList } from "@/features/proposals/ProposalCard";
 import { FollowUpAgent } from "./FollowUpAgent";
 import { HostLabel } from "@/components/HostLabel";
 import { hostOf, linkLabel, useHost } from "@/lib/hosts";
@@ -66,7 +66,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
   const text = useMessageDrafts((s) => s.drafts[sessionId] ?? "");
   const setDraft = useMessageDrafts((s) => s.set);
   const setText = (t: string) => setDraft(sessionId, t);
-  const presetSurface = promptSession?.launch_spec.target.kind === "assistant" ? "ask_launchpad" : "agent";
+  const presetSurface = promptSession?.launch_spec.bot ? "bots" : "agent";
   const allPresets = usePresets(presetSurface);
   const selectedPresets = useMessageDrafts((s) => s.presets[sessionId]);
   const setStoredPresets = useMessageDrafts((s) => s.setPresets);
@@ -135,7 +135,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
           onDocumentChange={(doc) => ask ? setText(doc.text) : setDocument(sessionId, doc)}
           root={promptSession?.cwd ?? null} harness={promptSession?.harness ?? null} profile={promptSession?.launch_spec.profile ?? null}
           repo={promptProject?.gh_repo ?? promptProject?.gh_upstream ?? null} projectId={promptSession?.project_id} sessionId={sessionId}
-          noFolders={!!promptSession && (promptSession.launch_spec.target.kind === "assistant" || (promptSession.launch_spec.target.kind === "browser" && !promptSession.launch_spec.target.project_id))}
+          noFolders={!!promptSession && promptSession.launch_spec.target.kind === "browser" && !promptSession.launch_spec.target.project_id}
           autocomplete={!ask && !!promptSession} onSend={() => void send()}
           disabled={disabled || busy || reading}
           onPaste={(e) => {
@@ -266,7 +266,8 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
     return earlier?.kind === "ask_user" && !log?.earlier?.last_ask_answers ? { request_id: earlier.request_id, count: earlier.questions.length, permission: earlier.questions.some((q) => q.permission) } : null;
   }, [rows, log?.earlier]);
 
-  const proposals = useProposalList(s?.launch_spec.target.kind === "assistant");
+  // Cards this session wrote (`launchpad propose`) follow its trace.
+  const proposals = useProposalList();
   const threadProposals = (proposals.data ?? []).filter((p) => p.session_id === sessionId).sort((a, b) => a.created_at - b.created_at);
   const rowCount = trace.length + threadProposals.length;
   const scrollRef = useRef<HTMLDivElement>(null);

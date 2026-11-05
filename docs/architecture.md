@@ -84,7 +84,7 @@ Bots (`bots.rs`) are Home records (`bot` table: workspace, slug) whose files liv
 
 Routines (`crons.rs`, table `cron_agent`, one JSON record each) live on Home. A `Trigger` starts a run: the record's 5-field schedule (`crons::spawn` checks every 5 s), new Inbox threads after an Inbox sync (`crons::inbox_synced`, watermark `github_seen`), or a turn ending Done (`crons::turn_ended`, called from `Sink::set_status` on `all` and from `Sessions::apply_replica` on Home). Each run is claimed as a `RoutineRun` history entry before it starts; `turn_ended` settles it (Report, No update, Failed, Interrupted, Stopped). A routine with `bot_id` (or an Assistant target) sends `crons::bot_message` to that thread; others launch their spec with `LaunchSpec.routine`, whose prompt gets `crons::instruction`. A paused bot sets `bot_paused` on its routines. A schedule runs in the record's IANA `time_zone` (chrono-tz; the saving browser's zone, else `[home] time_zone`, else the host's).
 
-On Home, every start goes through `runners::launch_anywhere` (browser launches, Ask threads, accepted proposals, routines, scheduled launches, bot messages), sent once and never retried. When no runner takes it, or the composer chose Burst, `burst::launch` stores a Starting placeholder record and starts a job; the runner then creates the session with the same ID and its record replaces the placeholder.
+On Home, every start goes through `runners::launch_anywhere` (browser launches, accepted proposals, routines, scheduled launches, bot messages), sent once and never retried. When no runner takes it, or the composer chose Burst, `burst::launch` stores a Starting placeholder record and starts a job; the runner then creates the session with the same ID and its record replaces the placeholder.
 
 The tunnel (`server::wire`) is the same protocol whichever side dialed. Burst runners (`burst.rs`) are HF Jobs from Home's own image, with a runner record Home creates and a secret derived from its daemon token; Home dials `/api/runner/reverse` through the HF Jobs proxy (`server::burst`). They hold no credential: a lease for a Burst runner has no secrets (`relayed`), the runner proxy sends those requests as `HttpOpen` exchanges with a `Lease` target, and `token_relay` adds the token on Home, sends the request and records it. Home Git, plain-folder and handoff requests of a Burst runner go to a local relay (`127.0.0.1:<port>`, `home_link::load`) and then through the tunnel to Home's router (`exchange::home`, runner-authenticated paths only). The job runs agents without a jail. `burst::tick` stops a job after the session's final handoff and a newer complete Home backup, and records its cost (`burst_run`); a message to that session starts a new job and moves the session there.
 
@@ -98,7 +98,7 @@ The knowledge base (`kb.rs`) is the only agent memory. Runners mirror each works
 
 Every harness maps to the same model:
 
-- A **launch spec** describes what to run: the prompt, target folder, context, profile, model, options and start conditions. The composer, schedules, crons and Ask proposals all produce launch specs.
+- A **launch spec** describes what to run: the prompt, target folder, context, profile, model, options and start conditions. The composer, schedules, crons and proposals all produce launch specs.
 - A **session** is the durable record: status, usage, title, folder, native conversation ID.
 - **Events** are the normalized conversation (messages, tool calls, questions, approvals, subagents), stored in order with a sequence number and pushed to every client over the event bus. Clients reconnect with the last sequence number they received and get what they missed.
 
@@ -117,7 +117,7 @@ A launch only does local work in the request: it records the session (Starting) 
 | Harness folders | Native conversations: per session in `<data_dir>/sessions/<id>/home` for contained sessions, else `~/.claude`, `~/.codex`, OpenCode data | Owned by each harness |
 | Knowledge base (`kb.rs`) | One per workspace, stored by Home like a plain folder (store `kb-<workspace>`, history with author and line counts in `plain_history.meta`); a read-only mirror on each runner | Home; changes restorable 30 days |
 | Bots (`bots.rs`) | `bot` rows on Home; `BOT.md` and `bot.toml` stored like a plain folder (store `bot-<id>`), with history; readable copies in the bucket | Home; changes restorable 30 days |
-| Ask Launchpad (`ask_bot.rs`) | its `BOT.md` in the plain store `assistant`, with history (the default until the first edit); profile, model and mode in `[assistant]` of config.toml | Home; changes restorable 30 days; Reset to default |
+| Ask Launchpad (`ask_bot.rs`) | a normal bot, created once per workspace; the Launchpad CLI tool, added once to the tool registry (`seeded` rows record both) | Home |
 | Vault (`vault.rs`) | Credentials (write-only), tools, leases, access log, in `state.db` | Home only |
 
 Rust types shared with the UI derive `ts_rs::TS`, so the API is typed end to end without an OpenAPI spec.
@@ -129,7 +129,7 @@ The Home-only Space POC (`deploy/hf-home/`) runs the daemon behind the private H
 - Launchpad has one user. Every paired browser has full access.
 - The daemon listens on loopback. Remote access goes through a private network (Tailscale) or a proxy you control, with an exact allowed origin.
 - Browsers authenticate with an HttpOnly device cookie after pairing. The CLI uses a bearer token from the data folder.
-- The Ask Launchpad assistant gets a restricted token: read state and write proposals only. Its owner-editable `BOT.md` only shapes how it works; the built-in rules around it are not editable and win.
+- Agents read Launchpad state and write proposals with their session CLI token only when their lease grants the Launchpad CLI tool. Proposals are inert: the owner starts them, except one-time starts of a bot in auto mode.
 - GitHub publication, merges and setup commands always require an owner click.
 - Channels live on Home. Messages to other people (outgoing webhooks, GitHub suggestions) wait in the Outbox for a click and are never retried; messages to the owner's own bound Telegram chat go out directly. Home long-polls Telegram, so it needs no inbound endpoint. Incoming hooks (`/hooks/<id>`) skip the browser sign-in and authenticate with their own secret (behind a private Space, also an HF token). Hook and Telegram messages to a busy bot or Ask Launchpad thread wait in `queued_message` (`hooks::deliver`) until its turn ends; each is claimed (deleted) before its single send.
 - Agents run contained: a bubblewrap jail on Linux runners (or a Local VM). They see their session's folders, their own harness home and the machine's toolchains, never your home folder, keys, logins or Launchpad's data. Their network goes through the runner proxy, which adds Home's tokens on known hosts; agents only hold placeholders. Token scopes decide what a request may do; a steered agent can still leak what it reads or misuse a token within its scopes. SSH host sessions are not contained yet.

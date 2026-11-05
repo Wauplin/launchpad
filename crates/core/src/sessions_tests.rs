@@ -314,44 +314,21 @@ async fn unpriced_costs_are_hidden_after_reload_and_cannot_drive_limits() {
     assert!(super::ensure_budget(&app, &app.sessions.get("test").unwrap()).is_ok());
 }
 
-#[tokio::test]
-async fn assistant_threads_stay_reachable_without_contributing_to_global_counts() {
-    use crate::model::{SessionStatus, Target};
-    let (_fixture, app) = fixture().await;
-    for status in [SessionStatus::Working, SessionStatus::Waiting, SessionStatus::Error, SessionStatus::QuotaPaused, SessionStatus::Closed] {
-        {
-            let mut records = app.sessions.inner.records.lock().unwrap();
-            let ordinary = records.get_mut("test").unwrap();
-            ordinary.status = SessionStatus::Working;
-            let mut assistant = ordinary.clone();
-            assistant.id = "assistant".into();
-            assistant.launch_spec.target = Target::Assistant { workspace_id: None };
-            assistant.status = status;
-            assistant.seen_at = 0;
-            assistant.status_since = 1;
-            records.insert(assistant.id.clone(), assistant);
-        }
-        app.sessions.publish_counts(&app);
-        let counts = app.status.get().sessions;
-        assert_eq!((counts.running, counts.done, counts.quota_paused), (1, 0, 0));
-        assert_eq!(app.sessions.get("assistant").unwrap().status, status);
-        assert_eq!(crate::proposals::thread(&app, None).is_some(), status != SessionStatus::Closed);
-    }
+#[test]
+fn former_assistant_targets_load_as_no_target() {
+    let t: crate::model::Target = serde_json::from_value(serde_json::json!({"kind": "assistant", "workspace_id": "w"})).unwrap();
+    assert_eq!(t, crate::model::Target::None);
 }
 
 #[tokio::test]
-async fn accepted_proposals_close_only_their_author_and_keep_results_retry_safe() {
-    use crate::model::{SessionStatus, Target};
+async fn accepted_proposals_keep_their_author_open_and_results_retry_safe() {
+    use crate::model::SessionStatus;
     use crate::proposals::{self, Proposal, ProposalBody, ProposalState};
     let (_fixture, app) = fixture().await;
     let original = app.sessions.get("test").unwrap();
-    for (id, assistant) in [("author", true), ("newer", true), ("other", false)] {
-        let mut session = original.clone();
-        session.id = id.into();
-        session.started_at = if id == "newer" { 2 } else { 1 };
-        if assistant { session.launch_spec.target = Target::Assistant { workspace_id: None }; }
-        super::Sessions::persist(&app.state_db, &session).await.unwrap();
-    }
+    let mut author = original.clone();
+    author.id = "author".into();
+    super::Sessions::persist(&app.state_db, &author).await.unwrap();
     app.sessions.load(&app).await.unwrap();
     // The reserved launch already exists: no harness or network activity is needed.
     let mut proposal = Proposal {
@@ -373,40 +350,22 @@ async fn accepted_proposals_close_only_their_author_and_keep_results_retry_safe(
     let accepted = proposals::accept(&app, &proposal.id).await.unwrap();
     assert_eq!(accepted.state, ProposalState::Started);
     assert_eq!(accepted.result_id.as_deref(), Some("test"));
-    assert_eq!(app.sessions.get("author").unwrap().status, SessionStatus::Closed);
-    assert_eq!(proposals::thread(&app, None).unwrap().id, "newer");
-    assert_eq!(app.sessions.get("test").unwrap().status, SessionStatus::Waiting);
-    // Repeated delivery must not close a thread that the owner deliberately reopened.
-    app.sessions.update(&app, "author", |s| s.status = SessionStatus::Waiting).await.unwrap();
-    proposals::accept(&app, &proposal.id).await.unwrap();
-    assert_eq!(app.sessions.get("author").unwrap().status, SessionStatus::Waiting);
+    assert_ne!(app.sessions.get("author").unwrap().status, SessionStatus::Closed);
+    // A repeated click finds the started result.
+    assert_eq!(proposals::accept(&app, &proposal.id).await.unwrap().state, ProposalState::Started);
 
     proposal.id = "failed".into();
     proposal.body = ProposalBody::Message { session_id: "missing".into(), text: "hello".into() };
     store(&app, &proposal).await;
     assert_eq!(proposals::accept(&app, &proposal.id).await.unwrap().state, ProposalState::Failed);
-    assert_eq!(app.sessions.get("author").unwrap().status, SessionStatus::Waiting);
     proposal.id = "uncertain".into();
     proposal.state = ProposalState::Uncertain;
     store(&app, &proposal).await;
     assert!(proposals::accept(&app, &proposal.id).await.is_err());
-    assert_eq!(app.sessions.get("author").unwrap().status, SessionStatus::Waiting);
-
-    // The thread stays open while earlier failed/uncertain cards still need attention.
-    proposals::dismiss(&app, "failed").await.unwrap();
-    proposals::dismiss(&app, "uncertain").await.unwrap();
     proposal.id = "recovered".into();
     proposal.body = ProposalBody::Launch { spec: original.launch_spec };
     store(&app, &proposal).await;
     assert_eq!(proposals::recheck(&app, &proposal.id).await.unwrap().state, ProposalState::Started);
-    assert_eq!(app.sessions.get("author").unwrap().status, SessionStatus::Closed);
-
-    proposal.id = "non-assistant".into();
-    proposal.session_id = Some("other".into());
-    proposal.state = ProposalState::Proposed;
-    store(&app, &proposal).await;
-    assert_eq!(proposals::accept(&app, &proposal.id).await.unwrap().state, ProposalState::Started);
-    assert_eq!(app.sessions.get("other").unwrap().status, SessionStatus::Waiting);
 }
 
 #[tokio::test]

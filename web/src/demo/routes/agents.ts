@@ -12,7 +12,7 @@ import type { SessionGitHistory } from "@/gen/SessionGitHistory";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import type { SessionProcess } from "@/gen/SessionProcess";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
-import { clock, DemoError, publish, route } from "../daemon";
+import { clock, DemoError, route } from "../daemon";
 import { answerRun, continueQuota, ensureAmbient, isPlaying, playScenario, stopRun, updateRunOptions } from "../player";
 import { pickReply } from "../scenarios";
 import { appendEvent, light, refreshCounts, session, setStatus, updateSession } from "../store";
@@ -81,17 +81,16 @@ function syncWorktrees() {
 }
 let syncedList: unknown = null;
 
-const visible = (s: Session, assistant: boolean) => assistant || s.launch_spec.target.kind !== "assistant";
-const isAssistant = (s: Session) => s.launch_spec.target.kind === "assistant";
+/** Ask Launchpad's sessions answer with its prerecorded replies. */
+const isAsk = (s: Session) => s.launch_spec.bot?.slug === "ask-launchpad";
 
 // ---------------------------------------------------------------- reading
 
-route("GET", "/api/sessions", (r) => { ready(); return world.sessions.filter((s) => visible(s, r.query.get("include_assistant") === "true")).map(light); });
+route("GET", "/api/sessions", () => { ready(); return world.sessions.map(light); });
 route("GET", "/api/sessions/search", (r) => {
   const q = (r.query.get("q") ?? "").trim().toLowerCase();
   if (!q) return [];
-  const assistant = r.query.get("include_assistant") === "true";
-  return world.sessions.filter((s) => visible(s, assistant) && (world.events[s.id] ?? []).some((e) => "text" in e.body && typeof e.body.text === "string" && e.body.text.toLowerCase().includes(q))).map((s) => s.id);
+  return world.sessions.filter((s) => (world.events[s.id] ?? []).some((e) => "text" in e.body && typeof e.body.text === "string" && e.body.text.toLowerCase().includes(q))).map((s) => s.id);
 });
 route("GET", "/api/sessions/:id", (r) => { ready(); return found(r.params.id); });
 route("GET", "/api/sessions/:id/events", (r) => (world.events[r.params.id] ?? []).filter((e) => e.seq > Number(r.query.get("after") ?? 0)));
@@ -150,7 +149,7 @@ const gitFixture = (id: string) => {
   const s = found(id);
   const g = world.sessionGit[id];
   if (!g) {
-    if (!s.project_id || s.project_id === "demo-tmp-csv" || s.cwd.includes("/assistant/")) throw new DemoError(400, "not a git repository");
+    if (!s.project_id || s.project_id === "demo-tmp-csv" || s.project_id === "demo-ask-folder") throw new DemoError(400, "not a git repository");
   }
   return g ?? null;
 };
@@ -297,7 +296,7 @@ export function sendMessage(s: Session, text: string, clientId: string, files: {
   appendEvent(s.id, { kind: "user_message", text: full, client_id: clientId, queued: false, images: [] });
   if (isPlaying(s.id)) return;
   if (s.status === "closed") updateSession(s.id, { archived_done: false });
-  playScenario(s.id, pickReply(text, isAssistant(s)));
+  playScenario(s.id, pickReply(text, isAsk(s)));
 }
 
 route("POST", "/api/sessions/:id/input", (r) => {
@@ -375,7 +374,6 @@ route("POST", "/api/sessions/:id/model", (r) => {
   const effort: string | null = r.body?.effort || null;
   updateSession(s.id, { model: model ?? s.model, effort });
   appendEvent(s.id, { kind: "notice", text: `Model set to ${model ?? "the default"}${effort ? ` (${effort} effort)` : ""}. It applies from the next turn.` });
-  if (isAssistant(s) && model) { world.config.assistant = { ...world.config.assistant, model, effort }; publish("config", "changed", null); }
   return session(s.id);
 });
 

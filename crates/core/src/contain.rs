@@ -170,7 +170,7 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
         },
         None => None,
     };
-    let instructions = match &kb {
+    let mut instructions = match &kb {
         Some((ws, dir)) => {
             env.push(("LAUNCHPAD_KB".into(), p(dir)));
             ro.push(dir.clone());
@@ -178,6 +178,11 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
         }
         None => "Your harness's own memory is off in Launchpad, and this session has no workspace, so no knowledge base: do not write memory files.\n".into(),
     };
+    // The Launchpad CLI tool: how to read Launchpad state and write proposals.
+    if lease.tools.iter().any(|t| t.id == crate::vault::LAUNCHPAD_TOOL) {
+        instructions.push('\n');
+        instructions.push_str(&crate::proposals::cli_reference(&app.paths.cli_command(), kb.as_ref().map(|(ws, _)| ws.as_str())));
+    }
     env.extend(harness.contained_memory(&home, &instructions)?);
     // MCP servers of Home: a local address on the runner proxy for each one granted.
     let servers: Vec<(String, String)> = lease.mcp.iter().map(|m| (crate::mcp::harness_name(&m.id), format!("{base}/mcp/{}", m.id))).collect();

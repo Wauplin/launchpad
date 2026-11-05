@@ -1,4 +1,4 @@
-// Chapter 6: Ask Launchpad "What needs me today?". The assistant reads the workspace with the read-only CLI, answers,
+// Chapter 6: Ask Launchpad "What needs me today?". The bot reads the workspace with the Launchpad CLI, answers,
 // and writes a launch proposal; nothing starts until the owner presses Start.
 
 import type { Proposal } from "@/gen/Proposal";
@@ -28,8 +28,7 @@ export default scenario({
     at(0, effect((c) => {
       if (c.w.proposals.some((p) => p.id === TODAY_PROPOSAL && p.state === "proposed")) return;
       const s = c.w.sessions.find((x) => x.id === c.sessionId);
-      const target = s?.launch_spec.target;
-      const workspace = target?.kind === "assistant" ? target.workspace_id : null;
+      const workspace = s?.launch_spec.workspace_id ?? null;
       const now = clock.now();
       const p: Proposal = {
         id: TODAY_PROPOSAL, workspace_id: workspace, session_id: c.sessionId, title: "Retry the Node 24 CI upgrade",

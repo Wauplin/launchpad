@@ -158,7 +158,6 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["crons"] });
     } else if (topic === "bots") {
       void queryClient.invalidateQueries({ queryKey: ["bots"] });
-      void queryClient.invalidateQueries({ queryKey: ["ask-bot"] });
     } else if (topic === "drafts") {
       useComposer.getState().remoteChanged(ev.payload as { workspace: string | null; revision: number; client: string | null });
     } else if (topic === "schedules") {

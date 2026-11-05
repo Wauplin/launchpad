@@ -475,7 +475,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             repo={repo}
             projectId={target?.id}
             relativePaths={!spec.worktree}
-            noFolders={browserOnly || spec.target.kind === "assistant"}
+            noFolders={browserOnly}
 
           />
           <input ref={attachmentInput} type="file" multiple hidden onChange={(e) => { void addAttachments(Array.from(e.target.files ?? [])); e.target.value = ""; }} />

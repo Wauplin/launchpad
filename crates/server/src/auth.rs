@@ -125,8 +125,6 @@ struct FrontDoor {
 
 pub struct Auth {
     token: String,
-    /// Derived from `token` (`proposals::assistant_token`); allowed only `proposals::assistant_allows`.
-    assistant_token: String,
     cookie: &'static str,
     bind: std::net::IpAddr,
     front_door: RwLock<FrontDoor>,
@@ -177,7 +175,6 @@ impl Auth {
         let (changes, _) = watch::channel(0);
         let token = paths.token()?;
         Ok(Auth {
-            assistant_token: launchpad_core::proposals::assistant_token(&token),
             token,
             cookie: paths.cookie_name(),
             bind: config.bind.parse()?,
@@ -480,17 +477,6 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
             }
             Err(e) => e.into_response(),
         };
-    }
-    // The Ask Launchpad assistant's CLI token: read-only context and proposals, nothing else.
-    if let Some(t) = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer ")) {
-        let t = t.trim();
-        if !t.is_empty() && t == s.auth.assistant_token {
-            if !launchpad_core::proposals::assistant_allows(req.method().as_str(), path) {
-                return (StatusCode::FORBIDDEN, Json(json!({"error": "the assistant can only read Launchpad state and write proposals"}))).into_response();
-            }
-            req.extensions_mut().insert(Access { session: None, device: None, changes: s.auth.changes.subscribe() });
-            return private_response(next.run(req).await, private);
-        }
     }
     let ticket_access = if path == "/ws" && req.method() == Method::GET && req.headers().contains_key(header::UPGRADE)
         && req.headers().get(header::ORIGIN).is_some_and(|v| v.as_bytes() == launchpad_core::browser::extension_origin().as_bytes()) {

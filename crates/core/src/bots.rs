@@ -1,6 +1,7 @@
 //! Bots: named, persistent agents of a workspace. A bot is a set of files Home stores with versions, like a
-//! plain folder (store `bot-<id>`): `BOT.md` (the owner's instructions) and `bot.toml` (its profile, folder and
-//! permission mode). Its notes go in the workspace's knowledge base under `bots/<slug>/`.
+//! plain folder (store `bot-<id>`): `BOT.md` (the owner's instructions) and `bot.toml` (its profile, folder,
+//! permission mode and proposal mode). Its notes go in the workspace's knowledge base under `bots/<slug>/`.
+//! Ask Launchpad is a bot like the others, created once per workspace (`ask_bot`).
 //!
 //! A bot has one thread: a chain of sessions with `LaunchSpec.bot` set. A message goes to the newest open
 //! session; a new session starts when there is none, when the bot's profile or folder changed, or on the
@@ -26,11 +27,24 @@ pub fn id_of(store: &str) -> Option<&str> {
     store.strip_prefix("bot-")
 }
 
+/// What happens to the proposals the bot's sessions write (`launchpad propose`).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProposalMode {
+    /// Every proposal waits for the owner's click.
+    #[default]
+    Manual,
+    /// One-time launches, messages, schedules and presets start at once; routines, crons, bots, tools and BOT.md
+    /// changes still wait.
+    Auto,
+}
+
 /// `bot.toml`.
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
 pub struct BotSettings {
     pub name: String,
-    /// A profile ID from Settings → Profiles. None (or a removed profile): the bot asks you to choose one.
+    /// A profile ID from Settings → Profiles. None: the first subscription profile (else the first profile).
+    /// A removed profile: the bot asks you to choose one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -41,6 +55,16 @@ pub struct BotSettings {
     pub folder: String,
     #[serde(default)]
     pub permission_mode: PermissionMode,
+    #[serde(default)]
+    pub proposals: ProposalMode,
+}
+
+/// The profile a bot runs with: its own, or the default when bot.toml names none.
+pub fn profile_of<'a>(config: &'a crate::config::Config, s: &BotSettings) -> Option<&'a crate::config::Profile> {
+    match &s.profile {
+        Some(p) => config.profiles.iter().find(|x| &x.id == p),
+        None => config.profiles.iter().find(|p| p.billing == crate::config::Billing::Subscription).or(config.profiles.first()),
+    }
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -77,6 +101,8 @@ pub struct Create {
     pub folder: Option<String>,
     #[serde(default)]
     pub permission_mode: PermissionMode,
+    #[serde(default)]
+    pub proposals: ProposalMode,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -116,7 +142,7 @@ pub fn parse_settings(text: &str) -> Result<BotSettings> {
 }
 
 fn render_settings(s: &BotSettings) -> Result<String> {
-    Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n{}", toml::to_string(s)?))
+    Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n{}", toml::to_string(s)?))
 }
 
 type Row = (String, String, String, i64, Option<String>, bool);
@@ -222,7 +248,7 @@ pub async fn create(app: &App, c: Create) -> Result<Bot> {
             (p.id.clone(), Some(p.id))
         }
     };
-    let settings = BotSettings { name: name.clone(), profile, model: None, effort: None, folder, permission_mode: c.permission_mode };
+    let settings = BotSettings { name: name.clone(), profile, model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals };
     check_settings(app, &c.workspace_id, &settings).await?;
     let instructions = if c.instructions.trim().is_empty() { format!("# {name}\n") } else { format!("{}\n", c.instructions.trim_end()) };
     let (id2, ws, slug2, at) = (id.clone(), c.workspace_id.clone(), slug.clone(), now_ms());
@@ -348,10 +374,11 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
     }
     let s = &bot.settings;
     let config = app.config.get();
-    let profile = s.profile.as_ref().and_then(|p| config.profiles.iter().find(|x| &x.id == p)).context("choose a profile for this bot in its Settings tab")?;
+    let profile = profile_of(&config, s).context("choose a profile for this bot in its Settings tab")?;
     let sessions = thread(app, id);
     let current = sessions.iter().rev().find(|x| x.status != SessionStatus::Closed);
-    match (new_session, rotation(s, current.map(|c| (c.status, c.launch_spec.profile.as_deref(), c.project_id.as_deref())))) {
+    let resolved = BotSettings { profile: Some(profile.id.clone()), ..s.clone() };
+    match (new_session, rotation(&resolved, current.map(|c| (c.status, c.launch_spec.profile.as_deref(), c.project_id.as_deref())))) {
         (false, None) => {
             let c = current.expect("a current session");
             crate::runners::send_anywhere(app, &c.id, &text, attachments, None).await?;

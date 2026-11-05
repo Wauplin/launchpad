@@ -3,7 +3,8 @@
 
 import { PresetButton, PresetChips, usePresets } from "./MessagePresets";
 import { withPresets } from "@/lib/presets";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useBots } from "@/lib/bots";
 import { api } from "@/lib/api";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -161,7 +162,7 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen }: { sessions: Se
           <h2 className="text-[15px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "session needs" : "sessions need"} you` : "Nothing waits for you"}</h2>
           <span className="ml-auto"><LaunchButton small /></span>
         </div>
-        <AskLaunchpadField />
+        <BotField />
         {needs.length > 0 && <HomeSection title="Needs you">{needs.slice(0, 5).map((s) => <HomeRow key={s.id} s={s} project={name(s)} onOpen={() => onOpen(s.id)} />)}{needs.length > 5 && <span className="px-2 text-ink-3">{needs.length - 5} more in the list on the left</span>}</HomeSection>}
         <HomeSection title={`Running · ${running.length}`}>
           {running.length ? running.slice(0, 8).map((s) => <HomeRow key={s.id} s={s} project={name(s)} onOpen={() => onOpen(s.id)} />) : <span className="px-2 text-ink-3">No agent is running.</span>}
@@ -191,22 +192,38 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen }: { sessions: Se
   );
 }
 
-/** "Ask Launchpad…": opens the Ask page with the text already sent. */
-function AskLaunchpadField() {
+/** A message to a bot of the workspace (the first one, Ask Launchpad unless you changed it), then its page. */
+function BotField() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
+  const scope = useScope();
+  const bots = (useBots().data ?? []).filter((b) => !scope.workspace || b.workspace_id === scope.workspace.id);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const bot = bots.find((b) => b.id === chosen) ?? bots.find((b) => b.slug === "ask-launchpad") ?? bots[0];
   const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
   const [presets, setPresets] = useState<string[]>([]);
-  const allPresets = usePresets("ask_launchpad");
+  const allPresets = usePresets("bots");
   const message = withPresets(text, presets, allPresets);
-  const send = () => { if (message) void navigate({ to: "/ask", search: { q: message } }); };
+  if (!bot) return null;
+  const send = async () => {
+    if (!message || busy) return;
+    setBusy(true);
+    try {
+      await api.post(`/api/bots/${bot.id}/message`, { text: message });
+      await qc.invalidateQueries({ queryKey: ["sessions"] });
+      void navigate({ to: "/bots/$id", params: { id: bot.id } });
+    } catch (e) { toastError(e); } finally { setBusy(false); }
+  };
   return (
     <div>
-      <PresetChips surface="ask_launchpad" selected={presets} onChange={setPresets} className="mb-1.5" />
+      <PresetChips surface="bots" selected={presets} onChange={setPresets} className="mb-1.5" />
       <div className="flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5 focus-within:border-teal">
         <Icon name="spark" size={14} className="text-teal-ink" />
-        <input className="min-w-0 flex-1 bg-transparent text-[13px] outline-none" aria-label="Ask Launchpad" placeholder="Ask Launchpad… (it proposes, you confirm)" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
-        <PresetButton surface="ask_launchpad" selected={presets} onChange={setPresets} />
-        <button className="iconbtn" aria-label="Send to Ask Launchpad" title="Send" disabled={!message} onClick={send}><Icon name="send" size={13} /></button>
+        {bots.length > 1 && <select className="max-w-[140px] bg-transparent text-[13px] font-semibold outline-none" aria-label="Bot" value={bot.id} onChange={(e) => setChosen(e.target.value)}>{bots.map((b) => <option key={b.id} value={b.id}>{b.settings.name}</option>)}</select>}
+        <input className="min-w-0 flex-1 bg-transparent text-[13px] outline-none" aria-label={`Message ${bot.settings.name}`} placeholder={`Message ${bot.settings.name}…`} value={text} disabled={busy} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void send(); }} />
+        <PresetButton surface="bots" selected={presets} onChange={setPresets} />
+        <button className="iconbtn" aria-label={`Send to ${bot.settings.name}`} title="Send" disabled={!message || busy} onClick={() => void send()}><Icon name="send" size={13} /></button>
       </div>
     </div>
   );
@@ -214,8 +231,7 @@ function AskLaunchpadField() {
 
 export function AgentsView() {
   const scope = useScope();
-  const [showAssistant, setShowAssistant] = useState(false);
-  const sessionsQuery = useSessions(showAssistant);
+  const sessionsQuery = useSessions();
   const allSessions = sessionsQuery.data ?? [];
   const sessions = allSessions.filter(scope.hasSession);
   const [panelLoad, setPanelLoad] = useState(0);
@@ -226,7 +242,7 @@ export function AgentsView() {
   const [archiving, setArchiving] = useState(false);
   const pinned = useLayout((s) => s.pinned);
   useEffect(() => { const t = setTimeout(() => setDebounced(filter.trim()), 250); return () => clearTimeout(t); }, [filter]);
-  const matches = useQuery({ queryKey: ["session-search", debounced, showAssistant], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}&include_assistant=${showAssistant}`), enabled: !!debounced });
+  const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
   const schedules = (useSchedules().data ?? []).filter((s) => scope.hasSpec(s.spec));
   const crons = (useCrons().data ?? []).filter((c) => scope.hasSpec(c.spec));
   const projects = useProjects().data;
@@ -261,7 +277,7 @@ export function AgentsView() {
   const focused = useWindowFocused();
   const wanted = phone ? search.session ?? null : selectedSession;
   const selected = useSession(wanted);
-  const visible = selected && (sessions.some((s) => s.id === wanted) || selected.launch_spec.target.kind === "assistant") ? selected : undefined;
+  const visible = selected && sessions.some((s) => s.id === wanted) ? selected : undefined;
   const visibleSession = visible?.id ?? null;
   useEffect(() => { sendPresence(focused, visibleSession ? [visibleSession] : []); }, [focused, visibleSession]);
   useEffect(() => () => sendPresence(false, []), []);
@@ -336,7 +352,7 @@ export function AgentsView() {
       <div className={`flex flex-col bg-paper ${phone ? (paneOpen ? "hidden" : "w-full") : "w-[280px] flex-none border-r border-line"}`}>
         <div className="grid gap-2 border-b border-line p-2">
           <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setSyncedSearchCollapsed(false); setArchivedLimit(30); }} />
-          <div className="flex flex-wrap items-center gap-2"><button className="lp-chip" aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button><button className="lp-chip" aria-pressed={showAssistant} onClick={() => setShowAssistant(!showAssistant)}>Show Ask threads</button>{phone && <span className="ml-auto"><LaunchButton small label="New agent" title="Open the composer (the draft if one exists)" /></span>}</div>
+          <div className="flex flex-wrap items-center gap-2"><button className="lp-chip" aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button>{phone && <span className="ml-auto"><LaunchButton small label="New agent" title="Open the composer (the draft if one exists)" /></span>}</div>
           {matches.isFetching && <span className="text-xs text-ink-3">Searching messages…</span>}
           {matches.error && <span className="text-xs text-danger-ink">{matches.error.message}</span>}
         </div>

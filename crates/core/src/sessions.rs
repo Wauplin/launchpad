@@ -729,7 +729,7 @@ impl Sessions {
 
     fn publish_counts(&self, app: &App) {
         let (mut running, mut done, mut quota_paused) = (0, 0, 0);
-        for s in self.inner.records.lock().unwrap().values().filter(|s| !s.launch_spec.target.is_assistant()) {
+        for s in self.inner.records.lock().unwrap().values() {
             if s.status.is_running() {
                 running += 1;
             } else if s.status == SessionStatus::QuotaPaused {
@@ -823,7 +823,6 @@ impl Sessions {
                 (cwd, None)
             }
             Target::Temp => (None, None),
-            Target::Assistant { workspace_id } => (Some(crate::proposals::assistant_dir(app, workspace_id.as_deref()).to_string_lossy().into_owned()), None),
             Target::None => (None, None),
         };
         // The session runs on the machine of its folder; agents there use the helper's `launchpad` CLI.
@@ -848,7 +847,7 @@ impl Sessions {
         crate::prompt_context::validate_mentions(&spec.text, &spec.mentions)?;
         let mut prompt = render_prompt(spec, &context, &config.presets);
         if !spec.skills.is_empty() {
-            anyhow::ensure!(!spec.target.browser_only() && !matches!(spec.target, Target::Assistant { .. }), "This session cannot use filesystem skills");
+            anyhow::ensure!(!spec.target.browser_only(), "This session cannot use filesystem skills");
             let harness = spec.harness.context("Pick a harness for selected skills")?;
             prompt.push_str(&crate::prompt_context::render_skills(app, harness, spec, cwd.as_deref()).await?);
         }
@@ -884,12 +883,6 @@ impl Sessions {
         if let Some(r) = &spec.routine {
             prompt.push_str("\n\n");
             prompt.push_str(&crate::crons::instruction(r));
-        }
-        if let Target::Assistant { workspace_id } = &spec.target {
-            anyhow::ensure!(spec.context_projects.is_empty() && spec.worktree.is_none() && !spec.allow_paid_usage, "The assistant has no folders, worktrees or paid usage");
-            prompt.push_str("\n\n");
-            prompt.push_str(&crate::proposals::instruction(app, workspace_id.as_deref(), &cli, spec.assistant_instructions.as_deref()).await);
-            return Ok(Preview { title: "Ask Launchpad".into(), prompt, cwd, add_dirs });
         }
         if let Some(bot) = &spec.bot {
             prompt.push_str("\n\n");
@@ -979,11 +972,6 @@ impl Sessions {
                     let workspace = spec.workspace_id.as_deref().context("a new scratch folder needs a workspace: launch it from a workspace")?;
                     let p = crate::projects::create_temp(app, &spec.text, workspace).await?;
                     (p.path, Some(p.id))
-                }
-                Target::Assistant { workspace_id } => {
-                    let folder = crate::proposals::assistant_dir(app, workspace_id.as_deref());
-                    std::fs::create_dir_all(&folder)?;
-                    (folder.to_string_lossy().into_owned(), None)
                 }
                 Target::Project { project_id } => (preview.cwd.clone().unwrap_or_default(), Some(project_id.clone())),
                 Target::Predraft { project_id } => (preview.cwd.clone().unwrap_or_default(), Some(project_id.clone())),
@@ -1697,10 +1685,10 @@ impl Sessions {
             return self.send_locked(app, id, text, images, InputMode::Manual, client_id).await;
         }
         let session = self.get(id).context("no such session")?;
-        anyhow::ensure!(context.skills.is_empty() || (!session.launch_spec.target.browser_only() && !matches!(session.launch_spec.target, Target::Assistant { .. })), "This session cannot use filesystem skills");
+        anyhow::ensure!(context.skills.is_empty() || !session.launch_spec.target.browser_only(), "This session cannot use filesystem skills");
         let mut folders = Vec::new();
         for cp in &context.context_projects {
-            anyhow::ensure!(!session.launch_spec.target.browser_only() && !matches!(session.launch_spec.target, Target::Assistant { .. }), "This session cannot attach project folders");
+            anyhow::ensure!(!session.launch_spec.target.browser_only(), "This session cannot attach project folders");
             anyhow::ensure!(!cp.editable, "Follow-up context folders must be read-only");
             let project = crate::projects::get(app, &cp.project_id).await?.context("context project no longer exists")?;
             anyhow::ensure!(crate::hosts::loc::host_of(&project.path) == crate::hosts::loc::host_of(&session.cwd), "Context folders must be on the same machine as the agent");

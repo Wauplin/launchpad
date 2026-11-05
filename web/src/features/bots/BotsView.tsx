@@ -1,7 +1,8 @@
-// Bots: persistent agents with one thread each. The list (with Ask Launchpad as the built-in bot), the form
-// that creates one (name, job, profile and folder only), and a bot's page: its thread on the left, and on the
-// right its memory (notes in the knowledge base), its files (BOT.md, bot.toml, with versions), its sessions and
-// its settings. Creating saves; the first task is a separate Send.
+// Bots: persistent agents with one thread each. The list (Ask Launchpad is one of them, created once per
+// workspace), the form that creates one (name, job, profile and folder only), and a bot's page: its thread on
+// the left, and on the right its memory (notes in the knowledge base), the proposals it wrote, its routines,
+// its files (BOT.md, bot.toml, with versions), its sessions and its settings. Creating saves; the first task is
+// a separate Send.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
@@ -22,7 +23,7 @@ import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import type { VaultOverview } from "@/gen/VaultOverview";
 import { api } from "@/lib/api";
-import { botInitial, botJob, botState, botThread, currentSession, rotationReason, useAskBot, useBots, type BotState } from "@/lib/bots";
+import { botInitial, botJob, botProfile, botState, botThread, currentSession, rotationReason, useBots, useBotTemplates, type BotState } from "@/lib/bots";
 import { daemonUrl } from "@/lib/connection";
 import { formatAge } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
@@ -32,7 +33,10 @@ import { useCrons, useHarnessDefaults, useProjects, useSessions } from "@/lib/qu
 import { routineState, triggerSummary } from "@/lib/routines";
 import { NewRoutine, RoutineDetails, RunStrip } from "@/features/schedules/Routines";
 import type { CronAgent } from "@/gen/CronAgent";
-import { ProposalCard, useProposalList } from "@/features/ask/ProposalCard";
+import { ProposalCard, useProposalList } from "@/features/proposals/ProposalCard";
+import { ProposalList } from "@/features/proposals/ProposalsView";
+import { isWaiting } from "@/features/proposals/proposalState";
+import type { ProposalMode } from "@/gen/ProposalMode";
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
 import { WorkspacePicker } from "@/features/workspaces/WorkspacePicker";
@@ -42,6 +46,11 @@ const PERMISSIONS: { id: PermissionMode; label: string; detail: string }[] = [
   { id: "yolo", label: "YOLO", detail: "Runs commands without asking, inside its jail" },
   { id: "approvals", label: "Ask for approval", detail: "Asks you before commands and edits" },
   { id: "auto", label: "Auto", detail: "The harness's own reviewer decides each request" },
+];
+
+const PROPOSAL_MODES: { id: ProposalMode; label: string; detail: string }[] = [
+  { id: "manual", label: "Manual", detail: "every proposal waits for your click" },
+  { id: "auto", label: "Auto", detail: "new launches, messages, schedules and presets apply at once; routines, bots, tools and BOT.md changes still wait" },
 ];
 
 const STATE: Record<BotState, { label: string; tone: "attn" | "work" | "neutral" | "teal" }> = {
@@ -88,7 +97,6 @@ export function BotsView() {
           {bots.isLoading ? <Loading what="bots" /> : bots.error ? <ErrorState error={bots.error} onRetry={() => void bots.refetch()} /> : <>
             {creating && <NewBot first={mine.length === 0} onCancel={mine.length ? close : undefined} />}
             <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
-              <AskRow />
               {mine.map((b) => <BotRow key={b.id} bot={b} thread={botThread(sessions, b.id)} folder={folderLabel(projects, b.settings.folder)} />)}
             </div>
           </>}
@@ -96,17 +104,6 @@ export function BotsView() {
       </div>
     </div>
   );
-}
-
-function AskRow() {
-  const customized = useAskBot().data?.customized;
-  return <Link to="/ask" className="flex min-h-[56px] items-center gap-3 rounded-lg border border-line bg-paper px-3 py-2 no-underline hover:bg-sunk">
-    <span className="grid size-[32px] flex-none place-items-center rounded-[8px] bg-teal-soft text-teal-ink"><Icon name="spark" size={16} /></span>
-    <span className="min-w-0 flex-1">
-      <span className="flex items-center gap-2 text-[13px] font-semibold text-ink">Ask Launchpad <Badge>Built in</Badge>{customized && <Badge tone="teal">Customized</Badge>}</span>
-      <span className="block truncate text-[12px] text-ink-3">Reads your workspace and proposes launches, messages and schedules; nothing starts without your click.</span>
-    </span>
-  </Link>;
 }
 
 const BotRow = memo(function BotRow({ bot, thread, folder }: { bot: Bot; thread: Session[]; folder: string }) {
@@ -133,14 +130,16 @@ function useGrantedTools(workspaceId: string | null) {
 }
 
 /** What the bot can reach, in plain words: its folder, the knowledge base, the granted tools and the mode. */
-function Access({ folder, workspace, workspaceId, mode }: { folder: Project | null; workspace: string; workspaceId: string | null; mode: PermissionMode }) {
+function Access({ folder, workspace, workspaceId, mode, proposals = "manual" }: { folder: Project | null; workspace: string; workspaceId: string | null; mode: PermissionMode; proposals?: ProposalMode }) {
   const tools = useGrantedTools(workspaceId);
   const permission = PERMISSIONS.find((p) => p.id === mode)!;
+  const cli = tools.some((t) => t.id === "launchpad");
   return <ul className="m-0 grid gap-1 pl-4 text-[12px] text-ink-2">
     <li>Runs contained on a runner, like every agent. <b>{permission.label}</b>: {permission.detail.toLowerCase()}.</li>
     <li>{folder ? (folder.plain ? <>Works in the plain folder <b>{folder.name}</b>, synced by Home.</> : <>Works in <b>{folder.name}</b>, in a fresh worktree per session; it prepares branches and Local PRs for your review.</>) : <>Works in its own new plain folder, synced by Home.</>}</li>
     <li>Remembers in the knowledge base of <b>{workspace}</b>: every change records it, and you can restore it.</li>
     <li>{tools.length ? <>Uses the tools granted to {workspace} with Home's tokens: {tools.map((t) => t.name).join(", ")}.</> : <>No tool is granted to {workspace} (Settings → Credentials and tools).</>}</li>
+    <li>{cli ? <>Reads Launchpad state and writes proposals with the Launchpad CLI. {proposals === "auto" ? "Auto: one-time starts apply at once; the rest waits for your click." : "Every proposal waits for your click."}</> : <>Without the Launchpad CLI tool, it cannot read Launchpad state or write proposals.</>}</li>
   </ul>;
 }
 
@@ -161,6 +160,7 @@ function NewBot({ first, onCancel }: { first: boolean; onCancel?: () => void }) 
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (!profile && profiles.length) setProfile(profiles.find((p) => p.billing === "subscription")?.id ?? profiles[0].id); }, [profiles, profile]);
   const repo = folders.find((p) => !p.plain);
+  const templates = useBotTemplates().data ?? [];
   const create = async () => {
     if (!ws || !name.trim()) return;
     setBusy(true);
@@ -179,6 +179,9 @@ function NewBot({ first, onCancel }: { first: boolean; onCancel?: () => void }) 
       </div>
       {repo && !name && !job && <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-ink-3">Start from
         <button className="btn btn-sm" onClick={() => { setName("Maintainer"); setJob(`Maintain ${repo.name}: answer my questions about the code, investigate issues and failing checks, and prepare fixes as Local PRs for my review.`); setFolder(repo.id); }}><Icon name="branch" size={12} />Repo maintainer for {repo.name}</button>
+      </div>}
+      {templates.length > 0 && !name && !job && <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-ink-3">{repo ? "Or from" : "Start from"}
+        {templates.map((t) => <button key={t.id} className="btn btn-sm" onClick={() => { setName(t.name); setJob(t.instructions.replace(/^#[^\n]*\n+/, "").trim()); setFolder(""); }}><Icon name="spark" size={12} />{t.name}</button>)}
       </div>}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name
@@ -219,8 +222,8 @@ function NewBot({ first, onCancel }: { first: boolean; onCancel?: () => void }) 
 
 // ---------------------------------------------------------------- a bot's page
 
-type Panel = "memory" | "routines" | "files" | "thread" | "settings";
-const PANELS: Panel[] = ["memory", "routines", "files", "thread", "settings"];
+type Panel = "memory" | "proposals" | "routines" | "files" | "thread" | "settings";
+const PANELS: Panel[] = ["memory", "proposals", "routines", "files", "thread", "settings"];
 
 export function BotPage() {
   const { id } = useParams({ strict: false }) as { id: string };
@@ -233,6 +236,7 @@ export function BotPage() {
   const search = useSearch({ strict: false }) as { panel?: string };
   const [panel, setPanel] = useState<Panel | "chat">(PANELS.find((p) => p === search.panel) ?? (phone ? "chat" : "memory"));
   const routines = (useCrons().data ?? []).filter((c) => c.bot_id === id);
+  const proposalList = useProposalList();
   useEffect(() => { const p = PANELS.find((x) => x === search.panel); if (p) setPanel(p); }, [search.panel]);
   const [fresh, setFresh] = useState(false);
   const profiles = useProfiles();
@@ -244,15 +248,18 @@ export function BotPage() {
   if (bots.isLoading) return <Loading what="the bot" />;
   if (bots.error) return <ErrorState error={bots.error} onRetry={() => void bots.refetch()} />;
   if (!bot) return <div className="flex h-full flex-col"><PageHeader title="Bot" /><Empty fill icon="spark" action={<Link to="/bots" className="btn btn-sm">All bots</Link>}>This bot no longer exists.</Empty></div>;
-  const profile = profiles.find((p) => p.id === bot.settings.profile) ?? null;
-  const rotation = rotationReason(bot, current);
+  const profile = botProfile(bot, profiles);
+  const rotation = rotationReason(bot, current, profile?.id ?? null);
+  const threadIds = new Set(thread.map((s) => s.id));
+  const written = (proposalList.data ?? []).filter((p) => !!p.session_id && threadIds.has(p.session_id));
   const folder = folderLabel(projects, bot.settings.folder);
   const showSession = current && !rotation && !fresh;
-  const tabs = <Tabs label="Bot panels" value={panel} onChange={setPanel} tour="bots.panels" items={[...(phone ? [{ id: "chat" as const, label: "Thread" }] : []), { id: "memory", label: "Memory" }, { id: "routines", label: "Routines", count: routines.length || undefined }, { id: "files", label: "Instructions" }, { id: "thread", label: "Sessions" }, { id: "settings", label: "Settings" }]} />;
+  const tabs = <Tabs label="Bot panels" value={panel} onChange={setPanel} tour="bots.panels" items={[...(phone ? [{ id: "chat" as const, label: "Thread" }] : []), { id: "memory", label: "Memory" }, { id: "proposals", label: "Proposals", count: written.filter(isWaiting).length || undefined }, { id: "routines", label: "Routines", count: routines.length || undefined }, { id: "files", label: "Instructions" }, { id: "thread", label: "Sessions" }, { id: "settings", label: "Settings" }]} />;
   const meta = <>
     <StateBadge state={botState(thread)} />
     {bot.paused && <Badge tone="attn" title="Its routines and incoming hooks start nothing until you resume it">Paused</Badge>}
     <span>{profile ? profile.name : "no profile"}{bot.settings.model ? ` · ${bot.settings.model}` : ""}</span>
+    {bot.settings.proposals === "auto" && <span title="One-time proposals apply at once">Auto proposals</span>}
     <span>works in {folder}</span>
     <span>{PERMISSIONS.find((p) => p.id === bot.settings.permission_mode)?.label}</span>
     {where && <span className={where.tone === "quiet" && where.label.startsWith("Burst") ? "text-ink-3" : "text-attn"} title={where.title}>{where.label}</span>}
@@ -264,6 +271,7 @@ export function BotPage() {
     : <FirstMessage bot={bot} reason={fresh ? "You asked for a new session" : rotation} previous={thread.at(-1) ?? null} needsProfile={!profile} openSettings={() => setPanel("settings")} onCancel={fresh ? () => setFresh(false) : undefined} />;
   const side = <>
     {panel === "memory" && <MemoryPanel bot={bot} thread={thread} />}
+    {panel === "proposals" && <div data-tour="bots.proposals"><ProposalList proposals={written} empty={`${bot.settings.name} has not proposed anything yet.`} /></div>}
     {panel === "routines" && <RoutinesPanel bot={bot} routines={routines} />}
     {panel === "files" && <FilesPanel bot={bot} />}
     {panel === "thread" && <ThreadPanel bot={bot} thread={thread} current={current} />}
@@ -426,7 +434,7 @@ export function FileEditor({ value, onSave, rows, mono, tall }: { value: string;
   </div>;
 }
 
-/** One change of a bot's files (`base`: `/api/bots/<id>` or `/api/assistant/bot`): its diff and Restore previous. */
+/** One change of a bot's files (`base`: `/api/bots/<id>`): its diff and Restore previous. */
 export function Version({ base, change }: { base: string; change: Change }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -434,7 +442,7 @@ export function Version({ base, change }: { base: string; change: Change }) {
   return <div className="grid gap-1">
     <div className="flex items-center gap-2 text-[12px]">
       <button className="min-w-0 flex-1 truncate text-left hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>{change.path} · {change.author?.name ?? "You"} · {formatAge(change.at)} ago{change.added != null && <span className="text-ink-3"> · +{change.added} −{change.removed ?? 0}</span>}</button>
-      {change.sha256 && <ConfirmButton icon="refresh" tone="publish" consequence={`Puts back ${change.path} as it was before this change. The restore is itself a version.`} confirmLabel="Restore" onConfirm={async () => { try { await api.post(`${base}/restore/${change.id}`); await Promise.all([qc.invalidateQueries({ queryKey: ["bots"] }), qc.invalidateQueries({ queryKey: ["ask-bot"] })]); toast("Restored"); } catch (e) { toastError(e); } }}>Restore previous</ConfirmButton>}
+      {change.sha256 && <ConfirmButton icon="refresh" tone="publish" consequence={`Puts back ${change.path} as it was before this change. The restore is itself a version.`} confirmLabel="Restore" onConfirm={async () => { try { await api.post(`${base}/restore/${change.id}`); await qc.invalidateQueries({ queryKey: ["bots"] }); toast("Restored"); } catch (e) { toastError(e); } }}>Restore previous</ConfirmButton>}
     </div>
     {open && (diff.isLoading ? <Loading what="the diff" /> : diff.data?.patch ? <PatchView patch={diff.data.patch} path={change.path} language={change.path.endsWith(".toml") ? "toml" : "markdown"} split={false} wrap /> : <p className="m-0 text-[12px] text-ink-3">No text difference.</p>)}
   </div>;
@@ -471,7 +479,8 @@ function SettingsPanel({ bot }: { bot: Bot }) {
   const sessions = useBotSessions();
   const [s, setS] = useState<BotSettings>(bot.settings);
   useEffect(() => setS(bot.settings), [bot.settings]);
-  const profile = profiles.find((p) => p.id === s.profile) ?? null;
+  const profile = botProfile({ ...bot, settings: s }, profiles);
+  const fallback = profiles.find((p) => p.billing === "subscription") ?? profiles[0];
   const models = useHarnessDefaults(profile && !profile.models_url ? profile.harness : null).data?.models ?? [];
   const folders = projects.filter((p) => p.workspace_id === bot.workspace_id && !p.is_temp);
   const dirty = JSON.stringify(s) !== JSON.stringify(bot.settings);
@@ -484,7 +493,8 @@ function SettingsPanel({ bot }: { bot: Bot }) {
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input h-[30px] font-normal" maxLength={40} value={s.name} onChange={(e) => setS({ ...s, name: e.target.value })} /></label>
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Profile
         <select className="field-input h-[30px] font-normal" value={s.profile ?? ""} onChange={(e) => setS({ ...s, profile: e.target.value || undefined, model: undefined, effort: undefined })}>
-          {!profile && <option value="">Choose a profile</option>}
+          <option value="">Default{fallback ? `: ${fallback.name}` : ""} (first subscription profile)</option>
+          {s.profile && !profiles.some((p) => p.id === s.profile) && <option value={s.profile}>A removed profile</option>}
           {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </label>
@@ -505,10 +515,14 @@ function SettingsPanel({ bot }: { bot: Bot }) {
         <legend className="pb-1 text-[12px] font-semibold text-ink-2">Permissions</legend>
         {PERMISSIONS.map((p) => <label key={p.id} className="flex min-h-[28px] items-start gap-2 text-[13px]"><input type="radio" className="mt-1" name="bot-permission" checked={s.permission_mode === p.id} onChange={() => setS({ ...s, permission_mode: p.id })} /><span><span className="font-semibold">{p.label}</span> <span className="text-ink-3">· {p.detail}</span></span></label>)}
       </fieldset>
+      <fieldset className="m-0 grid gap-1 border-0 p-0">
+        <legend className="pb-1 text-[12px] font-semibold text-ink-2">Proposals</legend>
+        {PROPOSAL_MODES.map((m) => <label key={m.id} className="flex min-h-[28px] items-start gap-2 text-[13px]"><input type="radio" className="mt-1" name="bot-proposals" checked={(s.proposals ?? "manual") === m.id} onChange={() => setS({ ...s, proposals: m.id })} /><span><span className="font-semibold">{m.label}</span> <span className="text-ink-3">· {m.detail}</span></span></label>)}
+      </fieldset>
       {dirty && <div className="flex justify-end gap-1.5"><button className="btn btn-sm btn-ghost" onClick={() => setS(bot.settings)}>Discard</button><button className="btn btn-sm btn-primary" disabled={!s.name.trim()} onClick={() => void save()}>Save</button></div>}
     </Section>
     <Section title="What it can reach">
-      <Access folder={projects.find((p) => p.id === s.folder) ?? null} workspace={workspaces.find((w) => w.id === bot.workspace_id)?.name ?? ""} workspaceId={bot.workspace_id} mode={s.permission_mode} />
+      <Access folder={projects.find((p) => p.id === s.folder) ?? null} workspace={workspaces.find((w) => w.id === bot.workspace_id)?.name ?? ""} workspaceId={bot.workspace_id} mode={s.permission_mode} proposals={s.proposals} />
     </Section>
     <Section title="Delete">
       <p className="m-0 text-[12px] text-ink-3">Deleting removes the bot, its files and its routines. Its sessions stay in Agents, its notes stay in the knowledge base{bot.own_folder ? ", and its folder stays in Folders" : ""}.</p>

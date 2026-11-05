@@ -388,11 +388,6 @@ pub async fn create(
     title: Option<String>,
     time_zone: Option<String>,
 ) -> Result<CronAgent> {
-    // Ask Launchpad's routines (the morning brief) follow the assistant's own profile and model.
-    let spec = match &spec.target {
-        Target::Assistant { workspace_id } => crate::proposals::ask_spec(app, workspace_id.clone(), spec.text.clone(), vec![]).await?,
-        _ => spec,
-    };
     let harness = spec.harness.context("pick a harness")?;
     if spec.target == Target::None {
         bail!("pick a project or a temporary folder");
@@ -401,8 +396,6 @@ pub async fn create(
     if preview.prompt.trim().is_empty() {
         bail!("the prompt is empty");
     }
-    // Each run reads Ask Launchpad's current BOT.md (`effective_spec`): never keep a copy.
-    let spec = crate::model::LaunchSpec { assistant_instructions: None, ..spec };
     validate_conditions(&conditions)?;
     validate_harness_conditions(harness, &conditions)?;
     let schedule = normalize(&schedule);
@@ -435,7 +428,8 @@ pub async fn create(
 
 /// The spec a bot routine stands for: the bot's profile and folder (for quotas and workspace lists).
 async fn bot_spec(app: &App, bot: &crate::bots::Bot, text: String) -> Result<LaunchSpec> {
-    let profile = bot.settings.profile.as_ref().and_then(|p| app.config.get().profiles.iter().find(|x| &x.id == p).cloned()).context("choose a profile for this bot in its Settings tab")?;
+    let config = app.config.get();
+    let profile = crate::bots::profile_of(&config, &bot.settings).cloned().context("choose a profile for this bot in its Settings tab")?;
     Ok(LaunchSpec {
         text,
         harness: Some(profile.harness),
@@ -446,18 +440,17 @@ async fn bot_spec(app: &App, bot: &crate::bots::Bot, text: String) -> Result<Lau
     })
 }
 
-/// The spec a run uses now: a bot's or Ask Launchpad's current profile, else the routine's own spec.
+/// The spec a run uses now: a bot's current profile, else the routine's own spec.
 async fn effective_spec(app: &App, r: &CronAgent) -> Result<LaunchSpec> {
-    match (&r.bot_id, &r.spec.target) {
-        (Some(b), _) => bot_spec(app, &crate::bots::get(app, b).await?, r.spec.text.clone()).await,
-        (None, Target::Assistant { workspace_id }) => crate::proposals::ask_spec(app, workspace_id.clone(), r.spec.text.clone(), vec![]).await,
-        _ => Ok(r.spec.clone()),
+    match &r.bot_id {
+        Some(b) => bot_spec(app, &crate::bots::get(app, b).await?, r.spec.text.clone()).await,
+        None => Ok(r.spec.clone()),
     }
 }
 
-/// Whether a routine's runs are messages to a thread (a bot's, or Ask Launchpad's) rather than new sessions.
+/// Whether a routine's runs are messages to a bot's thread rather than new sessions.
 fn in_thread(r: &CronAgent) -> bool {
-    r.bot_id.is_some() || matches!(r.spec.target, Target::Assistant { .. })
+    r.bot_id.is_some()
 }
 
 /// A new routine of a bot. Its runs are messages to the bot's thread.
@@ -642,24 +635,15 @@ fn bot_busy(app: &App, bot_id: &str) -> Option<String> {
     (current.status.is_running() || current.quota_pause.is_some()).then(|| format!("{} is working", current.launch_spec.bot.as_ref().map(|b| b.name.as_str()).unwrap_or("the bot")))
 }
 
-/// The open session of the thread a routine posts to (a bot's, or Ask Launchpad's), None for other routines.
+/// The open session of the bot thread a routine posts to, None for other routines.
 fn thread_current(app: &App, r: &CronAgent) -> Option<Session> {
-    match (&r.bot_id, &r.spec.target) {
-        (Some(b), _) => crate::bots::thread(app, b).into_iter().rev().find(|s| s.status != SessionStatus::Closed),
-        (None, Target::Assistant { workspace_id }) => crate::proposals::thread(app, workspace_id.as_deref()),
-        _ => None,
-    }
+    let b = r.bot_id.as_ref()?;
+    crate::bots::thread(app, b).into_iter().rev().find(|s| s.status != SessionStatus::Closed)
 }
 
-/// Why the thread a routine posts to (a bot's, or Ask Launchpad's) cannot take a message now.
+/// Why the bot thread a routine posts to cannot take a message now.
 fn thread_busy(app: &App, r: &CronAgent) -> Option<String> {
-    match (&r.bot_id, &r.spec.target) {
-        (Some(b), _) => bot_busy(app, b),
-        (None, Target::Assistant { workspace_id }) => crate::proposals::thread(app, workspace_id.as_deref())
-            .filter(|s| s.status.is_running() || s.quota_pause.is_some())
-            .map(|_| "Ask Launchpad is working".to_string()),
-        _ => None,
-    }
+    bot_busy(app, r.bot_id.as_ref()?)
 }
 
 /// Why the routine's conditions block a run now, or None when it may start.
@@ -693,10 +677,9 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
     })
     .await?;
     let launch = RoutineLaunch { id: record.id.clone(), title: record.title.clone(), cause, context };
-    let result = match (&record.bot_id, &record.spec.target) {
-        (Some(bot), _) => crate::bots::message_with(app, bot, bot_message(&record, &launch), vec![], false, automatic).await,
-        (None, Target::Assistant { workspace_id }) => crate::proposals::ask_with(app, workspace_id.clone(), bot_message(&record, &launch), vec![], automatic).await,
-        _ => {
+    let result = match &record.bot_id {
+        Some(bot) => crate::bots::message_with(app, bot, bot_message(&record, &launch), vec![], false, automatic).await,
+        None => {
             let spec = LaunchSpec { routine: Some(launch), ..record.spec.clone() };
             crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), automatic).await
         }
@@ -818,7 +801,7 @@ async fn turn_ended_inner(app: &App, s: &Session) -> Result<()> {
             }
         }
     }
-    if was_run || s.status != SessionStatus::Waiting || s.open_question || matches!(s.launch_spec.target, Target::Assistant { .. }) {
+    if was_run || s.status != SessionStatus::Waiting || s.open_question {
         return Ok(());
     }
     let folder = s.project_id.clone();

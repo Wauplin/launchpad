@@ -1,5 +1,5 @@
-// Launching agents: the composer draft, preview and launch, delayed launches and follow-ups, crons, Ask Launchpad
-// (assistant threads and proposals) and uploads. A launch plays the prerecorded scenario closest to its prompt.
+// Launching agents: the composer draft, preview and launch, delayed launches and follow-ups, crons, proposals
+// and uploads. A launch plays the prerecorded scenario closest to its prompt.
 
 import type { CronAgent } from "@/gen/CronAgent";
 import type { CronCondition } from "@/gen/CronCondition";
@@ -14,7 +14,7 @@ import { clock, DemoError, notInDemo, onClock, publish, route } from "../daemon"
 import { predraftRoot } from "../world/github";
 import { playScenario } from "../player";
 import { pickScenario } from "../scenarios";
-import { appendEvent, defaultSpec, demoId, publishSession, refreshCounts, session, setStatus } from "../store";
+import { appendEvent, defaultSpec, demoId, publishSession, refreshCounts, session } from "../store";
 import { world } from "../world";
 import { demoSession, FOLDER, MODELS, PROFILE, SUMMARY_INSTRUCTION, taskWorktree } from "../world/agents";
 import { P, ROOT } from "../world/ids";
@@ -45,7 +45,6 @@ function where(spec: LaunchSpec): Where {
     }
     case "temp": return { projectId: P.scratch, cwd: `${ROOT}/${FOLDER[P.scratch]}`, git: false };
     case "browser": return notInDemo();
-    case "assistant": throw new DemoError(400, "Ask Launchpad threads start from the Ask page.");
     default: throw new DemoError(400, "Choose a folder first.");
   }
 }
@@ -60,7 +59,7 @@ function renderPrompt(spec: LaunchSpec, cwd: string): string {
   for (const a of spec.attachments) context.push(`- Attached ${a.data_url.startsWith("data:image/") || a.data_url.startsWith("upload:image/") ? "image" : "file (local copy provided at launch)"}: ${a.name}`);
   for (const t of spec.agent_traces) context.push(`- Trace of another agent: run \`launchpad trace ${t.session_id} --through ${t.through_seq}\` to read it.`);
   if (context.length) parts.push(`Context:\n${context.join("\n")}${spec.github_refs.length ? "\nUse `gh` to read issues, pull requests and comments." : ""}`);
-  const presets = world.config.presets.filter((p) => (spec.target.kind === "assistant" ? p.ask_launchpad : p.agent) && spec.presets.includes(p.id) && p.text.trim()).map((p) => p.text.trim()).join(" ");
+  const presets = world.config.presets.filter((p) => (spec.bot ? p.bots : p.agent) && spec.presets.includes(p.id) && p.text.trim()).map((p) => p.text.trim()).join(" ");
   if (presets) parts.push(presets);
   if (spec.worktree) parts.push(`Launchpad worktree: you work in ${cwd}, a Git worktree on its own branch. Commit your changes there.${spec.worktree.when_done === "merge" ? " When the task is done, run `launchpad work finish` so Launchpad merges the branch." : spec.worktree.when_done === "local_pr" ? " When the task is done, run `launchpad work finish` so Launchpad turns the worktree into a Local PR." : ""}`);
   parts.push(SUMMARY_INSTRUCTION);
@@ -250,7 +249,7 @@ export function createCron(spec: LaunchSpec, expr: string, conditions: CronCondi
   if (!spec.text.trim()) throw new DemoError(400, "the prompt is empty");
   if (trigger.kind === "schedule") nextRuns(expr, 1);
   if (trigger.kind === "github" && !trigger.events.length) throw new DemoError(400, "pick at least one kind of GitHub activity");
-  const c: CronAgent = { id: demoId("demo-cron"), spec, title: spec.target.kind === "assistant" ? "Morning brief" : titleOf(spec.text), schedule: expr.trim(), trigger, bot_id: null, bot_paused: false, conditions, paused: false, created_at: clock.now(), next_run_at: null, last_check_at: null, last_outcome: null, runs: [], history: [], github_seen: null, ...extra };
+  const c: CronAgent = { id: demoId("demo-cron"), spec, title: titleOf(spec.text), schedule: expr.trim(), trigger, bot_id: null, bot_paused: false, conditions, paused: false, created_at: clock.now(), next_run_at: null, last_check_at: null, last_outcome: null, runs: [], history: [], github_seen: null, ...extra };
   c.next_run_at = nextDue(c);
   world.crons = [...world.crons, c];
   publishCrons();
@@ -293,7 +292,7 @@ route("POST", "/api/launch/crons/:id/run", (r) => {
   return s;
 });
 
-// ---------------------------------------------------------------- Ask Launchpad
+// ---------------------------------------------------------------- proposals
 
 const publishProposal = (p: Proposal) => publish("proposals", "changed", p);
 const proposalOf = (id: string) => { const p = world.proposals.find((x) => x.id === id); if (!p) throw new DemoError(404, "no such proposal"); return p; };
@@ -352,36 +351,6 @@ route("POST", "/api/proposals/:id/recheck", (r) => {
   const p = proposalOf(r.params.id);
   if (p.state === "uncertain") { p.state = p.result_id && session(p.result_id) ? "started" : "failed"; p.updated_at = clock.now(); publishProposal(p); }
   return p;
-});
-
-const assistantThread = (workspace: string | null) => world.sessions.filter((s) => s.launch_spec.target.kind === "assistant" && (s.launch_spec.target.workspace_id ?? null) === workspace && s.status !== "closed").sort((a, b) => b.started_at - a.started_at)[0] ?? null;
-
-route("GET", "/api/assistant", (r) => { const w = r.query.get("workspace"); return assistantThread(w && w !== "all" ? w : null); });
-route("POST", "/api/assistant", (r) => {
-  ready();
-  const workspace: string | null = r.body?.workspace_id ?? null;
-  const text = String(r.body?.text ?? "").trim();
-  let s = assistantThread(workspace);
-  if (!s) {
-    const profileId = world.config.assistant.profile ?? world.config.profiles.find((p) => p.billing === "subscription")?.id ?? world.config.profiles[0]?.id ?? "claude-max";
-    const profile = world.config.profiles.find((p) => p.id === profileId);
-    const harness = profile?.harness ?? "claude";
-    const id = demoId("demo-ask");
-    const name = world.workspaces.find((w) => w.id === workspace)?.name ?? "Everything";
-    s = {
-      ...demoSession({ id, title: `Ask Launchpad · ${name}`, project: null, harness, minutesAgo: 0, cwd: `/home/demo/.local/share/launchpad/assistant/${workspace ?? "all"}`,
-        spec: { harness, profile: profileId, target: { kind: "assistant", workspace_id: workspace }, workspace_id: workspace, text, model: world.config.assistant.model } }, world.events, []),
-      model: world.config.assistant.model ?? MODELS[harness] ?? null, seen_at: clock.now(),
-    };
-    world.sessions = [s, ...world.sessions];
-    publishSession(s);
-    if (!text) setStatus(s.id, "waiting");
-  }
-  if (text) {
-    const attachments = (r.body?.attachments ?? []) as { name: string }[];
-    sendMessage(s, text, `${s.id}-${s.last_seq + 1}`, attachments);
-  }
-  return session(s.id);
 });
 
 // ---------------------------------------------------------------- uploads (memory only)

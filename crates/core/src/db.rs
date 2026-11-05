@@ -208,7 +208,8 @@ CREATE TABLE IF NOT EXISTS outbox_message (id TEXT PRIMARY KEY, json TEXT NOT NU
 CREATE TABLE IF NOT EXISTS telegram (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS telegram_reply (session_id TEXT PRIMARY KEY, after_seq INTEGER NOT NULL, at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS incoming_hook (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS queued_message (n INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL, at INTEGER NOT NULL, json TEXT NOT NULL);",
+CREATE TABLE IF NOT EXISTS queued_message (n INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL, at INTEGER NOT NULL, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS seeded (key TEXT PRIMARY KEY, at INTEGER NOT NULL);",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these
     // additive columns directly, like the unversioned tables above.

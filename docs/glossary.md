@@ -10,7 +10,7 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Local PR | pre-draft PR, pre-draft, Local pre-draft | A PR prepared in Launchpad on a branch of Home Git, published or merged with a click. |
 | Plain folder | non-Git folder | A folder without Git whose files Home stores, with versions and trash. |
 | Asset folder | assets | Large or generated files of a Git folder, stored by Home instead of Git. |
-| Bot | assistant, teammate, persona | A named agent that stays: one thread of sessions, `BOT.md` instructions, notes in the knowledge base. Ask Launchpad is the built-in bot. Its page has Memory · Routines · Instructions (`BOT.md`, `bot.toml`) · Sessions · Settings. |
+| Bot | assistant, teammate, persona | A named agent that stays: one thread of sessions, `BOT.md` instructions, notes in the knowledge base. Ask Launchpad is the bot every workspace starts with. Its page has Memory · Proposals · Routines · Instructions (`BOT.md`, `bot.toml`) · Sessions · Settings. |
 | Routine | cron, cron agent, repeating agent | Work that starts on its own again and again: on a schedule, on GitHub activity or when another agent is done. "Cron" stays in the code (`crons.rs`, `/api/launch/crons`) and names only the schedule format. |
 | Schedules | Cron group, Scheduled group | The one page with Routines · Scheduled launches. |
 | Knowledge | memory, notes, wiki | The knowledge base of a workspace: notes and media that are the only memory agents have. |

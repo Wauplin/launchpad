@@ -4,21 +4,21 @@ import type { ProposalState } from "./ProposalState";
 
 export type Proposal = { id: string, 
 /**
- * The workspace of the assistant thread (None: Everything).
+ * The workspace of the session that wrote it (None: no workspace).
  */
 workspace_id: string | null, 
 /**
- * The assistant session that wrote it.
+ * The session that wrote it.
  */
 session_id: string | null, title: string, 
 /**
- * Why the assistant proposes it, one or two sentences.
+ * Why the agent proposes it, one or two sentences.
  */
 note: string | null, body: ProposalBody, state: ProposalState, 
 /**
  * For launches and new presets: the ID reserved at proposal time. Then the started session, schedule, cron or preset.
  */
-result_id: string | null,
+result_id: string | null, 
 /**
  * Successor card when this proposal was replaced.
  */

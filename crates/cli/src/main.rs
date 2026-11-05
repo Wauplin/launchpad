@@ -24,7 +24,7 @@ impl Client {
         });
         Ok(match helper {
             Some(dir) => Client::Helper(dir),
-            // LAUNCHPAD_TOKEN: a restricted credential (the Ask Launchpad assistant's read-and-propose token).
+            // LAUNCHPAD_TOKEN: a restricted credential (a session's CLI token).
             None => Client::Local { base: paths.base_url(), token: match std::env::var("LAUNCHPAD_TOKEN") { Ok(t) if !t.trim().is_empty() => t.trim().to_string(), _ => paths.token()? }, http: reqwest::Client::new() },
         })
     }
@@ -160,10 +160,10 @@ enum Command {
         /// Supersede a waiting, unstarted proposal in the same workspace.
         #[arg(long)]
         replaces: Option<String>,
-        /// JSON file with the proposal fields (see the Ask Launchpad instructions).
+        /// JSON file with the proposal fields (see the Launchpad CLI tool instructions).
         #[arg(long)]
         spec_file: std::path::PathBuf,
-        /// The assistant session writing it (defaults to LAUNCHPAD_SESSION_ID).
+        /// The session writing it (defaults to LAUNCHPAD_SESSION_ID).
         #[arg(long)]
         session_id: Option<String>,
     },

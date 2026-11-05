@@ -1,5 +1,4 @@
-//! Incoming hooks on Home: `POST /hooks/<id>` with `X-Launchpad-Hook-Secret: <secret>` sends a message to a bot
-//! (or Ask Launchpad). The secret is shown once at creation; Home keeps only its SHA-256 and compares in constant
+//! Incoming hooks on Home: `POST /hooks/<id>` with `X-Launchpad-Hook-Secret: <secret>` sends a message to a bot. The secret is shown once at creation; Home keeps only its SHA-256 and compares in constant
 //! time. A hook accepts at most one message every ten seconds. A message to a busy thread (and Telegram's) waits
 //! in `queued_message` for the end of its turn. The message is a fixed template naming the hook,
 //! then the request body (JSON pretty-printed, at most 16 KB) in a fenced block, marked as data.
@@ -25,8 +24,6 @@ pub const MAX_BODY: usize = 16 * 1024;
 #[ts(rename = "HookTarget")]
 pub enum Target {
     Bot { id: String },
-    /// Ask Launchpad, in a workspace or Everything.
-    Ask { workspace_id: Option<String> },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -98,9 +95,8 @@ pub async fn create(app: &App, n: NewHook) -> Result<CreatedHook> {
     crate::channels::ensure_home(app)?;
     let name = n.name.trim().to_string();
     ensure!(!name.is_empty() && name.chars().count() <= 60 && !name.contains(['\n', '"', '`']), "give the hook a short name (at most 60 characters, no quotes)");
-    if let Target::Bot { id } = &n.target {
-        crate::bots::get(app, id).await?;
-    }
+    let Target::Bot { id } = &n.target;
+    crate::bots::get(app, id).await?;
     let id = hex::encode(rand::random::<[u8; 9]>());
     let secret = format!("lph_{}", hex::encode(rand::random::<[u8; 24]>()));
     let hook = Hook { id, name, target: n.target, created_at: now_ms(), last_at: None, count: 0, last_session: None };
@@ -227,7 +223,6 @@ static DELIVERY: std::sync::LazyLock<tokio::sync::Mutex<LastSend>> = std::sync::
 fn key_of(t: &Target) -> String {
     match t {
         Target::Bot { id } => format!("bot:{id}"),
-        Target::Ask { workspace_id } => format!("ask:{}", workspace_id.as_deref().unwrap_or("")),
     }
 }
 
@@ -235,7 +230,6 @@ fn key_of(t: &Target) -> String {
 fn current(app: &App, t: &Target) -> Option<Session> {
     match t {
         Target::Bot { id } => crate::bots::thread(app, id).into_iter().rev().find(|s| s.status != SessionStatus::Closed),
-        Target::Ask { workspace_id } => crate::proposals::thread(app, workspace_id.as_deref()),
     }
 }
 
@@ -247,17 +241,15 @@ fn busy(s: &Session) -> bool {
 async fn send(app: &App, q: &Queued) -> Result<Session> {
     match &q.target {
         Target::Bot { id } => crate::bots::message_with(app, id, q.text.clone(), vec![], false, q.automatic).await,
-        Target::Ask { workspace_id } => crate::proposals::ask_with(app, workspace_id.clone(), q.text.clone(), vec![], false).await,
     }
 }
 
-/// Sends a hook or Telegram message to a bot or Ask Launchpad thread, or queues it (in order, in state.db) while
+/// Sends a hook or Telegram message to a bot's thread, or queues it (in order, in state.db) while
 /// the thread is busy. A queued message is sent once its turn ends, never into a running turn.
 pub async fn deliver(app: &App, target: Target, text: String, automatic: bool, telegram: bool) -> Result<Delivered> {
-    if let Target::Bot { id } = &target {
-        let bot = crate::bots::get(app, id).await?;
-        ensure!(!automatic || !bot.paused, "{} is paused", bot.settings.name);
-    }
+    let Target::Bot { id } = &target;
+    let bot = crate::bots::get(app, id).await?;
+    ensure!(!automatic || !bot.paused, "{} is paused", bot.settings.name);
     let key = key_of(&target);
     let mut last = DELIVERY.lock().await;
     let q = Queued { target, text, automatic, telegram };

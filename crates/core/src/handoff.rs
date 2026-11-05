@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::App;
-use crate::model::{Session, Target};
+use crate::model::Session;
 use crate::util::now_ms;
 use crate::worktrees::{TaskWorktree, WorktreeState};
 
@@ -182,12 +182,6 @@ async fn relocate(app: &App, s: &mut Session, worktrees: &mut [TaskWorktree]) ->
         }
     }
     if placed {
-        return Ok(());
-    }
-    if let Target::Assistant { workspace_id } = &s.launch_spec.target {
-        let dir = crate::proposals::assistant_dir(app, workspace_id.as_deref());
-        std::fs::create_dir_all(&dir)?;
-        s.cwd = dir.to_string_lossy().into_owned();
         return Ok(());
     }
     if let Some(pid) = &s.project_id

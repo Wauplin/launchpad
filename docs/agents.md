@@ -131,7 +131,7 @@ flowchart LR
 - **Routines** run again and again. **Repeat on a schedule…** turns a launch into a routine: each run starts a new agent with the same prompt, on a 5-field cron schedule in the time zone of the browser that saved it, shown next to the schedule (for example `30 8 * * 1-5 (Europe/Paris)`). Routines saved before Launchpad kept a zone run in the server's time; save them again to fix their zone. A [bot's routines](bots.md#routines) send their task to the bot's thread instead, and can also start on GitHub activity or when another agent is done.
 - Each run ends with a short report, or with `no_update` when there is nothing to report: a quiet run never notifies you and does not count as Needs you. Each routine shows its last runs as **Report**, **No update**, **Skipped** (with the reason), **Failed** or **Interrupted**, its last successful run and its next run. A routine whose last run failed shows a count next to Schedules in the sidebar.
 - Runs are claimed before they start and never repeated after a crash. A run more than one hour late (Launchpad was stopped) or with unmet conditions is skipped, never caught up. **Run now** starts a run at once, whatever the trigger and conditions.
-- The **Morning brief** is a routine of Ask Launchpad: weekdays at 8:30 it writes in its thread what needs you and what was handled. Add it from Schedules and edit its time there.
+- The **Morning brief** is a routine of Ask Launchpad (or of another bot): weekdays at 8:30 it writes in its thread what needs you and what was handled. Add it from Schedules and edit its time there.
 - **Send later…** delivers a message to an existing session at a later time.
 
 ## Quota protection and costs
@@ -149,22 +149,13 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ## Ask Launchpad
 
-**Ask** is an assistant for the current workspace. It reads your folders, agents, inbox and quotas, and proposes launches, messages, schedules, routines, presets, tools and [bots](bots.md) as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create cron**, **Save preset**, **Add tool** or **Create bot**. Ask Launchpad is the built-in bot: it is listed first under **Bots** in the sidebar. Any agent can also propose a tool it needs; after **Add tool**, paste its token. **Edit** moves a proposal into the composer. In **Auto** mode (Settings tab of the Ask page), new launches, messages, scheduled launches and presets from Ask Launchpad apply without a click; crons, routines, bots, BOT.md changes and tools always wait for your click.
+**Ask Launchpad** is a [bot](bots.md#ask-launchpad) that every workspace starts with. It reads your folders, agents, inbox and quotas with the Launchpad CLI tool, and proposes launches, messages, schedules, routines, presets, tools and bots as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create routine**, **Save preset**, **Add tool** or **Create bot**, unless its `bot.toml` sets `proposals = "auto"`. It remembers what it learns about you in its notes, like any bot, and you edit, replace or delete it like any bot. The field at the top of the Agents home sends a message to a bot of the workspace (Ask Launchpad first) and opens its page.
 
 ![Ask Launchpad with two proposals](images/ask.webp)
 
-In **Settings → Presets**, check **Ask Launchpad**, **Agent composer / steering**, or both for each preset. The Presets button adds selected instructions after your message, in settings order, including the first Ask request and later messages. Ask can also propose a new preset or new values (label, text, agent availability) for an existing one; it cannot delete presets. Agent availability includes launches, steering and Send later. Existing presets remain available to agents until you change their availability. For example, an Ask-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
+Any agent granted the Launchpad CLI tool can propose cards too; they wait on the **Proposals** page (sidebar) and in the session that wrote them. After **Add tool**, paste the tool's token. **Edit** moves a proposal into the composer.
 
-The assistant runs with a restricted token: it can read state and write proposals, nothing else. It never reaches GitHub.
-
-### Make Ask Launchpad yours
-
-The Ask page has the layout of a bot's page: the thread on the left, and on the right **Proposals**, **Routines**, **Instructions**, **Threads** and **Settings**.
-
-- **Instructions**: Ask Launchpad's `BOT.md`, how you want it to work and answer (what to check, what to propose, how short). Edit and **Save**; new threads read it, the current thread keeps its own. You can also tell it "from now on, …": it proposes a new `BOT.md`, shown as a diff, until you click **Apply to BOT.md**. **Versions** keeps every change for 30 days with its diff and **Restore previous**. The part Launchpad adds around `BOT.md` (its safety rules and the proposal commands) is shown under **Built in · not editable** and always wins.
-- **Routines**: routines that post to this workspace's thread, such as the morning brief or a check when an agent is done.
-- **Threads**: the threads of this workspace, the current one first.
-- **Settings**: the profile and model of new threads, the proposal mode (Manual or Auto), and what it can reach. **Reset to default** (with a confirmation) puts back the default `BOT.md` (as a new version, so Restore previous can undo it), the first subscription profile, its default model and Manual mode. Threads, proposals and routines stay.
+In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or both for each preset. The Presets button adds selected instructions after your message, in settings order. Bots can also propose a new preset or new values (label, text, agent availability) for an existing one; they cannot delete presets. Agent availability includes launches, steering and Send later. For example, a bots-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
 
 ## Workspaces
 

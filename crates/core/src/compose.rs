@@ -71,7 +71,7 @@ pub fn render_prompt(spec: &LaunchSpec, context: &[ContextInfo], presets: &[Pres
 
     let chosen: Vec<&str> = presets
         .iter()
-        .filter(|p| if spec.target.is_assistant() { p.ask_launchpad } else { p.agent })
+        .filter(|p| if spec.bot.is_some() { p.bots } else { p.agent })
         .filter(|p| spec.presets.iter().any(|id| id == &p.id))
         .map(|p| p.text.trim())
         .filter(|t| !t.is_empty())
@@ -193,8 +193,8 @@ mod tests {
 
     fn presets() -> Vec<Preset> {
         vec![
-            Preset { agent: true, ask_launchpad: false, id: "worktree".into(), label: "worktree".into(), text: "Please use a local git worktree and delete it once you're done.".into() },
-            Preset { agent: true, ask_launchpad: false, id: "no-unit-test".into(), label: "no unit test".into(), text: "No need to add any unit tests for that PR.".into() },
+            Preset { agent: true, bots: false, id: "worktree".into(), label: "worktree".into(), text: "Please use a local git worktree and delete it once you're done.".into() },
+            Preset { agent: true, bots: false, id: "no-unit-test".into(), label: "no unit test".into(), text: "No need to add any unit tests for that PR.".into() },
         ]
     }
 
@@ -202,14 +202,14 @@ mod tests {
     fn presets_follow_target_availability() {
         let mut presets = presets();
         presets[0].agent = false;
-        presets[0].ask_launchpad = true;
-        presets[1].ask_launchpad = true;
+        presets[0].bots = true;
+        presets[1].bots = true;
         let mut spec = LaunchSpec { presets: presets.iter().map(|p| p.id.clone()).collect(), ..Default::default() };
         assert_eq!(render_prompt(&spec, &[], &presets), presets[1].text);
-        spec.target = crate::model::Target::Assistant { workspace_id: None };
+        spec.bot = Some(Default::default());
         assert_eq!(render_prompt(&spec, &[], &presets), format!("{} {}", presets[0].text, presets[1].text));
-        presets[0].ask_launchpad = false;
-        presets[1].ask_launchpad = false;
+        presets[0].bots = false;
+        presets[1].bots = false;
         assert_eq!(render_prompt(&spec, &[], &presets), "");
     }
 

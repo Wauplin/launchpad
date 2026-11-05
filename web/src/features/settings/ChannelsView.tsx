@@ -49,7 +49,7 @@ function Telegram({ t }: { t: TelegramStatus }) {
   const act = (f: () => Promise<unknown>) => { setBusy(true); void f().catch(toastError).finally(() => setBusy(false)); };
   return (
     <Card title="Telegram: your own chat" end={t.bound ? <Badge tone="ok" icon="check">Bound to {t.chat_name ?? "your chat"}</Badge> : t.configured ? <Badge tone="attn">Not bound</Badge> : undefined}>
-      <p className="m-0 text-[12px] text-ink-2">Messages to your own chat go out directly: notifications, the answers to what you send from Telegram, and agents' <code>launchpad send telegram</code>. Write plain text to ask Launchpad, or <code>/&lt;bot&gt; text</code> to give a bot a task. Messages from Telegram never start paid usage.</p>
+      <p className="m-0 text-[12px] text-ink-2">Messages to your own chat go out directly: notifications, the answers to what you send from Telegram, and agents' <code>launchpad send telegram</code>. Plain text goes to your first bot (Ask Launchpad of your first workspace); <code>/&lt;bot&gt; text</code> gives another bot a task. Messages from Telegram never start paid usage.</p>
       {t.error && <ErrorState error={t.error} />}
       {!t.configured ? (
         <SettingRow label="Bot token" hint={<>In Telegram, open <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a>, send <code>/newbot</code> and paste the token it gives you. Home checks it with Telegram.</>}>
@@ -141,7 +141,7 @@ function curl(origin: string, id: string, secret: string) {
 }
 
 function targetName(t: HookTarget, bots: { id: string; settings: { name: string } }[]) {
-  return t.kind === "ask" ? "Ask Launchpad" : bots.find((b) => b.id === t.id)?.settings.name ?? "a removed bot";
+  return bots.find((b) => b.id === t.id)?.settings.name ?? "a removed bot";
 }
 
 function Incoming({ hooks, origin }: { hooks: Hook[]; origin: string }) {
@@ -150,17 +150,19 @@ function Incoming({ hooks, origin }: { hooks: Hook[]; origin: string }) {
   const bots = useBots().data ?? [];
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [target, setTarget] = useState("ask");
+  const [target, setTarget] = useState("");
   const [created, setCreated] = useState<CreatedHook | null>(null);
   const [busy, setBusy] = useState(false);
   const create = () => {
     setBusy(true);
-    const t: HookTarget = target === "ask" ? { kind: "ask", workspace_id: null } : { kind: "bot", id: target };
+    const id = target || bots[0]?.id;
+    if (!id) return setBusy(false);
+    const t: HookTarget = { kind: "bot", id };
     void api.post<CreatedHook>("/api/channels/hooks", { name, target: t }).then((c) => { setCreated(c); setOpen(false); setName(""); return refresh(); }, toastError).finally(() => setBusy(false));
   };
   return (
     <Card title="Incoming: hooks">
-      <p className="m-0 text-[12px] text-ink-2">A hook turns a POST request into a message to a bot or to Ask Launchpad: a short note naming the hook, then the request body (at most 16 KB) as data. One message every 10 seconds per hook; extra requests get 429. Home is a private Space, so callers also send <code>Authorization: Bearer &lt;HF token with read access to the Space&gt;</code>: curl and CI jobs can, GitHub's own webhooks cannot.</p>
+      <p className="m-0 text-[12px] text-ink-2">A hook turns a POST request into a message to a bot (Ask Launchpad or another): a short note naming the hook, then the request body (at most 16 KB) as data. One message every 10 seconds per hook; extra requests get 429. Home is a private Space, so callers also send <code>Authorization: Bearer &lt;HF token with read access to the Space&gt;</code>: curl and CI jobs can, GitHub's own webhooks cannot.</p>
       {created && (
         <div className="grid gap-2 rounded-[8px] border border-attn-line bg-attn-soft p-2.5 text-[13px]" role="status">
           <b>Copy the secret of {created.hook.name} now: it is shown only once.</b>
@@ -185,13 +187,12 @@ function Incoming({ hooks, origin }: { hooks: Hook[]; origin: string }) {
           <div className="flex flex-wrap gap-2">
             <label className="grid gap-1"><span className="text-ink-2">Name</span><input className="field-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nightly CI" /></label>
             <label className="grid gap-1"><span className="text-ink-2">Sends to</span>
-              <select className="field-input" value={target} onChange={(e) => setTarget(e.target.value)}>
-                <option value="ask">Ask Launchpad</option>
+              <select className="field-input" value={target || bots[0]?.id || ""} onChange={(e) => setTarget(e.target.value)}>
                 {bots.map((b) => <option key={b.id} value={b.id}>{b.settings.name}</option>)}
               </select>
             </label>
           </div>
-          <div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !name.trim()} onClick={create}>Create hook</button><button className="btn btn-sm" onClick={() => setOpen(false)}>Cancel</button></div>
+          <div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !name.trim() || !bots.length} onClick={create}>Create hook</button><button className="btn btn-sm" onClick={() => setOpen(false)}>Cancel</button></div>
         </div>
       )}
     </Card>

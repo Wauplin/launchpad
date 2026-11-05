@@ -41,8 +41,8 @@ The command saves the draft and says that you send it from the Outbox. Agents le
 
 Home reads the chat by polling Telegram (a private Space has no address Telegram could call). What happens in the bound chat:
 
-- **Plain text** goes to Ask Launchpad (Everything). `/<bot> text` or `/bot <name> text` goes to that bot's thread (`/repo_scout` finds the bot `repo-scout`). `/help` lists the bots.
-- Telegram answers at once with a short acknowledgement and a link to the session on Home. When the turn ends, Home sends the agent's final message back as plain text (cut at about 3,500 characters). When the bot or Ask Launchpad is busy (a turn runs, a question is open or quota paused it), the answer is **Queued for <name>**: the message is sent once its current turn ends, never into the running turn.
+- **Plain text** goes to your first bot (Ask Launchpad of your first workspace, unless you deleted it). `/<bot> text` or `/bot <name> text` goes to that bot's thread (`/repo_scout` finds the bot `repo-scout`). `/help` lists the bots.
+- Telegram answers at once with a short acknowledgement and a link to the session on Home. When the turn ends, Home sends the agent's final message back as plain text (cut at about 3,500 characters). When the bot is busy (a turn runs, a question is open or quota paused it), the answer is **Queued for <name>**: the message is sent once its current turn ends, never into the running turn.
 - **Notifications** (a switch, on by default): the same events as desktop notifications, that is completed turns, failures, unexpected interruptions, automatic quota and cost stops, and automatic resumption. They name the status, the folder and the agent, with a link; session titles only when you turn on **Include session titles**. They never contain code or messages.
 - Agents can write to you directly with `launchpad send telegram --body-file <file> --session-id <id>`.
 
@@ -50,7 +50,7 @@ Quota rules do not change: a message from Telegram starts nothing with paid usag
 
 ## Incoming hooks
 
-Click **Create a hook**, give it a name and choose where its messages go: Ask Launchpad or a bot. Home shows the hook's secret **once**, with a copy button and a curl example. The hook's URL is `https://<Home>/hooks/<id>`.
+Click **Create a hook**, give it a name and choose the bot its messages go to. Home shows the hook's secret **once**, with a copy button and a curl example. The hook's URL is `https://<Home>/hooks/<id>`.
 
 A request is a `POST` with the header `X-Launchpad-Hook-Secret: <secret>` and any body. Home sends the target a short message naming the hook, then the body (JSON is pretty-printed, cut at 16 KB) in a fenced block, marked as data from an outside caller. Each hook accepts one message every 10 seconds; extra requests get `429`. A wrong secret gets `401`. The answer is `202` with `session_id` and `queued`: when the target is busy, the message waits (in order, kept across restarts) and is sent once its current turn ends. A queued message is sent once: if that send fails, a notice in the thread says so and it is not sent again.
 

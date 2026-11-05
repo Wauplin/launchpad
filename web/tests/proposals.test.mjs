@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isWaiting, visibleProposals } from "../src/features/ask/proposalState.ts";
+import { isWaiting, visibleProposals } from "../src/features/proposals/proposalState.ts";
 
 test("replacement leaves only its successor waiting and preserves the history", () => {
   const cards = [{ id: "new", state: "proposed" }, { id: "old", state: "replaced" }];

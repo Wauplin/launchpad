@@ -1,4 +1,4 @@
-// Chapter 6: Ask Launchpad, proposals and the owner's click; then bots, agents that stay.
+// Chapter 6: Ask Launchpad, a bot like the others: proposals and the owner's click; then bots, agents that stay.
 
 import type { Chapter } from "../tour/types";
 import { api } from "@/lib/api";
@@ -7,10 +7,11 @@ import { world } from "@/demo/world";
 import { WS } from "@/demo/world/ids";
 import { TODAY_PROPOSAL } from "@/demo/scenarios/askToday";
 import { meta } from "./meta";
-import { BOT } from "@/demo/world/bots";
+import { ASK_BOT, BOT } from "@/demo/world/bots";
 
 const THREAD = "demo-s-ask-acme";
 const proposal = () => world.proposals.find((p) => p.id === TODAY_PROPOSAL);
+const ASK_ROUTE = `/bots/${ASK_BOT}`;
 const BOT_ROUTE = `/bots/${BOT}`;
 const DAILY = "demo-routine-daily";
 let dailyRuns = 0;
@@ -18,40 +19,40 @@ const botSessions = () => world.sessions.filter((s) => s.launch_spec.bot?.id ===
 
 export const ask: Chapter = {
   ...meta("ask"),
-  learned: ["Ask Launchpad keeps one thread per workspace and reads its state", "It answers with proposals: launches, messages, schedules and crons", "Manual mode waits for your click; auto mode starts new proposals; Edit sends a proposal to the composer", "Ask Launchpad is an editable bot: its BOT.md has versions and a Reset to default", "A bot is an agent that stays: one thread, its instructions in BOT.md, its notes in the knowledge base", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
+  learned: ["Ask Launchpad is a bot like the others, created in every workspace, with its notes in the knowledge base", "It reads Launchpad state and answers with proposals through the Launchpad CLI tool", "Manual mode waits for your click; auto mode (bot.toml) starts one-time proposals; Edit sends a proposal to the composer", "Its BOT.md and bot.toml have versions; edit them, or replace it with your own bot", "A bot is an agent that stays: one thread, its instructions in BOT.md, its notes in the knowledge base", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
   setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {
-      id: "ask.thread", route: "/ask", anchor: "ask.chat",
+      id: "ask.thread", route: ASK_ROUTE, anchor: "bots.thread",
       title: "Ask Launchpad",
-      body: "One thread per workspace. The assistant reads your folders, agents, inbox, schedules and quotas with read-only commands. It cannot start, post or change anything.",
+      body: "Every workspace starts with this bot. It reads your folders, agents, inbox, schedules and quotas with the Launchpad CLI, and keeps what it learns about you in its notes in the knowledge base.",
     },
     {
-      id: "ask.question", route: "/ask", anchor: "session.reply",
+      id: "ask.question", route: ASK_ROUTE, anchor: "session.reply",
       title: "Ask in plain words",
-      body: "Ask what needs you, or describe work. The assistant answers in the thread and writes proposal cards for what it suggests. Use Presets for reusable instructions; choose Ask Launchpad availability in Settings → Presets.",
+      body: "Ask what needs you, or describe work. It answers in its thread and writes proposal cards for what it suggests. Presets marked for bots appear here (Settings → Presets).",
       tryIt: { text: "ask “What needs me today?”.", done: () => proposal()?.state === "proposed", doIt: () => api.post(`/api/sessions/${THREAD}/input`, { text: "What needs me today?" }) },
     },
     {
-      id: "ask.proposal", route: "/ask", anchor: "proposal.card", anchorId: TODAY_PROPOSAL,
+      id: "ask.proposal", route: `${ASK_ROUTE}?panel=proposals`, anchor: "proposal.card", anchorId: TODAY_PROPOSAL,
       title: "Proposals wait for you",
-      body: "Each card shows the profile, the folder and anything unusual. Start launches it, Edit opens it in the composer, Dismiss drops it. Paid usage is always off for proposals.",
+      body: "Each card shows the profile, the folder and anything unusual. Start launches it, Edit opens it in the composer, Dismiss drops it. Paid usage is always off for proposals. Proposals of every bot also wait in Proposals, in the sidebar.",
       tryIt: { text: "press Start.", done: () => proposal()?.state === "started", doIt: () => api.post(`/api/proposals/${TODAY_PROPOSAL}/accept`) },
     },
     {
-      id: "ask.started", route: "/ask", anchor: "proposal.card", anchorId: TODAY_PROPOSAL,
+      id: "ask.started", route: `${ASK_ROUTE}?panel=proposals`, anchor: "proposal.card", anchorId: TODAY_PROPOSAL,
       title: "A normal agent",
       body: "A started proposal becomes a normal agent, listed in Agents like any other. Cron proposals say “Creates a repeating agent” before you accept them.",
     },
     {
-      id: "ask.customize", route: "/ask?panel=instructions", anchor: "ask.instructions",
+      id: "ask.customize", route: `${ASK_ROUTE}?panel=files`, anchor: "bots.files",
       title: "Make it yours",
-      body: "Ask Launchpad is the built-in bot. Its BOT.md says how it works and answers; edit it here, or tell it “from now on, …” and it proposes the change. Its safety rules stay built in. Settings has its profile, model, proposal mode and Reset to default.",
+      body: "Its BOT.md says how it works and answers; edit it here, or tell it “from now on, …” and it proposes the change. bot.toml holds its profile, folder, permissions and proposal mode. You can also delete it and build your own: any bot with the Launchpad CLI tool can do the same.",
     },
     {
       id: "ask.bots", route: "/bots", anchor: "sidebar.bots",
       title: "Bots: agents that stay",
-      body: "Your own bots each have a job, one thread you come back to, and notes they keep in the knowledge base. Ask Launchpad can propose one for you.",
+      body: "Your other bots each have a job, one thread you come back to, and notes they keep in the knowledge base. Ask Launchpad can propose one for you.",
     },
     {
       id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",
