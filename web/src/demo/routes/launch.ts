@@ -18,6 +18,7 @@ import { appendEvent, defaultSpec, demoId, publishSession, refreshCounts, sessio
 import { world } from "../world";
 import { demoSession, FOLDER, MODELS, PROFILE, SUMMARY_INSTRUCTION, taskWorktree } from "../world/agents";
 import { P, ROOT } from "../world/ids";
+import { routineText } from "../routine";
 import { found, quotaReset, ready, sendMessage } from "./agents";
 
 // ---------------------------------------------------------------- launch
@@ -243,9 +244,14 @@ export function nextRuns(expr: string, count: number, from = clock.now()): numbe
 const publishCrons = () => publish("crons", "changed", null);
 const cronOf = (id: string) => { const c = world.crons.find((x) => x.id === id); if (!c) throw new DemoError(404, "no such cron"); return c; };
 
-function createCron(spec: LaunchSpec, expr: string, conditions: CronCondition[]): CronAgent {
+export const nextDue = (c: CronAgent) => (c.paused || c.bot_paused || c.trigger.kind !== "schedule" ? null : nextRuns(c.schedule, 1)[0] ?? null);
+
+export function createCron(spec: LaunchSpec, expr: string, conditions: CronCondition[], trigger: CronAgent["trigger"] = { kind: "schedule" }, extra: Partial<CronAgent> = {}): CronAgent {
   if (!spec.text.trim()) throw new DemoError(400, "the prompt is empty");
-  const c: CronAgent = { id: demoId("demo-cron"), spec, title: titleOf(spec.text), schedule: expr.trim(), conditions, paused: false, created_at: clock.now(), next_run_at: nextRuns(expr, 1)[0] ?? null, last_check_at: null, last_outcome: null, runs: [] };
+  if (trigger.kind === "schedule") nextRuns(expr, 1);
+  if (trigger.kind === "github" && !trigger.events.length) throw new DemoError(400, "pick at least one kind of GitHub activity");
+  const c: CronAgent = { id: demoId("demo-cron"), spec, title: spec.target.kind === "assistant" ? "Morning brief" : titleOf(spec.text), schedule: expr.trim(), trigger, bot_id: null, bot_paused: false, conditions, paused: false, created_at: clock.now(), next_run_at: null, last_check_at: null, last_outcome: null, runs: [], history: [], github_seen: null, ...extra };
+  c.next_run_at = nextDue(c);
   world.crons = [...world.crons, c];
   publishCrons();
   return c;
@@ -253,23 +259,35 @@ function createCron(spec: LaunchSpec, expr: string, conditions: CronCondition[])
 
 route("GET", "/api/launch/crons", () => world.crons);
 route("GET", "/api/launch/crons/next", (r) => nextRuns(r.query.get("schedule") ?? "", 3));
-route("POST", "/api/launch/crons", (r) => createCron({ ...defaultSpec(), ...(r.body?.spec as LaunchSpec) }, String(r.body?.schedule ?? ""), r.body?.conditions ?? []));
+route("POST", "/api/launch/crons", (r) => createCron({ ...defaultSpec(), ...(r.body?.spec as LaunchSpec) }, String(r.body?.schedule ?? ""), r.body?.conditions ?? [], r.body?.trigger ?? { kind: "schedule" }));
 route("PATCH", "/api/launch/crons/:id", (r) => {
   const c = cronOf(r.params.id);
-  if (r.body?.schedule != null) { nextRuns(r.body.schedule, 1); c.schedule = String(r.body.schedule).trim(); }
+  if (r.body?.trigger) c.trigger = r.body.trigger;
+  if (r.body?.schedule != null) c.schedule = String(r.body.schedule).trim();
+  if (c.trigger.kind === "schedule") nextRuns(c.schedule, 1);
   if (r.body?.conditions) c.conditions = r.body.conditions;
   if (r.body?.paused != null) c.paused = !!r.body.paused;
-  c.next_run_at = c.paused ? null : nextRuns(c.schedule, 1)[0] ?? null;
+  if (r.body?.title != null) c.title = String(r.body.title).trim() || c.title;
+  if (r.body?.instructions != null) c.spec = { ...c.spec, text: String(r.body.instructions).trim() };
+  c.next_run_at = nextDue(c);
   publishCrons();
   return c;
 });
 route("DELETE", "/api/launch/crons/:id", (r) => { cronOf(r.params.id); world.crons = world.crons.filter((c) => c.id !== r.params.id); publishCrons(); return { ok: true }; });
 route("POST", "/api/launch/crons/:id/run", (r) => {
   const c = cronOf(r.params.id);
-  const s = launch(c.spec);
+  // A bot's routine posts to the bot's current session; others start a new agent.
+  const thread = c.bot_id ? world.sessions.filter((s) => s.launch_spec.bot?.id === c.bot_id && s.status !== "closed").sort((a, b) => b.started_at - a.started_at)[0] : null;
+  let s: Session;
+  if (thread) {
+    if (["starting", "working", "background"].includes(thread.status)) throw new DemoError(400, "The bot is working: wait for its turn to end, or Stop it");
+    sendMessage(thread, routineText(c.title, "Run now", c.spec.text), demoId("demo-routine"));
+    s = thread;
+  } else s = launch(c.spec);
   c.runs = [...c.runs, s.id];
+  c.history = [...c.history, { at: clock.now(), cause: "Run now", session_id: s.id, outcome: "running", detail: null }];
   c.last_check_at = clock.now();
-  c.last_outcome = `Started ${c.title}`;
+  c.last_outcome = "Started";
   publishCrons();
   return s;
 });

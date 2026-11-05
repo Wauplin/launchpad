@@ -1,4 +1,4 @@
-// Chapter 9: Start later, crons, quota protection and scheduled follow-ups.
+// Chapter 9: Start later, routines and the Schedules page, quota protection and scheduled follow-ups.
 
 import type { Chapter } from "../tour/types";
 import { useComposer } from "@/stores/composer";
@@ -21,7 +21,7 @@ function fastForward() {
 
 export const automation: Chapter = {
   ...meta("automation"),
-  learned: ["Start later waits for a time, other agents or quota; all conditions must be met", "Repeat on a schedule creates a cron agent", "Quota protection pauses agents before paid usage, and continues them when quota is back", "Send later delivers a message to an agent later"],
+  learned: ["Start later waits for a time, other agents or quota; all conditions must be met", "Repeat on a schedule creates a routine; Schedules lists every routine and scheduled launch", "Quota protection pauses agents before paid usage, and continues them when quota is back", "Send later delivers a message to an agent later"],
   setup: () => useWorkspace.getState().switchTo(null),
   steps: [
     {
@@ -31,9 +31,9 @@ export const automation: Chapter = {
       enter: async () => { await new Promise((r) => setTimeout(r, 400)); const c = useComposer.getState(); if (!c.open) c.start(); else if (c.minimized) c.setMinimized(false); },
     },
     {
-      id: "automation.cron", route: "/agents", anchor: "agents.group", anchorId: "Cron",
-      title: "Repeat on a schedule",
-      body: "Repeat on a schedule creates a cron agent: each run is a normal agent. Runs that are more than an hour late are skipped, never caught up.",
+      id: "automation.cron", route: "/schedules", anchor: "schedules.page",
+      title: "Schedules",
+      body: "Repeat on a schedule turns a launch into a routine. Schedules lists every routine, with its last runs (Report, No update, Skipped, Failed), and every scheduled launch. Runs more than an hour late are skipped, never caught up. The morning brief is a routine of Ask Launchpad.",
       enter: () => useComposer.getState().setMinimized(true),
     },
     {

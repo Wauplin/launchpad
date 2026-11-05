@@ -5,13 +5,12 @@ import { PresetButton, PresetChips, usePresets } from "./MessagePresets";
 import { withPresets } from "@/lib/presets";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import { conditionsSummary } from "@/features/launch/DelaySelector";
-import { ScheduledPane, useSchedules } from "./ScheduledPane";
-import { CronPane, cronSummary } from "./CronPane";
+import { useSchedules } from "./ScheduledPane";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { Session } from "@/gen/Session";
 import { HarnessMark } from "@/components/HarnessMark";
@@ -21,6 +20,7 @@ import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useCrons, useProjects, useSession, useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
+import { isNoUpdate } from "@/lib/routines";
 import { sendPresence } from "@/lib/ws";
 import { isCollapsed, useLayout, type AgentGroup } from "@/stores/layout";
 import { SessionPane } from "./SessionPane";
@@ -52,7 +52,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
   };
   const needs = needsYou(s);
   const quotaDetail = s.quota_pause?.error ?? s.quota_pause?.blockers.map((b) => `${b.window} reset ${b.resets_at === null ? "unknown" : new Date(b.resets_at * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`).join(" · ");
-  const line = s.quota_pause ? quotaDetail || "Waiting for a quota update" : s.last_message ?? (s.usage.cost_usd != null ? `$${s.usage.cost_usd.toFixed(2)}` : "");
+  const line = s.quota_pause ? quotaDetail || "Waiting for a quota update" : isNoUpdate(s.last_message) ? "No update (a routine with nothing to report)" : s.last_message ?? (s.usage.cost_usd != null ? `$${s.usage.cost_usd.toFixed(2)}` : "");
   return (
     <div className="group relative" data-tour="agents.row" data-tour-id={s.id}>
       <button
@@ -97,14 +97,6 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
   );
 });
 
-const CronRow = memo(function CronRow({ cron, selected, onClick }: { cron: CronAgent; selected: boolean; onClick: () => void }) {
-  const skipped = !!cron.last_outcome && !cron.last_outcome.startsWith("Started");
-  return <button onClick={onClick} className={`grid h-[68px] w-full gap-1 border-b border-line px-3 py-2 text-left hover:bg-chrome ${selected ? "bg-select" : ""}`}>
-    <span className="truncate text-xs font-semibold" title={cron.title}>{cron.title}</span>
-    <span className="truncate text-[11px] text-ink-3" title={cron.last_outcome ?? undefined}>{skipped ? "Last run skipped · " : ""}{cronSummary(cron)}</span>
-  </button>;
-});
-
 function Group({ title, count, highlight, detail, collapsed, onToggle }: { title: AgentGroup; count: number; highlight?: boolean; detail?: string; collapsed: boolean; onToggle: () => void }) {
   return (
     <button
@@ -124,9 +116,8 @@ function Group({ title, count, highlight, detail, collapsed, onToggle }: { title
 }
 
 const DAY = 86400_000;
-const earliest = (times: (number | null)[]) => times.filter((t): t is number => t != null).sort((a, b) => a - b)[0] ?? null;
 
-function HomeSection({ title, children }: { title: string; children: ReactNode }) {
+function HomeSection({ title, children }: { title: ReactNode; children: ReactNode }) {
   return <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5"><div className="seclabel">{title}</div>{children}</section>;
 }
 
@@ -140,24 +131,27 @@ function HomeRow({ s, project, onOpen }: { s: Session; project: string; onOpen: 
 }
 
 /** The pane when no session is selected: what waits, what runs, what comes next, and the quotas. */
-function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedule }: { sessions: Session[]; crons: CronAgent[]; schedules: ScheduledLaunch[]; name: (s: Session) => string; onOpen: (id: string) => void; onCron: (id: string) => void; onSchedule: (id: string) => void }) {
+function AgentsHome({ sessions, crons, schedules, name, onOpen }: { sessions: Session[]; crons: CronAgent[]; schedules: ScheduledLaunch[]; name: (s: Session) => string; onOpen: (id: string) => void }) {
+  const navigate = useNavigate();
+  const onCron = (id: string) => void navigate({ to: "/schedules", search: { routine: id } as never });
+  const onSchedule = (id: string) => void navigate({ to: "/schedules", search: { launch: id } as never });
   const quotas = useQuotas();
   const harnesses = useHarnesses();
   const needs = sessions.filter(needsYou).sort((a, b) => b.status_since - a.status_since);
   const running = sessions.filter(isRunning).sort((a, b) => b.status_since - a.status_since);
   const quotaPaused = sessions.filter(isQuotaPaused).sort((a, b) => b.status_since - a.status_since);
-  const nextCron = crons.filter((c) => !c.paused && c.next_run_at != null).sort((a, b) => a.next_run_at! - b.next_run_at!)[0];
+  const nextCrons = crons.filter((c) => !c.paused && !c.bot_paused && c.next_run_at != null).sort((a, b) => a.next_run_at! - b.next_run_at!).slice(0, 3);
   const upcoming = [
     ...schedules.filter((l) => l.status === "queued").map((l) => ({
       id: `scheduled-${l.id}`, title: l.title, at: l.ready_at,
       detail: conditionsSummary(l, sessions, schedules) || "Waiting for conditions",
       open: () => onSchedule(l.id),
     })),
-    ...(nextCron ? [{
-      id: `cron-${nextCron.id}`, title: nextCron.title, at: nextCron.next_run_at,
-      detail: `Cron · ${formatReset(nextCron.next_run_at! / 1000)}`,
-      open: () => onCron(nextCron.id),
-    }] : []),
+    ...nextCrons.map((c) => ({
+      id: `cron-${c.id}`, title: c.title, at: c.next_run_at,
+      detail: `Routine · ${formatReset(c.next_run_at! / 1000)}`,
+      open: () => onCron(c.id),
+    })),
   ].sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity));
   const pct = (q: { used_percent: number } | null) => (q ? `${Math.round(q.used_percent)}%` : "unknown");
   return (
@@ -177,13 +171,13 @@ function AgentsHome({ sessions, crons, schedules, name, onOpen, onCron, onSchedu
           {quotaPaused.length ? quotaPaused.slice(0, 8).map((s) => <HomeRow key={s.id} s={s} project={name(s)} onOpen={() => onOpen(s.id)} />) : <span className="px-2 text-ink-3">No agent is quota paused.</span>}
           {quotaPaused.length > 8 && <span className="px-2 text-ink-3">{quotaPaused.length - 8} more in the list on the left</span>}
         </HomeSection>
-        <HomeSection title={`Scheduled launches · ${upcoming.length}`}>
+        <HomeSection title={<>Coming up · {upcoming.length} <Link to="/schedules" className="ml-1 font-normal normal-case">All schedules</Link></>}>
           {upcoming.length ? upcoming.slice(0, 5).map((launch) => <button key={launch.id} onClick={launch.open} className="grid h-[46px] w-full grid-cols-[14px_minmax(0,1fr)] items-center gap-x-2 rounded-md px-2 py-1 text-left hover:bg-sunk">
             <Icon name="clock" size={14} className="row-span-2" />
             <span className="truncate font-medium" title={launch.title}>{launch.title}</span>
             <span className="truncate text-ink-3" title={launch.detail}>{launch.detail}</span>
           </button>) : <span className="px-2 text-ink-3">Nothing scheduled.</span>}
-          {upcoming.length > 5 && <span className="px-2 text-ink-3">{upcoming.length - 5} more in the list on the left</span>}
+          {upcoming.length > 5 && <span className="px-2 text-ink-3">{upcoming.length - 5} more in Schedules</span>}
         </HomeSection>
         {quotas.length > 0 && <HomeSection title="Quota">
           {quotas.map((e) => {
@@ -234,25 +228,7 @@ export function AgentsView() {
   useEffect(() => { const t = setTimeout(() => setDebounced(filter.trim()), 250); return () => clearTimeout(t); }, [filter]);
   const matches = useQuery({ queryKey: ["session-search", debounced, showAssistant], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}&include_assistant=${showAssistant}`), enabled: !!debounced });
   const schedules = (useSchedules().data ?? []).filter((s) => scope.hasSpec(s.spec));
-  const [scheduledId, setScheduledIdState] = useState<string | null>(null);
-  const scheduled = schedules.find((s) => s.id === scheduledId);
-  const scheduledTarget = useRef<{ id: string; session: string } | null>(null);
   const crons = (useCrons().data ?? []).filter((c) => scope.hasSpec(c.spec));
-  const [cronId, setCronIdState] = useState<string | null>(null);
-  const cron = crons.find((c) => c.id === cronId);
-  // A cron and a scheduled launch share the detail panel, so selecting one clears the other.
-  const setCronId = (id: string | null) => { setCronIdState(id); if (id) setScheduledIdState(null); };
-  const setScheduledId = (id: string | null) => { setScheduledIdState(id); if (id) setCronIdState(null); };
-  const clearSide = () => { setScheduledIdState(null); setCronIdState(null); };
-  useEffect(() => {
-    if (scheduled) scheduledTarget.current = { id: scheduled.id, session: scheduled.resume_session_id ?? scheduled.id };
-    if (scheduledId && !scheduled) {
-      const id = scheduledTarget.current?.id === scheduledId ? scheduledTarget.current.session : scheduledId;
-      if (allSessions.some((s) => s.id === id)) useLayout.getState().show(id);
-      setScheduledIdState(null);
-    }
-  }, [scheduledId, scheduled, allSessions]);
-  useEffect(() => { if (cronId && !crons.some((c) => c.id === cronId)) setCronIdState(null); }, [cronId, crons]);
   const projects = useProjects().data;
   const { selectedSession, show, clearSession, collapsedGroups, toggleGroup } = useLayout();
   const search = useSearch({ strict: false }) as { session?: string; view?: "changes" };
@@ -262,7 +238,6 @@ export function AgentsView() {
   const [archivedLimit, setArchivedLimit] = useState(30);
   const listRef = useRef<HTMLDivElement>(null);
   const open = (id: string) => {
-    clearSide();
     show(id);
     setPanelLoad((n) => n + 1);
     if (phone) void navigate({ to: "/agents", search: { session: id } });
@@ -275,7 +250,6 @@ export function AgentsView() {
   // From a notification or another page: /agents?session=<id>[&view=changes]. The desktop then clears the address.
   useEffect(() => {
     if (search.session && !phone) {
-      clearSide();
       show(search.session);
       setInitialView(search.view);
       setPanelLoad((n) => n + 1);
@@ -287,7 +261,7 @@ export function AgentsView() {
   const focused = useWindowFocused();
   const wanted = phone ? search.session ?? null : selectedSession;
   const selected = useSession(wanted);
-  const visible = !cron && !scheduled && selected && (sessions.some((s) => s.id === wanted) || selected.launch_spec.target.kind === "assistant") ? selected : undefined;
+  const visible = selected && (sessions.some((s) => s.id === wanted) || selected.launch_spec.target.kind === "assistant") ? selected : undefined;
   const visibleSession = visible?.id ?? null;
   useEffect(() => { sendPresence(focused, visibleSession ? [visibleSession] : []); }, [focused, visibleSession]);
   useEffect(() => () => sendPresence(false, []), []);
@@ -297,8 +271,6 @@ export function AgentsView() {
   const filtered = sessions.filter((s) => (!pinsOnly || pinned.includes(s.id)) && (!needle || [s.title, s.cwd, s.prompt, s.last_message ?? "", projectName(projects, s.project_id, s.cwd)].some((t) => t.toLocaleLowerCase().includes(needle)) || (debounced === filter.trim() && matches.data?.includes(s.id))));
   const order = (a: Session, b: Session) => b.started_at - a.started_at;
   const newest = (a: Session, b: Session) => b.status_since - a.status_since;
-  const filteredCrons = pinsOnly ? [] : crons.filter((c) => !needle || `${c.title} ${c.spec.text} ${c.schedule}`.toLocaleLowerCase().includes(needle));
-  const filteredSchedules = pinsOnly ? [] : schedules.filter((s) => !needle || `${s.title} ${s.spec.text}`.toLocaleLowerCase().includes(needle));
   // Needs you: open questions, then unseen Done (newest first), then unseen Failed and Interrupted.
   const needRank = (s: Session) => (s.open_question ? 0 : isDone(s) ? 1 : 2);
   const local = filtered.filter((s) => !s.imported_from);
@@ -314,8 +286,6 @@ export function AgentsView() {
   const archived = local.filter((s) => s.status === "closed").sort(order);
   const now = Date.now();
   const oldDone = done.filter((s) => !pinned.includes(s.id) && now - s.status_since > 3 * DAY);
-  const cronNext = earliest(filteredCrons.filter((c) => !c.paused).map((c) => c.next_run_at));
-  const scheduleNext = earliest(filteredSchedules.filter((l) => l.status === "queued").map((l) => l.ready_at));
 
   const archiveOld = async () => {
     setArchiving(true);
@@ -332,7 +302,7 @@ export function AgentsView() {
     }
   }, [visible, clearSession]);
 
-  type Item = { kind: "group"; title: AgentGroup; count: number; highlight?: boolean; detail?: string } | { kind: "session"; session: Session } | { kind: "schedule"; launch: ScheduledLaunch } | { kind: "cron"; cron: CronAgent } | { kind: "more" } | { kind: "archive-old" };
+  type Item = { kind: "group"; title: AgentGroup; count: number; highlight?: boolean; detail?: string } | { kind: "session"; session: Session } | { kind: "more" } | { kind: "archive-old" };
   // Search reveals matching synced traces even when their group is normally collapsed.
   const groupCollapsed = (title: AgentGroup) => title === "Synced traces" && needle ? syncedSearchCollapsed : isCollapsed(collapsedGroups, title);
   const toggleListGroup = (title: AgentGroup) => {
@@ -351,18 +321,16 @@ export function AgentsView() {
     ...group("Interrupted", sessionRows(interrupted)),
     ...group("Failed", sessionRows(failed)),
     ...group("In terminal", sessionRows(inTerminal)),
-    ...group("Cron", filteredCrons.map((cron) => ({ kind: "cron" as const, cron })), { detail: cronNext ? `next ${formatReset(cronNext / 1000)}` : undefined }),
-    ...group("Scheduled", filteredSchedules.map((launch) => ({ kind: "schedule" as const, launch })), { detail: scheduleNext ? `next ${formatReset(scheduleNext / 1000)}` : undefined }),
     ...group("Archived", sessionRows(archived.slice(0, archivedLimit)), { tail: archived.length > archivedLimit ? [{ kind: "more" }] : [] }).map((i) => (i.kind === "group" ? { ...i, count: archived.length } : i)),
     ...group("Synced traces", sessionRows(synced), { detail: "Read-only" }),
   ];
-  const size = (i: Item) => (i.kind === "session" || i.kind === "schedule" || i.kind === "cron" ? 68 : i.kind === "archive-old" ? 44 : 34);
-  const key = (i: Item) => (i.kind === "session" ? i.session.id : i.kind === "schedule" ? i.launch.id : i.kind === "cron" ? `cron-${i.cron.id}` : i.kind === "group" ? `group-${i.title}` : i.kind);
+  const size = (i: Item) => (i.kind === "session" ? 68 : i.kind === "archive-old" ? 44 : 34);
+  const key = (i: Item) => (i.kind === "session" ? i.session.id : i.kind === "group" ? `group-${i.title}` : i.kind);
   const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => size(items[i]), getItemKey: (i) => key(items[i]), overscan: 6, useFlushSync: false });
   const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
   const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} selected={s.id === visibleSession} onClick={() => open(s.id)} onMarkUnread={() => { if (s.id === visibleSession) clearSession(s.id); }} />;
 
-  const paneOpen = !!(cron || scheduled || visibleSession);
+  const paneOpen = !!visibleSession;
   return (
     <div className="flex h-full min-h-0">
       <div className={`flex flex-col bg-paper ${phone ? (paneOpen ? "hidden" : "w-full") : "w-[280px] flex-none border-r border-line"}`}>
@@ -373,7 +341,7 @@ export function AgentsView() {
           {matches.error && <span className="text-xs text-danger-ink">{matches.error.message}</span>}
         </div>
         <div ref={listRef} data-tour="agents.list" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-        {sessions.length === 0 && schedules.length === 0 && crons.length === 0 && (
+        {sessions.length === 0 && (
           <div className="grid gap-3 p-4 text-[13px] text-ink-2">
             {scope.workspace ? `No agent in ${scope.workspace.name} yet.` : "No session yet."}
             <span>
@@ -385,7 +353,7 @@ export function AgentsView() {
           {virtual.getVirtualItems().map((v) => {
             const item = items[v.index];
             return <div key={v.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: v.size, transform: `translateY(${v.start}px)` }}>
-              {item.kind === "session" ? row(item.session) : item.kind === "cron" ? <CronRow cron={item.cron} selected={cronId === item.cron.id} onClick={() => setCronId(item.cron.id)} /> : item.kind === "schedule" ? <button onClick={() => setScheduledId(item.launch.id)} className={`grid h-[68px] w-full gap-1 border-b border-line px-3 py-2 text-left hover:bg-chrome ${scheduledId === item.launch.id ? "bg-select" : ""}`}><span className="truncate text-xs font-semibold">{item.launch.title}</span><span className="truncate text-[11px] text-ink-3" title={conditionsSummary(item.launch, sessions, schedules)}>{item.launch.status === "failed" ? "Needs attention · " : item.launch.status === "starting" ? "Starting · " : ""}{conditionsSummary(item.launch, sessions, schedules)}</span></button> : item.kind === "group" ? <Group title={item.title} count={item.count} highlight={item.highlight} detail={item.detail} collapsed={groupCollapsed(item.title)} onToggle={() => toggleListGroup(item.title)} /> :
+              {item.kind === "session" ? row(item.session) : item.kind === "group" ? <Group title={item.title} count={item.count} highlight={item.highlight} detail={item.detail} collapsed={groupCollapsed(item.title)} onToggle={() => toggleListGroup(item.title)} /> :
                 item.kind === "archive-old" ? <div className="flex h-full min-w-0 items-center px-3"><button className="btn btn-sm min-w-0 truncate" disabled={archiving} title="Archive seen Done sessions older than 3 days. Archived sessions stay resumable in Archived. Pinned sessions are kept." onClick={() => void archiveOld()}><Icon name="archive" size={13} />{archiving ? "Archiving…" : `Archive ${oldDone.length} seen, older than 3 d`}</button></div> :
                 <button className="px-3 py-2 text-left text-xs text-teal-ink hover:underline" onClick={() => setArchivedLimit((n) => n + 50)}>Show more</button>}
             </div>;
@@ -394,14 +362,10 @@ export function AgentsView() {
         </div>
       </div>
       <div className={`min-h-0 min-w-0 flex-1 bg-paper ${phone && !paneOpen ? "hidden" : ""}`}>
-        {cron ? (
-          <CronPane key={cron.id} cron={cron} onClose={() => setCronId(null)} onOpen={(s) => open(s.id)} />
-        ) : scheduled ? (
-          <ScheduledPane key={scheduled.id} launch={scheduled} onClose={clearSide} onStart={(s) => open(s.id)} />
-        ) : visibleSession ? (
+        {visibleSession ? (
           <SessionPane key={`${scope.workspace?.id ?? "all"}:${visibleSession}:${panelLoad}`} sessionId={visibleSession} initialView={phone ? search.view : initialView} onClear={() => (phone ? back() : clearSession(visibleSession))} />
         ) : phone ? null : (
-          <AgentsHome sessions={sessions} crons={crons} schedules={schedules} name={name} onOpen={open} onCron={setCronId} onSchedule={setScheduledId} />
+          <AgentsHome sessions={sessions} crons={crons} schedules={schedules} name={name} onOpen={open} />
         )}
       </div>
     </div>

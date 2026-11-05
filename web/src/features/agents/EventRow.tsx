@@ -9,6 +9,7 @@ import { toast } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { formatAge } from "@/lib/format";
+import { isNoUpdate, routineMessage } from "@/lib/routines";
 import { groupSummary, type Call, type Row } from "./rows";
 import { noticesSummary, type TraceRow } from "./traceRows";
 import { AskCard } from "./AskCard";
@@ -227,6 +228,15 @@ function NoticesRow({ texts }: { texts: string[] }) {
   </div>;
 }
 
+/** A routine's message in a thread: one line with its name and cause; the instructions open on a click. */
+function RoutineRow({ title, cause, body, queued }: { title: string; cause: string; body: string; queued: boolean }) {
+  const [open, setOpen] = useState(false);
+  return <div className="grid gap-1">
+    <Separator><button className="flex items-center gap-1.5 hover:text-ink" aria-expanded={open} title="A routine started this run" onClick={() => setOpen((o) => !o)}><Icon name="refresh" size={12} />Routine “{title}” · {cause}{queued ? " · queued" : ""} {open ? "▾" : "▸"}</button></Separator>
+    {open && <div className="mx-auto max-w-[88%] rounded-md bg-sunk px-2.5 py-1.5 text-[12px] whitespace-pre-wrap text-ink-2">{body}</div>}
+  </div>;
+}
+
 function Separator({ children, tone = "" }: { children: React.ReactNode; tone?: string }) {
   return (
     <div className={`flex items-center gap-2 text-[12px] text-ink-3 before:h-px before:flex-1 before:bg-line-2 after:h-px after:flex-1 after:bg-line-2 ${tone}`}>{children}</div>
@@ -236,7 +246,9 @@ function Separator({ children, tone = "" }: { children: React.ReactNode; tone?: 
 export const EventRow = memo(
   function EventRow({ row, sessionId, live }: { row: TraceRow; sessionId: string; live: boolean }) {
     switch (row.t) {
-      case "user":
+      case "user": {
+        const routine = routineMessage(row.text);
+        if (routine) return <RoutineRow {...routine} queued={row.queued} />;
         return (
           <div className="ml-auto max-w-[88%] rounded-[10px_10px_3px_10px] bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap">
             {row.text}
@@ -246,7 +258,9 @@ export const EventRow = memo(
             {row.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
           </div>
         );
+      }
       case "assistant":
+        if (!row.streaming && isNoUpdate(row.text)) return <Separator><span title="The run had nothing to report: no notification">✓ No update</span></Separator>;
         return <AssistantRow text={row.text} streaming={row.streaming} />;
       case "reasoning":
         return <div className="border-l-2 border-line pl-2 text-xs text-ink-3 italic">{row.text}</div>;

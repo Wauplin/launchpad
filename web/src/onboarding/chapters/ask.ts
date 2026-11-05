@@ -12,11 +12,13 @@ import { BOT } from "@/demo/world/bots";
 const THREAD = "demo-s-ask-acme";
 const proposal = () => world.proposals.find((p) => p.id === TODAY_PROPOSAL);
 const BOT_ROUTE = `/bots/${BOT}`;
+const DAILY = "demo-routine-daily";
+let dailyRuns = 0;
 const botSessions = () => world.sessions.filter((s) => s.launch_spec.bot?.id === BOT);
 
 export const ask: Chapter = {
   ...meta("ask"),
-  learned: ["Ask Launchpad keeps one thread per workspace and reads its state", "It answers with proposals: launches, messages, schedules and crons", "Manual mode waits for your click; auto mode starts new proposals; Edit sends a proposal to the composer", "A bot is an agent that stays: one thread, its instructions in BOT.md, its notes in the knowledge base"],
+  learned: ["Ask Launchpad keeps one thread per workspace and reads its state", "It answers with proposals: launches, messages, schedules and crons", "Manual mode waits for your click; auto mode starts new proposals; Edit sends a proposal to the composer", "A bot is an agent that stays: one thread, its instructions in BOT.md, its notes in the knowledge base", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
   setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {
@@ -53,9 +55,16 @@ export const ask: Chapter = {
       tryIt: { text: "ask the Maintainer for the refund test.", done: () => botSessions().some((s) => (world.events[s.id] ?? []).some((e) => e.body.kind === "user_message" && e.body.text.toLowerCase().includes("refund"))), doIt: () => api.post(`/api/bots/${BOT}/message`, { text: "Prepare the refund end-to-end test as a Local PR." }) },
     },
     {
+      id: "ask.bot-routines", route: `${BOT_ROUTE}?panel=routines`, anchor: "bots.routines",
+      title: "Routines: work on its own",
+      body: "A routine sends the bot a task by itself: every weekday morning, when CI fails on GitHub, or when another agent is done. Each run lands in its thread and ends with a report, or with No update, which never notifies you. Pause stops every routine of the bot.",
+      tryIt: { text: "press Run now on a routine.", done: () => (world.crons.find((c) => c.id === DAILY)?.history.length ?? 0) > dailyRuns, doIt: () => api.post(`/api/launch/crons/${DAILY}/run`) },
+      enter: () => { dailyRuns = world.crons.find((c) => c.id === DAILY)?.history.length ?? 0; },
+    },
+    {
       id: "ask.bot-panels", route: BOT_ROUTE, anchor: "bots.panels",
-      title: "Memory, files and settings",
-      body: "Memory lists its notes in the knowledge base. Files holds BOT.md and bot.toml, with every version for 30 days. Settings shows its profile, folder, permissions and what it can reach.",
+      title: "Memory, instructions and settings",
+      body: "Memory lists its notes in the knowledge base. Instructions holds BOT.md and bot.toml, with every version for 30 days. Settings shows its profile, folder, permissions and what it can reach.",
     },
   ],
 };

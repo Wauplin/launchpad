@@ -20,7 +20,7 @@ import { toastError } from "@/components/Toast";
 import { ConfirmButton } from "@/components/ui";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
-import { useProjects, useSessions } from "@/lib/queries";
+import { useCrons, useProjects, useSessions } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
 import { useWorkspace } from "@/stores/workspace";
 import { useComposer } from "@/stores/composer";
@@ -213,6 +213,7 @@ export function Sidebar() {
   const waiting = sessions.filter(needsYou).length;
   const running = sessions.filter(isRunning).length;
   const quotaPaused = sessions.filter(isQuotaPaused).length;
+  const brokenRoutines = (useCrons().data ?? []).filter((c) => scope.hasSpec(c.spec) && ["failed", "interrupted"].includes(c.history.at(-1)?.outcome ?? "")).length;
   const folders = projects.filter((p) => !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const temp = projects.filter((p) => p.is_temp).sort((a, b) => b.created_at - a.created_at);
   // Scratch folders: only those with agents that need you, run or wait for quota, unless expanded.
@@ -239,6 +240,9 @@ export function Sidebar() {
             </span>
           )}
         </span>
+      </NavItem>
+      <NavItem tour="sidebar.schedules" to="/schedules" icon="clock" end={brokenRoutines > 0 ? <span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold text-attn tabular-nums" title={`${brokenRoutines} ${brokenRoutines === 1 ? "routine" : "routines"} failed at the last run`}>{brokenRoutines}</span> : undefined}>
+        Schedules
       </NavItem>
       <NavItem tour="sidebar.review" to="/review" icon="pr-local" end={toReview > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${toReview} to review: suggestions and Local PRs to publish, agent branches and review requests`}>{toReview}</span> : undefined}>
         Review

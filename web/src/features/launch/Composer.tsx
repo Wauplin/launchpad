@@ -381,7 +381,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         setCron(null);
         discard();
         void navigate({ to: "/agents" });
-        toast("Cron agent created. Find it in the Cron group in Agents.");
+        toast("Routine created. Find it in Schedules.");
         return;
       }
       if (scheduled) {
@@ -410,7 +410,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       setLaunching(false);
     }
   };
-  const launchLabel = launching ? (cron ? "Creating…" : scheduled ? "Scheduling…" : "Sending…") : cron ? "Create cron" : timing === "later" ? "Schedule" : "Launch";
+  const launchLabel = launching ? (cron ? "Creating…" : scheduled ? "Scheduling…" : "Sending…") : cron ? "Create routine" : timing === "later" ? "Schedule" : "Launch";
   const launchButton = () => (
     <span className="inline-flex" data-tour="composer.launch">
       <button className={`btn btn-primary ${browserOnly ? "" : "rounded-r-none"} ${isPhone ? "min-w-[120px] justify-center" : ""}`} disabled={!canLaunch || launching} title={unsupportedImages ? "This harness does not support attached images" : blocker ?? undefined} onClick={() => void launch()}>
@@ -422,7 +422,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           <>
             <MenuItem icon={<Icon name="play" size={13} />} label="Launch now" active={timing === "now"} onClick={() => { setTiming("now"); closeMenu(); }} />
             <MenuItem icon={<Icon name="clock" size={13} />} label="Start later…" detail="After a delay, at a time, after agents are Done, when quota resets" active={timing === "later"} onClick={() => { setTiming("later"); closeMenu(); }} />
-            <MenuItem icon={<Icon name="refresh" size={13} />} label="Repeat on a schedule…" detail="Creates a cron agent" active={timing === "repeat"} onClick={() => { setTiming("repeat"); closeMenu(); }} />
+            <MenuItem icon={<Icon name="refresh" size={13} />} label="Repeat on a schedule…" detail="Creates a routine" active={timing === "repeat"} onClick={() => { setTiming("repeat"); closeMenu(); }} />
           </>
         )}
       </Popover>}
@@ -644,7 +644,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {worktreeMode && !pushToPr && spec.worktree?.when_done === "local_pr" && <Token title="The agent turns its worktree into a Local PR when it is done">Local PR when done</Token>}
           {presetLabels.map((l) => <Token key={l}>{l}</Token>)}
           {scheduled && <Token warn title="Starts when all start conditions are met">start: {conditions.length} condition{conditions.length === 1 ? "" : "s"}</Token>}
-          {cron && <Token warn title={`Cron schedule ${cron.schedule}`}>cron {cron.schedule}</Token>}
+          {cron && <Token warn title={`Routine schedule ${cron.schedule}`}>routine {cron.schedule}</Token>}
           {(payg || spec.allow_paid_usage || (harness && !harness.capabilities.quota)) && <Token warn={payg || spec.allow_paid_usage} title={billingText}>{payg ? "pay as you go" : spec.allow_paid_usage ? "paid usage on" : "provider billing"}</Token>}
           {!supportsCost && harness?.capabilities.cost && <Token warn title={costUnavailableMessage}>cost unavailable</Token>}
           {supportsCost && (spec.budget_usd != null || !budgetValid) && <Token warn>{spec.budget_usd != null ? `limit ${usd(spec.budget_usd)}` : "invalid cost limit"}</Token>}
@@ -777,7 +777,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         </OptionsFrame>}
 
         {timing !== "now" && !browserOnly && <div className="grid gap-2 rounded-lg border border-attn-line bg-attn-soft/40 p-2.5">
-          <div className="flex items-center gap-2 text-[12px] font-semibold text-attn"><Icon name={timing === "repeat" ? "refresh" : "clock"} size={13} />{timing === "repeat" ? "Repeat on a schedule: creates a cron agent" : "Start later"}<button className="btn btn-sm btn-ghost ml-auto" onClick={() => setTiming("now")}>Launch now instead</button></div>
+          <div className="flex items-center gap-2 text-[12px] font-semibold text-attn"><Icon name={timing === "repeat" ? "refresh" : "clock"} size={13} />{timing === "repeat" ? "Repeat on a schedule: creates a routine" : "Start later"}<button className="btn btn-sm btn-ghost ml-auto" onClick={() => setTiming("now")}>Launch now instead</button></div>
           {timing === "repeat" ? <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); else setTiming("now"); }} onValidityChange={setCronValid} /> : <DelaySelector conditions={conditions} harness={spec.harness} profile={spec.profile} onChange={setConditions} onValidityChange={setDelayValid} />}
         </div>}
 

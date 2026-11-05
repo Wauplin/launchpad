@@ -353,6 +353,11 @@ pub async fn create(
     conditions: Vec<CronCondition>,
     trigger: Trigger,
 ) -> Result<CronAgent> {
+    // Ask Launchpad's routines (the morning brief) follow the assistant's own profile and model.
+    let spec = match &spec.target {
+        Target::Assistant { workspace_id } => crate::proposals::ask_spec(app, workspace_id.clone(), spec.text.clone(), vec![])?,
+        _ => spec,
+    };
     let harness = spec.harness.context("pick a harness")?;
     if spec.target == Target::None {
         bail!("pick a project or a temporary folder");
@@ -400,6 +405,20 @@ async fn bot_spec(app: &App, bot: &crate::bots::Bot, text: String) -> Result<Lau
         workspace_id: Some(bot.workspace_id.clone()),
         ..Default::default()
     })
+}
+
+/// The spec a run uses now: a bot's or Ask Launchpad's current profile, else the routine's own spec.
+async fn effective_spec(app: &App, r: &CronAgent) -> Result<LaunchSpec> {
+    match (&r.bot_id, &r.spec.target) {
+        (Some(b), _) => bot_spec(app, &crate::bots::get(app, b).await?, r.spec.text.clone()).await,
+        (None, Target::Assistant { workspace_id }) => crate::proposals::ask_spec(app, workspace_id.clone(), r.spec.text.clone(), vec![]),
+        _ => Ok(r.spec.clone()),
+    }
+}
+
+/// Whether a routine's runs are messages to a thread (a bot's, or Ask Launchpad's) rather than new sessions.
+fn in_thread(r: &CronAgent) -> bool {
+    r.bot_id.is_some() || matches!(r.spec.target, Target::Assistant { .. })
 }
 
 /// A new routine of a bot. Its runs are messages to the bot's thread.
@@ -575,20 +594,26 @@ fn bot_busy(app: &App, bot_id: &str) -> Option<String> {
     (current.status.is_running() || current.quota_pause.is_some()).then(|| format!("{} is working", current.launch_spec.bot.as_ref().map(|b| b.name.as_str()).unwrap_or("the bot")))
 }
 
+/// Why the thread a routine posts to (a bot's, or Ask Launchpad's) cannot take a message now.
+fn thread_busy(app: &App, r: &CronAgent) -> Option<String> {
+    match (&r.bot_id, &r.spec.target) {
+        (Some(b), _) => bot_busy(app, b),
+        (None, Target::Assistant { workspace_id }) => crate::proposals::thread(app, workspace_id.as_deref())
+            .filter(|s| s.status.is_running() || s.quota_pause.is_some())
+            .map(|_| "Ask Launchpad is working".to_string()),
+        _ => None,
+    }
+}
+
 /// Why the routine's conditions block a run now, or None when it may start.
 async fn why_blocked(app: &App, r: &CronAgent) -> Result<Option<String>> {
-    if let Some(b) = &r.bot_id
-        && let Some(why) = bot_busy(app, b)
-    {
+    if let Some(why) = thread_busy(app, r) {
         return Ok(Some(why));
     }
-    let spec = match &r.bot_id {
-        Some(b) => bot_spec(app, &crate::bots::get(app, b).await?, r.spec.text.clone()).await?,
-        None => r.spec.clone(),
-    };
+    let spec = effective_spec(app, r).await?;
     let harness = spec.harness.context("this routine has no registered harness")?;
     let quota = crate::quota::reading_for(app, harness, &spec);
-    let previous_running = r.bot_id.is_none()
+    let previous_running = !in_thread(r)
         && r.runs.last().and_then(|id| app.sessions.get(id)).is_some_and(|s| app.sessions.is_busy(&s) || s.quota_pause.is_some());
     Ok(blocked(&r.conditions, &quota, now_ms(), previous_running))
 }
@@ -609,9 +634,10 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
     })
     .await?;
     let launch = RoutineLaunch { id: record.id.clone(), title: record.title.clone(), cause, context };
-    let result = match &record.bot_id {
-        Some(bot) => crate::bots::message_with(app, bot, bot_message(&record, &launch), vec![], false, automatic).await,
-        None => {
+    let result = match (&record.bot_id, &record.spec.target) {
+        (Some(bot), _) => crate::bots::message_with(app, bot, bot_message(&record, &launch), vec![], false, automatic).await,
+        (None, Target::Assistant { workspace_id }) => crate::proposals::ask_with(app, workspace_id.clone(), bot_message(&record, &launch), vec![], automatic).await,
+        _ => {
             let spec = LaunchSpec { routine: Some(launch), ..record.spec.clone() };
             crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), automatic).await
         }
@@ -646,9 +672,7 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
 /// Run now: ignores the conditions and the trigger.
 pub async fn run_now(app: &App, id: &str) -> Result<Session> {
     let record = get(app, id).await?;
-    if let Some(b) = &record.bot_id
-        && let Some(why) = bot_busy(app, b)
-    {
+    if let Some(why) = thread_busy(app, &record) {
         bail!("{why}: wait for its turn to end, or Stop it");
     }
     let app = app.clone();
@@ -667,10 +691,7 @@ async fn on_event(app: &App, r: &CronAgent, cause: String, context: String) -> R
 async fn tick(app: &App, record: CronAgent) -> Result<()> {
     let now = now_ms();
     // Keep this occurrence due until the protected harness has a fresh reading.
-    let spec = match &record.bot_id {
-        Some(b) => bot_spec(app, &crate::bots::get(app, b).await?, record.spec.text.clone()).await?,
-        None => record.spec.clone(),
-    };
+    let spec = effective_spec(app, &record).await?;
     if spec.harness.is_some_and(|h| !crate::quota::automatic_ready(app, h, &spec)) && record.next_run_at.is_some_and(|d| now - d <= MISSED_GRACE_MS) {
         return Ok(());
     }
@@ -805,10 +826,7 @@ async fn inbox_synced_inner(app: &App) -> Result<()> {
             .filter_map(|t| events.iter().find(|e| e.matches(&t.kind, &t.reason)).map(|e| (t, *e)))
             .collect();
         let Some(newest) = new.iter().map(|(t, _)| t.updated_at.clone()).max() else { continue };
-        let spec = match &r.bot_id {
-            Some(b) => bot_spec(app, &crate::bots::get(app, b).await?, r.spec.text.clone()).await?,
-            None => r.spec.clone(),
-        };
+        let spec = effective_spec(app, &r).await?;
         let stale = |t: &crate::inbox::Thread| chrono::DateTime::parse_from_rfc3339(&t.updated_at).is_ok_and(|d| now - d.timestamp_millis() > MISSED_GRACE_MS);
         // Wait for a fresh quota reading, but never longer than an hour.
         if spec.harness.is_some_and(|h| !crate::quota::automatic_ready(app, h, &spec)) && new.iter().any(|(t, _)| !stale(t)) {

@@ -4,6 +4,8 @@
 // the demo clock passes a quota reset.
 
 import type { CronAgent } from "@/gen/CronAgent";
+import type { RoutineRun } from "@/gen/RoutineRun";
+import { CI, DAILY, routineText } from "../routine";
 import type { EventBody } from "@/gen/EventBody";
 import type { FileAttachment } from "@/gen/FileAttachment";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
@@ -311,6 +313,15 @@ export function agentsWorld() {
       ...tool("Bash", "git log --since=7.days --oneline -- src/checkout", "a41c9e2 Poll the order in the checkout e2e test\n7f03b11 Verify Stripe webhooks before saving"),
       ...tool("Bash", "launchpad kb write bots/maintainer/checkout.md", "Saved bots/maintainer/checkout.md"),
       say("Two changes in checkout this week:\n\n- **Webhooks are verified before the order is saved** (7f03b11), as decided with Maria.\n- **The flaky e2e test now polls the order** for 10 seconds (a41c9e2).\n\nStill risky: the refund path has no end-to-end test. I noted it in my notes (`bots/maintainer/checkout.md`); say the word and I prepare one as a Local PR."),
+      ...end(2),
+      // Two routine runs in the same thread: a quiet daily check, then a CI failure with a report.
+      user(routineText("Daily check", "Scheduled", DAILY), false),
+      ...tool("Bash", "git log --since=1.day --oneline", "(no new commits)"),
+      say("no_update"),
+      ...end(1),
+      user(routineText("CI failures", "GitHub, CI activity: acme-labs/storefront#118", CI, "- CI activity: acme-labs/storefront#118 “Poll the order in the checkout e2e test” (PullRequest, ci_activity) https://github.com/acme-labs/storefront/pull/118"), false),
+      ...tool("Bash", "gh run view --log-failed --repo acme-labs/storefront", "checkout.spec.ts:18 Timeout 10000ms exceeded waiting for POST /api/payments"),
+      say("**CI on #118 fails because of the change itself**: the test now waits for the order request, but the payment request finishes later on CI. I prepared a fix (also wait for `POST /api/payments`) as the Local PR **Wait for the payment request in the checkout test**. Nothing was pushed to the pull request."),
       ...end(2), status("waiting"),
     ] });
   const proposals: Proposal[] = [
@@ -340,12 +351,28 @@ export function agentsWorld() {
     ready_at: clock.ago(-QUOTA_RESET_MINUTES),
   }];
 
-  // Cron: the nightly dependency audit (last run: demo-s-audit).
+  // Routines: the nightly dependency audit (a launch on a schedule; last run demo-s-audit) and two routines of the
+  // Maintainer bot, whose runs are in its thread (demo-s-bot-maintainer).
+  const day = 60 * 24;
+  const run = (minutesAgo: number, outcome: RoutineRun["outcome"], session_id: string | null, cause = "Scheduled", detail: string | null = null): RoutineRun => ({ at: clock.ago(minutesAgo), cause, session_id, outcome, detail });
   const crons: CronAgent[] = [{
-    id: "demo-cron-audit", title: "Nightly dependency audit", schedule: "0 3 * * *", paused: false, created_at: clock.ago(60 * 24 * 12),
+    id: "demo-cron-audit", title: "Nightly dependency audit", schedule: "0 3 * * *", trigger: { kind: "schedule" }, bot_id: null, bot_paused: false, paused: false, created_at: clock.ago(day * 12),
     spec: defaultSpec({ harness: "codex", profile: "codex-plus", target: { kind: "project", project_id: P.billing }, text: "Run cargo audit and pnpm audit. Report new advisories only, with the fix for each.", workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "weekly", min_left_percent: 30 }, { kind: "previous_run_finished" }],
-    next_run_at: nextAt(3, 0), last_check_at: clock.ago(60 * 9), last_outcome: "Started Nightly dependency audit", runs: ["demo-s-audit"],
+    next_run_at: nextAt(3, 0), last_check_at: clock.ago(60 * 9), last_outcome: "Report", runs: ["demo-s-audit"], github_seen: null,
+    history: [run(day * 4 + 540, "no_update", null), run(day * 3 + 540, "no_update", null), run(day * 2 + 540, "skipped", null, "Scheduled", "28% of the weekly quota left, below 30%"), run(day + 540, "no_update", null), run(540, "report", "demo-s-audit")],
+  }, {
+    id: "demo-routine-daily", title: "Daily check", schedule: "0 9 * * 1-5", trigger: { kind: "schedule" }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 6),
+    spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: DAILY, workspace_id: WS.acme }),
+    conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
+    next_run_at: nextAt(9, 0), last_check_at: clock.ago(50), last_outcome: "No update", runs: ["demo-s-bot-maintainer"], github_seen: null,
+    history: [run(day * 5 + 50, "report", "demo-s-bot-maintainer"), run(day * 4 + 50, "no_update", "demo-s-bot-maintainer"), run(day * 3 + 50, "no_update", "demo-s-bot-maintainer"), run(day + 50, "report", "demo-s-bot-maintainer"), run(50, "no_update", "demo-s-bot-maintainer")],
+  }, {
+    id: "demo-routine-ci", title: "CI failures", schedule: "", trigger: { kind: "github", repo: "acme-labs/storefront", events: ["ci_activity"] }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 6),
+    spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: CI, workspace_id: WS.acme }),
+    conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
+    next_run_at: null, last_check_at: clock.ago(40), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], github_seen: null,
+    history: [run(day * 2 + 300, "report", "demo-s-bot-maintainer", "GitHub, CI activity: acme-labs/storefront#112"), run(day + 200, "skipped", null, "GitHub, CI activity: acme-labs/storefront#115", "Maintainer was working"), run(40, "report", "demo-s-bot-maintainer", "GitHub, CI activity: acme-labs/storefront#118")],
   }];
 
   return {

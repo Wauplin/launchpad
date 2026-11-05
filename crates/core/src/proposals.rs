@@ -473,14 +473,14 @@ pub async fn recover(app: &App) -> Result<()> {
 /// Starts (or continues) the assistant thread of a workspace with the owner's message.
 /// Images go to the assistant as native image input; other files become private local copies it can read.
 pub async fn ask(app: &App, workspace_id: Option<String>, text: String, attachments: Vec<crate::model::FileAttachment>) -> Result<crate::model::Session> {
-    ensure!(!text.trim().is_empty() || !attachments.is_empty(), "the message is empty");
-    if let Some(s) = thread(app, workspace_id.as_deref()) {
-        crate::runners::send_anywhere(app, &s.id, &text, attachments, None).await?;
-        return app.sessions.get(&s.id).context("the assistant session disappeared");
-    }
+    ask_with(app, workspace_id, text, attachments, false).await
+}
+
+/// The spec of a new assistant thread: the assistant's profile and model (Settings of the Ask page).
+pub fn ask_spec(app: &App, workspace_id: Option<String>, text: String, attachments: Vec<crate::model::FileAttachment>) -> Result<LaunchSpec> {
     let config = app.config.get();
     let profile = config.assistant.profile.as_ref().and_then(|id| config.profiles.iter().find(|p| &p.id == id)).or_else(|| config.profiles.iter().find(|p| p.billing == crate::config::Billing::Subscription)).or(config.profiles.first()).context("add a profile in Settings → Profiles first")?;
-    let spec = LaunchSpec {
+    Ok(LaunchSpec {
         text,
         attachments,
         harness: Some(profile.harness),
@@ -490,8 +490,19 @@ pub async fn ask(app: &App, workspace_id: Option<String>, text: String, attachme
         target: Target::Assistant { workspace_id: workspace_id.clone() },
         workspace_id,
         ..Default::default()
-    };
-    crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), false).await
+    })
+}
+
+/// A message to the workspace's assistant thread, or a new thread. `automatic` (routines): a new thread needs
+/// confirmed quota.
+pub async fn ask_with(app: &App, workspace_id: Option<String>, text: String, attachments: Vec<crate::model::FileAttachment>, automatic: bool) -> Result<crate::model::Session> {
+    ensure!(!text.trim().is_empty() || !attachments.is_empty(), "the message is empty");
+    if let Some(s) = thread(app, workspace_id.as_deref()) {
+        crate::runners::send_anywhere(app, &s.id, &text, attachments, None).await?;
+        return app.sessions.get(&s.id).context("the assistant session disappeared");
+    }
+    let spec = ask_spec(app, workspace_id, text, attachments)?;
+    crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), automatic).await
 }
 
 /// Remembers a model change of an assistant thread as the assistant's default (never the composer's).

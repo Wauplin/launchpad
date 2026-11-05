@@ -8,7 +8,9 @@ import { clock, DemoError, publish, route } from "../daemon";
 import { world } from "../world";
 import { settingsText } from "../world/bots";
 import { session, setStatus } from "../store";
-import { launch } from "./launch";
+import { createCron, launch, nextDue } from "./launch";
+import type { CronAgent } from "@/gen/CronAgent";
+import { defaultSpec } from "../store";
 import { sendMessage } from "./agents";
 
 const botOf = (id: string) => {
@@ -39,7 +41,7 @@ route("POST", "/api/bots", ({ body }) => {
     folder = id;
   }
   const settings: BotSettings = { name: c.name.trim(), profile: c.profile ?? undefined, folder, permission_mode: "yolo" };
-  const b: Bot = { id: `demo-bot-${slug}-${world.bots.length}`, workspace_id: c.workspace_id, slug, created_at: clock.now(), settings, instructions: c.instructions?.trim() ? `${c.instructions.trim()}\n` : `# ${settings.name}\n`, settings_text: settingsText(settings), settings_error: null, own_folder: !c.folder, version: 1 };
+  const b: Bot = { id: `demo-bot-${slug}-${world.bots.length}`, workspace_id: c.workspace_id, slug, created_at: clock.now(), settings, instructions: c.instructions?.trim() ? `${c.instructions.trim()}\n` : `# ${settings.name}\n`, settings_text: settingsText(settings), settings_error: null, own_folder: !c.folder, paused: false, version: 1 };
   world.bots.push(b);
   record(b, "BOT.md", "", b.instructions);
   changed(b);
@@ -54,8 +56,25 @@ route("PATCH", "/api/bots/:id", ({ params, body }) => {
   changed(b);
   return b;
 });
+route("POST", "/api/bots/:id/pause", ({ params, body }) => {
+  const b = botOf(params.id);
+  b.paused = !!(body as { paused?: boolean })?.paused;
+  for (const c of world.crons.filter((x) => x.bot_id === b.id)) { c.bot_paused = b.paused; c.next_run_at = nextDue(c); }
+  publish("crons", "changed", null);
+  changed(b);
+  return b;
+});
+route("POST", "/api/bots/:id/routines", ({ params, body }) => {
+  const b = botOf(params.id);
+  const r = body as { title?: string; instructions?: string; trigger?: CronAgent["trigger"]; schedule?: string; conditions?: CronAgent["conditions"] };
+  if (!r.title?.trim()) throw new DemoError(400, "give the routine a name");
+  if (!r.instructions?.trim()) throw new DemoError(400, "write what the bot does at each run");
+  const profile = world.config.profiles.find((p) => p.id === b.settings.profile);
+  return createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: b.settings.profile ?? null, target: { kind: "project", project_id: b.settings.folder }, text: r.instructions.trim(), workspace_id: b.workspace_id }, r.schedule ?? "", r.conditions ?? [], r.trigger ?? { kind: "schedule" }, { title: r.title.trim(), bot_id: b.id, bot_paused: b.paused });
+});
 route("DELETE", "/api/bots/:id", ({ params }) => {
   world.bots = world.bots.filter((b) => b.id !== params.id);
+  world.crons = world.crons.filter((c) => c.bot_id !== params.id);
   publish("bots", "changed", { id: params.id });
   return { ok: true };
 });

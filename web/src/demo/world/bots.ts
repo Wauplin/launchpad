@@ -15,7 +15,7 @@ export function botsWorld() {
   const bots: Bot[] = [{
     id: BOT, workspace_id: WS.acme, slug: "maintainer", created_at: clock.ago(60 * 26), settings,
     instructions: "# Maintainer\n\nMaintain storefront: answer my questions about the code, investigate issues and failing checks, and prepare fixes as Local PRs for my review. Keep answers short and cite commits.\n",
-    settings_text: settingsText(settings), settings_error: null, own_folder: false, version: 3,
+    settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 3,
   }];
   const you = { kind: "owner" as const, name: "You", session_id: null, model: null, runner: null };
   const botChanges: Record<string, (Change & { patch: string })[]> = {
