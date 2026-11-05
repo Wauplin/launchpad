@@ -1,6 +1,7 @@
 // Now (phone): what needs you first, with cards that open the agent, then what waits to be published and what
 // runs. Uses the same predicates and workspace scope as the desktop Agents list and Review.
 
+import { LaunchButton } from "@/features/launch/LaunchButton";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -217,8 +218,10 @@ export function NowView() {
     <div className="h-full overflow-y-auto [overflow-wrap:anywhere]">
       <div className="mx-auto grid min-w-0 max-w-[640px] grid-cols-1 gap-5 px-3 pt-4">
         <div className="-mx-3 -mt-4"><NotificationsPrompt /></div>
-        <h1 className="m-0 min-w-0 px-1 text-[18px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "agent needs" : "agents need"} you` : "Nothing waits for you"}</h1>
-        <OpenTerminals />
+        <div className="flex min-w-0 items-center gap-2 px-1">
+          <h1 className="m-0 min-w-0 flex-1 text-[18px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "agent needs" : "agents need"} you` : "Nothing waits for you"}</h1>
+          <LaunchButton small label="New agent" title="Open the composer (the draft if one exists)" />
+        </div>
         {needs.length > 0 && <Section title="Needs you" count={needs.length}>
           {needs.map((s) => s.open_question ? <QuestionCard key={s.id} s={s} project={name(s)} /> : <OutcomeCard key={s.id} s={s} project={name(s)} />)}
         </Section>}
@@ -229,6 +232,7 @@ export function NowView() {
         <Section title="Running" count={running.length}>
           {running.length ? <div className="phone-review-card rounded-xl border border-line bg-paper p-1">{running.map((s) => <Row key={s.id} s={s} project={name(s)} />)}</div> : <p className="px-1 text-ink-3">No agent is running.</p>}
         </Section>
+        <OpenTerminals />
         <Freshness />
       </div>
     </div>
