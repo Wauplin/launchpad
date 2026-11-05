@@ -18,6 +18,7 @@ import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
+import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import { ApiError, api } from "../lib/api.ts";
 import { useWorkspace } from "./workspace.ts";
 
@@ -62,6 +63,12 @@ type Composer = {
   open: boolean;
   minimized: boolean;
   spec: LaunchSpec;
+  /** The scheduled launch this draft edits (Save replaces its spec and conditions), else null. */
+  editing: string | null;
+  /** Loads a scheduled launch that has not started into the composer, replacing the draft. */
+  editSchedule: (launch: ScheduledLaunch) => void;
+  /** The draft no longer edits its scheduled launch (it becomes a new draft). */
+  stopEditing: () => void;
   /** Start conditions; empty means launch now. */
   conditions: LaunchDelay[];
   setConditions: (conditions: LaunchDelay[]) => void;
@@ -92,7 +99,7 @@ type Composer = {
   remoteChanged: (ev: { workspace: string | null; revision: number; client: string | null }) => void;
 };
 
-type SavedDraft = { spec?: LaunchSpec; open?: boolean; minimized?: boolean; conditions?: LaunchDelay[]; delay?: LaunchDelay | null; revision?: number } | null;
+type SavedDraft = { spec?: LaunchSpec; open?: boolean; minimized?: boolean; conditions?: LaunchDelay[]; delay?: LaunchDelay | null; editing?: string | null; revision?: number } | null;
 
 /** Identifies this window in `drafts/changed` events, so it ignores its own saves. */
 const clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -109,7 +116,7 @@ const EDITING_MS = 5_000;
 /** Saves run one after another, so each one starts from the revision the previous one returned. */
 let saving: Promise<unknown> = Promise.resolve();
 
-type DraftBody = { spec: LaunchSpec; open: boolean; minimized: boolean; conditions: LaunchDelay[] };
+type DraftBody = { spec: LaunchSpec; open: boolean; minimized: boolean; conditions: LaunchDelay[]; editing: string | null };
 type Unsent = { workspace: string | null; body: DraftBody; revision: number; force: boolean; conflict?: boolean };
 const pendingKey = `launchpad-composer-pending:${sessionStorage.getItem("launchpad-composer-client") ?? clientId}`;
 sessionStorage.setItem("launchpad-composer-client", pendingKey.split(":").at(-1)!);
@@ -167,7 +174,7 @@ function save(spec: LaunchSpec, open: boolean, conditions: LaunchDelay[]) {
   const workspace = useWorkspace.getState().current ?? null;
   const st = useComposer.getState();
   const previous = unsent.get(workspace);
-  unsent.set(workspace, { workspace, body: { spec, open, minimized: st.minimized, conditions }, revision: previous?.revision ?? st.revision, force: false, conflict: st.conflict });
+  unsent.set(workspace, { workspace, body: { spec, open, minimized: st.minimized, conditions, editing: st.editing }, revision: previous?.revision ?? st.revision, force: false, conflict: st.conflict });
   backupDrafts();
   saveTimer = setTimeout(() => { saveTimer = undefined; void retryDraft(workspace); }, 400);
 }
@@ -188,7 +195,7 @@ async function loadDraft(discardLocal = false) {
   let d: SavedDraft;
   const pending = unsent.get(workspace);
   if (pending && !discardLocal) {
-    useComposer.setState({ ...pending.body, revision: pending.revision, conflict: !!pending.conflict });
+    useComposer.setState({ ...pending.body, editing: pending.body.editing ?? null, revision: pending.revision, conflict: !!pending.conflict });
     void retryDraft(workspace);
     return;
   }
@@ -198,10 +205,10 @@ async function loadDraft(discardLocal = false) {
   saveTimer = undefined;
   if (discardLocal) { unsent.delete(workspace); backupDrafts(); useSaveStatus.getState().set(`composer:${workspace}`); }
   const revision = d?.revision ?? 0;
-  if (d?.spec) useComposer.setState({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, minimized: !!d.open && !!d.minimized, conditions: d.conditions ?? (d.delay ? [d.delay] : []), revision, conflict: false });
+  if (d?.spec) useComposer.setState({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, minimized: !!d.open && !!d.minimized, conditions: d.conditions ?? (d.delay ? [d.delay] : []), editing: d.editing ?? null, revision, conflict: false });
   else {
     const { spec } = useComposer.getState();
-    useComposer.setState({ spec: { ...emptySpec(), harness: spec.harness, profile: spec.profile ?? null, budget_usd: spec.budget_usd ?? null }, open: false, minimized: false, conditions: [], revision, conflict: false });
+    useComposer.setState({ spec: { ...emptySpec(), harness: spec.harness, profile: spec.profile ?? null, budget_usd: spec.budget_usd ?? null }, open: false, minimized: false, conditions: [], editing: null, revision, conflict: false });
   }
 }
 
@@ -254,6 +261,16 @@ export const useComposer = create<Composer>((set, get) => ({
   minimized: false,
   spec: emptySpec(),
   conditions: [],
+  editing: null,
+  editSchedule: (launch) => {
+    const spec: LaunchSpec = { ...emptySpec(), ...launch.spec };
+    set({ spec, open: true, minimized: false, conditions: launch.conditions, editing: launch.id });
+    save(spec, true, launch.conditions);
+  },
+  stopEditing: () => {
+    set({ editing: null });
+    save(get().spec, get().open, get().conditions);
+  },
   setConditions: (conditions) => { set({ conditions }); save(get().spec, get().open, conditions); },
   openAfterLaunch: readOpenAfterLaunch(),
   loaded: false,
@@ -286,7 +303,7 @@ export const useComposer = create<Composer>((set, get) => ({
   launchNow: (ctx, text) => {
     // A clean draft (the field checks that no draft is kept), with the last launch's profile and options.
     const { harness, profile, budget_usd } = get().spec;
-    set({ spec: { ...emptySpec(), harness, profile, budget_usd }, open: false, conditions: [] });
+    set({ spec: { ...emptySpec(), harness, profile, budget_usd }, open: false, conditions: [], editing: null });
     get().start(ctx);
     get().update((s) => ({ ...s, text }));
     set({ minimized: true, autoLaunchUntil: Date.now() + 4_000 });
@@ -299,7 +316,7 @@ export const useComposer = create<Composer>((set, get) => ({
       worktree: null,
       agent_traces: session.last_seq > 0 ? [{ session_id: session.id, through_seq: session.last_seq }] : [],
     };
-    set({ spec, open: true, minimized: false, conditions: [] });
+    set({ spec, open: true, minimized: false, conditions: [], editing: null });
     save(spec, true, []);
   },
   update: (f) => {
@@ -324,7 +341,7 @@ export const useComposer = create<Composer>((set, get) => ({
   discard: () => {
     const { harness, profile, budget_usd } = get().spec;
     const spec = { ...emptySpec(), harness, profile, budget_usd, ...rememberedRun(harness, profile) };
-    set({ spec, open: false, minimized: false, conditions: [] });
+    set({ spec, open: false, minimized: false, conditions: [], editing: null });
     save(spec, false, []);
   },
   setOpenAfterLaunch: (v) => {
@@ -348,11 +365,11 @@ export const useComposer = create<Composer>((set, get) => ({
     await loadDraft(true).catch(() => {});
   },
   keepMine: () => {
-    const { spec, open, minimized, conditions } = get();
+    const { spec, open, minimized, conditions, editing } = get();
     set({ conflict: false });
     clearTimeout(saveTimer);
     saveTimer = undefined;
-    void put(useWorkspace.getState().current ?? null, { spec, open, minimized, conditions }, true);
+    void put(useWorkspace.getState().current ?? null, { spec, open, minimized, conditions, editing }, true);
   },
   remoteChanged: (ev) => {
     if (ev.client === clientId || !get().loaded) return;

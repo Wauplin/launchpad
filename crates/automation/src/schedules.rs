@@ -117,13 +117,14 @@ pub async fn follow_up(
     create_target(app, spec, conditions, Some(id.to_string())).await
 }
 
-async fn create_target(
+/// Checks a launch and its conditions; returns its title and the latest time or quota condition.
+async fn validate(
     app: &App,
-    spec: LaunchSpec,
-    conditions: Vec<LaunchDelay>,
-    resume_session_id: Option<String>,
-) -> Result<ScheduledLaunch> {
-    let title = if let Some(id) = &resume_session_id {
+    spec: &LaunchSpec,
+    conditions: &[LaunchDelay],
+    resume_session_id: Option<&String>,
+) -> Result<(String, Option<i64>)> {
+    let title = if let Some(id) = resume_session_id {
         anyhow::ensure!(app.sessions.get(id).is_none_or(|s| s.imported_from.is_none()), "This is a synced trace. Start a new agent here instead.");
         let s = app.sessions.get(id).context("no such session")?;
         format!("Follow-up · {}", s.title)
@@ -132,7 +133,7 @@ async fn create_target(
         if spec.target == Target::None {
             bail!("pick a project or a temporary folder");
         }
-        let preview = app.sessions.preview(app, &spec).await?;
+        let preview = app.sessions.preview(app, spec).await?;
         if preview.prompt.trim().is_empty() {
             bail!("the prompt is empty");
         }
@@ -144,7 +145,7 @@ async fn create_target(
     let now = now_ms();
     let scheduled = list(app).await?;
     let mut ready_at = None;
-    for delay in &conditions {
+    for delay in conditions {
         let at = match delay {
             LaunchDelay::In { minutes } => {
                 if *minutes == 0 || *minutes > 525_600 {
@@ -182,7 +183,7 @@ async fn create_target(
                         .quota,
                     "This harness has no monitored subscription quota"
                 );
-                let h = if spec.harness == Some(*harness) { launchpad_core::quota::reading_for(app, *harness, &spec) } else { launchpad_core::quota::reading(app, harness.as_str()) };
+                let h = if spec.harness == Some(*harness) { launchpad_core::quota::reading_for(app, *harness, spec) } else { launchpad_core::quota::reading(app, harness.as_str()) };
                 if h.quota_error.is_some() || h.quota_at.is_none_or(|at| now - at > 15 * 60_000) {
                     bail!("quota reset is unavailable; wait for a fresh quota reading");
                 }
@@ -204,6 +205,18 @@ async fn create_target(
         };
         ready_at = ready_at.max(at);
     }
+    Ok((title, ready_at))
+}
+
+async fn create_target(
+    app: &App,
+    spec: LaunchSpec,
+    conditions: Vec<LaunchDelay>,
+    resume_session_id: Option<String>,
+) -> Result<ScheduledLaunch> {
+    let (title, ready_at) = validate(app, &spec, &conditions, resume_session_id.as_ref()).await?;
+    let now = now_ms();
+    let scheduled = list(app).await?;
     if let Some(id) = &resume_session_id {
         anyhow::ensure!(
             !scheduled
@@ -277,6 +290,83 @@ async fn claim(app: &App, id: &str, manual: bool) -> Result<ScheduledLaunch> {
         .await?;
     changed(app);
     Ok(record)
+}
+
+/// Replaces the launch spec and start conditions of a scheduled agent that has not started yet. The id stays,
+/// so agents that wait for it keep waiting. `conditions: None` keeps the current ones.
+pub async fn update(
+    app: &App,
+    id: &str,
+    spec: LaunchSpec,
+    conditions: Option<Vec<LaunchDelay>>,
+) -> Result<ScheduledLaunch> {
+    let scheduled = list(app).await?;
+    let current = scheduled
+        .iter()
+        .find(|s| s.id == id)
+        .context("this scheduled launch no longer exists")?;
+    anyhow::ensure!(
+        current.resume_session_id.is_none(),
+        "a follow-up cannot be edited; cancel it and schedule it again"
+    );
+    anyhow::ensure!(
+        current.status != ScheduleStatus::Starting && app.sessions.get(id).is_none(),
+        "this agent already started"
+    );
+    let conditions = conditions.unwrap_or_else(|| current.conditions.clone());
+    // Waiting for itself, directly or through other scheduled agents, would never start.
+    let mut pending: Vec<&String> = conditions
+        .iter()
+        .flat_map(|c| match c {
+            LaunchDelay::Agents { session_ids } => session_ids.iter().collect(),
+            _ => Vec::new(),
+        })
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    while let Some(dep) = pending.pop() {
+        anyhow::ensure!(dep != id, "a scheduled agent cannot wait for itself");
+        if !seen.insert(dep) {
+            continue;
+        }
+        if let Some(other) = scheduled.iter().find(|s| &s.id == dep) {
+            for c in &other.conditions {
+                if let LaunchDelay::Agents { session_ids } = c {
+                    pending.extend(session_ids);
+                }
+            }
+        }
+    }
+    let (title, ready_at) = validate(app, &spec, &conditions, None).await?;
+    let id = id.to_string();
+    let launch = app
+        .state_db
+        .call(move |c| {
+            let json: String = c
+                .query_row(
+                    "SELECT json FROM scheduled_launch WHERE id = ?1",
+                    [&id],
+                    |r| r.get(0),
+                )
+                .context("this scheduled launch no longer exists")?;
+            let mut record: ScheduledLaunch = serde_json::from_str(&json)?;
+            if record.status == ScheduleStatus::Starting {
+                bail!("this agent already started");
+            }
+            record.spec = spec;
+            record.conditions = conditions;
+            record.title = title;
+            record.ready_at = ready_at;
+            record.status = ScheduleStatus::Queued;
+            record.error = None;
+            c.execute(
+                "UPDATE scheduled_launch SET json = ?2 WHERE id = ?1",
+                params![id, serde_json::to_string(&record)?],
+            )?;
+            Ok(record)
+        })
+        .await?;
+    changed(app);
+    Ok(launch)
 }
 
 pub async fn cancel(app: &App, id: &str) -> Result<()> {

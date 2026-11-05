@@ -28,6 +28,7 @@ export type ActionName =
   | "routine.delete"
   | "routine.run"
   | "schedule.create"
+  | "schedule.update"
   | "schedule.cancel"
   | "schedule.start"
   | "launch.check"
@@ -78,6 +79,7 @@ export const ACTIONS: Record<ActionName, Action> = {
   "routine.delete": {"name":"routine.delete","method":"DELETE","route":"/api/launch/crons/{id}","label":"Delete","icon":"trash","help":"Delete a routine","input":[],"body_file":null,"fixed":null,"confirm":"Deletes the routine. Its past runs stay in Agents.","effect":"record","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "routine.run": {"name":"routine.run","method":"POST","route":"/api/launch/crons/{id}/run","label":"Run now","icon":"play","help":"Run a routine now","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "schedule.create": {"name":"schedule.create","method":"POST","route":"/api/launch/schedules","label":"Schedule","icon":"clock","help":"Schedule a launch","input":[],"body_file":"{\"spec\": <launch spec>, \"conditions\": […]}","fixed":null,"confirm":null,"effect":"starts","access":"admin","card":"schedule","undo":"schedule.cancel","before":null,"ready":false},
+  "schedule.update": {"name":"schedule.update","method":"PATCH","route":"/api/launch/schedules/{id}","label":"Save","icon":"pencil","help":"Change a scheduled launch that has not started (its spec, and its conditions when given)","input":[],"body_file":"{\"spec\": <launch spec>, \"conditions\": […]}","fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "schedule.cancel": {"name":"schedule.cancel","method":"DELETE","route":"/api/launch/schedules/{id}","label":"Cancel","icon":"x","help":"Cancel a scheduled launch","input":[],"body_file":null,"fixed":null,"confirm":"Cancels this scheduled launch.","effect":"record","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "schedule.start": {"name":"schedule.start","method":"POST","route":"/api/launch/schedules/{id}/start","label":"Start now","icon":"play","help":"Start a scheduled launch now","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "launch.check": {"name":"launch.check","method":"POST","route":"/api/launch/preview","label":"Check","icon":null,"help":"Check a launch spec without starting it","input":[],"body_file":"a launch spec","fixed":null,"confirm":null,"effect":"checks","access":"admin","card":null,"undo":null,"before":null,"ready":false},

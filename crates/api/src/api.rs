@@ -33,7 +33,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/launch/preview", post(preview).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/launch/schedules", get(schedules).post(schedule).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/sessions/{id}/follow-up", post(follow_up))
-        .route("/api/launch/schedules/{id}", axum::routing::delete(cancel_schedule))
+        .route("/api/launch/schedules/{id}", axum::routing::delete(cancel_schedule).patch(update_schedule).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/launch/schedules/{id}/start", post(start_schedule))
         .route("/api/launch/crons", get(crons).post(create_cron).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/launch/crons/next", get(cron_next))
@@ -719,6 +719,9 @@ async fn follow_up(State(s): State<Ctx>, Path(id): Path<String>, Json(b): Json<F
 }
 async fn schedules(State(s): State<Ctx>) -> ApiResult<Vec<ScheduledLaunch>> { Ok(Json(schedules::list(&s.app).await?)) }
 async fn schedule(State(s): State<Ctx>, Json(b): Json<ScheduleRequest>) -> ApiResult<ScheduledLaunch> { Ok(Json(schedules::create(&s.app, b.spec, b.conditions).await.map_err(bad)?)) }
+#[derive(serde::Deserialize)]
+struct ScheduleUpdate { spec: LaunchSpec, #[serde(default)] conditions: Option<Vec<LaunchDelay>> }
+async fn update_schedule(State(s): State<Ctx>, Path(id): Path<String>, Json(b): Json<ScheduleUpdate>) -> ApiResult<ScheduledLaunch> { Ok(Json(schedules::update(&s.app, &id, b.spec, b.conditions).await.map_err(bad)?)) }
 async fn cancel_schedule(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
     schedules::cancel(&s.app, &id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))

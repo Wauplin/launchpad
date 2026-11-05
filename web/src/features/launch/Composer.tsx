@@ -30,7 +30,7 @@ import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
-import { useConfig, useHarnessDefaults, useProjects, useSessions } from "@/lib/queries";
+import { useConfig, useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { costUnavailableMessage, supportsModelCost, parseUsd, usd, usesModelReference, useProfileModels, useProfiles } from "@/lib/profiles";
 import { ModelSearch } from "@/components/ModelSearch";
 import { findModel, pickModel, ProviderPicker } from "@/components/ProviderPicker";
@@ -166,7 +166,11 @@ function OptionRow({ label, end, children }: { label: string; end?: React.ReactN
 export function Composer({ embedded = false }: { embedded?: boolean }) {
   const harnessName = useHarnessName();
   const harnesses = useHarnesses();
-  const { open, minimized, setMinimized, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, conditions, setConditions, conflict, loadNewer, keepMine, autoLaunchUntil } = useComposer();
+  const { open, minimized, setMinimized, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, conditions, setConditions, conflict, loadNewer, keepMine, autoLaunchUntil, editing, stopEditing } = useComposer();
+  // Editing a scheduled agent: it must still be queued (or failed) and not started.
+  const schedules = useSchedules();
+  const edited = editing ? schedules.data?.find((l) => l.id === editing && !l.resume_session_id) : undefined;
+  const editGone = !!editing && !!schedules.data && (!edited || edited.status === "starting");
   const browserOnly = spec.target.kind === "browser";
   const projects = useProjects().data ?? [];
   const completionDefault = useMutation({
@@ -218,6 +222,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const [cron, setCron] = useState<CronDraft | null>(null);
   const [later, setLater] = useState(false);
   const [cronValid, setCronValid] = useState(true);
+  // A scheduled agent opens in "Start later", so removing its last condition does not switch to Start now.
+  useEffect(() => { if (editing) { setLater(true); setCron(null); } }, [editing]);
   const [launching, setLaunching] = useState(false);
   // "repo#number" of a detected pull request the owner chose not to push to.
   const [prOptOut, setPrOptOut] = useState<string | null>(null);
@@ -337,7 +343,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const hostStatus = targetHost ? (hosts.find((h) => h.host.id === targetHost) ?? null) : null;
   const hostProfile = (p: Profile | null) => (p ? profileOnHost(hostStatus, p) : null);
   const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Machines` : hostProfile(profile)?.ok === false ? hostProfile(profile)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context folders must be on the same machine as the folder" : null;
-  const blocker = selectedWorktree?.busy ? "Stop the active agent before using this worktree" : hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : !scope.workspace.id ? "Waiting for the workspace to load" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const blocker = editGone ? "This scheduled agent already started or was cancelled" : editing && timing === "later" && !scheduled ? "Add a start condition, or choose Start now" : selectedWorktree?.busy ? "Stop the active agent before using this worktree" : hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : !scope.workspace.id ? "Waiting for the workspace to load" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
@@ -377,6 +383,33 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     const pullRequest = pr && prOptOut !== `${pr.repo}#${pr.number}` ? pr : undefined;
     const spec = { ...draft, workspace_id: scope.workspace.id || null, worktree: draft.target.kind === "project" && !gitTarget ? null : draft.worktree && { ...draft.worktree, pull_request: pullRequest } };
     try {
+      if (editing) {
+        if (cron) {
+          // A routine replaces the scheduled agent.
+          await api.post("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions, time_zone: browserZone() });
+          await api.delete(`/api/launch/schedules/${editing}`).catch(toastError);
+          setCron(null);
+          discard();
+          void navigate({ to: "/schedules" });
+          toast("Routine created and scheduled launch cancelled. Find the routine in Schedules.");
+          return;
+        }
+        // Save keeps the scheduled id, so agents that wait for it keep waiting; Start now saves, then starts it.
+        await api.patch(`/api/launch/schedules/${editing}`, timing === "later" ? { spec, conditions } : { spec });
+        void queryClient.invalidateQueries({ queryKey: ["schedules"] });
+        setLater(false);
+        if (timing === "later") {
+          discard();
+          toast("Scheduled agent saved.");
+          return;
+        }
+        const s = await api.post<Session>(`/api/launch/schedules/${editing}/start`);
+        discard();
+        showSession(s.id);
+        void navigate({ to: "/agents", search: { session: s.id } });
+        toast("Delivered: agent launched.");
+        return;
+      }
       if (cron) {
         await api.post("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions, time_zone: browserZone() });
         setCron(null);
@@ -405,25 +438,25 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       if (openAfterLaunch || isPhone) { openIt(); toast("Delivered: agent launched."); }
       else toast(`Delivered: ${harnessName(s.harness)} started in ${where}`, { label: "Open", run: openIt });
     } catch (e) {
-      if (!cron && !scheduled && !(e instanceof ApiError && e.operationCompleted)) setUnconfirmedLaunch(spec);
+      if (!editing && !cron && !scheduled && !(e instanceof ApiError && e.operationCompleted)) setUnconfirmedLaunch(spec);
       toastError(e);
     } finally {
       setLaunching(false);
     }
   };
-  const launchLabel = launching ? (cron ? "Creating…" : scheduled ? "Scheduling…" : "Sending…") : cron ? "Create routine" : timing === "later" ? "Schedule" : "Launch";
+  const launchLabel = launching ? (cron ? "Creating…" : editing && scheduled ? "Saving…" : scheduled ? "Scheduling…" : "Sending…") : cron ? "Create routine" : editing ? (timing === "later" ? "Save" : "Start now") : timing === "later" ? "Schedule" : "Launch";
   const launchButton = () => (
     <span className="inline-flex" data-tour="composer.launch">
       <button className={`btn btn-primary ${browserOnly ? "" : "rounded-r-none"} ${isPhone ? "min-w-[120px] justify-center" : ""}`} disabled={!canLaunch || launching} title={unsupportedImages ? "This harness does not support attached images" : blocker ?? undefined} onClick={() => void launch()}>
-        <Icon name={timing === "repeat" ? "refresh" : timing === "later" ? "clock" : "play"} size={14} />
+        <Icon name={timing === "repeat" ? "refresh" : timing === "later" ? (editing ? "check" : "clock") : "play"} size={14} />
         {launchLabel}
       </button>
       {!browserOnly && <Popover up align="right" width={280} trigger={({ open: menu, toggle }) => <button className="btn btn-primary rounded-l-none border-l-white/30 px-1.5!" aria-label="When to start" aria-expanded={menu} disabled={launching} onClick={toggle}><Icon name="chev" size={12} /></button>}>
         {(closeMenu) => (
           <>
-            <MenuItem icon={<Icon name="play" size={13} />} label="Launch now" active={timing === "now"} onClick={() => { setTiming("now"); closeMenu(); }} />
+            <MenuItem icon={<Icon name="play" size={13} />} label={editing ? "Start now" : "Launch now"} active={timing === "now"} onClick={() => { setTiming("now"); closeMenu(); }} />
             <MenuItem icon={<Icon name="clock" size={13} />} label="Start later…" detail="After a delay, at a time, after agents are Done, when quota resets" active={timing === "later"} onClick={() => { setTiming("later"); closeMenu(); }} />
-            <MenuItem icon={<Icon name="refresh" size={13} />} label="Repeat on a schedule…" detail="Creates a routine" active={timing === "repeat"} onClick={() => { setTiming("repeat"); closeMenu(); }} />
+            <MenuItem icon={<Icon name="refresh" size={13} />} label="Repeat on a schedule…" detail={editing ? "Creates a routine and cancels this scheduled launch" : "Creates a routine"} active={timing === "repeat"} onClick={() => { setTiming("repeat"); closeMenu(); }} />
           </>
         )}
       </Popover>}
@@ -431,7 +464,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   );
 
   // Launch from the top-bar field: launch the hidden draft once it can start now (the field opens it otherwise).
-  if (autoLaunchUntil > Date.now() && canLaunch && !launching && timing === "now" && !conflict)
+  if (autoLaunchUntil > Date.now() && canLaunch && !launching && timing === "now" && !conflict && !editing)
     queueMicrotask(() => { if (useComposer.getState().autoLaunchUntil > Date.now()) { useComposer.setState({ autoLaunchUntil: 0 }); void launch(); } });
 
   // A minimized draft is the "draft" badge of the top-bar Launch button (LaunchSplitButton).
@@ -453,7 +486,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   return (
     <aside data-tour="composer" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${!embedded && isPhone ? "fixed! inset-0 z-50 w-full! pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" : ""} ${embedded ? "absolute inset-0 z-40 w-full!" : overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
       <div className="flex items-center gap-1.5 border-b border-line px-3.5 py-2.5">
-        <span className="flex-1 whitespace-nowrap text-sm font-bold">New agent</span>
+        <span className="flex-1 truncate whitespace-nowrap text-sm font-bold" title={edited?.title}>{editing ? "Edit scheduled agent" : "New agent"}</span>
         {!embedded && !isPhone && <button className="btn btn-sm btn-ghost" title="Keep the draft as a badge on Launch; + Add buttons keep adding context" onClick={() => setMinimized(true)}>Minimize</button>}
         <button className="iconbtn" title="Close (the draft is kept)" onClick={close}>
           <Icon name="x" size={14} />
@@ -469,6 +502,15 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           </span>
         </div>
       )}
+
+      {editing && <div role="status" className={`flex flex-col gap-2 border-b px-3.5 py-2.5 text-[13px] ${editGone ? "border-attn-line bg-attn-soft" : "border-line bg-chrome text-ink-2"}`}>
+        {editGone
+          ? <span><b className="text-attn">This scheduled agent already started or was cancelled.</b> Your changes are kept in the draft.</span>
+          : <span>Changes apply to <b className="text-ink">{edited?.title ?? "the scheduled agent"}</b> when you click Save. Agents that wait for it keep waiting.</span>}
+        <span className="flex gap-2">
+          <button className="btn btn-sm" title="Keep this text and options as a new agent draft; the scheduled agent stays as it is" onClick={stopEditing}>Use as a new agent</button>
+        </span>
+      </div>}
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-3">
         <div className="composer-prompt" data-tour="composer.prompt">
@@ -785,8 +827,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         </OptionsFrame>}
 
         {timing !== "now" && !browserOnly && <div className="grid gap-2 rounded-lg border border-attn-line bg-attn-soft/40 p-2.5">
-          <div className="flex items-center gap-2 text-[12px] font-semibold text-attn"><Icon name={timing === "repeat" ? "refresh" : "clock"} size={13} />{timing === "repeat" ? "Repeat on a schedule: creates a routine" : "Start later"}<button className="btn btn-sm btn-ghost ml-auto" onClick={() => setTiming("now")}>Launch now instead</button></div>
-          {timing === "repeat" ? <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); else setTiming("now"); }} onValidityChange={setCronValid} /> : <DelaySelector conditions={conditions} harness={spec.harness} profile={spec.profile} onChange={setConditions} onValidityChange={setDelayValid} />}
+          <div className="flex items-center gap-2 text-[12px] font-semibold text-attn"><Icon name={timing === "repeat" ? "refresh" : "clock"} size={13} />{timing === "repeat" ? "Repeat on a schedule: creates a routine" : "Start later"}<button className="btn btn-sm btn-ghost ml-auto" onClick={() => setTiming("now")}>{editing ? "Start now instead" : "Launch now instead"}</button></div>
+          {timing === "repeat" ? <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); else setTiming("now"); }} onValidityChange={setCronValid} /> : <DelaySelector conditions={conditions} harness={spec.harness} profile={spec.profile} exclude={editing} onChange={setConditions} onValidityChange={setDelayValid} />}
         </div>}
 
         <Popover width={400} trigger={({ toggle }) => <button className="btn btn-sm w-fit" onClick={toggle}><Icon name="eye" size={12} />Preview prompt</button>}>
@@ -799,8 +841,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           <input type="checkbox" className="accent-teal" disabled={scheduled || !!cron} checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
           Open after launch
         </label>
-        <button className="btn btn-ghost" onClick={() => { setCron(null); setLater(false); discard(); }} title="Clear the composer">
-          Discard
+        <button className="btn btn-ghost" onClick={() => { setCron(null); setLater(false); discard(); }} title={editing ? "Close without saving; the scheduled agent stays as it is" : "Clear the composer"}>
+          {editing ? "Discard changes" : "Discard"}
         </button>
         {unconfirmedLaunch && <div role="status" className="text-[12px] text-ink-3">Delivery not confirmed. Retry unchanged to check the result. Inspect Agents before starting another attempt.<button className="btn btn-sm mt-1" disabled={launching} onClick={() => void abandonOperation("/api/sessions", unconfirmedLaunch).then(() => setUnconfirmedLaunch(null)).catch(toastError)}>I checked Agents — start a new attempt</button></div>}
         {!isDesktopShell && host && <span className="text-[12px] text-ink-3" title="Agents run on the daemon's machine">Runs on {host}</span>}

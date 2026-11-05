@@ -4,7 +4,10 @@ import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
 import type { Preview } from "@/gen/Preview";
 import { useHarnessName } from "@/components/HarnessMark";
+import { ConfirmButton } from "@/components/ui";
+import { useComposer } from "@/stores/composer";
 import { toastError } from "@/components/Toast";
+import { Icon } from "@/components/Icon";
 import { api } from "@/lib/api";
 import { useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { conditionsSummary, dependencyAgent } from "@/features/launch/DelaySelector";
@@ -17,6 +20,10 @@ export function ScheduledPane({ launch, onStart, onClose }: { launch: ScheduledL
   const sessions = useSessions().data ?? [];
   const projects = useProjects().data ?? [];
   const [busy, setBusy] = useState(false);
+  // Editing replaces the composer draft: confirm when it holds something else.
+  const draft = useComposer((s) => s.open && s.editing !== launch.id && (!!s.spec.text.trim() || s.spec.attachments.length + s.spec.github_refs.length + s.spec.files.length + s.spec.agent_traces.length > 0));
+  const edit = () => useComposer.getState().editSchedule(launch);
+  const editable = !launch.resume_session_id && launch.status !== "starting";
   const preview = useQuery({ queryKey: ["scheduled-preview", launch.id], queryFn: () => api.post<Preview>("/api/launch/preview", launch.spec), enabled: !launch.resume_session_id });
   const projectId = (launch.spec.target.kind === "project" || launch.spec.target.kind === "predraft") ? launch.spec.target.project_id : null;
   const name = projects.find((p) => p.id === projectId)?.name ?? (launch.spec.target.kind === "existing_predraft" ? "Local PR" : "Temporary folder");
@@ -42,6 +49,9 @@ export function ScheduledPane({ launch, onStart, onClose }: { launch: ScheduledL
         {launch.error && <p role="alert" className="text-gh-closed">{launch.error}</p>}
         <div className="flex gap-2">
           <button className="btn btn-primary" disabled={busy || launch.status === "starting"} onClick={() => void act(true)}>Start now</button>
+          {editable && (draft
+            ? <ConfirmButton small={false} tone="publish" icon="pencil" disabled={busy} consequence="Replaces the current composer draft." confirmLabel="Replace draft" onConfirm={edit}>Edit</ConfirmButton>
+            : <button className="btn" disabled={busy} title="Change the prompt, folder, options and start conditions in the composer" onClick={edit}><Icon name="pencil" size={12} />Edit</button>)}
           <button className="btn" disabled={busy || launch.status === "starting"} onClick={() => void act(false)}>{launch.resume_session_id ? "Cancel follow-up" : "Cancel launch"}</button>
         </div>
       </div>

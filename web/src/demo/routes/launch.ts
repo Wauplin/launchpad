@@ -152,6 +152,19 @@ route("POST", "/api/launch/schedules", (r) => {
   if (!spec.text.trim()) throw new DemoError(400, "the prompt is empty");
   return schedule(spec, r.body?.conditions ?? [], null, titleOf(spec.text));
 });
+route("PATCH", "/api/launch/schedules/:id", (r) => {
+  const l = world.schedules.find((x) => x.id === r.params.id);
+  if (!l || l.status === "starting") throw new DemoError(400, "this agent already started");
+  if (l.resume_session_id) throw new DemoError(400, "a follow-up cannot be edited");
+  const spec = { ...defaultSpec(), ...(r.body?.spec as LaunchSpec) };
+  if (!spec.text.trim()) throw new DemoError(400, "the prompt is empty");
+  const conditions: LaunchDelay[] = r.body?.conditions ?? l.conditions;
+  if (!conditions.length) throw new DemoError(400, "choose when to start");
+  const next: ScheduledLaunch = { ...l, spec, conditions, title: titleOf(spec.text), ready_at: readyAt(conditions), status: "queued", error: null };
+  world.schedules = world.schedules.map((x) => (x.id === l.id ? next : x));
+  publishSchedules();
+  return next;
+});
 route("DELETE", "/api/launch/schedules/:id", (r) => {
   world.schedules = world.schedules.filter((l) => l.id !== r.params.id);
   publishSchedules();
