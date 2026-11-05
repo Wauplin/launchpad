@@ -15,7 +15,7 @@ import { api } from "@/lib/api";
 import { commitCandidates, installCommitLinks, type CommitLinks } from "@/lib/commitLinks";
 import { createContext, memo, useContext, useMemo, type MouseEvent } from "react";
 import { copyText } from "@/lib/clipboard";
-import { useOpenTerminal } from "@/features/terminals/lib";
+import { useOpenTerminal, useTerminalsHere } from "@/features/terminals/lib";
 import { toast } from "./Toast";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
@@ -64,7 +64,8 @@ md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
 installFileCitations(md);
 installCommitLinks(md);
 
-export const Markdown = memo(function Markdown({ text, className = "", links, runShell = false }: { text: string; className?: string; links?: Links; runShell?: boolean }) {
+export const Markdown = memo(function Markdown({ text, className = "", links, runShell: wantsRun = false }: { text: string; className?: string; links?: Links; runShell?: boolean }) {
+  const runShell = useTerminalsHere() && wantsRun;
   const codeLinks = useContext(CodeLinksContext);
   const cwd = useContext(ShellCodeContext);
   const terminal = useOpenTerminal();

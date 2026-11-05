@@ -24,7 +24,7 @@ import { useCrons, useProjects, useSessions } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
 import { useWorkspace } from "@/stores/workspace";
 import { useComposer } from "@/stores/composer";
-import { useOpenTerminal } from "@/features/terminals/lib";
+import { useOpenTerminal, useTerminalsHere } from "@/features/terminals/lib";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { useSetupSummary } from "@/features/setup/summary";
 import { useOnboarding, usePatchOnboarding } from "@/onboarding/data";
@@ -68,6 +68,7 @@ const ROW = 28;
 const FolderLink = memo(function FolderLink({ p, sessions }: { p: Project; sessions: Session[] }) {
   const navigate = useNavigate();
   const terminal = useOpenTerminal();
+  const terminalsHere = useTerminalsHere();
   const start = useComposer((s) => s.start);
   const name = p.is_temp ? p.name.replace(/^tmp-\d{4}-/, "") || p.name : p.name;
   return (
@@ -85,7 +86,7 @@ const FolderLink = memo(function FolderLink({ p, sessions }: { p: Project; sessi
       </Link>
       <span className="absolute right-0.5 hidden items-center group-hover/folder:flex group-focus-within/folder:flex [@media(hover:none)]:static [@media(hover:none)]:flex">
         <button className="iconbtn size-[22px]!" title={`Files of ${name}`} aria-label={`Files of ${name}`} onClick={() => void navigate({ to: "/projects/$id/code", params: { id: p.id } })}><Icon name="folder" size={13} /></button>
-        <button className="iconbtn size-[22px]!" title={`Terminal in ${name}`} aria-label={`Terminal in ${name}`} onClick={() => void terminal.shell(p.path)}><Icon name="term" size={13} /></button>
+        {terminalsHere && <button className="iconbtn size-[22px]!" title={`Terminal in ${name}`} aria-label={`Terminal in ${name}`} onClick={() => void terminal.shell(p.path)}><Icon name="term" size={13} /></button>}
         <button className="iconbtn size-[22px]!" title={`Launch an agent in ${name}`} aria-label={`Launch an agent in ${name}`} onClick={() => start({ projectId: p.id })}><Icon name="play" size={13} /></button>
       </span>
     </div>

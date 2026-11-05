@@ -8,7 +8,7 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { Loading, ErrorState } from "@/components/ui";
 import { ProjectPicker } from "@/features/launch/ProjectPicker";
 import { useScope } from "@/lib/workspace";
-import { useOpenTerminal, useTerminalFolders } from "./lib";
+import { useOpenTerminal, useTerminalFolders, useTerminalsHere } from "./lib";
 
 /** The folder choices for `cwd`. `onPick` receives the folder to open a shell in. */
 export function FolderMenu({ cwd, onPick }: { cwd: string | null; onPick: (path: string) => void }) {
@@ -67,7 +67,9 @@ export function TerminalMenu({ cwd, label = "Terminal", icon = "term", small, ph
   disabled?: boolean;
 }) {
   const open = useOpenTerminal();
+  const here = useTerminalsHere();
   const size = small ? "btn-sm" : "";
+  if (!here) return null;
   return (
     <Popover
       align={align}

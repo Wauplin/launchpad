@@ -18,7 +18,7 @@ import { useLayout } from "@/stores/layout";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
 import { TerminalPanel } from "./TerminalPanel";
 import { TerminalMenu } from "./TerminalMenu";
-import { closeNeedsConfirm, folderName, refreshTerminals, terminalStatus, useOpenTerminal, useScopedTerminals, useTerminals } from "./lib";
+import { closeNeedsConfirm, folderName, refreshTerminals, terminalStatus, useOpenTerminal, useScopedTerminals, useTerminals, useTerminalsHere } from "./lib";
 
 // xterm (and its CSS) loads with the first terminal shown, not with the app. A lazy component keeps
 // one identity once resolved, so mounted views are never remounted by it.
@@ -105,6 +105,11 @@ export function CloseAllTerminals({ onDone }: { onDone?: () => void } = {}) {
 
 /** `fill` (phone shell): the dock is a full page, shown while `fill` is true, without height or Hide controls. */
 export function TerminalDock({ fill }: { fill?: boolean } = {}) {
+  // Home runs no terminals: no dock, and Ctrl+T does nothing.
+  return useTerminalsHere() ? <Dock fill={fill} /> : null;
+}
+
+function Dock({ fill }: { fill?: boolean }) {
   const phone = fill !== undefined;
   const stored = useLayout((s) => s.dock);
   const dock = phone ? { ...stored, open: fill } : stored;
@@ -247,6 +252,8 @@ export function TerminalsChip() {
   const terminals = useScopedTerminals();
   const dock = useLayout((s) => s.dock);
   const setDock = useLayout((s) => s.setDock);
+  const here = useTerminalsHere();
+  if (!here) return null;
   return (
     <button className={`inline-flex items-center gap-1 rounded border px-1.5 ${dock.open ? "border-teal text-teal-ink" : "border-line"} hover:bg-paper`} aria-pressed={!!dock.open} title={dock.open ? "Hide the terminal dock; terminals keep running" : "Show the terminal dock"} onClick={() => setDock({ open: !dock.open })}>
       <Icon name="term" size={12} />

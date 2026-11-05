@@ -9,7 +9,15 @@ import type { TerminalFolders } from "@/gen/TerminalFolders";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useScope } from "@/lib/workspace";
+import { useStatus } from "@/lib/queries";
+import { isDemo } from "@/demo/mode";
 import { useLayout } from "@/stores/layout";
+
+/** Terminals open where agents run: Home runs none, so every Terminal entry point hides there (no relay yet). */
+export function useTerminalsHere() {
+  const role = useStatus().data?.role;
+  return isDemo || role !== "home";
+}
 
 const listTerminals = () => api.get<TerminalInfo[]>("/api/terminals");
 export const useTerminals = () => useQuery({ queryKey: ["terminals"], queryFn: listTerminals, staleTime: Infinity });

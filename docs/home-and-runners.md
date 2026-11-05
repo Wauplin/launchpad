@@ -2,7 +2,7 @@
 
 Work in progress: this implements the [Home and runners plan](https://wauplin-launchpad-bots-research.static.hf.space/index.html) (H1 to H5). The single-process mode (`launchpad daemon`, role `all`) is Home and a runner in one process: it uses Home Git too.
 
-- **Home** (`launchpad daemon --role home`) keeps every record and runs no agents or terminals.
+- **Home** (`launchpad daemon --role home`) keeps every record and runs no agents or terminals: its windows show no Terminal buttons (open terminals from a window of the runner).
 - **Runners** (`launchpad daemon --role runner`) run agents. A runner works in its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`) and port (7320), and never reuses a single-process install's data.
 
 For a Home in a private Space, see the [Home-only deployment](../deploy/hf-home/README.md).

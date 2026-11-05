@@ -41,7 +41,7 @@ import { MenuItem, Popover } from "@/components/Popover";
 import type { SessionGitHistory } from "@/gen/SessionGitHistory";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import { StatusBadge, usageLine } from "./SessionBits";
-import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
+import { useOpenTerminal, useTerminals, useTerminalsHere } from "@/features/terminals/lib";
 import { TerminalMenu } from "@/features/terminals/TerminalMenu";
 import { Sheet } from "@/mobile/Sheet";
 import { WorktreeCard, useSessionWorktrees, WorktreeChip } from "./Worktrees";
@@ -206,6 +206,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
   const [savingTitle, setSavingTitle] = useState(false);
   const { pinned, togglePin, setDock } = useLayout();
   const openTerminal = useOpenTerminal();
+  const terminalsHere = useTerminalsHere();
   const tui = useTerminals().data?.find((t) => t.alive && t.kind === "tui" && t.session_id === sessionId);
   const [reattaching, setReattaching] = useState(false);
   const dropImages = useRef<((files: File[]) => void) | null>(null);
@@ -429,10 +430,10 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
                 {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Needs you for later" onClick={() => { close(); onClear(); void act(s.id, "unread"); }} />}
                 {phone && <>
                   <MenuItem label="Session details" detail="Branch, usage and New agent here" onClick={() => { close(); setDetailsOpen(true); }} />
-                  {!(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder (the checkout when its worktree is gone)" onClick={() => { close(); void openTerminal.folder(s.cwd); }} />}
+                  {terminalsHere && !(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder (the checkout when its worktree is gone)" onClick={() => { close(); void openTerminal.folder(s.cwd); }} />}
                 </>}
                 {s.status === "in_terminal" && tui && <MenuItem icon={<Icon name="term" size={14} />} label="Show TUI tab" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}
-                {!s.imported_from && s.launch_spec.target.kind !== "browser" && !running && s.status !== "in_terminal" && s.status !== "quota_paused" && harness?.capabilities.terminal && <MenuItem icon={<Icon name="term" size={14} />} label={`Continue in ${name} TUI`} detail="In the terminal dock, outside quota protection; Re-attach brings it back" onClick={() => { close(); void openTerminal.tui(s.id); }} />}
+                {terminalsHere && !s.imported_from && s.launch_spec.target.kind !== "browser" && !running && s.status !== "in_terminal" && s.status !== "quota_paused" && harness?.capabilities.terminal && <MenuItem icon={<Icon name="term" size={14} />} label={`Continue in ${name} TUI`} detail="In the terminal dock, outside quota protection; Re-attach brings it back" onClick={() => { close(); void openTerminal.tui(s.id); }} />}
                 {s.project_id && <MenuItem icon={<Icon name="folder" size={14} />} label="Browse files" detail="Read the folder in Files" onClick={() => { close(); void navigate({ to: "/projects/$id/code", params: { id: s.project_id! }, search: { root: s.cwd, session: s.id } }); }} />}
                 <MenuItem icon={<Icon name="agents" size={14} />} label="Use trace as context" detail="Reference this trace in a new agent's prompt" disabled={s.last_seq === 0} onClick={() => { close(); useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] }); }} />
                 {!s.imported_from && s.status !== "closed" && !archivePrimary && <MenuItem icon={<Icon name="archive" size={14} />} label="Archive" detail="It stays resumable" onClick={() => { close(); archive(); }} />}

@@ -12,6 +12,7 @@ import { Toasts } from "@/components/Toast";
 import { HostPrompts } from "@/app/HostPrompt";
 import { Composer } from "@/features/launch/Composer";
 import { TerminalDock } from "@/features/terminals/TerminalDock";
+import { useTerminalsHere } from "@/features/terminals/lib";
 import { useInboxNeeds } from "@/features/inbox/data";
 import { useReviewCount } from "@/features/review/data";
 import { folderCount, useScope, useWorkspaces, useWorkspaceSync } from "@/lib/workspace";
@@ -70,6 +71,7 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
   const all = useProjects().data;
   const projects = all?.length ?? 0;
   const { theme, toggle } = useTheme();
+  const terminalsHere = useTerminalsHere();
   const pick = (id: string | null) => { switchTo(id); onClose(); };
   const button = (id: string | null, label: string, detail: string) => (
     <button key={id ?? "all"} className={`flex min-h-12 w-full items-center gap-3 border-b border-line-2 px-4 text-left text-[15px] ${current === id ? "font-semibold text-teal-ink" : ""}`} aria-pressed={current === id} onClick={() => pick(id)}>
@@ -87,7 +89,7 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
       <MenuLink to="/outbox" icon="send" onClick={onClose}>Outbox</MenuLink>
       <MenuLink to="/projects" icon="folder" onClick={onClose}>Folders</MenuLink>
       <MenuLink to="/knowledge" icon="book" onClick={onClose}>Knowledge</MenuLink>
-      <MenuLink to="/terminals" icon="term" onClick={onClose}>Terminals</MenuLink>
+      {terminalsHere && <MenuLink to="/terminals" icon="term" onClick={onClose}>Terminals</MenuLink>}
       <MenuLink to="/settings" icon="sliders" onClick={onClose}>Settings</MenuLink>
       <div className="seclabel px-4 pt-4 pb-1">This device</div>
       <div className="flex flex-wrap gap-2 px-4 pb-4">
