@@ -33,11 +33,10 @@ Profiles live in `config.toml` (see [Configuration](configuration.md#profiles)).
 
 ## Launching an agent
 
-The top bar has one field with three buttons:
+The top bar has one field with two buttons:
 
-- **Launch** starts an agent at once with the text, the page as context and the folder's defaults (on a folder page, that folder). If it cannot start within a few seconds, the composer opens instead.
+- **Launch** starts an agent at once with the text, the page as context and the folder's defaults (on a folder page, that folder). If it cannot start within a few seconds, the composer opens instead. With an empty field or a kept draft, it opens the composer. Its **▾** menu has **Launch with options…**, which opens the full composer with the text.
 - **Ask** sends the text to a bot of the workspace and opens its chat in the Ask panel (see [Ask Launchpad](#ask-launchpad)).
-- **Options** opens the full composer with the text.
 
 The page you look at is the context: a folder, a GitHub item, an agent's trace, a Local PR or a settings page. A chip in the field names it; **✕** removes it. The primary button follows the page: Launch on folder, agent and Local PR pages, Ask elsewhere (Launch when the workspace has no bot). **Enter** runs the primary button and **Shift+Enter** adds a line.
 
@@ -49,7 +48,7 @@ Folder pages, inbox rows and every **▶** button open the composer too. The com
 - **Options.** One line sums up the launch: where the agent runs and what happens when it is done (for example "New worktree from main · keep branch"), then the profile and only the values that differ from the defaults, and warnings. Click it to open the options: **Run in** (in a Git folder: **New worktree**, the default, **Checkout**, **New Local PR** or an existing worktree or Local PR; see [Local PRs](github.md#local-prs)), **From** (the base branch), **When done** (see [Worktrees and merging](#worktrees-and-merging)), profile, model, effort, permission mode, paid usage, cost limit, presets and start conditions. When the prompt or the context names one pull request of the folder's repository (for example a pasted link to a review comment), **Push to PR #N** is checked under Run in: the worktree starts from the PR head and the agent pushes its commits to the PR branch (see [GitHub](github.md#continue-a-pull-request)).
 - **Preview prompt** shows exactly what the agent will receive.
 
-The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the **Options** button while you collect more context.
+The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the **Launch** button while you collect more context; its **▾** menu starts a new agent instead or discards the draft.
 
 New launches ask the agent to end its first task with a short, self-contained summary. Follow-up messages are sent unchanged, except the first message after a Local PR is published, which tells the agent to push to the published branch from now on.
 

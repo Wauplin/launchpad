@@ -69,11 +69,12 @@ export function openOptions(ctx: LaunchContext | undefined, text: string) {
 }
 
 /**
- * Options in the top-bar field: the full composer with the field's text. With a minimized draft it shows a "draft"
- * badge, opens that draft, flashes when + Add buttons add context, and its menu starts over or discards the draft
- * (prominent after 7 days).
+ * Launch in the top-bar field. The main part launches the field's text at once (`onLaunch`; with an empty field or a
+ * kept draft it opens the composer). Its menu opens the full composer with the text, for a launch that needs more
+ * choices. With a minimized draft it shows a "draft" badge, flashes when + Add buttons add context, and its menu starts
+ * over or discards the draft (prominent after 7 days).
  */
-export function OptionsButton({ ctx, text, onUsed, primary = false }: { ctx?: LaunchContext; text: string; onUsed: () => void; primary?: boolean }) {
+export function LaunchSplitButton({ ctx, text, onLaunch, onUsed, primary = false, title }: { ctx?: LaunchContext; text: string; onLaunch: () => void; onUsed: () => void; primary?: boolean; title: string }) {
   const { open, minimized, discard, spec, autoLaunchUntil } = useComposer();
   const items = useDraftItems();
   const since = useDraftSince(open);
@@ -87,27 +88,29 @@ export function OptionsButton({ ctx, text, onUsed, primary = false }: { ctx?: La
     const t = setTimeout(() => setFlash(false), 900);
     return () => clearTimeout(t);
   }, [items, minimized]);
-  const use = () => { openOptions(ctx, text); onUsed(); };
+  const options = () => { openOptions(ctx, text); onUsed(); };
   const cls = primary ? "btn-primary" : "";
-  if (!open || !minimized || autoLaunchUntil) return <button className={`btn ${cls}`} title="Open the composer with this text, for a launch that needs more choices" data-tour="topbar.options" onClick={use}><Icon name="sliders" size={13} />Options</button>;
-  const stale = since !== null && Date.now() - since > STALE_MS;
+  const draft = open && minimized && !autoLaunchUntil;
+  const stale = draft && since !== null && Date.now() - since > STALE_MS;
   const first = spec.text.trim().split("\n")[0];
   const age = since !== null ? `${formatAge(since)} ago` : null;
   return (
-    <span className={`inline-flex rounded-[8px] transition-shadow ${flash ? "ring-[3px] ring-teal" : ""}`} data-tour="topbar.options">
-      <button className={`btn ${cls} rounded-r-none`} title={`Open the draft${first ? `: ${first}` : ""}${age ? ` (started ${age})` : ""}${text.trim() ? "; your text is added to it" : ""}`} onClick={use}>
-        <Icon name="sliders" size={13} />
-        Options
-        <span className={`rounded-full px-1.5 text-[11px] leading-4 font-semibold ${stale ? "bg-attn-soft text-attn" : "bg-sunk text-ink-2"}`}>draft{items ? ` · ${items}` : ""}</span>
+    <span className={`inline-flex rounded-[8px] transition-shadow ${flash ? "ring-[3px] ring-teal" : ""}`} data-tour="topbar.launch">
+      <button className={`btn ${cls} rounded-r-none`} title={draft ? `Open the draft${first ? `: ${first}` : ""}${age ? ` (started ${age})` : ""}${text.trim() ? "; your text is added to it" : ""}` : title} onClick={onLaunch}>
+        <Icon name="play" size={13} />
+        Launch
+        {draft && <span className={`rounded-full px-1.5 text-[11px] leading-4 font-semibold ${stale ? "bg-attn-soft text-attn" : "bg-sunk text-ink-2"}`}>draft{items ? ` · ${items}` : ""}</span>}
       </button>
       <Popover align="right" width={280} trigger={({ open: menu, toggle }) => (
-        <button className={`btn ${cls} rounded-l-none px-1.5!`} aria-label="Draft actions" aria-expanded={menu} onClick={toggle}><Icon name="chev" size={12} /></button>
+        <button className={`btn ${cls} rounded-l-none ${primary ? "border-l-white/30" : "border-l-0"} px-1.5!`} aria-label="Launch options" title="Launch options" aria-expanded={menu} onClick={toggle}><Icon name="chev" size={12} /></button>
       )}>
         {(close) => (
           <>
-            <MenuItem icon={<Icon name="play" size={13} />} label="Open the draft" detail={[first || "No prompt yet", age && `started ${age}`].filter(Boolean).join(" · ")} onClick={() => { close(); use(); }} />
-            <MenuItem icon={<Icon name="plus" size={13} />} label="New agent instead" detail="Discards the draft" onClick={() => { close(); discard(); use(); }} />
-            <MenuItem icon={<Icon name="trash" size={13} />} label={stale ? "Discard this old draft" : "Discard draft"} detail={stale ? `Started ${age}` : undefined} onClick={() => { close(); discard(); }} />
+            {draft
+              ? <MenuItem icon={<Icon name="sliders" size={13} />} label="Open the draft" detail={[first || "No prompt yet", age && `started ${age}`].filter(Boolean).join(" · ")} onClick={() => { close(); options(); }} />
+              : <MenuItem icon={<Icon name="sliders" size={13} />} label="Launch with options…" detail="Open the composer with this text, for a launch that needs more choices" onClick={() => { close(); options(); }} />}
+            {draft && <MenuItem icon={<Icon name="plus" size={13} />} label="New agent instead" detail="Discards the draft" onClick={() => { close(); discard(); options(); }} />}
+            {draft && <MenuItem icon={<Icon name="trash" size={13} />} label={stale ? "Discard this old draft" : "Discard draft"} detail={stale ? `Started ${age}` : undefined} onClick={() => { close(); discard(); }} />}
           </>
         )}
       </Popover>

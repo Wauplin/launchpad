@@ -1,5 +1,5 @@
-// The one field of the top bar: Ask (a message to a bot of the workspace, shown in the Ask panel), Launch (an agent
-// at once, with the page as context and the folder's defaults) and Options (the full composer with the text).
+// The one field of the top bar: Ask (a message to a bot of the workspace, shown in the Ask panel) and Launch (an agent
+// at once, with the page as context and the folder's defaults; its menu opens the full composer with the text).
 // The page you are on is the context: a folder, a GitHub item, a session's trace, a Local PR or a settings page.
 // The primary button follows the page: Launch on folder and session pages, Ask elsewhere. Enter sends with it.
 
@@ -12,7 +12,7 @@ import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
-import { OptionsButton, openOptions } from "@/features/launch/LaunchButton";
+import { LaunchSplitButton, openOptions } from "@/features/launch/LaunchButton";
 import { itemKey } from "@/features/github/lib";
 import type { Item } from "@/features/github/types";
 import { runAction } from "@/lib/actions";
@@ -143,8 +143,8 @@ export function CommandField() {
           className="min-h-6 min-w-0 flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-5 outline-none" />
       </div>
       {bot && <button className={`btn ${ctx.primary === "ask" ? "btn-primary" : ""}`} data-tour="topbar.ask" title={`${askLabel}: the answer opens in the Ask panel${ctx.line ? ", with the page as context" : ""}`} disabled={busy} onClick={() => void ask()}><Icon name="send" size={13} />Ask</button>}
-      <button className={`btn ${ctx.primary === "launch" || !bot ? "btn-primary" : ""}`} data-tour="topbar.launch" title={`Launch an agent at once${ctx.launch ? " with the page as context" : ""}, with the folder's defaults`} onClick={launch}><Icon name="play" size={13} />Launch</button>
-      <OptionsButton ctx={ctx.launch} text={text} onUsed={() => setText("")} />
+      <LaunchSplitButton ctx={ctx.launch} text={text} onLaunch={launch} onUsed={() => setText("")} primary={ctx.primary === "launch" || !bot}
+        title={text.trim() ? `Launch an agent at once${ctx.launch ? " with the page as context" : ""}, with the folder's defaults` : "Open the composer"} />
     </div>
   );
 }

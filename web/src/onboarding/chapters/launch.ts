@@ -5,8 +5,9 @@ import { emptySpec, useComposer } from "@/stores/composer";
 import { world } from "@/demo/world";
 import { P } from "@/demo/world/ids";
 import { isPlaying, skipToEnd } from "@/demo/player";
-import { anchor, clickAnchor, navigate, typeInto, waitFor } from "./helpers";
+import { anchor, navigate, typeInto, waitFor } from "./helpers";
 import { meta } from "./meta";
+import { openOptions } from "@/features/launch/LaunchButton";
 
 export const EXAMPLE_PROMPT = "Fix the flaky checkout test in storefront: it fails about one CI run in ten.";
 
@@ -19,14 +20,14 @@ const launched = () => world.sessions.length > before ? world.sessions.find((s) 
 
 export const launch: Chapter = {
   ...meta("launch"),
-  learned: ["The top-bar field launches at once with the page as context; Options opens the composer, prompt first", "@, / and # in the prompt suggest files, skills and context", "A new worktree keeps your checkout untouched", "The option line shows the profile and only what differs from the defaults", "Trace shows the run; Summary its outcome and next steps"],
+  learned: ["The top-bar field launches at once with the page as context; Launch with an empty field opens the composer, prompt first", "@, / and # in the prompt suggest files, skills and context", "A new worktree keeps your checkout untouched", "The option line shows the profile and only what differs from the defaults", "Trace shows the run; Summary its outcome and next steps"],
   setup: () => { before = world.sessions.length; },
   steps: [
     {
-      id: "launch.open", route: "/agents", anchor: "topbar.options",
+      id: "launch.open", route: "/agents", anchor: "topbar.launch",
       title: "Launch an agent",
-      body: "Type a task in the top-bar field and press Launch: an agent starts at once with the page you are on as context and the folder's defaults. Options opens the composer instead, for a launch that needs more choices. A draft survives reloads; Minimize keeps it as a badge on Options.",
-      tryIt: { text: "click Options.", done: () => { const c = useComposer.getState(); return c.open && !c.minimized; }, doIt: () => clickAnchor("topbar.options") },
+      body: "Type a task in the top-bar field and press Launch: an agent starts at once with the page you are on as context and the folder's defaults. With an empty field, Launch opens the composer instead; ▾ → Launch with options opens it with your text, for a launch that needs more choices. A draft survives reloads; Minimize keeps it as a badge on Launch.",
+      tryIt: { text: "click Launch with an empty field.", done: () => { const c = useComposer.getState(); return c.open && !c.minimized; }, doIt: () => openOptions(undefined, "") },
     },
     {
       id: "launch.prompt", anchor: "composer.prompt",

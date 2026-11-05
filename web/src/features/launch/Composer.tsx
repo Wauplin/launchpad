@@ -434,7 +434,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   if (autoLaunchUntil > Date.now() && canLaunch && !launching && timing === "now" && !conflict)
     queueMicrotask(() => { if (useComposer.getState().autoLaunchUntil > Date.now()) { useComposer.setState({ autoLaunchUntil: 0 }); void launch(); } });
 
-  // A minimized draft is the "draft" badge of the top-bar Options button (OptionsButton).
+  // A minimized draft is the "draft" badge of the top-bar Launch button (LaunchSplitButton).
   if (minimized) return null;
 
   const modelLabel = spec.model ?? fallbackModel ?? "default model";
