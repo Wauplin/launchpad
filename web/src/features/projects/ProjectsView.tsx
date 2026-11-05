@@ -151,10 +151,13 @@ const FolderRow = memo(function FolderRow({ p }: { p: Project }) {
         </span>
         <span className="truncate font-mono text-[12px] text-ink-3" title={p.path}>{p.description || p.path}</span>
       </div>
-      <Link to="/projects/$id/code" params={{ id: p.id }} className="btn btn-sm no-underline" title={`Browse the files of ${p.name}`}><Icon name="folder" size={12} />{!phone && "Files"}</Link>
-      {!phone && <TerminalMenu cwd={p.path} small viewport />}
+      {/* One visible action (Launch); Files, Terminal and ⋯ on hover. */}
+      <span className="lp-row-more flex flex-none items-center gap-3">
+        <Link to="/projects/$id/code" params={{ id: p.id }} className="btn btn-sm no-underline" title={`Browse the files of ${p.name}`}><Icon name="folder" size={12} />{!phone && "Files"}</Link>
+        {!phone && <TerminalMenu cwd={p.path} small viewport />}
+      </span>
       <LaunchButton small ctx={{ projectId: p.id }} label={null} title={`Launch an agent in ${p.name}`} />
-      <FolderActions p={p} />
+      <span className="lp-row-more flex flex-none"><FolderActions p={p} /></span>
     </div>
   );
 });

@@ -15,22 +15,22 @@ export const github: Chapter = {
   setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {
-      id: "github.inbox", route: "/", anchor: "inbox.row",
+      id: "github.inbox", route: "/inbox", anchor: "inbox.row",
       title: "Your GitHub inbox",
       body: "These are your GitHub notifications. Launchpad polls GitHub every 60 seconds and keeps a local cache, so the list opens at once, also on a slow network.",
     },
     {
-      id: "github.reasons", route: "/", anchor: "inbox.reasons",
+      id: "github.reasons", route: "/inbox", anchor: "inbox.reasons",
       title: "Why you were notified",
       body: "Chips narrow the list by reason. The sidebar counts unread review requests, mentions and assignments: the threads that wait for you.",
       tryIt: { text: "filter Review requested.", done: reviewRequested, doIt: () => [...(anchor("inbox.reasons")?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.startsWith("Review requested"))?.click() },
     },
     {
-      id: "github.launch", route: "/", anchor: "inbox.row",
+      id: "github.launch", route: "/inbox", anchor: "inbox.row",
       title: "Act on a thread",
-      body: "Done archives the thread like on GitHub. Launch starts an agent with the PR or issue as context; + Add adds it to the draft you are writing.",
+      body: "Done archives the thread like on GitHub. Hover a row for its other actions: Launch starts an agent with the PR or issue as context; + Add adds it to the draft you are writing.",
       tryIt: {
-        text: "press Launch on a row to start a draft with that PR.",
+        text: "hover a row and press Launch to start a draft with that PR.",
         done: () => useComposer.getState().open && useComposer.getState().spec.github_refs.length > 0,
         doIt: async () => { const row = await waitFor(() => anchor("inbox.row")); [...(row?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.trim() === "Launch")?.click(); },
       },

@@ -38,7 +38,7 @@ const ghParams = (repo: string, number: number) => ({ owner: repo.split("/")[0],
 /** The card frame: icon, title, one meta line, then the kind's own content and buttons. `age: false` when the meta already says since when (a session's status badge). */
 function Card({ item, meta, open, children, tone = "border-line", age = true }: { item: TodayItem; meta?: ReactNode; open?: ReactNode; children?: ReactNode; tone?: string; age?: boolean }) {
   return (
-    <article data-tour="today.card" data-tour-id={item.id} className={`grid min-w-0 grid-cols-1 gap-2.5 rounded-xl border bg-paper p-3 ${tone}`}>
+    <article data-tour="today.card" data-tour-id={item.id} className={`group grid min-w-0 grid-cols-1 gap-2.5 rounded-xl border bg-paper p-3 ${tone}`}>
       <div className="flex min-w-0 items-start gap-2.5">
         <span className="grid size-7 flex-none place-items-center rounded-lg bg-sunk text-ink-2"><Icon name={ICON[item.kind]} size={14} /></span>
         <div className="min-w-0 flex-1">
@@ -129,14 +129,21 @@ export function BranchActions({ sessionId, s, onMerged, children }: { sessionId:
   </>;
 }
 
+/** Archive and Mark seen: on hover and focus of the card (always on touch screens), next to its one main action. */
+function Later({ id }: { id: string }) {
+  return <span className="lp-row-more inline-flex flex-wrap items-center gap-1.5">
+    <ActionButton name="session.archive" params={{ id }} />
+    <ActionButton name="session.seen" params={{ id }} title="Keep the agent and remove the card" />
+  </span>;
+}
+
 /** A finished agent: its last message, its branch with Merge when safe, Archive and Mark seen. */
 function FinishedCard({ item }: { item: TodayItem }) {
   const s = useSession(item.record);
   return <Card item={item} age={!s} meta={<SessionMeta s={s} item={item} />} open={<OpenSession id={item.record} />}>
     {s?.last_message && <p className="m-0 line-clamp-3 text-[13px] text-ink-2">{s.last_message}</p>}
     <BranchActions sessionId={item.record} s={s} onMerged={() => runAction("session.seen", { id: item.record }).catch(toastError)}>
-      <ActionButton name="session.archive" params={{ id: item.record }} />
-      <ActionButton name="session.seen" params={{ id: item.record }} title="Keep the agent and remove the card" />
+      <Later id={item.record} />
     </BranchActions>
   </Card>;
 }
@@ -147,8 +154,7 @@ function FailedCard({ item }: { item: TodayItem }) {
     {s?.last_message && <p className="m-0 line-clamp-3 text-[13px] text-ink-2">{s.last_message}</p>}
     <div className="flex flex-wrap items-center gap-1.5">
       <ActionButton name="session.resume" params={{ id: item.record }} body={{ continue_turn: true }} primary />
-      <ActionButton name="session.archive" params={{ id: item.record }} />
-      <ActionButton name="session.seen" params={{ id: item.record }} title="Keep the agent and remove the card" />
+      <Later id={item.record} />
     </div>
   </Card>;
 }

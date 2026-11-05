@@ -68,7 +68,7 @@ function ReadyChip({ t, s }: { t: Thread; s: Suggestion }) {
 
 const ThreadRow = memo(function ThreadRow({ t, selected, projects, ready, select, act, busy }: { t: Thread; selected: boolean; projects: Project[]; ready: Suggestion | undefined; select: (t: Thread) => void; act: (t: Thread, action: string) => void; busy: boolean }) {
   const phone = usePhone();
-  return <div data-tour="inbox.row" data-tour-id={t.id} className={`flex ${phone ? "h-[72px]" : "h-14"} items-center gap-2 border-b border-line-2 px-3 ${selected ? "bg-select" : "hover:bg-chrome"}`}>
+  return <div data-tour="inbox.row" data-tour-id={t.id} className={`group flex ${phone ? "h-[72px]" : "h-14"} items-center gap-2 border-b border-line-2 px-3 ${selected ? "bg-select" : "hover:bg-chrome"}`}>
     <button className="flex min-w-0 flex-1 items-start gap-2 text-left" onClick={() => select(t)} title={t.title} aria-current={selected || undefined}>
       <span className={`mt-1.5 size-2 flex-none rounded-full ${t.unread ? "bg-work" : "bg-transparent"}`} aria-label={t.unread ? "Unread" : undefined} />
       <span className="min-w-0 flex-1">
@@ -85,9 +85,11 @@ const ThreadRow = memo(function ThreadRow({ t, selected, projects, ready, select
       </span>
     </button>
     <button className="btn btn-sm flex-none" title="Mark as done on GitHub" aria-label={`Mark ${t.title} as done`} disabled={busy} onClick={() => act(t, "done")}><Icon name="check" size={12} />{!phone && "Done"}</button>
-    {/* The phone offers Launch and + Add in the preview. */}
-    {!phone && <LaunchButton small primary={false} ctx={launchContext(t, projects)} />}
-    {!phone && t.number !== null && (t.kind === "Issue" || t.kind === "PullRequest") && <AddContext refItem={reference(t.repo, { number: t.number, title: t.title, url: t.url }, t.kind === "PullRequest" ? "pr" : "issue")} />}
+    {/* One visible action (Done); Launch and + Add on hover. The phone offers them in the preview. */}
+    {!phone && <span className="lp-row-more flex flex-none items-center gap-2">
+      <LaunchButton small primary={false} ctx={launchContext(t, projects)} />
+      {t.number !== null && (t.kind === "Issue" || t.kind === "PullRequest") && <AddContext refItem={reference(t.repo, { number: t.number, title: t.title, url: t.url }, t.kind === "PullRequest" ? "pr" : "issue")} />}
+    </span>}
   </div>;
 });
 

@@ -411,6 +411,15 @@ button {
   .lp-copy { opacity: 1; }
 }
 
+/* List rows show one action; the others (.lp-row-more) appear on hover and keyboard focus of the row (.group),
+   stay while a menu or a confirmation of theirs is open, and stay visible on touch screens. */
+@media (hover: hover) {
+  .lp-row-more { opacity: 0; transition: opacity 0.1s; }
+  .group:hover .lp-row-more,
+  .group:focus-within .lp-row-more,
+  .lp-row-more:has([aria-expanded="true"], [role="group"]) { opacity: 1; }
+}
+
 /* Phone shell (src/mobile, :root.lp-phone): 100% zoom, touch-sized controls, 16 px fields (no zoom on focus in iOS). */
 :root.lp-phone {
   zoom: 1;
