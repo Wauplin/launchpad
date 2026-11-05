@@ -38,7 +38,7 @@ impl Role {
 }
 
 /// Version of the Home ↔ runner protocol. A runner with another protocol cannot connect.
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 2;
 
 /// How a runner's build relates to Home's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

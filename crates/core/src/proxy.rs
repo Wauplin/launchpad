@@ -290,10 +290,10 @@ static CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|
     reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).no_proxy().http1_only().build().expect("proxy HTTP client")
 });
 
-const HOP: &[&str] = &["connection", "proxy-connection", "keep-alive", "proxy-authorization", "proxy-authenticate", "te", "trailer", "transfer-encoding", "upgrade", "host"];
+pub(crate) const HOP: &[&str] = &["connection", "proxy-connection", "keep-alive", "proxy-authorization", "proxy-authenticate", "te", "trailer", "transfer-encoding", "upgrade", "host"];
 
 /// Requests whose body the access log reads to name the action (small JSON bodies only).
-fn wants_body(host: &str, method: &str, path: &str) -> (bool, bool) {
+pub(crate) fn wants_body(host: &str, method: &str, path: &str) -> (bool, bool) {
     let p = path.split('?').next().unwrap_or("");
     let req = method == "POST" && ((host == "api.github.com" && p == "/graphql") || (host == "huggingface.co" && p == "/api/repos/create"));
     let res = method == "POST" && host == "api.github.com" && (p.ends_with("/pulls") || p.ends_with("/issues"));
@@ -333,6 +333,11 @@ async fn forward(inner: &Inner, active: Option<Arc<Active>>, host: &str, target:
         if !HOP.contains(&k.as_str()) {
             headers.append(k.clone(), v.clone());
         }
+    }
+    // A relayed lease (Burst): Home adds the token, sends the request and records it.
+    let relayed = active.as_ref().filter(|_| credential.is_some()).map(|a| a.lease.read().unwrap().clone()).filter(|l| l.relayed);
+    if let Some(lease) = relayed {
+        return relay(lease.id, host, &method, target, &headers, req).await;
     }
     if let Some((secret, auth)) = &credential {
         add_auth(&mut headers, &mut url, auth, secret);
@@ -380,6 +385,23 @@ async fn forward(inner: &Inner, active: Option<Arc<Active>>, host: &str, target:
         crate::contain::record_access(app, Access { at: crate::util::now_ms(), session_id: active.session_id.clone(), host: host.into(), method, path, status, action });
     }
     out.body(body).unwrap_or_else(|e| full(StatusCode::BAD_GATEWAY, &format!("{e}")))
+}
+
+/// Sends a request of a relayed lease through the tunnel; Home adds the token.
+async fn relay(lease_id: String, host: &str, method: &str, target: &str, headers: &reqwest::header::HeaderMap, req: Request<Incoming>) -> Response<Body> {
+    let headers: Vec<(String, String)> = headers.iter().filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string()))).collect();
+    let body: crate::home_link::ByteStream = Box::pin(http_body_util::BodyDataStream::new(req.into_body()).map_err(std::io::Error::other));
+    match crate::home_link::http(crate::runners::proto::HttpTarget::Lease { lease_id, host: host.into() }, method, target, headers, body).await {
+        Ok(reply) => {
+            let mut out = Response::builder().status(reply.status);
+            for (k, v) in &reply.headers {
+                out = out.header(k, v);
+            }
+            let stream = crate::home_link::SyncStream::new(reply.body).map_ok(Frame::data);
+            out.body(BodyExt::boxed(StreamBody::new(stream))).unwrap_or_else(|e| full(StatusCode::BAD_GATEWAY, &format!("{e}")))
+        }
+        Err(e) => full(StatusCode::BAD_GATEWAY, &format!("Launchpad proxy: Home: {e:#}")),
+    }
 }
 
 async fn plain_http(req: Request<Incoming>) -> Response<Body> {

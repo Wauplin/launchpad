@@ -1208,6 +1208,15 @@ impl super::Harness for Adapter {
         let root = super::trace::root(app, session, "CODEX_HOME", ".codex").await?;
         trace_files(&root, id).await
     }
+    /// Codex finds rollouts by date: `sessions/YYYY/MM/DD/rollout-YYYY-MM-DDT…-<id>.jsonl`.
+    async fn restore_native(&self, app: &App, session: &Session, files: Vec<super::trace::TraceFile>) -> Result<()> {
+        super::trace::conversation(session)?;
+        let root = super::trace::root(app, session, "CODEX_HOME", ".codex").await?;
+        for f in files {
+            super::trace::write(&root.join("sessions"), &rollout_path(&f.name)?, &f.data)?;
+        }
+        Ok(())
+    }
     async fn models(&self, _app: &App) -> Result<Vec<ModelInfo>> {
         models(&self.server).await
     }
@@ -1396,6 +1405,14 @@ fn project_trust_override(cwd: &str) -> String {
     )
 }
 
+/// `rollout-2026-11-04T10-12-00-<id>.jsonl` → `2026/11/04/rollout-…`.
+fn rollout_path(name: &str) -> Result<String> {
+    let date = name.strip_prefix("rollout-").and_then(|r| r.get(..10)).context("not a Codex rollout")?;
+    let parts: Vec<&str> = date.split('-').collect();
+    anyhow::ensure!(parts.len() == 3 && parts.iter().all(|p| p.chars().all(|c| c.is_ascii_digit())) && !name.contains('/'), "not a Codex rollout: {name}");
+    Ok(format!("{}/{}/{}/{name}", parts[0], parts[1], parts[2]))
+}
+
 async fn trace_files(root: &std::path::Path, id: &str) -> Result<Vec<super::trace::TraceFile>> {
     let mut traces = vec![];
     for folder in ["sessions", "archived_sessions"] {
@@ -1412,6 +1429,13 @@ async fn trace_files(root: &std::path::Path, id: &str) -> Result<Vec<super::trac
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rollouts_go_back_to_their_date_folder() {
+        assert_eq!(super::rollout_path("rollout-2026-11-04T10-12-00-abc.jsonl").unwrap(), "2026/11/04/rollout-2026-11-04T10-12-00-abc.jsonl");
+        assert!(super::rollout_path("rollout-x.jsonl").is_err());
+        assert!(super::rollout_path("../rollout-2026-11-04.jsonl").is_err());
+    }
+
     #[test]
     fn process_output_is_bounded_and_survives_a_failed_turn() {
         let mut state = super::State::default();

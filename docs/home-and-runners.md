@@ -1,6 +1,6 @@
 # Home and runners
 
-Work in progress: this implements the first parts of the [Home and runners plan](https://wauplin-launchpad-bots-research.static.hf.space/index.html) (H1 to H3). The single-process mode (`launchpad daemon`, role `all`) is Home and a runner in one process: it uses Home Git too.
+Work in progress: this implements the [Home and runners plan](https://wauplin-launchpad-bots-research.static.hf.space/index.html) (H1 to H5). The single-process mode (`launchpad daemon`, role `all`) is Home and a runner in one process: it uses Home Git too.
 
 - **Home** (`launchpad daemon --role home`) keeps every record and runs no agents or terminals.
 - **Runners** (`launchpad daemon --role runner`) run agents. A runner works in its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`) and port (7320), and never reuses a single-process install's data.
@@ -24,6 +24,22 @@ The runner keeps one outbound WebSocket to Home (no inbound port) and reconnects
 A launch on Home (from the phone, another browser, a schedule) in a Git folder goes to the first runner that takes launches: it clones the folder from Home Git on first use. A folder that exists only on one runner's disk (a scratch folder, a folder without Git) goes to that runner. Follow-ups, Stop, answers and the other session actions on Home go to the session's runner; Home serves the record, the events and the trace itself. When that runner is offline, paused or refuses launches from other devices, Home says so and starts nothing. Ask Launchpad threads, accepted proposals, crons, scheduled launches and bot messages started on Home go to a runner the same way, sent once and never retried.
 
 Profiles (including vault login IDs), workspaces and Git folders belong to Home: a runner shows Home's and sends its changes to Home, so they need Home to be reachable. **Clone from GitHub** registers the repository on Home, from any window; it is the first tab of **Add folders**, and the only way to add a Git folder on Home itself. **Add folder → Browse** on a runner's window (it warns that Home backs the folder up to its cloud bucket) registers a local checkout's remote on Home (a checkout without a remote is imported into Home Git); the runner then works in its own clones, never in your checkout. Each runner keeps a local log of the launches that came from elsewhere (Settings → This runner).
+
+## Burst
+
+When a launch from Home finds no runner that takes it (your laptop is off or asleep), Home starts it on **Burst**: an HF Job in Home's namespace, from Home's own Space image, so it runs the same build. Choose **Burst** in the composer's **Runner** option to use it on purpose. Crons, scheduled launches, bots and Ask Launchpad use it the same way when no runner is online.
+
+- **No token in the job.** Home dials the job's runner through the HF Jobs proxy (the job cannot reach a private Home). The job holds no credential: its proxy sends every request that needs a token through the tunnel, and Home adds the token, sends the request and records it in the session's access log. Home Git and plain folders go through the tunnel too. Agents run without a jail inside the job: the job is the boundary.
+- **Stopped when done.** One job runs one session. When its turn ends, the runner pushes the branches, saves uncommitted files to a scratch branch and sends the conversation to Home. After Home's next complete backup, Home cancels the job. Your next message starts a new job, which takes over the session and resumes its conversation (about 30 seconds). A job without Home for 10 minutes stops on its own.
+- **Cost.** Settings → Home and runners shows this month's Burst cost, the cap (20 USD by default) and recent runs, with **Stop**. At the cap, Home starts no new job. The hardware is `cpu-basic` by default (0.01 USD per hour).
+
+Burst needs Home to run in a Hugging Face Space, with its Hugging Face login.
+
+## Move a session
+
+Between turns, a session can move to another runner: in its Summary, **Runs on** → **Move to…** lists the connected runners and Burst. The old runner pushes the branches, saves uncommitted files to a scratch branch and removes its folders; the new one clones the worktrees again from Home Git on the next message, and the harness resumes the same conversation (Claude Code and Codex). The move increases the session's generation, so the old runner can no longer push its branches or get a lease.
+
+Every runner sends the conversation of a session to Home at the end of each turn, when it changed. So a session can also move while its runner is offline (a sleeping laptop): Move to Burst continues it from the last turn's branches and conversation; files that were not committed stay on that machine.
 
 ## Sessions on Home
 

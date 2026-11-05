@@ -42,6 +42,15 @@ pub fn conversation(session: &Session) -> Result<&str> {
     Ok(id)
 }
 
+/// Writes a restored trace file under `dir`. Names are relative paths without `..`.
+pub fn write(dir: &Path, name: &str, data: &[u8]) -> Result<()> {
+    anyhow::ensure!(!name.is_empty() && !name.starts_with('/') && name.split('/').all(|p| !p.is_empty() && p != ".." && p != "."), "invalid trace file name {name:?}");
+    let path = dir.join(name);
+    std::fs::create_dir_all(path.parent().context("trace file without a folder")?)?;
+    std::fs::write(path, data)?;
+    Ok(())
+}
+
 pub async fn read(path: &Path, name: String) -> Result<TraceFile> {
     let mut data = crate::hostfs::read_limited(path, 256 * 1024 * 1024).await?;
     // A live JSONL writer may be halfway through its last record. Retry that tail next pass.

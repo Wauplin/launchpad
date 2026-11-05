@@ -14,7 +14,6 @@ use launchpad_core::App;
 use launchpad_core::home_link::{self, Link, TunnelState};
 use launchpad_core::{replica, role};
 use launchpad_core::runners::proto::{FromRunner, ToRunner};
-use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tower::ServiceExt;
 
@@ -23,12 +22,101 @@ const PING: Duration = Duration::from_secs(25);
 /// Marks requests that arrived from Home through the tunnel.
 pub const FROM_HOME: &str = "x-launchpad-from-home";
 
+type Head = (u16, Vec<(String, String)>);
+type BodyTx = tokio::sync::mpsc::UnboundedSender<Result<bytes::Bytes, std::io::Error>>;
+
 /// The open tunnel, for requests from this runner to Home.
 #[derive(Default)]
 struct HomeHandle {
     tx: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<FromRunner>>>,
     pending: std::sync::Mutex<std::collections::HashMap<u64, tokio::sync::oneshot::Sender<(u16, String)>>>,
     next: std::sync::atomic::AtomicU64,
+    /// HTTP exchanges through Home: waiting for their head, then receiving their body.
+    heads: std::sync::Mutex<std::collections::HashMap<u64, tokio::sync::oneshot::Sender<Head>>>,
+    bodies: std::sync::Mutex<std::collections::HashMap<u64, BodyTx>>,
+}
+
+impl HomeHandle {
+    /// The tunnel closed: waiting requests and exchanges fail now instead of timing out.
+    fn clear(&self) {
+        *self.tx.lock().unwrap() = None;
+        self.pending.lock().unwrap().clear();
+        self.heads.lock().unwrap().clear();
+        for (_, b) in self.bodies.lock().unwrap().drain() {
+            let _ = b.send(Err(std::io::Error::other("Home disconnected")));
+        }
+    }
+}
+
+/// Largest body part per frame, before base64.
+const CHUNK: usize = 256 * 1024;
+
+fn b64(data: &[u8]) -> String {
+    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, data)
+}
+
+/// Opens an HTTP exchange through Home and streams the request body there.
+async fn stream_to_home(target: launchpad_core::runners::proto::HttpTarget, method: String, path: String, headers: Vec<(String, String)>, mut body: home_link::ByteStream) -> anyhow::Result<home_link::HttpReply> {
+    let id = HOME.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    let (head_tx, head_rx) = tokio::sync::oneshot::channel();
+    let (body_tx, body_rx) = tokio::sync::mpsc::unbounded_channel();
+    HOME.heads.lock().unwrap().insert(id, head_tx);
+    HOME.bodies.lock().unwrap().insert(id, body_tx);
+    let tx = HOME.tx.lock().unwrap().clone();
+    let Some(tx) = tx.filter(|t| t.send(FromRunner::HttpOpen { id, target, method, path, headers }).is_ok()) else {
+        HOME.heads.lock().unwrap().remove(&id);
+        HOME.bodies.lock().unwrap().remove(&id);
+        anyhow::bail!("Home is unreachable");
+    };
+    tokio::spawn(async move {
+        while let Some(part) = body.next().await {
+            let Ok(part) = part else { break };
+            for c in part.chunks(CHUNK) {
+                if tx.send(FromRunner::HttpBody { id, data: b64(c), end: false }).is_err() {
+                    return;
+                }
+            }
+        }
+        let _ = tx.send(FromRunner::HttpBody { id, data: String::new(), end: true });
+    });
+    let (status, headers) = match tokio::time::timeout(Duration::from_secs(120), head_rx).await {
+        Ok(Ok(h)) => h,
+        Ok(Err(_)) => anyhow::bail!("Home disconnected before answering"),
+        Err(_) => {
+            HOME.heads.lock().unwrap().remove(&id);
+            HOME.bodies.lock().unwrap().remove(&id);
+            anyhow::bail!("Home did not answer within two minutes")
+        }
+    };
+    let body = futures_util::stream::unfold(body_rx, |mut rx| async move { rx.recv().await.map(|item| (item, rx)) });
+    Ok(home_link::HttpReply { status, headers, body: Box::pin(body) })
+}
+
+/// Home answered an exchange: its head, or a part of its body.
+fn http_from_home(msg: ToRunner) {
+    match msg {
+        ToRunner::HttpHead { id, status, headers } => {
+            if let Some(tx) = HOME.heads.lock().unwrap().remove(&id) {
+                let _ = tx.send((status, headers));
+            }
+        }
+        ToRunner::HttpBody { id, data, end, error } => {
+            let mut bodies = HOME.bodies.lock().unwrap();
+            if let Some(tx) = bodies.get(&id) {
+                if !data.is_empty() {
+                    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data).map_err(std::io::Error::other);
+                    let _ = tx.send(bytes.map(bytes::Bytes::from));
+                }
+                if let Some(e) = error {
+                    let _ = tx.send(Err(std::io::Error::other(e)));
+                }
+            }
+            if end {
+                bodies.remove(&id);
+            }
+        }
+        _ => {}
+    }
 }
 
 static HOME: std::sync::LazyLock<HomeHandle> = std::sync::LazyLock::new(HomeHandle::default);
@@ -80,6 +168,8 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || path == "/api/proposals" || path.starts_with("/api/proposals/")
         || path == "/api/bots" || path.starts_with("/api/bots/") || path == "/api/context/bots"
         || (path.starts_with("/api/sessions/") && path.ends_with("/access"))
+        || path == "/api/suggestions" || path.starts_with("/api/suggestions/")
+        || path == "/api/channels" || path.starts_with("/api/channels/") || path == "/api/outbox" || path.starts_with("/api/outbox/")
 }
 
 /// Home: requests a runner may send through its tunnel (as Home's owner).
@@ -109,9 +199,92 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
     }
 }
 
+/// A Burst runner's tunnels: Home dials `/api/runner/reverse`, which hands the socket to the tunnel loop.
+static REVERSE: std::sync::LazyLock<(tokio::sync::mpsc::UnboundedSender<axum::extract::ws::WebSocket>, tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<axum::extract::ws::WebSocket>>)> =
+    std::sync::LazyLock::new(|| {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        (tx, tokio::sync::Mutex::new(rx))
+    });
+
+/// `/api/runner/reverse` on a Burst runner: Home's connection, with the runner's own credential.
+pub async fn reverse(headers: axum::http::HeaderMap, ws: axum::extract::WebSocketUpgrade) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let Some(b) = home_link::burst() else { return axum::http::StatusCode::NOT_FOUND.into_response() };
+    let given = headers.get(crate::runners::CREDENTIAL_HEADER).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let expected = format!("{}.{}", b.id, b.secret);
+    let same = given.len() == expected.len() && given.bytes().zip(expected.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0;
+    if !same {
+        return axum::http::StatusCode::UNAUTHORIZED.into_response();
+    }
+    ws.on_upgrade(|socket| async move {
+        let _ = REVERSE.0.send(socket);
+    })
+}
+
+/// A Burst runner with no Home connection for this long stops (its job ends): the same idle timeout as an HF
+/// Sandbox's default.
+const BURST_IDLE: Duration = Duration::from_secs(10 * 60);
+
+/// A Burst runner: Home Git and plain-folder requests to `127.0.0.1:<port>` go through the tunnel.
+async fn local_relay() -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    home_link::set_local_home(listener.local_addr()?.port());
+    let relay = Router::new().fallback(|req: axum::extract::Request| async move {
+        use axum::response::IntoResponse;
+        let (parts, body) = req.into_parts();
+        let path = parts.uri.path_and_query().map(|p| p.to_string()).unwrap_or_default();
+        let headers: Vec<(String, String)> = parts.headers.iter().filter(|(k, _)| *k != header::HOST).filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string()))).collect();
+        let stream = body.into_data_stream().map(|r| r.map_err(std::io::Error::other));
+        match home_link::http(launchpad_core::runners::proto::HttpTarget::Home, parts.method.as_str(), &path, headers, Box::pin(stream)).await {
+            Ok(reply) => {
+                let mut out = axum::response::Response::builder().status(reply.status);
+                for (k, v) in &reply.headers {
+                    out = out.header(k, v);
+                }
+                out.body(Body::from_stream(reply.body)).unwrap_or_else(|e| crate::error::ApiError::bad_request(format!("{e}")).into_response())
+            }
+            Err(e) => crate::error::ApiError::new(axum::http::StatusCode::BAD_GATEWAY, format!("{e:#}")).into_response(),
+        }
+    });
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, relay).await;
+    });
+    Ok(())
+}
+
 pub fn spawn(app: App, router: Router) {
     launchpad_core::home_link::set_requester(Box::new(|method, path, body| Box::pin(async move { to_home(&method, &path, body).await })));
     launchpad_core::home_link::set_caller(Box::new(|op, body| Box::pin(call_home(op, body))));
+    launchpad_core::home_link::set_streamer(Box::new(|target, method, path, headers, body| Box::pin(stream_to_home(target, method, path, headers, body))));
+    if let Some(b) = home_link::burst() {
+        let url = b.home_url.clone();
+        tokio::spawn(async move {
+            if let Err(e) = local_relay().await {
+                tracing::warn!("Burst relay: {e:#}");
+            }
+            let mut last = tokio::time::Instant::now();
+            loop {
+                home_link::set_state(&app, Some(url.clone()), TunnelState::Connecting, Some("waiting for Home".into()), None);
+                let next = tokio::time::timeout_at(last + BURST_IDLE, async { REVERSE.1.lock().await.recv().await }).await;
+                let socket = match next {
+                    Ok(Some(s)) => s,
+                    Ok(None) => return,
+                    Err(_) => {
+                        tracing::info!("no connection from Home for {} minutes: this Burst runner stops", BURST_IDLE.as_secs() / 60);
+                        std::process::exit(0);
+                    }
+                };
+                let (tx, rx) = crate::wire::axum(socket);
+                match session(&app, &router, &url, tx, rx).await {
+                    Ok(Some(reason)) => home_link::set_state(&app, Some(url.clone()), TunnelState::Refused, Some(reason), None),
+                    Ok(None) => home_link::set_state(&app, Some(url.clone()), TunnelState::Offline, Some("Home closed the connection".into()), None),
+                    Err(e) => home_link::set_state(&app, Some(url.clone()), TunnelState::Offline, Some(format!("{e:#}")), None),
+                }
+                last = tokio::time::Instant::now();
+            }
+        });
+        return;
+    }
     tokio::spawn(async move {
         let mut backoff = Duration::from_secs(2);
         loop {
@@ -149,38 +322,49 @@ fn tunnel_url(url: &str) -> String {
 
 /// One connection. `Ok(Some(reason))`: Home refused the runner.
 async fn run(app: &App, router: &Router, link: &Link) -> anyhow::Result<Option<String>> {
+    let (tx, rx) = match dial(link).await? {
+        Ok(wire) => wire,
+        Err(reason) => return Ok(Some(reason)),
+    };
+    session(app, router, &link.url, tx, rx).await
+}
+
+/// Dials Home's tunnel endpoint. `Ok(Err(reason))`: Home does not know this runner.
+async fn dial(link: &Link) -> anyhow::Result<Result<(crate::wire::WireTx, crate::wire::WireRx), String>> {
     let mut request = tunnel_url(&link.url).into_client_request()?;
     request.headers_mut().insert(crate::runners::CREDENTIAL_HEADER, link.credential().parse()?);
     if let Some(token) = home_link::space_token(&link.url) {
         request.headers_mut().insert(header::AUTHORIZATION, format!("Bearer {token}").parse()?);
     }
-    let socket = match tokio::time::timeout(Duration::from_secs(30), tokio_tungstenite::connect_async(request)).await? {
-        Ok((socket, _)) => socket,
+    match tokio::time::timeout(Duration::from_secs(30), tokio_tungstenite::connect_async(request)).await? {
+        Ok((socket, _)) => Ok(Ok(crate::wire::tungstenite(socket))),
         Err(tokio_tungstenite::tungstenite::Error::Http(res)) if res.status() == 401 => {
-            return Ok(Some("this runner is unknown to Home (removed or never approved): run launchpad connect again".into()));
+            Ok(Err("this runner is unknown to Home (removed or never approved): run launchpad connect again".into()))
         }
-        Err(e) => return Err(e.into()),
-    };
-    let (mut tx, mut rx) = socket.split();
-    let text = |m: &FromRunner| Message::Text(serde_json::to_string(m).unwrap_or_default().into());
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// The protocol over one connection, whichever side dialed.
+async fn session(app: &App, router: &Router, url: &str, mut tx: crate::wire::WireTx, mut rx: crate::wire::WireRx) -> anyhow::Result<Option<String>> {
+    let text = |m: &FromRunner| serde_json::to_string(m).unwrap_or_default();
     let guard = home_link::guard(&app.paths);
     let status = app.status.get();
     let capabilities = launchpad_core::runners::capabilities(app).await;
     tx.send(text(&FromRunner::Hello { protocol: role::PROTOCOL, commit: launchpad_core::COMMIT.into(), name: status.host.clone(), os: std::env::consts::OS.into(), guard: guard.clone(), capabilities })).await?;
     let (compat, acked) = loop {
         match tokio::time::timeout(Duration::from_secs(30), rx.next()).await? {
-            Some(Ok(Message::Text(t))) => match serde_json::from_str::<ToRunner>(&t)? {
+            Some(Ok(t)) => match serde_json::from_str::<ToRunner>(&t)? {
                 ToRunner::Welcome { compat, acked, .. } => break (compat, acked),
                 ToRunner::Refuse { reason } => return Ok(Some(reason)),
                 _ => {}
             },
-            Some(Ok(_)) => {}
-            Some(Err(e)) => return Err(e.into()),
+            Some(Err(e)) => return Err(e),
             None => return Ok(None),
         }
     };
-    home_link::set_state(app, Some(link.url.clone()), TunnelState::Connected, None, Some(compat));
-    tracing::info!("connected to Home {} ({compat:?})", link.url);
+    home_link::set_state(app, Some(url.to_string()), TunnelState::Connected, None, Some(compat));
+    tracing::info!("connected to Home {url} ({compat:?})");
     // Everything Home saved can go; the rest is sent again, in order.
     replica::acked(app, acked).await?;
     let cursor = acked;
@@ -188,16 +372,12 @@ async fn run(app: &App, router: &Router, link: &Link) -> anyhow::Result<Option<S
     *HOME.tx.lock().unwrap() = Some(res_tx.clone());
     let result = serve(app, router, &mut tx, &mut rx, res_tx, &mut res_rx, cursor).await;
     // Requests to Home fail now instead of timing out.
-    *HOME.tx.lock().unwrap() = None;
-    HOME.pending.lock().unwrap().clear();
+    HOME.clear();
     result
 }
 
-type Tx = futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, Message>;
-type Rx = futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>;
-
-async fn serve(app: &App, router: &Router, tx: &mut Tx, rx: &mut Rx, res_tx: tokio::sync::mpsc::UnboundedSender<FromRunner>, res_rx: &mut tokio::sync::mpsc::UnboundedReceiver<FromRunner>, mut cursor: u64) -> anyhow::Result<Option<String>> {
-    let text = |m: &FromRunner| Message::Text(serde_json::to_string(m).unwrap_or_default().into());
+async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mut crate::wire::WireRx, res_tx: tokio::sync::mpsc::UnboundedSender<FromRunner>, res_rx: &mut tokio::sync::mpsc::UnboundedReceiver<FromRunner>, mut cursor: u64) -> anyhow::Result<Option<String>> {
+    let text = |m: &FromRunner| serde_json::to_string(m).unwrap_or_default();
     let mut guard = home_link::guard(&app.paths);
     let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING, PING);
     let mut last_heard = tokio::time::Instant::now();
@@ -227,9 +407,8 @@ async fn serve(app: &App, router: &Router, tx: &mut Tx, rx: &mut Rx, res_tx: tok
             }
             frame = rx.next() => {
                 let Some(frame) = frame else { return Ok(None) };
-                let frame = frame?;
+                let t = frame?;
                 last_heard = tokio::time::Instant::now();
-                let Message::Text(t) = frame else { continue };
                 match serde_json::from_str::<ToRunner>(&t) {
                     Ok(ToRunner::Req { id, method, path, body, headers }) => {
                         let (app, router, res_tx) = (app.clone(), router.clone(), res_tx.clone());
@@ -254,6 +433,7 @@ async fn serve(app: &App, router: &Router, tx: &mut Tx, rx: &mut Rx, res_tx: tok
                     Ok(ToRunner::Revoke { lease_id }) => launchpad_core::contain::revoked(app, &lease_id).await,
                     Ok(ToRunner::Quotas { quotas }) => launchpad_core::quota::apply_home_readings(app, quotas),
                     Ok(ToRunner::Refuse { reason }) => return Ok(Some(reason)),
+                    Ok(msg @ (ToRunner::HttpHead { .. } | ToRunner::HttpBody { .. })) => http_from_home(msg),
                     Ok(_) => {}
                     Err(e) => tracing::warn!("Home sent a bad message: {e}"),
                 }

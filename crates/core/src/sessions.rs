@@ -614,6 +614,53 @@ impl Sessions {
         Ok(s)
     }
 
+    /// Runner: records a session Home moved here (`handoff::adopt`). Its history stays on Home; new events
+    /// continue its numbering.
+    pub(crate) async fn adopt(&self, app: &App, s: Session) -> Result<()> {
+        let stored = s.clone();
+        app.state_db.call(move |c| Self::store(c, &stored)).await?;
+        self.inner.records.lock().unwrap().insert(s.id.clone(), s.clone());
+        app.bus.publish("sessions", "updated", serde_json::to_value(s.light())?);
+        self.publish_counts(app);
+        Ok(())
+    }
+
+    /// Home: the record of a launch that waits for its Burst runner (`burst::launch`); the runner's own record
+    /// replaces it.
+    pub(crate) async fn placeholder(&self, app: &App, s: Session) -> Result<()> {
+        let stored = s.clone();
+        app.state_db.call(move |c| Self::store(c, &stored)).await?;
+        self.inner.records.lock().unwrap().insert(s.id.clone(), s.clone());
+        app.bus.publish("sessions", "updated", serde_json::to_value(s.light())?);
+        self.publish_counts(app);
+        Ok(())
+    }
+
+    /// Home: a status Home sets itself for a session no runner holds (a stopped Burst job, a failed start).
+    pub(crate) async fn set_replica_status(&self, app: &App, id: &str, status: SessionStatus) -> Result<Session> {
+        let s = self.update(app, id, |s| {
+            s.change_status(status);
+            s.status_since = now_ms();
+            if status == SessionStatus::Closed {
+                s.ended_at = Some(now_ms());
+            }
+        })
+        .await?;
+        self.publish_counts(app);
+        Ok(s)
+    }
+
+    /// Home: the session moves to another runner, in a new generation. Records and events of the older one are
+    /// ignored from now on.
+    pub(crate) async fn reassign(&self, app: &App, id: &str, runner_id: &str) -> Result<Session> {
+        let _action = self.action_lock().await;
+        self.update(app, id, |s| {
+            s.generation += 1;
+            s.runner_id = Some(runner_id.to_string());
+        })
+        .await
+    }
+
     /// A focused window showed the session: it no longer needs you until its status changes again.
     pub async fn mark_seen(&self, app: &App, id: &str) -> Result<Session> {
         let _action = self.action_lock().await;
@@ -2239,6 +2286,7 @@ impl Sink {
             tokio::spawn(async move {
                 crate::worktrees::after_turn(&app, &id).await;
                 crate::plain::after_turn(&app, &id).await;
+                crate::handoff::after_turn(&app, &id).await;
             });
         }
         self.sessions.publish_counts(&self.app);

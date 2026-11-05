@@ -227,7 +227,7 @@ pub fn template_help() -> Vec<TemplateHelp> {
 
 /// Home's own token for `source`: GitHub from `GH_TOKEN`/`GITHUB_TOKEN` or `gh auth token`, Hugging Face from
 /// `HF_TOKEN` or the `hf` token file. Only on Home; the daemon inherits `GH_CONFIG_DIR` and `HF_HOME`.
-async fn home_token(app: &App, source: HomeToken) -> Option<String> {
+pub(crate) async fn home_token(app: &App, source: HomeToken) -> Option<String> {
     if app.paths.role != crate::role::Role::Home {
         return None;
     }
@@ -275,6 +275,8 @@ fn valid_env(name: &str) -> bool {
 pub fn check_tool(t: &Tool) -> Result<()> {
     anyhow::ensure!(valid_id(&t.id), "a tool ID uses lowercase letters, digits and dashes");
     anyhow::ensure!(!t.name.trim().is_empty(), "a tool needs a name");
+    // Channel secrets (webhook URLs, the Telegram token) are used by Home only, never lent to sessions.
+    anyhow::ensure!(!t.credential.as_deref().is_some_and(|c| c.starts_with("channel-")), "channel-… entries belong to Settings → Channels and cannot be lent to tools");
     for v in &t.env {
         anyhow::ensure!(valid_env(v), "{v:?} is not a variable name");
         anyhow::ensure!(!RESERVED_ENV.contains(&v.as_str()), "{v} is set by Launchpad");
@@ -363,11 +365,12 @@ async fn ssh_public(app: &App, private: &str) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).split_whitespace().take(2).collect::<Vec<_>>().join(" "))
 }
 
-/// Every entry, without secrets.
+/// Every entry, without secrets. Channel secrets (`channel-…`, webhook URLs and the Telegram token) belong to
+/// Settings → Channels and are not listed here.
 pub async fn entries(app: &App) -> Result<Vec<VaultEntry>> {
     app.state_db
         .call(|c| {
-            let mut st = c.prepare("SELECT id, kind, name, detail, updated_at FROM vault ORDER BY name")?;
+            let mut st = c.prepare("SELECT id, kind, name, detail, updated_at FROM vault WHERE id NOT LIKE 'channel-%' ORDER BY name")?;
             let rows = st
                 .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, i64>(4)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -400,7 +403,7 @@ pub async fn test_tool(app: &App, id: &str) -> Result<ToolTest> {
     })
 }
 
-async fn secret(app: &App, id: &str) -> Result<Option<(Kind, String)>> {
+pub(crate) async fn secret(app: &App, id: &str) -> Result<Option<(Kind, String)>> {
     let id = id.to_string();
     app.state_db
         .call(move |c| {
@@ -558,6 +561,9 @@ pub struct Lease {
     pub ssh: bool,
     pub git_name: Option<String>,
     pub git_email: Option<String>,
+    /// The runner holds no token (Burst): its proxy sends requests to Home, which adds them (`token_relay`).
+    #[serde(default)]
+    pub relayed: bool,
 }
 
 /// Login hosts: where the proxy adds a harness login (declared by its adapter).
@@ -581,9 +587,13 @@ pub struct LeaseInfo {
     /// Credentials in the lease (entry IDs) and granted tools.
     pub credentials: Vec<String>,
     pub tools: Vec<String>,
+    /// What the runner asked for, so Home can rebuild a relayed lease after a restart.
+    #[serde(default)]
+    #[ts(skip)]
+    pub request: Option<LeaseRequest>,
 }
 
-async fn lease_rows(app: &App, filter: Option<String>) -> Result<Vec<LeaseInfo>> {
+pub(crate) async fn lease_rows(app: &App, filter: Option<String>) -> Result<Vec<LeaseInfo>> {
     app.state_db
         .call(move |c| {
             let sql = "SELECT json FROM vault_lease WHERE ?1 IS NULL OR session_id = ?1 ORDER BY created_at DESC LIMIT 200";
@@ -613,7 +623,7 @@ pub async fn leases(app: &App, session_id: Option<&str>) -> Result<Vec<LeaseInfo
 }
 
 /// Home refuses a session that runs on another runner or in a newer generation.
-fn check_owner(app: &App, runner_id: Option<&str>, session_id: &str, generation: u32) -> Result<()> {
+pub(crate) fn check_owner(app: &App, runner_id: Option<&str>, session_id: &str, generation: u32) -> Result<()> {
     let Some(s) = app.sessions.get(session_id) else { return Ok(()) };
     if s.generation > generation {
         bail!("this session moved to another runner");
@@ -631,6 +641,7 @@ pub async fn grant(app: &App, runner_id: Option<&str>, req: &LeaseRequest) -> Re
     ensure_home(app)?;
     check_owner(app, runner_id, &req.session_id, req.generation)?;
     let lease = build(app, &uuid::Uuid::new_v4().to_string(), req).await?;
+    let lease = relay_if_burst(app, runner_id, lease).await;
     let now = now_ms();
     save_lease(app, &LeaseInfo {
         id: lease.id.clone(),
@@ -642,13 +653,28 @@ pub async fn grant(app: &App, runner_id: Option<&str>, req: &LeaseRequest) -> Re
         revoked_at: None,
         credentials: lease.credentials.iter().map(|c| c.id.clone()).collect(),
         tools: lease.tools.iter().map(|t| t.id.clone()).collect(),
+        request: Some(req.clone()),
     })
     .await?;
     app.bus.publish("vault", "leases", json!({"session_id": req.session_id}));
     Ok(lease)
 }
 
-async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Result<Lease> {
+/// A Burst runner gets the lease without its secrets: Home keeps them and adds them to relayed requests.
+async fn relay_if_burst(app: &App, runner_id: Option<&str>, mut lease: Lease) -> Lease {
+    let Some(r) = runner_id else { return lease };
+    if !crate::runners::is_burst(app, r).await {
+        return lease;
+    }
+    crate::token_relay::hold(r, &lease);
+    lease.relayed = true;
+    for c in &mut lease.credentials {
+        c.secret.clear();
+    }
+    lease
+}
+
+pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Result<Lease> {
     let entries = entries(app).await?;
     let mut credentials = vec![];
     // The harness login.
@@ -704,6 +730,7 @@ async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Result<Lease> {
         ssh,
         git_name: Some(home.git_name).filter(|s| !s.trim().is_empty()),
         git_email: Some(home.git_email).filter(|s| !s.trim().is_empty()),
+        relayed: false,
     })
 }
 
@@ -715,6 +742,7 @@ pub async fn renew(app: &App, runner_id: Option<&str>, lease_id: &str, req: &Lea
     anyhow::ensure!(info.runner_id.as_deref() == runner_id, "this lease belongs to another runner");
     check_owner(app, runner_id, &req.session_id, req.generation)?;
     let lease = build(app, lease_id, req).await?;
+    let lease = relay_if_burst(app, runner_id, lease).await;
     info.renewed_at = now_ms();
     save_lease(app, &info).await?;
     Ok(lease)
@@ -729,6 +757,7 @@ pub async fn revoke(app: &App, lease_id: &str) -> Result<()> {
         info.revoked_at = Some(now_ms());
         save_lease(app, &info).await?;
     }
+    crate::token_relay::forget(lease_id);
     match &info.runner_id {
         Some(r) => app.runners.send_to(r, crate::runners::proto::ToRunner::Revoke { lease_id: lease_id.into() }),
         None => app.proxy.drop_lease(lease_id),
@@ -752,6 +781,7 @@ pub async fn runner_call(app: &App, runner_id: Option<&str>, op: &str, body: Val
         "release" => {
             let lease_id = body["lease_id"].as_str().context("lease_id")?;
             let info = lease_rows(app, None).await?.into_iter().find(|l| l.id == lease_id);
+            crate::token_relay::forget(lease_id);
             if let Some(mut info) = info.filter(|l| l.revoked_at.is_none() && l.runner_id.as_deref() == runner_id) {
                 info.revoked_at = Some(now_ms());
                 save_lease(app, &info).await?;

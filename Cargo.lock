@@ -2857,6 +2857,7 @@ dependencies = [
  "anyhow",
  "axum",
  "base64 0.22.1",
+ "bytes",
  "futures-util",
  "hex",
  "launchpad-core",

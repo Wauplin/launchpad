@@ -441,6 +441,11 @@ pub fn router() -> Router<Server> {
 }
 
 pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Response {
+    // A Burst runner's only entry: Home dials it through the HF Jobs proxy (another Host), with the runner's
+    // own credential, checked by the handler.
+    if req.uri().path() == "/api/runner/reverse" && launchpad_core::home_link::burst().is_some() {
+        return next.run(req).await;
+    }
     if let Err(message) = s.auth.check_front_door(req.headers(), req.method()) {
         return (StatusCode::FORBIDDEN, message).into_response();
     }
@@ -463,7 +468,7 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
         return private_response(next.run(req).await, private);
     }
     // Runners authenticate these with their own credential, checked by the handlers.
-    if crate::runners::runner_path(path) || crate::git_http::git_path(path) || crate::plain_http::runner_request(path, req.headers()) {
+    if crate::runners::runner_path(path) || crate::burst::runner_path(path) || crate::git_http::git_path(path) || crate::plain_http::runner_request(path, req.headers()) {
         return private_response(next.run(req).await, true);
     }
     // Session-scoped CLI token: verify the durable generation and restrict the router surface before relays.

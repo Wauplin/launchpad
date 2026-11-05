@@ -11,4 +11,8 @@ vm: boolean,
 /**
  * Docker works for agents there (only on a Local VM: Docker needs root).
  */
-docker: boolean, };
+docker: boolean, 
+/**
+ * A Burst runner (HF Job): the job contains the agents, Home adds every token.
+ */
+burst: boolean, };

@@ -169,6 +169,11 @@ pub trait Harness: Send + Sync {
     async fn native_trace(&self, _app: &App, _session: &Session) -> Result<Vec<trace::TraceFile>> {
         bail!("native trace export is not supported")
     }
+    /// Puts native trace files (from `native_trace` on another runner) where this harness resumes the
+    /// conversation of a moved session, under the session's folder here (`session.cwd`).
+    async fn restore_native(&self, _app: &App, _session: &Session, _files: Vec<trace::TraceFile>) -> Result<()> {
+        bail!("this harness's conversations cannot move to another runner yet")
+    }
     async fn models(&self, _app: &App) -> Result<Vec<ModelInfo>> {
         Ok(vec![])
     }

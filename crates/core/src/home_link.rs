@@ -34,7 +34,40 @@ fn guard_file(paths: &Paths) -> std::path::PathBuf {
 }
 
 pub fn load(paths: &Paths) -> Option<Link> {
+    if let Some(b) = burst() {
+        // A Burst runner reaches Home only through its tunnel: Home Git and plain folders go to a local relay.
+        let port = *LOCAL_HOME.get()?;
+        return Some(Link { url: format!("http://127.0.0.1:{port}"), id: b.id.clone(), secret: b.secret.clone() });
+    }
     serde_json::from_slice(&std::fs::read(link_file(paths)).ok()?).ok()
+}
+
+/// A Burst runner's identity, from the job's secrets: Home created the runner and dials it.
+#[derive(Clone, Debug)]
+pub struct Burst {
+    pub id: String,
+    pub secret: String,
+    /// Home's address, for links only (the job cannot reach a private Home).
+    pub home_url: String,
+}
+
+/// `LAUNCHPAD_BURST_CREDENTIAL` (`<runner id>.<secret>`) marks a Burst runner.
+pub fn burst() -> Option<&'static Burst> {
+    static BURST: std::sync::OnceLock<Option<Burst>> = std::sync::OnceLock::new();
+    BURST
+        .get_or_init(|| {
+            let c = std::env::var("LAUNCHPAD_BURST_CREDENTIAL").ok()?;
+            let (id, secret) = c.trim().split_once('.')?;
+            Some(Burst { id: id.into(), secret: secret.into(), home_url: std::env::var("LAUNCHPAD_HOME_URL").unwrap_or_default() })
+        })
+        .as_ref()
+}
+
+static LOCAL_HOME: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+
+/// Burst runner: the port of the local relay to Home (set once at startup).
+pub fn set_local_home(port: u16) {
+    let _ = LOCAL_HOME.set(port);
 }
 
 pub fn save(paths: &Paths, link: &Link) -> Result<()> {
@@ -144,6 +177,48 @@ static REQUESTER: std::sync::OnceLock<Requester> = std::sync::OnceLock::new();
 /// Runner: how core services send API requests to Home (the tunnel, set by the server).
 pub fn set_requester(r: Requester) {
     let _ = REQUESTER.set(r);
+}
+
+/// A body streamed through the tunnel.
+pub type ByteStream = std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send>>;
+
+/// A `ByteStream` that is also `Sync` (for hyper bodies): only polled through `&mut`, so the lock is free.
+pub struct SyncStream(std::sync::Mutex<ByteStream>);
+
+impl SyncStream {
+    pub fn new(s: ByteStream) -> Self {
+        SyncStream(std::sync::Mutex::new(s))
+    }
+}
+
+impl futures_util::Stream for SyncStream {
+    type Item = Result<bytes::Bytes, std::io::Error>;
+    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+        let inner = self.get_mut().0.get_mut().unwrap_or_else(|e| e.into_inner());
+        inner.as_mut().poll_next(cx)
+    }
+}
+
+/// The answer of an HTTP exchange through Home.
+pub struct HttpReply {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: ByteStream,
+}
+
+type HttpFuture = std::pin::Pin<Box<dyn std::future::Future<Output = Result<HttpReply>> + Send>>;
+type Streamer = Box<dyn Fn(crate::runners::proto::HttpTarget, String, String, Vec<(String, String)>, ByteStream) -> HttpFuture + Send + Sync>;
+static STREAMER: std::sync::OnceLock<Streamer> = std::sync::OnceLock::new();
+
+/// Runner: how core services open HTTP exchanges through the tunnel (set by the server).
+pub fn set_streamer(s: Streamer) {
+    let _ = STREAMER.set(s);
+}
+
+/// Runner: an HTTP exchange through Home (`HttpTarget`), with both bodies streamed.
+pub async fn http(target: crate::runners::proto::HttpTarget, method: &str, path: &str, headers: Vec<(String, String)>, body: ByteStream) -> Result<HttpReply> {
+    let s = STREAMER.get().context("this runner is not connected to a Home: run launchpad connect")?;
+    s(target, method.into(), path.into(), headers, body).await
 }
 
 type CallReply = std::pin::Pin<Box<dyn std::future::Future<Output = Result<(u16, String)>> + Send>>;

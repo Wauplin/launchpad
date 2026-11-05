@@ -14,4 +14,8 @@ commit: string, protocol: number,
 /**
  * What the runner reported on its last connection.
  */
-capabilities: Capabilities, };
+capabilities: Capabilities, 
+/**
+ * A Burst runner: an HF Job started by Home for one session, which Home dials (`crate::burst`).
+ */
+burst: boolean, };

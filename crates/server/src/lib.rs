@@ -2,11 +2,13 @@
 
 mod api;
 mod bots;
+mod burst;
 mod browser;
 mod auth;
 mod agent_auth;
 mod code;
 mod error;
+mod exchange;
 mod git_http;
 mod plain_http;
 mod kb_http;
@@ -28,6 +30,7 @@ mod tailnet;
 mod worktrees;
 mod ui;
 mod vault;
+mod wire;
 mod ws;
 
 use std::sync::Arc;
@@ -52,7 +55,9 @@ pub(crate) static ROUTER: std::sync::OnceLock<Router> = std::sync::OnceLock::new
 pub async fn serve(app: App) -> Result<()> {
     let port = app.paths.port;
     let mut config = app.config.get().server;
-    let bind = config.bind.parse::<std::net::IpAddr>()?;
+    // A Burst runner listens on every interface: Home reaches it through the HF Jobs proxy, and its router only
+    // accepts Home's connection there (other Hosts are refused).
+    let bind = if launchpad_core::home_link::burst().is_some() { std::net::IpAddr::from([0, 0, 0, 0]) } else { config.bind.parse::<std::net::IpAddr>()? };
     let listener = tokio::net::TcpListener::bind((bind, port))
         .await
         .with_context(|| format!("bind {bind}:{port} (is another daemon running?)"))?;
@@ -60,11 +65,13 @@ pub async fn serve(app: App) -> Result<()> {
     let tailnet = tailnet::prepare(&mut config, port, &app.env).await;
     let auth = Arc::new(auth::Auth::new(&app.paths, &config, app.state_db.clone()).await?);
     let server = Server { app: app.clone(), auth };
+    let server_for_burst = server.clone();
     let router = router(server);
     let _ = ROUTER.set(router.clone());
     if app.paths.role == launchpad_core::role::Role::Runner {
         home_client::spawn(app.clone(), router.clone());
     }
+    burst::spawn(server_for_burst.clone());
     if let Some(tailnet) = tailnet {
         use std::future::IntoFuture;
         tokio::try_join!(
@@ -103,6 +110,7 @@ pub(crate) fn router(server: Server) -> Router {
         .merge(hosts::router())
         .merge(push::router())
         .merge(runners::router())
+        .merge(burst::router())
         .merge(vault::router())
         .merge(git_http::router())
         .merge(plain_http::router())

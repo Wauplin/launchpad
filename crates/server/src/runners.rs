@@ -3,7 +3,7 @@
 //! `/api/runners/request*` and `/api/runners/tunnel` skip the browser sign-in: they check the runner's own
 //! credential (`X-Launchpad-Runner: <id>.<secret>`). Everything else here needs the owner.
 
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -26,6 +26,7 @@ pub fn router() -> Router<Server> {
         .route("/api/runners/request", post(request))
         .route("/api/runners/request/{id}", get(request_state))
         .route("/api/runners/tunnel", get(tunnel))
+        .route("/api/runner/reverse", get(crate::home_client::reverse))
         .route("/api/runners/{id}/approve", post(approve))
         .route("/api/runners/{id}/status", get(runner_status))
         .route("/api/runners/{id}", axum::routing::delete(remove))
@@ -123,7 +124,10 @@ async fn tunnel(State(s): State<Server>, headers: HeaderMap, ws: WebSocketUpgrad
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
-    ws.on_upgrade(move |socket| serve(s, socket, runner))
+    ws.on_upgrade(move |socket| {
+        let (tx, rx) = crate::wire::axum(socket);
+        serve(s, tx, rx, runner)
+    })
 }
 
 async fn workspaces(s: &Server) -> ToRunner {
@@ -140,15 +144,15 @@ fn profiles(s: &Server) -> ToRunner {
 
 const PING: std::time::Duration = std::time::Duration::from_secs(25);
 
-async fn send(tx: &mut futures_util::stream::SplitSink<WebSocket, Message>, msg: &ToRunner) -> bool {
-    tx.send(Message::Text(serde_json::to_string(msg).unwrap_or_default().into())).await.is_ok()
+async fn send(tx: &mut crate::wire::WireTx, msg: &ToRunner) -> bool {
+    tx.send(serde_json::to_string(msg).unwrap_or_default()).await.is_ok()
 }
 
-async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
-    let (mut tx, mut rx) = socket.split();
+/// The protocol with one runner, over a connection either side dialed.
+pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate::wire::WireRx, runner: runners::Runner) {
     // The first message must be Hello.
     let hello = match tokio::time::timeout(std::time::Duration::from_secs(20), rx.next()).await {
-        Ok(Some(Ok(Message::Text(t)))) => serde_json::from_str::<FromRunner>(&t).ok(),
+        Ok(Some(Ok(t))) => serde_json::from_str::<FromRunner>(&t).ok(),
         _ => None,
     };
     let Some(FromRunner::Hello { protocol, commit, guard, capabilities, .. }) = hello else { return };
@@ -192,9 +196,14 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
     }
     if !send(&mut tx, &profiles(&s)).await { return; }
     let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<ToRunner>();
-    let conn = s.app.runners.connect(&s.app, &runner.id, compat, guard, out_tx);
+    let conn = s.app.runners.connect(&s.app, &runner.id, compat, guard, runner.burst, out_tx);
+    if runner.burst {
+        launchpad_core::burst::connected(&s.app, &runner.id).await;
+    }
     let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING, PING);
     let mut last_heard = tokio::time::Instant::now();
+    // Request bodies of HTTP exchanges in progress.
+    let mut bodies: std::collections::HashMap<u64, tokio::sync::mpsc::UnboundedSender<bytes::Bytes>> = Default::default();
     loop {
         tokio::select! {
             msg = out_rx.recv() => {
@@ -214,12 +223,11 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
             }
             _ = ping.tick() => {
                 // A silent runner (sleeping laptop, dead network) is dropped after three missed pings.
-                if last_heard.elapsed() > PING * 3 || tx.send(Message::Ping(Vec::new().into())).await.is_err() { break }
+                if last_heard.elapsed() > PING * 3 { break }
             }
             frame = rx.next() => {
-                let Some(Ok(frame)) = frame else { break };
+                let Some(Ok(text)) = frame else { break };
                 last_heard = tokio::time::Instant::now();
-                let Message::Text(text) = frame else { continue };
                 match serde_json::from_str::<FromRunner>(&text) {
                     Ok(FromRunner::Guard { guard }) => s.app.runners.set_guard(&s.app, &runner.id, guard),
                     Ok(FromRunner::Res { id, status, body }) => s.app.runners.answered(id, status, body),
@@ -258,6 +266,20 @@ async fn serve(s: Server, socket: WebSocket, runner: runners::Runner) {
                             out.send_to(&runner_id, ToRunner::Res { id, status, body });
                         });
                     }
+                    Ok(FromRunner::HttpOpen { id, target, method, path, headers }) => {
+                        let (body_tx, body_rx) = tokio::sync::mpsc::unbounded_channel();
+                        bodies.insert(id, body_tx);
+                        tokio::spawn(crate::exchange::run(s.clone(), runner.id.clone(), id, target, method, path, headers, body_rx));
+                    }
+                    Ok(FromRunner::HttpBody { id, data, end }) => {
+                        if let Some(b) = bodies.get(&id) && !data.is_empty() {
+                            match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data) {
+                                Ok(bytes) => { let _ = b.send(bytes.into()); }
+                                Err(_) => { bodies.remove(&id); }
+                            }
+                        }
+                        if end { bodies.remove(&id); }
+                    }
                     Ok(FromRunner::Ping) => { if !send(&mut tx, &ToRunner::Pong).await { break } }
                     Ok(FromRunner::Hello { .. }) => {}
                     Err(e) => tracing::warn!("runner {}: bad message: {e}", runner.id),
@@ -282,7 +304,7 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
     let runner = match parts.as_slice() {
         ["api", "sessions"] if method == axum::http::Method::POST => None,
         ["api", "sessions", id, rest @ ..] if *id != "search" => {
-            let served = get && matches!(rest, [] | ["events"] | ["events", "page"] | ["trace"] | ["images", ..] | ["access"]);
+            let served = (get && matches!(rest, [] | ["events"] | ["events", "page"] | ["trace"] | ["images", ..] | ["access"])) || rest == ["move"];
             match s.app.sessions.get(id).and_then(|x| x.runner_id) {
                 Some(r) if !served => Some(r),
                 _ => return next.run(req).await,
@@ -295,18 +317,24 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
         _ => return next.run(req).await,
     };
     let headers: Vec<(String, String)> = req.headers().get("idempotency-key").and_then(|v| v.to_str().ok()).map(|v| vec![("idempotency-key".to_string(), v.to_string())]).unwrap_or_default();
-    let path_and_query = req.uri().path_and_query().map(|p| p.to_string()).unwrap_or(path);
+    let path_and_query = req.uri().path_and_query().map(|p| p.to_string()).unwrap_or_else(|| path.clone());
     let body = match axum::body::to_bytes(req.into_body(), 32 << 20).await {
         Ok(b) => (!b.is_empty()).then(|| String::from_utf8_lossy(&b).into_owned()),
         Err(e) => return ApiError::bad_request(format!("{e}")).into_response(),
     };
     let runner = match runner {
         Some(r) => r,
-        None => match launch_runner(&s, body.as_deref()).await {
-            Ok(r) => r,
-            Err(e) => return e.into_response(),
-        },
+        // A launch: a runner that takes it, else Burst (`runners::launch_anywhere`).
+        None => return launch(&s, body.as_deref(), headers).await,
     };
+    // A session whose Burst job stopped: a message starts a new job, Archive is Home's.
+    if !s.app.runners.connected(&runner)
+        && let ["api", "sessions", id, rest @ ..] = parts.as_slice()
+        && let Some(session) = s.app.sessions.get(id)
+        && launchpad_core::burst::needs_new_job(&s.app, &session).await
+    {
+        return burst_stopped(&s, id, rest, body.as_deref(), headers).await;
+    }
     if !s.app.runners.connected(&runner) {
         let name = runners::list(&s.app).await.ok().and_then(|l| l.into_iter().find(|r| r.runner.id == runner)).map(|r| r.runner.name).unwrap_or_else(|| "its runner".into());
         return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{name} is offline")).into_response();
@@ -317,8 +345,40 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
     }
 }
 
-/// The runner for a new session (`runners::launch_runner`).
-async fn launch_runner(s: &Server, body: Option<&str>) -> Result<String, ApiError> {
-    let spec: launchpad_core::model::LaunchSpec = serde_json::from_str(body.unwrap_or("{}")).map_err(|e| ApiError::bad_request(format!("{e}")))?;
-    runners::launch_runner(&s.app, &spec).await.map_err(|e| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{e:#}")))
+/// A launch on Home: sent once to a runner that takes it, or started on Burst.
+async fn launch(s: &Server, body: Option<&str>, headers: Vec<(String, String)>) -> Response {
+    let spec: launchpad_core::model::LaunchSpec = match serde_json::from_str(body.unwrap_or("{}")) {
+        Ok(spec) => spec,
+        Err(e) => return ApiError::bad_request(format!("{e}")).into_response(),
+    };
+    let id = headers.into_iter().find(|(k, _)| k == "idempotency-key").map(|(_, v)| v).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    match runners::launch_anywhere(&s.app, spec, id, false).await {
+        Ok(session) => Json(session).into_response(),
+        Err(e) => ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{e:#}")).into_response(),
+    }
+}
+
+/// Requests for a session whose Burst job has stopped.
+async fn burst_stopped(s: &Server, id: &str, rest: &[&str], body: Option<&str>, headers: Vec<(String, String)>) -> Response {
+    #[derive(Deserialize)]
+    struct Input {
+        text: String,
+        #[serde(default)]
+        files: Vec<launchpad_core::model::FileAttachment>,
+    }
+    let result = match rest {
+        ["input"] => match serde_json::from_str::<Input>(body.unwrap_or("{}")) {
+            Ok(i) => {
+                let key = headers.into_iter().find(|(k, _)| k == "idempotency-key").map(|(_, v)| v);
+                runners::send_anywhere(&s.app, id, &i.text, i.files, key).await
+            }
+            Err(e) => Err(anyhow::anyhow!("{e}")),
+        },
+        [action] => runners::session_action(&s.app, id, action).await,
+        _ => Err(anyhow::anyhow!("This session's Burst runner has stopped: send a message to continue it")),
+    };
+    match result {
+        Ok(()) => Json(json!({"ok": true})).into_response(),
+        Err(e) => ApiError::bad_request(format!("{e:#}")).into_response(),
+    }
 }

@@ -64,6 +64,9 @@ pub struct Runner {
     /// What the runner reported on its last connection.
     #[serde(default)]
     pub capabilities: Capabilities,
+    /// A Burst runner: an HF Job started by Home for one session, which Home dials (`crate::burst`).
+    #[serde(default)]
+    pub burst: bool,
 }
 
 /// What a runner offers, reported on connect.
@@ -74,18 +77,21 @@ pub struct Capabilities {
     pub vm: bool,
     /// Docker works for agents there (only on a Local VM: Docker needs root).
     pub docker: bool,
+    /// A Burst runner (HF Job): the job contains the agents, Home adds every token.
+    pub burst: bool,
 }
 
 /// This runner's capabilities.
 pub async fn capabilities(app: &App) -> Capabilities {
-    let vm = app.config.get().runner.boundary == crate::config::Boundary::Vm;
+    let burst = crate::home_link::burst().is_some();
+    let vm = !burst && app.config.get().runner.boundary == crate::config::Boundary::Vm;
     let docker = vm
         && tokio::time::timeout(std::time::Duration::from_secs(5), tokio::process::Command::new("docker").arg("info").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status())
             .await
             .ok()
             .and_then(|r| r.ok())
             .is_some_and(|s| s.success());
-    Capabilities { vm, docker }
+    Capabilities { vm, docker, burst }
 }
 
 /// A runner with its live state, for Settings.
@@ -163,6 +169,7 @@ pub async fn request(app: &App, name: &str, os: &str) -> Result<(Runner, String)
         commit: String::new(),
         protocol: 0,
         capabilities: Capabilities::default(),
+        burst: false,
     };
     let secret = hex::encode(rand::random::<[u8; 32]>());
     save(app, &runner, Some(hash(&secret))).await?;
@@ -191,6 +198,51 @@ pub async fn approve(app: &App, id: &str) -> Result<Runner> {
     Ok(r)
 }
 
+/// The credential secret of a Burst runner: derived from Home's daemon token, so Home can dial its jobs again
+/// after a restart without storing it.
+fn derive_burst_secret(app: &App, id: &str) -> Result<String> {
+    use hmac::{KeyInit, Mac};
+    let mut mac = hmac::Hmac::<Sha256>::new_from_slice(app.paths.token()?.as_bytes()).map_err(|e| anyhow::anyhow!("{e}"))?;
+    mac.update(format!("launchpad-burst:{id}").as_bytes());
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
+/// Home: the record of a new Burst runner, approved at once (Home starts it).
+pub async fn create_burst(app: &App) -> Result<(Runner, String)> {
+    ensure_home(app)?;
+    let now = now_ms();
+    let runner = Runner {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: "Burst".into(),
+        os: "linux".into(),
+        code: String::new(),
+        state: RunnerState::Approved,
+        created_at: now,
+        approved_at: Some(now),
+        last_seen_at: None,
+        commit: String::new(),
+        protocol: 0,
+        capabilities: Capabilities { burst: true, ..Default::default() },
+        burst: true,
+    };
+    let secret = derive_burst_secret(app, &runner.id)?;
+    save(app, &runner, Some(hash(&secret))).await?;
+    Ok((runner, secret))
+}
+
+/// Home: the secret of a Burst runner it started, None for other runners.
+pub async fn burst_secret(app: &App, id: &str) -> Result<Option<String>> {
+    if !is_burst(app, id).await {
+        return Ok(None);
+    }
+    derive_burst_secret(app, id).map(Some)
+}
+
+/// Whether a runner is a Burst runner (Home started it and keeps its tokens).
+pub async fn is_burst(app: &App, id: &str) -> bool {
+    load(app).await.ok().and_then(|all| all.into_iter().find(|(r, _)| r.id == id)).is_some_and(|(r, _)| r.burst)
+}
+
 /// Removes a runner and closes its tunnel. Its sessions stay on Home.
 pub async fn remove(app: &App, id: &str) -> Result<()> {
     let key = id.to_string();
@@ -201,7 +253,7 @@ pub async fn remove(app: &App, id: &str) -> Result<()> {
 }
 
 pub async fn list(app: &App) -> Result<Vec<RunnerStatus>> {
-    let mut out: Vec<RunnerStatus> = load(app).await?.into_iter().map(|(runner, _)| {
+    let mut out: Vec<RunnerStatus> = load(app).await?.into_iter().filter(|(r, _)| !r.burst).map(|(runner, _)| {
         let live = app.runners.live(&runner.id);
         RunnerStatus { connected: live.is_some(), compat: live.as_ref().map(|l| l.0), guard: live.map(|l| l.1), runner }
     }).collect();
@@ -226,6 +278,19 @@ pub mod proto {
     use super::Guard;
     use crate::role::Compat;
 
+    /// Where an HTTP exchange through the tunnel goes. Bodies follow in base64 `HttpBody` frames.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(tag = "kind", rename_all = "snake_case")]
+    pub enum HttpTarget {
+        /// Home's own runner-authenticated paths (Home Git, plain folders), for a runner without HTTP access to
+        /// Home (Burst).
+        Home,
+        /// `https://<host><path>` with the token of a relayed lease, added by Home (Burst).
+        Lease { lease_id: String, host: String },
+        /// An MCP server of Home, through its gateway, for any runner.
+        Mcp { lease_id: String, server: String },
+    }
+
     #[derive(Clone, Debug, Serialize, Deserialize)]
     #[serde(tag = "t", rename_all = "snake_case")]
     pub enum FromRunner {
@@ -242,6 +307,10 @@ pub mod proto {
         /// A request about the runner's own sessions (leases, ssh-agent), answered with `ToRunner::Res`.
         /// Home knows the runner from the tunnel; windows can never send it.
         Call { id: u64, op: String, body: serde_json::Value },
+        /// Starts an HTTP exchange through Home; Home answers with `ToRunner::HttpHead` and `HttpBody` frames.
+        HttpOpen { id: u64, target: HttpTarget, method: String, path: String, headers: Vec<(String, String)> },
+        /// A part of a request body (base64); `end` closes it.
+        HttpBody { id: u64, data: String, end: bool },
         Ping,
     }
 
@@ -268,6 +337,10 @@ pub mod proto {
         Revoke { lease_id: String },
         /// Quota readings of Home's logins (`vault:<id>`), on connect and when they change.
         Quotas { quotas: std::collections::BTreeMap<String, crate::status::QuotaStatus> },
+        /// The status and headers of an exchange opened with `FromRunner::HttpOpen`.
+        HttpHead { id: u64, status: u16, headers: Vec<(String, String)> },
+        /// A part of a response body (base64); `end` closes it, with `error` when it ended early.
+        HttpBody { id: u64, data: String, end: bool, error: Option<String> },
         Pong,
     }
 }
@@ -276,6 +349,8 @@ struct Link {
     tx: mpsc::UnboundedSender<proto::ToRunner>,
     compat: Compat,
     guard: Guard,
+    /// A Burst runner: it runs only the session it was started for.
+    dedicated: bool,
     /// Distinguishes reconnections: an old socket ending never removes the new one.
     conn: u64,
 }
@@ -299,9 +374,9 @@ struct HubInner {
 
 impl Hub {
     /// Registers a tunnel; a previous one of the same runner is replaced (and closes when its sender drops).
-    pub fn connect(&self, app: &App, id: &str, compat: Compat, guard: Guard, tx: mpsc::UnboundedSender<proto::ToRunner>) -> u64 {
+    pub fn connect(&self, app: &App, id: &str, compat: Compat, guard: Guard, dedicated: bool, tx: mpsc::UnboundedSender<proto::ToRunner>) -> u64 {
         let conn = self.inner.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        self.inner.links.lock().unwrap().insert(id.into(), Link { tx, compat, guard, conn });
+        self.inner.links.lock().unwrap().insert(id.into(), Link { tx, compat, guard, dedicated, conn });
         app.bus.publish("runners", "changed", serde_json::Value::Null);
         conn
     }
@@ -319,6 +394,14 @@ impl Hub {
 
     fn disconnect(&self, id: &str) {
         self.inner.links.lock().unwrap().remove(id);
+    }
+
+    /// Closes a runner's tunnel now (a stopped Burst job).
+    pub fn disconnect_now(&self, app: &App, id: &str) {
+        if self.inner.links.lock().unwrap().remove(id).is_some() {
+            self.inner.pending.lock().unwrap().retain(|_, (runner, _)| runner != id);
+            app.bus.publish("runners", "changed", serde_json::Value::Null);
+        }
     }
 
     pub fn set_guard(&self, app: &App, id: &str, guard: Guard) {
@@ -353,7 +436,7 @@ impl Hub {
     /// Connected runners that take new sessions from other devices: same build, accepting, not paused.
     pub fn available(&self) -> Vec<String> {
         let links = self.inner.links.lock().unwrap();
-        let mut ids: Vec<String> = links.iter().filter(|(_, l)| l.compat == Compat::Same && l.guard.accept_launches && !l.guard.paused).map(|(id, _)| id.clone()).collect();
+        let mut ids: Vec<String> = links.iter().filter(|(_, l)| !l.dedicated && l.compat == Compat::Same && l.guard.accept_launches && !l.guard.paused).map(|(id, _)| id.clone()).collect();
         ids.sort();
         ids
     }
@@ -432,13 +515,32 @@ pub async fn launch_anywhere(app: &App, spec: crate::model::LaunchSpec, id: Stri
     if app.paths.role != crate::role::Role::Home {
         return if automatic { app.sessions.launch_automatic(app, spec, id).await } else { app.sessions.launch_with_id(app, spec, id).await };
     }
-    let runner = launch_runner(app, &spec).await?;
+    if spec.runner_id.as_deref() == Some(crate::burst::CHOICE) {
+        return crate::burst::launch(app, spec, id, automatic).await;
+    }
+    let runner = match launch_runner(app, &spec).await {
+        Ok(r) => r,
+        // No runner takes it (the laptop is off): Burst, unless a runner was chosen or Burst is unavailable.
+        Err(e) if spec.runner_id.is_none() && app.runners.available().is_empty() => match crate::burst::unavailable(app).await {
+            None => return crate::burst::launch(app, spec, id, automatic).await,
+            Some(why) => bail!("{e:#}. {why}."),
+        },
+        Err(e) => return Err(e),
+    };
     let (status, body) = app.runners.request_with(&runner, "POST", "/api/sessions", Some(serde_json::to_string(&spec)?), vec![("idempotency-key".into(), id)]).await?;
     answer(status, &body)
 }
 
 /// A session action (`close`, `stop`, …) wherever the session runs.
 pub async fn session_action(app: &App, id: &str, action: &str) -> Result<()> {
+    if let Some(s) = app.sessions.get(id).filter(|_| app.paths.role == crate::role::Role::Home)
+        && crate::burst::needs_new_job(app, &s).await
+    {
+        // Its Burst job has stopped: nothing runs there, so Archive is Home's alone.
+        ensure_burst_action(action)?;
+        app.sessions.set_replica_status(app, id, crate::model::SessionStatus::Closed).await?;
+        return Ok(());
+    }
     match app.sessions.get(id).and_then(|s| s.runner_id).filter(|_| app.paths.role == crate::role::Role::Home) {
         Some(r) => {
             let (status, body) = app.runners.request(&r, "POST", &format!("/api/sessions/{id}/{action}"), None).await?;
@@ -451,8 +553,19 @@ pub async fn session_action(app: &App, id: &str, action: &str) -> Result<()> {
     }
 }
 
+/// What Home can do itself for a session whose Burst job has stopped.
+pub fn ensure_burst_action(action: &str) -> Result<()> {
+    anyhow::ensure!(action == "close", "This session's Burst runner has stopped: send a message to continue it");
+    Ok(())
+}
+
 /// A message to a session wherever it runs. `files` are attachments the session's machine stores.
 pub async fn send_anywhere(app: &App, id: &str, text: &str, files: Vec<crate::model::FileAttachment>, key: Option<String>) -> Result<()> {
+    if let Some(s) = app.sessions.get(id).filter(|_| app.paths.role == crate::role::Role::Home)
+        && crate::burst::needs_new_job(app, &s).await
+    {
+        return crate::burst::continue_session(app, id, text.to_string(), files, key).await;
+    }
     match app.sessions.get(id).and_then(|s| s.runner_id).filter(|_| app.paths.role == crate::role::Role::Home) {
         Some(r) => {
             let headers = key.map(|k| vec![("idempotency-key".to_string(), k)]).unwrap_or_default();

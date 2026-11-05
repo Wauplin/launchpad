@@ -67,6 +67,10 @@ pub mod proxy;
 pub mod contain;
 pub mod jail;
 pub mod tool_install;
+pub mod token_relay;
+pub mod handoff;
+pub mod burst;
+pub mod mcp;
 
 /// Source revision embedded in the running binary.
 pub const COMMIT: &str = env!("LAUNCHPAD_COMMIT");
@@ -194,6 +198,7 @@ impl App {
         }
         trace_backup::spawn(&app);
         home_backup::spawn(&app);
+        burst::spawn(&app);
         crons::spawn(&app);
         status::spawn_monitors(&app);
         quota::spawn(&app);

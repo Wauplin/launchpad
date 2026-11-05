@@ -62,6 +62,24 @@ pub struct HomeConfig {
     /// The Git identity of agents' commits on every runner (runners never use the machine's Git config).
     pub git_name: String,
     pub git_email: String,
+    pub burst: BurstConfig,
+}
+
+/// Burst: HF Jobs that Home starts as runners when no runner takes a launch, or on Continue on Burst.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+#[serde(default)]
+pub struct BurstConfig {
+    pub enabled: bool,
+    /// Home starts no Burst runner once this month's Burst cost reaches this amount (USD).
+    pub monthly_cap_usd: f64,
+    /// HF Jobs hardware (`hf jobs hardware`).
+    pub flavor: String,
+}
+
+impl Default for BurstConfig {
+    fn default() -> Self {
+        BurstConfig { enabled: true, monthly_cap_usd: 20.0, flavor: "cpu-basic".into() }
+    }
 }
 
 /// Ask Launchpad: the profile, model and effort of the assistant session, kept apart from the composer's

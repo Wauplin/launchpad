@@ -179,7 +179,7 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
         None => "Your harness's own memory is off in Launchpad, and this session has no workspace, so no knowledge base: do not write memory files.\n".into(),
     };
     env.extend(harness.contained_memory(&home, &instructions)?);
-    let vm = app.config.get().runner.boundary == crate::config::Boundary::Vm;
+    let vm = outside_jail(app);
     let mut binds = vec![];
     if lease.ssh {
         // Socket paths are short (108 bytes): the socket lives in the runtime folder, mounted at a fixed path.
@@ -401,6 +401,11 @@ fn spawn_renewals(app: App) {
 
 /// Records a request that received a token: in the access log on Home (through the outbox on a runner), and
 /// as a notice in the session for actions such as opening a pull request.
+/// Agents here run without a jail: a Local VM (the VM is the boundary) or a Burst job (the job is).
+pub fn outside_jail(app: &App) -> bool {
+    crate::home_link::burst().is_some() || app.config.get().runner.boundary == crate::config::Boundary::Vm
+}
+
 pub fn record_access(app: &App, access: Access) {
     let app = app.clone();
     tokio::spawn(async move {
@@ -409,10 +414,14 @@ pub fn record_access(app: &App, access: Access) {
         if let Err(e) = store_access(&app, access).await {
             tracing::warn!("access log: {e:#}");
         }
+        if !crate::replica::enabled() {
+            app.bus.publish("vault", "access", serde_json::json!({"session_id": id}));
+        }
         if let Some(action) = notable
             && app.sessions.get(&id).is_some()
         {
-            app.sessions.sink(&app, &id).emit(crate::model::EventBody::Notice { text: format!("With your token: {action}") }).await;
+            // On Home (relayed leases), the notice goes to the session's runner, which owns its history.
+            crate::sessions::notice_anywhere(&app, &id, &format!("With your token: {action}")).await;
         }
     });
 }

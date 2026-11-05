@@ -1005,6 +1005,17 @@ impl super::Harness for Adapter {
         let root = super::trace::root(app, session, "CLAUDE_CONFIG_DIR", ".claude").await?;
         trace_files(&root, crate::hosts::loc::native(&session.cwd), id).await
     }
+    /// Claude Code finds a conversation under the slug of its working folder.
+    async fn restore_native(&self, app: &App, session: &Session, files: Vec<super::trace::TraceFile>) -> Result<()> {
+        super::trace::conversation(session)?;
+        let root = super::trace::root(app, session, "CLAUDE_CONFIG_DIR", ".claude").await?;
+        let encoded: String = crate::hosts::loc::native(&session.cwd).chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+        let dir = root.join("projects").join(encoded);
+        for f in files {
+            super::trace::write(&dir, &f.name, &f.data)?;
+        }
+        Ok(())
+    }
     fn project_moved(&self, old_s: &str, new_s: &str) {
         let (old_t, new_t) = (
             claude_transcripts_dir(old_s),
