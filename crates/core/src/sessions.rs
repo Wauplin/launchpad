@@ -2333,11 +2333,9 @@ impl Sink {
                 crate::handoff::after_turn(&app, &id).await;
             });
         }
-        // A turn that ends with `no_update` (a routine with nothing to report) stays silent and is not Needs you.
+        // A turn that ends with `no_update` (a routine with nothing to report) never notifies; Home's routine
+        // records decide whether it leaves Needs you (`crons::turn_ended`).
         let silent = status == SessionStatus::Waiting && self.sessions.get(&self.id).is_some_and(|s| crate::crons::is_no_update(s.last_message.as_deref()));
-        if silent {
-            let _ = self.sessions.update(&self.app, &self.id, |s| s.seen_at = s.seen_at.max(s.status_since)).await;
-        }
         if before.status.is_running() && !status.is_running() && crate::home_git::here(&self.app)
             && let Some(s) = self.sessions.get(&self.id)
         {

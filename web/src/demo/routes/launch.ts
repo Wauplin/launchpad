@@ -259,7 +259,7 @@ export function createCron(spec: LaunchSpec, expr: string, conditions: CronCondi
 
 route("GET", "/api/launch/crons", () => world.crons);
 route("GET", "/api/launch/crons/next", (r) => nextRuns(r.query.get("schedule") ?? "", 3));
-route("POST", "/api/launch/crons", (r) => createCron({ ...defaultSpec(), ...(r.body?.spec as LaunchSpec) }, String(r.body?.schedule ?? ""), r.body?.conditions ?? [], r.body?.trigger ?? { kind: "schedule" }));
+route("POST", "/api/launch/crons", (r) => createCron({ ...defaultSpec(), ...(r.body?.spec as LaunchSpec) }, String(r.body?.schedule ?? ""), r.body?.conditions ?? [], r.body?.trigger ?? { kind: "schedule" }, r.body?.title ? { title: String(r.body.title) } : {}));
 route("PATCH", "/api/launch/crons/:id", (r) => {
   const c = cronOf(r.params.id);
   if (r.body?.trigger) c.trigger = r.body.trigger;

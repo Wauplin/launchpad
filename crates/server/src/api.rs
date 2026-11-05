@@ -747,9 +747,9 @@ async fn start_schedule(State(s): State<Server>, Path(id): Path<String>) -> ApiR
 use launchpad_core::crons::{self, CronAgent, CronCondition, CronPatch};
 
 #[derive(Deserialize)]
-struct CronRequest { spec: LaunchSpec, #[serde(default)] schedule: String, conditions: Vec<CronCondition>, #[serde(default)] trigger: crons::Trigger }
+struct CronRequest { spec: LaunchSpec, #[serde(default)] schedule: String, conditions: Vec<CronCondition>, #[serde(default)] trigger: crons::Trigger, #[serde(default)] title: Option<String> }
 async fn crons(State(s): State<Server>) -> ApiResult<Vec<CronAgent>> { Ok(Json(crons::list(&s.app).await?)) }
-async fn create_cron(State(s): State<Server>, Json(b): Json<CronRequest>) -> ApiResult<CronAgent> { Ok(Json(crons::create(&s.app, b.spec, b.schedule, b.conditions, b.trigger).await.map_err(bad)?)) }
+async fn create_cron(State(s): State<Server>, Json(b): Json<CronRequest>) -> ApiResult<CronAgent> { Ok(Json(crons::create(&s.app, b.spec, b.schedule, b.conditions, b.trigger, b.title).await.map_err(bad)?)) }
 async fn update_cron(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<CronPatch>) -> ApiResult<CronAgent> { Ok(Json(crons::update(&s.app, &id, b).await.map_err(bad)?)) }
 async fn delete_cron(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
     crons::delete(&s.app, &id).await.map_err(bad)?;

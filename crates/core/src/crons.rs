@@ -107,6 +107,10 @@ pub struct RoutineRun {
     pub outcome: RunOutcome,
     /// Why it was skipped or failed.
     pub detail: Option<String>,
+    /// Nothing in its thread waited for you when it started: a quiet run (`no_update`) may mark it seen.
+    #[serde(default)]
+    #[ts(skip)]
+    pub quiet_ok: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -352,6 +356,7 @@ pub async fn create(
     schedule: String,
     conditions: Vec<CronCondition>,
     trigger: Trigger,
+    title: Option<String>,
 ) -> Result<CronAgent> {
     // Ask Launchpad's routines (the morning brief) follow the assistant's own profile and model.
     let spec = match &spec.target {
@@ -374,7 +379,7 @@ pub async fn create(
     let mut record = CronAgent {
         id: uuid::Uuid::new_v4().to_string(),
         spec,
-        title: preview.title,
+        title: title.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).unwrap_or(preview.title),
         schedule,
         trigger,
         bot_id: None,
@@ -565,7 +570,7 @@ fn push_run(r: &mut CronAgent, run: RoutineRun) {
 
 async fn skip(app: &App, id: &str, cause: String, reason: String) -> Result<()> {
     modify(app, id, move |r| {
-        push_run(r, RoutineRun { at: now_ms(), cause, session_id: None, outcome: RunOutcome::Skipped, detail: Some(reason) });
+        push_run(r, RoutineRun { at: now_ms(), cause, session_id: None, outcome: RunOutcome::Skipped, detail: Some(reason), quiet_ok: false });
         Ok(())
     })
     .await
@@ -592,6 +597,15 @@ fn bot_busy(app: &App, bot_id: &str) -> Option<String> {
     let thread = crate::bots::thread(app, bot_id);
     let current = thread.iter().rev().find(|s| s.status != SessionStatus::Closed)?;
     (current.status.is_running() || current.quota_pause.is_some()).then(|| format!("{} is working", current.launch_spec.bot.as_ref().map(|b| b.name.as_str()).unwrap_or("the bot")))
+}
+
+/// The open session of the thread a routine posts to (a bot's, or Ask Launchpad's), None for other routines.
+fn thread_current(app: &App, r: &CronAgent) -> Option<Session> {
+    match (&r.bot_id, &r.spec.target) {
+        (Some(b), _) => crate::bots::thread(app, b).into_iter().rev().find(|s| s.status != SessionStatus::Closed),
+        (None, Target::Assistant { workspace_id }) => crate::proposals::thread(app, workspace_id.as_deref()),
+        _ => None,
+    }
 }
 
 /// Why the thread a routine posts to (a bot's, or Ask Launchpad's) cannot take a message now.
@@ -622,13 +636,15 @@ async fn why_blocked(app: &App, r: &CronAgent) -> Result<Option<String>> {
 /// retried). `automatic` runs need confirmed quota.
 async fn start(app: &App, id: &str, cause: String, context: String, automatic: bool) -> Result<Session> {
     let at = now_ms();
+    let current = get(app, id).await?;
+    let quiet_ok = thread_current(app, &current).is_none_or(|s| !s.needs_you());
     let (record, ()) = modify(app, id, {
         let cause = cause.clone();
         move |r| {
             if automatic {
                 ensure!(r.active(), "paused");
             }
-            push_run(r, RoutineRun { at, cause, session_id: None, outcome: RunOutcome::Running, detail: None });
+            push_run(r, RoutineRun { at, cause, session_id: None, outcome: RunOutcome::Running, detail: None, quiet_ok });
             Ok(())
         }
     })
@@ -740,15 +756,24 @@ async fn turn_ended_inner(app: &App, s: &Session) -> Result<()> {
     for r in records.iter().filter(|r| r.history.iter().any(|x| x.outcome == RunOutcome::Running && x.session_id.as_deref() == Some(&s.id))) {
         was_run = true;
         let sid = s.id.clone();
-        modify(app, &r.id, move |r| {
+        let (_, quiet_ok) = modify(app, &r.id, move |r| {
+            let mut quiet_ok = false;
             if let Some(run) = r.history.iter_mut().rev().find(|x| x.outcome == RunOutcome::Running && x.session_id.as_deref() == Some(&sid)) {
                 run.outcome = outcome;
+                quiet_ok = run.quiet_ok;
                 let run = run.clone();
                 r.last_outcome = Some(summary(&run));
             }
-            Ok(())
+            Ok(quiet_ok)
         })
         .await?;
+        // A quiet run is not Needs you, unless an earlier result in its thread still waits for you.
+        if outcome == RunOutcome::NoUpdate && quiet_ok {
+            app.sessions.mark_seen(app, &s.id).await?;
+            if let Some(runner) = s.runner_id.as_deref().filter(|r| app.runners.connected(r)) {
+                let _ = app.runners.request(runner, "POST", &format!("/api/sessions/{}/seen", s.id), None).await;
+            }
+        }
     }
     if was_run || s.status != SessionStatus::Waiting || s.open_question || matches!(s.launch_spec.target, Target::Assistant { .. }) {
         return Ok(());
