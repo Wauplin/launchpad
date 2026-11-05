@@ -24,7 +24,7 @@ import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import type { VaultOverview } from "@/gen/VaultOverview";
 import { api } from "@/lib/api";
-import { botInitial, botJob, botProfile, botState, botThread, currentSession, rotationReason, useBots, useBotTemplates, type BotState } from "@/lib/bots";
+import { askTarget, botInitial, botJob, botProfile, botState, botThread, currentSession, rotationReason, useBots, useBotTemplates, type BotState } from "@/lib/bots";
 import { daemonUrl } from "@/lib/connection";
 import { formatAge } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
@@ -231,6 +231,7 @@ export function BotPage() {
   const phone = usePhone();
   const bots = useBots();
   const bot = bots.data?.find((b) => b.id === id);
+  const workspaceId = useScope().workspace.id;
   const sessions = useBotSessions();
   const thread = useMemo(() => botThread(sessions, id), [sessions, id]);
   const current = currentSession(thread);
@@ -280,8 +281,10 @@ export function BotPage() {
   </>;
   if (phone) {
     const title = panel ? `${bot.settings.name} · ${PANELS.find((p) => p.id === panel)!.label}` : bot.settings.name;
+    // The Ask tab shows the workspace's default bot as a tab of its own: no way back to All bots from its chat.
+    const tabRoot = !panel && askTarget(bots.data ?? [], workspaceId)?.id === bot.id;
     return <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
-      <PhoneHeader title={title} onBack={() => panel ? setPanel(null) : void navigate({ to: "/bots" })} backLabel={panel ? "Back to the chat" : "All bots"}
+      <PhoneHeader title={title} onBack={panel ? () => setPanel(null) : tabRoot ? undefined : () => void navigate({ to: "/bots" })} backLabel={panel ? "Back to the chat" : "All bots"}
         subtitle={panel ? undefined : <span className="flex flex-wrap items-center gap-x-2"><StateBadge state={botState(thread)} />{bot.paused && <span className="text-attn">Paused</span>}</span>}
         actions={<span data-tour="bots.panels" className="contents">
           {PANELS.map((p) => <button key={p.id} className="btn btn-sm" aria-pressed={panel === p.id} onClick={() => setPanel(p.id)}>{p.label}{count(p.id) ? ` · ${count(p.id)}` : ""}</button>)}

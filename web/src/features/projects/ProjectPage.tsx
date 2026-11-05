@@ -175,7 +175,7 @@ function FolderSettings({ p }: { p: Project }) {
         <input className="field-input min-w-0 flex-1" aria-label="Folder description" placeholder="Add a description" {...field("description", description, (v) => ({ description: v }), p.description ?? "")} />
       </SettingRow>
       <SettingRow label="Workspace" hint="Every folder belongs to one workspace. Its agents, schedules and inbox threads follow it." state={member.state} error={member.error}>
-        {workspaces.length === 0 ? <span className="text-[12px] text-ink-3">No workspace yet: create one from the sidebar menu.</span> : (
+        {workspaces.length === 0 ? <span className="text-[12px] text-ink-3">No workspace yet: create one from the workspace menu.</span> : (
           <FilterChips label="Workspace of this folder">
             {workspaces.map((w) => {
               const inside = p.workspace_id === w.id;

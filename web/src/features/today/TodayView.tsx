@@ -17,7 +17,8 @@ import { summary } from "@/features/proposals/ProposalList";
 import { useSuggestionList } from "@/features/suggestions/data";
 import { formatAge } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
-import { useScope } from "@/lib/workspace";
+import { useScope, useWorkspaces } from "@/lib/workspace";
+import { useWorkspace } from "@/stores/workspace";
 import { FILTERS, isView, useTodayHere, type TodayItem, type TodayView as View } from "./data";
 import { ICON, ItemCard } from "./TodayCards";
 
@@ -99,10 +100,14 @@ export function TodayView() {
     list.scrollToIndex(index, { align: "start" });
   }, [search.card, shown, list]);
   // A session's card that no longer waits and was not handled here (seen elsewhere, still running): open the session.
+  // Only once the window shows its workspace: a link's `?ws=` switches it after the workspaces load.
+  const current = useWorkspace((st) => (st.requested === null ? st.current : null));
+  const workspaces = useWorkspaces().data;
+  const settled = !!current && !!workspaces?.some((w) => w.id === current);
   useEffect(() => {
-    if (loading || error || !search.card?.startsWith("session:") || shown.some((i) => i.id === search.card)) return;
+    if (loading || error || !settled || !search.card?.startsWith("session:") || shown.some((i) => i.id === search.card)) return;
     void navigate({ to: "/agents", search: { session: search.card.slice("session:".length) }, replace: true });
-  }, [loading, error, search.card, shown, navigate]);
+  }, [loading, error, settled, search.card, shown, navigate]);
 
   const chips = <FilterChips tour="today.filters" label="Today filters">
     <FilterChip active={view === "all"} count={items.length} onClick={() => setView("all")}>All</FilterChip>

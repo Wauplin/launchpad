@@ -121,7 +121,7 @@ function UnassignedFolders({ folders, workspaces }: { folders: Project[]; worksp
     <section className="grid gap-2 rounded-lg border border-attn/40 bg-attn-soft/40 p-3.5" aria-label="Unassigned folders">
       <div className="grid gap-0.5">
         <b className="text-[13px]">Unassigned folders · {folders.length}</b>
-        <span className="text-[12px] text-ink-3">Every folder belongs to one workspace. {workspaces.length ? "Choose one for each, or remove the folders you no longer use." : "Create a workspace from the sidebar menu, then choose it here."}</span>
+        <span className="text-[12px] text-ink-3">Every folder belongs to one workspace. {workspaces.length ? "Choose one for each, or remove the folders you no longer use." : "Create a workspace from the workspace menu, then choose it here."}</span>
       </div>
       <div className="grid max-h-[320px] overflow-y-auto rounded-md border border-line bg-paper">
         {folders.map((p) => (

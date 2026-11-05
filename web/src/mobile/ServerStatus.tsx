@@ -12,7 +12,7 @@ import { useInbox } from "@/features/inbox/data";
 import { formatAge, formatReset, resetLabel } from "@/lib/format";
 import { linkLabel } from "@/lib/hosts";
 import { useStatus } from "@/lib/queries";
-import { spendLabel, spendPercent, useQuotas, windowLabel } from "@/lib/profiles";
+import { spendLabel, spendPercent, useProfiles, useQuotas, windowLabel } from "@/lib/profiles";
 import { outdatedLabel, useOfflineRunners, useOutdatedRunners } from "@/lib/runners";
 import { Sheet } from "./Sheet";
 
@@ -24,6 +24,7 @@ function useStatusWarnings(): Warning[] {
   const { online, since } = useConnection();
   const harnesses = useHarnesses();
   const quotas = useQuotas();
+  const profiles = useProfiles();
   const outdated = useOutdatedRunners().map((r) => r.runner.name);
   const offline = useOfflineRunners();
   const limits = useInbox().data?.limits ?? {};
@@ -35,8 +36,8 @@ function useStatusWarnings(): Warning[] {
   if (outdated.length) out.push({ key: "outdated", text: `${outdatedLabel(outdated)}: no new sessions until then.`, to: "/settings/runners" });
   if (offline.length) out.push({ key: "runners-offline", text: `${offline.join(", ")} ${offline.length === 1 ? "is" : "are"} offline.`, to: "/settings/runners" });
   for (const h of data.hosts) if (h.state !== "connected") out.push({ key: `host-${h.host.id}`, text: `${h.host.id} is ${linkLabel[h.state].toLowerCase()}.`, to: "/settings/hosts" });
-  // Home runs no agents: its runners report their own harnesses.
-  if (data.role !== "home") for (const h of harnesses) if (!data.harnesses[h.id]?.version) out.push({ key: `harness-${h.id}`, text: `${h.name} is not found on this machine.` });
+  // Home runs no agents: its runners report their own harnesses. Only harnesses a profile uses count as missing.
+  if (data.role !== "home") for (const h of harnesses) if (profiles.some((p) => p.harness === h.id) && !data.harnesses[h.id]?.version) out.push({ key: `harness-${h.id}`, text: `${h.name} is not found on this machine.`, to: "/setup" });
   for (const e of quotas) {
     const name = e.names.length ? e.names.join(" · ") : (harnesses.find((h) => h.id === e.harness)?.name ?? e.harness);
     const full = [["5 hours", e.q.five_hour], ["weekly", e.q.weekly]].filter(([, w]) => w && (w as QuotaWindow).used_percent >= 90).map(([l]) => l);
@@ -45,7 +46,7 @@ function useStatusWarnings(): Warning[] {
     else if (e.q.quota_at != null && Date.now() - e.q.quota_at > 15 * 60_000) out.push({ key: `quota-stale-${e.key}`, text: `${name}: quota read ${formatAge(e.q.quota_at)} ago.` });
   }
   for (const v of data.spend) if (v.windows.some((w) => w.used_usd >= w.limit_usd)) out.push({ key: `spend-${v.profile}`, text: `${v.name} reached a spending limit.` });
-  for (const [k, v] of Object.entries(limits)) if (v.remaining < 500) out.push({ key: `github-${k}`, text: `GitHub ${k}: ${v.remaining} calls left, resets ${formatReset(v.reset_at)}.` });
+  for (const [k, v] of Object.entries(limits)) if (v.remaining < 500 && v.reset_at * 1000 > Date.now()) out.push({ key: `github-${k}`, text: `GitHub ${k}: ${v.remaining} calls left, resets ${formatReset(v.reset_at)}.` });
   return out;
 }
 

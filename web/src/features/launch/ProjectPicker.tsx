@@ -28,7 +28,7 @@ const ProjectRow = memo(function ProjectRow({ project, active, onPick }: { proje
   </div>;
 });
 
-export function ProjectPicker({ projects, selected, temporary, allowTemporary = false, emptyMessage = "No folder yet: add one from the sidebar.", onPick }: {
+export function ProjectPicker({ projects, selected, temporary, allowTemporary = false, emptyMessage = "No folder yet: add one in Folders.", onPick }: {
   projects: Project[];
   selected?: string;
   temporary: boolean;

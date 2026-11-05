@@ -51,6 +51,7 @@ import { EMPTY_CONTEXT, hasMessageContext, MessageContextPicker } from "./Messag
 import { PromptField } from "@/features/launch/PromptField";
 import { withPresets } from "@/lib/presets";
 import { runAction } from "@/lib/actions";
+import { MergeButton, useBranch } from "@/features/today/TodayCards";
 
 function act(id: string, action: "session.archive" | "session.stop" | "session.resume" | "session.unread") {
   return runAction(action, { id }).catch(toastError);
@@ -192,6 +193,14 @@ function useCodeLinks(s: { id: string; project_id: string | null; cwd: string } 
 function SessionWorktreeDetails({ session }: { session: Session }) {
   const list = useSessionWorktrees(session.id).data ?? [];
   return <>{list.map((info) => <WorktreeCard key={info.worktree.id} info={info} session={session} />)}</>;
+}
+
+/** The phone bottom bar's main action: Merge into the base when it is safe (the same check as Today cards), else the
+ * session's primary action (Review changes, Archive…). */
+function BottomPrimary({ s, primary }: { s: Session; primary: React.ReactNode }) {
+  const branch = useBranch(s.id, s);
+  if (branch.safe && s.status === "waiting" && !s.open_question) return <MergeButton sessionId={s.id} branch={branch} />;
+  return <>{primary}</>;
 }
 
 type View = "summary" | "trace" | "changes" | "subagents" | "processes";
@@ -554,7 +563,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
           onClick={() => { if (replying) setReplying(false); else { setReplying(true); requestAnimationFrame(() => inputRef.current?.focus()); } }}>
           <Icon name="comment" size={14} />{replying && !hasDraft ? "Hide reply" : "Reply"}
         </button>}
-        {primary && <span className="session-bottom-primary flex min-w-0 flex-1 items-center gap-2">{primary}</span>}
+        {primary && <span className="session-bottom-primary flex min-w-0 flex-1 items-center gap-2"><BottomPrimary s={s} primary={primary} /></span>}
       </div>}
       </div>
     </div>

@@ -103,20 +103,26 @@ export function useBranch(sessionId: string, s: Session | null) {
   return { w, t, base, safe, facts };
 }
 
-/** The branch line and Merge (only when safe) or Review changes. `onMerged` runs after a merge that went through. */
-export function BranchActions({ sessionId, s, onMerged, children }: { sessionId: string; s: Session | null; onMerged?: () => Promise<unknown>; children?: ReactNode }) {
+/** Merge the branch into its base (call only when `useBranch(…).safe`). `onMerged` runs after a merge that went
+ * through; a merge that waits or stopped keeps the card, with Review changes. */
+export function MergeButton({ sessionId, branch: { t, base }, onMerged, className }: { sessionId: string; branch: ReturnType<typeof useBranch>; onMerged?: () => Promise<unknown>; className?: string }) {
   const qc = useQueryClient();
-  const { w, t, base, safe, facts } = useBranch(sessionId, s);
-  // Merged: the card is handled. A merge that waits or stopped keeps the card, with Review changes.
   const merged = async (r: WorktreeInfo) => {
     void qc.invalidateQueries({ queryKey: ["worktrees"] });
     if (r.worktree.merged) await onMerged?.();
   };
+  return <ActionButton name="worktree.merge" params={{ id: t!.id }} vars={{ branch: t!.branch, base: base! }} query={{ session: worktreeSession(t!) ?? sessionId }} primary className={className} onDone={merged}>Merge into {base}</ActionButton>;
+}
+
+/** The branch line and Merge (only when safe) or Review changes. `onMerged` runs after a merge that went through. */
+export function BranchActions({ sessionId, s, onMerged, children }: { sessionId: string; s: Session | null; onMerged?: () => Promise<unknown>; children?: ReactNode }) {
+  const branch = useBranch(sessionId, s);
+  const { w, t, safe, facts } = branch;
   return <>
     {facts && <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={13} className="flex-none text-ink-3" /><span className="truncate font-mono">{t!.branch}</span><span className="truncate">· {facts}</span></div>}
     <div className="flex flex-wrap items-center gap-1.5">
       {safe
-        ? <ActionButton name="worktree.merge" params={{ id: t!.id }} vars={{ branch: t!.branch, base: base! }} query={{ session: worktreeSession(t!) ?? sessionId }} primary onDone={merged}>Merge into {base}</ActionButton>
+        ? <MergeButton sessionId={sessionId} branch={branch} onMerged={onMerged} />
         : w && (w.ahead > 0 || w.dirty_files > 0) && <Link className="btn btn-sm btn-primary no-underline" to="/agents" search={{ session: sessionId, view: "changes" }}>Review changes</Link>}
       {children}
     </div>

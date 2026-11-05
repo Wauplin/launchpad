@@ -17,7 +17,7 @@ export function FolderMenu({ cwd, onPick }: { cwd: string | null; onPick: (path:
   const [other, setOther] = useState(!cwd);
   if (other) {
     const projects = [...scope.projects].sort((a, b) => a.name.localeCompare(b.name));
-    return <ProjectPicker projects={projects} temporary={false} emptyMessage="No folders in this workspace. Add one from the sidebar." onPick={(p) => { if (p) onPick(p.path); }} />;
+    return <ProjectPicker projects={projects} temporary={false} emptyMessage="No folders in this workspace. Add one in Folders." onPick={(p) => { if (p) onPick(p.path); }} />;
   }
   const f = folders.data;
   return (
