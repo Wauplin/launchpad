@@ -3,8 +3,6 @@
 //! (`viewed:`, `reply:`, `predraft:`, `suggestion:`); the UI owns the value shapes. Pure UI state
 //! (layout, collapsed groups, selection) stays in each browser's local storage.
 
-use std::collections::HashMap;
-
 use anyhow::{Result, bail};
 use rusqlite::OptionalExtension;
 use serde::Serialize;
@@ -74,36 +72,6 @@ fn save(c: &mut rusqlite::Connection, key: &str, json: &str, base_revision: i64)
     )?;
     tx.commit()?;
     Ok(Some(next))
-}
-
-/// One-time import of values a browser kept locally. Existing daemon values win.
-pub async fn import(app: &App, entries: HashMap<String, Value>) -> Result<usize> {
-    for key in entries.keys() {
-        check(key)?;
-    }
-    let now = now_ms();
-    let n = app
-        .state_db
-        .call(move |c| {
-            let tx = c.transaction()?;
-            let mut n = 0;
-            for (key, value) in entries {
-                if value.is_null() {
-                    continue;
-                }
-                n += tx.execute(
-                    "INSERT OR IGNORE INTO review_state (key, json, updated_at) VALUES (?1, ?2, ?3)",
-                    rusqlite::params![key, serde_json::to_string(&value)?, now],
-                )?;
-            }
-            tx.commit()?;
-            Ok(n)
-        })
-        .await?;
-    if n > 0 {
-        app.bus.publish("review-state", "changed", json!({ "key": null, "updated_at": now, "origin": null }));
-    }
-    Ok(n)
 }
 
 #[cfg(test)]

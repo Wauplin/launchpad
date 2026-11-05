@@ -1,10 +1,9 @@
 //! Review progress shared across browsers and devices (`launchpad_core::review_state`).
 //! Keys go in the query string because they contain `/` (repository names).
 
-use std::collections::HashMap;
 
 use axum::extract::{Query, State};
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::{Json, Router};
 use launchpad_core::review_state;
 use serde::Deserialize;
@@ -16,7 +15,6 @@ use crate::error::{ApiError, ApiResult};
 pub fn router() -> Router<Ctx> {
     Router::new()
         .route("/api/review-state", get(read).put(write).layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024)))
-        .route("/api/review-state/import", post(import).layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)))
 }
 
 #[derive(Deserialize)]
@@ -48,10 +46,4 @@ async fn write(State(s): State<Ctx>, Query(q): Query<KeyQuery>, Json(b): Json<Wr
     let updated_at = review_state::put(&s.app, &q.key, b.value, b.origin, b.base_revision).await.map_err(bad)?
         .ok_or_else(|| ApiError::conflict("Review draft changed elsewhere; choose which version to keep"))?;
     Ok(Json(json!({"ok": true, "updated_at": updated_at})))
-}
-
-/// Imports values kept in a browser's local storage before review state moved to the daemon.
-async fn import(State(s): State<Ctx>, Json(entries): Json<HashMap<String, Value>>) -> ApiResult<Value> {
-    let imported = review_state::import(&s.app, entries).await.map_err(bad)?;
-    Ok(Json(json!({"imported": imported})))
 }

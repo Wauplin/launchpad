@@ -348,6 +348,14 @@ route("POST", "/api/proposals/:id/dismiss", (r) => {
   publishProposal(p);
   return p;
 });
+route("POST", "/api/proposals/:id/edit", (r) => {
+  const p = proposalOf(r.params.id);
+  p.state = "replaced";
+  p.replaced_by = null;
+  p.updated_at = clock.now();
+  publishProposal(p);
+  return p;
+});
 route("POST", "/api/proposals/:id/recheck", (r) => {
   const p = proposalOf(r.params.id);
   if (p.state === "uncertain") { p.state = p.result_id && session(p.result_id) ? "started" : "failed"; p.updated_at = clock.now(); publishProposal(p); }

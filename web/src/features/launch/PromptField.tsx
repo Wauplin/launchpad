@@ -125,12 +125,12 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
     el.addEventListener("beforeinput", before);
     return () => el.removeEventListener("beforeinput", before);
   }, [ref, onDocumentChange]);
-  // The full prompt grows with its text up to a limit, then scrolls; its frame (.composer-prompt) holds the attach row.
+  // The full prompt grows with its text up to 300 px (240 px on a phone, so the folder fields stay in view), then scrolls; its frame (.composer-prompt) holds the attach row.
   useLayoutEffect(() => {
     const el = ref.current;
     if (compact || !el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, phone ? 320 : 440)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, phone ? 240 : 300)}px`;
   }, [compact, doc.text, phone, ref]);
   const pending = mention?.trigger === "@" ? files.isFetching || debounced !== mention.query : mention?.trigger === "/" ? skills.isFetching : gh.isFetching;
   const error = mention?.trigger === "@" ? files.error : mention?.trigger === "/" ? skills.error : gh.error;

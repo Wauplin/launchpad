@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { memo, useState } from "react";
 import type { Proposal } from "@/gen/Proposal";
@@ -118,10 +118,14 @@ function SpecTokens({ spec }: { spec: LaunchSpec }) {
   );
 }
 
-/** Puts a proposal's spec into the composer draft (asks first when an unsent draft exists). */
-function editInComposer(p: Proposal) {
+/** Replaces the card (so it cannot start twice), then puts its spec into the composer draft. */
+async function editInComposer(p: Proposal, qc: QueryClient) {
   const spec = specOf(p);
   if (!spec) return;
+  try {
+    const next = await api.post<Proposal>(`/api/proposals/${p.id}/edit`);
+    qc.setQueryData<Proposal[]>(["proposals"], (old) => old?.map((x) => (x.id === next.id ? next : x)));
+  } catch (e) { toastError(e); return; }
   const c = useComposer.getState();
   useComposer.setState({ open: true, minimized: false });
   c.update((s) => ({ ...s, ...spec }));
@@ -130,10 +134,11 @@ function editInComposer(p: Proposal) {
 }
 
 function EditButton({ p }: { p: Proposal }) {
+  const qc = useQueryClient();
   const hasDraft = useComposer((s) => s.open && (!!s.spec.text.trim() || s.spec.github_refs.length > 0));
   if (!specOf(p)) return null;
-  if (hasDraft) return <ConfirmButton tone="publish" consequence="Replace the current draft?" confirmLabel="Replace draft" onConfirm={() => editInComposer(p)}>Edit</ConfirmButton>;
-  return <button className="btn btn-sm" title="Open it in the composer to change anything" onClick={() => editInComposer(p)}>Edit</button>;
+  if (hasDraft) return <ConfirmButton tone="publish" consequence="Replace the current draft? This card is then replaced by what you launch." confirmLabel="Replace draft" onConfirm={() => editInComposer(p, qc)}>Edit</ConfirmButton>;
+  return <button className="btn btn-sm" title="Open it in the composer to change anything; this card is then replaced by what you launch" onClick={() => void editInComposer(p, qc)}>Edit</button>;
 }
 
 const SessionRow = memo(function SessionRow({ s }: { s: Session }) {
@@ -190,7 +195,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
       {statusSessions.length > 0 && <div className="grid">{statusSessions.map((s) => <SessionRow key={s.id} s={s} />)}</div>}
       {session && <SessionRow s={session} />}
       {started && !session && p.body.kind !== "status" && <span className="text-[12px] text-gh-open"><Icon name="check" size={11} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "settings" }}>Settings</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : "Started"}</span>}
-      {p.state === "replaced" && <span className="text-[12px] text-ink-3">Replaced{p.replaced_by && <> · <Link to="/proposals" search={{ proposal: p.replaced_by }} onClick={() => useWorkspace.getState().switchTo(p.workspace_id)} className="underline">View replacement</Link></>}</span>}
+      {p.state === "replaced" && <span className="text-[12px] text-ink-3">{p.replaced_by ? "Replaced" : "Edited in the composer"}{p.replaced_by && <> · <Link to="/proposals" search={{ proposal: p.replaced_by }} onClick={() => useWorkspace.getState().switchTo(p.workspace_id)} className="underline">View replacement</Link></>}</span>}
       {p.state === "dismissed" && <span className="text-[12px] text-ink-3">Dismissed</span>}
       {p.state === "failed" && p.error && <ErrorState error={p.error} />}
       {p.state === "uncertain" && <div className="grid gap-1.5 text-[12px] text-attn">Delivery not confirmed. Check Agents before starting a new attempt.<button className="btn btn-sm w-fit" disabled={busy} onClick={() => void act("recheck")}>I checked Agents — check again</button></div>}

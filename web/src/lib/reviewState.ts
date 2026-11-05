@@ -103,53 +103,6 @@ function setup(qc: QueryClient) {
   // Replay recovered conflicts as conditional saves so their resolution controls reappear.
   for (const entry of pending.values()) entry.conflict = false;
   flushAll();
-  void importLegacy();
-}
-
-/** Moves review state that older builds kept in this browser's local storage to the daemon, once. */
-async function importLegacy() {
-  const entries: Record<string, unknown> = {};
-  const remove: string[] = [];
-  try {
-    const viewed = localStorage.getItem("diff-viewed");
-    if (viewed) {
-      remove.push("diff-viewed");
-      for (const [k, on] of Object.entries(JSON.parse(viewed) as Record<string, boolean>)) {
-        const [id, number, head, ...rest] = k.split(":");
-        if (!on || !rest.length) continue;
-        const key = viewedKey(id, Number(number), head);
-        entries[key] = [...((entries[key] as string[] | undefined) ?? []), rest.join(":")];
-      }
-    }
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)!;
-      const value = localStorage.getItem(k) ?? "";
-      if (k.startsWith("github-reply:")) {
-        const [, repo, number] = k.split(":");
-        if (value.trim()) entries[replyKey(repo, Number(number))] = value;
-        remove.push(k);
-      } else if (k.startsWith("predraft-draft:")) {
-        try { entries[`predraft:${k.slice("predraft-draft:".length)}`] = JSON.parse(value); } catch { /* Drop unreadable drafts. */ }
-        remove.push(k);
-      } else if (k.startsWith("suggestion-edit:")) {
-        const rest = k.slice("suggestion-edit:".length);
-        const [id, field] = rest.endsWith(":event") ? [rest.slice(0, -":event".length), "event"] : [rest, "body"];
-        const key = `suggestion:${id}`;
-        entries[key] = { ...((entries[key] as object | undefined) ?? {}), [field]: value };
-        remove.push(k);
-      }
-    }
-  } catch (e) {
-    console.warn(`review state import: ${e}`);
-    return;
-  }
-  if (!remove.length) return;
-  try {
-    if (Object.keys(entries).length) await api.post("/api/review-state/import", entries);
-    remove.forEach((k) => localStorage.removeItem(k));
-  } catch (e) {
-    console.warn(`review state import: ${e}`);
-  }
 }
 
 export const viewedKey = (id: string, number: number, head: string) => `viewed:${id}#${number}@${head}`;

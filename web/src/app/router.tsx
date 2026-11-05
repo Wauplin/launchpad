@@ -31,8 +31,6 @@ const routeTree = root.addChildren([
     // `draft`: the agent suggestion to expand and scroll to.
     validateSearch: (s: Record<string, unknown>): { draft?: string } => (typeof s.draft === "string" || typeof s.draft === "number" ? { draft: String(s.draft) } : {}),
   }),
-  // The former To publish page is the To publish group of Review.
-  createRoute({ getParentRoute: () => root, path: "/publish", beforeLoad: () => { throw redirect({ to: "/review" }); } }),
   // The phone opens on Now; its Inbox tab is /inbox.
   createRoute({ getParentRoute: () => root, path: "/", component: InboxView, beforeLoad: () => { if (isPhone) throw redirect({ to: "/now" }); } }),
   createRoute({
@@ -48,9 +46,6 @@ const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/knowledge", component: lazyRouteComponent(() => import("@/features/knowledge/KnowledgeView"), "KnowledgeView") }),
   createRoute({ getParentRoute: () => root, path: "/setup", component: lazyRouteComponent(() => import("@/features/setup/SetupView"), "SetupView") }),
   createRoute({ getParentRoute: () => root, path: "/settings", component: lazyRouteComponent(() => import("@/features/settings/SettingsView"), "SettingsView") }),
-  // Workspaces are managed from the sidebar; Analytics became Usage.
-  createRoute({ getParentRoute: () => root, path: "/settings/workspaces", beforeLoad: () => { throw redirect({ to: "/settings" }); } }),
-  createRoute({ getParentRoute: () => root, path: "/settings/analytics", beforeLoad: () => { throw redirect({ to: "/settings/usage" }); } }),
   createRoute({ getParentRoute: () => root, path: "/settings/notifications", component: lazyRouteComponent(() => import("@/features/settings/SettingsView"), "NotificationsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/presets", component: lazyRouteComponent(() => import("@/features/settings/SettingsView"), "PresetsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/huggingface", component: lazyRouteComponent(() => import("@/features/settings/HuggingFaceView"), "HuggingFaceView") }),

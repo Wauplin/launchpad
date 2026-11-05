@@ -45,10 +45,8 @@ export const useLayout = create<LayoutStore>()(
       name: storageKey(useWorkspace.getState().current),
       merge: (persisted, current) => {
         const { pinned, collapsedGroups, selectedSession, dock } = { ...defaults, ...(persisted as Partial<LayoutStore>) };
-        // Preserve heights saved by the former S/M/L controls.
-        const { size, ...savedDock } = dock as Partial<Dock> & { size?: "small" | "medium" | "large" };
-        const height = savedDock.height ?? (size ? { small: 200, medium: 320, large: 500 }[size] : undefined);
-        return { ...current, pinned, collapsedGroups, selectedSession, dock: { ...defaultDock, ...savedDock, height: typeof height === "number" && Number.isFinite(height) ? height : defaultDock.height } };
+        const height = dock.height;
+        return { ...current, pinned, collapsedGroups, selectedSession, dock: { ...defaultDock, ...dock, height: typeof height === "number" && Number.isFinite(height) ? height : defaultDock.height } };
       },
     },
   ),

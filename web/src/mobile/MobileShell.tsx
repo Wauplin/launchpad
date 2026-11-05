@@ -29,7 +29,7 @@ const AddFolderDialog = lazy(() => import("@/features/projects/AddFolder").then(
 function pageTitle(path: string): string {
   if (path.startsWith("/now")) return "Now";
   if (path.startsWith("/agents")) return "Agents";
-  if (path.startsWith("/review") || path.startsWith("/publish")) return "Review";
+  if (path.startsWith("/review")) return "Review";
   if (path.startsWith("/inbox") || path === "/") return "Inbox";
   if (path.startsWith("/outbox")) return "Outbox";
   if (path.startsWith("/github")) return "GitHub";

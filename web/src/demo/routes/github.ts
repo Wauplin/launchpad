@@ -404,12 +404,6 @@ route("PUT", "/api/review-state", ({ query, body }) => {
   publish("review-state", "changed", { key, updated_at, origin: body?.origin ?? null });
   return { ok: true, updated_at };
 });
-route("POST", "/api/review-state/import", ({ body }) => {
-  const entries = Object.entries((body ?? {}) as Record<string, unknown>);
-  for (const [key, value] of entries) if (!world.reviewState[key]) world.reviewState[key] = { value, updated_at: clock.now() };
-  publish("review-state", "changed", { key: null, updated_at: clock.now(), origin: null });
-  return { imported: entries.length };
-});
 route("GET", "/api/prompt/github", ({ query }) => {
   const q = (query.get("q") ?? "").toLowerCase();
   return Object.entries(world.ghItems).filter(([key, item]) => `${key} ${item.title}`.toLowerCase().includes(q)).slice(0, 30).map(([key, item]): GitHubRef => ({ url: item.url, kind: kindOf(item), repo: key.slice(0, key.lastIndexOf("#")), number: item.number, title: item.title }));

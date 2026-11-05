@@ -17,6 +17,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/proposals", get(list).post(create))
         .route("/api/proposals/{id}/accept", post(accept))
         .route("/api/proposals/{id}/dismiss", post(dismiss))
+        .route("/api/proposals/{id}/edit", post(edited))
         .route("/api/proposals/{id}/recheck", post(recheck))
         .route("/api/context/folders", get(folders))
         .route("/api/context/bots", get(bots))
@@ -54,6 +55,9 @@ async fn accept(State(s): State<Ctx>, Path(id): Path<String>, Query(q): Query<Ac
 }
 async fn dismiss(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Proposal> {
     Ok(Json(proposals::dismiss(&s.app, &id).await.map_err(bad)?))
+}
+async fn edited(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Proposal> {
+    Ok(Json(proposals::edited(&s.app, &id).await.map_err(bad)?))
 }
 async fn recheck(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Proposal> {
     Ok(Json(proposals::recheck(&s.app, &id).await.map_err(bad)?))

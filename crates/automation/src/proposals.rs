@@ -101,7 +101,7 @@ pub enum ProposalState {
     /// Done: `result_id` is the session, schedule or cron.
     Started,
     Dismissed,
-    /// Superseded by another proposal before starting.
+    /// Superseded by another proposal before starting, or edited in the composer (no `replaced_by`).
     Replaced,
     /// The action failed before doing anything; the owner may start it again.
     Failed,
@@ -429,6 +429,18 @@ pub async fn dismiss(app: &App, id: &str) -> Result<Proposal> {
     let mut p = get(app, id).await?;
     ensure!(matches!(p.state, ProposalState::Proposed | ProposalState::Failed | ProposalState::Uncertain), "only waiting proposals can be dismissed");
     p.state = ProposalState::Dismissed;
+    p.updated_at = now_ms();
+    save(app, &p).await?;
+    Ok(p)
+}
+
+/// Edit in the composer: the card is replaced by what the owner launches from there, so it cannot start twice.
+pub async fn edited(app: &App, id: &str) -> Result<Proposal> {
+    let _lock = ACCEPT.lock().await;
+    let mut p = get(app, id).await?;
+    ensure!(matches!(p.state, ProposalState::Proposed | ProposalState::Failed), "only waiting, unstarted proposals can be edited");
+    p.state = ProposalState::Replaced;
+    p.replaced_by = None;
     p.updated_at = now_ms();
     save(app, &p).await?;
     Ok(p)
