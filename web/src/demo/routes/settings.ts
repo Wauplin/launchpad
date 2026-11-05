@@ -170,6 +170,9 @@ function connect(id: string) {
 // switches to the Home role and shows the laptop runner and recent Burst jobs.
 route("GET", "/api/runners", () => (world.status.role === "home" ? world.runners : []));
 route("GET", "/api/runner/launches", () => []);
+route("GET", "/api/runners/:id/status", () => ({ ...world.status, role: "runner", runner_update: null }));
+route("POST", "/api/runners/:id/update", notInDemo);
+route("DELETE", "/api/runners/:id/update", notInDemo);
 route("GET", "/api/home/backup", () => ({ destination: null, last_complete_at: null, error: null }));
 
 // Credentials and tools: a sample vault. Secrets never reach the browser, in the demo either.
