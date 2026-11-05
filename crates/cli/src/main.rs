@@ -151,7 +151,7 @@ enum Command {
     },
     /// Store an inert proposal for the owner to start from the Ask page; never starts anything.
     Propose {
-        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot", "routine"])]
+        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot", "routine", "bot-instructions"])]
         kind: String,
         #[arg(long)]
         title: String,
@@ -552,7 +552,7 @@ async fn main() -> Result<()> {
             let text = std::fs::read_to_string(&spec_file).with_context(|| format!("read {}", spec_file.display()))?;
             let mut body: serde_json::Value = serde_json::from_str(&text).context("the spec file is not valid JSON")?;
             anyhow::ensure!(body.is_object(), "the spec file must hold a JSON object");
-            body["kind"] = serde_json::Value::String(kind);
+            body["kind"] = serde_json::Value::String(kind.replace('-', "_"));
             let session_id = session_id.or_else(|| std::env::var("LAUNCHPAD_SESSION_ID").ok());
             let created = Client::new(&paths)?.json("POST", "/api/proposals", Some(serde_json::json!({"title": title, "note": note, "replaces": replaces, "body": body, "session_id": session_id}))).await?;
             println!("Proposal {} saved (state: {}).", created["id"].as_str().unwrap_or("?"), created["state"].as_str().unwrap_or("unknown"));

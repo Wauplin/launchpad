@@ -38,7 +38,7 @@ With a Git folder, each session works in a fresh worktree of Home Git. The bot p
 
 - **Memory**: the bot's notes in the knowledge base (`bots/<slug>/`) and the recent changes made by its sessions. Correct a note on the Knowledge page; every change can be restored for 30 days.
 - **Routines**: what the bot does on its own (see below).
-- **Instructions**: `BOT.md` (instructions) and `bot.toml` (name, profile, model, folder, permission mode), editable here. **Versions** lists every change of the last 30 days with its diff and **Restore previous**. The bot cannot edit these files; it tells you what to change.
+- **Instructions**: `BOT.md` (instructions) and `bot.toml` (name, profile, model, folder, permission mode), editable here. **Versions** lists every change of the last 30 days with its diff and **Restore previous**. The bot cannot edit these files: when its instructions should change, it proposes a new `BOT.md`, shown as a diff in this tab (and on the Ask page) until you click **Apply to BOT.md**; applying fails if `BOT.md` changed in between.
 - **Sessions**: every session of the thread, with its status and context use.
 - **Settings**: name, profile, model, folder and permissions, what the bot can reach, and **Delete bot**. Deleting keeps the bot's sessions, its notes and its own folder.
 

@@ -317,6 +317,13 @@ route("POST", "/api/proposals/:id/accept", (r) => {
     else if (b.kind === "cron") p.result_id = createCron(spec!, b.schedule, b.conditions).id;
     else if (b.kind === "message") { sendMessage(found(b.session_id), b.text, `${p.id}-msg`); p.result_id = b.session_id; }
     else if (b.kind === "tool") p.result_id = b.tool.id;
+    else if (b.kind === "bot_instructions") {
+      const bot = world.bots.find((x) => x.id === b.bot_id);
+      if (!bot) throw new DemoError(400, "this bot no longer exists");
+      if (bot.instructions !== b.before) throw new DemoError(400, `BOT.md changed since this proposal: ask ${bot.settings.name} again`);
+      bot.instructions = b.instructions; bot.version += 1; publish("bots", "changed", { id: bot.id });
+      p.result_id = bot.id;
+    }
     else if (b.kind === "routine") {
       const bot = world.bots.find((x) => x.id === b.bot_id);
       if (!bot) throw new DemoError(400, "this bot no longer exists");

@@ -398,7 +398,9 @@ function FilesPanel({ bot }: { bot: Bot }) {
   const save = async (patch: Record<string, string>) => {
     try { await api.patch<Bot>(`/api/bots/${bot.id}`, patch); await qc.invalidateQueries({ queryKey: ["bots"] }); toast("Saved: the next session reads it"); return true; } catch (e) { toastError(e); return false; }
   };
+  const proposed = (useProposalList().data ?? []).filter((p) => p.body.kind === "bot_instructions" && p.body.bot_id === bot.id && (p.state === "proposed" || p.state === "failed"));
   return <div data-tour="bots.files">
+    {proposed.length > 0 && <Section title="Proposed by the bot">{proposed.map((p) => <ProposalCard key={p.id} p={p} />)}</Section>}
     <Section title="BOT.md · what it does">
       <FileEditor key={`i-${bot.version}`} value={bot.instructions} onSave={(t) => save({ instructions: t })} rows={10} />
     </Section>

@@ -17,7 +17,15 @@ folder?: string, } | { "kind": "routine", bot_id: string, title: string,
 /**
  * What the bot does at each run.
  */
-instructions: string, trigger: Trigger, schedule: string, conditions: Array<CronCondition>, } | { "kind": "tool", tool: Tool, 
+instructions: string, trigger: Trigger, schedule: string, conditions: Array<CronCondition>, } | { "kind": "bot_instructions", bot_id: string, instructions: string, 
+/**
+ * BOT.md when the proposal was made (filled by Home).
+ */
+before: string, 
+/**
+ * The unified diff from `before` (filled by Home).
+ */
+patch: string, } | { "kind": "tool", tool: Tool, 
 /**
  * Where the owner creates the token.
  */
