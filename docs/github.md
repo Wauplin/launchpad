@@ -32,7 +32,7 @@ An item page has **Conversation**, **Changes** and **Review threads** tabs, and 
 
 Paste a link to a pull request, or to one of its comments, in the composer prompt (or add it as context) and say what to change. When the folder's `origin` or `upstream` is the PR's repository and **Run in** is **New worktree**, **Push to PR #N** is checked by default:
 
-- Launchpad reads the PR on GitHub; Home fetches its head (`pull/N/head`) into the session's branch, and the runner creates the worktree from it.
+- Home reads the PR on GitHub with its own login (runners need no GitHub credential), fetches its head (`pull/N/head`) into the session's branch, and the runner creates the worktree from it.
 - The agent commits; its branch goes to Home at the end of every turn, and Home pushes it to the PR branch (`origin`, or the fork's URL derived from it). Home never force-pushes; if the PR branch moved, the session shows it and the agent rebases on it.
 - The worktree is never merged by Launchpad and cannot become a Local PR: the pull request is the review.
 - Uncheck **Push to PR** to keep the work on Home in a normal worktree.

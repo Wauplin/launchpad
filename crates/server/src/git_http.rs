@@ -271,16 +271,16 @@ async fn merge(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<Me
 
 #[derive(Deserialize)]
 struct PullRequest {
+    repo: String,
     number: u64,
     branch: String,
-    follow: home_git::Follow,
+    session_id: Option<String>,
 }
 
-/// A session continues a GitHub pull request: Home fetches its head into the session's branch and pushes
-/// the branch back to the pull request after each push.
-async fn pull_request(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<PullRequest>) -> ApiResult<Value> {
+/// A session continues a GitHub pull request: Home reads it, fetches its head into the session's branch and
+/// pushes the branch back to the pull request after each push. Runners hold no GitHub credential.
+async fn pull_request(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<PullRequest>) -> ApiResult<launchpad_core::worktrees::PullRequestBranch> {
     let p = home_folder(&s, &id).await?;
-    let head = home_git::pull_request(&s.app, &p, b.number, &b.branch).await.map_err(bad)?;
-    home_git::set_follow(&s.app, &id, &b.branch, &b.follow).await?;
-    Ok(Json(json!({"head": head})))
+    let pr = launchpad_core::model::PullRequestRef { repo: b.repo, number: b.number };
+    Ok(Json(launchpad_core::worktrees::continue_pull_request(&s.app, &p, &pr, &b.branch, b.session_id).await.map_err(bad)?))
 }

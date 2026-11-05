@@ -329,8 +329,20 @@ async fn configure(app: &App, w: &TaskWorktree, session_id: &str) -> Result<()> 
     Ok(())
 }
 
-/// Reads an open pull request on GitHub; Home fetches its head into the session's branch and follows it.
+/// Continues a GitHub pull request: Home reads it with its own GitHub login, fetches its head into the session's
+/// branch and follows it. A runner asks Home (`/api/home-git/{id}/pull-request`): it holds no GitHub credential.
 async fn pull_request_branch(app: &App, project: &Project, w: &TaskWorktree, pr: &PullRequestRef) -> Result<PullRequestBranch> {
+    let session_id = w.sessions.first().cloned();
+    if crate::home_git::here(app) {
+        return continue_pull_request(app, project, pr, &w.branch, session_id).await;
+    }
+    let body = json!({"repo": pr.repo, "number": pr.number, "branch": w.branch, "session_id": session_id});
+    let v = crate::home_link::home_request("POST", &format!("/api/home-git/{}/pull-request", project.id), Some(body)).await?;
+    Ok(serde_json::from_value(v)?)
+}
+
+/// Home: reads an open pull request, fetches its head into `branch` and follows it (`home_git::Follow`).
+pub async fn continue_pull_request(app: &App, project: &Project, pr: &PullRequestRef, branch: &str, session_id: Option<String>) -> Result<PullRequestBranch> {
     let label = format!("{}#{}", pr.repo, pr.number);
     let v = app.github.get(&format!("/repos/{}/pulls/{}", pr.repo, pr.number)).await.with_context(|| format!("could not read pull request {label}"))?;
     ensure!(v["state"] == "open", "pull request {label} is not open");
@@ -345,14 +357,9 @@ async fn pull_request_branch(app: &App, project: &Project, w: &TaskWorktree, pr:
         let repo = project.gh_repo.clone().unwrap_or_default();
         crate::predrafts::fork_url(&origin, &repo, &head_repo).with_context(|| format!("cannot derive the URL of {head_repo}"))?
     };
-    let follow = crate::home_git::Follow { remote, branch: head_branch.clone(), url: url.clone(), session_id: w.sessions.first().cloned() };
-    let body = json!({"number": pr.number, "branch": w.branch, "follow": follow});
-    if crate::home_git::here(app) {
-        crate::home_git::pull_request(app, project, pr.number, &w.branch).await?;
-        crate::home_git::set_follow(app, &project.id, &w.branch, &follow).await?;
-    } else {
-        crate::home_link::home_request("POST", &format!("/api/home-git/{}/pull-request", project.id), Some(body)).await?;
-    }
+    let follow = crate::home_git::Follow { remote, branch: head_branch.clone(), url: url.clone(), session_id };
+    crate::home_git::pull_request(app, project, pr.number, branch).await?;
+    crate::home_git::set_follow(app, &project.id, branch, &follow).await?;
     Ok(PullRequestBranch { repo: pr.repo.clone(), number: pr.number, url, head_repo, head_branch })
 }
 
