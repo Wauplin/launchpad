@@ -79,10 +79,12 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
   <div class="row"><button class="primary" data-login="github">Sign in to GitHub</button></div></div></li>
 
 <li id="s-ssh"><span class="dot"></span><div><h2>SSH key</h2><div class="state"></div></div>
-  <div class="body"><p class="hint">Home created an SSH key for your agents. They use it to push over SSH; the private key never leaves Home. Add the public key to your GitHub account:</p>
+  <div class="body"><p class="hint">You need it only to push over SSH from a runner's own clone: agents push to Home Git, and the GitHub sign-in already covers clones. The private key never leaves Home.</p>
+  <div class="row" id="ssh-new"><button class="primary" id="ssh-create">Create an SSH key</button><button class="link" id="ssh-skip">Skip for now</button></div>
+  <div id="ssh-add" class="stack" hidden><p class="hint">Add the public key to your GitHub account:</p>
   <div class="row"><textarea id="ssh-pub" class="grow mono" rows="2" readonly aria-label="Public SSH key"></textarea><button id="ssh-copy">Copy</button></div>
   <p class="hint">Open the GitHub page below, paste the key, name it “Launchpad Home” and click <b>Add SSH key</b>. <a href="https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account" target="_blank" rel="noopener noreferrer">How to add an SSH key</a></p>
-  <div class="row"><a class="btn" href="https://github.com/settings/ssh/new" target="_blank" rel="noopener noreferrer">Open GitHub SSH settings</a><button class="primary" id="ssh-done">I added it</button><button class="link" id="ssh-skip">Skip for now</button></div></div></li>
+  <div class="row"><a class="btn" href="https://github.com/settings/ssh/new" target="_blank" rel="noopener noreferrer">Open GitHub SSH settings</a><button class="primary" id="ssh-done">I added it</button><button class="link" id="ssh-skip2">Skip for now</button></div></div></div></li>
 
 <li id="s-identity"><span class="dot"></span><div><h2>Git identity</h2><div class="state"></div></div>
   <div class="body"><p class="hint">The author of your agents' commits, on every runner.</p>
@@ -134,7 +136,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
 </div></main>
 <script>
 const $=s=>document.querySelector(s);
-let keyTried=false,csrf="",st=null,actionError="",busy=false,generatedKey=null,keyKept=false,sshRequested=false,modelsFor=null,foldersOpen=false,repos=null,cloningRepo=null,cloneQueue=[],cloneErrors=[],wsChosen=null;
+let keyTried=false,csrf="",st=null,actionError="",busy=false,generatedKey=null,keyKept=false,modelsFor=null,reopened=new Set(),foldersOpen=false,repos=null,cloningRepo=null,cloneQueue=[],cloneErrors=[],wsChosen=null;
 const NAMES={huggingface:"Hugging Face",github:"GitHub",codex:"Codex",claude:"Claude Code"};
 const STEP={huggingface:"huggingface",github:"github",codex:"profile",claude:"profile"};
 const count=(n,w)=>n?`${n} ${w}${n===1?"":"s"}`:`no ${w}`;
@@ -143,7 +145,7 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const stepOf=(s,k)=>s.steps.find(x=>x.id===k)||{done:false,skipped:false};
 const skipped=k=>!!(st&&stepOf(st,k).skipped);
 const skip=k=>act("/_home/skip",{step:k});
-function isDone(s,k){const x=stepOf(s,k);if(k==="folders")return x.done&&!foldersOpen;return x.done||x.skipped;}
+function isDone(s,k){const x=stepOf(s,k);if(k==="folders")return x.done&&!foldersOpen;return x.done||(x.skipped&&!reopened.has(k));}
 
 function render(s){
   if(!s)return;st=s;csrf=s.csrf;$("#bucket").textContent=s.bucket;
@@ -160,7 +162,7 @@ function render(s){
   $("#s-huggingface .state").textContent=hf.done?`Signed in as ${hf.account}`:"Not signed in";
   $("#s-key .state").textContent=key.done?"Encryption on":key.state==="restarting"?"Home is restarting…":key.state==="manual"?"Waiting for the LP_HOME_KEY secret":"Not set";
   $("#s-github .state").textContent=gh.done?`Signed in${gh.account?` as ${gh.account}`:""}${gh.secret?" (GH_TOKEN Space secret)":""}`:gh.secret?"The GH_TOKEN Space secret did not work. Check it in the Space settings.":"Not connected";
-  $("#s-ssh .state").textContent=s.ssh.done?"Added":s.ssh.public_key?"Created: add it to GitHub":"Not created";
+  $("#s-ssh .state").textContent=s.ssh.done?"Added":skipped("ssh")?"Skipped":s.ssh.public_key?"Created: add it to GitHub":"Not created";
   $("#s-identity .state").textContent=s.identity.done?`${s.identity.name} <${s.identity.email}>`:"Not set";
   $("#s-profile .state").textContent=pr.done?`Ready: ${(pr.profiles||[]).map(p=>`${p.name}${p.model?` · ${p.model}`:""}${p.effort?` · ${p.effort}`:""}`).join(", ")}`:pr.ready?"Choose a model":pr.missing?`${pr.missing.name} needs its login`:"No profile yet";
   $("#s-folders .state").textContent=fo.done?`${(fo.workspaces||[]).map(w=>w.name).join(", ")} · ${(fo.projects||[]).length} folder${(fo.projects||[]).length===1?"":"s"}`:"No folder yet";
@@ -168,6 +170,8 @@ function render(s){
   $("#s-runner .state").textContent=live.length?`Connected: ${live.map(r=>r.name).join(", ")}${burst.available?" · Burst when it is off":""}`:paired.length?`Paired: ${paired.map(r=>r.name).join(", ")} (offline now)${burst.available?" · Burst meanwhile":""}`:skipped("runner")?(burst.available?"Burst for now":"Skipped"):burst.available?"Burst is ready: nothing to install":"No runner yet";
   $("#s-agent .state").textContent=s.agent.done?"Done":skipped("agent")?"Skipped":live.length?"Ready to run":burst.available?"Ready to run on Burst":"Needs a connected runner";
   $("#s-bot .state").textContent=s.bot.done?"Created":skipped("bot")?"Skipped":"No bot yet";
+  // A skipped step can be opened again; it stays skipped on Home until it is done.
+  s.steps.filter(x=>x.skipped&&x.id!==active).forEach(x=>{const b=document.createElement("button");b.className="link";b.textContent="Do it now";b.onclick=()=>{reopened.add(x.id);render(st);};$(`#s-${x.id} .state`).append(" · ",b);});
   $("#burst-hint").innerHTML=burst.available?`<b>Burst</b> <span class="tag">nothing to install</span> Agents can run now: when no runner takes a launch, Home starts an HF Job in your namespace for it (about $0.01 per hour, capped at $${esc(burst.cap)} per month in Settings → Home and runners). It holds no token and stops after each turn.`:`Burst is not available: ${esc(burst.unavailable||"")}. Connect a runner to run agents.`;
   $("#runner-burst").hidden=!burst.available||live.length>0;
 
@@ -181,9 +185,9 @@ function render(s){
   $("#key-save").disabled=busy||!$("#key-kept").checked||(mode==="generate"?!generatedKey:!ownOk);
   if(key.state==="manual")$("#secrets").href=`https://huggingface.co/spaces/${s.space}/settings`;
 
-  // SSH step.
-  if(active==="ssh"&&!s.ssh.public_key&&!sshRequested){sshRequested=true;act("/_home/ssh",{});}
-  $("#ssh-pub").value=s.ssh.public_key||"Creating the key…";$("#ssh-copy").disabled=!s.ssh.public_key;
+  // SSH step: the key is created only on a click.
+  $("#ssh-new").hidden=!!s.ssh.public_key;$("#ssh-add").hidden=!s.ssh.public_key;$("#ssh-create").disabled=busy;
+  $("#ssh-pub").value=s.ssh.public_key||"";
 
   // Identity step.
   if(active==="identity"&&!$("#git-name").dataset.filled){$("#git-name").dataset.filled="1";$("#git-name").value=s.identity.name||gh.suggest.name||"";$("#git-email").value=s.identity.email||gh.suggest.email||"";}
@@ -318,7 +322,9 @@ $("#key-download").onclick=()=>{if(!generatedKey)return;const a=document.createE
 $("#key-save").onclick=()=>{const mode=document.querySelector("input[name=keymode]:checked").value;act("/_home/key/save",{key:mode==="own"?$("#own-key").value:generatedKey});};
 $("#restart").onclick=()=>act("/_home/restart",{});
 $("#ssh-copy").onclick=e=>copy(e.target,$("#ssh-pub").value);
-$("#ssh-done").onclick=$("#ssh-skip").onclick=()=>act("/_home/ssh/done",{});
+$("#ssh-create").onclick=()=>act("/_home/ssh",{});
+$("#ssh-done").onclick=()=>act("/_home/ssh/done",{});
+$("#ssh-skip").onclick=$("#ssh-skip2").onclick=()=>{reopened.delete("ssh");skip("ssh");};
 $("#git-name").oninput=$("#git-email").oninput=()=>render(st);
 $("#git-save").onclick=async()=>{const name=$("#git-name").value.trim(),email=$("#git-email").value.trim();if(!name||!email.includes("@")){actionError="Enter a name and an email address.";render(st);return;}busy=true;await api("PUT","/api/vault/identity",{name,email});busy=false;};
 $("#profile-save").onclick=()=>act("/_home/profile",{id:st.profile.profiles[0].id,model:$("#model").value||null,effort:$("#effort").value||null});
@@ -329,11 +335,10 @@ $("#repo").onkeydown=e=>{if(e.key==="Enter"&&!$("#repo-clone").disabled)$("#repo
 $("#repo-clone").onclick=()=>clone($("#repo").value.trim());
 $("#folders-done").onclick=()=>{foldersOpen=false;render(st);};
 $("#install-copy").onclick=e=>copy(e.target,st.install);
-$("#runner-skip").onclick=()=>skip("runner");
-$("#runner-burst").onclick=()=>skip("runner");
+$("#runner-skip").onclick=$("#runner-burst").onclick=()=>{reopened.delete("runner");skip("runner");};
 $("#agent-runner").onchange=()=>render(st);
-$("#agent-skip").onclick=()=>skip("agent");
-$("#bot-skip").onclick=()=>skip("bot");
+$("#agent-skip").onclick=()=>{reopened.delete("agent");skip("agent");};
+$("#bot-skip").onclick=()=>{reopened.delete("bot");skip("bot");};
 $("#agent-run").onclick=async()=>{
   const folder=$("#agent-folder").value,profile=st.profile.profiles.find(p=>p.id===$("#agent-profile").value),project=st.folders.projects.find(p=>p.id===folder);
   if(!profile||!project)return;busy=true;render(st);

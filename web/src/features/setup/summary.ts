@@ -34,11 +34,11 @@ const step = (id: string, title: string, why: string, required: boolean, done: b
 /** The steps of a Home outside a Space (no gateway, so no Hugging Face, key or GitHub steps), from its own data. */
 export function homeSteps(d: HomeData): HomeStep[] {
   return [
-    step("ssh", "SSH key", "Lets agents push over SSH. The private key never leaves Home.", true, d.vault?.entries.some((e) => e.kind === "ssh_key") ?? false),
     step("identity", "Git identity", "The author of your agents' commits.", true, !!(d.vault?.git_name.trim() && d.vault.git_email.trim())),
     step("profile", "Agent profile", "A subscription login and the default model and effort.", true, d.profiles > 0),
     step("folders", "Workspace and first folder", "Folders your agents work in, grouped by workspace.", true, d.workspaces > 0 && d.projects > 0),
     step("runner", "Where agents run", "A Linux machine of yours that runs the agents.", false, d.runners?.some((r) => r.runner.state === "approved") ?? false, "recommended"),
+    step("ssh", "SSH key", "Only for pushing over SSH from a runner's own clone: agents push to Home Git, and the GitHub sign-in covers clones.", false, d.vault?.entries.some((e) => e.kind === "ssh_key") ?? false, "optional"),
     step("bot", "First bot", "An agent that stays: one thread, its own instructions, and notes it keeps between sessions.", false, (d.bots ?? 0) > 0, "optional"),
   ];
 }

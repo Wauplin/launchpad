@@ -54,11 +54,11 @@ STEPS = (
     ("huggingface", "Hugging Face", "Home's login for its private bucket.", True, None),
     ("key", "Credential key", "Encrypts every credential Home stores. Keep your copy safe.", True, None),
     ("github", "GitHub", "Inbox, pull requests, private clones and publication.", True, None),
-    ("ssh", "SSH key", "Lets agents push over SSH. The private key never leaves Home.", True, None),
     ("identity", "Git identity", "The author of your agents' commits.", True, None),
     ("profile", "Agent profile", "A subscription login and the default model and effort.", True, None),
     ("folders", "Workspace and first folder", "Folders your agents work in, grouped by workspace.", True, None),
     ("runner", "Where agents run", "A Linux machine of yours that runs the agents, or Burst when none is on.", False, "recommended"),
+    ("ssh", "SSH key", "Only for pushing over SSH from a runner's own clone: agents push to Home Git, and the GitHub sign-in covers clones.", False, "optional"),
     ("agent", "First agent", "Ask an agent what one of your projects is about.", False, "recommended"),
     ("bot", "First bot", "An agent that stays: one thread, its own instructions, and notes it keeps between sessions.", False, "optional"),
 )
