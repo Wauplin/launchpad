@@ -31,8 +31,9 @@ Run only what your change can break; CI runs everything.
 
 - Docs only: nothing.
 - Web only: `(cd web && pnpm typecheck)`, `pnpm lint:hooks` if you touched hooks, and the matching `pnpm test:<name>`. Do not run cargo.
-- Rust: `cargo clippy -p <crate> --all-targets -- -D warnings` for the crates you changed (it also type-checks). Run `cargo test -p <crate> <filter>` only when you changed code that has tests; run the whole `cargo test` only before committing a change that touches several crates.
-- Do not run full clippy, the full test suite and a release build on every turn. Do not run `cargo clean`.
+- Rust, while working: `cargo check --all-targets` (about 20 s after a change in `core`). Run `cargo test <filter>` only when you changed code that has tests (the whole run takes about one second once built).
+- Rust, once before committing: `cargo clippy --all-targets -- -D warnings` (about 1.5 min after a change in `core`), plus `cargo test` if you changed tested code.
+- Run cargo from the repository root without `-p`: selecting one crate resolves different dependency features and rebuilds every dependency. Do not run release builds or `cargo clean`.
 - Contained sessions share compiled dependencies through `sccache` when it is installed on the runner (`cargo install sccache --locked`).
 
 ## Safety rules
