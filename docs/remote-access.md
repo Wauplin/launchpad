@@ -65,13 +65,16 @@ When the daemon is reachable from other machines, the `[commands]` section of `c
 
 ## Phone layout
 
-Screens narrower than 720 px get a phone layout (or choose it in **Settings → Appearance**):
+Screens narrower than 720 px get a phone layout (or choose it in **Settings → Appearance** on a laptop, **Settings → This device → Layout** on the phone):
 
-- Tabs: **Today** (what waits for you, with the card buttons in place), **Agents**, **Bots** and **Inbox**.
-- The workspace button at the top left opens the menu. Its **Workspaces** row shows one square per workspace with the count of what waits in it; tap one to switch, or **New workspace**. Below are the other pages (Schedules, Folders, Knowledge, Terminals when some are open, Settings) and device settings. The button shows how many items wait in the Today lists of the other workspaces.
-- Each screen has one title, in the top bar.
+- Tabs: **Today** (what waits for you, with the card buttons in place), **Agents**, **Ask**, **Inbox** and **More**.
+- **Ask** opens the chat of your default Ask bot (the same bot as the laptop's Ask field) full screen, with no back button. Over the message box, quick chips send common questions (**What needs me?**, **How are my agents doing?**) or start a message for you to finish (**Start an agent…**, **Status of…**). They are normal messages.
+- **More** lists Bots, Schedules, Folders, Knowledge, Terminals, Settings and Finish setup, each with its state (for example a bot that needs you or a failed routine), and the current workspace with **Change**.
+- The workspace button at the top left opens the workspace sheet: one row per workspace with the count of what waits in it; tap one to switch, or **New workspace**. The button shows how many items wait in the other workspaces.
+- Each screen has one title, in the top bar. The status button in the top bar turns amber with a count when something is wrong: no connection, Home unreachable, outdated or offline runners, SSH hosts not connected, a missing harness that a profile uses, quota near its limit or without a fresh reading, a spending limit reached, or a low GitHub rate limit. Its sheet says why, with a link to the page that fixes it.
 - Bot pages show the chat; the header's **⋯** menu opens Memory, Proposals, Routines and Settings in place of the chat.
-- Session pages with Summary, Trace and Changes, a reply box and a terminal key bar. In Summary or Trace, tap the expand icon beside the view tabs to fill the screen with a compact header and hide the reply box. Tap collapse to restore the layout and your draft.
+- Session pages with Summary, Trace and Changes and a terminal key bar. A bottom bar holds **Reply** and the session's main action, or **Merge into** the base branch when merging is safe and no question is open. **Reply** opens the message box; it stays open while it holds a draft, and opens by itself when you answer a question. In Summary or Trace, tap the expand icon beside the view tabs to fill the screen with a compact header. Tap collapse to restore the layout and your draft.
+- **Settings** is a list in three groups: **This device** (theme, layout, notifications, devices), **On the phone** (Telegram and channels, the workspace, presets, GitHub, usage) and **On a computer** (profiles, machines, Home and runners, credentials, Hugging Face, maintenance, the setup checklist). The last group shows only a status: open Launchpad on a computer to change these.
 
 <table>
   <tr>

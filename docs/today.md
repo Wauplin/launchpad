@@ -4,7 +4,7 @@
 
 ## Cards
 
-Cards are sorted by filter, then newest first. Each filter is a chip with its count and its own address (for example `/?filter=send`). A link to one card is `/?card=<id>`.
+Cards are sorted by filter, then newest first. Each filter is a chip with its count and its own address (for example `/?filter=send`). A link to one card is `/?card=<id>` and outlines that card; Telegram notifications use it (`/?card=session:<id>`). When the card no longer waits, the link opens the session.
 
 | Filter | Cards | Buttons |
 | --- | --- | --- |
@@ -21,7 +21,7 @@ Cards are sorted by filter, then newest first. Each filter is a chip with its co
 
 ## Counts
 
-Every attention count comes from this list: the **Today** count in the sidebar and on the phone tab, the workspace squares of the rail, the phone's workspace menu, the window title and the app badge. **Agents** shows only how many agents run or wait for quota. The **Inbox** count (unread review requests, mentions and assignments) stays on Inbox.
+Every attention count comes from this list: the **Today** count in the sidebar and on the phone tab, the workspace squares of the rail, the phone's workspace sheet, the window title and the app badge. **Agents** shows only how many agents run or wait for quota. The **Inbox** count (unread review requests, mentions and assignments) stays on Inbox.
 
 ## Workspaces
 
