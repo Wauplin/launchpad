@@ -6,7 +6,8 @@ import type { BotSettings } from "@/gen/BotSettings";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import { clock, DemoError, publish, route } from "../daemon";
 import { world } from "../world";
-import { settingsText } from "../world/bots";
+import { ASK_DEFAULT, settingsText } from "../world/bots";
+import type { AskBot } from "@/gen/AskBot";
 import { session, setStatus } from "../store";
 import { createCron, launch, nextDue } from "./launch";
 import type { CronAgent } from "@/gen/CronAgent";
@@ -97,4 +98,34 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
   const spec = { harness: profile?.harness ?? "claude", profile: b.settings.profile ?? null, target: { kind: "project", project_id: b.settings.folder }, worktree: world.projects.find((p) => p.id === b.settings.folder)?.plain ? null : { base: null, when_done: "keep" }, workspace_id: b.workspace_id, text,
     bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
   return launch(spec);
+});
+
+// Ask Launchpad, the built-in bot: BOT.md with versions and Reset to default.
+const ASK = "ask-launchpad";
+const askBot = (): AskBot => ({
+  instructions: world.askBot.instructions, default_instructions: ASK_DEFAULT, version: world.askBot.version,
+  builtin: "You are Ask Launchpad, the owner's assistant inside Launchpad, scoped to the current workspace. You turn requests into proposals. You never start agents, send messages, schedule, publish or post to GitHub yourself, and you do not edit files. These rules and the reference below are built into Launchpad. The owner's instructions (BOT.md) say how they want you to work within them; when the two conflict, these rules win.\n\n<bot-instructions>\n(your BOT.md)\n</bot-instructions>\n\nRead Launchpad state with these read-only commands (JSON output): launchpad folders list, bots list, sessions list, profiles list, presets list, inbox list, schedules list, proposals list, trace <session-id>.\n\nWrite proposals with launchpad propose <launch|message|schedule|cron|status|preset|tool|bot|routine|bot-instructions> …",
+  customized: world.askBot.instructions !== ASK_DEFAULT || world.config.assistant.profile != null || world.config.assistant.model != null || world.config.assistant.auto_mode,
+});
+const setAsk = (text: string) => {
+  const b = { id: ASK } as Bot;
+  if (text !== world.askBot.instructions) record(b, "BOT.md", world.askBot.instructions, text);
+  world.askBot.instructions = text;
+  world.askBot.version += 1;
+  publish("bots", "changed", { id: ASK });
+  return askBot();
+};
+route("GET", "/api/assistant/bot", askBot);
+route("PATCH", "/api/assistant/bot", ({ body }) => {
+  const text = (body as { instructions: string }).instructions ?? "";
+  if (!text.trim()) throw new DemoError(400, "BOT.md is empty: use Reset to go back to the default");
+  return setAsk(text.endsWith("\n") ? text : `${text}\n`);
+});
+route("GET", "/api/assistant/bot/history", () => (world.botChanges[ASK] ?? []).map(({ patch: _patch, ...c }) => c));
+route("GET", "/api/assistant/bot/history/:change", ({ params }) => ({ patch: (world.botChanges[ASK] ?? []).find((c) => c.id === Number(params.change))?.patch ?? "" }));
+route("POST", "/api/assistant/bot/restore/:change", () => { throw new DemoError(400, "Demo: restoring a version works on a real Home."); });
+route("POST", "/api/assistant/bot/reset", () => {
+  world.config = { ...world.config, assistant: { profile: null, model: null, effort: null, auto_mode: false } };
+  publish("config", "changed", null);
+  return setAsk(ASK_DEFAULT);
 });

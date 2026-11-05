@@ -129,7 +129,7 @@ async fn rows(app: &App) -> Result<Vec<Row>> {
     }).await
 }
 
-async fn text_of(app: &App, files: &[plain::Entry], path: &str) -> String {
+pub(crate) async fn text_of(app: &App, files: &[plain::Entry], path: &str) -> String {
     match files.iter().find(|f| f.path == path) {
         Some(f) => plain::read_blob(app, &f.sha256).await.ok().map(|d| String::from_utf8_lossy(&d).into_owned()).unwrap_or_default(),
         None => String::new(),
@@ -170,7 +170,14 @@ pub(crate) async fn exists(app: &App, id: &str) -> Result<bool> {
 
 /// Writes files as the owner, with their history.
 async fn write(app: &App, id: &str, files: Vec<(&str, String)>) -> Result<()> {
-    let tree = plain::tree(app, &store(id)).await?;
+    write_store(app, &store(id), files).await?;
+    app.bus.publish("bots", "changed", serde_json::json!({"id": id}));
+    Ok(())
+}
+
+/// Writes the files of a bot's store as the owner, each change with its history. Unchanged files are skipped.
+pub(crate) async fn write_store(app: &App, store_id: &str, files: Vec<(&str, String)>) -> Result<()> {
+    let tree = plain::tree(app, store_id).await?;
     let mut updates = vec![];
     for (path, body) in files {
         let old = text_of(app, &tree.files, path).await;
@@ -184,9 +191,8 @@ async fn write(app: &App, id: &str, files: Vec<(&str, String)>) -> Result<()> {
         updates.push((Update { path: path.into(), sha256: Some(sha), size: data.len() as u64, executable: false }, Some(Meta { author: crate::kb::Author::owner(None), added: Some(added), removed: Some(removed) })));
     }
     if !updates.is_empty() {
-        plain::record(app, &store(id), None, updates).await?;
+        plain::record(app, store_id, None, updates).await?;
     }
-    app.bus.publish("bots", "changed", serde_json::json!({"id": id}));
     Ok(())
 }
 
@@ -278,7 +284,7 @@ pub async fn history(app: &App, id: &str) -> Result<Vec<plain::Change>> {
     plain::history(app, &store(id)).await
 }
 
-async fn blob_string(app: &App, sha: Option<&str>) -> String {
+pub(crate) async fn blob_string(app: &App, sha: Option<&str>) -> String {
     match sha {
         Some(h) => plain::read_blob(app, h).await.ok().map(|d| String::from_utf8_lossy(&d).into_owned()).unwrap_or_default(),
         None => String::new(),

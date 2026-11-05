@@ -169,8 +169,23 @@ export function routineTemplates(repo: string | null): { label: string; title: s
   ];
 }
 
-/** Adds a routine to a bot: a name, what it does, and when. */
-export function NewRoutine({ bot, repo, harness, onDone }: { bot: Bot; repo: string | null; harness: HarnessKind | null; onDone: () => void }) {
+/** Ask Launchpad's morning brief: a routine of the assistant, weekdays at 8:30 (edit it after). */
+export const BRIEF_TITLE = "Morning brief";
+export const BRIEF = "Write my morning brief for this workspace. Read what changed since your previous brief: agents that need me or finished, Inbox threads, Local PRs and suggestions waiting for my click, routine reports, and the quota. Start with what needs me (at most five items, each with its link and one next action), then one line about what was handled. Keep it short. If nothing changed, reply no_update.";
+
+/** Ask Launchpad's starting points: its runs go to the workspace's Ask thread. */
+function askTemplates(): ReturnType<typeof routineTemplates> {
+  const cond = DEFAULT_CRON.conditions.filter((c) => c.kind === "quota_left");
+  return [
+    { label: BRIEF_TITLE, title: BRIEF_TITLE, instructions: BRIEF, draft: { trigger: { kind: "schedule" }, schedule: "30 8 * * 1-5", conditions: cond } },
+    { label: "After each agent", title: "Check finished work", instructions: "Read what the agent below did. If it needs my attention or a follow-up, propose it. Otherwise reply no_update.", draft: { trigger: { kind: "session_done", folder: null }, schedule: "", conditions: cond } },
+  ];
+}
+
+/** Adds a routine to a bot, or to Ask Launchpad (`bot` null, in `workspaceId`): a name, what it does, and when. */
+export function NewRoutine({ bot, workspaceId = null, repo, harness, onDone }: { bot: Bot | null; workspaceId?: string | null; repo: string | null; harness: HarnessKind | null; onDone: () => void }) {
+  const name = bot?.settings.name ?? "Ask Launchpad";
+  const ws = bot?.workspace_id ?? workspaceId;
   const qc = useQueryClient();
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -180,22 +195,23 @@ export function NewRoutine({ bot, repo, harness, onDone }: { bot: Bot; repo: str
   const add = async () => {
     setBusy(true);
     try {
-      await api.post<CronAgent>(`/api/bots/${bot.id}/routines`, { title: title.trim(), instructions: instructions.trim(), ...draft, time_zone: browserZone() });
+      if (bot) await api.post<CronAgent>(`/api/bots/${bot.id}/routines`, { title: title.trim(), instructions: instructions.trim(), ...draft, time_zone: browserZone() });
+      else await api.post<CronAgent>("/api/launch/crons", { spec: { target: { kind: "assistant", workspace_id: ws }, text: instructions.trim(), workspace_id: ws }, title: title.trim(), ...draft, time_zone: browserZone() });
       await qc.invalidateQueries({ queryKey: ["crons"] });
-      toast(`Routine added to ${bot.settings.name}`);
+      toast(`Routine added to ${name}`);
       onDone();
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   return <div className="grid gap-2 rounded-lg border border-line bg-paper p-3" data-tour="bots.routine-form">
     {!title && !instructions && <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-ink-3">Start from
-      {routineTemplates(repo).map((t) => <button key={t.label} className="btn btn-sm" onClick={() => { setTitle(t.title); setInstructions(t.instructions); setDraft(t.draft); }}>{t.label}</button>)}
+      {(bot ? routineTemplates(repo) : askTemplates()).map((t) => <button key={t.label} className="btn btn-sm" onClick={() => { setTitle(t.title); setInstructions(t.instructions); setDraft(t.draft); }}>{t.label}</button>)}
     </div>}
     <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input h-[30px] font-normal" maxLength={80} value={title} placeholder="Morning check" onChange={(e) => setTitle(e.target.value)} /></label>
     <label className="grid gap-1 text-[12px] font-semibold text-ink-2">What it does at each run
       <textarea className="field-input min-h-[76px] py-1.5 font-normal leading-5" value={instructions} placeholder="For example: “Check the open issues labeled bug and tell me about new ones.”" onChange={(e) => setInstructions(e.target.value)} />
-      <span className="font-normal text-ink-3">Sent to {bot.settings.name}'s thread at each run. It reports, or replies no_update when there is nothing to say: then you get no notification.</span>
+      <span className="font-normal text-ink-3">Sent to {name}'s thread at each run. It reports, or replies no_update when there is nothing to say: then you get no notification.</span>
     </label>
-    <TriggerFields draft={draft} harness={harness} workspaceId={bot.workspace_id} inThread onChange={setDraft} onValidityChange={setValid} />
+    <TriggerFields draft={draft} harness={harness} workspaceId={ws} inThread onChange={setDraft} onValidityChange={setValid} />
     <div className="flex justify-end gap-2">
       <button className="btn btn-sm btn-ghost" onClick={onDone}>Cancel</button>
       <button className="btn btn-sm btn-primary" disabled={busy || !valid || !title.trim() || !instructions.trim()} onClick={() => void add()}><Icon name="plus" size={12} />Add routine</button>

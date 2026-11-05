@@ -888,7 +888,7 @@ impl Sessions {
         if let Target::Assistant { workspace_id } = &spec.target {
             anyhow::ensure!(spec.context_projects.is_empty() && spec.worktree.is_none() && !spec.allow_paid_usage, "The assistant has no folders, worktrees or paid usage");
             prompt.push_str("\n\n");
-            prompt.push_str(&crate::proposals::instruction(app, workspace_id.as_deref(), &cli).await);
+            prompt.push_str(&crate::proposals::instruction(app, workspace_id.as_deref(), &cli, spec.assistant_instructions.as_deref()).await);
             return Ok(Preview { title: "Ask Launchpad".into(), prompt, cwd, add_dirs });
         }
         if let Some(bot) = &spec.bot {

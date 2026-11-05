@@ -22,7 +22,7 @@ import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import type { VaultOverview } from "@/gen/VaultOverview";
 import { api } from "@/lib/api";
-import { botInitial, botJob, botState, botThread, currentSession, rotationReason, useBots, type BotState } from "@/lib/bots";
+import { botInitial, botJob, botState, botThread, currentSession, rotationReason, useAskBot, useBots, type BotState } from "@/lib/bots";
 import { daemonUrl } from "@/lib/connection";
 import { formatAge } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
@@ -99,10 +99,11 @@ export function BotsView() {
 }
 
 function AskRow() {
+  const customized = useAskBot().data?.customized;
   return <Link to="/ask" className="flex min-h-[56px] items-center gap-3 rounded-lg border border-line bg-paper px-3 py-2 no-underline hover:bg-sunk">
     <span className="grid size-[32px] flex-none place-items-center rounded-[8px] bg-teal-soft text-teal-ink"><Icon name="spark" size={16} /></span>
     <span className="min-w-0 flex-1">
-      <span className="flex items-center gap-2 text-[13px] font-semibold text-ink">Ask Launchpad <Badge>Built in</Badge></span>
+      <span className="flex items-center gap-2 text-[13px] font-semibold text-ink">Ask Launchpad <Badge>Built in</Badge>{customized && <Badge tone="teal">Customized</Badge>}</span>
       <span className="block truncate text-[12px] text-ink-3">Reads your workspace and proposes launches, messages and schedules; nothing starts without your click.</span>
     </span>
   </Link>;
@@ -323,7 +324,7 @@ function FirstMessage({ bot, reason, previous, needsProfile, openSettings, onCan
   );
 }
 
-function Section({ title, children, action }: { title: ReactNode; children: ReactNode; action?: ReactNode }) {
+export function Section({ title, children, action }: { title: ReactNode; children: ReactNode; action?: ReactNode }) {
   return <section className="grid gap-2 border-b border-line-2 p-3">
     <div className="flex items-center gap-2"><h3 className="seclabel m-0 min-w-0 flex-1">{title}</h3>{action}</div>
     {children}
@@ -410,29 +411,30 @@ function FilesPanel({ bot }: { bot: Bot }) {
     </Section>
     <Section title="Versions · last 30 days">
       {history.isLoading ? <Loading what="versions" /> : (history.data ?? []).length === 0 ? <p className="m-0 text-[12px] text-ink-3">No change yet.</p>
-        : (history.data ?? []).map((c) => <Version key={c.id} bot={bot} change={c} />)}
+        : (history.data ?? []).map((c) => <Version key={c.id} base={`/api/bots/${bot.id}`} change={c} />)}
     </Section>
   </div>;
 }
 
-function FileEditor({ value, onSave, rows, mono }: { value: string; onSave: (text: string) => Promise<boolean>; rows: number; mono?: boolean }) {
+export function FileEditor({ value, onSave, rows, mono, tall }: { value: string; onSave: (text: string) => Promise<boolean>; rows: number; mono?: boolean; tall?: boolean }) {
   const [text, setText] = useState(value);
   const [busy, setBusy] = useState(false);
   const dirty = text !== value;
   return <div className="grid gap-1.5">
-    <textarea className={`field-input min-h-[120px] py-1.5 text-[12px] leading-5 ${mono ? "font-mono" : ""}`} rows={rows} value={text} onChange={(e) => setText(e.target.value)} spellCheck={!mono} />
+    <textarea className={`field-input ${tall ? "min-h-[320px]" : "min-h-[120px]"} py-1.5 text-[12px] leading-5 ${mono ? "font-mono" : ""}`} rows={rows} value={text} onChange={(e) => setText(e.target.value)} spellCheck={!mono} />
     {dirty && <div className="flex justify-end gap-1.5"><button className="btn btn-sm btn-ghost" onClick={() => setText(value)}>Discard</button><button className="btn btn-sm btn-primary" disabled={busy} onClick={async () => { setBusy(true); await onSave(text); setBusy(false); }}>Save</button></div>}
   </div>;
 }
 
-function Version({ bot, change }: { bot: Bot; change: Change }) {
+/** One change of a bot's files (`base`: `/api/bots/<id>` or `/api/assistant/bot`): its diff and Restore previous. */
+export function Version({ base, change }: { base: string; change: Change }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const diff = useQuery({ queryKey: ["bot-diff", bot.id, change.id], queryFn: () => api.get<{ patch: string }>(`/api/bots/${bot.id}/history/${change.id}`), enabled: open, staleTime: Infinity });
+  const diff = useQuery({ queryKey: ["bot-diff", base, change.id], queryFn: () => api.get<{ patch: string }>(`${base}/history/${change.id}`), enabled: open, staleTime: Infinity });
   return <div className="grid gap-1">
     <div className="flex items-center gap-2 text-[12px]">
       <button className="min-w-0 flex-1 truncate text-left hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>{change.path} · {change.author?.name ?? "You"} · {formatAge(change.at)} ago{change.added != null && <span className="text-ink-3"> · +{change.added} −{change.removed ?? 0}</span>}</button>
-      {change.sha256 && <ConfirmButton icon="refresh" tone="publish" consequence={`Puts back ${change.path} as it was before this change. The restore is itself a version.`} confirmLabel="Restore" onConfirm={async () => { try { await api.post(`/api/bots/${bot.id}/restore/${change.id}`); await qc.invalidateQueries({ queryKey: ["bots"] }); toast("Restored"); } catch (e) { toastError(e); } }}>Restore previous</ConfirmButton>}
+      {change.sha256 && <ConfirmButton icon="refresh" tone="publish" consequence={`Puts back ${change.path} as it was before this change. The restore is itself a version.`} confirmLabel="Restore" onConfirm={async () => { try { await api.post(`${base}/restore/${change.id}`); await Promise.all([qc.invalidateQueries({ queryKey: ["bots"] }), qc.invalidateQueries({ queryKey: ["ask-bot"] })]); toast("Restored"); } catch (e) { toastError(e); } }}>Restore previous</ConfirmButton>}
     </div>
     {open && (diff.isLoading ? <Loading what="the diff" /> : diff.data?.patch ? <PatchView patch={diff.data.patch} path={change.path} language={change.path.endsWith(".toml") ? "toml" : "markdown"} split={false} wrap /> : <p className="m-0 text-[12px] text-ink-3">No text difference.</p>)}
   </div>;

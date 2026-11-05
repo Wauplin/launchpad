@@ -167,24 +167,36 @@ pub fn assistant_allows(method: &str, path: &str) -> bool {
         || (method == "POST" && (path == "/api/proposals" || path == "/api/launch/preview"))
 }
 
-/// Launch instructions of the assistant session.
-pub async fn instruction(app: &App, workspace_id: Option<&str>, cli: &str) -> String {
+/// Launch instructions of the assistant session: the built-in rules and reference, around the owner's BOT.md
+/// (`ask_bot`; None: the default).
+pub async fn instruction(app: &App, workspace_id: Option<&str>, cli: &str, owner: Option<&str>) -> String {
     let token = app.paths.token().map(|t| assistant_token(&t)).unwrap_or_default();
     let ws = match workspace_id {
         Some(id) => crate::workspace::get(app, id).await.map(|w| format!("the workspace \"{}\" (id {id})", w.name)).unwrap_or_else(|_| format!("the workspace {id}")),
         None => "every workspace (Everything)".into(),
     };
     let ws_arg = workspace_id.map(|id| format!(" --workspace {id}")).unwrap_or_default();
-    let routine_triggers = crate::crons::TRIGGER_FORMS;
     let cmd = if cfg!(windows) { format!("$env:LAUNCHPAD_TOKEN='{token}'; {cli}") } else { format!("LAUNCHPAD_TOKEN={token} {cli}") };
+    builtin(&ws, &cmd, &ws_arg, owner.unwrap_or(crate::ask_bot::DEFAULT_INSTRUCTIONS))
+}
+
+/// The built-in part as the Ask page shows it: no token, a placeholder workspace and BOT.md.
+pub fn builtin_preview() -> String {
+    builtin("the current workspace", "launchpad", " --workspace <id>", "(your BOT.md)")
+}
+
+/// The rules and the reference the owner cannot edit, with BOT.md in its own block.
+fn builtin(ws: &str, cmd: &str, ws_arg: &str, owner: &str) -> String {
+    let routine_triggers = crate::crons::TRIGGER_FORMS;
+    let ask_id = crate::ask_bot::ID;
     format!(
-        "You are Ask Launchpad, the owner's assistant inside Launchpad, scoped to {ws}. You turn requests into proposals. Depending on the owner’s auto mode setting, actionable proposals may start immediately or wait for a tap. You never start agents, send messages, schedule, publish or post to GitHub yourself, and you do not edit files.\n\n\
+        "You are Ask Launchpad, the owner's assistant inside Launchpad, scoped to {ws}. You turn requests into proposals. Depending on the owner’s auto mode setting, actionable proposals may start immediately or wait for a tap. You never start agents, send messages, schedule, publish or post to GitHub yourself, and you do not edit files. These rules and the reference below are built into Launchpad. The owner's instructions (BOT.md) say how they want you to work within them; when the two conflict, these rules win.\n\n<bot-instructions>\n{owner}\n</bot-instructions>\n\n\
 Read Launchpad state with these read-only commands (JSON output):\n\
 - `{cmd} folders list{ws_arg}`\n- `{cmd} bots list{ws_arg}` (bots: persistent agents with one thread each, their job and current session)\n- `{cmd} sessions list{ws_arg}` and `{cmd} sessions show <session-id>`\n- `{cmd} profiles list` (profiles and the quota of each subscription login)\n- `{cmd} presets list` (only presets with agent=true belong in proposed agent launch specs; Ask-only instructions guide you, not the launched agent)\n- `{cmd} inbox list{ws_arg}`\n- `{cmd} schedules list{ws_arg}`\n- `{cmd} proposals list{ws_arg}` (proposal ids, titles, states and contents)\n- `{cmd} trace <session-id>` for an agent's full trace\n\n\
 Write proposals with `{cmd} propose <launch|message|schedule|cron|status|preset|tool|bot|routine|bot-instructions> --title \"…\" [--note \"…\"] [--replaces <proposal-id>] --spec-file <file.json>`. The JSON file holds:\n\
-- launch: {{\"spec\": <launch spec>}}\n- message: {{\"session_id\": \"…\", \"text\": \"…\"}}\n- schedule: {{\"spec\": <launch spec>, \"conditions\": [{{\"kind\": \"in\", \"minutes\": 30}} | {{\"kind\": \"at\", \"at\": <unix ms>}} | {{\"kind\": \"agents\", \"session_ids\": [\"…\"]}} | {{\"kind\": \"quota\", \"harness\": \"claude\", \"window\": \"five_hour\"}}]}}\n- cron: {{\"spec\": <launch spec>, \"schedule\": \"0 9 * * 1\", \"conditions\": []}}\n- status: {{\"session_ids\": [\"…\"]}}\n- preset: {{\"label\": \"…\", \"text\": \"<sentence added to prompts>\", \"agent\": true}} creates a preset; add \"preset_id\": \"<id from presets list>\" to update that preset instead (give its full new label, text and agent flag; its Ask Launchpad availability stays as is). Presets cannot be deleted through proposals; tell the owner to delete them in Settings → Presets.\n- tool: {{\"tool\": {{\"id\": \"slack\", \"name\": \"Slack CLI\", \"install\": {{\"kind\": \"github_release\" | \"url\" | \"cargo\" | \"uv\" | \"npm\", \"source\": \"…\", \"asset\": \"…\"}} or null, \"credential\": \"slack\", \"env\": [\"SLACK_TOKEN\"], \"hosts\": [{{\"host\": \"slack.com\", \"auth\": {{\"kind\": \"bearer\"}}}}], \"workspaces\": [\"*\"], \"check_url\": \"https://slack.com/api/auth.test\"}}, \"token_url\": \"https://…\"}} adds a tool to Home's registry when the owner taps it; the owner then pastes its token. Accepting a tool whose ID already exists changes nothing.\n- bot: {{\"name\": \"Scout\", \"instructions\": \"# Scout\\n\\n<its job and how the owner likes it done>\", \"profile\": \"<profile id>\", \"folder\": \"<folder id>\" or null for its own new folder}} creates a bot in this workspace when the owner taps it; it starts nothing. Propose a bot when the owner wants a recurring helper with its own memory; to give an existing bot a task, propose a message to its current session.\n- routine: {{\"bot_id\": \"<bot id>\", \"title\": \"Daily check\", \"instructions\": \"<what the bot does at each run>\", \"trigger\": {routine_triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}} adds a routine to an existing bot: its runs are messages to the bot's thread, ending with a report or `no_update`. Prefer it to a cron when the work belongs to a bot.\n- bot-instructions: {{\"bot_id\": \"<bot id>\", \"instructions\": \"<the whole new BOT.md>\"}} proposes a new BOT.md for a bot; the owner sees the diff and accepts it.\n\
-A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"target\": {{\"kind\": \"project\", \"project_id\": \"<folder id>\"}} or {{\"kind\": \"temp\"}}, \"worktree\": {{\"base\": null, \"include_changes\": false, \"when_done\": \"keep\"}} for Git folders (null for the checkout; `when_done` is \"keep\", \"merge\" or \"local_pr\"), \"github_refs\": [], \"presets\": [<preset ids>]}}; other fields take their defaults. Launchpad validates each proposal with the launch preview and refuses invalid ones; read the error and fix the file. Paid usage stays off. Prefer one proposal per independent task, a message proposal to steer an existing agent, a status proposal to answer \"what needs me\", and a schedule with a quota condition for work that should wait for quota. When auto mode is enabled, actionable proposals, including crons, start immediately; otherwise they need the owner's tap.\n\n\
-When refining an earlier waiting proposal, find it with `proposals list` and use `--replaces <proposal-id>` so only the refined card waits. Only proposed or failed cards in this workspace can be replaced; starting, started, dismissed, uncertain and already replaced cards cannot. Tell the owner which card was replaced. The note on the new card is optional.\n\nAnswer in short sentences. After proposing, tell the owner what each card does and check its returned state. In manual mode they can accept it in the thread. Automatically accepted proposals keep the thread open; manual acceptance of the last unfinished proposal closes it."
+- launch: {{\"spec\": <launch spec>}}\n- message: {{\"session_id\": \"…\", \"text\": \"…\"}}\n- schedule: {{\"spec\": <launch spec>, \"conditions\": [{{\"kind\": \"in\", \"minutes\": 30}} | {{\"kind\": \"at\", \"at\": <unix ms>}} | {{\"kind\": \"agents\", \"session_ids\": [\"…\"]}} | {{\"kind\": \"quota\", \"harness\": \"claude\", \"window\": \"five_hour\"}}]}}\n- cron: {{\"spec\": <launch spec>, \"schedule\": \"0 9 * * 1\", \"conditions\": []}}\n- status: {{\"session_ids\": [\"…\"]}}\n- preset: {{\"label\": \"…\", \"text\": \"<sentence added to prompts>\", \"agent\": true}} creates a preset; add \"preset_id\": \"<id from presets list>\" to update that preset instead (give its full new label, text and agent flag; its Ask Launchpad availability stays as is). Presets cannot be deleted through proposals; tell the owner to delete them in Settings → Presets.\n- tool: {{\"tool\": {{\"id\": \"slack\", \"name\": \"Slack CLI\", \"install\": {{\"kind\": \"github_release\" | \"url\" | \"cargo\" | \"uv\" | \"npm\", \"source\": \"…\", \"asset\": \"…\"}} or null, \"credential\": \"slack\", \"env\": [\"SLACK_TOKEN\"], \"hosts\": [{{\"host\": \"slack.com\", \"auth\": {{\"kind\": \"bearer\"}}}}], \"workspaces\": [\"*\"], \"check_url\": \"https://slack.com/api/auth.test\"}}, \"token_url\": \"https://…\"}} adds a tool to Home's registry when the owner taps it; the owner then pastes its token. Accepting a tool whose ID already exists changes nothing.\n- bot: {{\"name\": \"Scout\", \"instructions\": \"# Scout\\n\\n<its job and how the owner likes it done>\", \"profile\": \"<profile id>\", \"folder\": \"<folder id>\" or null for its own new folder}} creates a bot in this workspace when the owner taps it; it starts nothing.\n- routine: {{\"bot_id\": \"<bot id>\", \"title\": \"Daily check\", \"instructions\": \"<what the bot does at each run>\", \"trigger\": {routine_triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}} adds a routine to an existing bot: its runs are messages to the bot's thread, ending with a report or `no_update`.\n- bot-instructions: {{\"bot_id\": \"<bot id>\", \"instructions\": \"<the whole new BOT.md>\"}} proposes a new BOT.md for a bot; the owner sees the diff and accepts it. Use \"bot_id\": \"{ask_id}\" for your own BOT.md, when the owner asks you to change how you work or you learned how they like it done; changes apply to new threads.\n\
+A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"target\": {{\"kind\": \"project\", \"project_id\": \"<folder id>\"}} or {{\"kind\": \"temp\"}}, \"worktree\": {{\"base\": null, \"include_changes\": false, \"when_done\": \"keep\"}} for Git folders (null for the checkout; `when_done` is \"keep\", \"merge\" or \"local_pr\"), \"github_refs\": [], \"presets\": [<preset ids>]}}; other fields take their defaults. Launchpad validates each proposal with the launch preview and refuses invalid ones; read the error and fix the file. Paid usage stays off. When auto mode is enabled, actionable proposals, including crons, start immediately; otherwise they need the owner's tap.\n\n\
+When refining an earlier waiting proposal, find it with `proposals list` and use `--replaces <proposal-id>` so only the refined card waits. Only proposed or failed cards in this workspace can be replaced; starting, started, dismissed, uncertain and already replaced cards cannot. Tell the owner which card was replaced. The note on the new card is optional.\n\nIn manual mode they can accept it in the thread. Automatically accepted proposals keep the thread open; manual acceptance of the last unfinished proposal closes it."
     )
 }
 
@@ -280,6 +292,18 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
                 crate::crons::next_after(schedule, None, now_ms()).context("invalid cron schedule")?;
             }
             workspace_id = Some(bot.workspace_id);
+        }
+        ProposalBody::BotInstructions { bot_id, instructions, before, patch } if bot_id == crate::ask_bot::ID => {
+            // Ask Launchpad's own BOT.md: only Ask Launchpad (or the owner) proposes it.
+            ensure!(author.as_ref().is_none_or(|s| s.launch_spec.target.is_assistant()), "only Ask Launchpad proposes changes to its own BOT.md");
+            ensure!(!instructions.trim().is_empty(), "write the whole new BOT.md");
+            if !instructions.ends_with('\n') {
+                instructions.push('\n');
+            }
+            let current = crate::ask_bot::instructions(app).await?;
+            ensure!(*instructions != current, "this is already Ask Launchpad's BOT.md");
+            *patch = crate::kb::unified(&current, instructions);
+            *before = current;
         }
         ProposalBody::BotInstructions { bot_id, instructions, before, patch } => {
             let bot = crate::bots::get(app, bot_id).await.with_context(|| format!("no bot {bot_id} (see `bots list`)"))?;
@@ -393,6 +417,11 @@ async fn accept_inner(app: &App, id: &str, close_thread: bool, time_zone: Option
             ProposalBody::Schedule { spec, conditions } => Ok(crate::schedules::create(app, spec, conditions).await?.id),
             ProposalBody::Cron { spec, schedule, conditions } => Ok(crate::crons::create(app, spec, schedule, conditions, Default::default(), None, time_zone).await?.id),
             ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions } => Ok(crate::crons::create_for_bot(app, &bot_id, crate::crons::BotRoutine { title, instructions, trigger, schedule, conditions, time_zone }).await?.id),
+            ProposalBody::BotInstructions { bot_id, instructions, before, .. } if bot_id == crate::ask_bot::ID => {
+                ensure!(crate::ask_bot::instructions(app).await? == before, "Ask Launchpad's BOT.md changed since this proposal: ask again");
+                crate::ask_bot::update(app, instructions).await?;
+                Ok(bot_id)
+            }
             ProposalBody::BotInstructions { bot_id, instructions, before, .. } => {
                 let bot = crate::bots::get(app, &bot_id).await?;
                 ensure!(bot.instructions == before, "BOT.md changed since this proposal: ask {} again", bot.settings.name);
@@ -543,7 +572,9 @@ pub async fn ask(app: &App, workspace_id: Option<String>, text: String, attachme
 }
 
 /// The spec of a new assistant thread: the assistant's profile and model (Settings of the Ask page).
-pub fn ask_spec(app: &App, workspace_id: Option<String>, text: String, attachments: Vec<crate::model::FileAttachment>) -> Result<LaunchSpec> {
+/// Home reads Ask Launchpad's BOT.md here and sends it with the spec, so a runner builds the same prompt.
+pub async fn ask_spec(app: &App, workspace_id: Option<String>, text: String, attachments: Vec<crate::model::FileAttachment>) -> Result<LaunchSpec> {
+    let assistant_instructions = if crate::home_git::here(app) { Some(crate::ask_bot::instructions(app).await?) } else { None };
     let config = app.config.get();
     let profile = config.assistant.profile.as_ref().and_then(|id| config.profiles.iter().find(|p| &p.id == id)).or_else(|| config.profiles.iter().find(|p| p.billing == crate::config::Billing::Subscription)).or(config.profiles.first()).context("add a profile in Settings → Profiles first")?;
     Ok(LaunchSpec {
@@ -555,6 +586,7 @@ pub fn ask_spec(app: &App, workspace_id: Option<String>, text: String, attachmen
         effort: config.assistant.effort.clone().or_else(|| profile.effort.clone()),
         target: Target::Assistant { workspace_id: workspace_id.clone() },
         workspace_id,
+        assistant_instructions,
         ..Default::default()
     })
 }
@@ -567,7 +599,7 @@ pub async fn ask_with(app: &App, workspace_id: Option<String>, text: String, att
         crate::runners::send_anywhere(app, &s.id, &text, attachments, None).await?;
         return app.sessions.get(&s.id).context("the assistant session disappeared");
     }
-    let spec = ask_spec(app, workspace_id, text, attachments)?;
+    let spec = ask_spec(app, workspace_id, text, attachments).await?;
     crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), automatic).await
 }
 

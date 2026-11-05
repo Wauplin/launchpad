@@ -64,4 +64,8 @@ bot?: BotLaunch,
 /**
  * A run of a routine (`crons.rs`): its prompt says what started it and how to end.
  */
-routine?: RoutineLaunch, };
+routine?: RoutineLaunch, 
+/**
+ * An Ask Launchpad thread: the owner's BOT.md of the assistant, read by Home (`ask_bot`). None: the default.
+ */
+assistant_instructions?: string, };

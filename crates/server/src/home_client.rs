@@ -167,7 +167,7 @@ pub(crate) fn home_owned(path: &str) -> bool {
     path == "/api/workspaces" || path.starts_with("/api/workspaces/") || path.starts_with("/api/home-git/") || path.starts_with("/api/plain/") || path.starts_with("/api/knowledge/") || path.starts_with("/api/vault") || path == "/api/mcp" || path.starts_with("/api/mcp/")
         || path == "/api/proposals" || path.starts_with("/api/proposals/")
         || path == "/api/launch/crons" || (path.starts_with("/api/launch/crons/") && path != "/api/launch/crons/next")
-        || path == "/api/bots" || path.starts_with("/api/bots/") || path == "/api/context/bots"
+        || path == "/api/bots" || path.starts_with("/api/bots/") || path == "/api/context/bots" || path.starts_with("/api/assistant/bot")
         || (path.starts_with("/api/sessions/") && path.ends_with("/access"))
         || path == "/api/suggestions" || path.starts_with("/api/suggestions/")
         || path == "/api/channels" || path.starts_with("/api/channels/") || path == "/api/outbox" || path.starts_with("/api/outbox/")

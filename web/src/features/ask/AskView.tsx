@@ -4,19 +4,19 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Session } from "@/gen/Session";
 import type { FileAttachment } from "@/gen/FileAttachment";
 import { HarnessMark, useHarnessInfo } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
-import { MenuItem, Popover } from "@/components/Popover";
-import { toast, toastError } from "@/components/Toast";
-import { Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader, Tabs } from "@/components/ui";
+import { MenuItem } from "@/components/Popover";
+import { toastError } from "@/components/Toast";
+import { Badge, Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader, Tabs } from "@/components/ui";
 import { api } from "@/lib/api";
 import { pastedImages } from "@/lib/attachments";
 import { usePhone } from "@/lib/phone";
 import { useProfiles } from "@/lib/profiles";
-import { useConfig, useHarnessDefaults, useSessions, type ConfigResponse } from "@/lib/queries";
+import { useConfig, useCrons, useHarnessDefaults, useSessions } from "@/lib/queries";
 import { needsYou, isQuotaPaused, isRunning } from "@/lib/sessionStatus";
 import { useScope } from "@/lib/workspace";
 import { useComposer } from "@/stores/composer";
@@ -28,6 +28,8 @@ import { withPresets } from "@/lib/presets";
 import { SessionPane } from "@/features/agents/SessionPane";
 import { PhoneActions } from "@/mobile/PhoneHeader";
 import { ATTACH_LIMITS, AttachmentList, useMessageAttachments } from "@/features/agents/MessageAttachments";
+import { AskInstructionsPanel, AskRoutinesPanel, AskSettingsPanel, AskThreadsPanel, askRoutines } from "./AskPanels";
+import { useAskBot } from "@/lib/bots";
 
 function useAssistant() {
   const config = useConfig().data?.config;
@@ -38,56 +40,20 @@ function useAssistant() {
   return { profiles, current, models, model, modelName: model ? models.find((m) => m.id === model)?.display_name || model : null };
 }
 
-/** The assistant's profile and model choices (a daemon setting, all devices), kept apart from the composer's
- *  remembered defaults. Changing the model of a thread in Summary → Run also saves it here. */
-function AssistantOptions({ close }: { close: () => void }) {
-  const qc = useQueryClient();
-  const { profiles, current, models, model } = useAssistant();
-  const auto = useConfig().data?.config.assistant.auto_mode ?? false;
-  const save = async (patch: Record<string, string | boolean>) => {
-    close();
-    try { qc.setQueryData(["config"], await api.patch<ConfigResponse>("/api/config", patch)); toast("Ask settings saved"); } catch (e) { toastError(e); }
-  };
-  return <>
-    <div className="seclabel px-2 pt-1 pb-0.5">Proposal mode</div>
-    <MenuItem label="Manual" detail="Review each proposal before it starts" active={!auto} onClick={() => void save({ assistant_auto_mode: false })} />
-    <MenuItem label="Auto" detail="New launches, messages and presets apply immediately; crons, routines and bots still wait for a click" active={auto} onClick={() => void save({ assistant_auto_mode: true })} />
-    <div className="seclabel border-t border-line-2 px-2 pt-2 pb-0.5">Assistant profile (new threads)</div>
-    {profiles.map((p) => <MenuItem key={p.id} label={p.name} detail={p.billing === "pay_as_you_go" ? "Pay as you go" : "Subscription"} active={p.id === current?.id} onClick={() => void save({ assistant_profile: p.id, assistant_model: "", assistant_effort: "" })} />)}
-    <div className="seclabel border-t border-line-2 px-2 pt-2 pb-0.5">Model (a fast model keeps replies quick)</div>
-    <MenuItem label={`Default${current?.model ? ` (${current.model})` : ""}`} detail={current ? `Default of ${current.name}` : undefined} active={!model} onClick={() => void save({ assistant_model: "", assistant_effort: "" })} />
-    {models.map((m) => <MenuItem key={m.id} label={m.display_name || m.id} detail={m.id} active={model === m.id} onClick={() => void save({ assistant_model: m.id, assistant_effort: "" })} />)}
-    {models.length === 0 && <label className="grid gap-1 p-2 text-[12px]">
-      Model ID
-      <input className="field-input h-[28px] font-mono text-xs" defaultValue={model ?? ""} placeholder={current?.model ?? "profile default"} onKeyDown={(e) => { if (e.key === "Enter") void save({ assistant_model: e.currentTarget.value.trim() }); }} />
-    </label>}
-  </>;
-}
+type Pane = "chat" | "cards" | "routines" | "instructions" | "threads" | "settings";
+const PANES: Pane[] = ["cards", "routines", "instructions", "threads", "settings"];
 
-function AssistantSettings() {
-  const { current, modelName } = useAssistant();
-  const auto = useConfig().data?.config.assistant.auto_mode ?? false;
-  return (
-    <Popover align="right" width={300} trigger={({ open, toggle }) => (
-      <button className="btn btn-sm max-w-[280px]" aria-expanded={open} title="The profile and model of the assistant (new threads)" onClick={toggle}>{current && <HarnessMark harness={current.harness} size={13} />}<span className="min-w-0 truncate">{current?.name ?? "No profile"}{modelName ? ` · ${modelName}` : ""} · {auto ? "Auto" : "Manual"}</span><Icon name="chev" size={11} className="shrink-0" /></button>
-    )}>
-      {(close) => <AssistantOptions close={close} />}
-    </Popover>
-  );
-}
-
-/** Phone: one row with the Chat · Proposals tabs and a ⋯ menu (assistant model, New thread, composer). */
-function PhoneAskBar({ pane, setPane, waiting, thread, newThread }: { pane: "chat" | "cards"; setPane: (p: "chat" | "cards") => void; waiting: number; thread: boolean; newThread: () => void }) {
+/** Phone: the tabs of the page (Chat first) and a ⋯ menu with New thread and the composer. */
+function PhoneAskBar({ tabs, thread, newThread }: { tabs: ReactNode; thread: boolean; newThread: () => void }) {
   const { current, modelName } = useAssistant();
   const auto = useConfig().data?.config.assistant.auto_mode ?? false;
   return (
     <div className="flex shrink-0 items-center gap-1 border-b border-line px-3 pt-1">
-      <Tabs className="min-w-0 flex-1" label="Ask views" value={pane} onChange={setPane} items={[{ id: "chat", label: "Chat" }, { id: "cards", label: "Proposals", count: waiting || undefined }]} />
-      <PhoneActions label="Ask Launchpad actions" closeOnAction={false} details={<p className="m-0 text-[12px] text-ink-3">Assistant: {current?.name ?? "no profile"}{modelName ? ` · ${modelName}` : ""}. {auto ? "Auto mode: new proposals start immediately" : "Manual mode: proposals wait for your tap"}; nothing reaches GitHub.</p>}>
+      <div className="min-w-0 flex-1">{tabs}</div>
+      <PhoneActions label="Ask Launchpad actions" closeOnAction={false} details={<p className="m-0 text-[12px] text-ink-3">Assistant: {current?.name ?? "no profile"}{modelName ? ` · ${modelName}` : ""}. {auto ? "Auto mode: new proposals start immediately" : "Manual mode: proposals wait for your tap"}; nothing reaches GitHub. Change it in Settings.</p>}>
         {(close: () => void) => <>
           {thread && <MenuItem icon={<Icon name="plus" size={16} />} label="New thread" detail="Archive this thread; it stays resumable in Agents" onClick={() => { close(); newThread(); }} />}
           <MenuItem icon={<Icon name="play" size={16} />} label="Open the composer" detail="Launch an agent yourself" onClick={() => { close(); useComposer.getState().start(); }} />
-          <div className="border-t border-line-2 pt-1"><AssistantOptions close={close} /></div>
         </>}
       </PhoneActions>
     </div>
@@ -148,10 +114,14 @@ export function AskView() {
   const scope = useScope();
   const sessions = useSessions().data ?? [];
   const proposals = useProposalList();
-  const search = useSearch({ strict: false }) as { q?: string; proposal?: string };
+  const search = useSearch({ strict: false }) as { q?: string; proposal?: string; panel?: string };
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<"open" | "all">("open");
-  const [pane, setPane] = useState<"chat" | "cards">(search.proposal ? "cards" : "chat");
+  const [pane, setPane] = useState<Pane>(search.proposal ? "cards" : PANES.find((p) => p === search.panel) ?? (phone ? "chat" : "cards"));
+  useEffect(() => { const p = PANES.find((x) => x === search.panel); if (p) setPane(p); }, [search.panel]);
+  const routines = askRoutines(useCrons().data ?? [], workspace);
+  const askBot = useAskBot().data;
+  const { current, modelName } = useAssistant();
   const revealed = search.proposal ?? null;
   const focusedProposal = useRef<string | null>(null);
   useEffect(() => {
@@ -184,7 +154,7 @@ export function AskView() {
   const startable = waiting.filter((p) => p.state === "proposed" && p.body.kind === "launch");
   const startAll = async () => {
     setBusy(true);
-    try { for (const p of startable) await api.post(`/api/proposals/${p.id}/accept`); await Promise.all([qc.invalidateQueries({ queryKey: ["proposals"] }), qc.invalidateQueries({ queryKey: ["sessions"] })]); setPane("chat"); }
+    try { for (const p of startable) await api.post(`/api/proposals/${p.id}/accept`); await Promise.all([qc.invalidateQueries({ queryKey: ["proposals"] }), qc.invalidateQueries({ queryKey: ["sessions"] })]); if (phone) setPane("chat"); }
     catch (e) { toastError(e); } finally { setBusy(false); }
   };
   const newThread = async () => {
@@ -200,19 +170,24 @@ export function AskView() {
   const resumePrevious = previous && !thread && <button className="btn btn-sm w-fit" disabled={busy} title={previous.title} onClick={() => void resume()}><Icon name="refresh" size={12} />Resume previous thread</button>;
   const needs = sessions.filter((s) => scope.hasSession(s) && needsYou(s)).length;
   const running = sessions.filter((s) => scope.hasSession(s) && (isRunning(s) || isQuotaPaused(s))).length;
-  const header = phone ? <PhoneAskBar pane={pane} setPane={setPane} waiting={waiting.length} thread={!!thread} newThread={() => void newThread()} /> : (
+  const tabs = <Tabs label="Ask Launchpad panels" value={pane} onChange={setPane} tour="ask.panels" items={[...(phone ? [{ id: "chat" as const, label: "Chat" }] : []), { id: "cards", label: "Proposals", count: waiting.length || undefined }, { id: "routines", label: "Routines", count: routines.length || undefined }, { id: "instructions", label: "Instructions" }, { id: "threads", label: "Threads" }, { id: "settings", label: "Settings" }]} />;
+  const header = phone ? <PhoneAskBar tabs={tabs} thread={!!thread} newThread={() => void newThread()} /> : (
     <PageHeader
       icon={<Icon name="spark" size={18} className="text-teal-ink" />}
       title="Ask Launchpad"
-      meta={<>{scope.workspace?.name ?? "Everything"} · {auto ? "auto mode: new proposals start immediately" : "manual mode: proposals wait for your tap"} · {needs} need you · {running} running</>}
-      actions={<>
-        <AssistantSettings />
-        {thread && <button className="btn btn-sm" title="Archive this thread and start a new one" onClick={() => void newThread()}><Icon name="plus" size={12} />New thread</button>}
+      meta={<>
+        <Badge title="The built-in bot: one thread per workspace, proposals only">Built-in bot</Badge>
+        {askBot?.customized && <Badge tone="teal" title="BOT.md or the settings differ from the defaults (Settings → Reset)">Customized</Badge>}
+        <span>{scope.workspace?.name ?? "Everything"}</span>
+        <span className="inline-flex items-center gap-1">{current && <HarnessMark harness={current.harness} size={12} />}{current?.name ?? "no profile"}{modelName ? ` · ${modelName}` : ""}</span>
+        <span>{auto ? "Auto mode" : "Manual mode"}</span>
+        <span>{needs} need you · {running} running</span>
       </>}
+      actions={thread && <button className="btn btn-sm" title="Archive this thread and start a new one" onClick={() => void newThread()}><Icon name="plus" size={12} />New thread</button>}
     />
   );
   const cards = (
-    <section data-tour="ask.proposals" className="flex min-h-0 flex-col gap-2 overflow-y-auto p-3">
+    <section data-tour="ask.proposals" className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
       <div className="flex flex-wrap items-center gap-2">
         <FilterChips label="Proposals shown">
           <FilterChip active={filter === "open"} count={waiting.length} onClick={() => setFilter("open")}>Waiting</FilterChip>
@@ -220,7 +195,7 @@ export function AskView() {
         </FilterChips>
         {startable.length > 1 && <button className="btn btn-sm btn-primary ml-auto" disabled={busy} onClick={() => void startAll()}><Icon name="play" size={12} />Start all ({startable.length})</button>}
       </div>
-      {proposals.isLoading ? <Loading what="proposals" /> : proposals.error ? <ErrorState error={proposals.error} onRetry={() => void proposals.refetch()} /> : shown.length === 0 ? <Empty icon="spark">{filter === "open" ? "No proposal waits for you." : "No proposal yet."}</Empty> : shown.map((p) => <ProposalCard key={p.id} p={p} anchor onAccepted={() => setPane("chat")} />)}
+      {proposals.isLoading ? <Loading what="proposals" /> : proposals.error ? <ErrorState error={proposals.error} onRetry={() => void proposals.refetch()} /> : shown.length === 0 ? <Empty icon="spark">{filter === "open" ? "No proposal waits for you." : "No proposal yet."}</Empty> : shown.map((p) => <ProposalCard key={p.id} p={p} anchor onAccepted={() => { if (phone) setPane("chat"); }} />)}
     </section>
   );
   const chat = thread
@@ -242,19 +217,28 @@ export function AskView() {
           <p className="m-0 text-[12px] text-ink-3">The full composer stays one click away: <button className="text-teal-ink hover:underline" onClick={() => useComposer.getState().start()}>open the composer</button> or use <Link to="/agents">Agents</Link>.</p>
         </div>
       </div>;
+  const side = pane === "cards" || pane === "chat" ? cards : <div className="min-h-0 flex-1 overflow-y-auto">
+    {pane === "routines" && <AskRoutinesPanel routines={routines} workspace={workspace} />}
+    {pane === "instructions" && <AskInstructionsPanel />}
+    {pane === "threads" && <AskThreadsPanel threads={threads} />}
+    {pane === "settings" && <AskSettingsPanel />}
+  </div>;
   if (phone)
     return (
       <div className="flex h-full min-h-0 flex-col">
         {header}
-        {pane === "chat" ? <>{waiting.length > 0 && <button className="flex min-h-11 shrink-0 items-center gap-2 border-b border-line bg-teal-soft px-3 text-left text-[13px] font-semibold text-teal-ink" onClick={() => setPane("cards")}><Icon name="spark" size={14} />{waiting.length} proposal{waiting.length === 1 ? "" : "s"} waiting for you<Icon name="chev" size={14} className="ml-auto -rotate-90" /></button>}{chat}</> : cards}
+        {pane === "chat" ? <>{waiting.length > 0 && <button className="flex min-h-11 shrink-0 items-center gap-2 border-b border-line bg-teal-soft px-3 text-left text-[13px] font-semibold text-teal-ink" onClick={() => setPane("cards")}><Icon name="spark" size={14} />{waiting.length} proposal{waiting.length === 1 ? "" : "s"} waiting for you<Icon name="chev" size={14} className="ml-auto -rotate-90" /></button>}{chat}</> : side}
       </div>
     );
   return (
     <div className="flex h-full min-h-0 flex-col">
       {header}
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_440px]">
         <div className="flex min-h-0 flex-col border-r border-line">{chat}</div>
-        {cards}
+        <aside className="flex min-h-0 flex-col">
+          <div className="border-b border-line px-3 pt-1">{tabs}</div>
+          {side}
+        </aside>
       </div>
     </div>
   );

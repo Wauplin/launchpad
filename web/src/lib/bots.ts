@@ -2,10 +2,15 @@
 // the chain of sessions whose launch spec names it; the newest one that is not archived is its current session.
 
 import { useQuery } from "@tanstack/react-query";
+import type { AskBot } from "@/gen/AskBot";
 import type { Bot } from "@/gen/Bot";
 import type { Session } from "@/gen/Session";
 import { api } from "./api";
 import { isQuotaPaused, isRunning, needsYou } from "./sessionStatus";
+
+/** Ask Launchpad, the built-in bot: its BOT.md, the default and the built-in rules (`/api/assistant/bot`). */
+export const ASK_BOT_ID = "ask-launchpad";
+export const useAskBot = () => useQuery({ queryKey: ["ask-bot"], queryFn: () => api.get<AskBot>("/api/assistant/bot"), staleTime: 30_000, retry: false });
 
 export const useBots = () => useQuery({ queryKey: ["bots"], queryFn: () => api.get<Bot[]>("/api/bots"), staleTime: 30_000, refetchInterval: 60_000, retry: false });
 

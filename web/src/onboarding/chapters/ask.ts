@@ -18,7 +18,7 @@ const botSessions = () => world.sessions.filter((s) => s.launch_spec.bot?.id ===
 
 export const ask: Chapter = {
   ...meta("ask"),
-  learned: ["Ask Launchpad keeps one thread per workspace and reads its state", "It answers with proposals: launches, messages, schedules and crons", "Manual mode waits for your click; auto mode starts new proposals; Edit sends a proposal to the composer", "A bot is an agent that stays: one thread, its instructions in BOT.md, its notes in the knowledge base", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
+  learned: ["Ask Launchpad keeps one thread per workspace and reads its state", "It answers with proposals: launches, messages, schedules and crons", "Manual mode waits for your click; auto mode starts new proposals; Edit sends a proposal to the composer", "Ask Launchpad is an editable bot: its BOT.md has versions and a Reset to default", "A bot is an agent that stays: one thread, its instructions in BOT.md, its notes in the knowledge base", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
   setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {
@@ -44,9 +44,14 @@ export const ask: Chapter = {
       body: "A started proposal becomes a normal agent, listed in Agents like any other. Cron proposals say “Creates a repeating agent” before you accept them.",
     },
     {
+      id: "ask.customize", route: "/ask?panel=instructions", anchor: "ask.instructions",
+      title: "Make it yours",
+      body: "Ask Launchpad is the built-in bot. Its BOT.md says how it works and answers; edit it here, or tell it “from now on, …” and it proposes the change. Its safety rules stay built in. Settings has its profile, model, proposal mode and Reset to default.",
+    },
+    {
       id: "ask.bots", route: "/bots", anchor: "sidebar.bots",
       title: "Bots: agents that stay",
-      body: "Ask Launchpad is the built-in bot. Your own bots each have a job, one thread you come back to, and notes they keep in the knowledge base. Ask Launchpad can propose one for you.",
+      body: "Your own bots each have a job, one thread you come back to, and notes they keep in the knowledge base. Ask Launchpad can propose one for you.",
     },
     {
       id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",

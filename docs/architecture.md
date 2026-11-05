@@ -117,6 +117,7 @@ A launch only does local work in the request: it records the session (Starting) 
 | Harness folders | Native conversations: per session in `<data_dir>/sessions/<id>/home` for contained sessions, else `~/.claude`, `~/.codex`, OpenCode data | Owned by each harness |
 | Knowledge base (`kb.rs`) | One per workspace, stored by Home like a plain folder (store `kb-<workspace>`, history with author and line counts in `plain_history.meta`); a read-only mirror on each runner | Home; changes restorable 30 days |
 | Bots (`bots.rs`) | `bot` rows on Home; `BOT.md` and `bot.toml` stored like a plain folder (store `bot-<id>`), with history; readable copies in the bucket | Home; changes restorable 30 days |
+| Ask Launchpad (`ask_bot.rs`) | its `BOT.md` in the plain store `assistant`, with history (the default until the first edit); profile, model and mode in `[assistant]` of config.toml | Home; changes restorable 30 days; Reset to default |
 | Vault (`vault.rs`) | Credentials (write-only), tools, leases, access log, in `state.db` | Home only |
 
 Rust types shared with the UI derive `ts_rs::TS`, so the API is typed end to end without an OpenAPI spec.
@@ -128,7 +129,7 @@ The Home-only Space POC (`deploy/hf-home/`) runs the daemon behind the private H
 - Launchpad has one user. Every paired browser has full access.
 - The daemon listens on loopback. Remote access goes through a private network (Tailscale) or a proxy you control, with an exact allowed origin.
 - Browsers authenticate with an HttpOnly device cookie after pairing. The CLI uses a bearer token from the data folder.
-- The Ask Launchpad assistant gets a restricted token: read state and write proposals only.
+- The Ask Launchpad assistant gets a restricted token: read state and write proposals only. Its owner-editable `BOT.md` only shapes how it works; the built-in rules around it are not editable and win.
 - GitHub publication, merges and setup commands always require an owner click.
 - Channels live on Home. Messages to other people (outgoing webhooks, GitHub suggestions) wait in the Outbox for a click and are never retried; messages to the owner's own bound Telegram chat go out directly. Home long-polls Telegram, so it needs no inbound endpoint. Incoming hooks (`/hooks/<id>`) skip the browser sign-in and authenticate with their own secret (behind a private Space, also an HF token). Hook and Telegram messages to a busy bot or Ask Launchpad thread wait in `queued_message` (`hooks::deliver`) until its turn ends; each is claimed (deleted) before its single send.
 - Agents run contained: a bubblewrap jail on Linux runners (or a Local VM). They see their session's folders, their own harness home and the machine's toolchains, never your home folder, keys, logins or Launchpad's data. Their network goes through the runner proxy, which adds Home's tokens on known hosts; agents only hold placeholders. Token scopes decide what a request may do; a steered agent can still leak what it reads or misuse a token within its scopes. SSH host sessions are not contained yet.

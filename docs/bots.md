@@ -44,7 +44,7 @@ With a Git folder, each session works in a fresh worktree of Home Git. The bot p
 
 **Pause** (in the header, once the bot has routines) stops every routine and incoming hook of the bot from starting runs; your own messages still go through, and **Stop** in its session ends a run that is working. **Resume** starts them again from their next trigger.
 
-The sidebar lists Ask Launchpad (the built-in bot) and the bots of the workspace. A dot shows when a bot's current session needs you; a spinner when it works. Counts stay in Agents, so a session is never counted twice.
+The sidebar lists Ask Launchpad (the built-in bot) and the bots of the workspace. Ask Launchpad has the same page layout, with its own `BOT.md`, versions and a **Reset to default**; see [Make Ask Launchpad yours](agents.md#make-ask-launchpad-yours). A dot shows when a bot's current session needs you; a spinner when it works. Counts stay in Agents, so a session is never counted twice.
 
 ## Files
 

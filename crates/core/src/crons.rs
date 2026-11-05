@@ -390,7 +390,7 @@ pub async fn create(
 ) -> Result<CronAgent> {
     // Ask Launchpad's routines (the morning brief) follow the assistant's own profile and model.
     let spec = match &spec.target {
-        Target::Assistant { workspace_id } => crate::proposals::ask_spec(app, workspace_id.clone(), spec.text.clone(), vec![])?,
+        Target::Assistant { workspace_id } => crate::proposals::ask_spec(app, workspace_id.clone(), spec.text.clone(), vec![]).await?,
         _ => spec,
     };
     let harness = spec.harness.context("pick a harness")?;
@@ -401,6 +401,8 @@ pub async fn create(
     if preview.prompt.trim().is_empty() {
         bail!("the prompt is empty");
     }
+    // Each run reads Ask Launchpad's current BOT.md (`effective_spec`): never keep a copy.
+    let spec = crate::model::LaunchSpec { assistant_instructions: None, ..spec };
     validate_conditions(&conditions)?;
     validate_harness_conditions(harness, &conditions)?;
     let schedule = normalize(&schedule);
@@ -448,7 +450,7 @@ async fn bot_spec(app: &App, bot: &crate::bots::Bot, text: String) -> Result<Lau
 async fn effective_spec(app: &App, r: &CronAgent) -> Result<LaunchSpec> {
     match (&r.bot_id, &r.spec.target) {
         (Some(b), _) => bot_spec(app, &crate::bots::get(app, b).await?, r.spec.text.clone()).await,
-        (None, Target::Assistant { workspace_id }) => crate::proposals::ask_spec(app, workspace_id.clone(), r.spec.text.clone(), vec![]),
+        (None, Target::Assistant { workspace_id }) => crate::proposals::ask_spec(app, workspace_id.clone(), r.spec.text.clone(), vec![]).await,
         _ => Ok(r.spec.clone()),
     }
 }

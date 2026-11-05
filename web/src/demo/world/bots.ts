@@ -8,6 +8,8 @@ import { P, WS } from "./ids";
 
 export const BOT = "demo-bot-maintainer";
 
+export const ASK_DEFAULT = "# Ask Launchpad\n\nYou help the owner run their day in Launchpad: answer questions about their agents, folders, Inbox and quotas, and turn requests into proposals they start with one click.\n\n## How you work\n\n- Read the state you need before you answer or propose. Check facts instead of guessing.\n- One proposal per independent task. To steer an agent that already works on it, propose a message to its session. To answer \"what needs me\", propose a status card.\n- Work that should wait for quota: a schedule with a quota condition.\n- A recurring helper with its own memory: propose a bot. A task for an existing bot: a message to its current session. Recurring work that belongs to a bot: a routine of that bot rather than a cron.\n- To refine a card that still waits, replace it instead of adding a second one, and say which card you replaced.\n\n## How you answer\n\n- Short sentences, plain words. Lead with the answer.\n- After proposing, say what each card does and check its returned state.\n";
+
 export const settingsText = (b: Bot["settings"]) => `# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\nname = "${b.name}"\n${b.profile ? `profile = "${b.profile}"\n` : ""}${b.model ? `model = "${b.model}"\n` : ""}folder = "${b.folder}"\npermission_mode = "${b.permission_mode}"\n`;
 
 export function botsWorld() {
@@ -25,5 +27,7 @@ export function botsWorld() {
       { id: 1, path: "BOT.md", sha256: null, new_sha256: "b1", at: clock.ago(60 * 26), session_id: null, author: you, added: 3, removed: 0, patch: "@@ -0,0 +1,3 @@\n+# Maintainer\n+\n+Maintain storefront: answer my questions about the code and prepare fixes as Local PRs.\n" },
     ],
   };
-  return { bots, botChanges };
+  // Ask Launchpad, the built-in bot: its BOT.md starts at the default (the daemon's ask_bot::DEFAULT_INSTRUCTIONS).
+  const askBot = { instructions: ASK_DEFAULT, version: 0 };
+  return { bots, botChanges, askBot };
 }

@@ -149,13 +149,22 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ## Ask Launchpad
 
-**Ask** is an assistant for the current workspace. It reads your folders, agents, inbox and quotas, and proposes launches, messages, schedules, routines, presets, tools and [bots](bots.md) as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create cron**, **Save preset**, **Add tool** or **Create bot**. Ask Launchpad is the built-in bot: it is listed first under **Bots** in the sidebar. Any agent can also propose a tool it needs; after **Add tool**, paste its token. **Edit** moves a proposal into the composer. In **Auto** mode (menu on the Ask page), new launches, messages, scheduled launches and presets from Ask Launchpad apply without a click; crons, routines, bots, BOT.md changes and tools always wait for your click.
+**Ask** is an assistant for the current workspace. It reads your folders, agents, inbox and quotas, and proposes launches, messages, schedules, routines, presets, tools and [bots](bots.md) as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create cron**, **Save preset**, **Add tool** or **Create bot**. Ask Launchpad is the built-in bot: it is listed first under **Bots** in the sidebar. Any agent can also propose a tool it needs; after **Add tool**, paste its token. **Edit** moves a proposal into the composer. In **Auto** mode (Settings tab of the Ask page), new launches, messages, scheduled launches and presets from Ask Launchpad apply without a click; crons, routines, bots, BOT.md changes and tools always wait for your click.
 
 ![Ask Launchpad with two proposals](images/ask.webp)
 
 In **Settings → Presets**, check **Ask Launchpad**, **Agent composer / steering**, or both for each preset. The Presets button adds selected instructions after your message, in settings order, including the first Ask request and later messages. Ask can also propose a new preset or new values (label, text, agent availability) for an existing one; it cannot delete presets. Agent availability includes launches, steering and Send later. Existing presets remain available to agents until you change their availability. For example, an Ask-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
 
 The assistant runs with a restricted token: it can read state and write proposals, nothing else. It never reaches GitHub.
+
+### Make Ask Launchpad yours
+
+The Ask page has the layout of a bot's page: the thread on the left, and on the right **Proposals**, **Routines**, **Instructions**, **Threads** and **Settings**.
+
+- **Instructions**: Ask Launchpad's `BOT.md`, how you want it to work and answer (what to check, what to propose, how short). Edit and **Save**; new threads read it, the current thread keeps its own. You can also tell it "from now on, …": it proposes a new `BOT.md`, shown as a diff, until you click **Apply to BOT.md**. **Versions** keeps every change for 30 days with its diff and **Restore previous**. The part Launchpad adds around `BOT.md` (its safety rules and the proposal commands) is shown under **Built in · not editable** and always wins.
+- **Routines**: routines that post to this workspace's thread, such as the morning brief or a check when an agent is done.
+- **Threads**: the threads of this workspace, the current one first.
+- **Settings**: the profile and model of new threads, the proposal mode (Manual or Auto), and what it can reach. **Reset to default** (with a confirmation) puts back the default `BOT.md` (as a new version, so Restore previous can undo it), the first subscription profile, its default model and Manual mode. Threads, proposals and routines stay.
 
 ## Workspaces
 

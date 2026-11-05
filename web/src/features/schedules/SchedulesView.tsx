@@ -22,13 +22,11 @@ import { useCrons, useProjects, useSchedules, useSessions } from "@/lib/queries"
 import { browserZone, routineState, triggerSummary } from "@/lib/routines";
 import { useScope } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
-import { RoutineDetails, RunStrip } from "./Routines";
+import { BRIEF, BRIEF_TITLE, RoutineDetails, RunStrip } from "./Routines";
 
 type Tab = "routines" | "launches";
 
 /** Ask Launchpad's morning brief: a routine of the assistant, weekdays at 8:30 (edit it after). */
-export const BRIEF_TITLE = "Morning brief";
-const BRIEF = "Write my morning brief for this workspace. Read what changed since your previous brief: agents that need me or finished, Inbox threads, Local PRs and suggestions waiting for my click, routine reports, and the quota. Start with what needs me (at most five items, each with its link and one next action), then one line about what was handled. Keep it short. If nothing changed, reply no_update.";
 
 export function useCreateBrief() {
   const qc = useQueryClient();

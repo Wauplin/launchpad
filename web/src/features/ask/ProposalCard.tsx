@@ -13,7 +13,7 @@ import { useProfiles } from "@/lib/profiles";
 import { useProjects, useSessions } from "@/lib/queries";
 import { useComposer } from "@/stores/composer";
 import { useWorkspace } from "@/stores/workspace";
-import { useBots } from "@/lib/bots";
+import { ASK_BOT_ID, useBots } from "@/lib/bots";
 import { browserZone, triggerSummary } from "@/lib/routines";
 import { PatchView } from "@/features/github/DiffReview";
 import { useLayout } from "@/stores/layout";
@@ -28,7 +28,7 @@ function BotInstructionsBody({ body }: { body: Extract<Proposal["body"], { kind:
   const bots = useBots().data ?? [];
   return (
     <>
-      <span className="flex flex-wrap gap-1"><Token icon="file">BOT.md of {bots.find((b) => b.id === body.bot_id)?.settings.name ?? "a bot"}</Token></span>
+      <span className="flex flex-wrap gap-1"><Token icon="file">BOT.md of {body.bot_id === ASK_BOT_ID ? "Ask Launchpad" : bots.find((b) => b.id === body.bot_id)?.settings.name ?? "a bot"}</Token></span>
       <div className="max-h-[320px] overflow-auto rounded-md border border-line"><PatchView patch={body.patch} path="BOT.md" language="markdown" split={false} wrap /></div>
     </>
   );
@@ -189,7 +189,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
       {p.body.kind === "bot_instructions" && <BotInstructionsBody body={p.body} />}
       {statusSessions.length > 0 && <div className="grid">{statusSessions.map((s) => <SessionRow key={s.id} s={s} />)}</div>}
       {session && <SessionRow s={session} />}
-      {started && !session && p.body.kind !== "status" && <span className="text-[12px] text-gh-open"><Icon name="check" size={11} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "files" }}>Instructions</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : "Started"}</span>}
+      {started && !session && p.body.kind !== "status" && <span className="text-[12px] text-gh-open"><Icon name="check" size={11} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? (p.result_id === ASK_BOT_ID ? <>Applied: see <Link className="underline" to="/ask" search={{ panel: "instructions" }}>Ask Launchpad's Instructions</Link></> : <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "files" }}>Instructions</Link></>) : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : "Started"}</span>}
       {p.state === "replaced" && <span className="text-[12px] text-ink-3">Replaced{p.replaced_by && <> · <Link to="/ask" search={{ proposal: p.replaced_by }} onClick={() => useWorkspace.getState().switchTo(p.workspace_id)} className="underline">View replacement</Link></>}</span>}
       {p.state === "dismissed" && <span className="text-[12px] text-ink-3">Dismissed</span>}
       {p.state === "failed" && p.error && <ErrorState error={p.error} />}

@@ -458,6 +458,10 @@ pub struct LaunchSpec {
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routine: Option<RoutineLaunch>,
+    /// An Ask Launchpad thread: the owner's BOT.md of the assistant, read by Home (`ask_bot`). None: the default.
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assistant_instructions: Option<String>,
 }
 
 /// What a routine's run tells the agent: the routine, what started this run and the related items.
