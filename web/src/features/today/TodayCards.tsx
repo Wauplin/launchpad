@@ -129,21 +129,29 @@ export function BranchActions({ sessionId, s, onMerged, children }: { sessionId:
   </>;
 }
 
-/** Archive and Mark seen: on hover and focus of the card (always on touch screens), next to its one main action. */
-function Later({ id }: { id: string }) {
-  return <span className="lp-row-more inline-flex flex-wrap items-center gap-1.5">
-    <ActionButton name="session.archive" params={{ id }} />
-    <ActionButton name="session.seen" params={{ id }} title="Keep the agent and remove the card" />
-  </span>;
+/** Archive and Mark seen: on hover and focus of the card (always on touch screens), next to its one main action.
+ * `archiveMain`: nothing to merge or review, so Archive is the main action and stays visible. */
+function Later({ id, archiveMain = false }: { id: string; archiveMain?: boolean }) {
+  return <>
+    {archiveMain && <ActionButton name="session.archive" params={{ id }} primary />}
+    <span className="lp-row-more inline-flex flex-wrap items-center gap-1.5">
+      {!archiveMain && <ActionButton name="session.archive" params={{ id }} />}
+      <ActionButton name="session.seen" params={{ id }} title="Keep the agent and remove the card" />
+    </span>
+  </>;
 }
 
 /** A finished agent: its last message, its branch with Merge when safe, Archive and Mark seen. */
 function FinishedCard({ item }: { item: TodayItem }) {
   const s = useSession(item.record);
+  // Merge or Review changes when there is work (BranchActions), else Archive.
+  const loading = useSessionWorktrees(item.record).isPending;
+  const { w, safe } = useBranch(item.record, s);
+  const archiveMain = !loading && !safe && !(w && (w.ahead > 0 || w.dirty_files > 0));
   return <Card item={item} age={!s} meta={<SessionMeta s={s} item={item} />} open={<OpenSession id={item.record} />}>
     {s?.last_message && <p className="m-0 line-clamp-3 text-[13px] text-ink-2">{s.last_message}</p>}
     <BranchActions sessionId={item.record} s={s} onMerged={() => runAction("session.seen", { id: item.record }).catch(toastError)}>
-      <Later id={item.record} />
+      <Later id={item.record} archiveMain={archiveMain} />
     </BranchActions>
   </Card>;
 }

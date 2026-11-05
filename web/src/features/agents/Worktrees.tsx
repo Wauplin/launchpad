@@ -47,7 +47,7 @@ export function WorktreeChip({ session }: { session: Session }) {
   const primary = list.find((i) => i.worktree.primary) ?? list[0];
   if (!primary) return null;
   return (
-    <Popover width={380} trigger={({ toggle }) => (
+    <Popover viewport width={380} trigger={({ toggle }) => (
       <button className={`inline-flex max-w-[260px] items-center gap-1 truncate rounded-[5px] border px-1.5 font-mono text-[11px] ${warn(primary) ? "border-attn-line bg-attn-soft text-attn" : "border-line bg-paper text-ink-2 hover:text-ink"}`} title={`Worktree ${primary.path}`} onClick={toggle}>
         <Icon name="branch" size={11} />
         <span className="truncate">{primary.worktree.branch}</span>

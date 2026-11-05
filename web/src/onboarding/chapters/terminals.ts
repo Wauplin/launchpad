@@ -26,7 +26,7 @@ export const terminals: Chapter = {
     {
       id: "terminals.tui", route: "/agents?session=demo-s-cart", anchor: "session.primary",
       title: "Continue in the TUI",
-      body: "More ▾ → Continue in the harness's TUI opens Claude Code, Codex or OpenCode in a terminal on the same conversation. The agent shows In terminal until you press Re-attach.",
+      body: "⋯ → Continue in the harness's TUI opens Claude Code, Codex or OpenCode in a terminal on the same conversation. The agent shows In terminal until you press Re-attach.",
     },
     {
       id: "terminals.limits", anchor: "terminal.dock",

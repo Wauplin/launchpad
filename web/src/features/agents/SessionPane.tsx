@@ -413,7 +413,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const actionsMenu = <Popover viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={phone ? "iconbtn" : "iconbtn border border-line"} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}><Icon name="more" size={phone ? 20 : 14} /></button>}>
     {(close) => <>
       {!phone && !s.imported_from && !running && s.status !== "in_terminal" && <MenuItem icon={<Icon name="agents" size={14} />} label="New agent here" detail="A separate agent in the same folder, with this trace as context" onClick={() => { close(); useComposer.getState().followUpFrom(s); }} />}
-      {!phone && hasFinal && <MenuItem icon={<Icon name="comment" size={14} />} label="Jump to the final message" detail="In the trace" onClick={() => { close(); setView("trace"); setJumpFinal((n) => n + 1); }} />}
+      {hasFinal && <MenuItem icon={<Icon name="comment" size={14} />} label="Jump to the final message" detail="In the trace" onClick={() => { close(); setView("trace"); setJumpFinal((n) => n + 1); }} />}
       {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Today for later" onClick={() => { close(); onClear(); void act(s.id, "session.unread"); }} />}
       {phone && <>
         <MenuItem label="Session details" detail="Branch, usage and New agent here" onClick={() => { close(); setDetailsOpen(true); }} />
@@ -476,23 +476,27 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         <div className="flex min-w-0 flex-wrap items-center gap-x-3">
           {viewTabs}
           <span className="flex shrink-0 items-center gap-1.5 text-[12px] whitespace-nowrap empty:hidden">{stateChips}</span>
+          {/* The meta line and ⓘ wrap together under the views when less than 192 px remain beside them. */}
+          <div className="flex min-w-0 flex-1 basis-48 items-center gap-1">
           <span className="session-meta flex min-w-0 flex-1 items-center gap-x-1.5 overflow-hidden text-[12px] whitespace-nowrap text-ink-3 tabular-nums">
             {s.launch_spec.bot && <><Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} className="shrink-0 text-teal-ink hover:underline" title="This session belongs to a bot's thread">{s.launch_spec.bot.name}</Link>·</>}
             <span className="max-w-[40%] shrink-0 truncate" title={s.cwd}>{place}</span>
-            <span className="flex min-w-0 [&>button]:max-w-full"><WorktreeChip session={s} /></span>
+            <span className="flex min-w-0 [&>div]:min-w-0 [&_button]:max-w-full"><WorktreeChip session={s} /></span>
             {localPr && <button className="shrink-0 text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Local PR</button>}
             {(profileLabel || contextShare) && <span className="min-w-0 truncate">{[profileLabel, contextShare].filter(Boolean).join(" · ")}</span>}
             <HostLabel path={s.cwd} />
-            <Popover align="right" width={280} trigger={({ toggle }) => <button className="iconbtn size-6! shrink-0 text-ink-3" title="Session details" aria-label="Session details" onClick={toggle}><Icon name="info" size={13} /></button>}>
-              {() => <dl className="grid gap-2 p-2 text-[12px] text-ink-2">
-                <div><dt className="text-[11px] text-ink-3">Folder</dt><dd className="break-all">{s.cwd}</dd></div>
-                {s.launch_spec.profile && <div><dt className="text-[11px] text-ink-3">Profile</dt><dd>{name} · {profileName ?? `${s.launch_spec.profile} (deleted profile)`}</dd></div>}
-                {s.model && <div><dt className="text-[11px] text-ink-3">Model</dt><dd>{s.model}{s.effort ? ` · ${s.effort}` : ""}</dd></div>}
-                {usageLine(s) && <div><dt className="text-[11px] text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
-                <div><dt className="text-[11px] text-ink-3">Started</dt><dd>{new Date(s.started_at).toLocaleString()}</dd></div>
-              </dl>}
-            </Popover>
           </span>
+          {/* Outside the clipped meta line (and portaled), so ⓘ and its panel stay visible when the line is cut. */}
+          <Popover viewport align="right" width={280} className="shrink-0" trigger={({ toggle }) => <button className="iconbtn size-6! shrink-0 text-ink-3" title="Session details" aria-label="Session details" onClick={toggle}><Icon name="info" size={13} /></button>}>
+            {() => <dl className="grid gap-2 p-2 text-[12px] text-ink-2">
+              <div><dt className="text-[11px] text-ink-3">Folder</dt><dd className="break-all">{s.cwd}</dd></div>
+              {s.launch_spec.profile && <div><dt className="text-[11px] text-ink-3">Profile</dt><dd>{name} · {profileName ?? `${s.launch_spec.profile} (deleted profile)`}</dd></div>}
+              {s.model && <div><dt className="text-[11px] text-ink-3">Model</dt><dd>{s.model}{s.effort ? ` · ${s.effort}` : ""}</dd></div>}
+              {usageLine(s) && <div><dt className="text-[11px] text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
+              <div><dt className="text-[11px] text-ink-3">Started</dt><dd>{new Date(s.started_at).toLocaleString()}</dd></div>
+            </dl>}
+          </Popover>
+          </div>
         </div>
       </div>}
       {phone && detailsOpen && <Sheet title="Session details" onClose={() => setDetailsOpen(false)}>
