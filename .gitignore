@@ -10,3 +10,4 @@
 /extension/node_modules
 /extension/dist
 /extension/tsconfig.tsbuildinfo
+__pycache__/
