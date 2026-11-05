@@ -5,7 +5,7 @@ import { AddContext, GitHubHTML, reference, itemKey, itemPath } from "@/features
 import { GitHubReplyBox } from "@/features/github/ReplyBox";
 import { reviewWithAgent } from "@/features/github/reviewAgent";
 import { itemSuggestionKey, useSuggestionsByItem } from "@/features/review/data";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Thread } from "@/gen/Thread";
@@ -207,6 +207,9 @@ export function InboxView() {
   const ref = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const action = useInboxAction();
+  // Only the threads with a request in flight wait; the other rows stay clickable.
+  const pendingList = useMutationState({ filters: { mutationKey: ["inbox-action"], status: "pending" }, select: (m) => (m.state.variables as Action | undefined)?.id });
+  const pending = useMemo(() => new Set(pendingList), [pendingList]);
   const byItem = useSuggestionsByItem();
   const sync = useMutation({ mutationFn: () => api.post("/api/inbox/sync"), onError: toastError, onSettled: () => void qc.invalidateQueries({ queryKey: ["inbox"] }) });
   const { threads, total, scope, allRepos } = useInboxThreads();
@@ -270,7 +273,7 @@ export function InboxView() {
     for (const t of visible.slice(Math.max(0, at + 1), Math.max(0, at + 1) + 3)) void qc.prefetchQuery({ queryKey: ["inbox-preview", t.id], queryFn: () => api.get<ThreadPreview | null>(`/api/inbox/${t.id}/preview`), staleTime: 60_000 });
   }, [view.selected, visible, qc]);
   const readyOf = (t: Thread) => t.number !== null ? byItem.get(itemSuggestionKey(t.repo, t.number))?.[0] : undefined;
-  if (phone && selected) return <div className="flex h-full"><PreviewPane key={selected.id} t={selected} projects={projects} ready={readyOf(selected)} act={act} busy={action.isPending} /></div>;
+  if (phone && selected) return <div className="flex h-full"><PreviewPane key={selected.id} t={selected} projects={projects} ready={readyOf(selected)} act={act} busy={pending.has(selected.id)} /></div>;
   const syncing = sync.isPending || !!data?.status.syncing;
   const synced = <Synced label={data?.status.syncing ? "Syncing…" : data?.status.last_sync ? `Synced ${formatAge(data.status.last_sync)} ago` : "Waiting for GitHub"} busy={syncing} title="Refresh the inbox from GitHub" onRefresh={() => sync.mutate()} />;
   const repoScope: ReactNode = scope.workspace && <FilterChips label="Repositories">
@@ -299,10 +302,10 @@ export function InboxView() {
       <div data-inbox-list ref={ref} className="min-w-0 flex-1 overflow-y-auto" onScroll={() => useView.setState({ scroll: ref.current?.scrollTop ?? 0 })}>
         {visible.length === 0 && (data?.status.syncing || !data ? <Loading what="notifications" /> : <Empty fill icon="inbox">{view.unread || view.repo || view.why !== "all" ? "No notifications match these filters." : hidden > 0 ? `No notifications for the repositories of ${scope.workspace?.name}. Choose All repos to see all ${hidden}.` : "Your inbox is clear."}</Empty>)}
         <div className="relative" style={{ height: v.getTotalSize() }}>
-          {v.getVirtualItems().map((item) => { const t = visible[item.index]; return <div key={item.key} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${item.start}px)` }}><ThreadRow t={t} selected={t.id === view.selected} projects={projects} ready={readyOf(t)} select={select} act={act} busy={action.isPending} /></div>; })}
+          {v.getVirtualItems().map((item) => { const t = visible[item.index]; return <div key={item.key} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${item.start}px)` }}><ThreadRow t={t} selected={t.id === view.selected} projects={projects} ready={readyOf(t)} select={select} act={act} busy={pending.has(t.id)} /></div>; })}
         </div>
       </div>
-      {selected && <PreviewPane key={selected.id} t={selected} projects={projects} ready={readyOf(selected)} act={act} busy={action.isPending} />}
+      {selected && <PreviewPane key={selected.id} t={selected} projects={projects} ready={readyOf(selected)} act={act} busy={pending.has(selected.id)} />}
     </div>
   </div>;
 }
