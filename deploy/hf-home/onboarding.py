@@ -1,7 +1,7 @@
 """Home's onboarding: the steps between an empty Space and a first agent.
 
-Required before Home opens: Hugging Face, the credential key, GitHub, an SSH key, the Git identity, a profile and a
-first folder. Then, optional on this page: pair a runner and run a first agent.
+`STEPS` is the one list of these steps: this page, Home's Setup page and the sidebar's "Finish setup · N left" all
+read it from `/_home/status`. Home opens once the required steps are done; optional steps never keep it closed.
 
 Only fixed CLI logins run, and only after an owner click. Their output stays in memory and is never logged.
 Credentials are encrypted with a key derived from `LP_HOME_KEY` (a Space secret the owner chooses or generates here):
@@ -48,6 +48,21 @@ LOGINS = {"claude": "claude_login", "codex": "codex_login"}  # Harnesses whose l
 NAMES = {"claude": "Claude Code", "codex": "Codex"}
 # Owner choices kept in Home's onboarding record (`dismissed`), so they survive restarts and restores.
 SSH_DONE, PROFILE_DONE, AGENT_DONE = "home:ssh", "home:profile", "home:first-agent"
+SKIPPED = "home:skip:"  # + the ID of an optional step the owner skipped.
+# The setup steps, in order: (id, title, what it is for, required, tag of an optional step).
+STEPS = (
+    ("huggingface", "Hugging Face", "Home's login for its private bucket.", True, None),
+    ("key", "Credential key", "Encrypts every credential Home stores. Keep your copy safe.", True, None),
+    ("github", "GitHub", "Inbox, pull requests, private clones and publication.", True, None),
+    ("ssh", "SSH key", "Lets agents push over SSH. The private key never leaves Home.", True, None),
+    ("identity", "Git identity", "The author of your agents' commits.", True, None),
+    ("profile", "Agent profile", "A subscription login and the default model and effort.", True, None),
+    ("folders", "Workspace and first folder", "Folders your agents work in, grouped by workspace.", True, None),
+    ("runner", "Where agents run", "A Linux machine of yours that runs the agents, or Burst when none is on.", False, "recommended"),
+    ("agent", "First agent", "Ask an agent what one of your projects is about.", False, "recommended"),
+    ("bot", "First bot", "An agent that stays: one thread, its own instructions, and notes it keeps between sessions.", False, "optional"),
+)
+OPTIONAL = {s[0] for s in STEPS if not s[3]}
 FIRST_PROMPT = "What is this project about? Give a short overview of its purpose, structure and main parts."
 
 
@@ -286,7 +301,8 @@ class Setup:
         # must add the secret in the Space settings.
         self.encryption = {"state": "on" if key else "off", "error": None}
         self.passphrase = None  # A key generated or typed on this page, until Home restarts with it.
-        self.home = {}  # What Home's daemon has: SSH key, identity, profiles, folders, runners.
+        self.home = {}  # What Home's daemon has: SSH key, identity, profiles, folders, runners, bots.
+        self.marks = set()  # Owner choices in Home's onboarding record.
         self.home_at = 0.0
         self.hf_retry = None  # Retries a check that could not reach Hugging Face, with backoff.
         self.hf_checked_at = 0.0
@@ -436,6 +452,10 @@ class Setup:
         projects = await self.api("GET", "/api/projects")
         runners = await self.api("GET", "/api/runners")
         try:
+            bots = await self.api("GET", "/api/bots")
+        except Exception:
+            bots = []
+        try:
             burst = await self.api("GET", "/api/burst")
         except Exception:
             burst = {"unavailable": "Burst is not available on this Home", "config": {"monthly_cap_usd": 0}, "month_usd": 0}
@@ -458,14 +478,17 @@ class Setup:
             "profile": {"done": bool(profiles) and PROFILE_DONE in marks, "ready": bool(profiles), "profiles": profiles, "missing": missing},
             "folders": {"done": bool(workspaces) and bool(projects), "workspaces": [{"id": w["id"], "name": w["name"]} for w in workspaces],
                         "projects": [{"id": p["id"], "name": p["name"], "workspace_id": p.get("workspace_id")} for p in projects]},
-            # Agents can run once a runner is connected or Burst is available (an HF Job, nothing to install).
-            "runner": {"done": any(r["connected"] for r in runners),
+            # Done once a runner is paired, connected or not (a sleeping laptop stays done). Agents run when one is
+            # connected, or on Burst (an HF Job, nothing to install).
+            "runner": {"done": any(r["runner"]["state"] == "approved" for r in runners),
                        "runners": [{"id": r["runner"]["id"], "name": r["runner"]["name"], "code": r["runner"]["code"], "state": r["runner"]["state"],
                                     "connected": r["connected"], "compat": r.get("compat")} for r in runners],
                        "burst": {"available": burst.get("unavailable") is None, "unavailable": burst.get("unavailable"),
                                  "cap": burst.get("config", {}).get("monthly_cap_usd", 0)}},
             "agent": {"done": agent},
+            "bot": {"done": bool(bots)},
         }
+        self.marks = marks
 
     async def check(self):
         await self.check_hf()
@@ -486,12 +509,23 @@ class Setup:
         return self.hf["done"] and self.key is not None
 
     def step(self, name):
+        if name == "huggingface":
+            return self.hf["done"]
+        if name == "key":
+            return self.key is not None
+        if name == "github":
+            return self.github["done"]
         return self.home.get(name, {}).get("done", False)
+
+    def steps(self):
+        return [{"id": id, "title": title, "why": why, "required": required, "tag": tag, "done": self.step(id),
+                 "skipped": not required and not self.step(id) and SKIPPED + id in self.marks}
+                for id, title, why, required, tag in STEPS]
 
     @property
     def complete(self):
-        """Home opens once these are done; the runner and the first agent are optional here."""
-        return self.unlocked and self.github["done"] and all(self.step(s) for s in ("ssh", "identity", "profile", "folders"))
+        """Home opens once the required steps are done."""
+        return self.unlocked and all(self.step(s[0]) for s in STEPS if s[3])
 
     def install_command(self):
         url = f"https://{self.host}/_home/runner/install.sh"
@@ -500,13 +534,16 @@ class Setup:
     def status(self):
         github = {k: v for k, v in self.github.items() if k != "user"}
         user = self.github.get("user") or {}
+        steps = self.steps()
         return {
             "csrf": self.csrf, "bucket": self.bucket, "space": self.space, "complete": self.complete, "unlocked": self.unlocked,
+            # Required steps left: the sidebar's "Finish setup · N left".
+            "steps": steps, "left": sum(1 for s in steps if s["required"] and not s["done"]),
             "huggingface": dict(self.hf, done=self.hf["done"], signed_in=self.hf["done"]),
             "key": {"done": self.key is not None, "state": self.encryption["state"], "error": self.encryption["error"],
                     "pending": self.passphrase is not None},
             "github": dict(github, secret=self.secret(), suggest={"name": user.get("name", ""), "email": noreply_email(user)}),
-            **{k: self.home.get(k, {"done": False}) for k in ("ssh", "identity", "profile", "folders", "runner", "agent")},
+            **{k: self.home.get(k, {"done": False}) for k in ("ssh", "identity", "profile", "folders", "runner", "agent", "bot")},
             "install": self.install_command(),
             "first_prompt": FIRST_PROMPT,
             "login": self.login.status() if self.login else None,
@@ -679,6 +716,10 @@ class Setup:
             await self.mark(PROFILE_DONE)
         elif path == "/_home/agent":
             await self.mark(AGENT_DONE)
+        elif path == "/_home/skip":
+            if body.get("step") not in OPTIONAL:
+                raise ValueError("Only optional steps can be skipped")
+            await self.mark(SKIPPED + body["step"])
         else:
             raise web.HTTPNotFound()
         await self.check_home(force=True)

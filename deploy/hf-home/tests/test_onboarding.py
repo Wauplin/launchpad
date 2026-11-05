@@ -1,6 +1,6 @@
 import unittest
 
-from onboarding import claude_token, derive_key, device_prompt, key_opens, last_line, noreply_email, seal, unique_id, unseal
+from onboarding import SKIPPED, Setup, claude_token, derive_key, device_prompt, key_opens, last_line, noreply_email, seal, unique_id, unseal
 
 
 class DevicePrompt(unittest.TestCase):
@@ -84,6 +84,30 @@ class UniqueId(unittest.TestCase):
     def test_suffix(self):
         self.assertEqual(unique_id("codex", set()), "codex")
         self.assertEqual(unique_id("codex", {"codex", "codex-2"}), "codex-3")
+
+
+class Steps(unittest.TestCase):
+    def setup(self, **home):
+        s = Setup.__new__(Setup)
+        s.hf, s.key, s.github, s.marks = {"done": True}, b"k" * 32, {"done": True}, set()
+        s.home = {k: {"done": v} for k, v in home.items()}
+        return s
+
+    def test_optional_steps_never_count(self):
+        s = self.setup(ssh=True, identity=True, profile=True, folders=True)
+        self.assertTrue(s.complete)
+        self.assertEqual(sum(1 for x in s.steps() if x["required"] and not x["done"]), 0)
+        s.home["folders"]["done"] = False
+        self.assertFalse(s.complete)
+        self.assertEqual([x["id"] for x in s.steps() if x["required"] and not x["done"]], ["folders"])
+
+    def test_skipped(self):
+        s = self.setup(runner=False, agent=True)
+        s.marks = {SKIPPED + "runner", SKIPPED + "agent", SKIPPED + "identity"}
+        steps = {x["id"]: x for x in s.steps()}
+        self.assertTrue(steps["runner"]["skipped"])
+        self.assertFalse(steps["agent"]["skipped"])  # Done wins.
+        self.assertFalse(steps["identity"]["skipped"])  # Required steps cannot be skipped.
 
 
 if __name__ == "__main__":

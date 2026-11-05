@@ -116,11 +116,15 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
   <div class="list" id="runners" hidden></div>
   <div class="row"><button class="primary" id="runner-burst" hidden>Continue with Burst</button><button class="link" id="runner-skip">Skip for now</button></div></div></li>
 
-<li id="s-agent"><span class="dot"></span><div><h2>Run your first agent <span class="tag">recommended</span></h2><div class="state"></div></div>
+<li id="s-agent"><span class="dot"></span><div><h2></h2><div class="state"></div></div>
   <div class="body"><p class="hint">Ask an agent about your project. It works in its own copy of the folder and changes nothing.</p>
   <div class="row"><label class="field grow">Folder<select id="agent-folder"></select></label><label class="field grow">Profile<select id="agent-profile"></select></label><label class="field grow">Runner<select id="agent-runner"></select></label></div>
   <label class="field">Prompt<textarea id="agent-prompt" rows="2"></textarea></label>
   <div class="row"><button class="primary" id="agent-run">Run agent</button><small id="agent-where"></small><button class="link" id="agent-skip">Skip for now</button></div></div></li>
+
+<li id="s-bot"><span class="dot"></span><div><h2></h2><div class="state"></div></div>
+  <div class="body"><p class="hint">A bot is an agent that stays: one thread, its own instructions, and notes it keeps between sessions. Create one in Home when you need it.</p>
+  <div class="row"><a class="btn primary" href="/bots?new=true">Create a bot</a><button class="link" id="bot-skip">Skip for now</button></div></div></li>
 </ol>
 <div id="device" class="box" hidden><span id="device-what"></span><div class="row" id="code-row"><span class="code" id="code"></span><button id="copy-code">Copy</button></div>
   <div class="row"><a id="link" class="btn primary" target="_blank" rel="noopener noreferrer">Open sign-in page</a><button id="cancel">Cancel</button></div>
@@ -130,25 +134,28 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
 </div></main>
 <script>
 const $=s=>document.querySelector(s);
-let keyTried=false,csrf="",st=null,actionError="",busy=false,generatedKey=null,keyKept=false,sshRequested=false,modelsFor=null,foldersOpen=false,skipped=new Set(JSON.parse(sessionStorage.getItem("lp-setup-skipped")||"[]")),repos=null,cloningRepo=null,cloneQueue=[],cloneErrors=[],wsChosen=null;
+let keyTried=false,csrf="",st=null,actionError="",busy=false,generatedKey=null,keyKept=false,sshRequested=false,modelsFor=null,foldersOpen=false,repos=null,cloningRepo=null,cloneQueue=[],cloneErrors=[],wsChosen=null;
 const NAMES={huggingface:"Hugging Face",github:"GitHub",codex:"Codex",claude:"Claude Code"};
 const STEP={huggingface:"huggingface",github:"github",codex:"profile",claude:"profile"};
-const ORDER=["huggingface","key","github","ssh","identity","profile","folders","runner","agent"];
-const REQUIRED=ORDER.slice(0,7);
 const count=(n,w)=>n?`${n} ${w}${n===1?"":"s"}`:`no ${w}`;
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const skip=k=>{skipped.add(k);sessionStorage.setItem("lp-setup-skipped",JSON.stringify([...skipped]));render(st);};
-function isDone(s,k){if(k==="folders")return s.folders.done&&!foldersOpen;if(k==="runner"||k==="agent")return s[k].done||skipped.has(k);return s[k].done;}
+// The steps come from Home (`steps` in /_home/status): the same list as Home's Setup page and the sidebar.
+const stepOf=(s,k)=>s.steps.find(x=>x.id===k)||{done:false,skipped:false};
+const skipped=k=>!!(st&&stepOf(st,k).skipped);
+const skip=k=>act("/_home/skip",{step:k});
+function isDone(s,k){const x=stepOf(s,k);if(k==="folders")return x.done&&!foldersOpen;return x.done||x.skipped;}
 
 function render(s){
   if(!s)return;st=s;csrf=s.csrf;$("#bucket").textContent=s.bucket;
   const login=s.login&&s.login.running?s.login:null;
-  const active=ORDER.find(k=>!isDone(s,k));
-  const done=REQUIRED.filter(k=>s[k].done).length;
-  $("#bar").style.width=`${Math.round(100*ORDER.filter(k=>isDone(s,k)).length/ORDER.length)}%`;
-  $("#progress").textContent=s.complete?"Home is ready. Run a first agent, or open Home now.":`${done} of ${REQUIRED.length} required steps done`;
-  ORDER.forEach((k,i)=>{const li=$("#s-"+k),d=isDone(s,k)&&s[k].done;li.className=d?"done":k===active?"active":"";
-    li.querySelector(".dot").textContent=d?"✓":i+1;li.querySelector(".body").hidden=k!==active;});
+  const order=s.steps.map(x=>x.id),required=s.steps.filter(x=>x.required);
+  const active=order.find(k=>!isDone(s,k));
+  $("#bar").style.width=`${Math.round(100*order.filter(k=>isDone(s,k)).length/order.length)}%`;
+  $("#progress").textContent=s.complete?"Home is ready. The steps left are optional: do them now, or open Home.":`${required.length-s.left} of ${required.length} required steps done`;
+  const ol=$("ol.steps");if([...ol.children].map(li=>li.id).join()!==order.map(k=>"s-"+k).join())order.forEach(k=>ol.appendChild($("#s-"+k)));
+  s.steps.forEach((x,i)=>{const li=$("#s-"+x.id),d=x.done&&isDone(s,x.id);li.className=d?"done":x.id===active?"active":"";
+    li.querySelector("h2").innerHTML=esc(x.title)+(x.tag?` <span class="tag">${esc(x.tag)}</span>`:"");
+    li.querySelector(".dot").textContent=d?"✓":i+1;li.querySelector(".body").hidden=x.id!==active;});
   const hf=s.huggingface,key=s.key,gh=s.github,pr=s.profile,fo=s.folders,ru=s.runner;
   $("#s-huggingface .state").textContent=hf.done?`Signed in as ${hf.account}`:"Not signed in";
   $("#s-key .state").textContent=key.done?"Encryption on":key.state==="restarting"?"Home is restarting…":key.state==="manual"?"Waiting for the LP_HOME_KEY secret":"Not set";
@@ -157,9 +164,10 @@ function render(s){
   $("#s-identity .state").textContent=s.identity.done?`${s.identity.name} <${s.identity.email}>`:"Not set";
   $("#s-profile .state").textContent=pr.done?`Ready: ${(pr.profiles||[]).map(p=>`${p.name}${p.model?` · ${p.model}`:""}${p.effort?` · ${p.effort}`:""}`).join(", ")}`:pr.ready?"Choose a model":pr.missing?`${pr.missing.name} needs its login`:"No profile yet";
   $("#s-folders .state").textContent=fo.done?`${(fo.workspaces||[]).map(w=>w.name).join(", ")} · ${(fo.projects||[]).length} folder${(fo.projects||[]).length===1?"":"s"}`:"No folder yet";
-  const live=(ru.runners||[]).filter(r=>r.connected),burst=ru.burst||{available:false};
-  $("#s-runner .state").textContent=live.length?`Connected: ${live.map(r=>r.name).join(", ")}${burst.available?" · Burst when it is off":""}`:skipped.has("runner")?(burst.available?"Burst for now":"Skipped"):burst.available?"Burst is ready: nothing to install":"No runner yet";
-  $("#s-agent .state").textContent=s.agent.done?"Done":skipped.has("agent")?"Skipped":live.length?"Ready to run":burst.available?"Ready to run on Burst":"Needs a connected runner";
+  const live=(ru.runners||[]).filter(r=>r.connected),paired=(ru.runners||[]).filter(r=>r.state==="approved"&&!r.connected),burst=ru.burst||{available:false};
+  $("#s-runner .state").textContent=live.length?`Connected: ${live.map(r=>r.name).join(", ")}${burst.available?" · Burst when it is off":""}`:paired.length?`Paired: ${paired.map(r=>r.name).join(", ")} (offline now)${burst.available?" · Burst meanwhile":""}`:skipped("runner")?(burst.available?"Burst for now":"Skipped"):burst.available?"Burst is ready: nothing to install":"No runner yet";
+  $("#s-agent .state").textContent=s.agent.done?"Done":skipped("agent")?"Skipped":live.length?"Ready to run":burst.available?"Ready to run on Burst":"Needs a connected runner";
+  $("#s-bot .state").textContent=s.bot.done?"Created":skipped("bot")?"Skipped":"No bot yet";
   $("#burst-hint").innerHTML=burst.available?`<b>Burst</b> <span class="tag">nothing to install</span> Agents can run now: when no runner takes a launch, Home starts an HF Job in your namespace for it (about $0.01 per hour, capped at $${esc(burst.cap)} per month in Settings → Home and runners). It holds no token and stops after each turn.`:`Burst is not available: ${esc(burst.unavailable||"")}. Connect a runner to run agents.`;
   $("#runner-burst").hidden=!burst.available||live.length>0;
 
@@ -325,6 +333,7 @@ $("#runner-skip").onclick=()=>skip("runner");
 $("#runner-burst").onclick=()=>skip("runner");
 $("#agent-runner").onchange=()=>render(st);
 $("#agent-skip").onclick=()=>skip("agent");
+$("#bot-skip").onclick=()=>skip("bot");
 $("#agent-run").onclick=async()=>{
   const folder=$("#agent-folder").value,profile=st.profile.profiles.find(p=>p.id===$("#agent-profile").value),project=st.folders.projects.find(p=>p.id===folder);
   if(!profile||!project)return;busy=true;render(st);
