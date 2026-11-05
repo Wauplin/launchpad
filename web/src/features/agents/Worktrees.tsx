@@ -125,12 +125,12 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
           <b>Merge {w.branch} into {base}?</b>
           <ul className="m-0 list-disc pl-4 text-ink-2">
             <li>Waits until the agent is idle, then pushes the branch to Home.</li>
-            <li>Home fast-forwards {base} ({i.ahead} commit{i.ahead === 1 ? "" : "s"}), then pushes {base} to the folder's remote; a failed push keeps the merge on Home.</li>
+            <li>Home pushes {base} ({i.ahead} commit{i.ahead === 1 ? "" : "s"}) to the folder's remote, then fast-forwards it on Home; if the remote refuses the push, nothing is merged.</li>
             <li>If {base} moved, the agent rebases first; nothing is forced.</li>
           </ul>
           <div className="flex gap-1.5"><button className="btn btn-sm btn-primary" disabled={busy} onClick={() => { setMergeAsk(false); void act("merge"); }}>Merge</button><button className="btn btn-sm" onClick={() => setMergeAsk(false)}>Cancel</button></div>
         </div>}
-        {canMerge && !mergeAsk && <button className="btn btn-sm btn-primary" disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : `Home fast-forwards ${base} to this branch and pushes ${base} to the folder's remote. If ${base} moved, the agent rebases first.`} onClick={() => (isPhone ? setMergeAsk(true) : void act("merge"))}>Merge into {base}</button>}
+        {canMerge && !mergeAsk && <button className="btn btn-sm btn-primary" disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : `Home pushes this branch to ${base} on the folder's remote, then fast-forwards ${base} on Home. If ${base} moved, the agent rebases first.`} onClick={() => (isPhone ? setMergeAsk(true) : void act("merge"))}>Merge into {base}</button>}
         {w.merge && w.merge.phase !== "waiting" && session && <button className="btn btn-sm btn-primary" disabled={busy} title="Send the problem to the agent: it rebases, resolves and asks to merge again" onClick={() => void act("fix", "Sent to the agent")}>Fix with agent</button>}
         <TerminalMenu cwd={i.path} small phone={isPhone} align="left" />
         {w.merge && <button className="btn btn-sm" disabled={busy} onClick={() => void act("cancel-merge")}>Cancel merge</button>}

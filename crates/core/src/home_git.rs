@@ -378,8 +378,10 @@ pub enum MergeOutcome {
     NeedsRebase { base: String, reason: String },
 }
 
-/// Merge on Home: fast-forwards `base` to the reviewed `head` of `branch`, then pushes `base` to the
-/// folder's remote (best effort, never forced). A branch behind `base` must be rebased by its agent first.
+/// Merge on Home: pushes the reviewed `head` of `branch` to `base` on the folder's remote (never forced), then
+/// fast-forwards `base` on Home. The merge counts only once the remote accepted it: the mirror follows the
+/// remote, so a base moved only on Home would go back at the next refresh. A refused push fails with its
+/// reason and changes nothing. A branch behind `base` must be rebased by its agent first.
 pub async fn merge(app: &App, p: &Project, branch: &str, head: &str, base: &str) -> Result<MergeOutcome> {
     ensure!(!base.starts_with('-') && !base.starts_with("lp/"), "invalid base branch {base}");
     let _ = refresh(app, p).await;
@@ -395,16 +397,15 @@ pub async fn merge(app: &App, p: &Project, branch: &str, head: &str, base: &str)
     if git(app, &dir, &["merge-base", "--is-ancestor", &base_tip, head]).await.is_err() {
         return Ok(MergeOutcome::NeedsRebase { base: base.into(), reason: format!("{base} moved on Home ({}); {branch} must be rebased onto it", &base_tip[..12.min(base_tip.len())]) });
     }
+    let remote = git(app, &dir, &["remote"]).await?.lines().any(|r| r == "origin");
+    if remote {
+        git_in(app, &dir, &["push", "--quiet", "origin", &format!("{head}:refs/heads/{base}")], 300)
+            .await
+            .with_context(|| format!("the folder's remote refused {base}, so nothing was merged (a protected branch needs a pull request: publish a Local PR instead)"))?;
+    }
     git(app, &dir, &["update-ref", &format!("refs/heads/{base}"), head, &base_tip]).await?;
     crate::home_backup::changed();
-    let note = if git(app, &dir, &["remote"]).await?.lines().any(|r| r == "origin") {
-        match git_in(app, &dir, &["push", "--quiet", "origin", &format!("{head}:refs/heads/{base}")], 300).await {
-            Ok(_) => format!("Merged into {base} and pushed to the remote."),
-            Err(e) => format!("Merged into {base} on Home; the push to the remote failed: {e:#}. Push {base} from Home again or update it on the remote; a later refresh follows the remote."),
-        }
-    } else {
-        format!("Merged into {base} on Home (this folder has no remote).")
-    };
+    let note = if remote { format!("Merged into {base} and pushed to the remote.") } else { format!("Merged into {base} on Home (this folder has no remote).") };
     app.bus.publish("home_git", "merged", serde_json::json!({"project_id": p.id, "branch": branch, "base": base}));
     Ok(MergeOutcome::Merged { head: head.into(), note })
 }

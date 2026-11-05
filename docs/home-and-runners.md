@@ -61,7 +61,7 @@ Home keeps a mirror of every Git folder: every branch of the folder's remote, pl
 
 - Every session starts in a fresh worktree of its branch, cloned before the agent starts. At the end of every turn the runner pushes the branch to Home, and every five minutes it snapshots running worktrees. A worktree is removed only after Home confirmed its branch; uncommitted files are saved to an `lp-scratch/…` branch first, kept 30 days.
 - `origin` in an agent's worktree is Home Git, through its runner: agents never hold a credential for it. A runner that lost a session to another runner can no longer push its branches.
-- Only Home changes base branches, through **Merge** (fast-forward, then a push to the folder's remote) and **Publish** (the reviewed commit). A base branch that moved goes back to the agent for a rebase.
+- Only Home changes base branches, through **Merge** (a push to the folder's remote, then a fast-forward on Home; a refused push merges nothing) and **Publish** (the reviewed commit). A base branch that moved goes back to the agent for a rebase.
 - Home keeps every previous tip of a Launchpad branch for 30 days, also after force pushes and deletes. The folder page lists Launchpad branches and their previous tips, with **Restore**.
 - Local PRs live on Home: diff, review, Merge and Publish work from the phone while the laptop sleeps. Local PRs opened by one agent form a change set, published together.
 - Sessions that continue a GitHub pull request push to Home; Home pushes the branch to the pull request after each push, never forced. Published Local PRs work the same way.

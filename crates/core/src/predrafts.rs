@@ -436,8 +436,8 @@ pub async fn discard(app: &App, id: &str) -> Result<Predraft> {
     save(app, &p).await?;
     Ok(p)
 }
-/// Merge on Home: fast-forwards the base branch to the reviewed commit, then pushes it to the folder's remote
-/// (best effort). A branch behind its base goes back to its agent for a rebase.
+/// Merge on Home: pushes the reviewed commit to the base branch on the folder's remote, then fast-forwards it on
+/// Home (`home_git::merge`); a refused push merges nothing. A branch behind its base goes back to its agent.
 pub async fn merge_local(app: &App, id: &str, q: MergeLocal) -> Result<Predraft> {
     ensure_home(app)?;
     let _lock = app.predraft_lock.lock().await;
