@@ -133,7 +133,7 @@ pub fn spawn_monitors(app: &App) {
         s.time_zone = host_time_zone();
         s.host = host_name();
         s.utc_offset_minutes = utc_offset_minutes();
-        for registration in crate::harness::REGISTRATIONS {
+        for registration in crate::harness::registrations() {
             s.harnesses
                 .entry(registration.descriptor.id.as_str().into())
                 .or_default();
@@ -197,7 +197,7 @@ fn host_time_zone() -> Option<String> {
 }
 
 pub async fn refresh_versions(app: &App) {
-    for registration in crate::harness::REGISTRATIONS {
+    for registration in crate::harness::registrations() {
         let id = registration.descriptor.id;
         let result =
             tokio::time::timeout(Duration::from_secs(15), app.harnesses.get(id).version(app)).await;
@@ -220,7 +220,7 @@ pub fn http_client() -> reqwest::Client {
         .expect("http client")
 }
 
-pub(crate) async fn wait_poll(
+pub async fn wait_poll(
     app: &App,
     account: &str,
     idle: u64,

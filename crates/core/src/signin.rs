@@ -7,7 +7,7 @@ use std::time::Duration;
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::{App, harness::REGISTRATIONS, shellenv::UserEnv};
+use crate::{App, harness::registrations, shellenv::UserEnv};
 
 /// What an adapter reports about its native sign-in.
 pub struct SignIn {
@@ -104,7 +104,7 @@ pub async fn check_all(app: &App) -> Vec<SignInCheck> {
 pub async fn check_all_on(app: &App, host: Option<&str>) -> Vec<SignInCheck> {
     let base = app.env.on(host);
     let base_ref = &base;
-    let defaults = futures_util::future::join_all(REGISTRATIONS.iter().map(|r| check(app, base.clone(), r.descriptor.id, None)));
+    let defaults = futures_util::future::join_all(registrations().iter().map(|r| check(app, base.clone(), r.descriptor.id, None)));
     let profiles = futures_util::future::join_all(app.config.get().profiles.into_iter().filter(|v| !v.env.is_empty()).map(|v| async move {
         let command = crate::profiles::sign_in_command(app, &v);
         // The model only matters for model references; any value checks the sign-in.

@@ -107,7 +107,7 @@ impl UserEnv {
 }
 
 pub fn is_harness_marker(key: &str) -> bool {
-    crate::harness::REGISTRATIONS
+    crate::harness::registrations()
         .iter()
         .any(|registration| (registration.environment_marker)(key))
 }

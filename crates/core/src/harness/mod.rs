@@ -1,8 +1,5 @@
-//! Registration and the common contract. Native protocols and optional services belong to adapters.
-pub mod acp;
-pub mod claude;
-pub mod codex;
-pub mod opencode;
+//! Registration and the common contract. Native protocols and optional services belong to adapters (the
+//! `launchpad-harness` crate), which the binary installs at startup with `install`.
 pub mod trace;
 
 use crate::{
@@ -141,15 +138,24 @@ pub struct Registration {
     pub environment_marker: fn(&str) -> bool,
 }
 
-/// Add an adapter here and declare its module above; no host dispatch needs to change.
-pub const REGISTRATIONS: &[Registration] = &[
-    claude::REGISTRATION,
-    codex::REGISTRATION,
-    opencode::REGISTRATION,
-];
+static REGISTRATIONS: std::sync::OnceLock<&'static [Registration]> = std::sync::OnceLock::new();
+
+/// Installs the adapter list (`launchpad_harness::REGISTRATIONS`). Called once by the binary at startup.
+pub fn install(list: &'static [Registration]) {
+    let _ = REGISTRATIONS.set(list);
+}
+
+/// The installed adapters; empty until `install`. Unit tests of this crate run with stand-ins of the real IDs.
+pub fn registrations() -> &'static [Registration] {
+    #[cfg(test)]
+    let fallback = test_support::REGISTRATIONS;
+    #[cfg(not(test))]
+    let fallback: &[Registration] = &[];
+    REGISTRATIONS.get().copied().unwrap_or(fallback)
+}
 
 pub fn registration(id: HarnessKind) -> &'static Registration {
-    REGISTRATIONS
+    registrations()
         .iter()
         .find(|r| r.descriptor.id == id)
         .expect("registered harness ID")
@@ -263,7 +269,7 @@ pub struct Registry(Arc<HashMap<HarnessKind, Arc<dyn Harness>>>);
 impl Registry {
     pub fn new(env: &UserEnv) -> Self {
         let mut entries = HashMap::new();
-        for registration in REGISTRATIONS {
+        for registration in registrations() {
             assert!(
                 entries
                     .insert(registration.descriptor.id, (registration.create)(env))
@@ -277,10 +283,10 @@ impl Registry {
         self.0.get(&id).expect("registered harness ID")
     }
     pub fn descriptors(&self) -> Vec<HarnessDescriptor> {
-        REGISTRATIONS.iter().map(|r| r.descriptor).collect()
+        registrations().iter().map(|r| r.descriptor).collect()
     }
     pub fn spawn_services(&self, app: &App) {
-        for registration in REGISTRATIONS {
+        for registration in registrations() {
             self.get(registration.descriptor.id).spawn_services(app);
         }
     }
@@ -324,7 +330,7 @@ impl ModelCache {
 
 pub fn spawn_model_refresh(app: &App) {
     // An unavailable adapter must not block discovery for the others.
-    for registration in REGISTRATIONS {
+    for registration in registrations() {
         let id = registration.descriptor.id;
         let app = app.clone();
         tokio::spawn(async move {
@@ -339,13 +345,63 @@ pub fn spawn_model_refresh(app: &App) {
     }
 }
 
+/// Stand-ins for the adapters of `launchpad-harness`, which this crate cannot depend on: the same IDs and login
+/// folder variables, no native behavior.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+
+    struct Stub;
+    #[async_trait]
+    impl Harness for Stub {
+        async fn start(&self, _app: &App, _spec: StartSpec, _sink: Sink) -> Result<Arc<dyn LiveSession>> {
+            bail!("test stand-in")
+        }
+        async fn version(&self, _app: &App) -> Result<String> {
+            bail!("test stand-in")
+        }
+        fn sign_in_program(&self) -> &'static str {
+            "true"
+        }
+        fn sign_in_command(&self) -> &'static str {
+            "true"
+        }
+    }
+
+    const fn stub(id: &'static str, account_env: &'static [&'static str], vault_login: Option<VaultLogin>) -> Registration {
+        Registration {
+            descriptor: HarnessDescriptor {
+                id: HarnessKind::new(id),
+                name: id,
+                icon_svg: "",
+                color: "",
+                working_message: "",
+                capabilities: HarnessCapabilities { permission_modes: true, images: true, messages_while_running: true, terminal: true, quota: true, cost: true },
+                browser_isolation: "",
+                cost_model_prefixes: &[],
+                account_env,
+                vault_login,
+                env_vars: &[],
+                profile_templates: &[],
+            },
+            create: |_| Arc::new(Stub),
+            environment_marker: |_| false,
+        }
+    }
+
+    pub const REGISTRATIONS: &[Registration] = &[
+        stub("claude", &["CLAUDE_CONFIG_DIR"], Some(VaultLogin { kind: crate::vault::Kind::ClaudeLogin, hosts: &[], how: "" })),
+        stub("codex", &["CODEX_HOME"], Some(VaultLogin { kind: crate::vault::Kind::CodexLogin, hosts: &[], how: "" })),
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn registry_ids_round_trip_without_falling_back_to_another_adapter() {
         let mut ids = std::collections::HashSet::new();
-        for registration in REGISTRATIONS {
+        for registration in registrations() {
             let id = registration.descriptor.id;
             assert!(ids.insert(id));
             assert_eq!(serde_json::from_value::<HarnessKind>(serde_json::json!(id)).unwrap(), id);

@@ -13,10 +13,11 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use self::rpc::{CodexServer, Incoming};
-use crate::App;
-use crate::model::*;
-use crate::sessions::{LiveSession, Sink, StartSpec, shorten, truncate_output};
-use crate::util::now_ms;
+use launchpad_core::App;
+use launchpad_core::harness;
+use launchpad_core::model::*;
+use launchpad_core::sessions::{LiveSession, Sink, StartSpec, shorten, truncate_output};
+use launchpad_core::util::now_ms;
 
 pub struct CodexSession {
     server: CodexServer,
@@ -149,7 +150,7 @@ async fn start(
         if let Some(existing) = current["config"]["apps"].as_object() { for name in existing.keys() { apps.insert(name.clone(), json!({"enabled":false})); } }
         apps.insert("_default".into(), json!({"enabled":false}));
         config.insert("apps".into(), json!(apps));
-        let mut mcp = crate::browser::mcp_config(app, &spec);
+        let mut mcp = launchpad_core::browser::mcp_config(app, &spec);
         // The broker enforces independent owner grants and consequential-action review for every tool.
         mcp["default_tools_approval_mode"] = json!("approve");
         mcp["enabled"] = json!(true);
@@ -159,7 +160,7 @@ async fn start(
         Some(Value::Object(config))
     } else if spec.browser_tools {
         // Add the browser server next to the owner's configuration (a dotted key overrides only this entry).
-        let mut mcp = crate::browser::mcp_config(app, &spec);
+        let mut mcp = launchpad_core::browser::mcp_config(app, &spec);
         mcp["default_tools_approval_mode"] = json!("approve");
         mcp["enabled"] = json!(true);
         Some(json!({"mcp_servers.launchpad_browser": mcp}))
@@ -298,18 +299,18 @@ impl LiveSession for CodexSession {
                         while self.state.lock().unwrap().settled_turn.as_deref() != Some(&turn_id) {
                             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                         }
-                    }).await.map_err(|_| crate::sessions::InputDeliveryError::Rejected(
+                    }).await.map_err(|_| launchpad_core::sessions::InputDeliveryError::Rejected(
                         "the Codex turn ended, but its completion has not reached the trace; wait for the trace to catch up before sending again"
                     ))?;
                     if !self.ready_for_turn() {
-                        return Err(crate::sessions::InputDeliveryError::Rejected(
+                        return Err(launchpad_core::sessions::InputDeliveryError::Rejected(
                             "the turn ended but background work is still running; wait for it to finish before sending again"
                         ).into());
                     }
                     let root = self.threads.lock().unwrap().get(&self.thread_id).cloned();
                     if let Some((sink, _)) = root { sink.set_status(SessionStatus::Working).await; }
                 },
-                Err(e) => return Err(crate::sessions::InputDeliveryError::Uncertain(e).into()),
+                Err(e) => return Err(launchpad_core::sessions::InputDeliveryError::Uncertain(e).into()),
             }
         }
         let mut params = json!({"threadId": self.thread_id, "input": input, "clientUserMessageId": client_id});
@@ -1025,14 +1026,14 @@ pub fn defaults() -> (Option<String>, Option<String>) {
 }
 
 pub const ID: HarnessKind = HarnessKind::new("codex");
-const fn var(name: &'static str, group: &'static str, description: &'static str, default: Option<&'static str>, example: Option<&'static str>, secret: bool) -> super::EnvVarDoc {
-    super::EnvVarDoc { name, group, description, default, example, secret }
+const fn var(name: &'static str, group: &'static str, description: &'static str, default: Option<&'static str>, example: Option<&'static str>, secret: bool) -> harness::EnvVarDoc {
+    harness::EnvVarDoc { name, group, description, default, example, secret }
 }
 
 /// From https://developers.openai.com/codex/config-reference and the Codex source (October 2026).
 /// Codex reads its provider, base URL and model from `config.toml`, not from the environment:
 /// a profile with another provider uses its own `CODEX_HOME`.
-const ENV_VARS: &[super::EnvVarDoc] = &[
+const ENV_VARS: &[harness::EnvVarDoc] = &[
     var("CODEX_HOME", "Account", "Folder with config.toml, sign-in (auth.json), history and logs. Use one folder per account or provider; sign in once with: CODEX_HOME=<folder> codex login", Some("~/.codex"), None, false),
     var("CODEX_SQLITE_HOME", "Account", "Folder of the SQLite state database.", Some("$CODEX_HOME"), None, false),
     var("OPENAI_API_KEY", "Account", "Read only by providers configured with env_key = \"OPENAI_API_KEY\" in config.toml; for the built-in provider, run: codex login --with-api-key", None, Some("sk-…"), true),
@@ -1045,41 +1046,41 @@ const ENV_VARS: &[super::EnvVarDoc] = &[
     var("RUST_LOG", "Debugging", "Log filter of the Codex process, written under CODEX_HOME/log.", None, Some("codex_core=debug"), false),
 ];
 
-const PROFILE_TEMPLATES: &[super::ProfileTemplate] = &[
-    super::ProfileTemplate {
-        kind: super::ProfileKind::Subscription,
+const PROFILE_TEMPLATES: &[harness::ProfileTemplate] = &[
+    harness::ProfileTemplate {
+        kind: harness::ProfileKind::Subscription,
         name: "ChatGPT subscription",
         description: "Your ChatGPT Plus or Pro login (codex login), protected by its 5-hour and weekly quota.",
         setup: None,
         setup_command: None,
         env: &[],
-        billing: crate::config::Billing::Subscription,
+        billing: launchpad_core::config::Billing::Subscription,
         models_url: None,
     },
-    super::ProfileTemplate {
-        kind: super::ProfileKind::Subscription,
+    harness::ProfileTemplate {
+        kind: harness::ProfileKind::Subscription,
         name: "Another ChatGPT account",
         description: "A second ChatGPT account, with its own sign-in in a separate CODEX_HOME and its own quota meters.",
         setup: Some("Save the profile, then sign in once from Works on."),
         setup_command: None,
         env: &[("CODEX_HOME", "~/.codex-work")],
-        billing: crate::config::Billing::Subscription,
+        billing: launchpad_core::config::Billing::Subscription,
         models_url: None,
     },
-    super::ProfileTemplate {
-        kind: super::ProfileKind::ApiKey,
+    harness::ProfileTemplate {
+        kind: harness::ProfileKind::ApiKey,
         name: "OpenAI API key",
         description: "Pay per use with an OpenAI API key, stored by Codex in a separate CODEX_HOME. Put a custom model provider in its config.toml to use another provider.",
         setup: Some("Run this once in a terminal, paste the key, then press Enter and Ctrl+D:"),
         setup_command: Some("mkdir -p ~/.codex-api && CODEX_HOME=~/.codex-api codex login --with-api-key"),
         env: &[("CODEX_HOME", "~/.codex-api")],
-        billing: crate::config::Billing::PayAsYouGo,
+        billing: launchpad_core::config::Billing::PayAsYouGo,
         models_url: None,
     },
 ];
 
-pub const REGISTRATION: super::Registration = super::Registration {
-    descriptor: super::HarnessDescriptor {
+pub const REGISTRATION: harness::Registration = harness::Registration {
+    descriptor: harness::HarnessDescriptor {
         browser_isolation: "Read-only sandbox; native shell tools may remain available",
         cost_model_prefixes: &[],
         id: ID,
@@ -1087,7 +1088,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
         icon_svg: include_str!("icons/codex.svg"),
         color: "#3b82f6",
         working_message: "Message Codex. It steers the running turn.",
-        capabilities: super::HarnessCapabilities {
+        capabilities: harness::HarnessCapabilities {
             permission_modes: true,
             images: true,
             messages_while_running: true,
@@ -1096,7 +1097,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
             cost: false,
         },
         account_env: &["CODEX_HOME"],
-        vault_login: Some(super::VaultLogin { kind: crate::vault::Kind::CodexLogin, hosts: &["chatgpt.com"], how: "Sign in with codex login (ChatGPT) on any machine and paste the whole ~/.codex/auth.json. Home refreshes it from then on: do not use that login elsewhere." }),
+        vault_login: Some(harness::VaultLogin { kind: launchpad_core::vault::Kind::CodexLogin, hosts: &["chatgpt.com"], how: "Sign in with codex login (ChatGPT) on any machine and paste the whole ~/.codex/auth.json. Home refreshes it from then on: do not use that login elsewhere." }),
         env_vars: ENV_VARS,
         profile_templates: PROFILE_TEMPLATES,
     },
@@ -1118,7 +1119,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
 /// A host (None: this computer) and profile environment.
 type ProfileEnv = (Option<String>, Vec<(String, String)>);
 pub struct Adapter {
-    env: crate::shellenv::UserEnv,
+    env: launchpad_core::shellenv::UserEnv,
     /// The shared app-server, also used for quotas and models.
     server: CodexServer,
     /// One app-server per host and distinct profile environment (`CODEX_HOME`, API keys), started on first
@@ -1129,9 +1130,9 @@ pub struct Adapter {
     threads: Threads,
 }
 #[async_trait]
-impl super::Harness for Adapter {
-    fn skill_locations(&self) -> Vec<crate::prompt_context::SkillLocation> {
-        use crate::prompt_context::SkillLocation;
+impl harness::Harness for Adapter {
+    fn skill_locations(&self) -> Vec<launchpad_core::prompt_context::SkillLocation> {
+        use launchpad_core::prompt_context::SkillLocation;
         vec![SkillLocation::project(".agents/skills"), SkillLocation::home(".agents/skills"), SkillLocation::config("CODEX_HOME", ".codex", "skills"), SkillLocation::config("CODEX_HOME", ".codex", "skills/.system")]
     }
     fn sign_in_program(&self) -> &'static str {
@@ -1144,14 +1145,14 @@ impl super::Harness for Adapter {
         Some("npm install -g @openai/codex")
     }
     /// `codex login status` exits 0 when signed in. A masked API key suffix after " - " is dropped.
-    async fn sign_in(&self, env: &crate::shellenv::UserEnv) -> crate::signin::SignIn {
-        match crate::signin::status_output(env, "codex", &["login", "status"]).await {
+    async fn sign_in(&self, env: &launchpad_core::shellenv::UserEnv) -> launchpad_core::signin::SignIn {
+        match launchpad_core::signin::status_output(env, "codex", &["login", "status"]).await {
             Ok((ok, stdout, stderr)) => {
                 let text = if stdout.trim().is_empty() { stderr } else { stdout };
                 let line = text.lines().map(str::trim).find(|l| !l.is_empty()).map(|l| l.split(" - ").next().unwrap_or(l).to_string());
-                crate::signin::SignIn { signed_in: Some(ok), detail: line }
+                launchpad_core::signin::SignIn { signed_in: Some(ok), detail: line }
             }
-            Err(e) => crate::signin::SignIn { signed_in: None, detail: Some(format!("{e:#}")) },
+            Err(e) => launchpad_core::signin::SignIn { signed_in: None, detail: Some(format!("{e:#}")) },
         }
     }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
@@ -1171,11 +1172,11 @@ impl super::Harness for Adapter {
     }
     /// Placeholders in `auth.json` (with a fresh `last_refresh`, so Codex never refreshes) and the ChatGPT
     /// endpoints pointed at the proxy, which adds the access token Home keeps fresh.
-    fn contained_login(&self, setup: &super::LoginSetup) -> Result<Vec<(String, String)>> {
+    fn contained_login(&self, setup: &harness::LoginSetup) -> Result<Vec<(String, String)>> {
         let dir = setup.home.join(".codex");
         std::fs::create_dir_all(&dir)?;
         let now = time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339)?;
-        let mut tokens = json!({"id_token": crate::vault::unsigned_jwt(&setup.login.claims), "access_token": setup.placeholder, "refresh_token": setup.placeholder});
+        let mut tokens = json!({"id_token": launchpad_core::vault::unsigned_jwt(&setup.login.claims), "access_token": setup.placeholder, "refresh_token": setup.placeholder});
         if let Some(a) = &setup.login.account_id {
             tokens["account_id"] = Value::String(a.clone());
         }
@@ -1230,17 +1231,17 @@ impl super::Harness for Adapter {
         let dir = home.join(".codex/memories");
         if dir.is_dir() { vec![("memories".into(), dir)] } else { vec![] }
     }
-    async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<super::trace::TraceFile>> {
-        let id = super::trace::conversation(session)?;
-        let root = super::trace::root(app, session, "CODEX_HOME", ".codex").await?;
+    async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<harness::trace::TraceFile>> {
+        let id = harness::trace::conversation(session)?;
+        let root = harness::trace::root(app, session, "CODEX_HOME", ".codex").await?;
         trace_files(&root, id).await
     }
     /// Codex finds rollouts by date: `sessions/YYYY/MM/DD/rollout-YYYY-MM-DDT…-<id>.jsonl`.
-    async fn restore_native(&self, app: &App, session: &Session, files: Vec<super::trace::TraceFile>) -> Result<()> {
-        super::trace::conversation(session)?;
-        let root = super::trace::root(app, session, "CODEX_HOME", ".codex").await?;
+    async fn restore_native(&self, app: &App, session: &Session, files: Vec<harness::trace::TraceFile>) -> Result<()> {
+        harness::trace::conversation(session)?;
+        let root = harness::trace::root(app, session, "CODEX_HOME", ".codex").await?;
         for f in files {
-            super::trace::write(&root.join("sessions"), &rollout_path(&f.name)?, &f.data)?;
+            harness::trace::write(&root.join("sessions"), &rollout_path(&f.name)?, &f.data)?;
         }
         Ok(())
     }
@@ -1258,7 +1259,7 @@ impl super::Harness for Adapter {
     }
     async fn version(&self, app: &App) -> Result<String> {
         Ok(
-            crate::procs::output(&app.env, "codex", &["--version"], None)
+            launchpad_core::procs::output(&app.env, "codex", &["--version"], None)
                 .await?
                 .split_whitespace()
                 .last()
@@ -1270,7 +1271,7 @@ impl super::Harness for Adapter {
         spawn_router(app, &self.server, &self.threads);
         spawn_updates(app);
     }
-    fn spawn_quota(&self, app: &App, account: crate::quota::QuotaAccount) -> Option<tokio::task::JoinHandle<()>> {
+    fn spawn_quota(&self, app: &App, account: launchpad_core::quota::QuotaAccount) -> Option<tokio::task::JoinHandle<()>> {
         // The default login uses the shared app-server; another account gets its own, kept for reuse.
         let server = if account.env.is_empty() {
             self.server.clone()
@@ -1302,8 +1303,8 @@ impl super::Harness for Adapter {
         app: &App,
         session: &Session,
         cwd: &std::path::Path,
-    ) -> Option<crate::exec::Cmd> {
-        let mut cmd = crate::procs::child_command(&app.env, "codex", Some(cwd));
+    ) -> Option<launchpad_core::exec::Cmd> {
+        let mut cmd = launchpad_core::procs::child_command(&app.env, "codex", Some(cwd));
         cmd.args([
             "exec",
             "--ephemeral",
@@ -1326,7 +1327,7 @@ impl super::Harness for Adapter {
         }
         Some(cmd)
     }
-    fn title_response(&self, stdout: String) -> Result<super::TitleReply> {
+    fn title_response(&self, stdout: String) -> Result<harness::TitleReply> {
         let title = stdout
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
@@ -1335,11 +1336,11 @@ impl super::Harness for Adapter {
             .next_back()
             .context("no generated title")?;
         // Codex does not report USD costs.
-        Ok(super::TitleReply { title, ..Default::default() })
+        Ok(harness::TitleReply { title, ..Default::default() })
     }
 }
 /// Quota from a Codex `rateLimits` object.
-fn rate_limits(status: &crate::status::StatusHandle, account: &str, rl: &Value) {
+fn rate_limits(status: &launchpad_core::status::StatusHandle, account: &str, rl: &Value) {
     let mut five = None;
     let mut week = None;
     for key in ["primary", "secondary"] {
@@ -1351,7 +1352,7 @@ fn rate_limits(status: &crate::status::StatusHandle, account: &str, rl: &Value) 
         ) else {
             continue;
         };
-        let q = crate::status::QuotaWindow {
+        let q = launchpad_core::status::QuotaWindow {
             used_percent: used,
             resets_at: Some(resets),
         };
@@ -1378,7 +1379,7 @@ fn spawn_quota(app: &App, server: CodexServer, account: String) -> tokio::task::
                     a.status.quota_error(&account, format!("{e:#}"));
                 }
             }
-            let wait = crate::status::wait_poll(&a, &account, 120, 30);
+            let wait = launchpad_core::status::wait_poll(&a, &account, 120, 30);
             tokio::pin!(wait);
             loop {
                 tokio::select! {
@@ -1397,16 +1398,16 @@ fn spawn_quota(app: &App, server: CodexServer, account: String) -> tokio::task::
 }
 fn spawn_updates(app: &App) {
     // A parallel runner borrows the machine's CLI read-only; Home has no harness installation to update.
-    if app.paths.role != crate::role::Role::All { return; }
+    if app.paths.role != launchpad_core::role::Role::All { return; }
     let app = app.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(20)).await;
         loop {
             app.status
                 .update_harness(ID, |s| s.updating_to = Some("latest".into()));
-            let result = crate::procs::command(&app.env, "codex", None)
+            let result = launchpad_core::procs::command(&app.env, "codex", None)
                 .arg("update")
-                .stdin(crate::exec::Io::Null)
+                .stdin(launchpad_core::exec::Io::Null)
                 .output()
                 .await;
             match result {
@@ -1418,7 +1419,7 @@ fn spawn_updates(app: &App) {
                 Err(error) => tracing::warn!("codex update: {error}"),
             }
             app.status.update_harness(ID, |s| s.updating_to = None);
-            crate::status::refresh_versions(&app).await;
+            launchpad_core::status::refresh_versions(&app).await;
             tokio::time::sleep(std::time::Duration::from_secs(6 * 3600)).await;
         }
     });
@@ -1440,13 +1441,13 @@ fn rollout_path(name: &str) -> Result<String> {
     Ok(format!("{}/{}/{}/{name}", parts[0], parts[1], parts[2]))
 }
 
-async fn trace_files(root: &std::path::Path, id: &str) -> Result<Vec<super::trace::TraceFile>> {
+async fn trace_files(root: &std::path::Path, id: &str) -> Result<Vec<harness::trace::TraceFile>> {
     let mut traces = vec![];
     for folder in ["sessions", "archived_sessions"] {
-        for path in super::trace::files(&root.join(folder), 3).await? {
+        for path in harness::trace::files(&root.join(folder), 3).await? {
             let name = path.file_name().unwrap().to_string_lossy();
             if name.starts_with("rollout-") && (name.ends_with(&format!("-{id}.jsonl")) || name.contains(&format!("-{id}_"))) && name.ends_with(".jsonl") {
-                traces.push(super::trace::read(&path, name.into_owned()).await?);
+                traces.push(harness::trace::read(&path, name.into_owned()).await?);
             }
         }
     }
@@ -1609,7 +1610,7 @@ mod trace_tests {
     use super::*;
     #[tokio::test]
     async fn native_trace_finds_rollouts_continuations_and_archives_only_for_this_thread() {
-        let tmp = super::super::trace::tests::Temp::new();
+        let tmp = crate::test_support::Temp::new();
         let native = b"{\"timestamp\":\"2026-10-28T00:00:00Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"thread\"}}\n";
         for path in ["sessions/2026/10/28/rollout-time-thread.jsonl", "sessions/2026/10/28/rollout-time-thread_continuation.jsonl", "archived_sessions/rollout-old-thread.jsonl", "sessions/2026/10/28/rollout-time-other.jsonl"] { tmp.write(path, native); }
         let files = trace_files(&tmp.0, "thread").await.unwrap();

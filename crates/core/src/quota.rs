@@ -165,7 +165,7 @@ async fn vault_wanted(app: &App) -> BTreeMap<String, (QuotaAccount, Vec<String>)
     if app.paths.role == crate::role::Role::Runner {
         return out;
     }
-    for harness in crate::harness::REGISTRATIONS.iter().filter(|r| r.descriptor.vault_login.is_some()).map(|r| r.descriptor.id) {
+    for harness in crate::harness::registrations().iter().filter(|r| r.descriptor.vault_login.is_some()).map(|r| r.descriptor.id) {
         let Ok(logins) = crate::vault::logins(app, harness).await else { continue };
         for e in logins {
             match crate::vault::login_home(app, &e.id).await {
@@ -192,7 +192,7 @@ pub fn apply_home_readings(app: &App, quotas: BTreeMap<String, QuotaStatus>) {
 fn vault_readings(app: &App) -> BTreeMap<String, QuotaStatus> {
     let all = app.status.get().quotas;
     let mut out: BTreeMap<String, QuotaStatus> = all.iter().filter(|(k, _)| k.starts_with("vault:")).map(|(k, v)| (k.clone(), v.clone())).collect();
-    for harness in crate::harness::REGISTRATIONS.iter().filter(|r| r.descriptor.vault_login.is_some()).map(|r| r.descriptor.id) {
+    for harness in crate::harness::registrations().iter().filter(|r| r.descriptor.vault_login.is_some()).map(|r| r.descriptor.id) {
         let first = out.iter().filter(|(k, v)| !k.starts_with("vault:default:") && v.harness == harness.as_str()).map(|(k, v): (&String, &QuotaStatus)| (k.clone(), v.clone())).next();
         if let Some((_, v)) = first {
             out.insert(vault_key(harness, None), v);

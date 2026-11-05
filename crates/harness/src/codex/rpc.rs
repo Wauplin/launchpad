@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{broadcast, oneshot};
 
-use crate::shellenv::UserEnv;
+use launchpad_core::shellenv::UserEnv;
 
 /// A message from the app-server that is not a response to one of our requests.
 #[derive(Clone, Debug)]
@@ -42,7 +42,7 @@ impl std::fmt::Display for RpcError {
 impl std::error::Error for RpcError {}
 
 struct Proc {
-    stdin: tokio::sync::Mutex<crate::exec::Stdin>,
+    stdin: tokio::sync::Mutex<launchpad_core::exec::Stdin>,
     pending: Mutex<HashMap<i64, oneshot::Sender<Result<Value>>>>,
     alive: std::sync::atomic::AtomicBool,
 }
@@ -103,11 +103,11 @@ impl CodexServer {
     }
 
     async fn spawn(&self) -> Result<Arc<Proc>> {
-        let mut child = crate::procs::child_command(&self.env, "codex", None)
+        let mut child = launchpad_core::procs::child_command(&self.env, "codex", None)
             .args(["app-server", "-c", "check_for_update_on_startup=false"])
-            .stdin(crate::exec::Io::Piped)
-            .stdout(crate::exec::Io::Piped)
-            .stderr(crate::exec::Io::Piped)
+            .stdin(launchpad_core::exec::Io::Piped)
+            .stdout(launchpad_core::exec::Io::Piped)
+            .stderr(launchpad_core::exec::Io::Piped)
             .spawn()
             .await
             .context("start codex app-server")?;
@@ -170,7 +170,7 @@ impl CodexServer {
             }
             let status = child.wait().await;
             tracing::warn!("codex app-server exited: {status:?}");
-            let lost = status.as_ref().is_err_and(crate::exec::is_lost);
+            let lost = status.as_ref().is_err_and(launchpad_core::exec::is_lost);
             let _ = incoming.send(Incoming::Exited { lost });
         });
         Ok(p)

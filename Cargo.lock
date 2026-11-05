@@ -2686,6 +2686,7 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "launchpad-core",
+ "launchpad-harness",
  "launchpad-server",
  "reqwest",
  "serde_json",
@@ -2750,6 +2751,23 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-window-state",
  "url",
+]
+
+[[package]]
+name = "launchpad-harness"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "dirs",
+ "launchpad-core",
+ "reqwest",
+ "serde_json",
+ "time",
+ "tokio",
+ "toml 1.1.6+spec-1.1.0",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 //! OpenCode registration. Its native configuration/authentication remains owned by OpenCode.
-use crate::{
-    App,
+use launchpad_core::{
+    App, harness,
     model::{HarnessKind, ModelInfo, Session},
     sessions::{LiveSession, Sink, StartSpec},
 };
@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 pub const ID: HarnessKind = HarnessKind::new("opencode");
-pub const REGISTRATION: super::Registration = super::Registration {
-    descriptor: super::HarnessDescriptor {
+pub const REGISTRATION: harness::Registration = harness::Registration {
+    descriptor: harness::HarnessDescriptor {
         browser_isolation: "Native tools restricted by OpenCode permissions; not an OS sandbox",
         cost_model_prefixes: &[],
         id: ID,
@@ -18,7 +18,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
         icon_svg: include_str!("icons/opencode.svg"),
         color: "#4b5563",
         working_message: "OpenCode is working. Wait for this turn to finish before sending another message.",
-        capabilities: super::HarnessCapabilities {
+        capabilities: harness::HarnessCapabilities {
             permission_modes: false,
             images: true,
             messages_while_running: false,
@@ -29,14 +29,14 @@ pub const REGISTRATION: super::Registration = super::Registration {
         account_env: &[],
         vault_login: None,
         env_vars: &[],
-        profile_templates: &[super::ProfileTemplate {
-            kind: super::ProfileKind::Provider,
+        profile_templates: &[harness::ProfileTemplate {
+            kind: harness::ProfileKind::Provider,
             name: "OpenCode",
             description: "The providers and models configured in OpenCode itself (opencode auth login), billed by each provider.",
             setup: None,
             setup_command: None,
             env: &[],
-            billing: crate::config::Billing::PayAsYouGo,
+            billing: launchpad_core::config::Billing::PayAsYouGo,
             models_url: None,
         }],
     },
@@ -45,15 +45,15 @@ pub const REGISTRATION: super::Registration = super::Registration {
 };
 pub struct Adapter;
 #[async_trait]
-impl super::Harness for Adapter {
+impl harness::Harness for Adapter {
     fn contained_memory(&self, home: &std::path::Path, instructions: &str) -> Result<Vec<(String, String)>> {
         let dir = home.join(".config/opencode");
         std::fs::create_dir_all(&dir)?;
         std::fs::write(dir.join("AGENTS.md"), instructions)?;
         Ok(vec![])
     }
-    fn skill_locations(&self) -> Vec<crate::prompt_context::SkillLocation> {
-        use crate::prompt_context::SkillLocation;
+    fn skill_locations(&self) -> Vec<launchpad_core::prompt_context::SkillLocation> {
+        use launchpad_core::prompt_context::SkillLocation;
         vec![SkillLocation::project(".opencode/skills"), SkillLocation::project(".agents/skills"), SkillLocation::project(".claude/skills"), SkillLocation::config("XDG_CONFIG_HOME", ".config", "opencode/skills"), SkillLocation::home(".agents/skills"), SkillLocation::home(".claude/skills")]
     }
     fn sign_in_program(&self) -> &'static str {
@@ -67,10 +67,10 @@ impl super::Harness for Adapter {
     }
     /// `opencode auth list` ends its sections with "N credentials" and "N environment variables";
     /// only those counts are kept (provider names are not secrets, values are never shown by OpenCode).
-    async fn sign_in(&self, env: &crate::shellenv::UserEnv) -> crate::signin::SignIn {
-        match crate::signin::status_output(env, "opencode", &["auth", "list"]).await {
+    async fn sign_in(&self, env: &launchpad_core::shellenv::UserEnv) -> launchpad_core::signin::SignIn {
+        match launchpad_core::signin::status_output(env, "opencode", &["auth", "list"]).await {
             Ok((_, stdout, stderr)) => {
-                let text = crate::signin::strip_ansi(&format!("{stdout}\n{stderr}"));
+                let text = launchpad_core::signin::strip_ansi(&format!("{stdout}\n{stderr}"));
                 let count = |suffix: &str| text.lines().filter_map(|l| {
                     let l = l.trim_start_matches(|c: char| !c.is_ascii_alphanumeric()).trim();
                     let (n, rest) = l.split_once(' ')?;
@@ -78,30 +78,30 @@ impl super::Harness for Adapter {
                 }).next();
                 let (credentials, variables) = (count("credential"), count("environment variable"));
                 if credentials.is_none() && variables.is_none() {
-                    return crate::signin::SignIn { signed_in: None, detail: Some("Could not read `opencode auth list`.".into()) };
+                    return launchpad_core::signin::SignIn { signed_in: None, detail: Some("Could not read `opencode auth list`.".into()) };
                 }
                 let (c, v) = (credentials.unwrap_or(0), variables.unwrap_or(0));
-                crate::signin::SignIn {
+                launchpad_core::signin::SignIn {
                     signed_in: Some(c + v > 0),
                     detail: Some(format!("{c} stored credential{}, {v} provider environment variable{}", if c == 1 { "" } else { "s" }, if v == 1 { "" } else { "s" })),
                 }
             }
-            Err(e) => crate::signin::SignIn { signed_in: None, detail: Some(format!("{e:#}")) },
+            Err(e) => launchpad_core::signin::SignIn { signed_in: None, detail: Some(format!("{e:#}")) },
         }
     }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
-        let mut command = crate::procs::child_command(&spec.process_env(&app.env), "opencode", Some(&spec.cwd));
+        let mut command = launchpad_core::procs::child_command(&spec.process_env(&app.env), "opencode", Some(&spec.cwd));
         command
             .arg("acp")
             .env("LAUNCHPAD_ENV", app.paths.app_env.name())
             .env("LAUNCHPAD_SESSION_ID", &spec.session_id)
             .envs(spec.env.iter().cloned());
         let mcp_servers = if spec.browser {
-            let mcp = crate::browser::mcp_config(app, &spec);
+            let mcp = launchpad_core::browser::mcp_config(app, &spec);
             // Native config is merged. Explicitly disable every existing server and permission key,
             // rather than assuming an empty object erases the owner's configuration.
             let env = spec.process_env(&app.env);
-            let raw = crate::procs::output(&env, "opencode", &["debug", "config"], Some(&spec.cwd)).await?;
+            let raw = launchpad_core::procs::output(&env, "opencode", &["debug", "config"], Some(&spec.cwd)).await?;
             let current: serde_json::Value = serde_json::from_str(&raw)?;
             let mut permission = serde_json::Map::new();
             permission.insert("*".into(), serde_json::json!("deny"));
@@ -115,26 +115,26 @@ impl super::Harness for Adapter {
             serde_json::json!([{"name":"launchpad_browser","command":mcp["command"],"args":mcp["args"],
                 "env":mcp["env"].as_object().unwrap().iter().map(|(k,v)| serde_json::json!({"name":k,"value":v})).collect::<Vec<_>>()}])
         } else if spec.browser_tools {
-            let mcp = crate::browser::mcp_config(app, &spec);
+            let mcp = launchpad_core::browser::mcp_config(app, &spec);
             command.env("OPENCODE_CONFIG_CONTENT", serde_json::json!({"permission":{"launchpad_browser_*":"allow"},"experimental":{"mcp_timeout":720000}}).to_string());
             serde_json::json!([{"name":"launchpad_browser","command":mcp["command"],"args":mcp["args"],
                 "env":mcp["env"].as_object().unwrap().iter().map(|(k,v)| serde_json::json!({"name":k,"value":v})).collect::<Vec<_>>()}])
         } else { serde_json::json!([]) };
         sink.raw("cmd", "opencode acp").await;
-        super::acp::start(command, spec, sink, super::acp::Extensions {
+        crate::acp::start(command, spec, sink, crate::acp::Extensions {
             mcp_servers,
             capabilities: serde_json::json!({"_meta":{"opencode/child-session-updates":true}}),
             child_update,
             tool_child: |tool| tool["rawInput"]["subagent_type"].is_string(),
         }).await
     }
-    async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<super::trace::TraceFile>> {
-        let id = super::trace::conversation(session)?;
-        let env = super::trace::environment(app, session)?;
+    async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<harness::trace::TraceFile>> {
+        let id = harness::trace::conversation(session)?;
+        let env = harness::trace::environment(app, session)?;
         export_trace(&env, id).await
     }
     async fn models(&self, app: &App) -> Result<Vec<ModelInfo>> {
-        let output = crate::procs::output(&app.env, "opencode", &["models"], None).await?;
+        let output = launchpad_core::procs::output(&app.env, "opencode", &["models"], None).await?;
         Ok(output
             .lines()
             .map(str::trim)
@@ -149,7 +149,7 @@ impl super::Harness for Adapter {
             .collect())
     }
     async fn version(&self, app: &App) -> Result<String> {
-        crate::procs::output(&app.env, "opencode", &["--version"], None).await
+        launchpad_core::procs::output(&app.env, "opencode", &["--version"], None).await
     }
     fn terminal_resume_markers(&self) -> &'static [&'static str] {
         &["--session", "-s"]
@@ -166,19 +166,19 @@ impl super::Harness for Adapter {
     }
 }
 
-async fn export_trace(env: &crate::shellenv::UserEnv, id: &str) -> Result<Vec<super::trace::TraceFile>> {
-    let raw = crate::procs::output(env, "opencode", &["export", id], None).await?;
+async fn export_trace(env: &launchpad_core::shellenv::UserEnv, id: &str) -> Result<Vec<harness::trace::TraceFile>> {
+    let raw = launchpad_core::procs::output(env, "opencode", &["export", id], None).await?;
     anyhow::ensure!(raw.len() <= 256 * 1024 * 1024, "native OpenCode export exceeds 256 MiB");
     // Validate, but retain the native export exactly rather than wrapping its messages.
     let _: serde_json::Value = serde_json::from_str(&raw)?;
-    Ok(vec![super::trace::TraceFile { name: format!("{id}.json"), data: raw.into_bytes() }])
+    Ok(vec![harness::trace::TraceFile { name: format!("{id}.json"), data: raw.into_bytes() }])
 }
 
 /// Native ACP extension; older versions project attributed child updates into session/update.
-fn child_update(message: &serde_json::Value) -> Option<super::acp::ChildUpdate> {
+fn child_update(message: &serde_json::Value) -> Option<crate::acp::ChildUpdate> {
     let p = &message["params"];
     if message["method"] == "opencode/session/child_update" {
-        Some(super::acp::ChildUpdate {
+        Some(crate::acp::ChildUpdate {
             id: p["childSessionId"].as_str()?.into(),
             parent: p["parentSessionId"].as_str().filter(|id| Some(*id) != p["rootSessionId"].as_str()).map(str::to_string),
             name: p["title"].as_str().map(str::to_string),
@@ -188,7 +188,7 @@ fn child_update(message: &serde_json::Value) -> Option<super::acp::ChildUpdate> 
         })
     } else if message["method"] == "session/update" {
         let meta = &p["update"]["_meta"]["opencode/child-session"];
-        Some(super::acp::ChildUpdate {
+        Some(crate::acp::ChildUpdate {
             id: meta["id"].as_str()?.into(),
             parent: meta["parentID"].as_str().filter(|id| Some(*id) != p["sessionId"].as_str()).map(str::to_string),
             name: meta["title"].as_str().map(str::to_string),

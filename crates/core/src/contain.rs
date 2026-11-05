@@ -234,7 +234,7 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
             ro.push(d);
         }
     }
-    for program in crate::harness::REGISTRATIONS.iter().map(|r| app.harnesses.get(r.descriptor.id).sign_in_program()) {
+    for program in crate::harness::registrations().iter().map(|r| app.harnesses.get(r.descriptor.id).sign_in_program()) {
         if let Some(real) = app.env.which(program).and_then(|p| std::fs::canonicalize(p).ok())
             && let Some(parent) = real.parent()
         {

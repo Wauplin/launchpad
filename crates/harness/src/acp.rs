@@ -1,6 +1,6 @@
 //! Shared ACP v1 client: stdio JSON-RPC, ordered updates, permission cards and session lifecycle.
 //! Harness-specific executable/configuration stays in the registering module.
-use crate::{
+use launchpad_core::{
     model::*,
     sessions::{LiveSession, Sink, StartSpec, json_line, shorten, truncate_output},
     util::now_ms,
@@ -27,7 +27,7 @@ enum Incoming {
     Exited(Option<String>),
 }
 struct Connection {
-    stdin: tokio::sync::Mutex<Option<crate::exec::Stdin>>,
+    stdin: tokio::sync::Mutex<Option<launchpad_core::exec::Stdin>>,
     pending: Mutex<HashMap<i64, oneshot::Sender<Result<Value>>>>,
     sequence: AtomicI64,
     alive: AtomicBool,
@@ -38,13 +38,13 @@ struct Connection {
 }
 impl Connection {
     async fn spawn(
-        mut command: crate::exec::Cmd,
+        mut command: launchpad_core::exec::Cmd,
         sink: Sink,
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
         let mut child = command
-            .stdin(crate::exec::Io::Piped)
-            .stdout(crate::exec::Io::Piped)
-            .stderr(crate::exec::Io::Piped)
+            .stdin(launchpad_core::exec::Io::Piped)
+            .stdout(launchpad_core::exec::Io::Piped)
+            .stderr(launchpad_core::exec::Io::Piped)
             .spawn()
             .await
             .context("start ACP harness")?;
@@ -113,7 +113,7 @@ impl Connection {
                 Ok(status) if status.success() || conn.stopping.load(Ordering::SeqCst) => None,
                 Ok(status) => Some(format!("ACP process exited ({status})")),
                 // Ended on an unreachable host: Interrupted, resumable there.
-                Err(error) if crate::exec::is_lost(&error) => None,
+                Err(error) if launchpad_core::exec::is_lost(&error) => None,
                 Err(error) => Some(error.to_string()),
             });
             let _ = conn.incoming.send(Incoming::Exited(error));
@@ -216,7 +216,7 @@ pub struct AcpSession {
 
 /// Starts one ACP process per session. Resume without replay when negotiated; otherwise suppress
 /// the historical session/load replay because Launchpad already has its own persisted trace.
-pub async fn start(command: crate::exec::Cmd, spec: StartSpec, sink: Sink, extensions: Extensions) -> Result<Arc<dyn LiveSession>> {
+pub async fn start(command: launchpad_core::exec::Cmd, spec: StartSpec, sink: Sink, extensions: Extensions) -> Result<Arc<dyn LiveSession>> {
     let (connection, mut receiver) = Connection::spawn(command, sink.clone()).await?;
     let state = Arc::new(Mutex::new(State {
         loading: true,

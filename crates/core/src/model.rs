@@ -30,7 +30,7 @@ impl HarnessKind {
         crate::harness::registration(self).descriptor.name
     }
     pub fn parse(id: &str) -> Option<Self> {
-        crate::harness::REGISTRATIONS
+        crate::harness::registrations()
             .iter()
             .find(|r| r.descriptor.id.as_str() == id)
             .map(|r| r.descriptor.id)

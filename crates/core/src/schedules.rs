@@ -516,7 +516,7 @@ mod tests {
         r.conditions = vec![];
         assert!(!ready(&r, 100, |_| true));
         r.conditions = vec![LaunchDelay::Quota {
-            harness: crate::harness::codex::ID,
+            harness: crate::model::HarnessKind::new("codex"),
             window: QuotaKind::FiveHour,
         }];
         r.ready_at = Some(101);

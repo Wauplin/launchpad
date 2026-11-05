@@ -3,17 +3,17 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use crate::util::now_ms;
+use launchpad_core::util::now_ms;
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use crate::App;
-use crate::model::*;
-use crate::sessions::{LiveSession, Sink, StartSpec, json_line, shorten, text_of, truncate_output};
+use launchpad_core::App;
+use launchpad_core::model::*;
+use launchpad_core::sessions::{LiveSession, Sink, StartSpec, json_line, shorten, text_of, truncate_output};
 
-use super::permission_options;
+use launchpad_core::harness::{self, permission_options};
 
 fn permission_args(mode: PermissionMode) -> Vec<String> {
     match mode {
@@ -33,9 +33,9 @@ fn claude_permission_response(input: &Value, answers: &[String]) -> Result<Value
 
 pub struct ClaudeSession {
     sink: Sink,
-    stdin: tokio::sync::Mutex<Option<crate::exec::Stdin>>,
+    stdin: tokio::sync::Mutex<Option<launchpad_core::exec::Stdin>>,
     state: Arc<Mutex<State>>,
-    killer: crate::exec::Killer,
+    killer: launchpad_core::exec::Killer,
     exited: tokio::sync::watch::Receiver<bool>,
 }
 
@@ -90,7 +90,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     .map(String::from)
     .collect();
     if spec.browser_tools {
-        let bridge = crate::browser::mcp_config(app, &spec);
+        let bridge = launchpad_core::browser::mcp_config(app, &spec);
         let mcp = json!({"command":bridge["command"],"args":bridge["args"],"env":bridge["env"]});
         let config = json!({"mcpServers":{"launchpad_browser":mcp}}).to_string();
         // The broker checks grants and owner reviews for every call, so its tools need no native approval.
@@ -117,14 +117,14 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     for d in &spec.add_dirs {
         args.extend(["--add-dir".into(), d.clone()]);
     }
-    let mut cmd = crate::procs::child_command(&app.env.on(spec.host.as_deref()).jailed(spec.jail.clone()), "claude", Some(&spec.cwd));
+    let mut cmd = launchpad_core::procs::child_command(&app.env.on(spec.host.as_deref()).jailed(spec.jail.clone()), "claude", Some(&spec.cwd));
     cmd.process_tree().args(&args)
         .envs(spec.env.iter().cloned())
         .env("LAUNCHPAD_ENV", app.paths.app_env.name())
         .env("LAUNCHPAD_SESSION_ID", &spec.session_id)
-        .stdin(crate::exec::Io::Piped)
-        .stdout(crate::exec::Io::Piped)
-        .stderr(crate::exec::Io::Piped);
+        .stdin(launchpad_core::exec::Io::Piped)
+        .stdout(launchpad_core::exec::Io::Piped)
+        .stderr(launchpad_core::exec::Io::Piped);
     if spec.browser_tools { cmd.env("MCP_TOOL_TIMEOUT", "720000"); }
     let mut child = cmd.spawn().await.context("start claude")?;
     sink.raw("cmd", &format!("claude {}", args.join(" "))).await;
@@ -180,7 +180,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
             Ok(s) if s.success() || stopping => None,
             Ok(s) => Some(format!("claude exited ({s}): {}", stderr_tail.lock().unwrap().join("\n"))),
             // The host lost the process: Interrupted, resumable on the host.
-            Err(e) if crate::exec::is_lost(&e) => {
+            Err(e) if launchpad_core::exec::is_lost(&e) => {
                 out_sink.emit(EventBody::Notice { text: format!("{e}") }).await;
                 None
             }
@@ -763,11 +763,11 @@ fn file_change(name: &str, input: &Value, id: &str, cwd: &str) -> Option<EventBo
 
 /// Models offered by Claude Code for this account, from the `initialize` control request.
 pub async fn models(app: &App) -> Result<Vec<ModelInfo>> {
-    let mut child = crate::procs::child_command(&app.env, "claude", None)
+    let mut child = launchpad_core::procs::child_command(&app.env, "claude", None)
         .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence"])
-        .stdin(crate::exec::Io::Piped)
-        .stdout(crate::exec::Io::Piped)
-        .stderr(crate::exec::Io::Null)
+        .stdin(launchpad_core::exec::Io::Piped)
+        .stdout(launchpad_core::exec::Io::Piped)
+        .stderr(launchpad_core::exec::Io::Null)
         .spawn()
         .await?;
     let mut stdin = child.stdin.take().unwrap();
@@ -817,12 +817,12 @@ pub fn defaults() -> (Option<String>, Option<String>) {
 
 pub const ID: HarnessKind = HarnessKind::new("claude");
 
-const fn var(name: &'static str, group: &'static str, description: &'static str, default: Option<&'static str>, example: Option<&'static str>, secret: bool) -> super::EnvVarDoc {
-    super::EnvVarDoc { name, group, description, default, example, secret }
+const fn var(name: &'static str, group: &'static str, description: &'static str, default: Option<&'static str>, example: Option<&'static str>, secret: bool) -> harness::EnvVarDoc {
+    harness::EnvVarDoc { name, group, description, default, example, secret }
 }
 
 /// From https://code.claude.com/docs/en/env-vars and the model configuration page (October 2026).
-const ENV_VARS: &[super::EnvVarDoc] = &[
+const ENV_VARS: &[harness::EnvVarDoc] = &[
     var("CLAUDE_CONFIG_DIR", "Account", "Configuration folder with its own sign-in, settings and history. Use one folder per account; sign in once with: CLAUDE_CONFIG_DIR=<folder> claude", Some("~/.claude"), None, false),
     var("ANTHROPIC_API_KEY", "Account", "Anthropic Console API key, sent as X-Api-Key. Replaces the subscription sign-in and is billed per use.", None, Some("sk-ant-…"), true),
     var("ANTHROPIC_AUTH_TOKEN", "Account", "Bearer token for a gateway or proxy (Authorization header). Takes precedence over ANTHROPIC_API_KEY.", None, Some("${HF_TOKEN}"), true),
@@ -860,29 +860,29 @@ const ENV_VARS: &[super::EnvVarDoc] = &[
     var("DISABLE_ERROR_REPORTING", "Privacy", "Any value, even 0, turns off error reporting.", None, Some("1"), false),
 ];
 
-const PROFILE_TEMPLATES: &[super::ProfileTemplate] = &[
-    super::ProfileTemplate {
-        kind: super::ProfileKind::Subscription,
+const PROFILE_TEMPLATES: &[harness::ProfileTemplate] = &[
+    harness::ProfileTemplate {
+        kind: harness::ProfileKind::Subscription,
         name: "Subscription",
         description: "Your Claude Pro or Max login (claude auth login), protected by its 5-hour and weekly quota.",
         setup: None,
         setup_command: None,
         env: &[],
-        billing: crate::config::Billing::Subscription,
+        billing: launchpad_core::config::Billing::Subscription,
         models_url: None,
     },
-    super::ProfileTemplate {
-        kind: super::ProfileKind::Subscription,
+    harness::ProfileTemplate {
+        kind: harness::ProfileKind::Subscription,
         name: "Another account",
         description: "A second subscription or organization, with its own sign-in in a separate configuration folder and its own quota meters.",
         setup: Some("Save the profile, then sign in once from Works on."),
         setup_command: None,
         env: &[("CLAUDE_CONFIG_DIR", "~/.claude-work")],
-        billing: crate::config::Billing::Subscription,
+        billing: launchpad_core::config::Billing::Subscription,
         models_url: None,
     },
-    super::ProfileTemplate {
-        kind: super::ProfileKind::Provider,
+    harness::ProfileTemplate {
+        kind: harness::ProfileKind::Provider,
         name: "Hugging Face",
         description: "Open models (Kimi, GLM, Qwen, DeepSeek…) through Hugging Face Inference Providers, like the hf claude extension. Billed to your Hugging Face account.",
         setup: Some("Launchpad reads HF_TOKEN, else the token saved by the hf CLI. Sign in once if needed:"),
@@ -896,22 +896,22 @@ const PROFILE_TEMPLATES: &[super::ProfileTemplate] = &[
             ("ANTHROPIC_DEFAULT_FABLE_MODEL", "${LAUNCHPAD_MODEL}"),
             ("CLAUDE_CODE_SUBAGENT_MODEL", "${LAUNCHPAD_MODEL}"),
         ],
-        billing: crate::config::Billing::PayAsYouGo,
+        billing: launchpad_core::config::Billing::PayAsYouGo,
         models_url: Some("https://router.huggingface.co/v1/models"),
     },
-    super::ProfileTemplate {
-        kind: super::ProfileKind::ApiKey,
+    harness::ProfileTemplate {
+        kind: harness::ProfileKind::ApiKey,
         name: "API key",
         description: "Pay per use with a Console API key instead of the subscription.",
         setup: Some("Create a key at https://console.anthropic.com/settings/keys and paste it below."),
         setup_command: None,
         env: &[("ANTHROPIC_API_KEY", "")],
-        billing: crate::config::Billing::PayAsYouGo,
+        billing: launchpad_core::config::Billing::PayAsYouGo,
         models_url: None,
     },
 ];
-pub const REGISTRATION: super::Registration = super::Registration {
-    descriptor: super::HarnessDescriptor {
+pub const REGISTRATION: harness::Registration = harness::Registration {
+    descriptor: harness::HarnessDescriptor {
         browser_isolation: "Browser tools only; built-in tools and other MCP servers disabled",
         cost_model_prefixes: &["claude-", "opus", "sonnet", "haiku"],
         id: ID,
@@ -919,7 +919,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
         icon_svg: include_str!("icons/claude.svg"),
         color: "#b46a4b",
         working_message: "Message Claude. It is read after the current step.",
-        capabilities: super::HarnessCapabilities {
+        capabilities: harness::HarnessCapabilities {
             permission_modes: true,
             images: true,
             messages_while_running: true,
@@ -928,7 +928,7 @@ pub const REGISTRATION: super::Registration = super::Registration {
             cost: true,
         },
         account_env: &["CLAUDE_CONFIG_DIR"],
-        vault_login: Some(super::VaultLogin { kind: crate::vault::Kind::ClaudeLogin, hosts: &["api.anthropic.com"], how: "Run claude setup-token on any machine and paste the token it prints." }),
+        vault_login: Some(harness::VaultLogin { kind: launchpad_core::vault::Kind::ClaudeLogin, hosts: &["api.anthropic.com"], how: "Run claude setup-token on any machine and paste the token it prints." }),
         env_vars: ENV_VARS,
         profile_templates: PROFILE_TEMPLATES,
     },
@@ -942,9 +942,9 @@ pub const REGISTRATION: super::Registration = super::Registration {
 };
 pub struct Adapter;
 #[async_trait]
-impl super::Harness for Adapter {
-    fn skill_locations(&self) -> Vec<crate::prompt_context::SkillLocation> {
-        use crate::prompt_context::SkillLocation;
+impl harness::Harness for Adapter {
+    fn skill_locations(&self) -> Vec<launchpad_core::prompt_context::SkillLocation> {
+        use launchpad_core::prompt_context::SkillLocation;
         vec![SkillLocation::project(".claude/skills"), SkillLocation::config("CLAUDE_CONFIG_DIR", ".claude", "skills"), SkillLocation::project(".agents/skills"), SkillLocation::home(".agents/skills")]
     }
     fn sign_in_program(&self) -> &'static str {
@@ -957,9 +957,9 @@ impl super::Harness for Adapter {
         Some("curl -fsSL https://claude.ai/install.sh | bash")
     }
     /// `claude auth status` prints JSON; only the method, plan and account e-mail are kept.
-    async fn sign_in(&self, env: &crate::shellenv::UserEnv) -> crate::signin::SignIn {
-        let mut r = crate::signin::SignIn { signed_in: None, detail: None };
-        match crate::signin::status_output(env, "claude", &["auth", "status"]).await {
+    async fn sign_in(&self, env: &launchpad_core::shellenv::UserEnv) -> launchpad_core::signin::SignIn {
+        let mut r = launchpad_core::signin::SignIn { signed_in: None, detail: None };
+        match launchpad_core::signin::status_output(env, "claude", &["auth", "status"]).await {
             Ok((_, stdout, _)) => match serde_json::from_str::<Value>(&stdout) {
                 Ok(v) => {
                     r.signed_in = v["loggedIn"].as_bool();
@@ -989,7 +989,7 @@ impl super::Harness for Adapter {
     }
     async fn version(&self, app: &App) -> Result<String> {
         Ok(
-            crate::procs::output(&app.env, "claude", &["--version"], None)
+            launchpad_core::procs::output(&app.env, "claude", &["--version"], None)
                 .await?
                 .split_whitespace()
                 .next()
@@ -997,22 +997,22 @@ impl super::Harness for Adapter {
                 .into(),
         )
     }
-    fn spawn_quota(&self, app: &App, account: crate::quota::QuotaAccount) -> Option<tokio::task::JoinHandle<()>> {
+    fn spawn_quota(&self, app: &App, account: launchpad_core::quota::QuotaAccount) -> Option<tokio::task::JoinHandle<()>> {
         Some(spawn_quota(app, account))
     }
-    async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<super::trace::TraceFile>> {
-        let id = super::trace::conversation(session)?;
-        let root = super::trace::root(app, session, "CLAUDE_CONFIG_DIR", ".claude").await?;
-        trace_files(&root, crate::hosts::loc::native(&session.cwd), id).await
+    async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<harness::trace::TraceFile>> {
+        let id = harness::trace::conversation(session)?;
+        let root = harness::trace::root(app, session, "CLAUDE_CONFIG_DIR", ".claude").await?;
+        trace_files(&root, launchpad_core::hosts::loc::native(&session.cwd), id).await
     }
     /// Claude Code finds a conversation under the slug of its working folder.
-    async fn restore_native(&self, app: &App, session: &Session, files: Vec<super::trace::TraceFile>) -> Result<()> {
-        super::trace::conversation(session)?;
-        let root = super::trace::root(app, session, "CLAUDE_CONFIG_DIR", ".claude").await?;
-        let encoded: String = crate::hosts::loc::native(&session.cwd).chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+    async fn restore_native(&self, app: &App, session: &Session, files: Vec<harness::trace::TraceFile>) -> Result<()> {
+        harness::trace::conversation(session)?;
+        let root = harness::trace::root(app, session, "CLAUDE_CONFIG_DIR", ".claude").await?;
+        let encoded: String = launchpad_core::hosts::loc::native(&session.cwd).chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
         let dir = root.join("projects").join(encoded);
         for f in files {
-            super::trace::write(&dir, &f.name, &f.data)?;
+            harness::trace::write(&dir, &f.name, &f.data)?;
         }
         Ok(())
     }
@@ -1050,7 +1050,7 @@ impl super::Harness for Adapter {
         if is_temp { &[("CLAUDE_CODE_SANDBOXED", "1")] } else { &[] }
     }
     /// The setup token goes in the proxy; Claude Code sends the placeholder to the proxy's base URL.
-    fn contained_login(&self, setup: &super::LoginSetup) -> Result<Vec<(String, String)>> {
+    fn contained_login(&self, setup: &harness::LoginSetup) -> Result<Vec<(String, String)>> {
         let state = setup.home.join(".claude/.claude.json");
         if !state.exists() {
             std::fs::create_dir_all(setup.home.join(".claude"))?;
@@ -1106,8 +1106,8 @@ impl super::Harness for Adapter {
         app: &App,
         _session: &Session,
         cwd: &std::path::Path,
-    ) -> Option<crate::exec::Cmd> {
-        let mut cmd = crate::procs::child_command(&app.env, "claude", Some(cwd));
+    ) -> Option<launchpad_core::exec::Cmd> {
+        let mut cmd = launchpad_core::procs::child_command(&app.env, "claude", Some(cwd));
         cmd.args([
             "-p",
             "--model",
@@ -1121,20 +1121,20 @@ impl super::Harness for Adapter {
         ]);
         Some(cmd)
     }
-    fn title_response(&self, stdout: String) -> Result<super::TitleReply> {
+    fn title_response(&self, stdout: String) -> Result<harness::TitleReply> {
         let value: Value = serde_json::from_str(stdout.trim()).context("unreadable title response")?;
         anyhow::ensure!(value["is_error"].as_bool() != Some(true), "title generator failed: {}", value["result"].as_str().unwrap_or("unknown error"));
         let title = value["result"].as_str().context("no generated title")?.to_string();
         let cost_unavailable = unknown_model_cost(&value);
-        Ok(super::TitleReply { title, cost_unavailable, cost_usd: if cost_unavailable { None } else { value["total_cost_usd"].as_f64().filter(|c| c.is_finite() && *c >= 0.0) } })
+        Ok(harness::TitleReply { title, cost_unavailable, cost_usd: if cost_unavailable { None } else { value["total_cost_usd"].as_f64().filter(|c| c.is_finite() && *c >= 0.0) } })
     }
 }
 /// Quota from a Claude `rate_limit_event` (fractions and Unix seconds).
-pub fn rate_limit_event(status: &crate::status::StatusHandle, account: &str, info: &Value) {
+pub fn rate_limit_event(status: &launchpad_core::status::StatusHandle, account: &str, info: &Value) {
     let windows = &info["unifiedWindows"];
-    let win = |k: &str| -> Option<crate::status::QuotaWindow> {
+    let win = |k: &str| -> Option<launchpad_core::status::QuotaWindow> {
         let w = &windows[k];
-        Some(crate::status::QuotaWindow {
+        Some(launchpad_core::status::QuotaWindow {
             used_percent: w["utilization"].as_f64()? * 100.0,
             resets_at: Some(w["resetsAt"].as_i64()?),
         })
@@ -1147,10 +1147,10 @@ pub fn rate_limit_event(status: &crate::status::StatusHandle, account: &str, inf
 }
 
 /// Polls the usage of one login: `CLAUDE_CONFIG_DIR` selects its configuration folder (default `~/.claude`).
-fn spawn_quota(app: &App, account: crate::quota::QuotaAccount) -> tokio::task::JoinHandle<()> {
+fn spawn_quota(app: &App, account: launchpad_core::quota::QuotaAccount) -> tokio::task::JoinHandle<()> {
     let a = app.clone();
     tokio::spawn(async move {
-        let client = crate::status::http_client();
+        let client = launchpad_core::status::http_client();
         let config_dir = account.env.iter().find(|(k, _)| k == "CLAUDE_CONFIG_DIR").map(|(_, v)| std::path::PathBuf::from(v))
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".claude"));
         let mut rate_limit_delay = 0;
@@ -1184,7 +1184,7 @@ fn spawn_quota(app: &App, account: crate::quota::QuotaAccount) -> tokio::task::J
                     rate_limit_delay = 0;
                 }
             }
-            crate::status::wait_poll(&a, &account.key, 300, 180).await;
+            launchpad_core::status::wait_poll(&a, &account.key, 300, 180).await;
         }
     })
 }
@@ -1204,7 +1204,7 @@ impl std::fmt::Display for UsageRateLimited {
 
 impl std::error::Error for UsageRateLimited {}
 
-type QuotaPair = (Option<crate::status::QuotaWindow>, Option<crate::status::QuotaWindow>);
+type QuotaPair = (Option<launchpad_core::status::QuotaWindow>, Option<launchpad_core::status::QuotaWindow>);
 
 /// Reads `/api/oauth/usage`. Skips the call when the access token has expired: Claude Code refreshes it.
 async fn claude_usage(client: &reqwest::Client, config_dir: &std::path::Path) -> Result<QuotaPair> {
@@ -1248,11 +1248,11 @@ async fn usage_with_token(client: &reqwest::Client, token: &str) -> Result<Quota
 /// Claude Code authenticates and refreshes its own OAuth token, which Launchpad never does.
 async fn claude_code_usage(app: &App, env: &[(String, String)]) -> Result<QuotaPair> {
     let home = dirs::home_dir();
-    let mut child = crate::procs::child_command(&app.env.with(env), "claude", home.as_deref())
+    let mut child = launchpad_core::procs::child_command(&app.env.with(env), "claude", home.as_deref())
         .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--strict-mcp-config"])
-        .stdin(crate::exec::Io::Piped)
-        .stdout(crate::exec::Io::Piped)
-        .stderr(crate::exec::Io::Null)
+        .stdin(launchpad_core::exec::Io::Piped)
+        .stdout(launchpad_core::exec::Io::Piped)
+        .stderr(launchpad_core::exec::Io::Null)
         .spawn()
         .await
         .context("start claude")?;
@@ -1282,13 +1282,13 @@ async fn claude_code_usage(app: &App, env: &[(String, String)]) -> Result<QuotaP
 
 /// `five_hour` and `seven_day` of a usage response. `resets_at` is null while a window has not started.
 fn usage_windows(body: &Value) -> Result<QuotaPair> {
-    let win = |k: &str| -> Option<crate::status::QuotaWindow> {
+    let win = |k: &str| -> Option<launchpad_core::status::QuotaWindow> {
         let w = &body[k];
         let resets_at = match &w["resets_at"] {
             Value::Null => None,
             v => Some(time::OffsetDateTime::parse(v.as_str()?, &time::format_description::well_known::Rfc3339).ok()?.unix_timestamp()),
         };
-        Some(crate::status::QuotaWindow { used_percent: w["utilization"].as_f64()?, resets_at })
+        Some(launchpad_core::status::QuotaWindow { used_percent: w["utilization"].as_f64()?, resets_at })
     };
     let five = win("five_hour").context("missing or invalid five_hour usage window")?;
     let week = win("seven_day").context("missing or invalid seven_day usage window")?;
@@ -1308,14 +1308,14 @@ fn claude_transcripts_dir(cwd: &str) -> std::path::PathBuf {
         .join(encoded)
 }
 
-async fn trace_files(root: &std::path::Path, cwd: &str, id: &str) -> Result<Vec<super::trace::TraceFile>> {
+async fn trace_files(root: &std::path::Path, cwd: &str, id: &str) -> Result<Vec<harness::trace::TraceFile>> {
     let encoded: String = cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
     let dir = root.join("projects").join(encoded);
-    let mut traces = vec![super::trace::read(&dir.join(format!("{id}.jsonl")), format!("{id}.jsonl")).await?];
-    for path in super::trace::files(&dir.join(id).join("subagents"), 2).await? {
+    let mut traces = vec![harness::trace::read(&dir.join(format!("{id}.jsonl")), format!("{id}.jsonl")).await?];
+    for path in harness::trace::files(&dir.join(id).join("subagents"), 2).await? {
         if path.extension().is_some_and(|e| e == "jsonl") {
             let name = path.strip_prefix(&dir)?.to_string_lossy().replace('\\', "/");
-            traces.push(super::trace::read(&path, name).await?);
+            traces.push(harness::trace::read(&path, name).await?);
         }
     }
     Ok(traces)
@@ -1370,7 +1370,7 @@ mod permission_tests {
 
     #[test]
     fn title_responses_do_not_report_fallback_model_prices() {
-        use crate::harness::Harness;
+        use launchpad_core::harness::Harness;
         let mut result = json!({"result":"A useful title","total_cost_usd":0.5,"modelUsage":{"deepseek-ai/DeepSeek-V4.1-Flash-1017":{}}});
         let reply = Adapter.title_response(result.to_string()).unwrap();
         assert_eq!(reply.title, "A useful title");
@@ -1415,6 +1415,7 @@ mod permission_tests {
 
     #[test]
     fn approvals_require_an_explicit_choice_and_preserve_tool_input() {
+        crate::install();
         let input = json!({"command":"printf hello", "description":"A harmless test"});
         assert_eq!(claude_permission_response(&input, &["Allow once".into()]).unwrap(), json!({"behavior":"allow","updatedInput":input}));
         assert_eq!(claude_permission_response(&input, &["Deny".into()]).unwrap()["behavior"], "deny");
@@ -1433,7 +1434,7 @@ mod trace_tests {
     use super::*;
     #[tokio::test]
     async fn native_trace_keeps_conversation_and_subagent_formats() {
-        let tmp = super::super::trace::tests::Temp::new();
+        let tmp = crate::test_support::Temp::new();
         let native = b"{\"type\":\"assistant\",\"message\":{\"content\":[]},\"uuid\":\"native\"}\n";
         tmp.write("projects/-my-project/session.jsonl", native);
         tmp.write("projects/-my-project/session/subagents/agent-child.jsonl", native);

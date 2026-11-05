@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn accounts_follow_the_login_folder_and_hosts_resolve_their_own_references() {
         let profile = |env: &[(&str, &str)]| Profile {
-            id: "p".into(), name: "P".into(), harness: crate::harness::claude::ID,
+            id: "p".into(), name: "P".into(), harness: crate::model::HarnessKind::new("claude"),
             env: env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
             model: None, effort: None, billing: Billing::Subscription, budget_usd: None, models_url: None, spend_limits: vec![], send_credentials: false, login: None,
         };

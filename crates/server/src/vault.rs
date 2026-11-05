@@ -31,7 +31,7 @@ fn bad(e: anyhow::Error) -> ApiError {
 
 async fn overview(State(s): State<Server>) -> ApiResult<VaultOverview> {
     let home = s.app.config.get().home.clone();
-    let logins = launchpad_core::harness::REGISTRATIONS
+    let logins = launchpad_core::harness::registrations()
         .iter()
         .filter_map(|r| r.descriptor.vault_login.map(|l| LoginKind { harness: r.descriptor.id.as_str().into(), name: r.descriptor.name.into(), kind: l.kind, how: l.how.into() }))
         .collect();

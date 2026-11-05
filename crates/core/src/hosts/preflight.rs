@@ -81,7 +81,7 @@ pub async fn run(app: &App, id: &str) -> anyhow::Result<Vec<Check>> {
         Err(_) => Check { command: Some("Install the GitHub CLI: https://cli.github.com".into()), ..check("gh", "GitHub CLI", None, "Not installed: Local PR Publish needs it on this host") },
     };
     checks.push(gh);
-    let programs: Vec<String> = crate::harness::REGISTRATIONS.iter().map(|r| app.harnesses.get(r.descriptor.id).sign_in_program().to_string()).collect();
+    let programs: Vec<String> = crate::harness::registrations().iter().map(|r| app.harnesses.get(r.descriptor.id).sign_in_program().to_string()).collect();
     let found: Vec<Option<String>> = crate::hosts::conn(id)?
         .request(crate::hosts::proto::Op::Which { programs: programs.clone() })
         .await
@@ -89,7 +89,7 @@ pub async fn run(app: &App, id: &str) -> anyhow::Result<Vec<Check>> {
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_else(|| vec![None; programs.len()]);
     let mut installed = std::collections::HashSet::new();
-    for (r, path) in crate::harness::REGISTRATIONS.iter().zip(found) {
+    for (r, path) in crate::harness::registrations().iter().zip(found) {
         let adapter = app.harnesses.get(r.descriptor.id);
         let name = r.descriptor.name;
         let hid = r.descriptor.id.as_str();

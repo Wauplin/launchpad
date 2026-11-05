@@ -57,7 +57,7 @@ pub trait LiveSession: Send + Sync {
 
 /// Input delivery errors do not prove that the live turn itself failed.
 #[derive(Debug)]
-pub(crate) enum InputDeliveryError {
+pub enum InputDeliveryError {
     Uncertain(anyhow::Error),
     Rejected(&'static str),
 }

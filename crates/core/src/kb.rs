@@ -828,7 +828,7 @@ pub enum LocalOp {
 pub async fn native_memories(app: &App) -> Vec<NativeMemory> {
     let Some(home) = dirs::home_dir() else { return vec![] };
     let mut out = vec![];
-    for r in crate::harness::REGISTRATIONS.iter() {
+    for r in crate::harness::registrations().iter() {
         let id = r.descriptor.id;
         for (group, dir) in app.harnesses.get(id).native_memories(&home) {
             for rel in plain::walk(&dir) {
