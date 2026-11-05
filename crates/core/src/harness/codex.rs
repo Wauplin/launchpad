@@ -1199,6 +1199,16 @@ impl super::Harness for Adapter {
         }
         Ok(vec![])
     }
+    /// No `history.jsonl` (prompt history).
+    fn contained_history(&self, home: &std::path::Path) -> Result<Vec<(String, String)>> {
+        let path = home.join(".codex/config.toml");
+        let config = std::fs::read_to_string(&path).unwrap_or_default();
+        if !config.contains("[history]") {
+            std::fs::create_dir_all(home.join(".codex"))?;
+            std::fs::write(&path, format!("{config}{}\n[history]\npersistence = \"none\"\n", if config.is_empty() || config.ends_with('\n') { "" } else { "\n" }))?;
+        }
+        Ok(vec![])
+    }
     /// `[mcp_servers.<name>]` with a Streamable HTTP `url` in `$CODEX_HOME/config.toml`, rewritten each start.
     fn contained_mcp(&self, home: &std::path::Path, servers: &[(String, String)]) -> Result<()> {
         let dir = home.join(".codex");

@@ -1081,6 +1081,10 @@ impl super::Harness for Adapter {
         std::fs::write(&path, serde_json::to_string_pretty(&settings)?)?;
         Ok(vec![("CLAUDE_CODE_DISABLE_AUTO_MEMORY".into(), "1".into())])
     }
+    /// No `history.jsonl` (prompt history).
+    fn contained_history(&self, _home: &std::path::Path) -> Result<Vec<(String, String)>> {
+        Ok(vec![("CLAUDE_CODE_SKIP_PROMPT_HISTORY".into(), "1".into())])
+    }
     fn native_memories(&self, home: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {
         // `~/.claude/projects/<folder path with / as ->/memory/`.
         let prefix = format!("{}-", home.to_string_lossy().replace(['/', '.'], "-"));

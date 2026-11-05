@@ -51,6 +51,8 @@ Between turns, a session can move to another runner: in its Summary, **Runs on**
 
 Every runner sends the conversation of a session to Home at the end of each turn, when it changed. So a session can also move while its runner is offline (a sleeping laptop): Move to Burst continues it from the last turn's branches and conversation; files that were not committed stay on that machine.
 
+Home is the place that keeps conversations. In a contained session, Claude Code and Codex do not save their prompt history (`history.jsonl`). They still write their conversation file, because they resume from it. About an hour after a session is archived, its runner sends that conversation to Home one last time. When Home has confirmed it, the runner deletes the session's folder (`<data_dir>/sessions/<id>`). If trace backup is on, the runner also waits until the backup has uploaded those files. Resume gets the conversation back from Home before the agent starts.
+
 ## Sessions on Home
 
 Every session a runner runs is saved on Home: its record and every event, in order. The runner writes them to a local outbox in the same transaction as its own copy and drops them only after Home has saved them. While Home is unreachable, sessions keep running and accept your messages on the runner; the outbox is sent when the tunnel is back. Home never marks a runner's session Interrupted when Home itself restarts.

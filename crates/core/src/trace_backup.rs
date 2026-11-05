@@ -90,6 +90,14 @@ async fn changed_file(env: &UserEnv, dest: &str, cursor: &mut Cursor, name: &str
     Ok(true)
 }
 
+/// Whether trace backup already uploaded exactly these native files of a session.
+pub(crate) fn backed_up(app: &App, session_id: &str, files: &[crate::harness::trace::TraceFile]) -> bool {
+    let Ok(bytes) = std::fs::read(app.paths.data_dir.join("trace-backup-native-cursors.json")) else { return false };
+    let Ok(cursors) = serde_json::from_slice::<BTreeMap<String, Cursor>>(&bytes) else { return false };
+    let suffix = format!("_{}", session_id.replace('-', ""));
+    cursors.iter().filter(|(dest, _)| dest.ends_with(&suffix)).any(|(_, c)| files.iter().all(|f| c.files.get(&f.name) == Some(&hex::encode(Sha256::digest(&f.data)))))
+}
+
 /// Keep every serialized run field and the resolved destination context, without profile secrets.
 fn metadata(session: &crate::model::Session, workspace: &str, folder: &str) -> Result<Vec<u8>> {
     Ok(serde_json::to_vec(&serde_json::json!({
@@ -161,7 +169,9 @@ pub(crate) async fn upload(app: &App) -> Result<()> {
                 cursor.events = through;
                 uploaded = true;
             }
-            if session.harness_session_id.is_some() {
+            // A runner removes an archived session's folder only after this backup holds its files.
+            let cleaned = app.paths.role == crate::role::Role::Runner && crate::contain::contained(app, crate::hosts::loc::host_of(&session.cwd)) && !crate::contain::session_dir(app, &session.id).exists();
+            if session.harness_session_id.is_some() && !cleaned {
                 let files = tokio::time::timeout(Duration::from_secs(60), app.harnesses.get(session.harness).native_trace(app, &session)).await
                     .context("native trace export timed out")??;
                 for file in files {

@@ -95,6 +95,10 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     let tmp = dir.join("tmp");
     let workspace = request(app, &s).await?.workspace_id.unwrap_or_else(|| "none".into());
     let cache = app.paths.data_dir.join("caches").join(&workspace);
+    // An archived session's folder is removed once Home holds its conversation: get it back first.
+    if app.paths.role == crate::role::Role::Runner && s.harness_session_id.is_some() && !home.exists() {
+        crate::handoff::restore(app, &s).await.context("get the agent's conversation back from Home")?;
+    }
     for d in [&home, &tmp, &cache, &home.join(".claude"), &home.join(".codex"), &home.join(".config")] {
         std::fs::create_dir_all(d).with_context(|| format!("create {}", d.display()))?;
     }
@@ -184,6 +188,7 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
         instructions.push_str(&crate::proposals::cli_reference(&app.paths.cli_command(), kb.as_ref().map(|(ws, _)| ws.as_str())));
     }
     env.extend(harness.contained_memory(&home, &instructions)?);
+    env.extend(harness.contained_history(&home)?);
     // MCP servers of Home: a local address on the runner proxy for each one granted.
     let servers: Vec<(String, String)> = lease.mcp.iter().map(|m| (crate::mcp::harness_name(&m.id), format!("{base}/mcp/{}", m.id))).collect();
     harness.contained_mcp(&home, &servers)?;

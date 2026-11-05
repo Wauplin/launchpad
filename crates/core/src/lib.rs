@@ -220,6 +220,7 @@ impl App {
             tracing::warn!("Home Git folders: {e:#}");
         }
         worktrees::spawn(&app);
+        handoff::spawn(&app);
         app.hosts.set_app(&app);
         hosts::preflight::spawn(&app);
         Ok(app)

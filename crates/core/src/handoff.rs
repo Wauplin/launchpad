@@ -131,6 +131,88 @@ pub async fn upload(app: &App, id: &str, is_final: bool) -> Result<()> {
     Ok(())
 }
 
+/// Hash of a session's native conversation files.
+fn files_digest(files: &[HandoffFile]) -> String {
+    let mut hasher = Sha256::new();
+    for f in files {
+        hasher.update(f.name.as_bytes());
+        hasher.update(f.data.as_bytes());
+    }
+    hex::encode(hasher.finalize())
+}
+
+/// Runner: removes the folder of an archived session (`<data_dir>/sessions/<id>`, the harness home with its
+/// native conversation) once Home confirmed the same conversation. Resume gets it back from Home (`restore`).
+/// Returns whether the folder was removed.
+pub async fn clean_archived(app: &App, id: &str) -> Result<bool> {
+    if app.paths.role != crate::role::Role::Runner {
+        return Ok(false);
+    }
+    let dir = crate::contain::session_dir(app, id);
+    let idle = |s: &Session| s.status == crate::model::SessionStatus::Closed && !s.live && s.imported_from.is_none() && !app.sessions.setup_running(id) && app.terminals.tui_of(id).is_none();
+    let Some(s) = app.sessions.get(id).filter(|s| idle(s)) else { return Ok(false) };
+    if !dir.exists() {
+        return Ok(false);
+    }
+    let h = snapshot(app, id).await?;
+    ensure!(s.harness_session_id.is_none() || !h.files.is_empty(), "no native conversation found");
+    // Trace backup reads the same files: keep them until it uploaded this exact version.
+    if app.config.get().trace_backup.enabled {
+        let files = h.files.iter().map(|f| Ok(crate::harness::trace::TraceFile { name: f.name.clone(), data: base64::engine::general_purpose::STANDARD.decode(&f.data)? })).collect::<Result<Vec<_>>>()?;
+        if !crate::trace_backup::backed_up(app, id, &files) {
+            return Ok(false);
+        }
+    }
+    answer(to_home(app, reqwest::Method::POST, &format!("/api/handoff/{id}"))?.json(&h)).await?;
+    let _action = app.sessions.action_lock().await;
+    // Nothing may have changed since Home confirmed its copy.
+    let Some(s) = app.sessions.get(id).filter(|s| idle(s)) else { return Ok(false) };
+    if s.generation != h.generation || s.harness_session_id != h.harness_session_id {
+        return Ok(false);
+    }
+    let again = snapshot(app, id).await?;
+    if files_digest(&again.files) != files_digest(&h.files) {
+        return Ok(false);
+    }
+    tokio::fs::remove_dir_all(&dir).await.with_context(|| format!("remove {}", dir.display()))?;
+    SENT.lock().unwrap().remove(id);
+    Ok(true)
+}
+
+/// Runner: puts back the native conversation of a session whose folder `clean_archived` removed, from Home's
+/// copy, before its harness starts again.
+pub async fn restore(app: &App, s: &Session) -> Result<()> {
+    let a: Adoption = serde_json::from_value(answer(to_home(app, reqwest::Method::GET, &format!("/api/handoff/{}", s.id))?).await?)?;
+    let h = a.handoff.filter(|h| h.generation == s.generation && h.harness_session_id == s.harness_session_id && !h.files.is_empty());
+    let h = h.context("Home has no copy of this agent's conversation")?;
+    let files = h
+        .files
+        .into_iter()
+        .map(|f| Ok(crate::harness::trace::TraceFile { name: f.name, data: base64::engine::general_purpose::STANDARD.decode(f.data)? }))
+        .collect::<Result<Vec<_>>>()?;
+    std::fs::create_dir_all(crate::contain::harness_home(app, &s.id))?;
+    app.harnesses.get(s.harness).restore_native(app, s, files).await
+}
+
+/// Runner: every hour, removes the folders of archived sessions that Home holds (see `clean_archived`).
+pub fn spawn(app: &App) {
+    if app.paths.role != crate::role::Role::Runner {
+        return;
+    }
+    let app = app.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+            for s in app.sessions.list().into_iter().filter(|s| s.status == crate::model::SessionStatus::Closed) {
+                if let Err(e) = clean_archived(&app, &s.id).await {
+                    tracing::debug!("session folder of {}: {e:#}", s.id);
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(3600 - 120)).await;
+        }
+    });
+}
+
 /// Hashes of the last conversation each session uploaded, so an unchanged one is not sent again.
 static SENT: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, String>>> = std::sync::LazyLock::new(Default::default);
 
