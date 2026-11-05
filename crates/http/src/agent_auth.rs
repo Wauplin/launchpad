@@ -33,7 +33,7 @@ fn access_of(app: &App, id: &str) -> Option<LaunchpadAccess> {
 fn admin_allows(method: &Method, path: &str) -> bool {
     let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     if *method == Method::GET {
-        const CLOSED: &[&str] = &["devices", "terminals", "hosts", "vault", "git", "handoff", "runners", "runner", "setup", "burst", "home", "channels", "outbox", "review-state", "plain", "kb", "knowledge", "code", "browser"];
+        const CLOSED: &[&str] = &["config", "devices", "terminals", "hosts", "vault", "git", "handoff", "runners", "runner", "setup", "burst", "home", "channels", "outbox", "review-state", "plain", "kb", "knowledge", "code", "browser"];
         return p.first() == Some(&"api") && p.get(1).is_some_and(|a| !CLOSED.contains(a));
     }
     match p.as_slice() {
@@ -47,6 +47,37 @@ fn admin_allows(method: &Method, path: &str) -> bool {
         ["api", "mcp", _, "tools", _] => *method == Method::PUT,
         _ => false,
     }
+}
+
+/// The request that runs a proposal of this body directly: accepting a card is running its action, so an admin
+/// session may accept a card only when `admin_allows` that request. None: the card has no direct request at admin
+/// (preset changes go through config.toml, tools through the vault) and waits for the owner.
+fn accept_request(body: &Value) -> Option<(Method, String)> {
+    let id = |k: &str| body[k].as_str().filter(|s| !s.is_empty() && !s.contains('/')).map(str::to_string);
+    Some(match body["kind"].as_str()? {
+        "launch" => (Method::POST, "/api/sessions".into()),
+        "message" => (Method::POST, format!("/api/sessions/{}/input", id("session_id")?)),
+        "schedule" => (Method::POST, "/api/launch/schedules".into()),
+        "cron" => (Method::POST, "/api/launch/crons".into()),
+        "status" => (Method::GET, "/api/sessions".into()),
+        "bot" => (Method::POST, "/api/bots".into()),
+        "routine" => (Method::POST, format!("/api/bots/{}/routines", id("bot_id")?)),
+        "bot_instructions" => (Method::PATCH, format!("/api/bots/{}", id("bot_id")?)),
+        "preset" => (Method::PATCH, "/api/config".into()),
+        "tool" => (Method::PUT, "/api/vault/tools/x".into()),
+        _ => return None,
+    })
+}
+
+/// A proposal's body: on a runner from Home (which holds proposals), else from this daemon's state.
+async fn proposal_body(app: &App, id: &str) -> Option<Value> {
+    if app.paths.role == launchpad_core::role::Role::Runner {
+        let list = launchpad_core::home_link::home_request("GET", "/api/proposals", None).await.ok()?;
+        return list.as_array()?.iter().find(|p| p["id"] == id).map(|p| p["body"].clone());
+    }
+    let id = id.to_string();
+    let json: Option<String> = app.state_db.call(move |c| Ok(c.query_row("SELECT json FROM launch_proposal WHERE id = ?1", [&id], |r| r.get(0)).ok())).await.ok()?;
+    serde_json::from_str::<Value>(&json?).ok().map(|p| p["body"].clone())
 }
 
 /// Paid usage is the owner's choice only.
@@ -87,6 +118,12 @@ pub async fn authorize(app: &App, id: &str, req: Request) -> Result<Request, Api
     if access == Some(LaunchpadAccess::Admin) && tool_need(req.method(), &path).is_none() && !read_allowed(&path) && !own_write(&path) && admin_allows(req.method(), &path) {
         if req.method() == Method::GET || req.method() == Method::DELETE {
             return Ok(req);
+        }
+        if let Some(pid) = path.strip_prefix("/api/proposals/").and_then(|r| r.strip_suffix("/accept")) {
+            let direct = proposal_body(app, pid).await.as_ref().and_then(accept_request).is_some_and(|(m, p)| admin_allows(&m, &p));
+            if !direct {
+                return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "admin access cannot run this card's action directly (tools and presets): it waits for the owner's click"));
+            }
         }
         let (parts, body) = req.into_parts();
         let bytes = to_bytes(body, 1 << 20).await.map_err(|_| denied())?;
@@ -141,6 +178,10 @@ mod tests {
         for (m, path) in [(Method::POST, "/api/suggestions/s/post"), (Method::POST, "/api/predrafts/p/publish"), (Method::POST, "/api/outbox/o/send"), (Method::POST, "/api/items/o/r/1/merge"), (Method::PUT, "/api/vault/entries/github"), (Method::PUT, "/api/vault/tools/x"), (Method::PUT, "/api/config"), (Method::POST, "/api/terminals"), (Method::POST, "/api/sessions/s/resume-paid"), (Method::POST, "/api/sessions/s/paid-usage"), (Method::POST, "/api/devices/pair"), (Method::POST, "/api/runners/r/approve"), (Method::GET, "/api/vault"), (Method::GET, "/api/devices"), (Method::POST, "/api/home-git/f/merge"), (Method::POST, "/api/inbox/t/reply")] {
             assert!(!admin_allows(&m, path), "{m} {path}");
         }
+        assert!(!admin_allows(&Method::GET, "/api/config"));
+        let direct = |b: Value| accept_request(&b).is_some_and(|(m, p)| admin_allows(&m, &p));
+        assert!(direct(serde_json::json!({"kind": "routine", "bot_id": "b"})) && direct(serde_json::json!({"kind": "bot_instructions", "bot_id": "b"})));
+        assert!(!direct(serde_json::json!({"kind": "tool"})) && !direct(serde_json::json!({"kind": "preset"})));
         assert!(asks_paid_usage(&serde_json::json!({"spec": {"allow_paid_usage": true}})));
         assert!(!asks_paid_usage(&serde_json::json!({"spec": {"allow_paid_usage": false}})));
     }
