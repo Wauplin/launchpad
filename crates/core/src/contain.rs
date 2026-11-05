@@ -57,7 +57,7 @@ async fn request(app: &App, s: &Session) -> Result<LeaseRequest> {
         None => s.launch_spec.workspace_id.clone(),
     };
     let login = s.launch_spec.profile.as_deref().and_then(|id| app.config.get().profile(id).and_then(|p| p.login.clone()));
-    Ok(LeaseRequest { session_id: s.id.clone(), generation: s.generation, harness: s.harness, login, workspace_id, tools_off: s.launch_spec.tools_off.clone() })
+    Ok(LeaseRequest { session_id: s.id.clone(), generation: s.generation, harness: s.harness, login, workspace_id, tools_off: s.launch_spec.tools_off.clone(), bot_id: s.launch_spec.bot.as_ref().map(|b| b.id.clone()) })
 }
 
 /// Sends a lease call to Home (or answers it here in an `all` daemon).
@@ -182,10 +182,10 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
         }
         None => "Your harness's own memory is off in Launchpad, and this session has no workspace, so no knowledge base: do not write memory files.\n".into(),
     };
-    // The Launchpad CLI tool: how to read Launchpad state and write proposals.
-    if lease.tools.iter().any(|t| t.id == crate::vault::LAUNCHPAD_TOOL) {
+    // The Launchpad CLI tool: what the session may do with `launchpad`, at its access level.
+    if let Some(access) = lease.launchpad {
         instructions.push('\n');
-        instructions.push_str(&crate::proposals::cli_reference(&app.paths.cli_command(), kb.as_ref().map(|(ws, _)| ws.as_str())));
+        instructions.push_str(&crate::proposals::cli_reference(&app.paths.cli_command(), kb.as_ref().map(|(ws, _)| ws.as_str()), access));
     }
     env.extend(harness.contained_memory(&home, &instructions)?);
     env.extend(harness.contained_history(&home)?);

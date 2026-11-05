@@ -155,10 +155,26 @@ pub fn placeholder(id: &str) -> String {
     format!("lp-placeholder-{id}")
 }
 
-/// The Launchpad CLI tool: sessions granted it are told how to read Launchpad state and write proposals
-/// (`proposals::cli_reference`). It needs no install (the runner puts `launchpad` on PATH) and no token (the
-/// session's own CLI token). Home adds it once, granted everywhere (`ask_bot::seed`).
+/// The Launchpad CLI tool: sessions granted it are told what they may do with `launchpad`
+/// (`proposals::cli_reference`) at their access level. It needs no install (the runner puts `launchpad` on PATH)
+/// and no token (the session's own CLI token). Home adds it once, granted everywhere (`ask_bot::seed`).
 pub const LAUNCHPAD_TOOL: &str = "launchpad";
+
+/// What a session granted the Launchpad CLI tool may do. Bots set it in `bot.toml` (`launchpad`); other agents
+/// get Propose. The server enforces it on the session CLI token (`agent_auth`).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LaunchpadAccess {
+    /// Read Launchpad state: folders, bots, sessions and traces, profiles, presets, Inbox, schedules, proposals.
+    Read,
+    /// Read, and write inert proposals the owner starts with a click.
+    #[default]
+    Propose,
+    /// Propose, and change Launchpad itself through its API: bots, routines, schedules, workspaces, folders,
+    /// presets, the tool registry, launches and messages. Never GitHub, the Outbox, credentials, devices,
+    /// terminals, hosts, paid usage or the machine (`agent_auth::admin_allows`).
+    Admin,
+}
 
 pub fn launchpad_tool() -> Tool {
     Tool { id: LAUNCHPAD_TOOL.into(), name: "Launchpad CLI".into(), install: None, credential: None, env: vec![], hosts: vec![], workspaces: vec!["*".into()], check_url: None }
@@ -537,6 +553,9 @@ pub struct LeaseRequest {
     /// Tools switched off for this launch.
     #[serde(default)]
     pub tools_off: Vec<String>,
+    /// The bot of the session: Home reads its Launchpad CLI access from its `bot.toml`.
+    #[serde(default)]
+    pub bot_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -577,6 +596,9 @@ pub struct Lease {
     /// MCP servers granted to the session, reached through Home's gateway (`mcp`).
     #[serde(default)]
     pub mcp: Vec<crate::mcp::LeaseMcp>,
+    /// The session's Launchpad CLI access; None when the tool is not granted.
+    #[serde(default)]
+    pub launchpad: Option<LaunchpadAccess>,
 }
 
 /// Login hosts: where the proxy adds a harness login (declared by its adapter).
@@ -733,6 +755,12 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
     }
     let ssh = entries.iter().any(|e| e.kind == Kind::SshKey);
     let home = app.config.get().home.clone();
+    let launchpad = match (tools_out.iter().any(|t| t.id == LAUNCHPAD_TOOL), &req.bot_id) {
+        (false, _) => None,
+        (true, None) => Some(LaunchpadAccess::Propose),
+        // A removed bot or a broken bot.toml: the least access.
+        (true, Some(b)) => Some(crate::bots::get(app, b).await.ok().filter(|b| b.settings_error.is_none()).map(|b| b.settings.launchpad).unwrap_or(LaunchpadAccess::Read)),
+    };
     Ok(Lease {
         id: lease_id.into(),
         session_id: req.session_id.clone(),
@@ -745,6 +773,7 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
         git_email: Some(home.git_email).filter(|s| !s.trim().is_empty()),
         relayed: false,
         mcp: crate::mcp::granted(app, req.workspace_id.as_deref(), &req.tools_off).await?,
+        launchpad,
     })
 }
 

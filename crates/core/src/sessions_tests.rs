@@ -314,12 +314,6 @@ async fn unpriced_costs_are_hidden_after_reload_and_cannot_drive_limits() {
     assert!(super::ensure_budget(&app, &app.sessions.get("test").unwrap()).is_ok());
 }
 
-#[test]
-fn former_assistant_targets_load_as_no_target() {
-    let t: crate::model::Target = serde_json::from_value(serde_json::json!({"kind": "assistant", "workspace_id": "w"})).unwrap();
-    assert_eq!(t, crate::model::Target::None);
-}
-
 #[tokio::test]
 async fn accepted_proposals_keep_their_author_open_and_results_retry_safe() {
     use crate::model::SessionStatus;

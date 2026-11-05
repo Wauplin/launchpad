@@ -123,6 +123,7 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 | `launchpad work finish\|add-project` | Request a worktree merge or open a Local PR, or add another folder to a task (used by agents) |
 | `launchpad trace <session> [--through <seq>]` | Print the stored trace of a session |
 | `launchpad folders\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list` | Read Launchpad state as JSON |
-| `launchpad propose launch\|message\|schedule\|cron\|status\|preset\|tool\|bot\|routine` | Store a proposal (sessions granted the Launchpad CLI tool); the owner starts it, except one-time starts of a bot in auto mode |
+| `launchpad propose launch\|message\|schedule\|cron\|status\|preset\|tool\|bot\|routine` | Store a proposal (sessions with propose or admin access to the Launchpad CLI tool); the owner starts it, except one-time starts of a bot in auto mode |
+| `launchpad api <GET\|POST\|PUT\|PATCH\|DELETE> <path> [--body-file <file.json>]` | Call Launchpad's API directly: sessions with admin access only, limited to Launchpad's own records |
 
 Agents receive the exact binary path and environment in their prompt. The [launchpad skill](../skills/launchpad/SKILL.md) documents these commands for them; the daemon links it into `~/.agents/skills/launchpad` at startup.

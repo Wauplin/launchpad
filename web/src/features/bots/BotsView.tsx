@@ -37,6 +37,13 @@ import { ProposalCard, useProposalList } from "@/features/proposals/ProposalCard
 import { ProposalList } from "@/features/proposals/ProposalsView";
 import { isWaiting } from "@/features/proposals/proposalState";
 import type { ProposalMode } from "@/gen/ProposalMode";
+import type { LaunchpadAccess } from "@/gen/LaunchpadAccess";
+
+const CLI_ACCESS: { id: LaunchpadAccess; label: string; detail: string }[] = [
+  { id: "read", label: "Read", detail: "reads Launchpad state: folders, agents, Inbox, schedules, quotas" },
+  { id: "propose", label: "Propose", detail: "reads, and writes proposals that wait for your click" },
+  { id: "admin", label: "Admin", detail: "also changes Launchpad itself: bots, routines, schedules, workspaces, launches and messages; never GitHub, the Outbox, credentials, the machine or paid usage" },
+];
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
 import { WorkspacePicker } from "@/features/workspaces/WorkspacePicker";
@@ -130,7 +137,7 @@ function useGrantedTools(workspaceId: string | null) {
 }
 
 /** What the bot can reach, in plain words: its folder, the knowledge base, the granted tools and the mode. */
-function Access({ folder, workspace, workspaceId, mode, proposals = "manual" }: { folder: Project | null; workspace: string; workspaceId: string | null; mode: PermissionMode; proposals?: ProposalMode }) {
+function Access({ folder, workspace, workspaceId, mode, proposals = "manual", launchpad = "propose" }: { folder: Project | null; workspace: string; workspaceId: string | null; mode: PermissionMode; proposals?: ProposalMode; launchpad?: LaunchpadAccess }) {
   const tools = useGrantedTools(workspaceId);
   const permission = PERMISSIONS.find((p) => p.id === mode)!;
   const cli = tools.some((t) => t.id === "launchpad");
@@ -139,7 +146,9 @@ function Access({ folder, workspace, workspaceId, mode, proposals = "manual" }: 
     <li>{folder ? (folder.plain ? <>Works in the plain folder <b>{folder.name}</b>, synced by Home.</> : <>Works in <b>{folder.name}</b>, in a fresh worktree per session; it prepares branches and Local PRs for your review.</>) : <>Works in its own new plain folder, synced by Home.</>}</li>
     <li>Remembers in the knowledge base of <b>{workspace}</b>: every change records it, and you can restore it.</li>
     <li>{tools.length ? <>Uses the tools granted to {workspace} with Home's tokens: {tools.map((t) => t.name).join(", ")}.</> : <>No tool is granted to {workspace} (Settings → Credentials and tools).</>}</li>
-    <li>{cli ? <>Reads Launchpad state and writes proposals with the Launchpad CLI. {proposals === "auto" ? "Auto: one-time starts apply at once; the rest waits for your click." : "Every proposal waits for your click."}</> : <>Without the Launchpad CLI tool, it cannot read Launchpad state or write proposals.</>}</li>
+    <li>{!cli ? <>Without the Launchpad CLI tool, it cannot read Launchpad state or write proposals.</>
+      : launchpad === "read" ? <>Reads Launchpad state with the Launchpad CLI; it cannot propose.</>
+      : <>{launchpad === "admin" ? <><b>Admin</b>: changes Launchpad's bots, routines, schedules and workspaces, and starts agents, with the Launchpad CLI; it also </> : "Reads Launchpad state and "}writes proposals. {proposals === "auto" ? "Auto: one-time starts apply at once; the rest waits for your click." : "Every proposal waits for your click."}</>}</li>
   </ul>;
 }
 
@@ -260,6 +269,7 @@ export function BotPage() {
     {bot.paused && <Badge tone="attn" title="Its routines and incoming hooks start nothing until you resume it">Paused</Badge>}
     <span>{profile ? profile.name : "no profile"}{bot.settings.model ? ` · ${bot.settings.model}` : ""}</span>
     {bot.settings.proposals === "auto" && <span title="One-time proposals apply at once">Auto proposals</span>}
+    {bot.settings.launchpad === "admin" && <span title="Changes Launchpad's settings with the Launchpad CLI">Admin</span>}
     <span>works in {folder}</span>
     <span>{PERMISSIONS.find((p) => p.id === bot.settings.permission_mode)?.label}</span>
     {where && <span className={where.tone === "quiet" && where.label.startsWith("Burst") ? "text-ink-3" : "text-attn"} title={where.title}>{where.label}</span>}
@@ -519,10 +529,14 @@ function SettingsPanel({ bot }: { bot: Bot }) {
         <legend className="pb-1 text-[12px] font-semibold text-ink-2">Proposals</legend>
         {PROPOSAL_MODES.map((m) => <label key={m.id} className="flex min-h-[28px] items-start gap-2 text-[13px]"><input type="radio" className="mt-1" name="bot-proposals" checked={(s.proposals ?? "manual") === m.id} onChange={() => setS({ ...s, proposals: m.id })} /><span><span className="font-semibold">{m.label}</span> <span className="text-ink-3">· {m.detail}</span></span></label>)}
       </fieldset>
+      <fieldset className="m-0 grid gap-1 border-0 p-0">
+        <legend className="pb-1 text-[12px] font-semibold text-ink-2">Launchpad CLI</legend>
+        {CLI_ACCESS.map((m) => <label key={m.id} className="flex min-h-[28px] items-start gap-2 text-[13px]"><input type="radio" className="mt-1" name="bot-launchpad" checked={(s.launchpad ?? "propose") === m.id} onChange={() => setS({ ...s, launchpad: m.id })} /><span><span className="font-semibold">{m.label}</span> <span className="text-ink-3">· {m.detail}</span></span></label>)}
+      </fieldset>
       {dirty && <div className="flex justify-end gap-1.5"><button className="btn btn-sm btn-ghost" onClick={() => setS(bot.settings)}>Discard</button><button className="btn btn-sm btn-primary" disabled={!s.name.trim()} onClick={() => void save()}>Save</button></div>}
     </Section>
     <Section title="What it can reach">
-      <Access folder={projects.find((p) => p.id === s.folder) ?? null} workspace={workspaces.find((w) => w.id === bot.workspace_id)?.name ?? ""} workspaceId={bot.workspace_id} mode={s.permission_mode} proposals={s.proposals} />
+      <Access folder={projects.find((p) => p.id === s.folder) ?? null} workspace={workspaces.find((w) => w.id === bot.workspace_id)?.name ?? ""} workspaceId={bot.workspace_id} mode={s.permission_mode} proposals={s.proposals} launchpad={s.launchpad} />
     </Section>
     <Section title="Delete">
       <p className="m-0 text-[12px] text-ink-3">Deleting removes the bot, its files and its routines. Its sessions stay in Agents, its notes stay in the knowledge base{bot.own_folder ? ", and its folder stays in Folders" : ""}.</p>

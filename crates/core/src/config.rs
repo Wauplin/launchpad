@@ -231,8 +231,8 @@ pub struct Preset {
     pub id: String,
     pub label: String,
     pub text: String,
-    /// Available in messages to bots (formerly `ask_launchpad`).
-    #[serde(default, alias = "ask_launchpad")]
+    /// Available in messages to bots.
+    #[serde(default)]
     pub bots: bool,
     /// Available in agent launches, steering and scheduled follow-ups.
     #[serde(default = "preset_agent_default")]

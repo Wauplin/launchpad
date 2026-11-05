@@ -498,6 +498,8 @@ pub struct BotHandoff {
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Target {
+    #[default]
+    None,
     Project {
         project_id: String,
     },
@@ -524,10 +526,6 @@ pub enum Target {
     },
     /// A new temporary folder in the projects root.
     Temp,
-    /// No target yet. Also any kind this version no longer knows (the former Ask Launchpad threads, `assistant`).
-    #[default]
-    #[serde(other)]
-    None,
 }
 
 impl Target {

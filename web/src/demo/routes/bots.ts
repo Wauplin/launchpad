@@ -45,7 +45,7 @@ route("POST", "/api/bots", ({ body }) => {
     publish("projects", "changed", null);
     folder = id;
   }
-  const settings: BotSettings = { name: c.name.trim(), profile: c.profile ?? undefined, folder, permission_mode: "yolo", proposals: "manual" };
+  const settings: BotSettings = { name: c.name.trim(), profile: c.profile ?? undefined, folder, permission_mode: "yolo", proposals: "manual", launchpad: "propose" };
   const b: Bot = { id: `demo-bot-${slug}-${world.bots.length}`, workspace_id: c.workspace_id, slug, created_at: clock.now(), settings, instructions: c.instructions?.trim() ? `${c.instructions.trim()}\n` : `# ${settings.name}\n`, settings_text: settingsText(settings), settings_error: null, own_folder: !c.folder, paused: false, version: 1 };
   world.bots.push(b);
   record(b, "BOT.md", "", b.instructions);

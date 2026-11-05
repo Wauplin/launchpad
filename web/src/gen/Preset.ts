@@ -2,7 +2,7 @@
 
 export type Preset = { id: string, label: string, text: string, 
 /**
- * Available in messages to bots (formerly `ask_launchpad`).
+ * Available in messages to bots.
  */
 bots: boolean, 
 /**

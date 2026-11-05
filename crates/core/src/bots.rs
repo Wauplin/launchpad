@@ -57,6 +57,9 @@ pub struct BotSettings {
     pub permission_mode: PermissionMode,
     #[serde(default)]
     pub proposals: ProposalMode,
+    /// What it may do with the Launchpad CLI tool: read, propose (the default) or admin.
+    #[serde(default)]
+    pub launchpad: crate::vault::LaunchpadAccess,
 }
 
 /// The profile a bot runs with: its own, or the default when bot.toml names none.
@@ -103,6 +106,8 @@ pub struct Create {
     pub permission_mode: PermissionMode,
     #[serde(default)]
     pub proposals: ProposalMode,
+    #[serde(default)]
+    pub launchpad: crate::vault::LaunchpadAccess,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -142,7 +147,7 @@ pub fn parse_settings(text: &str) -> Result<BotSettings> {
 }
 
 fn render_settings(s: &BotSettings) -> Result<String> {
-    Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n{}", toml::to_string(s)?))
+    Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n{}", toml::to_string(s)?))
 }
 
 type Row = (String, String, String, i64, Option<String>, bool);
@@ -248,7 +253,7 @@ pub async fn create(app: &App, c: Create) -> Result<Bot> {
             (p.id.clone(), Some(p.id))
         }
     };
-    let settings = BotSettings { name: name.clone(), profile, model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals };
+    let settings = BotSettings { name: name.clone(), profile, model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad };
     check_settings(app, &c.workspace_id, &settings).await?;
     let instructions = if c.instructions.trim().is_empty() { format!("# {name}\n") } else { format!("{}\n", c.instructions.trim_end()) };
     let (id2, ws, slug2, at) = (id.clone(), c.workspace_id.clone(), slug.clone(), now_ms());
@@ -416,7 +421,7 @@ pub fn instruction(bot: &BotLaunch, cli: &str) -> String {
     let mut out = format!(
         "You are {name}, a Launchpad bot: a persistent agent with one thread that continues across sessions. The owner's instructions for you (BOT.md):\n\n<bot-instructions>\n{instructions}\n</bot-instructions>\n\n\
 Memory: the workspace knowledge base ($LAUNCHPAD_KB) is your only memory. Keep your own notes in `bots/{slug}/` (for example `{cli} kb write bots/{slug}/notes.md`): what you learned about the owner's preferences and your work that a later session needs. Shared facts go in the usual folders of the knowledge base.\n\
-Work: prepare changes for the owner's review by default (branches, Local PRs, suggestions); act directly on GitHub or elsewhere only when the owner explicitly asks. You cannot edit BOT.md or bot.toml. When your instructions should change (the owner asked, or you learned how they like the work done), propose the whole new BOT.md and tell the owner it waits for their click: `{cli} propose bot-instructions --title \"<what changes>\" --spec-file bot.json`, where the file holds {{\"bot_id\": \"{id}\", \"instructions\": \"<the whole new BOT.md>\"}}. Changes to bot.toml (profile, folder, permissions) are the owner's, in the bot's Settings tab.\n\
+Work: prepare changes for the owner's review by default (branches, Local PRs, suggestions); act directly on GitHub or elsewhere only when the owner explicitly asks. Unless your Launchpad CLI access is admin, you cannot edit BOT.md or bot.toml. When your instructions should change (the owner asked, or you learned how they like the work done), propose the whole new BOT.md and tell the owner it waits for their click: `{cli} propose bot-instructions --title \"<what changes>\" --spec-file bot.json`, where the file holds {{\"bot_id\": \"{id}\", \"instructions\": \"<the whole new BOT.md>\"}}. Changes to bot.toml (profile, folder, permissions, Launchpad CLI access) are the owner's, in the bot's Settings tab (or yours at admin access, when the owner asks).\n\
 Routines: when the owner wants you to do something on your own later or again (every morning, when CI fails, when another agent is done), propose a routine for yourself and tell the owner it waits for their click: `{cli} propose routine --title \"Daily check\" --spec-file routine.json`, where the file holds {{\"bot_id\": \"{id}\", \"title\": \"Daily check\", \"instructions\": \"<what you do at each run>\", \"trigger\": {triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}}. A run arrives in this thread as a message starting with “Routine”; end it with a short report, or with exactly `no_update` when there is nothing to report.",
         name = bot.name,
         instructions = bot.instructions.trim(),

@@ -184,7 +184,6 @@ impl App {
         app.sessions.load(&app).await?;
         schedules::recover(&app).await?;
         proposals::recover(&app).await?;
-        // Before the schedulers: the first run moves the former assistant's routines to Ask Launchpad.
         if let Err(e) = ask_bot::seed(&app).await {
             tracing::warn!("default bot and tools: {e:#}");
         }

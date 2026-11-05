@@ -167,6 +167,16 @@ enum Command {
         #[arg(long)]
         session_id: Option<String>,
     },
+    /// Call Launchpad's API (sessions with admin access to the Launchpad CLI tool): `launchpad api PATCH /api/bots/<id> --body-file b.json`.
+    Api {
+        /// GET, POST, PUT, PATCH or DELETE.
+        method: String,
+        /// The API path, starting with /api/.
+        path: String,
+        /// JSON file with the request body.
+        #[arg(long)]
+        body_file: Option<std::path::PathBuf>,
+    },
     /// Print the stored trace of an agent session, for use as reference context.
     Trace {
         session_id: String,
@@ -557,6 +567,18 @@ async fn main() -> Result<()> {
             let created = Client::new(&paths)?.json("POST", "/api/proposals", Some(serde_json::json!({"title": title, "note": note, "replaces": replaces, "body": body, "session_id": session_id}))).await?;
             println!("Proposal {} saved (state: {}).", created["id"].as_str().unwrap_or("?"), created["state"].as_str().unwrap_or("unknown"));
             if let Some(error) = created["error"].as_str() { println!("Error: {error}"); }
+            Ok(())
+        }
+        Command::Api { method, path, body_file } => {
+            let method = method.to_ascii_uppercase();
+            anyhow::ensure!(matches!(method.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE"), "the method is GET, POST, PUT, PATCH or DELETE");
+            anyhow::ensure!(path.starts_with("/api/"), "the path starts with /api/");
+            let body = match body_file {
+                Some(f) => Some(serde_json::from_str(&std::fs::read_to_string(&f).with_context(|| format!("read {}", f.display()))?).context("the body file is not valid JSON")?),
+                None => None,
+            };
+            let result = Client::new(&paths)?.json(&method, &path, body).await?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
             Ok(())
         }
         Command::Trace { session_id, through } => {

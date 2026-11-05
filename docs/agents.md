@@ -149,7 +149,7 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ## Ask Launchpad
 
-**Ask Launchpad** is a [bot](bots.md#ask-launchpad) that every workspace starts with. It reads your folders, agents, inbox and quotas with the Launchpad CLI tool, and proposes launches, messages, schedules, routines, presets, tools and bots as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create routine**, **Save preset**, **Add tool** or **Create bot**, unless its `bot.toml` sets `proposals = "auto"`. It remembers what it learns about you in its notes, like any bot, and you edit, replace or delete it like any bot. The field at the top of the Agents home sends a message to a bot of the workspace (Ask Launchpad first) and opens its page.
+**Ask Launchpad** is a [bot](bots.md#ask-launchpad) that every workspace starts with. It reads your folders, agents, inbox and quotas with the Launchpad CLI tool, and proposes launches, messages, schedules, routines, presets, tools and bots as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create routine**, **Save preset**, **Add tool** or **Create bot**, unless its `bot.toml` sets `proposals = "auto"`. With admin access to the Launchpad CLI, it also changes bots, routines, schedules and workspaces when you ask. It remembers what it learns about you in its notes, like any bot, and you edit, replace or delete it like any bot. The field at the top of the Agents home sends a message to a bot of the workspace (Ask Launchpad first) and opens its page.
 
 ![Ask Launchpad with two proposals](images/ask.webp)
 

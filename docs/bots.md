@@ -6,13 +6,21 @@ Bots live on Home with your other records. Each session of a bot runs on a runne
 
 ## Ask Launchpad
 
-Every workspace starts with one bot, **Ask Launchpad**. Home creates it once, with its own plain folder. It reads your folders, agents, Inbox, schedules and quotas with the Launchpad CLI, answers your questions and turns requests into proposals you start with one click. It keeps what it learns about you in its notes (`bots/ask-launchpad/` in the knowledge base), like any bot.
+Every workspace starts with one bot, **Ask Launchpad**. Home creates it once, with its own plain folder and admin access to the Launchpad CLI. It reads your folders, agents, Inbox, schedules and quotas, answers your questions, turns requests into proposals you start with one click, and changes Launchpad's settings (bots, routines, schedules, workspaces) when you ask it to. It keeps what it learns about you in its notes (`bots/ask-launchpad/` in the knowledge base), like any bot.
 
-Ask Launchpad has no special treatment: its `BOT.md` and `bot.toml` are edited, versioned and restored like any bot's, and you can rename it, delete it or replace it with your own. Home never recreates a deleted Ask Launchpad; **New bot → Start from: Ask Launchpad** creates a new one with the default instructions. Any bot can do the same work, as long as the Launchpad CLI tool is granted to its workspace.
+Ask Launchpad has no special treatment: its `BOT.md` and `bot.toml` are edited, versioned and restored like any bot's, and you can rename it, delete it or replace it with your own. Home never recreates a deleted Ask Launchpad; **New bot → Start from: Ask Launchpad** creates a new one with the default instructions. Any bot can do the same work, as long as the Launchpad CLI tool is granted to its workspace and its access level allows it.
 
 ## The Launchpad CLI tool
 
-**Launchpad CLI** is a tool of Home's registry (Settings → Credentials and tools), added once and granted to every workspace. A session that has it learns how to read Launchpad state (`launchpad folders|bots|sessions|profiles|presets|inbox|schedules|proposals list`, `launchpad trace`) and how to write proposals (`launchpad propose …`). It needs no token: the CLI uses the session's own credential, which can read and propose but never start, send, publish or post anything. Remove a workspace from the tool (or switch it off for one launch) and its sessions can no longer read Launchpad state or propose.
+**Launchpad CLI** is a tool of Home's registry (Settings → Credentials and tools), added once and granted to every workspace. It needs no token: the CLI uses the session's own credential. What a session may do depends on its access level, set with `launchpad` in a bot's `bot.toml` (Settings tab → **Launchpad CLI**):
+
+| Level | What it allows |
+| --- | --- |
+| `read` | Read Launchpad state: `launchpad folders\|bots\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list`, `launchpad trace`. |
+| `propose` (default) | Read, and write proposals (`launchpad propose …`) that wait for your click. Agents that are not bots always get this level. |
+| `admin` | Propose, and change Launchpad itself with `launchpad api <method> <path>`: bots (their `BOT.md` and `bot.toml` included), routines, scheduled launches, workspaces, accepting or dismissing proposals, launching agents and messaging sessions, MCP tool switches. Ask Launchpad starts with this level. |
+
+No level reaches GitHub, the Outbox, channels, credentials, devices, terminals, hosts, runners, setup fixes, backups, Burst, `config.toml` or paid usage: those stay your clicks. A change of level applies to running sessions within ten minutes. Remove a workspace from the tool (or switch it off for one launch) and its sessions can no longer read Launchpad state at all.
 
 ## Proposals
 
@@ -55,9 +63,9 @@ With a Git folder, each session works in a fresh worktree of Home Git. The bot p
 - **Memory**: the bot's notes in the knowledge base (`bots/<slug>/`) and the recent changes made by its sessions. Correct a note on the Knowledge page; every change can be restored for 30 days.
 - **Proposals**: the cards its sessions wrote, waiting or handled, with **Start all**.
 - **Routines**: what the bot does on its own (see below).
-- **Instructions**: `BOT.md` (instructions) and `bot.toml` (name, profile, model, folder, permission mode, proposal mode), editable here. **Versions** lists every change of the last 30 days with its diff and **Restore previous**. The bot cannot edit these files: when its instructions should change, it proposes a new `BOT.md`, shown as a diff in this tab (and on the Proposals page) until you click **Apply to BOT.md**; applying fails if `BOT.md` changed in between.
+- **Instructions**: `BOT.md` (instructions) and `bot.toml` (name, profile, model, folder, permission mode, proposal mode, Launchpad CLI access), editable here. **Versions** lists every change of the last 30 days with its diff and **Restore previous**. A bot cannot edit these files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md`, shown as a diff in this tab (and on the Proposals page) until you click **Apply to BOT.md**; applying fails if `BOT.md` changed in between.
 - **Sessions**: every session of the thread, with its status and context use.
-- **Settings**: name, profile, model, folder, permissions and proposal mode, what the bot can reach, and **Delete bot**. Deleting keeps the bot's sessions, its notes and its own folder.
+- **Settings**: name, profile, model, folder, permissions, proposal mode and Launchpad CLI access, what the bot can reach, and **Delete bot**. Deleting keeps the bot's sessions, its notes and its own folder.
 
 **Pause** (in the header, once the bot has routines) stops every routine and incoming hook of the bot from starting runs; your own messages still go through, and **Stop** in its session ends a run that is working. **Resume** starts them again from their next trigger.
 
