@@ -290,7 +290,7 @@ async fn patch_project(State(s): State<Server>, Path(id): Path<String>, Json(pat
     Ok(Json(projects::update(&s.app, &id, patch).await?))
 }
 
-/// Unregisters a project. For a temporary project: stops its sessions and deletes the folder.
+/// Unregisters a project. For a temporary folder: stops its sessions and deletes the folder.
 async fn delete_project(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
     let p = projects::get(&s.app, &id).await?.ok_or_else(|| ApiError::not_found("no such project"))?;
     if home_folder_change(&s, &p, "DELETE", None).await?.is_some() {
@@ -298,7 +298,9 @@ async fn delete_project(State(s): State<Server>, Path(id): Path<String>) -> ApiR
     }
     if p.is_temp {
         s.app.sessions.close_in(&s.app, &p.path).await?;
-        projects::delete_temp(&s.app, &id).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+        if projects::get(&s.app, &id).await?.is_some() {
+            projects::delete_temp(&s.app, &id).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+        }
     } else {
         projects::unregister(&s.app, &id).await?;
     }
@@ -540,13 +542,7 @@ async fn answer(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<A
 }
 
 async fn close(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
-    s.app.sessions.close(&s.app, &id).await.map_err(bad)?;
-    // Archive makes clean task worktrees eligible for removal; Resume restores them.
-    let app = s.app.clone();
-    tokio::spawn(async move {
-        launchpad_core::plain::after_archive(&app, &id).await;
-        launchpad_core::worktrees::after_archive(&app, &id).await;
-    });
+    launchpad_core::sessions::archive(&s.app, &id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 

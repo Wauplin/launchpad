@@ -314,12 +314,12 @@ async fn suggest_command(paths: &Paths, command: Suggest) -> Result<()> {
 enum Work {
     /// Ask Launchpad to merge this session's branches into their base branches after the turn ends.
     Finish {
-        #[arg(long)]
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
         session_id: String,
     },
     /// Create a dedicated worktree of another registered project for this session, and print its folder.
     AddProject {
-        #[arg(long)]
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
         session_id: String,
         /// Project name or ID.
         #[arg(long)]

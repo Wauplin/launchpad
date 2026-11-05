@@ -101,7 +101,7 @@ function SpecTokens({ spec }: { spec: LaunchSpec }) {
   const profiles = useProfiles();
   const projects = useProjects().data ?? [];
   const profile = profiles.find((x) => x.id === spec.profile);
-  const folder = spec.target.kind === "project" || spec.target.kind === "predraft" ? projects.find((x) => x.id === (spec.target as { project_id: string }).project_id)?.name : spec.target.kind === "temp" ? "scratch folder" : null;
+  const folder = spec.target.kind === "project" || spec.target.kind === "predraft" ? projects.find((x) => x.id === (spec.target as { project_id: string }).project_id)?.name : spec.target.kind === "temp" ? "temporary folder" : null;
   return (
     <span className="flex flex-wrap gap-1">
       {folder && <Token icon="folder">{folder}</Token>}

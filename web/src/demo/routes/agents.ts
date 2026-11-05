@@ -12,7 +12,7 @@ import type { SessionGitHistory } from "@/gen/SessionGitHistory";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import type { SessionProcess } from "@/gen/SessionProcess";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
-import { clock, DemoError, route } from "../daemon";
+import { clock, DemoError, publish, route } from "../daemon";
 import { answerRun, continueQuota, ensureAmbient, isPlaying, playScenario, stopRun, updateRunOptions } from "../player";
 import { pickReply } from "../scenarios";
 import { appendEvent, light, refreshCounts, session, setStatus, updateSession } from "../store";
@@ -253,6 +253,12 @@ route("POST", "/api/sessions/:id/close", (r) => {
   updateSession(s.id, { quota_pause: null });
   setStatus(s.id, "closed", { live: false, open_question: false, ended_at: clock.now(), archived_done: done });
   refreshCounts();
+  // A temporary folder whose agents are all archived is deleted.
+  const temp = world.projects.find((p) => p.id === s.project_id && p.is_temp);
+  if (temp && !world.sessions.some((x) => x.project_id === temp.id && x.status !== "closed")) {
+    world.projects = world.projects.filter((p) => p.id !== temp.id);
+    publish("projects", "changed", null);
+  }
   return { ok: true };
 });
 

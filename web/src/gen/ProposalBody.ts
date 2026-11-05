@@ -11,7 +11,7 @@ export type ProposalBody = { "kind": "launch", spec: LaunchSpec, } | { "kind": "
  */
 instructions: string, profile?: string, 
 /**
- * A folder of the workspace. None: a new plain folder named after the bot.
+ * A folder of the workspace. None: each session starts in a temporary folder.
  */
 folder?: string, } | { "kind": "routine", bot_id: string, title: string, 
 /**

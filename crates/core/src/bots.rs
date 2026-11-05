@@ -51,8 +51,10 @@ pub struct BotSettings {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
-    /// The folder it works in: its own plain folder, or a Git folder (a fresh worktree per session).
-    pub folder: String,
+    /// The folder it starts in: a plain folder, or a Git folder (a fresh worktree per session). None: each
+    /// session starts in a temporary folder and adds worktrees of the folders it needs with the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
     #[serde(default)]
     pub permission_mode: PermissionMode,
     #[serde(default)]
@@ -99,7 +101,7 @@ pub struct Create {
     pub instructions: String,
     #[serde(default)]
     pub profile: Option<String>,
-    /// None: a new plain folder named after the bot.
+    /// None: a temporary folder per session.
     #[serde(default)]
     pub folder: Option<String>,
     #[serde(default)]
@@ -140,14 +142,14 @@ pub fn slug_for(name: &str, taken: &[String]) -> String {
 }
 
 pub fn parse_settings(text: &str) -> Result<BotSettings> {
-    let s: BotSettings = toml::from_str(text).context("bot.toml")?;
+    let mut s: BotSettings = toml::from_str(text).context("bot.toml")?;
     ensure!(!s.name.trim().is_empty(), "bot.toml: name is empty");
-    ensure!(!s.folder.trim().is_empty(), "bot.toml: folder is empty");
+    s.folder = s.folder.filter(|f| !f.trim().is_empty());
     Ok(s)
 }
 
 fn render_settings(s: &BotSettings) -> Result<String> {
-    Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n{}", toml::to_string(s)?))
+    Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n{}", toml::to_string(s)?))
 }
 
 type Row = (String, String, String, i64, Option<String>, bool);
@@ -175,7 +177,7 @@ async fn load(app: &App, (id, workspace_id, slug, created_at, own, paused): Row)
         Ok(s) => (s, None),
         Err(e) => (BotSettings { name: slug.clone(), ..Default::default() }, Some(format!("{e:#}"))),
     };
-    let own_folder = own.as_deref() == Some(settings.folder.as_str());
+    let own_folder = own.is_some() && own == settings.folder;
     Ok(Bot { id, workspace_id, slug, created_at, settings, instructions, settings_text, settings_error, own_folder, paused, version: tree.version })
 }
 
@@ -229,8 +231,11 @@ pub(crate) async fn write_store(app: &App, store_id: &str, files: Vec<(&str, Str
 
 async fn check_settings(app: &App, workspace_id: &str, s: &BotSettings) -> Result<()> {
     ensure!(!s.name.trim().is_empty(), "give the bot a name");
-    let folder = crate::projects::get(app, &s.folder).await?.context("the bot's folder no longer exists: choose another one")?;
-    ensure!(folder.workspace_id.as_deref() == Some(workspace_id), "{} belongs to another workspace", folder.name);
+    if let Some(f) = &s.folder {
+        let folder = crate::projects::get(app, f).await?.context("the bot's folder no longer exists: choose another one")?;
+        ensure!(folder.workspace_id.as_deref() == Some(workspace_id), "{} belongs to another workspace", folder.name);
+        ensure!(!folder.is_temp, "{} is a temporary folder: choose a registered folder, or none", folder.name);
+    }
     if let Some(p) = &s.profile {
         ensure!(app.config.get().profiles.iter().any(|x| &x.id == p), "no profile {p}: choose one in the bot's Settings");
     }
@@ -246,13 +251,8 @@ pub async fn create(app: &App, c: Create) -> Result<Bot> {
     let slug = slug_for(&name, &taken);
     let id = uuid::Uuid::new_v4().to_string();
     let profile = c.profile.filter(|p| !p.is_empty());
-    let (folder, own) = match c.folder.filter(|f| !f.is_empty()) {
-        Some(f) => (f, None),
-        None => {
-            let p = crate::projects::create_plain(app, &name, &c.workspace_id).await?;
-            (p.id.clone(), Some(p.id))
-        }
-    };
+    let folder = c.folder.filter(|f| !f.is_empty());
+    let own: Option<String> = None;
     let settings = BotSettings { name: name.clone(), profile, model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad };
     check_settings(app, &c.workspace_id, &settings).await?;
     let instructions = if c.instructions.trim().is_empty() { format!("# {name}\n") } else { format!("{}\n", c.instructions.trim_end()) };
@@ -348,14 +348,14 @@ pub fn thread(app: &App, id: &str) -> Vec<Session> {
 }
 
 /// Why the next message starts a new session, or None to continue the current one (its status, profile and
-/// folder).
+/// folder, None for a temporary folder).
 pub fn rotation(bot: &BotSettings, current: Option<(SessionStatus, Option<&str>, Option<&str>)>) -> Option<&'static str> {
     let Some((status, profile, folder)) = current else { return Some("first") };
     if status == SessionStatus::Closed {
         Some("archived")
     } else if profile != bot.profile.as_deref() {
         Some("profile")
-    } else if folder != Some(bot.folder.as_str()) {
+    } else if folder != bot.folder.as_deref() {
         Some("folder")
     } else {
         None
@@ -383,7 +383,9 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
     let sessions = thread(app, id);
     let current = sessions.iter().rev().find(|x| x.status != SessionStatus::Closed);
     let resolved = BotSettings { profile: Some(profile.id.clone()), ..s.clone() };
-    match (new_session, rotation(&resolved, current.map(|c| (c.status, c.launch_spec.profile.as_deref(), c.project_id.as_deref())))) {
+    let folder_of = |c: &Session| if matches!(c.launch_spec.target, Target::Temp) { None } else { c.project_id.as_deref().map(str::to_string) };
+    let current_folder = current.and_then(folder_of);
+    match (new_session, rotation(&resolved, current.map(|c| (c.status, c.launch_spec.profile.as_deref(), current_folder.as_deref())))) {
         (false, None) => {
             let c = current.expect("a current session");
             crate::runners::send_anywhere(app, &c.id, &text, attachments, None).await?;
@@ -396,7 +398,10 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
             }
         }
     }
-    let folder = crate::projects::get(app, &s.folder).await?.context("the bot's folder no longer exists: choose another one in its Settings tab")?;
+    let folder = match &s.folder {
+        Some(f) => Some(crate::projects::get(app, f).await?.context("the bot's folder no longer exists: choose another one in its Settings tab")?),
+        None => None,
+    };
     let previous = sessions.last().map(|p| BotHandoff { session_id: p.id.clone(), title: p.title.clone(), through_seq: p.last_seq });
     let spec = LaunchSpec {
         text,
@@ -406,9 +411,9 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
         model: s.model.clone().or_else(|| profile.model.clone()),
         effort: s.effort.clone().or_else(|| profile.effort.clone()),
         permission_mode: s.permission_mode,
-        target: Target::Project { project_id: folder.id.clone() },
+        target: folder.as_ref().map_or(Target::Temp, |f| Target::Project { project_id: f.id.clone() }),
         // Git folders: a fresh worktree per session, never the owner's checkout.
-        worktree: (!folder.plain).then(|| WorktreeOptions { when_done: folder.when_done, ..Default::default() }),
+        worktree: folder.as_ref().filter(|f| !f.plain).map(|f| WorktreeOptions { when_done: f.when_done, ..Default::default() }),
         workspace_id: Some(bot.workspace_id.clone()),
         bot: Some(BotLaunch { id: bot.id.clone(), name: s.name.clone(), slug: bot.slug.clone(), instructions: bot.instructions.clone(), previous }),
         ..Default::default()
@@ -422,6 +427,7 @@ pub fn instruction(bot: &BotLaunch, cli: &str) -> String {
         "You are {name}, a Launchpad bot: a persistent agent with one thread that continues across sessions. The owner's instructions for you (BOT.md):\n\n<bot-instructions>\n{instructions}\n</bot-instructions>\n\n\
 Memory: the workspace knowledge base ($LAUNCHPAD_KB) is your only memory. Keep your own notes in `bots/{slug}/` (for example `{cli} kb write bots/{slug}/notes.md`): what you learned about the owner's preferences and your work that a later session needs. Shared facts go in the usual folders of the knowledge base.\n\
 Work: prepare changes for the owner's review by default (branches, Local PRs, suggestions); act directly on GitHub or elsewhere only when the owner explicitly asks. Unless your Launchpad CLI access is admin, you cannot edit BOT.md or bot.toml. When your instructions should change (the owner asked, or you learned how they like the work done), propose the whole new BOT.md and tell the owner it waits for their click: `{cli} propose bot-instructions --title \"<what changes>\" --spec-file bot.json`, where the file holds {{\"bot_id\": \"{id}\", \"instructions\": \"<the whole new BOT.md>\"}}. Changes to bot.toml (profile, folder, permissions, Launchpad CLI access) are the owner's, in the bot's Settings tab (or yours at admin access, when the owner asks).\n\
+Folders: find the workspace's folders and what they hold with `{cli} folders list` and your notes; when a task needs one, add a worktree of it to this session with `{cli} work add-project --session-id $LAUNCHPAD_SESSION_ID --project <name>`, which prints the folder to edit.\n\
 Routines: when the owner wants you to do something on your own later or again (every morning, when CI fails, when another agent is done), propose a routine for yourself and tell the owner it waits for their click: `{cli} propose routine --title \"Daily check\" --spec-file routine.json`, where the file holds {{\"bot_id\": \"{id}\", \"title\": \"Daily check\", \"instructions\": \"<what you do at each run>\", \"trigger\": {triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}}. A run arrives in this thread as a message starting with “Routine”; end it with a short report, or with exactly `no_update` when there is nothing to report.",
         name = bot.name,
         instructions = bot.instructions.trim(),
@@ -451,19 +457,23 @@ mod tests {
 
     #[test]
     fn settings_round_trip_and_reject_missing_fields() {
-        let s = BotSettings { name: "Scout".into(), profile: Some("claude".into()), folder: "f1".into(), ..Default::default() };
+        let s = BotSettings { name: "Scout".into(), profile: Some("claude".into()), folder: Some("f1".into()), ..Default::default() };
         assert_eq!(parse_settings(&render_settings(&s).unwrap()).unwrap(), s);
-        assert!(parse_settings("name = \"x\"").is_err());
+        assert_eq!(parse_settings("name = \"x\"").unwrap().folder, None);
+        assert_eq!(parse_settings("name = \"x\"\nfolder = \" \"").unwrap().folder, None);
         assert!(parse_settings("name = \"\"\nfolder = \"f\"").is_err());
     }
 
     #[test]
     fn a_new_session_starts_when_the_thread_cannot_continue() {
-        let bot = BotSettings { name: "Scout".into(), profile: Some("a".into()), folder: "f".into(), ..Default::default() };
+        let bot = BotSettings { name: "Scout".into(), profile: Some("a".into()), folder: Some("f".into()), ..Default::default() };
         assert_eq!(rotation(&bot, None), Some("first"));
         assert_eq!(rotation(&bot, Some((SessionStatus::Waiting, Some("a"), Some("f")))), None);
         assert_eq!(rotation(&bot, Some((SessionStatus::Error, Some("b"), Some("f")))), Some("profile"));
         assert_eq!(rotation(&bot, Some((SessionStatus::Waiting, Some("a"), Some("g")))), Some("folder"));
         assert_eq!(rotation(&bot, Some((SessionStatus::Closed, Some("a"), Some("f")))), Some("archived"));
+        let temp = BotSettings { folder: None, ..bot };
+        assert_eq!(rotation(&temp, Some((SessionStatus::Waiting, Some("a"), None))), None);
+        assert_eq!(rotation(&temp, Some((SessionStatus::Waiting, Some("a"), Some("f")))), Some("folder"));
     }
 }

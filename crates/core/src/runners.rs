@@ -658,7 +658,7 @@ pub async fn session_action(app: &App, id: &str, action: &str) -> Result<()> {
             answer::<serde_json::Value>(status, &body).map(|_| ())
         }
         None => match action {
-            "close" => app.sessions.close(app, id).await.map(|_| ()),
+            "close" => crate::sessions::archive(app, id).await,
             _ => bail!("unknown session action {action}"),
         },
     }

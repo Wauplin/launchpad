@@ -10,5 +10,7 @@ export const P = {
   ask: "demo-ask-folder",
 } as const;
 export const ROOT = "/home/demo/projects";
+/** Temporary folders live in the data folder, outside the folders root. */
+export const TMP = "/home/demo/.local/share/launchpad/tmp";
 export const ORG = "acme-labs";
 export const USER = "demo-user";

@@ -78,7 +78,7 @@ function StateBadge({ state }: { state: BotState }) {
 }
 
 const useBotSessions = () => useSessions().data ?? [];
-const folderLabel = (projects: Project[], id: string) => projects.find((p) => p.id === id)?.name ?? "a removed folder";
+const folderLabel = (projects: Project[], id: string | null | undefined) => id ? projects.find((p) => p.id === id)?.name ?? "a removed folder" : "a temporary folder";
 
 // ---------------------------------------------------------------- the list
 
@@ -143,7 +143,7 @@ function Access({ folder, workspace, workspaceId, mode, proposals = "manual", la
   const cli = tools.some((t) => t.id === "launchpad");
   return <ul className="m-0 grid gap-1 pl-4 text-[12px] text-ink-2">
     <li>Runs contained on a runner, like every agent. <b>{permission.label}</b>: {permission.detail.toLowerCase()}.</li>
-    <li>{folder ? (folder.plain ? <>Works in the plain folder <b>{folder.name}</b>, synced by Home.</> : <>Works in <b>{folder.name}</b>, in a fresh worktree per session; it prepares branches and Local PRs for your review.</>) : <>Works in its own new plain folder, synced by Home.</>}</li>
+    <li>{folder ? (folder.plain ? <>Works in the plain folder <b>{folder.name}</b>, synced by Home.</> : <>Works in <b>{folder.name}</b>, in a fresh worktree per session; it prepares branches and Local PRs for your review.</>) : <>Starts each session in a temporary folder, deleted when the session is archived. It finds the workspace's folders with the Launchpad CLI and its notes, and works on a Git folder in a fresh worktree that it adds when a task needs it.</>}</li>
     <li>Remembers in the knowledge base of <b>{workspace}</b>: every change records it, and you can restore it.</li>
     <li>{tools.length ? <>Uses the tools granted to {workspace} with Home's tokens: {tools.map((t) => t.name).join(", ")}.</> : <>No tool is granted to {workspace} (Settings → Credentials and tools).</>}</li>
     <li>{!cli ? <>Without the Launchpad CLI tool, it cannot read Launchpad state or write proposals.</>
@@ -211,7 +211,7 @@ function NewBot({ first, onCancel }: { first: boolean; onCancel?: () => void }) 
         </label>
         <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Folder
           <select className="field-input h-[32px] font-normal" value={folder} onChange={(e) => setFolder(e.target.value)}>
-            <option value="">Its own folder (a new plain folder{name.trim() ? ` “${name.trim()}”` : ""})</option>
+            <option value="">None: a temporary folder per session</option>
             {folders.map((p) => <option key={p.id} value={p.id}>{p.name}{p.plain ? " · plain folder" : ""}</option>)}
           </select>
         </label>
@@ -326,7 +326,7 @@ function FirstMessage({ bot, reason, previous, needsProfile, openSettings, onCan
       <div className="grid w-full max-w-[560px] gap-3">
         {previous
           ? <p className="m-0 text-[13px] text-ink-2">{reason ? `${reason}: ` : ""}your next message starts a new session of {bot.settings.name}'s thread. It gets a reference to the previous session's trace, and its notes in the knowledge base. <Link to="/agents" search={{ session: previous.id } as never}>Open the previous session</Link></p>
-          : <p className="m-0 text-[13px] text-ink-2">Send {bot.settings.name} its first task. It reads its instructions (Instructions → BOT.md) and the workspace's knowledge base, works in its folder, and keeps notes for its next sessions. To have it work on its own, add a routine in the Routines tab.</p>}
+          : <p className="m-0 text-[13px] text-ink-2">Send {bot.settings.name} its first task. It reads its instructions (Instructions → BOT.md) and the workspace's knowledge base, works in its folder (or a temporary folder), and keeps notes for its next sessions. To have it work on its own, add a routine in the Routines tab.</p>}
         {needsProfile
           ? <div className="flex items-center gap-2 rounded-md bg-attn-soft px-3 py-2 text-[13px] text-attn">This bot has no profile.<button className="btn btn-sm ml-auto" onClick={openSettings}>Choose a profile</button></div>
           : <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
@@ -496,7 +496,7 @@ function SettingsPanel({ bot }: { bot: Bot }) {
   const dirty = JSON.stringify(s) !== JSON.stringify(bot.settings);
   const running = botThread(sessions, bot.id).some((x) => ["starting", "working", "background"].includes(x.status));
   const save = async () => {
-    try { await api.patch<Bot>(`/api/bots/${bot.id}`, { settings: s }); await qc.invalidateQueries({ queryKey: ["bots"] }); toast(s.profile !== bot.settings.profile || s.folder !== bot.settings.folder ? "Saved: the next message starts a new session" : "Saved"); } catch (e) { toastError(e); }
+    try { await api.patch<Bot>(`/api/bots/${bot.id}`, { settings: s }); await qc.invalidateQueries({ queryKey: ["bots"] }); toast(s.profile !== bot.settings.profile || (s.folder ?? null) !== (bot.settings.folder ?? null) ? "Saved: the next message starts a new session" : "Saved"); } catch (e) { toastError(e); }
   };
   return <div data-tour="bots.settings">
     <Section title="Settings">
@@ -516,8 +516,9 @@ function SettingsPanel({ bot }: { bot: Bot }) {
         </select>
       </label>
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Folder
-        <select className="field-input h-[30px] font-normal" value={s.folder} onChange={(e) => setS({ ...s, folder: e.target.value })}>
-          {!folders.some((p) => p.id === s.folder) && <option value={s.folder}>A removed folder</option>}
+        <select className="field-input h-[30px] font-normal" value={s.folder ?? ""} onChange={(e) => setS({ ...s, folder: e.target.value || undefined })}>
+          <option value="">None: a temporary folder per session</option>
+          {s.folder && !folders.some((p) => p.id === s.folder) && <option value={s.folder}>A removed folder</option>}
           {folders.map((p) => <option key={p.id} value={p.id}>{p.name}{p.plain ? " · plain folder" : ""}</option>)}
         </select>
       </label>

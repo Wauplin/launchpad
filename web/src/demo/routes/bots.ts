@@ -30,6 +30,8 @@ const thread = (id: string) => world.sessions.filter((s) => s.launch_spec.bot?.i
 
 /** The profile a bot runs with: its own, else the first subscription profile (Home's `bots::profile_of`). */
 const profileOf = (b: Bot) => b.settings.profile ? world.config.profiles.find((p) => p.id === b.settings.profile) : world.config.profiles.find((p) => p.billing === "subscription") ?? world.config.profiles[0];
+/** A bot's sessions start in its folder, or in a temporary folder without one. */
+export const botTarget = (b: Bot): LaunchSpec["target"] => b.settings.folder ? { kind: "project", project_id: b.settings.folder } : { kind: "temp" };
 
 route("GET", "/api/bots", () => world.bots);
 route("GET", "/api/bots/templates", () => [{ id: "ask-launchpad", name: "Ask Launchpad", instructions: ASK_DEFAULT }]);
@@ -38,15 +40,9 @@ route("POST", "/api/bots", ({ body }) => {
   const c = body as { workspace_id: string; name: string; instructions: string; profile: string | null; folder: string | null };
   if (!c.name?.trim()) throw new DemoError(400, "give the bot a name");
   const slug = c.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "bot";
-  let folder = c.folder;
-  if (!folder) {
-    const id = `demo-bot-folder-${slug}`;
-    world.projects.push({ ...world.projects[0], id, name: c.name.trim(), path: `/home/demo/.local/share/launchpad/plain/${id}`, gh_repo: null, gh_upstream: null, remote_url: null, description: "", is_temp: false, pinned: false, workspace_id: c.workspace_id, plain: true, home_git: false, created_at: clock.now() });
-    publish("projects", "changed", null);
-    folder = id;
-  }
-  const settings: BotSettings = { name: c.name.trim(), profile: c.profile ?? undefined, folder, permission_mode: "yolo", proposals: "manual", launchpad: "propose" };
-  const b: Bot = { id: `demo-bot-${slug}-${world.bots.length}`, workspace_id: c.workspace_id, slug, created_at: clock.now(), settings, instructions: c.instructions?.trim() ? `${c.instructions.trim()}\n` : `# ${settings.name}\n`, settings_text: settingsText(settings), settings_error: null, own_folder: !c.folder, paused: false, version: 1 };
+  // No folder: each session starts in a temporary folder.
+  const settings: BotSettings = { name: c.name.trim(), profile: c.profile ?? undefined, folder: c.folder || undefined, permission_mode: "yolo", proposals: "manual", launchpad: "propose" };
+  const b: Bot = { id: `demo-bot-${slug}-${world.bots.length}`, workspace_id: c.workspace_id, slug, created_at: clock.now(), settings, instructions: c.instructions?.trim() ? `${c.instructions.trim()}\n` : `# ${settings.name}\n`, settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 1 };
   world.bots.push(b);
   record(b, "BOT.md", "", b.instructions);
   changed(b);
@@ -75,7 +71,7 @@ route("POST", "/api/bots/:id/routines", ({ params, body }) => {
   if (!r.title?.trim()) throw new DemoError(400, "give the routine a name");
   if (!r.instructions?.trim()) throw new DemoError(400, "write what the bot does at each run");
   const profile = profileOf(b);
-  return createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: { kind: "project", project_id: b.settings.folder }, text: r.instructions.trim(), workspace_id: b.workspace_id }, r.schedule ?? "", r.conditions ?? [], r.trigger ?? { kind: "schedule" }, { title: r.title.trim(), bot_id: b.id, bot_paused: b.paused, ...(r.time_zone ? { time_zone: r.time_zone } : {}) });
+  return createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), text: r.instructions.trim(), workspace_id: b.workspace_id }, r.schedule ?? "", r.conditions ?? [], r.trigger ?? { kind: "schedule" }, { title: r.title.trim(), bot_id: b.id, bot_paused: b.paused, ...(r.time_zone ? { time_zone: r.time_zone } : {}) });
 });
 route("DELETE", "/api/bots/:id", ({ params }) => {
   world.bots = world.bots.filter((b) => b.id !== params.id);
@@ -99,7 +95,7 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
   }
   if (current) setStatus(current.id, "closed");
   const previous = sessions.at(-1);
-  const spec = { harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: { kind: "project", project_id: b.settings.folder }, worktree: world.projects.find((p) => p.id === b.settings.folder)?.plain ? null : { base: null, when_done: "keep" }, workspace_id: b.workspace_id, text,
+  const spec = { harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), worktree: !b.settings.folder || world.projects.find((p) => p.id === b.settings.folder)?.plain ? null : { base: null, when_done: "keep" }, workspace_id: b.workspace_id, text,
     bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
   return launch(spec, undefined, b.slug === "ask-launchpad" ? pickReply(text, true) : undefined);
 });

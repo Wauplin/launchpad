@@ -33,7 +33,7 @@ Task worktrees live in `<data folder>/worktrees/<folder id>/`, cloned from `<dat
 The file is created on first start. Missing keys use these defaults:
 
 ```toml
-projects_root = "~/projects"        # the folders root: discovery, scratch folders, worktrees
+projects_root = "~/projects"        # the folders root: discovery, kept temporary folders
 remove_published_worktree = false   # keep Local PR worktrees after publication
 presets = []                        # your own prompt instructions, managed in Settings → Presets
 

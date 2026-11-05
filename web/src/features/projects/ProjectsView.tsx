@@ -1,9 +1,9 @@
 import { usePhone } from "@/lib/phone";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
 // Folders: the registered folders of this window's workspace (Everything: every workspace, one section each),
-// scratch folders, and the Unassigned folders card for folders registered before workspaces were required.
+// temporary folders, and the Unassigned folders card for folders registered before workspaces were required.
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { HostLabel } from "@/components/HostLabel";
 import { Link } from "@tanstack/react-router";
 import { memo, useRef, useState } from "react";
@@ -19,6 +19,8 @@ import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { useProjects, useSessions } from "@/lib/queries";
+import { KeepFolder } from "./KeepFolder";
+import { isRunning } from "@/lib/sessionStatus";
 import type { Workspace } from "@/gen/Workspace";
 import { moveFolder, useScope, useWorkspaces } from "@/lib/workspace";
 
@@ -63,39 +65,20 @@ export function TempProjectCard({ p }: { p: Project }) {
   const sessions = useSessions().data ?? [];
   const mine = sessions.filter((s) => s.cwd === p.path || s.cwd.startsWith(p.path + "/"));
   const open = mine.filter((s) => s.status !== "closed");
-  const [name, setName] = useState(p.name.replace(/^tmp-\d{4}-/, ""));
-  const promote = useMutation({
-    mutationFn: () => api.post<Project>(`/api/projects/${p.id}/promote`, { name }),
-    onSuccess: (np) => {
-      toast(`Promoted to ${np.path}`);
-      void qc.invalidateQueries({ queryKey: ["projects"] });
-      void qc.invalidateQueries({ queryKey: ["sessions"] });
-    },
-    onError: toastError,
-  });
-  const root = p.path.slice(0, p.path.length - p.name.length);
+  const running = mine.some(isRunning);
   return (
     <div className="grid min-w-0 gap-2.5 rounded-lg border border-line p-3.5">
       <div className="flex items-center gap-2">
         <HostLabel path={p.path} />
         <span className="min-w-0 truncate font-mono text-[13px] font-semibold" title={p.path}>
-          {p.path}
+          {p.name.replace(/^tmp-\d{4}-/, "") || p.name}
         </span>
         <span className="ml-auto text-xs whitespace-nowrap text-ink-3">created {formatAge(p.created_at)} ago</span>
       </div>
       <div className="text-xs text-ink-3">
-        Scratch folder · {open.length ? `${open.length} open agent${open.length > 1 ? "s" : ""}` : "No open agent"} · {mine.length} in total · Promote keeps it as a regular folder
+        Temporary folder · {open.length ? `${open.length} open agent${open.length > 1 ? "s" : ""}` : "No open agent"} · Deleted when its last agent is archived, unless you keep it as a folder
       </div>
-      <div className="flex items-center gap-2">
-        <div className="flex h-[30px] flex-1 items-center overflow-hidden rounded-[7px] border border-line">
-          <span className="flex h-full max-w-[45%] min-w-0 items-center border-r border-line bg-sunk px-2 font-mono text-xs text-ink-3" title={root}><span className="truncate [direction:rtl]">{root}</span></span>
-          <input className="h-full min-w-0 flex-1 px-2 font-mono text-xs outline-none" value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <button className="btn btn-primary" disabled={!name.trim() || promote.isPending} onClick={() => promote.mutate()}>
-          <Icon name="up" size={14} />
-          Promote
-        </button>
-      </div>
+      <KeepFolder p={p} disabled={running} title={running ? "Wait for its agent to finish" : undefined} />
       <div className="flex items-center gap-2">
         <LaunchButton small ctx={{ projectId: p.id }} label="Launch here" primary={false} />
         <ConfirmButton icon="trash" consequence={`Deletes ${p.path} from disk${open.length ? " and stops its agents" : ""}.`} confirmLabel="Delete files" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => {
@@ -144,7 +127,7 @@ function UnassignedFolders({ folders, workspaces }: { folders: Project[]; worksp
         {folders.map((p) => (
           <div key={p.id} className="flex min-h-[44px] flex-wrap items-center gap-2 border-b border-line-2 px-3 py-1.5 text-[13px] last:border-0">
             <span className="grid min-w-0 flex-1 basis-[200px]">
-              <span className="flex min-w-0 items-center gap-2"><span className="truncate font-semibold">{p.name}</span><HostLabel path={p.path} />{p.is_temp && <span className="text-[11px] text-ink-3">scratch</span>}</span>
+              <span className="flex min-w-0 items-center gap-2"><span className="truncate font-semibold">{p.name}</span><HostLabel path={p.path} />{p.is_temp && <span className="text-[11px] text-ink-3">temporary</span>}</span>
               <span className="truncate font-mono text-[12px] text-ink-3" title={p.path}>{p.path}</span>
             </span>
             {workspaces.map((w) => <button key={w.id} className="btn btn-sm" onClick={() => void assign(p, w)}>{w.name}</button>)}
@@ -217,7 +200,7 @@ export function ProjectsView() {
         ))}
         {temp.length > 0 && (
           <>
-            <div className="seclabel">Scratch folders</div>
+            <div className="seclabel">Temporary folders</div>
             <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
               {temp.map((p) => (
                 <TempProjectCard key={p.id} p={p} />

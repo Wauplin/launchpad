@@ -1,5 +1,5 @@
-//! Ask Launchpad: the bot every workspace starts with. It is a normal bot (BOT.md, bot.toml, its own plain
-//! folder, notes in `bots/ask-launchpad/` of the knowledge base) that reads Launchpad state, writes proposals and
+//! Ask Launchpad: the bot every workspace starts with. It is a normal bot (BOT.md, bot.toml, no folder: each
+//! session runs in a temporary folder, notes in `bots/ask-launchpad/` of the knowledge base) that reads Launchpad state, writes proposals and
 //! changes Launchpad's settings with the Launchpad CLI tool at admin access (`launchpad = "admin"` in its bot.toml),
 //! like any bot given that access. Home creates it once per workspace and the
 //! Launchpad CLI tool once; the owner may edit, replace or delete both, and Home never recreates them.

@@ -31,6 +31,7 @@ import { withPresets } from "@/lib/presets";
 import { AskCard } from "./AskCard";
 import { RunsOn } from "./RunsOn";
 import { Instructions } from "./EventRow";
+import { KeepFolder } from "@/features/projects/KeepFolder";
 
 export function StateBand({ session: s, children }: { session: Session; children?: ReactNode }) {
   const { style } = statusInfo(s);
@@ -164,6 +165,10 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   const followUp = schedules.some((q) => q.resume_session_id === s.id);
   const unfinished = ["stopped", "interrupted", "error"].includes(s.status);
   const working = ["starting", "working", "background"].includes(s.status);
+  // A temporary folder: deleted when its last agent is archived, unless kept as a folder.
+  const temporary = s.launch_spec.target.kind === "temp";
+  const tempFolder = temporary ? projects.find((p) => p.id === s.project_id && p.is_temp) : undefined;
+  const folderGone = temporary && !projects.some((p) => p.id === s.project_id);
   return <div className="min-h-0 flex-1 overflow-y-auto bg-paper">
     {working && <div role="status" className="flex items-center gap-2 border-b border-line bg-work-soft px-4 py-2 text-[12px] text-work"><span className="lp-spin" />Working… The run facts below update when the turn ends.<button className="btn btn-sm ml-auto" onClick={showTrace}>Show trace</button></div>}
     {!working && <StateBand session={s} />}<FollowUpBands sessionId={s.id} /><QuotaBand session={s} />
@@ -172,10 +177,14 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
     <Section title="Next steps">
       {s.imported_from ? <FollowUpAgent session={s} /> : <>
       <WorktreeSteps session={s} />
+      {tempFolder && <div className="grid gap-2 border-t border-line-2 py-2 first:border-0">
+        <span className="text-xs"><span className="mr-2 text-[10px] font-semibold text-ink-3 uppercase">Folder</span>{s.status === "closed" ? "This archived agent's temporary folder is still used by another agent." : "This agent works in a temporary folder, deleted when you archive it. Keep it as a folder to keep its files."}</span>
+        <KeepFolder p={tempFolder} disabled={working} title={working ? "Wait for the turn to end" : undefined} />
+      </div>}
       {!(worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && !localPr) && (localPr && !localPr.published_url && !localPr.merged || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== "main" && !refs.some((r) => r.kind === "pr")) && s.project_id && <NextStep source="Git" text={localPr ? `This agent prepared a Local PR${localPr.title ? `: ${localPr.title}` : ""}.` : (git.data?.unpushed_commits ?? 0) > 0 ? `${git.data!.unpushed_commits} commits are absent from cached remote refs.` : "No PR is linked to this session."} button={localPr ? "Review & publish" : "Open Local PR"} onClick={openPr} disabled={busy} />}
       {drafts.map((d) => <NextStep key={d.id} source={d.target.kind === "predraft" ? "Local" : "GitHub"} text={`This agent drafted a ${d.kind} ${d.target.kind === "predraft" ? "on its Local PR" : `on ${d.target.repo} #${d.target.number}`}${d.status === "draft" ? "" : ": publication was attempted, check GitHub"}.`} button="Review & post" onClick={() => { const t = d.target; if (t.kind === "predraft") void navigate({ to: "/predrafts/$id", params: { id: t.id } }); else { const [owner, repo] = t.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(t.number) } }); } }} />)}
       {((changes?.files ?? 0) > 0 || (git.data?.files.length ?? 0) > 0) && <NextStep source="Git" text={`${git.data?.files.length ?? 0} uncommitted files${changes ? `; ${changes.files} tracked files differ from main` : ""}.`} button="Review diff" onClick={() => reviewDiff((changes?.files ?? 0) > 0)} />}
-      {(unfinished || s.status === "closed") && <NextStep source="Session" text={s.status === "closed" ? "This archived session is still resumable." : "The last turn did not finish successfully."} button="Resume" disabled={busy} onClick={() => void run(async () => { if (unfinished) await api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }); else await api.post(`/api/sessions/${s.id}/resume`); showTrace(); })} />}
+      {(unfinished || s.status === "closed") && !folderGone && <NextStep source="Session" text={s.status === "closed" ? "This archived session is still resumable." : "The last turn did not finish successfully."} button="Resume" disabled={busy} onClick={() => void run(async () => { if (unfinished) await api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }); else await api.post(`/api/sessions/${s.id}/resume`); showTrace(); })} />}
       {refs.map((r, i) => <NextStep key={i} source="GitHub" text={r.title ?? `Linked ${r.kind}${r.number ? ` #${r.number}` : ""}.`} button={`Open ${r.number ? `#${r.number}` : r.kind}`} onClick={() => { if (r.number && r.repo.includes("/")) { const [owner, repo] = r.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(r.number) } }); } else openExternal(r.url); }} />)}
       {!scheduling && <p className="pt-2 text-xs text-ink-3">{followUp ? "A message is already scheduled for this session." : s.status === "quota_paused" ? null : <button className="text-teal-ink hover:underline" title="A message delivered later to this same session" onClick={() => setScheduling(true)}>Send later…</button>}</p>}
       {scheduling && <div className="grid gap-3 border-t border-line py-3"><b className="text-xs">Send later · same session, new message</b><textarea className="field-input min-h-20" aria-label="Message to send later" placeholder="Message to send later…" value={message} onChange={(e) => setMessage(e.target.value)} /><div className="grid gap-1.5"><div><PresetButton surface={presetSurface} labeled selected={followUpPresets} onChange={setFollowUpPresets} /></div><PresetChips surface={presetSurface} selected={followUpPresets} onChange={setFollowUpPresets} /></div><DelaySelector conditions={conditions} harness={s.harness} profile={s.launch_spec.profile} onChange={setConditions} onValidityChange={setValid} /><p className="text-xs text-ink-3">If this session is running, in a terminal or awaiting an answer at that time, the message stays queued until it is ready.</p><div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !followUpMessage || !conditions.length || !valid} onClick={() => void run(async () => { await api.post(`/api/sessions/${s.id}/follow-up`, { message: followUpMessage, conditions }); setScheduling(false); setMessage(""); setFollowUpPresets([]); })}>Schedule</button><button className="btn btn-sm" onClick={() => setScheduling(false)}>Cancel</button></div></div>}

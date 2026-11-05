@@ -5,7 +5,7 @@ import type { Project } from "@/gen/Project";
 import type { Status } from "@/gen/Status";
 import type { Workspace } from "@/gen/Workspace";
 import { clock } from "../daemon";
-import { ORG, P, ROOT, WS } from "./ids";
+import { ORG, P, ROOT, TMP, WS } from "./ids";
 import { demoHost } from "./settings";
 
 const project = (id: string, name: string, repo: string | null, description: string, extra: Partial<Project> = {}): Project => ({
@@ -19,9 +19,9 @@ export function coreWorld() {
     project(P.billing, "billing-api", `${ORG}/billing-api`, "Rust billing service"),
     project(P.docs, "docs", `${ORG}/docs`, "Product documentation"),
     project(P.dotfiles, "dotfiles", null, "Personal configuration", { workspace_id: WS.personal }),
-    project(P.scratch, "tmp-1028-csv-cleanup", null, "", { path: `${ROOT}/tmp-1028-csv-cleanup`, is_temp: true }),
-    // Ask Launchpad's own plain folder (Home creates one with the bot).
-    project(P.ask, "Ask Launchpad", null, "", { path: `/home/demo/.local/share/launchpad/plain/${P.ask}`, plain: true }),
+    project(P.scratch, "tmp-1028-csv-cleanup", null, "", { path: `${TMP}/tmp-1028-csv-cleanup`, is_temp: true }),
+    // Ask Launchpad has no folder: its session runs in a temporary folder.
+    project(P.ask, "tmp-1105-whats-running-in-acme", null, "", { path: `${TMP}/tmp-1105-whats-running-in-acme`, is_temp: true }),
   ];
   const workspaces: Workspace[] = [
     { id: WS.acme, name: "Acme", created_at: clock.ago(60 * 24 * 30) },

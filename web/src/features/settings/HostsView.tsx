@@ -190,7 +190,7 @@ export function HostsView() {
       <Card title="This computer" end={<span className="text-[12px] font-semibold text-gh-open">Ready</span>}>
         <div className="text-[12px] text-ink-2">{status?.host} · {local} folder{local === 1 ? "" : "s"} · {harnesses.map((h) => h.name).join(", ")} as configured in Profiles</div>
         {config && <>
-          <SettingRow label="Folders root" hint="Where folders are suggested, and where scratch folders and worktrees are created." scope="all">
+          <SettingRow label="Folders root" hint="Where folders are suggested, and where temporary folders go when you keep them." scope="all">
             <SavedInput label="Folders root" className="font-mono text-xs" value={config.config.projects_root} onSave={(v) => patch({ projects_root: v })} />
           </SettingRow>
           <SettingRow label="Open links with" hint={config.remote ? "Edit [commands] in config.toml on this computer." : "Command that opens links; empty uses the system default."} scope="all">

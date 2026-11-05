@@ -116,7 +116,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
     setEdit(null);
     toast("Routine saved");
   });
-  const where = cron.bot_id ? <>Posts to {bot ? <Link to="/bots/$id" params={{ id: bot.id }}>{bot.settings.name}</Link> : "its bot"}'s thread</> : <>Starts a new agent · {cron.spec.harness ? harnessName(cron.spec.harness) : "Agent"} · {folder ?? "a new scratch folder"}</>;
+  const where = cron.bot_id ? <>Posts to {bot ? <Link to="/bots/$id" params={{ id: bot.id }}>{bot.settings.name}</Link> : "its bot"}'s thread</> : <>Starts a new agent · {cron.spec.harness ? harnessName(cron.spec.harness) : "Agent"} · {folder ?? "a temporary folder"}</>;
   return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 text-[13px]">
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-lg border border-line bg-chrome p-3">
       {edit ? <>

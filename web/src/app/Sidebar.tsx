@@ -217,7 +217,7 @@ export function Sidebar() {
   const brokenRoutines = (useCrons().data ?? []).filter((c) => scope.hasSpec(c.spec) && ["failed", "interrupted"].includes(c.history.at(-1)?.outcome ?? "")).length;
   const folders = projects.filter((p) => !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const temp = projects.filter((p) => p.is_temp).sort((a, b) => b.created_at - a.created_at);
-  // Scratch folders: only those with agents that need you, run or wait for quota, unless expanded.
+  // Temporary folders: only those with agents that need you, run or wait for quota, unless expanded.
   const tempActive = temp.filter((p) => sessions.some((s) => inProject(p, s) && active(s)));
   const shownTemp = allTemp ? temp : tempActive;
   return (
@@ -261,13 +261,13 @@ export function Sidebar() {
       </>}>{scope.workspace?.name ?? "Everything"}</SideLabel>
       {folders.length === 0 && <button className="mx-[9px] my-1 text-left text-[12px] text-teal-ink hover:underline" onClick={showAdd}>+ Add folder</button>}
       <FolderList folders={folders} sessions={sessions} />
-      {temp.length > 0 && <SideLabel>{allTemp ? "Scratch folders" : "Scratch folders · with agents"}</SideLabel>}
+      {temp.length > 0 && <SideLabel>{allTemp ? "Temporary folders" : "Temporary · active"}</SideLabel>}
       {shownTemp.map((p) => (
         <FolderLink key={p.id} p={p} sessions={sessions} />
       ))}
       {temp.length > tempActive.length && (
         <button className="h-[25px] rounded-md px-[9px] text-left text-[12px] text-ink-3 hover:bg-sunk" aria-expanded={allTemp} onClick={() => setAllTemp(!allTemp)}>
-          {allTemp ? "Show only folders with agents" : `+ ${temp.length - tempActive.length} more scratch ${temp.length - tempActive.length === 1 ? "folder" : "folders"}`}
+          {allTemp ? "Show only folders with agents" : `+ ${temp.length - tempActive.length} more temporary ${temp.length - tempActive.length === 1 ? "folder" : "folders"}`}
         </button>
       )}
       <div className="mt-auto" />

@@ -76,22 +76,27 @@ async fn scope(s: &Server, workspace: Option<&str>) -> Result<Option<Vec<String>
 async fn folders(State(s): State<Server>, Query(q): Query<Scope>) -> ApiResult<Value> {
     let ids = scope(&s, q.workspace.as_deref()).await?;
     let list = launchpad_core::projects::list(&s.app).await?;
-    Ok(Json(json!(list.into_iter().filter(|p| ids.as_ref().is_none_or(|ids| ids.contains(&p.id))).map(|p| json!({
-        "id": p.id, "name": p.name, "path": p.path, "description": p.description, "github": p.gh_repo, "scratch": p.is_temp,
+    // Temporary folders belong to their agents: they are not folders to work on.
+    Ok(Json(json!(list.into_iter().filter(|p| !p.is_temp && ids.as_ref().is_none_or(|ids| ids.contains(&p.id))).map(|p| json!({
+        "id": p.id, "name": p.name, "path": p.path, "description": p.description, "github": p.gh_repo,
+        "kind": if p.home_git { "git" } else if p.plain { "plain" } else { "local" },
     })).collect::<Vec<_>>())))
 }
 
 /// Bots without their instructions' history: name, job, profile, folder and the current session.
 async fn bots(State(s): State<Server>, Query(q): Query<Scope>) -> ApiResult<Value> {
-    let ids = scope(&s, q.workspace.as_deref()).await?;
+    let ws = match q.workspace.as_deref().filter(|w| !w.is_empty() && *w != "all") {
+        Some(w) => Some(launchpad_core::workspace::list(&s.app).await?.into_iter().find(|x| x.id == w || x.name.eq_ignore_ascii_case(w)).ok_or_else(|| ApiError::not_found(format!("no workspace {w}")))?.id),
+        None => None,
+    };
     let list = launchpad_core::bots::list(&s.app).await.map_err(bad)?;
     let folders = launchpad_core::projects::list(&s.app).await?;
-    Ok(Json(json!(list.into_iter().filter(|b| ids.as_ref().is_none_or(|ids| ids.contains(&b.settings.folder))).map(|b| {
+    Ok(Json(json!(list.into_iter().filter(|b| ws.as_ref().is_none_or(|w| &b.workspace_id == w)).map(|b| {
         let thread = launchpad_core::bots::thread(&s.app, &b.id);
         let current = thread.iter().rev().find(|x| x.status != launchpad_core::model::SessionStatus::Closed);
         json!({
             "id": b.id, "name": b.settings.name, "workspace_id": b.workspace_id, "instructions": b.instructions.chars().take(2000).collect::<String>(),
-            "profile": b.settings.profile, "folder_id": b.settings.folder, "folder": folders.iter().find(|p| p.id == b.settings.folder).map(|p| p.name.clone()),
+            "profile": b.settings.profile, "folder_id": b.settings.folder, "folder": b.settings.folder.as_ref().map(|f| folders.iter().find(|p| &p.id == f).map_or("a removed folder", |p| p.name.as_str()).to_string()).unwrap_or_else(|| "a temporary folder per session".into()),
             "current_session": current.map(session_json), "sessions": thread.len(),
         })
     }).collect::<Vec<_>>())))

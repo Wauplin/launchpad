@@ -20,7 +20,7 @@ import { gitPatch, prefill, type AgentsState, type Options } from "../player";
 import { QUOTA_RESET_MINUTES } from "../scenarios/quota";
 import "../scenarios";
 import { defaultSpec } from "../store";
-import { P, ROOT, WS } from "./ids";
+import { P, ROOT, TMP, WS } from "./ids";
 
 export { QUOTA_RESET_MINUTES };
 
@@ -30,7 +30,7 @@ export const PROFILE: Record<string, string> = { claude: "claude-max", codex: "c
 
 /** Folder name of each demo folder ID. */
 export const FOLDER: Record<string, string> = { [P.storefront]: "storefront", [P.billing]: "billing-api", [P.docs]: "docs", [P.dotfiles]: "dotfiles", [P.scratch]: "tmp-1028-csv-cleanup" };
-const WORKSPACE_OF: Record<string, string | null> = { [P.storefront]: WS.acme, [P.billing]: WS.acme, [P.docs]: WS.acme, [P.dotfiles]: WS.personal, [P.scratch]: null };
+const WORKSPACE_OF: Record<string, string | null> = { [P.storefront]: WS.acme, [P.billing]: WS.acme, [P.docs]: WS.acme, [P.dotfiles]: WS.personal, [P.scratch]: WS.acme };
 export const workspaceOf = (projectId: string | null) => (projectId ? WORKSPACE_OF[projectId] ?? null : null);
 
 /** The text `compose.rs` appends to every initial launch prompt (folded under + Launchpad instructions). */
@@ -81,11 +81,11 @@ export function demoSession(b: Build, log: Record<string, SessionEvent[]>, event
   const lastTs = log[b.id].at(-1)?.ts ?? started;
   const typed = b.spec?.text ?? b.title;
   return {
-    id: b.id, generation: 1, harness: b.harness, harness_session_id: `native-${b.id}`, project_id: b.project, cwd: b.cwd ?? `${ROOT}/${b.project ? FOLDER[b.project] : "scratch"}`, title: b.title, status,
+    id: b.id, generation: 1, harness: b.harness, harness_session_id: `native-${b.id}`, project_id: b.project, cwd: b.cwd ?? `${b.project === P.scratch ? TMP : ROOT}/${b.project ? FOLDER[b.project] : "scratch"}`, title: b.title, status,
     archived_done: false, status_since: lastTs, live: ["starting", "working", "background", "waiting", "quota_paused"].includes(status),
     open_question: false, model: MODELS[b.harness] ?? null, effort: b.harness === "codex" ? "medium" : null, prompt: `${typed}\n\n${SUMMARY_INSTRUCTION}`,
     usage: usage(Math.max(2, Math.round(events.length / 2))), started_at: started, ended_at: null, last_seq: events.length,
-    launch_spec: defaultSpec({ harness: b.harness, profile: PROFILE[b.harness] ?? null, target: b.project ? { kind: "project", project_id: b.project } : { kind: "temp" }, text: typed, workspace_id: workspaceOf(b.project), ...b.spec }),
+    launch_spec: defaultSpec({ harness: b.harness, profile: PROFILE[b.harness] ?? null, target: b.project && b.project !== P.scratch && b.project !== P.ask ? { kind: "project", project_id: b.project } : { kind: "temp" }, text: typed, workspace_id: workspaceOf(b.project), ...b.spec }),
     capacity_retry_count: 0, capacity_retry_at: null,
     quota_pause: null, seen_at: b.seen === false ? 0 : lastTs + 30_000,
     last_message: last && last.kind === "assistant_message" ? last.text.split("\n").find((l) => l.trim())?.replace(/[*_`#]/g, "").slice(0, 400) ?? null : null,
@@ -212,7 +212,7 @@ export function agentsWorld() {
       ...tool("Bash", "head -5 customers.csv", "id,name,email,signup\n17,Ada Park,ada@example.com,2024-03-02\n17,Ada Park,ada@example.com,03/02/2024\n18,Lin Ortiz,lin@example.com,2024-03-05"),
       ...change("Write", "clean.py", "+import csv, datetime\n+\n+def parse(d):\n+    for fmt in (\"%Y-%m-%d\", \"%m/%d/%Y\"):\n+        try: return datetime.datetime.strptime(d, fmt).date()\n+        except ValueError: pass\n+    raise ValueError(d)", "add"),
       ...tool("Bash", "python3 clean.py customers.csv > customers.clean.csv && wc -l customers*.csv", "  4211 customers.csv\n  3980 customers.clean.csv"),
-      say("**`customers.clean.csv` is ready**: 231 duplicate rows removed, every date in ISO format (`YYYY-MM-DD`). The script is `clean.py` in this scratch folder."),
+      say("**`customers.clean.csv` is ready**: 231 duplicate rows removed, every date in ISO format (`YYYY-MM-DD`). The script is `clean.py` in this temporary folder."),
       ...end(2), status("waiting"),
     ] });
   add({ id: "demo-s-audit", title: "Nightly dependency audit", project: P.billing, harness: "codex", minutesAgo: 60 * 9,
@@ -290,7 +290,7 @@ export function agentsWorld() {
   gpu.ended_at = gpu.status_since;
 
   // Ask Launchpad: the Acme bot's thread, with a short prerecorded conversation.
-  add({ id: "demo-s-ask-acme", title: "What is running in Acme right now?", project: P.ask, harness: "claude", minutesAgo: 35, cwd: `/home/demo/.local/share/launchpad/plain/${P.ask}`,
+  add({ id: "demo-s-ask-acme", title: "What is running in Acme right now?", project: P.ask, harness: "claude", minutesAgo: 35, cwd: `${TMP}/tmp-1105-whats-running-in-acme`,
     spec: { profile: "claude-max", workspace_id: WS.acme, text: "What is running in Acme right now?", bot: { id: "demo-bot-ask-acme", name: "Ask Launchpad", slug: "ask-launchpad", instructions: "", previous: null } },
     events: [
       user("What is running in Acme right now?", false),

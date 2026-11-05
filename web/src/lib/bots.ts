@@ -31,7 +31,9 @@ export const currentSession = (thread: Session[]) => [...thread].reverse().find(
 export function rotationReason(bot: Bot, current: Session | null, profile: string | null): string | null {
   if (!current) return null;
   if (current.launch_spec.profile !== profile) return "The bot's profile changed";
-  if (current.project_id !== bot.settings.folder) return "The bot's folder changed";
+  // Without a folder, each session runs in its own temporary folder.
+  const folder = current.launch_spec.target.kind === "temp" ? null : current.project_id;
+  if (folder !== (bot.settings.folder ?? null)) return "The bot's folder changed";
   return null;
 }
 

@@ -969,8 +969,9 @@ impl Sessions {
                     }
                 }
                 Target::Temp => {
-                    let workspace = spec.workspace_id.as_deref().context("a new scratch folder needs a workspace: launch it from a workspace")?;
+                    let workspace = spec.workspace_id.as_deref().context("a temporary folder needs a workspace: launch it from a workspace")?;
                     let p = crate::projects::create_temp(app, &spec.text, workspace).await?;
+                    preview.prompt.push_str(&format!("\n\n{}", temp_instruction(&app.cli_command_in(&p.path), &id, workspace, &p.path)));
                     (p.path, Some(p.id))
                 }
                 Target::Project { project_id } => (preview.cwd.clone().unwrap_or_default(), Some(project_id.clone())),
@@ -1283,6 +1284,7 @@ impl Sessions {
         if s.launch_spec.harness.is_none() && crate::terminals::tui_running(app, &s) {
             bail!("This imported conversation is still running in another client. Finish it there first.");
         }
+        anyhow::ensure!(!matches!(s.launch_spec.target, Target::Temp) || crate::hostfs::is_dir(std::path::Path::new(&s.cwd)).await, "Its temporary folder was deleted when it was archived: start a new agent");
         // A clean worktree removed by cleanup comes back from its branch before the agent resumes.
         crate::worktrees::restore_for_session(app, id).await?;
         crate::plain::prepare(app, id).await?;
@@ -2556,6 +2558,26 @@ pub fn shorten(s: &str, max: usize) -> String {
     }
 }
 
+/// Archive: stops the session, then cleans up after it in the background (clean worktrees become eligible for
+/// removal, a temporary folder whose agents are all archived is deleted). Resume restores worktrees.
+pub async fn archive(app: &App, id: &str) -> Result<()> {
+    app.sessions.close(app, id).await?;
+    let (app, id) = (app.clone(), id.to_string());
+    tokio::spawn(async move {
+        crate::plain::after_archive(&app, &id).await;
+        crate::worktrees::after_archive(&app, &id).await;
+        crate::projects::after_archive(&app, &id).await;
+    });
+    Ok(())
+}
+
+/// The first-prompt note of a session in a temporary folder.
+pub fn temp_instruction(cli: &str, session_id: &str, workspace_id: &str, cwd: &str) -> String {
+    format!(
+        "Launchpad temporary folder: your working directory `{cwd}` is temporary. Launchpad deletes it when the owner archives this session, unless they keep it as a folder. \
+To work on a registered folder, find it with `{cli} folders list --workspace {workspace_id}`, then run `{cli} work add-project --session-id {session_id} --project <name>`: it prints a dedicated worktree folder of that Git folder, which you edit and commit there (Launchpad pushes its branch to Home at the end of each turn for the owner's review). Never edit the owner's checkouts."
+    )
+}
 
 #[cfg(test)]
 #[path = "sessions_tests.rs"]
@@ -2580,3 +2602,4 @@ mod recovery_tests {
         assert!(unanswered_requests(&recovered).is_empty());
     }
 }
+

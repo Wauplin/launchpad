@@ -337,7 +337,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const hostStatus = targetHost ? (hosts.find((h) => h.host.id === targetHost) ?? null) : null;
   const hostProfile = (p: Profile | null) => (p ? profileOnHost(hostStatus, p) : null);
   const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Machines` : hostProfile(profile)?.ok === false ? hostProfile(profile)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context folders must be on the same machine as the folder" : null;
-  const blocker = selectedWorktree?.busy ? "Stop the active agent before using this worktree" : hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : spec.target.kind === "temp" && !scope.workspace ? "Switch to a workspace for a new scratch folder" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const blocker = selectedWorktree?.busy ? "Stop the active agent before using this worktree" : hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : spec.target.kind === "temp" && !scope.workspace ? "Switch to a workspace for a temporary folder" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
@@ -371,7 +371,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const launch = async () => {
     if (!canLaunch || launching || attachmentRead.current) return;
     setLaunching(true);
-    // A new scratch folder joins this window's workspace; other folders keep their own.
+    // A temporary folder joins this window's workspace; other folders keep their own.
     const draft = useComposer.getState().spec;
     const pr = prOf(draft);
     const pullRequest = pr && prOptOut !== `${pr.repo}#${pr.number}` ? pr : undefined;
@@ -489,14 +489,14 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {unsupportedImages && <div className="mt-1 text-[12px] text-danger-ink">This harness does not support attached images. Remove them or choose another harness.</div>}
         </div>}
 
-        {browserOnly ? <div className="rounded-lg border border-line bg-chrome px-3 py-2 text-xs">Browser · explicit page grants · scratch folder, no worktree<div className="mt-1 text-ink-3">{harness?.browser_isolation}</div></div> : <div className={`grid gap-2.5 ${isPhone ? "grid-cols-1" : "grid-cols-2"}`}>
+        {browserOnly ? <div className="rounded-lg border border-line bg-chrome px-3 py-2 text-xs">Browser · explicit page grants · own folder, no worktree<div className="mt-1 text-ink-3">{harness?.browser_isolation}</div></div> : <div className={`grid gap-2.5 ${isPhone ? "grid-cols-1" : "grid-cols-2"}`}>
           <Field label="Folder" tour="composer.folder">
             <Popover
               width={300}
               trigger={({ toggle }) => (
                 <SelectButton onClick={toggle}>
                   <Icon name="folder" size={14} />
-                  {spec.target.kind === "temp" ? "New scratch folder" : (target?.name ?? <span className="text-ink-3">Pick a folder</span>)}
+                  {spec.target.kind === "temp" ? "Temporary folder" : (target?.name ?? <span className="text-ink-3">Pick a folder</span>)}
                 </SelectButton>
               )}
             >
@@ -507,7 +507,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                   hasProject={scope.hasProject}
                   selected={target?.id}
                   temporary={spec.target.kind === "temp"}
-                  projectsRoot={config?.projects_root ?? "~/projects"}
+                  allowTemporary
                   onPick={(p) => {
                     set((s) => p ? withFolder(s, p) : ({ ...s, target: { kind: "temp" } }));
                     closeMenu();
@@ -533,7 +533,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               {!!worktreeChoices.length && <optgroup label="Existing worktrees">{worktreeChoices.map((w) => <option key={w.id} value={`worktree:${w.id}`} disabled={w.busy}>{w.branch}{w.busy ? " · Agent active" : ""}</option>)}</optgroup>}
               {existing && !existingPrChoices.some((p) => p.id === existing.id) && <option value={`predraft:${existing.id}`} disabled>Local PR: {existing.title} · Unavailable</option>}
               {!!existingPrChoices.length && <optgroup label="Existing Local PRs">{existingPrChoices.map((p) => <option key={p.id} value={`predraft:${p.id}`}>{p.title}{p.published_number ? ` · PR #${p.published_number}` : ""}</option>)}</optgroup>}
-            </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "A new scratch folder" : "—"}</div>}
+            </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "Deleted at Archive" : "—"}</div>}
             {taskWorktrees.isFetching && !taskWorktrees.data && target && <div className="mt-1 text-xs text-ink-3">Loading existing worktrees…</div>}
             {taskWorktrees.isError && target && <div className="mt-1 text-xs text-danger-ink">Could not load existing worktrees. <button className="underline" onClick={() => void taskWorktrees.refetch()}>Retry</button></div>}
             {existing && <div className="mt-1 break-all text-xs text-ink-3">Branch {existing.branch} on Home</div>}

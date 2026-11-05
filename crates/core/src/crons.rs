@@ -434,7 +434,7 @@ async fn bot_spec(app: &App, bot: &crate::bots::Bot, text: String) -> Result<Lau
         text,
         harness: Some(profile.harness),
         profile: Some(profile.id.clone()),
-        target: Target::Project { project_id: bot.settings.folder.clone() },
+        target: bot.settings.folder.clone().map_or(Target::Temp, |project_id| Target::Project { project_id }),
         workspace_id: Some(bot.workspace_id.clone()),
         ..Default::default()
     })

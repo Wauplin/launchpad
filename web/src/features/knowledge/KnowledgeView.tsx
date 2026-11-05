@@ -95,7 +95,7 @@ export function KnowledgeView() {
   const refresh = () => qc.invalidateQueries({ queryKey: ["knowledge"] });
   const gardener = () => {
     if (!notes.data) return;
-    // A scratch folder joins the window's workspace: the gardener runs in this knowledge base's workspace.
+    // A temporary folder joins the window's workspace: the gardener runs in this knowledge base's workspace.
     if (scope.workspace?.id !== ws) useWorkspace.getState().switchTo(ws);
     const c = useComposer.getState();
     c.start();

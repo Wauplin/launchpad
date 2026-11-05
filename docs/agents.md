@@ -36,7 +36,7 @@ Profiles live in `config.toml` (see [Configuration](configuration.md#profiles)).
 Click **Launch** (top bar, folder pages, inbox rows, or any **▶** button). The composer opens as a side drawer:
 
 - **Prompt.** Type `@` for files and folders, `/` for skills and `#` for folders, agent traces and GitHub items. Paste or drop images and files (up to eight files, 5 MB each).
-- **Folder and Run in.** **New worktree** (default in Git folders), **Checkout**, or **New Local PR** (see [GitHub](github.md#local-prs)). When the prompt or the context names one pull request of the folder's repository (for example a pasted link to a review comment), **Push to PR #N** is checked: the worktree starts from the PR head and the agent pushes its commits to the PR branch (see [GitHub](github.md#continue-a-pull-request)).
+- **Folder and Run in.** A folder of the workspace, or **Temporary folder** for a question or a task that needs no folder (see [Temporary folders](#temporary-folders)). In a Git folder: **New worktree** (default), **Checkout**, or **New Local PR** (see [GitHub](github.md#local-prs)). When the prompt or the context names one pull request of the folder's repository (for example a pasted link to a review comment), **Push to PR #N** is checked: the worktree starts from the PR head and the agent pushes its commits to the PR branch (see [GitHub](github.md#continue-a-pull-request)).
 - **Context.** **+ Add context** attaches issues, pull requests, file selections, other folders and the trace of another agent. Traces are referenced by a `launchpad trace` command, not copied into the prompt.
 - **Options.** Profile, model, effort, permission mode, paid usage, cost limit, presets and start conditions. The summary line shows only non-default values and warnings.
 - **Preview prompt** shows exactly what the agent will receive.
@@ -44,6 +44,12 @@ Click **Launch** (top bar, folder pages, inbox rows, or any **▶** button). The
 The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the Launch button while you collect more context.
 
 New launches ask the agent to end its first task with a short, self-contained summary. Follow-up messages are sent unchanged, except the first message after a Local PR is published, which tells the agent to push to the published branch from now on.
+
+## Temporary folders
+
+**Temporary folder** in the composer's folder menu starts the agent in a new, empty folder in Launchpad's data folder (`<data_dir>/tmp/`), outside your folders root. The agent is told that the folder is temporary, and how to list the workspace's folders and add a worktree of one with `launchpad work add-project`. The sidebar lists temporary folders that have an active agent; the Folders page lists all of them.
+
+When you archive the last agent of a temporary folder, Launchpad deletes the folder; such a session cannot be resumed. To keep the files, click **Keep as folder** in the session's Next steps (or on the Folders page) once the agent is done, and choose a name: the folder moves to the folders root under that name and becomes a normal folder, and its sessions stay resumable. To create a folder before launching, use **Add folder** instead.
 
 ## Following agents
 
@@ -161,7 +167,7 @@ In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or b
 
 Workspaces are yours to define, for example "Work" and "Personal"; none is built in. Every folder belongs to exactly one workspace, chosen when you add, clone or create it, and its agents, schedules, crons and inbox threads follow it. Each window shows one workspace or **Everything**, a view of all of them, and every list, count and badge follows it. Switch with the buttons in the top bar; create, rename and delete workspaces from the sidebar's ⋯ menu. Move a folder with **Move to …** in its menu or in its settings. Only an empty workspace can be deleted.
 
-To use the same repository in two workspaces, clone it again from the other workspace: it becomes a second folder (`<name>-<workspace>`) with its own agents, Local PRs and settings. A new scratch folder joins the workspace of the window, so launch it from a workspace.
+To use the same repository in two workspaces, clone it again from the other workspace: it becomes a second folder (`<name>-<workspace>`) with its own agents, Local PRs and settings. A temporary folder joins the workspace of the window, so launch it from a workspace.
 
 Folders registered before workspaces were required appear in the **Unassigned folders** card on the Folders page until you choose a workspace for each or remove them.
 

@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use rusqlite::{OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -625,10 +625,16 @@ pub async fn discover(app: &App, host: Option<&str>) -> Result<Vec<Discovered>> 
     Ok(out)
 }
 
-/// Creates `<projects_root>/tmp-<MMDD>-<slug>` and registers it as a temporary project of a workspace.
+/// Where temporary folders live: `<data_dir>/tmp`, outside the folders root.
+pub fn temp_root(app: &App) -> PathBuf {
+    app.paths.data_dir.join("tmp")
+}
+
+/// Creates `<data_dir>/tmp/tmp-<MMDD>-<slug>` and registers it as a temporary folder of a workspace. It is
+/// deleted when its last agent is archived, unless the owner keeps it as a folder (`promote`).
 pub async fn create_temp(app: &App, prompt: &str, workspace_id: &str) -> Result<Project> {
-    crate::workspace::get(app, workspace_id).await.context("choose a workspace for the scratch folder")?;
-    let root = app.config.get().projects_root();
+    crate::workspace::get(app, workspace_id).await.context("choose a workspace for the temporary folder")?;
+    let root = temp_root(app);
     let (month, day) = crate::util::local_month_day();
     let base = format!("tmp-{month:02}{day:02}-{}", crate::compose::slug_from(prompt));
     let mut path = root.join(&base);
@@ -641,14 +647,16 @@ pub async fn create_temp(app: &App, prompt: &str, workspace_id: &str) -> Result<
     register(app, &path, true, workspace_id).await
 }
 
+/// The folder of a temporary project: directly in `<data_dir>/tmp`, or in the folders root (older ones).
 fn check_temp(app: &App, p: &Project) -> Result<PathBuf> {
     if !p.is_temp {
-        bail!("{} is not a temporary project", p.name);
+        bail!("{} is not a temporary folder", p.name);
     }
-    let root = std::fs::canonicalize(app.config.get().projects_root())?;
     let path = PathBuf::from(&p.path);
-    if path.parent() != Some(root.as_path()) {
-        bail!("{} is not directly in the projects root", p.path);
+    let parent = path.parent().and_then(|d| std::fs::canonicalize(d).ok());
+    let roots = [temp_root(app), app.config.get().projects_root()];
+    if !roots.iter().any(|r| std::fs::canonicalize(r).ok().is_some_and(|r| parent.as_deref() == Some(r.as_path()))) {
+        bail!("{} is not a Launchpad temporary folder", p.path);
     }
     Ok(path)
 }
@@ -657,14 +665,27 @@ fn check_temp(app: &App, p: &Project) -> Result<PathBuf> {
 pub async fn delete_temp(app: &App, id: &str) -> Result<()> {
     let p = get(app, id).await?.context("no such project")?;
     let path = check_temp(app, &p)?;
+    app.terminals.close_in(&p.path).await?;
     if path.exists() {
         tokio::task::spawn_blocking(move || std::fs::remove_dir_all(&path)).await??;
     }
     unregister(app, id).await
 }
 
-/// Renames a temporary folder to `<projects_root>/<name>` and makes it a normal project. Moves the
-/// Native adapter history too, so past sessions stay resumable. Refused while a session runs there.
+/// After Archive: a temporary folder whose agents are all archived is deleted.
+pub async fn after_archive(app: &App, session_id: &str) {
+    let Some(project_id) = app.sessions.get(session_id).and_then(|s| s.project_id) else { return };
+    let Ok(Some(p)) = get(app, &project_id).await else { return };
+    if !p.is_temp || app.sessions.list().iter().any(|s| s.project_id.as_deref() == Some(p.id.as_str()) && s.status != crate::model::SessionStatus::Closed) {
+        return;
+    }
+    if let Err(e) = delete_temp(app, &p.id).await {
+        tracing::warn!("delete the temporary folder {}: {e:#}", p.path);
+    }
+}
+
+/// Keep as folder: moves a temporary folder to `<projects_root>/<name>` and makes it a normal project. Moves
+/// the native adapter history too, so past sessions stay resumable. Refused while a session runs there.
 pub async fn promote(app: &App, id: &str, name: &str) -> Result<Project> {
     let p = get(app, id).await?.context("no such project")?;
     let old = check_temp(app, &p)?;
@@ -672,13 +693,15 @@ pub async fn promote(app: &App, id: &str, name: &str) -> Result<Project> {
     if name.is_empty() || name.contains('/') || name.starts_with('.') {
         bail!("invalid folder name");
     }
-    let new = old.parent().unwrap().join(name);
+    let root = app.config.get().projects_root();
+    std::fs::create_dir_all(&root).with_context(|| format!("create {}", root.display()))?;
+    let new = std::fs::canonicalize(&root)?.join(name);
     if new.exists() {
         bail!("{} already exists", new.display());
     }
     // A shell would keep running in the renamed folder under its old path.
     app.terminals.close_in(&old.to_string_lossy()).await?;
-    std::fs::rename(&old, &new).with_context(|| format!("rename to {}", new.display()))?;
+    move_dir(&old, &new).await?;
     let (old_s, new_s) = (
         old.to_string_lossy().to_string(),
         new.to_string_lossy().to_string(),
@@ -700,4 +723,19 @@ pub async fn promote(app: &App, id: &str, name: &str) -> Result<Project> {
     app.sessions.move_cwd(app, &old_s, &new_s).await?;
     app.bus.publish("projects", "changed", serde_json::Value::Null);
     get(app, id).await?.context("no such project")
+}
+
+/// Renames a folder, or copies it and deletes the original when the target is on another file system.
+async fn move_dir(old: &Path, new: &Path) -> Result<()> {
+    match std::fs::rename(old, new) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+            let out = tokio::process::Command::new("cp").arg("-a").arg(old).arg(new).output().await.context("cp")?;
+            ensure!(out.status.success(), "copy to {}: {}", new.display(), String::from_utf8_lossy(&out.stderr).trim());
+            let old = old.to_path_buf();
+            tokio::task::spawn_blocking(move || std::fs::remove_dir_all(old)).await??;
+            Ok(())
+        }
+        Err(e) => Err(e).with_context(|| format!("move to {}", new.display())),
+    }
 }

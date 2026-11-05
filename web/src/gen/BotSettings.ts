@@ -13,9 +13,10 @@ export type BotSettings = { name: string,
  */
 profile?: string | null, model?: string | null, effort?: string | null, 
 /**
- * The folder it works in: its own plain folder, or a Git folder (a fresh worktree per session).
+ * The folder it starts in: a plain folder, or a Git folder (a fresh worktree per session). None: each
+ * session starts in a temporary folder and adds worktrees of the folders it needs with the CLI.
  */
-folder: string, permission_mode: PermissionMode, proposals: ProposalMode, 
+folder?: string | null, permission_mode: PermissionMode, proposals: ProposalMode, 
 /**
  * What it may do with the Launchpad CLI tool: read, propose (the default) or admin.
  */

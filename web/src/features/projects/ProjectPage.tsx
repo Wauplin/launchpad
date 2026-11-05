@@ -201,7 +201,7 @@ function FolderSettings({ p }: { p: Project }) {
           <ConfirmButton tone="publish" consequence="Commits the current files to a new Git folder. This cannot be turned back into a plain folder." confirmLabel="Turn into a Git folder" onConfirm={() => api.post(`/api/projects/${p.id}/to-git`, {}).then(() => { toast(`${p.name} is a Git folder now`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError)}>Turn into a Git folder</ConfirmButton>
         </SettingRow>
       )}
-      <SettingRow label={p.is_temp ? "Delete" : "Remove"} hint={p.is_temp ? "Deletes the scratch folder from disk and stops its agents." : "Unregisters the folder; files on disk are kept."}>
+      <SettingRow label={p.is_temp ? "Delete" : "Remove"} hint={p.is_temp ? "Deletes the temporary folder from disk and stops its agents. Archiving its last agent deletes it too." : "Unregisters the folder; files on disk are kept."}>
         {p.is_temp
           ? <ConfirmButton icon="trash" consequence={`Deletes ${p.path} from disk.`} confirmLabel="Delete files" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => { toast(`Deleted ${p.path}`); void qc.invalidateQueries({ queryKey: ["projects"] }); void navigate({ to: "/projects" }); }, toastError)}>Delete files</ConfirmButton>
           : <ConfirmButton icon="trash" consequence="Files on disk are kept." confirmLabel="Remove from Launchpad" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => { toast(`Removed ${p.name} from Launchpad`); void qc.invalidateQueries({ queryKey: ["projects"] }); void navigate({ to: "/projects" }); }, toastError)}>Remove from Launchpad</ConfirmButton>}

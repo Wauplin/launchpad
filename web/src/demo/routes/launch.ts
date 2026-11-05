@@ -2,6 +2,7 @@
 // and uploads. A launch plays the prerecorded scenario closest to its prompt.
 
 import type { CronAgent } from "@/gen/CronAgent";
+import { botTarget } from "./bots";
 import type { CronCondition } from "@/gen/CronCondition";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
@@ -17,7 +18,7 @@ import { pickScenario } from "../scenarios";
 import { appendEvent, defaultSpec, demoId, publishSession, refreshCounts, session } from "../store";
 import { world } from "../world";
 import { demoSession, FOLDER, MODELS, PROFILE, SUMMARY_INSTRUCTION, taskWorktree } from "../world/agents";
-import { P, ROOT } from "../world/ids";
+import { P, ROOT, TMP } from "../world/ids";
 import { routineText } from "../routine";
 import { found, quotaReset, ready, sendMessage } from "./agents";
 
@@ -43,7 +44,7 @@ function where(spec: LaunchSpec): Where {
       const s = found(t.session_id);
       return { projectId: s.project_id, cwd: s.cwd, git: !!world.sessionGit[s.id] || !!s.project_id };
     }
-    case "temp": return { projectId: P.scratch, cwd: `${ROOT}/${FOLDER[P.scratch]}`, git: false };
+    case "temp": return { projectId: P.scratch, cwd: `${TMP}/${FOLDER[P.scratch]}`, git: false };
     case "browser": return notInDemo();
     default: throw new DemoError(400, "Choose a folder first.");
   }
@@ -328,7 +329,7 @@ route("POST", "/api/proposals/:id/accept", (r) => {
       const bot = world.bots.find((x) => x.id === b.bot_id);
       if (!bot) throw new DemoError(400, "this bot no longer exists");
       const profile = world.config.profiles.find((x) => x.id === bot.settings.profile);
-      p.result_id = createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: bot.settings.profile ?? null, target: { kind: "project", project_id: bot.settings.folder }, text: b.instructions, workspace_id: bot.workspace_id }, b.schedule, b.conditions, b.trigger, { title: b.title, bot_id: bot.id, bot_paused: bot.paused }).id;
+      p.result_id = createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: bot.settings.profile ?? null, target: botTarget(bot), text: b.instructions, workspace_id: bot.workspace_id }, b.schedule, b.conditions, b.trigger, { title: b.title, bot_id: bot.id, bot_paused: bot.paused }).id;
     }
     p.state = "started";
     p.error = null;

@@ -6,7 +6,7 @@ Bots live on Home with your other records. Each session of a bot runs on a runne
 
 ## Ask Launchpad
 
-Every workspace starts with one bot, **Ask Launchpad**. Home creates it once, with its own plain folder and admin access to the Launchpad CLI. It reads your folders, agents, Inbox, schedules and quotas, answers your questions, turns requests into proposals you start with one click, and changes Launchpad's settings (bots, routines, schedules, workspaces) when you ask it to. It keeps what it learns about you in its notes (`bots/ask-launchpad/` in the knowledge base), like any bot.
+Every workspace starts with one bot, **Ask Launchpad**. Home creates it once, without a folder (each of its sessions runs in a temporary folder) and with admin access to the Launchpad CLI. It reads your folders, agents, Inbox, schedules and quotas, answers your questions, turns requests into proposals you start with one click, and changes Launchpad's settings (bots, routines, schedules, workspaces) when you ask it to. It keeps what it learns about you in its notes (`bots/ask-launchpad/` in the knowledge base), like any bot.
 
 Ask Launchpad has no special treatment: its `BOT.md` and `bot.toml` are edited, versioned and restored like any bot's, and you can rename it, delete it or replace it with your own. Home never recreates a deleted Ask Launchpad; **New bot → Start from: Ask Launchpad** creates a new one with the default instructions. Any bot can do the same work, as long as the Launchpad CLI tool is granted to its workspace and its access level allows it.
 
@@ -35,7 +35,7 @@ Open **Bots** in the sidebar and click **+** (or **New bot** on the Bots page). 
 - **Name**, for example "Scout".
 - **Its job**: what it does and how you like it done. This text becomes `BOT.md`, the bot's instructions.
 - **Profile**: the profile its sessions use. Without one, the bot uses your first subscription profile.
-- **Folder**: a folder of the workspace, or **Its own folder** (a new plain folder named after the bot, which Home syncs and versions).
+- **Folder** (optional): **None** (the default), or a folder of the workspace for a bot that always works on one. Without a folder, each session starts in a temporary folder: the bot finds the workspace's folders with `launchpad folders list` and its notes, and adds a fresh worktree of a Git folder with `launchpad work add-project` when a task needs it. To give a bot a folder of its own, create the folder first (Folders → Add folder), then choose it here.
 
 The form shows what the bot can reach: its folder, the knowledge base of its workspace, and the tools granted to the workspace. Bots run in YOLO mode by default; change it in the bot's Settings tab. **Create bot** saves the bot and starts nothing. The bot's page then asks for its first task.
 
@@ -56,7 +56,7 @@ A new session starts:
 
 A new session gets a reference to the previous session's trace (`launchpad trace …`), never a copy of it, and the bot's notes in the knowledge base. The harness compacts a long context on its own.
 
-With a Git folder, each session works in a fresh worktree of Home Git. The bot prepares branches, Local PRs and suggestions for your review, and acts directly on GitHub only when you explicitly ask.
+With a Git folder, each session works in a fresh worktree of Home Git. Without a folder, a session's temporary folder is deleted when the session is archived (or when a new session starts); keep what matters in the knowledge base or on a branch. The bot prepares branches, Local PRs and suggestions for your review, and acts directly on GitHub only when you explicitly ask.
 
 ## The bot's page
 
@@ -65,7 +65,7 @@ With a Git folder, each session works in a fresh worktree of Home Git. The bot p
 - **Routines**: what the bot does on its own (see below).
 - **Instructions**: `BOT.md` (instructions) and `bot.toml` (name, profile, model, folder, permission mode, proposal mode, Launchpad CLI access), editable here. **Versions** lists every change of the last 30 days with its diff and **Restore previous**. A bot cannot edit these files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md`, shown as a diff in this tab (and on the Proposals page) until you click **Apply to BOT.md**; applying fails if `BOT.md` changed in between.
 - **Sessions**: every session of the thread, with its status and context use.
-- **Settings**: name, profile, model, folder, permissions, proposal mode and Launchpad CLI access, what the bot can reach, and **Delete bot**. Deleting keeps the bot's sessions, its notes and its own folder.
+- **Settings**: name, profile, model, folder, permissions, proposal mode and Launchpad CLI access, what the bot can reach, and **Delete bot**. Deleting keeps the bot's sessions, its notes and its folder.
 
 **Pause** (in the header, once the bot has routines) stops every routine and incoming hook of the bot from starting runs; your own messages still go through, and **Stop** in its session ends a run that is working. **Resume** starts them again from their next trigger.
 

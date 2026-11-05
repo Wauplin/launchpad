@@ -120,9 +120,9 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
     let ids = project_ids(app, id).await?;
     let folders = ids.len();
     if folders > 0 {
-        // Bots' own folders (Ask Launchpad's too) count: delete the bot first, then remove its folder.
+        // Bots' own folders (created before bots could run without one) count: delete the bot first, then remove its folder.
         let bots = if crate::home_git::here(app) { crate::bots::list(app).await.unwrap_or_default() } else { vec![] };
-        let own = bots.iter().filter(|b| b.workspace_id == id && b.own_folder && ids.contains(&b.settings.folder)).count();
+        let own = bots.iter().filter(|b| b.workspace_id == id && b.own_folder && b.settings.folder.as_ref().is_some_and(|f| ids.contains(f))).count();
         let hint = if own > 0 { format!(" ({own} belong{} to bots: delete the bot in Bots, then remove its folder)", if own == 1 { "s" } else { "" }) } else { String::new() };
         bail!("move or remove its {folders} folder{} first{hint}", if folders == 1 { "" } else { "s" });
     }
