@@ -18,6 +18,9 @@ export function useSessionWorktrees(sessionId: string) {
   return useQuery({ queryKey: ["worktrees", "session", sessionId], queryFn: () => api.get<WorktreeInfo[]>(`/api/sessions/${sessionId}/worktrees`), refetchInterval: 10_000 });
 }
 
+/** The latest session of a worktree: Home relays worktree actions to its runner. */
+export const worktreeSession = (w: WorktreeInfo["worktree"]): string | undefined => w.sessions[w.sessions.length - 1];
+
 /** One line describing the branch, for chips and settings rows. */
 export function worktreeState(i: WorktreeInfo): string {
   const w = i.worktree;
@@ -72,10 +75,12 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
   const [mergeAsk, setMergeAsk] = useState(false);
   const base = w.base_branch;
   const running = !!session && ["starting", "working", "background"].includes(session.status);
+  // On Home, `session` sends the request to the runner that holds the worktree.
+  const owner = encodeURIComponent(worktreeSession(w) ?? session?.id ?? "");
   const act = async (action: string, done?: string) => {
     setBusy(true);
     try {
-      const r = await api.post<WorktreeInfo>(`/api/worktrees/${w.id}/${action}`);
+      const r = await api.post<WorktreeInfo>(`/api/worktrees/${w.id}/${action}?session=${owner}`);
       if (done) toast(done);
       return r;
     } catch (e) { toastError(e); } finally { setBusy(false); }
@@ -83,7 +88,7 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
   const predraft = async () => {
     setBusy(true);
     try {
-      const p = await api.post<Predraft>("/api/predrafts", { cwd: w.root, title: session?.title });
+      const p = await api.post<Predraft>(`/api/predrafts?session=${owner}`, { cwd: w.root, title: session?.title });
       if (session) localStorage.setItem(`launchpad.session-predraft.${session.id}`, p.id);
       await navigate({ to: "/predrafts/$id", params: { id: p.id } });
     } catch (e) { toastError(e); } finally { setBusy(false); }

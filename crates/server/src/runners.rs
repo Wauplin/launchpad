@@ -314,6 +314,12 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
             Some(r) => Some(r),
             None => return next.run(req).await,
         },
+        // Task worktrees live on the runner of their session: the window names it (`?session=`). This covers
+        // the worktree actions and a Local PR created from a worktree folder (`cwd`).
+        ["api", "worktrees", _, _] | ["api", "predrafts"] if !get => match session_param(req.uri()).and_then(|id| s.app.sessions.get(&id)).and_then(|x| x.runner_id) {
+            Some(r) => Some(r),
+            None => return next.run(req).await,
+        },
         _ => return next.run(req).await,
     };
     let headers: Vec<(String, String)> = req.headers().get("idempotency-key").and_then(|v| v.to_str().ok()).map(|v| vec![("idempotency-key".to_string(), v.to_string())]).unwrap_or_default();
@@ -343,6 +349,20 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
         Ok((status, body)) => (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response(),
         Err(e) => ApiError::new(StatusCode::BAD_GATEWAY, format!("{e:#}")).into_response(),
     }
+}
+
+/// The `session` query parameter of a request.
+fn session_param(uri: &axum::http::Uri) -> Option<String> {
+    let q = axum::extract::Query::<std::collections::HashMap<String, String>>::try_from_uri(uri).ok()?;
+    q.0.get("session").filter(|s| !s.is_empty()).cloned()
+}
+
+/// Home: the answers of every connected runner to a task worktree list (`/api/worktrees`,
+/// `/api/worktrees/sizes`). Windows show which runners are offline from `/api/runners`.
+pub(crate) async fn ask_connected(s: &Server, method: &str, path: &str) -> Vec<Value> {
+    let all = runners::list(&s.app).await.unwrap_or_default();
+    let asks = all.iter().filter(|r| r.connected).map(|r| s.app.runners.request(&r.runner.id, method, path, None));
+    futures_util::future::join_all(asks).await.into_iter().filter_map(|a| a.ok()).filter(|(status, _)| *status == 200).filter_map(|(_, body)| serde_json::from_str(&body).ok()).collect()
 }
 
 /// A launch on Home: sent once to a runner that takes it, or started on Burst.

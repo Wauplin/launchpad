@@ -22,6 +22,7 @@ import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useProjects, useSessions } from "@/lib/queries";
+import { offlineWorktreesNote, useOfflineRunners } from "@/lib/runners";
 import { itemSuggestionKey, reviewGroups, useReviewData, useSuggestionsByItem, type ReviewGroup } from "./data";
 
 const useGroup = create<{ group: ReviewGroup }>(() => ({ group: "publish" }));
@@ -136,6 +137,7 @@ export function ReviewView() {
   const sessions = useSessions().data;
   const predrafts = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<Predraft[]>("/api/predrafts") }).data;
   const byItem = useSuggestionsByItem();
+  const offline = offlineWorktreesNote(useOfflineRunners());
   const bySession = useMemo(() => new Map((sessions ?? []).map((s) => [s.id, s])), [sessions]);
   const counts: Record<ReviewGroup, number> = { publish: data.publish.length, branches: data.branches.length, requests: data.requests.length };
   const count = counts[group];
@@ -161,6 +163,7 @@ export function ReviewView() {
     {phone ? <div className="phone-page-content grid gap-1.5 border-b border-line-2 py-2"><span className="text-xs text-ink-3">{note}</span>{chips}</div>
       : <PageHeader title="Review" meta={<span>{note}</span>} tabs={<div className="pb-3">{chips}</div>} />}
     <div ref={ref} className="min-h-0 flex-1 overflow-y-auto">
+      {group === "branches" && offline && <div className="border-b border-line-2 px-4 py-2 text-[12px] text-ink-3">{offline}</div>}
       {count === 0 && (group === "branches" && !data.branchesLoaded ? <Loading what="agent branches" /> : <Empty fill icon="check">{empty[group]}</Empty>)}
       <div className="relative" style={{ height: v.getTotalSize() }}>
         {v.getVirtualItems().map((item) => <div key={item.key} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${item.start}px)` }}>{row(item.index)}</div>)}

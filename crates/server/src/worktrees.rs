@@ -23,7 +23,16 @@ fn bad(e: anyhow::Error) -> ApiError {
     ApiError::bad_request(format!("{e:#}"))
 }
 
+fn home(s: &Server) -> bool {
+    s.app.paths.role == launchpad_core::role::Role::Home
+}
+
 async fn list(State(s): State<Server>) -> ApiResult<Value> {
+    // Home has no worktree: they live on the runners.
+    if home(&s) {
+        let all = crate::runners::ask_connected(&s, "GET", "/api/worktrees").await;
+        return Ok(Json(json!(all.into_iter().filter_map(|v| v.as_array().cloned()).flatten().collect::<Vec<_>>())));
+    }
     let mut out = vec![];
     for w in worktrees::list(&s.app).await? {
         out.push(worktrees::info(&s.app, w).await);
@@ -32,6 +41,10 @@ async fn list(State(s): State<Server>) -> ApiResult<Value> {
 }
 
 async fn sizes(State(s): State<Server>) -> ApiResult<Value> {
+    if home(&s) {
+        let all = crate::runners::ask_connected(&s, "POST", "/api/worktrees/sizes").await;
+        return Ok(Json(json!(all.into_iter().filter_map(|v| v.as_object().cloned()).flatten().collect::<serde_json::Map<_, _>>())));
+    }
     Ok(Json(json!(worktrees::sizes(&s.app).await?)))
 }
 

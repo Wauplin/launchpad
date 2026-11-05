@@ -8,9 +8,10 @@ import { toastError } from "@/components/Toast";
 import { ConfirmButton, Empty, FilterChip, FilterChips, Loading, SettingRow, useSaveState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useConfig } from "@/lib/queries";
+import { offlineWorktreesNote, useOfflineRunners } from "@/lib/runners";
 import { useLayout } from "@/stores/layout";
 import { useNavigate } from "@tanstack/react-router";
-import { worktreeState } from "@/features/agents/Worktrees";
+import { worktreeSession, worktreeState } from "@/features/agents/Worktrees";
 import { Card, ConfigError, LocalPrCleanupRow, SettingsPage, usePatchConfig } from "./SettingsView";
 
 const ROW = 56;
@@ -27,7 +28,7 @@ const WorktreeRow = memo(function WorktreeRow({ info: i, bytes }: { info: Worktr
   const navigate = useNavigate();
   const act = async (action: string) => {
     setBusy(true);
-    try { await api.post(`/api/worktrees/${w.id}/${action}`); } catch (e) { toastError(e); } finally { setBusy(false); }
+    try { await api.post(`/api/worktrees/${w.id}/${action}?session=${encodeURIComponent(worktreeSession(w) ?? "")}`); } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   return (
     <div className="flex h-[56px] items-center gap-3 border-b border-line-2 px-3 text-xs">
@@ -48,6 +49,7 @@ export function WorktreesView() {
   const patch = usePatchConfig();
   const keep = useSaveState();
   const list = useQuery({ queryKey: ["worktrees", "all"], queryFn: () => api.get<WorktreeInfo[]>("/api/worktrees") });
+  const offline = offlineWorktreesNote(useOfflineRunners());
   const [sizes, setSizes] = useState<Record<string, number> | null>(null);
   const [measuring, setMeasuring] = useState(false);
   const [filter, setFilter] = useState<"present" | "all">("present");
@@ -83,6 +85,7 @@ export function WorktreesView() {
         </FilterChips>
         <button className="btn btn-sm" disabled={measuring} onClick={async () => { setMeasuring(true); try { setSizes(await api.post<Record<string, number>>("/api/worktrees/sizes")); } catch (e) { toastError(e); } finally { setMeasuring(false); } }}>{measuring ? "Measuring…" : "Measure disk usage"}</button>
       </>}>
+        {offline && <div className="text-[12px] text-ink-3">{offline}</div>}
         {total !== null && <div className="text-[12px] text-ink-3">{size(total)} on disk</div>}
         {list.isLoading ? <Loading what="worktrees" /> : rows.length === 0 ? <Empty icon="branch">No task worktree yet.</Empty> : (
           <div ref={scrollRef} className="max-h-[480px] overflow-y-auto rounded-lg border border-line">
