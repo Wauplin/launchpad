@@ -380,6 +380,10 @@ class Setup:
         workspaces = await self.api("GET", "/api/workspaces")
         projects = await self.api("GET", "/api/projects")
         runners = await self.api("GET", "/api/runners")
+        try:
+            burst = await self.api("GET", "/api/burst")
+        except Exception:
+            burst = {"unavailable": "Burst is not available on this Home", "config": {"monthly_cap_usd": 0}, "month_usd": 0}
         entries = vault["entries"]
         ssh = next((e for e in entries if e["kind"] == "ssh_key"), None)
         profiles, missing = [], None
@@ -391,7 +395,7 @@ class Setup:
             elif missing is None:
                 missing = {"name": p["name"], "harness": p["harness"]}
         agent = AGENT_DONE in marks
-        if not agent and runners:
+        if not agent:
             agent = bool(await self.api("GET", "/api/sessions"))
         self.home = {
             "ssh": {"done": bool(ssh) and SSH_DONE in marks, "public_key": f"{ssh['detail']} launchpad-home" if ssh else None},
@@ -399,9 +403,12 @@ class Setup:
             "profile": {"done": bool(profiles) and PROFILE_DONE in marks, "ready": bool(profiles), "profiles": profiles, "missing": missing},
             "folders": {"done": bool(workspaces) and bool(projects), "workspaces": [{"id": w["id"], "name": w["name"]} for w in workspaces],
                         "projects": [{"id": p["id"], "name": p["name"], "workspace_id": p.get("workspace_id")} for p in projects]},
+            # Agents can run once a runner is connected or Burst is available (an HF Job, nothing to install).
             "runner": {"done": any(r["connected"] for r in runners),
                        "runners": [{"id": r["runner"]["id"], "name": r["runner"]["name"], "code": r["runner"]["code"], "state": r["runner"]["state"],
-                                    "connected": r["connected"], "compat": r.get("compat")} for r in runners]},
+                                    "connected": r["connected"], "compat": r.get("compat")} for r in runners],
+                       "burst": {"available": burst.get("unavailable") is None, "unavailable": burst.get("unavailable"),
+                                 "cap": burst.get("config", {}).get("monthly_cap_usd", 0)}},
             "agent": {"done": agent},
         }
 

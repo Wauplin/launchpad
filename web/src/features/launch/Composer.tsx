@@ -1,4 +1,4 @@
-import { RunnerChoice, ToolsChoice, useGrantedTools, useLaunchRunners } from "./LaunchExtras";
+import { RunnerChoice, runnerName, ToolsChoice, useGrantedMcp, useGrantedTools, useLaunchRunners } from "./LaunchExtras";
 import { isDesktopShell } from "@/lib/platform";
 import { hostOf, profileOnHost, useHosts } from "@/lib/hosts";
 import { isPhone } from "@/lib/phone";
@@ -297,7 +297,9 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   };
   const set = (f: (s: LaunchSpec) => LaunchSpec) => update(f);
   const launchRunners = useLaunchRunners();
+  const role = useStatus().data?.role;
   const grantedTools = useGrantedTools(spec);
+  const grantedMcp = useGrantedMcp(spec);
   const target = (spec.target.kind === "project" || spec.target.kind === "predraft") ? projects.find((p) => p.id === (spec.target as { project_id: string }).project_id) : existing ? projects.find((p) => p.id === existing.project_id) : source ? projects.find((p) => p.id === source.project_id) : null;
   const repo = target?.gh_repo ?? target?.gh_upstream ?? null;
   // A worktree launch that names one pull request of this folder continues it: start from its head and push there.
@@ -636,7 +638,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {harness?.capabilities.permission_modes && spec.permission_mode && spec.permission_mode !== "yolo" && <Token>{spec.permission_mode === "auto" ? "Auto approval" : "Ask for approval"}</Token>}
           {targetHost && <Token warn={hostStatus?.state !== "connected"} title={hostStatus?.state === "connected" ? `The agent runs on ${targetHost}` : `${targetHost} is ${hostStatus?.state ?? "unknown"}: the launch waits up to 25 s for a connection`}>on {targetHost}</Token>}
           {runIn && <Token>{runIn}</Token>}
-          {spec.runner_id && <Token title="The runner this launch goes to">on {launchRunners.find((r) => r.runner.id === spec.runner_id)?.runner.name ?? "a runner"}</Token>}
+          {spec.runner_id && <Token title="The runner this launch goes to">on {runnerName(launchRunners, spec.runner_id)}</Token>}
           {(spec.tools_off ?? []).length > 0 && <Token title={`Switched off for this launch: ${(spec.tools_off ?? []).join(", ")}`}>{(spec.tools_off ?? []).length} tool{(spec.tools_off ?? []).length === 1 ? "" : "s"} off</Token>}
           {worktreeMode && !pushToPr && spec.worktree?.when_done === "merge" && <Token title={`The agent asks Launchpad to merge into ${baseLabel} when it is done`}>merge when done</Token>}
           {worktreeMode && !pushToPr && spec.worktree?.when_done === "local_pr" && <Token title="The agent turns its worktree into a Local PR when it is done">Local PR when done</Token>}
@@ -671,8 +673,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               <Link to="/settings/profiles" className="w-fit text-[12px] text-teal-ink hover:underline">Manage profiles</Link>
             </span>
           </OptionRow>
-          {launchRunners.length > 0 && <OptionRow label="Runner"><RunnerChoice spec={spec} set={set} /></OptionRow>}
-          {grantedTools.length > 0 && <OptionRow label="Tools"><ToolsChoice spec={spec} set={set} /></OptionRow>}
+          {role === "home" && <OptionRow label="Runner"><RunnerChoice spec={spec} set={set} /></OptionRow>}
+          {(grantedTools.length > 0 || grantedMcp.length > 0) && <OptionRow label="Tools"><ToolsChoice spec={spec} set={set} /></OptionRow>}
           {harness?.capabilities.permission_modes && <OptionRow label="Permissions">
             <div className="grid gap-1.5">
               <select className="field-input w-auto text-xs" aria-label="Permission mode" value={spec.permission_mode ?? "yolo"} onChange={(e) => set((s) => ({ ...s, permission_mode: e.target.value as LaunchSpec["permission_mode"] }))}>

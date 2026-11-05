@@ -107,19 +107,20 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
     <div class="list" id="repos"></div><small id="cloning"></small></div>
   <div class="row" id="folders-next" hidden><button class="primary" id="folders-done">Continue</button></div></div></li>
 
-<li id="s-runner"><span class="dot"></span><div><h2>Connect a runner <span class="tag">recommended</span></h2><div class="state"></div></div>
-  <div class="body"><p class="hint">Agents run on your own Linux machines, called runners. On your laptop or a server, run this in a terminal:</p>
+<li id="s-runner"><span class="dot"></span><div><h2>Where agents run</h2><div class="state"></div></div>
+  <div class="body"><p class="hint" id="burst-hint"></p>
+  <p class="hint"><b>Your laptop</b> <span class="tag">recommended for daily work</span> Agents run there in a jail, at your disk's speed. On your laptop or a Linux server, run this in a terminal:</p>
   <div class="row"><pre class="cmd grow" id="install"></pre><button id="install-copy">Copy</button></div>
   <small>It checks the machine first (Linux x86_64, bubblewrap, Git, a Hugging Face sign-in), installs a runner next to any other Launchpad, then asks you to approve it here.</small>
   <small id="runners-hint" hidden>Approve only the request whose code matches the one in your terminal.</small>
   <div class="list" id="runners" hidden></div>
-  <div class="row"><button class="link" id="runner-skip">Skip for now</button></div></div></li>
+  <div class="row"><button class="primary" id="runner-burst" hidden>Continue with Burst</button><button class="link" id="runner-skip">Skip for now</button></div></div></li>
 
 <li id="s-agent"><span class="dot"></span><div><h2>Run your first agent <span class="tag">recommended</span></h2><div class="state"></div></div>
   <div class="body"><p class="hint">Ask an agent about your project. It works in its own copy of the folder and changes nothing.</p>
   <div class="row"><label class="field grow">Folder<select id="agent-folder"></select></label><label class="field grow">Profile<select id="agent-profile"></select></label><label class="field grow">Runner<select id="agent-runner"></select></label></div>
   <label class="field">Prompt<textarea id="agent-prompt" rows="2"></textarea></label>
-  <div class="row"><button class="primary" id="agent-run">Run agent</button><button class="link" id="agent-skip">Skip for now</button></div></div></li>
+  <div class="row"><button class="primary" id="agent-run">Run agent</button><small id="agent-where"></small><button class="link" id="agent-skip">Skip for now</button></div></div></li>
 </ol>
 <div id="device" class="box" hidden><span id="device-what"></span><div class="row" id="code-row"><span class="code" id="code"></span><button id="copy-code">Copy</button></div>
   <div class="row"><a id="link" class="btn primary" target="_blank" rel="noopener noreferrer">Open sign-in page</a><button id="cancel">Cancel</button></div>
@@ -145,7 +146,7 @@ function render(s){
   const active=ORDER.find(k=>!isDone(s,k));
   const done=REQUIRED.filter(k=>s[k].done).length;
   $("#bar").style.width=`${Math.round(100*ORDER.filter(k=>isDone(s,k)).length/ORDER.length)}%`;
-  $("#progress").textContent=s.complete?"Home is ready. Connect a runner and run a first agent, or open Home now.":`${done} of ${REQUIRED.length} required steps done`;
+  $("#progress").textContent=s.complete?"Home is ready. Run a first agent, or open Home now.":`${done} of ${REQUIRED.length} required steps done`;
   ORDER.forEach((k,i)=>{const li=$("#s-"+k),d=isDone(s,k)&&s[k].done;li.className=d?"done":k===active?"active":"";
     li.querySelector(".dot").textContent=d?"✓":i+1;li.querySelector(".body").hidden=k!==active;});
   const hf=s.huggingface,key=s.key,gh=s.github,pr=s.profile,fo=s.folders,ru=s.runner;
@@ -156,9 +157,11 @@ function render(s){
   $("#s-identity .state").textContent=s.identity.done?`${s.identity.name} <${s.identity.email}>`:"Not set";
   $("#s-profile .state").textContent=pr.done?`Ready: ${(pr.profiles||[]).map(p=>`${p.name}${p.model?` · ${p.model}`:""}${p.effort?` · ${p.effort}`:""}`).join(", ")}`:pr.ready?"Choose a model":pr.missing?`${pr.missing.name} needs its login`:"No profile yet";
   $("#s-folders .state").textContent=fo.done?`${(fo.workspaces||[]).map(w=>w.name).join(", ")} · ${(fo.projects||[]).length} folder${(fo.projects||[]).length===1?"":"s"}`:"No folder yet";
-  const live=(ru.runners||[]).filter(r=>r.connected);
-  $("#s-runner .state").textContent=live.length?`Connected: ${live.map(r=>r.name).join(", ")}`:skipped.has("runner")?"Skipped":"No runner yet";
-  $("#s-agent .state").textContent=s.agent.done?"Done":skipped.has("agent")?"Skipped":live.length?"Ready to run":"Needs a connected runner";
+  const live=(ru.runners||[]).filter(r=>r.connected),burst=ru.burst||{available:false};
+  $("#s-runner .state").textContent=live.length?`Connected: ${live.map(r=>r.name).join(", ")}${burst.available?" · Burst when it is off":""}`:skipped.has("runner")?(burst.available?"Burst for now":"Skipped"):burst.available?"Burst is ready: nothing to install":"No runner yet";
+  $("#s-agent .state").textContent=s.agent.done?"Done":skipped.has("agent")?"Skipped":live.length?"Ready to run":burst.available?"Ready to run on Burst":"Needs a connected runner";
+  $("#burst-hint").innerHTML=burst.available?`<b>Burst</b> <span class="tag">nothing to install</span> Agents can run now: when no runner takes a launch, Home starts an HF Job in your namespace for it (about $0.01 per hour, capped at $${esc(burst.cap)} per month in Settings → Home and runners). It holds no token and stops after each turn.`:`Burst is not available: ${esc(burst.unavailable||"")}. Connect a runner to run agents.`;
+  $("#runner-burst").hidden=!burst.available||live.length>0;
 
   // Key step.
   const mode=document.querySelector("input[name=keymode]:checked").value;
@@ -207,9 +210,10 @@ function render(s){
   // Agent step.
   fill("#agent-folder",(fo.projects||[]).map(p=>[p.id,p.name]));
   fill("#agent-profile",(pr.profiles||[]).map(p=>[p.id,p.name]));
-  fill("#agent-runner",live.map(r=>[r.id,r.name]));
+  fill("#agent-runner",[...live.map(r=>[r.id,r.name]),...(burst.available?[["burst","Burst · HF Job"]]:[])]);
   if(!$("#agent-prompt").value)$("#agent-prompt").value=s.first_prompt;
-  $("#agent-run").disabled=busy||!live.length||!(fo.projects||[]).length||!(pr.profiles||[]).length;
+  $("#agent-run").disabled=busy||!(live.length||burst.available)||!(fo.projects||[]).length||!(pr.profiles||[]).length;
+  $("#agent-where").textContent=$("#agent-runner").value==="burst"?"It starts on Burst in about 30 seconds, then opens here.":"";
 
   // Sign-in in progress.
   $("#device").hidden=!login;
@@ -318,6 +322,8 @@ $("#repo-clone").onclick=()=>clone($("#repo").value.trim());
 $("#folders-done").onclick=()=>{foldersOpen=false;render(st);};
 $("#install-copy").onclick=e=>copy(e.target,st.install);
 $("#runner-skip").onclick=()=>skip("runner");
+$("#runner-burst").onclick=()=>skip("runner");
+$("#agent-runner").onchange=()=>render(st);
 $("#agent-skip").onclick=()=>skip("agent");
 $("#agent-run").onclick=async()=>{
   const folder=$("#agent-folder").value,profile=st.profile.profiles.find(p=>p.id===$("#agent-profile").value),project=st.folders.projects.find(p=>p.id===folder);

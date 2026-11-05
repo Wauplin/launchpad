@@ -29,6 +29,7 @@ import { splitPrompt } from "./traceRows";
 import { PresetButton, PresetChips, usePresets } from "./MessagePresets";
 import { withPresets } from "@/lib/presets";
 import { AskCard } from "./AskCard";
+import { RunsOn } from "./RunsOn";
 import { Instructions } from "./EventRow";
 
 export function StateBand({ session: s, children }: { session: Session; children?: ReactNode }) {
@@ -141,6 +142,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   else if (tokens) metadata.push(["Tokens", compact(tokens)]);
   const contextShare = s.usage.context_tokens != null && s.usage.context_window ? `${Math.round(100 * s.usage.context_tokens / s.usage.context_window)}% context` : null;
   if (s.launch_spec.profile) metadata.push(["Harness", <ProfileLabel session={s} />]);
+  if (s.runner_id && !s.imported_from) metadata.push(["Runs on", <RunsOn session={s} />]);
   if (!s.imported_from && supportsCost) metadata.push(["Cost limit", <CostLimit session={s} />]);
   else if (!s.imported_from && costCapability?.capabilities.cost) metadata.push(["Cost management", <span className="text-attn">{costUnavailableMessage}</span>]);
   metadata.push(["Model", s.imported_from ? s.model ?? "Not reported" : <span className="inline-flex flex-wrap items-center gap-2"><ModelSwitch session={s} />{contextShare}</span>]);

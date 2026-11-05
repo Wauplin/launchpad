@@ -11,8 +11,13 @@ import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { delegatedAccess } from "@/lib/deployment";
 import { formatAge } from "@/lib/format";
-import { useConfig, useStatus } from "@/lib/queries";
+import { useConfig, useSessions, useStatus } from "@/lib/queries";
 import { useRunners } from "@/lib/runners";
+import { formatUsd, useBurst } from "@/lib/burst";
+import type { BurstConfig } from "@/gen/BurstConfig";
+import type { BurstOverview } from "@/gen/BurstOverview";
+import { useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { Card, SettingsPage } from "./SettingsView";
 
 export function RunnersView() {
@@ -56,7 +61,7 @@ function HomeRunners() {
   const approved = (runners.data ?? []).filter((r) => r.runner.state === "approved");
   const refresh = () => qc.invalidateQueries({ queryKey: ["runners"] });
   return (
-    <SettingsPage title="Home and runners" intro="This is Home: it keeps every record and runs no agents. Runners, your own Linux machines, run them.">
+    <SettingsPage title="Home and runners" intro="This is Home: it keeps every record and runs no agents. Runners run them: your own Linux machines, and Burst jobs that Home starts when none of them takes a launch.">
       {runners.isLoading ? <Loading what="runners" /> : runners.error ? <ErrorState error={runners.error} /> : (
         <>
           {pending.length > 0 && (
@@ -83,9 +88,65 @@ function HomeRunners() {
             ))}
           </Card>
           <AddRunner />
+          <BurstCard />
         </>
       )}
     </SettingsPage>
+  );
+}
+
+const BURST_STATE: Record<string, string> = { starting: "starting", running: "running", stopping: "stopping", stopped: "stopped", failed: "failed" };
+
+/** Burst: HF Jobs Home starts when no runner takes a launch. On by default, with a monthly cap. */
+function BurstCard() {
+  const qc = useQueryClient();
+  const burst = useBurst();
+  const [cap, setCap] = useState<string | null>(null);
+  const sessions = useSessions().data ?? [];
+  const titleOf = (id: string) => sessions.find((s) => s.id === id)?.title ?? "Session";
+  const data = burst.data;
+  if (burst.isLoading) return <Card title="Burst"><Loading what="Burst" /></Card>;
+  if (burst.error || !data) return <Card title="Burst"><ErrorState error={burst.error} /></Card>;
+  const save = (c: BurstConfig) => api.put<BurstOverview>("/api/burst/config", c).then((o) => { qc.setQueryData(["burst"], o); setCap(null); }, toastError);
+  const capValue = cap ?? String(data.config.monthly_cap_usd);
+  const capNumber = Number(capValue);
+  const used = data.config.monthly_cap_usd > 0 ? Math.min(100, (100 * data.month_usd) / data.config.monthly_cap_usd) : 100;
+  return (
+    <Card title="Burst">
+      <span className="text-[13px] text-ink-2">When no runner takes a launch (your laptop is off), Home starts it on Burst: an HF Job in your namespace, from Home's own image. The job holds no token: Home adds them. It stops after each turn, once Home has saved everything, and your next message starts a new one.</span>
+      <SettingRow label="Burst" hint={data.unavailable && data.config.enabled ? data.unavailable : "Also available on purpose: Runner → Burst in the composer, or Move to → Burst on a session."}>
+        <FilterChips label="Burst">
+          <FilterChip active={data.config.enabled} onClick={() => !data.config.enabled && void save({ ...data.config, enabled: true })}>On</FilterChip>
+          <FilterChip active={!data.config.enabled} onClick={() => data.config.enabled && void save({ ...data.config, enabled: false })}>Off</FilterChip>
+        </FilterChips>
+      </SettingRow>
+      <SettingRow label="Monthly cap" hint={`${formatUsd(data.month_usd)} used this month (UTC). At the cap, Home starts no new job; running ones finish their turn.`}>
+        <span className="flex items-center gap-2">
+          <span className="text-[13px] text-ink-3">$</span>
+          <input className="field-input w-24 text-[13px]" aria-label="Monthly cap in USD" inputMode="decimal" value={capValue} onChange={(e) => setCap(e.target.value)} />
+          {cap !== null && <button className="btn btn-sm btn-primary" disabled={!(capNumber >= 0)} onClick={() => void save({ ...data.config, monthly_cap_usd: capNumber })}>Save</button>}
+          <span className="h-1.5 w-24 overflow-hidden rounded-full bg-sunk" title={`${Math.round(used)}% of the cap`}><span className={`block h-full ${used >= 100 ? "bg-gh-closed" : used >= 80 ? "bg-attn" : "bg-teal"}`} style={{ width: `${used}%` }} /></span>
+        </span>
+      </SettingRow>
+      <SettingRow label="Hardware" hint="HF Jobs hardware of new jobs. cpu-basic costs 0.01 USD per hour.">
+        <span className="font-mono text-[12px]">{data.config.flavor}</span>
+      </SettingRow>
+      {data.runs.length === 0 ? <Empty icon="clock">No Burst job yet.</Empty> : (
+        <div className="grid gap-1.5">
+          <b className="text-[12px] text-ink-3">Recent jobs</b>
+          {data.runs.slice(0, 10).map((r) => (
+            <div key={r.runner_id} className="flex flex-wrap items-center gap-2 text-[13px]">
+              <Badge tone={r.state === "running" || r.state === "starting" ? "teal" : r.state === "failed" ? "attn" : undefined}>{BURST_STATE[r.state]}</Badge>
+              <span className="min-w-0 flex-1 truncate" title={r.error ?? undefined}>
+                {r.session_id ? <Link className="hover:underline" to="/agents" search={{ session: r.session_id }}>{titleOf(r.session_id)}</Link> : "No session"}
+                <span className="text-ink-3"> · started {formatAge(r.created_at)} ago · {formatUsd(r.cost_per_minute * Math.max(0, ((r.stopped_at ?? Date.now()) - r.created_at) / 60000))}{r.error ? ` · ${r.error}` : ""}</span>
+              </span>
+              {(r.state === "starting" || r.state === "running" || r.state === "stopping") && <ConfirmButton icon="stop" consequence="Cancels this HF Job now. A turn still running there is interrupted; its session stays on Home." confirmLabel="Stop job" onConfirm={() => api.post<BurstOverview>(`/api/burst/${r.runner_id}/stop`, {}).then((o) => qc.setQueryData(["burst"], o), toastError)}>Stop</ConfirmButton>}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 

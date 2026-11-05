@@ -27,7 +27,7 @@ import { daemonUrl } from "@/lib/connection";
 import { formatAge } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useProfiles } from "@/lib/profiles";
-import { useOfflineRunner } from "@/lib/runners";
+import { useRunnerTag } from "@/lib/burst";
 import { useHarnessDefaults, useProjects, useSessions } from "@/lib/queries";
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
@@ -226,7 +226,7 @@ export function BotPage() {
   const [fresh, setFresh] = useState(false);
   const profiles = useProfiles();
   const projects = useProjects().data ?? [];
-  const offline = useOfflineRunner(current?.runner_id ?? undefined);
+  const where = useRunnerTag(current?.runner_id);
   const navigate = useNavigate();
   useEffect(() => setFresh(false), [current?.id]);
   if (bots.isLoading) return <Loading what="the bot" />;
@@ -242,7 +242,7 @@ export function BotPage() {
     <span>{profile ? profile.name : "no profile"}{bot.settings.model ? ` · ${bot.settings.model}` : ""}</span>
     <span>works in {folder}</span>
     <span>{PERMISSIONS.find((p) => p.id === bot.settings.permission_mode)?.label}</span>
-    {offline && <span className="text-attn">{offline} offline</span>}
+    {where && <span className={where.tone === "quiet" && where.label.startsWith("Burst") ? "text-ink-3" : "text-attn"} title={where.title}>{where.label}</span>}
   </>;
   const newSession = thread.length > 0 && !fresh && <button className="btn btn-sm" title="Start a new session of this thread; it references the previous session's trace" disabled={!!current && current.status !== "waiting" && current.status !== "error" && current.status !== "interrupted" && current.status !== "stopped"} onClick={() => setFresh(true)}><Icon name="plus" size={12} />New session</button>;
   const conversation = showSession
