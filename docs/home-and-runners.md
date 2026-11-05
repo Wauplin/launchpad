@@ -51,7 +51,7 @@ Every runner sends the conversation of a session to Home at the end of each turn
 
 Every session a runner runs is saved on Home: its record and every event, in order. The runner writes them to a local outbox in the same transaction as its own copy and drops them only after Home has saved them. While Home is unreachable, sessions keep running and accept your messages on the runner; the outbox is sent when the tunnel is back. Home never marks a runner's session Interrupted when Home itself restarts.
 
-While a runner is disconnected (a sleeping laptop), Home shows "<runner> offline" next to its sessions' status: the status is the last one Home received. This is a runner state, never a session status.
+While a runner is disconnected (a sleeping laptop), Home shows "<runner> offline" next to its sessions' status: the status is the last one Home received. This is a runner state, never a session status. Seen and unread are kept on Home, so a finished session leaves Needs you even while its runner sleeps. **Archive** works too: Home closes the session at once, and the runner archives it (and stops it, if it still runs) when it reconnects. When you **Remove** a runner, its sessions that were running show Interrupted, and Archive closes them on Home.
 
 Each session has a generation number, which grows when a session moves to another runner. Home ignores records and events of an older generation.
 

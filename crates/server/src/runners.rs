@@ -197,6 +197,10 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
     if !send(&mut tx, &profiles(&s)).await { return; }
     let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<ToRunner>();
     let conn = s.app.runners.connect(&s.app, &runner.id, compat, guard, runner.burst, out_tx);
+    tokio::spawn({
+        let (app, id) = (s.app.clone(), runner.id.clone());
+        async move { runners::deliver_archives(&app, &id).await }
+    });
     if runner.burst {
         launchpad_core::burst::connected(&s.app, &runner.id).await;
     }
@@ -303,6 +307,17 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
     let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     let runner = match parts.as_slice() {
         ["api", "sessions"] if method == axum::http::Method::POST => None,
+        // Seen and unread are Home's records (the replica keeps the later seen time); the runner follows when
+        // it is connected, so a sleeping laptop never keeps a session in Needs you.
+        ["api", "sessions", id, "seen" | "unread"] if method == axum::http::Method::POST => {
+            if let Some(r) = s.app.sessions.get(id).and_then(|x| x.runner_id).filter(|r| s.app.runners.connected(r)) {
+                let (out, path) = (s.app.runners.clone(), path.clone());
+                tokio::spawn(async move {
+                    let _ = out.request(&r, "POST", &path, None).await;
+                });
+            }
+            return next.run(req).await;
+        }
         ["api", "sessions", id, rest @ ..] if *id != "search" => {
             let served = (get && matches!(rest, [] | ["events"] | ["events", "page"] | ["trace"] | ["images", ..] | ["access"])) || rest == ["move"];
             match s.app.sessions.get(id).and_then(|x| x.runner_id) {
@@ -340,6 +355,15 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
         && launchpad_core::burst::needs_new_job(&s.app, &session).await
     {
         return burst_stopped(&s, id, rest, body.as_deref(), headers).await;
+    }
+    // Archive while the runner is offline or removed: Home closes the record, the runner follows on reconnect.
+    if !s.app.runners.connected(&runner)
+        && let ["api", "sessions", id, "close"] = parts.as_slice()
+    {
+        return match runners::archive_away(&s.app, id).await {
+            Ok(()) => Json(json!({"ok": true})).into_response(),
+            Err(e) => ApiError::bad_request(format!("{e:#}")).into_response(),
+        };
     }
     if !s.app.runners.connected(&runner) {
         let name = runners::list(&s.app).await.ok().and_then(|l| l.into_iter().find(|r| r.runner.id == runner)).map(|r| r.runner.name).unwrap_or_else(|| "its runner".into());

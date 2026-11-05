@@ -243,13 +243,94 @@ pub async fn is_burst(app: &App, id: &str) -> bool {
     load(app).await.ok().and_then(|all| all.into_iter().find(|(r, _)| r.id == id)).is_some_and(|(r, _)| r.burst)
 }
 
-/// Removes a runner and closes its tunnel. Its sessions stay on Home.
+/// Removes a runner and closes its tunnel. Its sessions stay on Home; those it was running show Interrupted,
+/// since no record will come from it again.
 pub async fn remove(app: &App, id: &str) -> Result<()> {
     let key = id.to_string();
     app.state_db.call(move |c| Ok(c.execute("DELETE FROM runner WHERE id = ?1", [key])?)).await?;
     app.runners.disconnect(id);
+    let orphans: Vec<String> = app.sessions.list().into_iter().filter(|s| s.runner_id.as_deref() == Some(id) && (s.status.is_running() || s.quota_pause.is_some())).map(|s| s.id).collect();
+    for sid in orphans {
+        if let Err(e) = app.sessions.end_replica(app, &sid, crate::model::SessionStatus::Interrupted).await {
+            tracing::warn!("session {sid} of removed runner {id}: {e:#}");
+        }
+    }
+    let _ = take_archives(app, |r, _| r == id);
     app.bus.publish("runners", "changed", serde_json::Value::Null);
     Ok(())
+}
+
+// ---------------------------------------------------------------- Archive while a runner is away
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+struct PendingArchive {
+    runner: String,
+    session: String,
+}
+
+static ARCHIVES: Mutex<()> = Mutex::new(());
+
+fn archives_file(app: &App) -> std::path::PathBuf {
+    app.paths.data_dir.join("runner-archives.json")
+}
+
+fn read_archives(app: &App) -> Vec<PendingArchive> {
+    std::fs::read_to_string(archives_file(app)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+fn write_archives(app: &App, list: &[PendingArchive]) -> Result<()> {
+    std::fs::write(archives_file(app), serde_json::to_string(list)?)?;
+    Ok(())
+}
+
+/// Removes and returns the pending archives that match.
+fn take_archives(app: &App, matches: impl Fn(&str, &str) -> bool) -> Result<Vec<PendingArchive>> {
+    let _lock = ARCHIVES.lock().unwrap();
+    let (taken, kept): (Vec<_>, Vec<_>) = read_archives(app).into_iter().partition(|a| matches(&a.runner, &a.session));
+    if !taken.is_empty() {
+        write_archives(app, &kept)?;
+    }
+    Ok(taken)
+}
+
+/// Home: Archive of a session whose runner is offline or removed. The record closes on Home now; an offline
+/// runner receives the Archive when it reconnects (`deliver_archives`), a removed one never comes back.
+pub async fn archive_away(app: &App, id: &str) -> Result<()> {
+    let s = app.sessions.get(id).context("no such session")?;
+    let runner = s.runner_id.clone().context("this session runs on Home")?;
+    anyhow::ensure!(!app.runners.connected(&runner), "its runner is connected");
+    let known = load(app).await?.into_iter().any(|(r, _)| r.id == runner);
+    if known {
+        let _lock = ARCHIVES.lock().unwrap();
+        let mut list = read_archives(app);
+        let item = PendingArchive { runner, session: id.to_string() };
+        if !list.contains(&item) {
+            list.push(item);
+            write_archives(app, &list)?;
+        }
+    }
+    app.sessions.end_replica(app, id, crate::model::SessionStatus::Closed).await?;
+    Ok(())
+}
+
+/// Home: a runner that reconnected receives the Archives clicked while it was away, once each.
+pub async fn deliver_archives(app: &App, runner_id: &str) {
+    let Ok(list) = take_archives(app, |r, _| r == runner_id) else { return };
+    let mut failed = vec![];
+    for a in list {
+        match app.runners.request(runner_id, "POST", &format!("/api/sessions/{}/close", a.session), None).await {
+            Ok((status, body)) if status >= 300 => tracing::warn!("Archive of {} on its runner: {status} {body}", a.session),
+            Ok(_) => {}
+            // The tunnel dropped again: the next connection delivers it.
+            Err(_) => failed.push(a),
+        }
+    }
+    if !failed.is_empty() {
+        let _lock = ARCHIVES.lock().unwrap();
+        let mut list = read_archives(app);
+        list.extend(failed);
+        let _ = write_archives(app, &list);
+    }
 }
 
 pub async fn list(app: &App) -> Result<Vec<RunnerStatus>> {

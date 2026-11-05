@@ -667,6 +667,26 @@ impl Sessions {
         Ok(s)
     }
 
+    /// Home: ends a replicated session on Home alone, when its runner cannot do it (offline or removed). Only
+    /// the record changes: Home adds no event, so the runner's sequence stays its own.
+    pub(crate) async fn end_replica(&self, app: &App, id: &str, status: SessionStatus) -> Result<Session> {
+        let _action = self.action_lock().await;
+        let s = self.update(app, id, |s| {
+            s.change_status(status);
+            s.status_since = now_ms();
+            s.live = false;
+            s.open_question = false;
+            s.quota_pause = None;
+            s.capacity_retry_at = None;
+            if status == SessionStatus::Closed {
+                s.ended_at = Some(now_ms());
+            }
+        })
+        .await?;
+        self.publish_counts(app);
+        Ok(s)
+    }
+
     /// Home: the session moves to another runner, in a new generation. Records and events of the older one are
     /// ignored from now on.
     pub(crate) async fn reassign(&self, app: &App, id: &str, runner_id: &str) -> Result<Session> {
