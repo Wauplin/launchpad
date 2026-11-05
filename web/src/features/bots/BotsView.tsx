@@ -34,7 +34,7 @@ import { routineState, triggerSummary } from "@/lib/routines";
 import { NewRoutine, RoutineDetails, RunStrip } from "@/features/schedules/Routines";
 import type { CronAgent } from "@/gen/CronAgent";
 import { ProposalCard, useProposalList } from "@/features/proposals/ProposalCard";
-import { ProposalList } from "@/features/proposals/ProposalsView";
+import { ProposalList } from "@/features/proposals/ProposalList";
 import { isWaiting } from "@/features/proposals/proposalState";
 import type { ProposalMode } from "@/gen/ProposalMode";
 import type { LaunchpadAccess } from "@/gen/LaunchpadAccess";

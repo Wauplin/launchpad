@@ -12,18 +12,18 @@ const firstButton = async (name: string) => { (await waitFor(() => anchor(name)?
 
 export const answering: Chapter = {
   ...meta("answering"),
-  learned: ["Needs you, Running, Quota paused and Done group your agents", "Agents ask questions; you answer with a click", "In Ask for approval mode, commands wait for your decision", "One primary button follows the state: Stop, Answer, Archive or Resume"],
+  learned: ["Agents groups your runs: Running, Quota paused, Done and more; questions and unseen results also wait in Today", "Agents ask questions; you answer with a click", "In Ask for approval mode, commands wait for your decision", "One primary button follows the state: Stop, Answer, Archive or Resume"],
   setup: () => { start = answers(); },
   steps: [
     {
       id: "answering.groups", route: "/agents", anchor: "agents.list",
-      title: "Agents, grouped by what they need",
-      body: "Needs you: questions and finished runs you have not seen. Running: working now. Quota paused: waiting for subscription quota. Done: seen and waiting for your next message.",
+      title: "Agents, grouped by state",
+      body: "Agents shows what runs and what ran. Running: working now. Quota paused: waiting for subscription quota. Done: waiting for your next message. Runs you have not seen are bold; they also wait in Today until you open them.",
     },
     {
       id: "answering.question", route: `/agents?session=${ID}`, anchor: "session.question",
       title: "An agent asks you",
-      body: "Agents can stop and ask. The question shows here and the agent is in Needs you until you answer. You can also type another answer in the message box.",
+      body: "Agents can stop and ask. The question shows here and on its Today card, where one click answers it. You can also type another answer in the message box.",
       tryIt: { text: "pick an answer.", done: () => answers() > start, doIt: () => firstButton("session.question") },
     },
     {

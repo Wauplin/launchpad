@@ -211,7 +211,7 @@ function Dock({ fill }: { fill?: boolean }) {
       {phone ? (
         <PhoneHeader
           title="Terminals"
-          onBack={() => { if (window.history.length > 1) router.history.back(); else void navigate({ to: "/now" }); }}
+          onBack={() => { if (window.history.length > 1) router.history.back(); else void navigate({ to: "/" }); }}
           backLabel="Back"
           primary={<div className="flex items-center gap-1">{switcher}{dockMenu}</div>}
           subtitle={active ? `${kindLabel(active)} · ${active.cwd}` : undefined}

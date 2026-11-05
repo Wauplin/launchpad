@@ -128,6 +128,8 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["onboarding"] });
     } else if (topic === "config") {
       void queryClient.invalidateQueries({ queryKey: ["config"] });
+    } else if (topic === "today") {
+      void queryClient.invalidateQueries({ queryKey: ["today"] });
     } else if (topic === "proposals") {
       void queryClient.invalidateQueries({ queryKey: ["proposals"] });
     } else if (topic === "runners") {

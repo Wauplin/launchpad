@@ -1,8 +1,6 @@
 import { useKnowledgeUnseen } from "@/lib/knowledge";
 import { useInboxNeeds } from "@/features/inbox/data";
-import { useReviewCount } from "@/features/review/data";
-import { useProposalCount } from "@/features/proposals/count";
-import { useOutboxCount } from "@/features/outbox/data";
+import { useTodayCount } from "@/features/today/data";
 import { botInitial, botState, botThread, useBots } from "@/lib/bots";
 import type { Bot } from "@/gen/Bot";
 import { useScope } from "@/lib/workspace";
@@ -16,7 +14,7 @@ import type { Session } from "@/gen/Session";
 import { Icon, type IconName } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { formatAge } from "@/lib/format";
-import { useCrons, useSessions } from "@/lib/queries";
+import { useSessions } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
 import { useComposer } from "@/stores/composer";
 import { useOpenTerminal, useTerminalsHere } from "@/features/terminals/lib";
@@ -161,34 +159,28 @@ const BotLink = memo(function BotLink({ bot, thread }: { bot: Bot; thread: Sessi
   );
 });
 
-/** Bots of the workspace (Ask Launchpad among them), and the proposals they wrote. Collapsed: the waiting count and one state dot. */
-function BotList({ proposals, sessions }: { proposals: number; sessions: Session[] }) {
+/** Bots of the workspace (Ask Launchpad among them). Collapsed: one state dot; their proposals wait in Today. */
+function BotList({ sessions }: { sessions: Session[] }) {
   const scope = useScope();
   const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
   const states = bots.map((b) => botState(botThread(sessions, b.id)));
-  const count = proposals > 0 ? <span className="rounded-full bg-teal-soft px-1.5 text-[11px] font-semibold text-teal-ink tabular-nums" title={`${proposals} proposals wait for your click`}>{proposals}</span> : undefined;
   const summary = <span className="flex items-center gap-1.5">
     {states.includes("needs") && <span className="size-[7px] rounded-full bg-attn" title="A bot needs you" />}
     {states.includes("paused") && <span className="size-[7px] rounded-full border border-attn" title="A bot is quota paused" />}
     {states.includes("running") && <span className="lp-spin" title="A bot works" />}
-    {count}
   </span>;
   return (
     <Group id="bots" to="/bots" label="Bots" tour="sidebar.bots" end={summary} actions={<Link to="/bots" search={{ new: true } as never} className="iconbtn size-[22px]!" title="New bot" aria-label="New bot"><Icon name="plus" size={13} /></Link>}>
-      <NavItem tour="sidebar.proposals" to="/proposals" icon="spark" end={count}>
-        Proposals
-      </NavItem>
       {bots.map((b) => <BotLink key={b.id} bot={b} thread={botThread(sessions, b.id)} />)}
       {bots.length === 0 && <Link to="/bots" search={{ new: true } as never} className="mx-[9px] my-1 text-[12px] text-teal-ink no-underline hover:underline">+ New bot</Link>}
     </Group>
   );
 }
 
-/** Agents in the sidebar: one line, with the needs-you, quota-paused and running counts. */
-function AgentCounts({ waiting, quotaPaused, running }: { waiting: number; quotaPaused: number; running: number }) {
-  if (!waiting && !quotaPaused && !running) return null;
+/** Agents in the sidebar: a monitor, with the quota-paused and running counts. What needs you is in Today. */
+function AgentCounts({ quotaPaused, running }: { quotaPaused: number; running: number }) {
+  if (!quotaPaused && !running) return null;
   return <span className="flex items-center gap-1 text-[11px] font-semibold tabular-nums">
-    {waiting > 0 && <span className="rounded-full bg-attn-soft px-1.5 text-attn" title={`${waiting} need you: questions and unseen Done, Failed or Interrupted sessions`} aria-label={`${waiting} need you`}>{waiting}</span>}
     {quotaPaused > 0 && <span className="rounded-full border border-attn-line px-1.5 leading-[14px] text-attn" title={`${quotaPaused} quota paused`} aria-label={`${quotaPaused} quota paused`}>{quotaPaused}</span>}
     {running > 0 && <span className="flex items-center gap-1 text-work" title={`${running} running`} aria-label={`${running} running`}><span className="lp-spin" />{running}</span>}
   </span>;
@@ -197,19 +189,15 @@ function AgentCounts({ waiting, quotaPaused, running }: { waiting: number; quota
 export function Sidebar() {
   const { theme, toggle } = useTheme();
   const needs = useInboxNeeds();
-  const toReview = useReviewCount();
+  const today = useTodayCount();
   const knowledgeNew = useKnowledgeUnseen();
-  const proposals = useProposalCount();
-  const toSend = useOutboxCount();
   const scope = useScope();
   const showAdd = useAddFolder((s) => s.show);
   const projects = scope.projects;
   const sessions = (useSessions().data ?? []).filter(scope.hasSession);
   const [allTemp, setAllTemp] = useState(false);
-  const waiting = sessions.filter(needsYou).length;
   const running = sessions.filter(isRunning).length;
   const quotaPaused = sessions.filter(isQuotaPaused).length;
-  const brokenRoutines = (useCrons().data ?? []).filter((c) => scope.hasSpec(c.spec) && ["failed", "interrupted"].includes(c.history.at(-1)?.outcome ?? "")).length;
   const folders = projects.filter((p) => !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const temp = projects.filter((p) => p.is_temp).sort((a, b) => b.created_at - a.created_at);
   // Temporary folders: only those with agents that need you, run or wait for quota, unless expanded.
@@ -221,22 +209,19 @@ export function Sidebar() {
       {/* One scroll area for the groups; Settings stays at the bottom. */}
       <WorkspaceMenu />
       <div ref={scroller} className="relative flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-2 pt-2.5 pb-2">
-      <BotList proposals={proposals} sessions={sessions} />
+      <BotList sessions={sessions} />
       <nav aria-label="Places" data-tour="sidebar.nav" className="mt-2 flex flex-none flex-col gap-px border-t border-line-2 pt-2">
-      <NavItem tour="sidebar.inbox" to="/" icon="inbox" end={needs > 0 ? <span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold text-attn tabular-nums" title={`${needs} for you: unread review requests, mentions and assignments. The Inbox "For you" filter lists them.`} aria-label={`${needs} for you`}>{needs}</span> : undefined}>
-        Inbox
+      <NavItem tour="sidebar.today" to="/" icon="okcircle" end={today > 0 ? <span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold text-attn tabular-nums" title={`${today} decisions wait: questions, finished agents, proposals, drafts to send and reviews`} aria-label={`${today} waiting`}>{today}</span> : undefined}>
+        Today
       </NavItem>
-      <NavItem tour="sidebar.outbox" to="/outbox" icon="send" end={toSend > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${toSend} to send: agent drafts and suggestions waiting for your click`}>{toSend}</span> : undefined}>
-        Outbox
-      </NavItem>
-      <NavItem tour="sidebar.agents" to="/agents" icon="agents" end={<AgentCounts waiting={waiting} quotaPaused={quotaPaused} running={running} />}>
+      <NavItem tour="sidebar.agents" to="/agents" icon="agents" end={<AgentCounts quotaPaused={quotaPaused} running={running} />}>
         Agents
       </NavItem>
-      <NavItem tour="sidebar.schedules" to="/schedules" icon="clock" end={brokenRoutines > 0 ? <span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold text-attn tabular-nums" title={`${brokenRoutines} ${brokenRoutines === 1 ? "routine" : "routines"} failed at the last run`}>{brokenRoutines}</span> : undefined}>
-        Schedules
+      <NavItem tour="sidebar.inbox" to="/inbox" icon="inbox" end={needs > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${needs} for you: unread review requests, mentions and assignments. The Inbox "For you" filter lists them.`} aria-label={`${needs} for you`}>{needs}</span> : undefined}>
+        Inbox
       </NavItem>
-      <NavItem tour="sidebar.review" to="/review" icon="pr-local" end={toReview > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${toReview} to review: suggestions and Local PRs to publish, agent branches and review requests`}>{toReview}</span> : undefined}>
-        Review
+      <NavItem tour="sidebar.schedules" to="/schedules" icon="clock">
+        Schedules
       </NavItem>
       <NavItem tour="sidebar.knowledge" to="/knowledge" icon="book" end={knowledgeNew > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${knowledgeNew} changes by agents since your last look`}>{knowledgeNew}</span> : undefined}>
         Knowledge

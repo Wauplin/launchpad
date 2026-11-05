@@ -1,25 +1,20 @@
-// Agents (sketch S3): sessions grouped by state, Needs you first, showing one session at a time.
-// Clicking a session opens its conversation. The window's workspace narrows every group.
+// Agents: a monitor of what runs and what ran, grouped by state, showing one session at a time. What needs you is
+// in Today; unseen sessions stay bold in their group. Clicking a session opens its conversation. The window's
+// workspace narrows every group.
 
-import { PresetButton, PresetChips, usePresets } from "./MessagePresets";
-import { withPresets } from "@/lib/presets";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useBots } from "@/lib/bots";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { Empty } from "@/components/ui";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
-import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
-import { conditionsSummary } from "@/features/launch/DelaySelector";
-import { useSchedules } from "./ScheduledPane";
-import type { CronAgent } from "@/gen/CronAgent";
+import { memo, useEffect, useRef, useState } from "react";
 import type { Session } from "@/gen/Session";
 import { HarnessMark } from "@/components/HarnessMark";
 import { HostLabel } from "@/components/HostLabel";
 import { isRunning, isDone, isQuotaPaused, isStopped, isUnseen, needsYou, sessionPlace } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
-import { projectName, useCrons, useProjects, useSession, useSessions } from "@/lib/queries";
+import { projectName, useProjects, useSession, useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
 import { isNoUpdate } from "@/lib/routines";
 import { sendPresence } from "@/lib/ws";
@@ -27,10 +22,8 @@ import { isCollapsed, useLayout, type AgentGroup } from "@/stores/layout";
 import { SessionPane } from "./SessionPane";
 import { StatusBadge } from "./SessionBits";
 import { useMarkSeen, useWindowFocused } from "./useSeen";
-import { formatAge, formatReset, resetLabel } from "@/lib/format";
+import { formatAge } from "@/lib/format";
 import { toastError } from "@/components/Toast";
-import { useHarnesses } from "@/components/HarnessMark";
-import { useQuotas } from "@/lib/profiles";
 import { usePhone } from "@/lib/phone";
 import { runAction } from "@/lib/actions";
 
@@ -119,117 +112,6 @@ function Group({ title, count, highlight, detail, collapsed, onToggle }: { title
 
 const DAY = 86400_000;
 
-function HomeSection({ title, children }: { title: ReactNode; children: ReactNode }) {
-  return <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5"><div className="seclabel">{title}</div>{children}</section>;
-}
-
-function HomeRow({ s, project, onOpen }: { s: Session; project: string; onOpen: () => void }) {
-  return <button onClick={onOpen} className="flex h-[30px] w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sunk">
-    <HarnessMark harness={s.harness} size={14} />
-    <span className="min-w-0 truncate font-medium">{s.title}</span>
-    <span className="max-w-[140px] flex-none truncate text-ink-3">{project}</span>
-    <span className="ml-auto flex flex-none items-center gap-1 text-ink-3">{informative(s) ? <StatusBadge s={s} /> : <>{isRunning(s) && <span className="lp-spin" />}{formatAge(s.status_since)}</>}</span>
-  </button>;
-}
-
-/** The pane when no session is selected: what waits, what runs, what comes next, and the quotas. */
-function AgentsHome({ sessions, crons, schedules, name, onOpen }: { sessions: Session[]; crons: CronAgent[]; schedules: ScheduledLaunch[]; name: (s: Session) => string; onOpen: (id: string) => void }) {
-  const navigate = useNavigate();
-  const onCron = (id: string) => void navigate({ to: "/schedules", search: { routine: id } as never });
-  const onSchedule = (id: string) => void navigate({ to: "/schedules", search: { launch: id } as never });
-  const quotas = useQuotas();
-  const harnesses = useHarnesses();
-  const needs = sessions.filter(needsYou).sort((a, b) => b.status_since - a.status_since);
-  const running = sessions.filter(isRunning).sort((a, b) => b.status_since - a.status_since);
-  const quotaPaused = sessions.filter(isQuotaPaused).sort((a, b) => b.status_since - a.status_since);
-  const nextCrons = crons.filter((c) => !c.paused && !c.bot_paused && c.next_run_at != null).sort((a, b) => a.next_run_at! - b.next_run_at!).slice(0, 3);
-  const upcoming = [
-    ...schedules.filter((l) => l.status === "queued").map((l) => ({
-      id: `scheduled-${l.id}`, title: l.title, at: l.ready_at,
-      detail: conditionsSummary(l, sessions, schedules) || "Waiting for conditions",
-      open: () => onSchedule(l.id),
-    })),
-    ...nextCrons.map((c) => ({
-      id: `cron-${c.id}`, title: c.title, at: c.next_run_at,
-      detail: `Routine · ${formatReset(c.next_run_at! / 1000)}`,
-      open: () => onCron(c.id),
-    })),
-  ].sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity));
-  const pct = (q: { used_percent: number } | null) => (q ? `${Math.round(q.used_percent)}%` : "unknown");
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto grid w-full max-w-[560px] grid-cols-[minmax(0,1fr)] gap-5 px-6 py-8 text-[13px]">
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-[15px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "session needs" : "sessions need"} you` : "Nothing waits for you"}</h2>
-          <span className="ml-auto"><LaunchButton small /></span>
-        </div>
-        <BotField />
-        {needs.length > 0 && <HomeSection title="Needs you">{needs.slice(0, 5).map((s) => <HomeRow key={s.id} s={s} project={name(s)} onOpen={() => onOpen(s.id)} />)}{needs.length > 5 && <span className="px-2 text-ink-3">{needs.length - 5} more in the list on the left</span>}</HomeSection>}
-        <HomeSection title={`Running · ${running.length}`}>
-          {running.length ? running.slice(0, 8).map((s) => <HomeRow key={s.id} s={s} project={name(s)} onOpen={() => onOpen(s.id)} />) : <span className="px-2 text-ink-3">No agent is running.</span>}
-          {running.length > 8 && <span className="px-2 text-ink-3">{running.length - 8} more in the list on the left</span>}
-        </HomeSection>
-        <HomeSection title={`Quota paused · ${quotaPaused.length}`}>
-          {quotaPaused.length ? quotaPaused.slice(0, 8).map((s) => <HomeRow key={s.id} s={s} project={name(s)} onOpen={() => onOpen(s.id)} />) : <span className="px-2 text-ink-3">No agent is quota paused.</span>}
-          {quotaPaused.length > 8 && <span className="px-2 text-ink-3">{quotaPaused.length - 8} more in the list on the left</span>}
-        </HomeSection>
-        <HomeSection title={<>Coming up · {upcoming.length} <Link to="/schedules" className="ml-1 font-normal normal-case">All schedules</Link></>}>
-          {upcoming.length ? upcoming.slice(0, 5).map((launch) => <button key={launch.id} onClick={launch.open} className="grid h-[46px] w-full grid-cols-[14px_minmax(0,1fr)] items-center gap-x-2 rounded-md px-2 py-1 text-left hover:bg-sunk">
-            <Icon name="clock" size={14} className="row-span-2" />
-            <span className="truncate font-medium" title={launch.title}>{launch.title}</span>
-            <span className="truncate text-ink-3" title={launch.detail}>{launch.detail}</span>
-          </button>) : <span className="px-2 text-ink-3">Nothing scheduled.</span>}
-          {upcoming.length > 5 && <span className="px-2 text-ink-3">{upcoming.length - 5} more in Schedules</span>}
-        </HomeSection>
-        {quotas.length > 0 && <HomeSection title="Quota">
-          {quotas.map((e) => {
-            const q = e.q;
-            const label = e.names.length ? e.names.join(" · ") : (harnesses.find((h) => h.id === e.harness)?.name ?? e.harness);
-            return <div key={e.key} className="flex flex-wrap items-center gap-2 px-2"><HarnessMark harness={e.harness} size={14} /><span className="font-medium">{label}</span><span className="ml-auto min-w-0 flex-1 basis-[260px] text-right text-ink-3">5 h {pct(q?.five_hour ?? null)}{q?.five_hour && ` · ${resetLabel(q.five_hour.resets_at)}`} · week {pct(q?.weekly ?? null)}{q?.weekly && ` · ${resetLabel(q.weekly.resets_at)}`}</span></div>;
-          })}
-        </HomeSection>}
-      </div>
-    </div>
-  );
-}
-
-/** A message to a bot of the workspace (the first one, Ask Launchpad unless you changed it), then its page. */
-function BotField() {
-  const navigate = useNavigate();
-  const qc = useQueryClient();
-  const scope = useScope();
-  const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
-  const [chosen, setChosen] = useState<string | null>(null);
-  const bot = bots.find((b) => b.id === chosen) ?? bots.find((b) => b.slug === "ask-launchpad") ?? bots[0];
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [presets, setPresets] = useState<string[]>([]);
-  const allPresets = usePresets("bots");
-  const message = withPresets(text, presets, allPresets);
-  if (!bot) return null;
-  const send = async () => {
-    if (!message || busy) return;
-    setBusy(true);
-    try {
-      await api.post(`/api/bots/${bot.id}/message`, { text: message });
-      await qc.invalidateQueries({ queryKey: ["sessions"] });
-      void navigate({ to: "/bots/$id", params: { id: bot.id } });
-    } catch (e) { toastError(e); } finally { setBusy(false); }
-  };
-  return (
-    <div>
-      <PresetChips surface="bots" selected={presets} onChange={setPresets} className="mb-1.5" />
-      <div className="flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5 focus-within:border-teal">
-        <Icon name="spark" size={14} className="text-teal-ink" />
-        {bots.length > 1 && <select className="max-w-[140px] bg-transparent text-[13px] font-semibold outline-none" aria-label="Bot" value={bot.id} onChange={(e) => setChosen(e.target.value)}>{bots.map((b) => <option key={b.id} value={b.id}>{b.settings.name}</option>)}</select>}
-        <input className="min-w-0 flex-1 bg-transparent text-[13px] outline-none" aria-label={`Message ${bot.settings.name}`} placeholder={`Message ${bot.settings.name}…`} value={text} disabled={busy} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void send(); }} />
-        <PresetButton surface="bots" selected={presets} onChange={setPresets} />
-        <button className="iconbtn" aria-label={`Send to ${bot.settings.name}`} title="Send" disabled={!message || busy} onClick={() => void send()}><Icon name="send" size={13} /></button>
-      </div>
-    </div>
-  );
-}
-
 export function AgentsView() {
   const scope = useScope();
   const sessionsQuery = useSessions();
@@ -244,8 +126,6 @@ export function AgentsView() {
   const pinned = useLayout((s) => s.pinned);
   useEffect(() => { const t = setTimeout(() => setDebounced(filter.trim()), 250); return () => clearTimeout(t); }, [filter]);
   const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
-  const schedules = (useSchedules().data ?? []).filter((s) => scope.hasSpec(s.spec));
-  const crons = (useCrons().data ?? []).filter((c) => scope.hasSpec(c.spec));
   const projects = useProjects().data;
   const { selectedSession, show, clearSession, collapsedGroups, toggleGroup } = useLayout();
   const search = useSearch({ strict: false }) as { session?: string; view?: "changes" };
@@ -288,28 +168,25 @@ export function AgentsView() {
   const filtered = sessions.filter((s) => (!pinsOnly || pinned.includes(s.id)) && (!needle || [s.title, s.cwd, s.prompt, s.last_message ?? "", projectName(projects, s.project_id, s.cwd)].some((t) => t.toLocaleLowerCase().includes(needle)) || (debounced === filter.trim() && matches.data?.includes(s.id))));
   const order = (a: Session, b: Session) => b.started_at - a.started_at;
   const newest = (a: Session, b: Session) => b.status_since - a.status_since;
-  // Needs you: open questions, then unseen Done (newest first), then unseen Failed and Interrupted.
-  const needRank = (s: Session) => (s.open_question ? 0 : isDone(s) ? 1 : 2);
   const local = filtered.filter((s) => !s.imported_from);
   const synced = filtered.filter((s) => !!s.imported_from).sort(newest);
-  const needs = local.filter(needsYou).sort((a, b) => needRank(a) - needRank(b) || b.status_since - a.status_since);
-  const done = local.filter((s) => isDone(s) && !needsYou(s)).sort(newest);
+  const done = local.filter(isDone).sort(newest);
   const running = local.filter((s) => isRunning(s)).sort(order);
   const quotaPaused = local.filter(isQuotaPaused).sort(order);
   const stopped = local.filter(isStopped).sort(order);
-  const interrupted = local.filter((s) => s.status === "interrupted" && !needsYou(s)).sort(order);
-  const failed = local.filter((s) => s.status === "error" && !needsYou(s)).sort(order);
+  const interrupted = local.filter((s) => s.status === "interrupted").sort(order);
+  const failed = local.filter((s) => s.status === "error").sort(order);
   const inTerminal = local.filter((s) => s.status === "in_terminal").sort(order);
   const archived = local.filter((s) => s.status === "closed").sort(order);
   const now = Date.now();
-  const oldDone = done.filter((s) => !pinned.includes(s.id) && now - s.status_since > 3 * DAY);
+  const oldDone = done.filter((s) => !needsYou(s) && !pinned.includes(s.id) && now - s.status_since > 3 * DAY);
 
   const archiveOld = async () => {
     setArchiving(true);
     try { for (const s of oldDone) await api.post(`/api/sessions/${s.id}/close`); } catch (e) { toastError(e); } finally { setArchiving(false); }
   };
 
-  // Archiving the shown session returns to the dashboard without reading another run.
+  // Archiving the shown session returns to the empty pane without reading another run.
   const lastShown = useRef<{ id: string; status: Session["status"] } | null>(null);
   useEffect(() => {
     const was = lastShown.current;
@@ -330,7 +207,6 @@ export function AgentsView() {
   const group = (title: AgentGroup, rows: Item[], opts: { highlight?: boolean; detail?: string; tail?: Item[] } = {}): Item[] => rows.length ? [{ kind: "group", title, count: rows.length, highlight: opts.highlight, detail: opts.detail }, ...(groupCollapsed(title) ? [] : [...rows, ...(opts.tail ?? [])])] : [];
   const sessionRows = (list: Session[]) => list.map((session) => ({ kind: "session" as const, session }));
   const items: Item[] = [
-    ...group("Needs you", sessionRows(needs), { highlight: true }),
     ...group("Running", sessionRows(running)),
     ...group("Quota paused", sessionRows(quotaPaused)),
     ...group("Done", sessionRows(done), { tail: oldDone.length ? [{ kind: "archive-old" }] : [] }),
@@ -382,7 +258,7 @@ export function AgentsView() {
         {visibleSession ? (
           <SessionPane key={`${scope.workspace.id}:${visibleSession}:${panelLoad}`} sessionId={visibleSession} initialView={phone ? search.view : initialView} onClear={() => (phone ? back() : clearSession(visibleSession))} />
         ) : phone ? null : (
-          <AgentsHome sessions={sessions} crons={crons} schedules={schedules} name={name} onOpen={open} />
+          <Empty fill icon="agents" action={<LaunchButton small />}>Pick an agent on the left. Questions and finished agents wait in <Link to="/">Today</Link>.</Empty>
         )}
       </div>
     </div>

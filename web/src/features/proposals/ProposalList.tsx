@@ -1,16 +1,11 @@
-// Proposals: the inert cards agents write with the Launchpad CLI tool (`launchpad propose`), for this window's
-// workspace. Nothing starts until the owner clicks Start (or Send, Schedule, Create routine), except one-time
-// starts of a bot in auto mode. A bot's page also lists the cards its sessions wrote.
+// A list of proposal cards (a bot's page): the inert cards agents write with the Launchpad CLI tool (`launchpad
+// propose`). Nothing starts until the owner clicks Start (or Send, Schedule, Create routine), except one-time
+// starts of a bot in auto mode. Waiting cards of every bot and agent are also in Today → Approve.
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
-import { ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader } from "@/components/ui";
-import { usePhone } from "@/lib/phone";
-import { useScope } from "@/lib/workspace";
-import { PhoneHeader } from "@/mobile/PhoneHeader";
+import { ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading } from "@/components/ui";
 import { isWaiting, visibleProposals } from "./proposalState";
 import { ProposalCard, runProposalAction, useProposalList } from "./ProposalCard";
 import type { Proposal } from "@/gen/Proposal";
@@ -21,7 +16,7 @@ const KIND: Record<Proposal["body"]["kind"], [string, string]> = {
 };
 
 /** "2 launches, 1 tool": what a group action covers. */
-function summary(cards: Proposal[]): string {
+export function summary(cards: Proposal[]): string {
   const counts = new Map<string, { n: number; one: string; many: string }>();
   for (const p of cards) { const [one, many] = KIND[p.body.kind]; const c = counts.get(many) ?? { n: 0, one, many }; c.n += 1; counts.set(many, c); }
   return [...counts.values()].map((c) => `${c.n} ${c.n === 1 ? c.one : c.many}`).join(", ");
@@ -67,25 +62,5 @@ export function ProposalList({ proposals, reveal = null, empty }: { proposals: P
       </div>
       {query.isLoading ? <Loading what="proposals" /> : query.error ? <ErrorState error={query.error} onRetry={() => void query.refetch()} /> : shown.length === 0 ? <Empty icon="spark">{filter === "open" ? "No proposal waits for you." : empty}</Empty> : shown.map((p) => <ProposalCard key={p.id} p={p} anchor />)}
     </section>
-  );
-}
-
-export function ProposalsView() {
-  const phone = usePhone();
-  const scope = useScope();
-  const search = useSearch({ strict: false }) as { proposal?: string };
-  const proposals = (useProposalList().data ?? []).filter((p) => p.workspace_id === scope.workspace.id);
-  const header = phone
-    ? <PhoneHeader title="Proposals" />
-    : <PageHeader icon={<Icon name="spark" size={18} className="text-teal-ink" />} title="Proposals" meta={<>{scope.workspace.name} · cards your bots and agents wrote with the Launchpad CLI; nothing starts without your click</>} />;
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      {header}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[720px]">
-          <ProposalList proposals={proposals} reveal={search.proposal ?? null} empty="No proposal yet. Ask Launchpad (in Bots) turns your requests into proposals." />
-        </div>
-      </div>
-    </div>
   );
 }

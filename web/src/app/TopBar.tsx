@@ -30,7 +30,7 @@ const SETTINGS: Record<string, string> = {
   onboarding: "Onboarding",
 };
 
-/** The breadcrumb of a route: every segment but the last is a link. Inbox, Now and Agents name themselves. */
+/** The breadcrumb of a route: every segment but the last is a link. Today, Inbox and Agents name themselves. */
 function routeCrumbs(path: string, projects: Project[]): Crumb[] | "item" | "predraft" {
   if (/^\/github\/[^/]+\/[^/]+\/\d+/.test(path)) return "item";
   if (/^\/predrafts\/[^/]+/.test(path)) return "predraft";
@@ -43,9 +43,6 @@ function routeCrumbs(path: string, projects: Project[]): Crumb[] | "item" | "pre
     return project[2] ? [{ label: "Folders", to: "/projects" }, folder, { label: "Files" }] : [{ label: "Folders", to: "/projects" }, { label: folder.label }];
   }
   if (path.startsWith("/projects")) return [{ label: "Folders" }];
-  if (path.startsWith("/review")) return [{ label: "Review" }];
-  if (path.startsWith("/outbox")) return [{ label: "Outbox" }];
-  if (path.startsWith("/proposals")) return [{ label: "Proposals" }];
   if (path.startsWith("/setup")) return [{ label: "Setup" }];
   if (path.startsWith("/terminals")) return [{ label: "Terminals" }];
   return [];
@@ -111,5 +108,5 @@ function PredraftCrumb({ id }: { id: string }) {
   const projects = useProjects().data ?? [];
   const p = useQuery<{ predraft: Predraft }>({ queryKey: ["predrafts", id], enabled: false }).data?.predraft;
   const project = p && projects.find((x) => x.id === p.project_id);
-  return <Crumbs list={[...(project ? [{ label: project.name, to: "/projects/$id", params: { id: project.id } }] : []), { label: "Local PRs", to: "/review" }, { label: p?.title ?? "…" }]} />;
+  return <Crumbs list={[...(project ? [{ label: project.name, to: "/projects/$id", params: { id: project.id } }] : []), { label: "Today", to: "/" }, { label: p?.title ?? "…" }]} />;
 }

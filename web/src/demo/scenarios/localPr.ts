@@ -68,6 +68,6 @@ export default scenario({
 
 - Files: \`docs/webhooks/overview.md\`, \`docs/sidebar.json\`
 - Check: \`pnpm docs:check\`, no broken links
-- Nothing is on GitHub yet: open the Local PR in Review and press **Publish** when it looks right.`),
+- Nothing is on GitHub yet: open the Local PR from Today and press **Publish** when it looks right.`),
   ],
 });

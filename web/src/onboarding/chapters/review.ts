@@ -1,4 +1,4 @@
-// Chapter 4: Changes, line notes, Local PRs, the Review page and agent-written suggestions.
+// Chapter 4: Changes, line notes, Local PRs, Today's Review and Send filters and agent-written suggestions.
 
 import type { Chapter } from "../tour/types";
 import { api } from "@/lib/api";
@@ -14,7 +14,7 @@ const NOTES = "Review notes:\n\n- `tests/checkout.spec.ts` line 18: also wait fo
 
 export const review: Chapter = {
   ...meta("review"),
-  learned: ["Changes shows the agent's diff, with viewed markers", "Line notes go back to the agent as one message", "Local PRs stay on this machine until Publish or Merge locally", "Review collects everything that waits for your click"],
+  learned: ["Changes shows the agent's diff, with viewed markers", "Line notes go back to the agent as one message", "Local PRs stay on this machine until Publish or Merge locally", "Today's Review, Send and GitHub filters collect everything that waits for your click"],
   setup: () => { messages = userMessages(); },
   steps: [
     {
@@ -43,9 +43,9 @@ export const review: Chapter = {
       },
     },
     {
-      id: "review.page", route: "/review", anchor: "review.groups",
-      title: "The Review page",
-      body: "To publish lists suggestions and Local PRs waiting for your click. Agent branches lists worktrees to review. Review requests lists PRs where GitHub asks for your review.",
+      id: "review.today", route: "/?filter=review", anchor: "today.filters",
+      title: "Review in Today",
+      body: "Review lists finished agents you have not seen and Local PRs to publish. A card offers Merge only when it is safe: the agent is Done, its branch is on Home, nothing is uncommitted and the base did not move. Otherwise it says Review changes. A folder's Branches tab lists all its agent branches.",
     },
     {
       id: "review.suggestion", route: "/github/acme-labs/storefront/118", anchor: "suggestion.card",
@@ -53,9 +53,9 @@ export const review: Chapter = {
       body: "Agents can write a comment or a review on a GitHub PR. It stays here as a suggestion: edit it, then post it with a click, or discard it. Nothing reaches GitHub on its own.",
     },
     {
-      id: "review.outbox", route: "/outbox", anchor: "outbox.page",
-      title: "The Outbox",
-      body: "Everything Launchpad would send to other people waits here: GitHub suggestions and messages agents drafted for your Slack, Discord or webhook channels. Edit a draft, then Send it, or Discard it. A send that did not complete is marked uncertain and never sent again.",
+      id: "review.send", route: "/?filter=send", anchor: "today.filters",
+      title: "Drafts to send",
+      body: "Messages agents drafted for your Slack, Discord or webhook channels wait under Send; GitHub suggestions wait under GitHub. Edit a draft, then Send it, or Discard it. A send that did not complete is marked uncertain and never sent again. Done keeps what you sent for 30 days.",
     },
   ],
 };

@@ -15,7 +15,7 @@ export const isDemo = typeof window !== "undefined" && !!window.__lpDemo;
 export const demoChapter = () => window.__lpDemo?.chapter ?? "";
 
 /** Opens the demo in this tab (a full page load), starting `chapter` ("" explores freely). */
-export function enterDemo(chapter = "", path = "/agents") {
+export function enterDemo(chapter = "", path = "/") {
   window.name = `lp-demo:${chapter}`;
   location.assign(path);
 }

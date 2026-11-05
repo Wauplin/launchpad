@@ -1,25 +1,25 @@
-import { createRootRoute, createRoute, createRouter, lazyRouteComponent, redirect, type RouteComponent, type RouterHistory } from "@tanstack/react-router";
+import { createRootRoute, createRoute, createRouter, lazyRouteComponent, type RouteComponent, type RouterHistory } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { validateCodeSearch } from "@/features/code/store";
-import { isPhone } from "@/lib/phone";
 
 /** The shell and the two first pages, loaded with it (app/desktop.ts or mobile/entry.ts). */
-export type Entry = { Root: () => ReactNode; AgentsView: RouteComponent; InboxView: RouteComponent };
+export type Entry = { Root: () => ReactNode; TodayView: RouteComponent; AgentsView: RouteComponent };
 
-// Both shells (desktop `Shell`, phone `MobileShell`) share these routes. The desktop entry bundles Inbox
+/** Today's address: `filter` (a chip, such as `send`) and `card` (an item ID such as `proposal:<id>`). */
+export type TodaySearch = { filter?: string; card?: string };
+
+// Both shells (desktop `Shell`, phone `MobileShell`) share these routes. The desktop entry bundles Today
 // and Agents with its shell; every other page is a separate chunk loaded on first visit (or on hover/focus
 // of a link, `defaultPreload: "intent"`), so the first paint downloads less.
-export function makeRouter({ Root, AgentsView, InboxView }: Entry, history?: RouterHistory) {
+export function makeRouter({ Root, TodayView, AgentsView }: Entry, history?: RouterHistory) {
 const root = createRootRoute({ component: Root });
 
 const routeTree = root.addChildren([
-  // Phone pages. The desktop shows the same information in Agents (dashboard). Review is shared by both shells.
-  createRoute({ getParentRoute: () => root, path: "/now", component: lazyRouteComponent(() => import("@/mobile/NowView"), "NowView"), beforeLoad: () => { if (!isPhone) throw redirect({ to: "/agents" }); } }),
-  createRoute({ getParentRoute: () => root, path: "/review", component: lazyRouteComponent(() => import("@/features/review/ReviewView"), "ReviewView") }),
+  // Today: the home page of both shells.
+  createRoute({ getParentRoute: () => root, path: "/", component: TodayView, validateSearch: (s: Record<string, unknown>): TodaySearch => ({ ...(typeof s.filter === "string" && s.filter ? { filter: s.filter } : {}), ...(typeof s.card === "string" && s.card ? { card: s.card } : {}) }) }),
+  // Phone page.
   createRoute({ getParentRoute: () => root, path: "/terminals", component: lazyRouteComponent(() => import("@/mobile/TerminalsView"), "TerminalsView") }),
-  createRoute({ getParentRoute: () => root, path: "/inbox", component: InboxView }),
-  createRoute({ getParentRoute: () => root, path: "/outbox", component: lazyRouteComponent(() => import("@/features/outbox/OutboxView"), "OutboxView") }),
-  createRoute({ getParentRoute: () => root, path: "/proposals", component: lazyRouteComponent(() => import("@/features/proposals/ProposalsView"), "ProposalsView"), validateSearch: (s: Record<string, unknown>): { proposal?: string } => (typeof s.proposal === "string" && s.proposal ? { proposal: s.proposal } : {}) }),
+  createRoute({ getParentRoute: () => root, path: "/inbox", component: lazyRouteComponent(() => import("@/features/inbox/InboxView"), "InboxView") }),
   createRoute({ getParentRoute: () => root, path: "/bots", component: lazyRouteComponent(() => import("@/features/bots/BotsView"), "BotsView"), validateSearch: (s: Record<string, unknown>): { new?: boolean } => (s.new === true || s.new === "true" || s.new === 1 ? { new: true } : {}) }),
   createRoute({ getParentRoute: () => root, path: "/bots/$id", component: lazyRouteComponent(() => import("@/features/bots/BotsView"), "BotPage"), validateSearch: (s: Record<string, unknown>): { panel?: string } => (typeof s.panel === "string" && s.panel ? { panel: s.panel } : {}) }),
   createRoute({ getParentRoute: () => root, path: "/schedules", component: lazyRouteComponent(() => import("@/features/schedules/SchedulesView"), "SchedulesView"), validateSearch: (s: Record<string, unknown>): { tab?: "routines" | "launches"; routine?: string; launch?: string } => ({ ...(s.tab === "routines" || s.tab === "launches" ? { tab: s.tab } : {}), ...(typeof s.routine === "string" && s.routine ? { routine: s.routine } : {}), ...(typeof s.launch === "string" && s.launch ? { launch: s.launch } : {}) }) }),
@@ -31,8 +31,6 @@ const routeTree = root.addChildren([
     // `draft`: the agent suggestion to expand and scroll to.
     validateSearch: (s: Record<string, unknown>): { draft?: string } => (typeof s.draft === "string" || typeof s.draft === "number" ? { draft: String(s.draft) } : {}),
   }),
-  // The phone opens on Now; its Inbox tab is /inbox.
-  createRoute({ getParentRoute: () => root, path: "/", component: InboxView, beforeLoad: () => { if (isPhone) throw redirect({ to: "/now" }); } }),
   createRoute({
     getParentRoute: () => root,
     path: "/agents",

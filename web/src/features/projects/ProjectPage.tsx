@@ -32,6 +32,7 @@ import { useLayout } from "@/stores/layout";
 import { useNavigate } from "@tanstack/react-router";
 import { TerminalMenu } from "@/features/terminals/TerminalMenu";
 import { Description, TempProjectCard } from "./ProjectsView";
+import { Branches } from "./Branches";
 
 export function ProjectPage() {
   const phone = usePhone();
@@ -42,10 +43,11 @@ export function ProjectPage() {
   const predrafts = (useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<Predraft[]>("/api/predrafts") }).data ?? []).filter((d) => d.project_id === id);
   const show = useLayout((s) => s.show);
   const navigate = useNavigate();
-  const tab = (useSearch({ strict: false }) as { tab?: string }).tab === "settings" ? "settings" : "overview";
-  const setTab = (t: "overview" | "settings") => void navigate({ to: "/projects/$id", params: { id }, search: (t === "settings" ? { tab: t } : {}) as never, replace: true });
+  const asked = (useSearch({ strict: false }) as { tab?: string }).tab;
+  const tab = asked === "settings" || asked === "branches" ? asked : "overview";
+  const setTab = (t: "overview" | "branches" | "settings") => void navigate({ to: "/projects/$id", params: { id }, search: (t === "overview" ? {} : { tab: t }) as never, replace: true });
   if (!p) return <Empty fill icon="folder">This folder is not registered in Launchpad.</Empty>;
-  const tabs = <Tabs tour="folder.tabs" label="Folder views" value={tab} onChange={setTab} items={[{ id: "overview", label: "Overview" }, { id: "settings", label: "Settings", icon: "sliders" }]} />;
+  const tabs = <Tabs tour="folder.tabs" label="Folder views" value={tab} onChange={setTab} items={[{ id: "overview", label: "Overview" }, { id: "branches", label: "Branches", icon: "branch" }, { id: "settings", label: "Settings", icon: "sliders" }]} />;
   return (
     <div className="h-full overflow-y-auto">
       <div data-tour="folder.page" className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
@@ -96,7 +98,7 @@ export function ProjectPage() {
         </div>
         </>}
         {tabs}
-        {tab === "settings" ? <FolderSettings p={p} /> : <>
+        {tab === "settings" ? <FolderSettings p={p} /> : tab === "branches" ? <Branches projectId={p.id} /> : <>
         {p.is_temp && <TempProjectCard p={p} />}
         <ProjectAgents title="Running agents" sessions={sessions.filter(isRunning)} empty="No running agents in this folder." />
         <RepoItems key={p.gh_repo ?? p.id} repo={p.gh_repo ?? ""} projectId={p.id} />

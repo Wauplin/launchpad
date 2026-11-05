@@ -12,8 +12,8 @@ import type { Workspace } from "@/gen/Workspace";
 import { toast } from "@/components/Toast";
 import { useWorkspace } from "@/stores/workspace";
 import { api } from "./api";
-import { useProjects, useSessions } from "./queries";
-import { needsYou } from "./sessionStatus";
+import { inWorkspace, useToday } from "@/features/today/data";
+import { useProjects } from "./queries";
 
 export const useWorkspaces = () => useQuery({ queryKey: ["workspaces"], queryFn: () => api.get<Workspace[]>("/api/workspaces"), staleTime: Infinity });
 
@@ -76,14 +76,13 @@ export function useWorkspaceSync() {
     }
   }, [workspaces, requested, current, switchTo]);
   const name = workspaces?.find((w) => w.id === current)?.name;
-  // Same predicate and scope as the sidebar's "N waiting" count.
-  const scope = useScope();
-  const sessions = useSessions().data;
-  const waiting = (sessions ?? []).filter((s) => scope.hasSession(s) && needsYou(s)).length;
+  // The same count as Today in the sidebar.
+  const today = useToday().data;
+  const waiting = (today?.items ?? []).filter((i) => inWorkspace(i, current)).length;
   useEffect(() => { document.title = `${waiting > 0 ? `(${waiting}) ` : ""}${name ? `${name} · ` : ""}Launchpad`; }, [name, waiting]);
   // The installed app's badge is per app: every workspace counts.
-  const allWaiting = (sessions ?? []).filter(needsYou).length;
-  useEffect(() => { if (sessions) setAppBadge(allWaiting); }, [sessions, allWaiting]);
+  const allWaiting = today?.items.length ?? 0;
+  useEffect(() => { if (today) setAppBadge(allWaiting); }, [today, allWaiting]);
   /** No workspace yet (a runner before Home answered, or every workspace deleted elsewhere): the shell asks for one. */
   return { empty: workspaces?.length === 0 };
 }

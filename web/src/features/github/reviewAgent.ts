@@ -1,5 +1,5 @@
 // "Review with agent": opens a launch draft that asks an agent for a local suggested review. Used by the PR page,
-// the Inbox and the Review page. Nothing is posted: the suggestion waits for the owner's click on the PR page.
+// the Inbox and Today. Nothing is posted: the suggestion waits for the owner's click on the PR page.
 
 import type { Project } from "@/gen/Project";
 import { useComposer } from "@/stores/composer";

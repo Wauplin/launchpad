@@ -1,4 +1,4 @@
-// Seen state for the "Needs you" group: a Done, Failed or Interrupted session shown in a focused window
+// Seen state (Today and the bold rows of Agents): a Done, Failed or Interrupted session shown in a focused window
 // that received user input in the last minute becomes seen (POST /api/sessions/{id}/seen, broadcast to
 // every window). An unattended window never marks anything seen.
 

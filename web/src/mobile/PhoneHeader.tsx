@@ -6,14 +6,11 @@ import { useRouterState } from "@tanstack/react-router";
 
 /** The title the phone shell's top bar shows for a path. */
 export function pageTitle(path: string): string {
-  if (path.startsWith("/now")) return "Now";
+  if (path === "/") return "Today";
   if (path.startsWith("/agents")) return "Agents";
-  if (path.startsWith("/review")) return "Review";
-  if (path.startsWith("/inbox") || path === "/") return "Inbox";
-  if (path.startsWith("/outbox")) return "Outbox";
+  if (path.startsWith("/inbox")) return "Inbox";
   if (path.startsWith("/github")) return "GitHub";
   if (path.startsWith("/predrafts")) return "Local PR";
-  if (path.startsWith("/proposals")) return "Proposals";
   if (path.startsWith("/terminals")) return "Terminals";
   if (path.startsWith("/settings")) return "Settings";
   if (path.startsWith("/setup")) return "Setup";

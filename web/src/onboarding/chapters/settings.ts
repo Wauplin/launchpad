@@ -33,13 +33,13 @@ export const settings: Chapter = {
     {
       id: "settings.devices", route: "/settings/devices", anchor: "devices.pair",
       title: "Your phone",
-      body: "Pair a phone or another browser with a QR code. Every paired browser has full access; the phone layout keeps Now, Agents, Ask, Review and Inbox one tap away.",
+      body: "Pair a phone or another browser with a QR code. Every paired browser has full access; the phone layout keeps Today, Agents, Bots and Inbox one tap away.",
       tryIt: { text: "create a pairing link.", done: qrShown, doIt: () => clickAnchor("devices.pair") },
     },
     {
       id: "settings.channels", route: "/settings/channels", anchor: "settings.channels",
       title: "Channels",
-      body: "Bind your own Telegram chat to get notifications and talk to Ask Launchpad or a bot from anywhere. Add Slack, Discord or webhook channels for agents' messages to other people: those wait in the Outbox. Incoming hooks let CI and scripts message a bot.",
+      body: "Bind your own Telegram chat to get notifications and talk to Ask Launchpad or a bot from anywhere. Add Slack, Discord or webhook channels for agents' messages to other people: those wait in Today, under Send. Incoming hooks let CI and scripts message a bot.",
     },
     {
       id: "settings.mcp", route: "/settings/credentials", anchor: "settings.mcp",

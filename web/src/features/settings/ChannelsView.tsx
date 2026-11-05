@@ -112,13 +112,13 @@ function Outgoing({ channels }: { channels: Channel[] }) {
     void api.post("/api/channels", { name, kind, url }).then(() => { toast("Saved on Home"); setOpen(false); setName(""); setUrl(""); return refresh(); }, toastError).finally(() => setBusy(false));
   };
   return (
-    <Card title="Outgoing: other people" end={<Link to="/outbox" className="text-[12px] text-teal-ink no-underline hover:underline">Open the Outbox</Link>}>
-      <p className="m-0 text-[12px] text-ink-2">Agents draft messages with <code>launchpad send &lt;name&gt; --body-file &lt;file&gt;</code>. Drafts wait in the Outbox: you edit them and click Send. Nothing is sent on its own or sent twice.</p>
+    <Card title="Outgoing: other people" end={<Link to="/" search={{ filter: "send" }} className="text-[12px] text-teal-ink no-underline hover:underline">Drafts to send in Today</Link>}>
+      <p className="m-0 text-[12px] text-ink-2">Agents draft messages with <code>launchpad send &lt;name&gt; --body-file &lt;file&gt;</code>. Drafts wait in Today (Send): you edit them and click Send. Nothing is sent on its own or sent twice.</p>
       {channels.length === 0 && <Empty icon="send">No outgoing channel yet.</Empty>}
       {channels.map((c) => (
         <div key={c.id} className="flex flex-wrap items-center gap-2 text-[13px]">
           <span className="min-w-0 flex-1"><b className="font-mono">{c.name}</b> <span className="text-[12px] text-ink-3">· {KINDS.find((x) => x.id === c.kind)?.label} · {c.host} · added {formatAge(c.created_at)} ago</span></span>
-          <ConfirmButton icon="trash" consequence={`Removes ${c.name} and its URL from Home. Its drafts stay in the Outbox but cannot be sent.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/channels/${c.id}`).then(refresh, toastError)}>Remove</ConfirmButton>
+          <ConfirmButton icon="trash" consequence={`Removes ${c.name} and its URL from Home. Its drafts stay in Today but cannot be sent.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/channels/${c.id}`).then(refresh, toastError)}>Remove</ConfirmButton>
         </div>
       ))}
       {!open ? <button className="btn btn-sm w-fit" onClick={() => setOpen(true)}><Icon name="plus" size={12} />Add a channel</button> : (

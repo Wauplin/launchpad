@@ -36,7 +36,7 @@ export const ask: Chapter = {
     {
       id: "ask.proposal", route: `${ASK_ROUTE}?panel=proposals`, anchor: "proposal.card", anchorId: TODAY_PROPOSAL,
       title: "Proposals wait for you",
-      body: "Each card shows the profile, the folder and anything unusual. Start launches it, Edit opens it in the composer, Dismiss drops it. Paid usage is always off for proposals. Proposals of every bot also wait in Proposals, in the sidebar.",
+      body: "Each card shows the profile, the folder and anything unusual. Start launches it, Edit opens it in the composer, Dismiss drops it. Paid usage is always off for proposals. Proposals of every bot also wait in Today, under Approve.",
       tryIt: { text: "press Start.", done: () => proposal()?.state === "started", doIt: () => api.post(`/api/proposals/${TODAY_PROPOSAL}/accept`) },
     },
     {

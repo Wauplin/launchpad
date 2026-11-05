@@ -34,7 +34,7 @@ export function externalLinkProps(url: string) {
   };
 }
 
-/** The installed app's icon badge follows the Needs you count where the platform supports it. */
+/** The installed app's icon badge follows the Today count of every workspace where the platform supports it. */
 export function setAppBadge(count: number) {
   const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
   if (isDesktopShell || !nav.setAppBadge) return;

@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { AddContext, GitHubHTML, reference, itemKey, itemPath } from "@/features/github/lib";
 import { GitHubReplyBox } from "@/features/github/ReplyBox";
 import { reviewWithAgent } from "@/features/github/reviewAgent";
-import { itemSuggestionKey, useSuggestionsByItem } from "@/features/review/data";
+import { itemSuggestionKey, useSuggestionsByItem } from "@/features/suggestions/data";
 import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
