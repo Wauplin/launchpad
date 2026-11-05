@@ -17,7 +17,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - Demo mode: `/agents?demo=1` on any running UI (`?demo=essentials:layout`, `?demo=full:<chapter>`, `?demo=phone`). No pairing or real data needed.
 - Dev window: `cargo build -p launchpad-desktop && LAUNCHPAD_ENV=dev ./target/debug/launchpad-desktop [--open <route>] [--workspace <id or name>] [--new-window]`.
 - Regenerate TypeScript types after changing a Rust type shared with the UI: `cargo run -p launchpad -- gen-types`.
-- Lint (CI): `cargo +1.93.1 clippy --workspace --all-targets --locked -- -D warnings` and `(cd web && pnpm typecheck)`. Install the toolchain with `rustup toolchain install 1.93.1 --profile minimal --component clippy`.
+- Lint (CI): `cargo +1.93.1 clippy --workspace --all-targets --locked -- -D warnings` `(cd web && pnpm typecheck)` and `(cd web && pnpm lint:hooks)` (React hook order). Install the toolchain with `rustup toolchain install 1.93.1 --profile minimal --component clippy`.
 - Tests: `cargo test`, and `(cd web && pnpm test:<name>)` for attachments, code, composer, drafts, markdown, operations, proposals, sessions, terminals and tour (Node 24, all run in CI). Targeted Rust checks: `cargo test -p launchpad-core capacity` (model capacity retries), `cargo test -p launchpad-core trace` (trace backup).
 - Chrome extension: `cd extension && pnpm install --frozen-lockfile && pnpm build` after installing `web/` dependencies; see `extension/README.md`.
 - Icons: keep `packaging/icons/source.png` unchanged; regenerate exports with `python3 packaging/generate-icons.py`; `packaging/install-icons.sh` updates installed icons without a restart.

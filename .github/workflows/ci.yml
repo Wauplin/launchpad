@@ -55,6 +55,9 @@ jobs:
       - name: Check UI types
         working-directory: web
         run: pnpm typecheck
+      - name: Hook order lint
+        working-directory: web
+        run: pnpm lint:hooks
       - name: Check terminal output
         working-directory: web
         run: pnpm test:terminals

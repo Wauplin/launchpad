@@ -16,7 +16,8 @@
     "test:markdown": "node --experimental-strip-types --test tests/commitLinks.test.mjs tests/fileCitations.test.mjs",
     "test:proposals": "node --experimental-strip-types --test tests/proposals.test.mjs",
     "test:drafts": "node --experimental-strip-types --test tests/draftPersistence.test.mjs",
-    "test:tour": "node --test tests/tour.test.mjs"
+    "test:tour": "node --test tests/tour.test.mjs",
+    "lint:hooks": "oxlint -A all -D react-hooks/rules-of-hooks src"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.0",
@@ -41,6 +42,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "@xterm/headless": "6.0.0",
+    "oxlint": "^1.90.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"

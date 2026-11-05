@@ -288,6 +288,10 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     update((s) => (s.profile ? s : withProfile(s, pick)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, spec.profile, profiles]);
+  const launchRunners = useLaunchRunners();
+  const role = useStatus().data?.role;
+  const grantedTools = useGrantedTools(spec);
+  const grantedMcp = useGrantedMcp(spec);
   if (!open) return null;
 
   const refreshingModels = refreshModels.isPending || providerModels.isFetching;
@@ -296,10 +300,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     else if (spec.harness && !refreshingModels) refreshModels.mutate(spec.harness);
   };
   const set = (f: (s: LaunchSpec) => LaunchSpec) => update(f);
-  const launchRunners = useLaunchRunners();
-  const role = useStatus().data?.role;
-  const grantedTools = useGrantedTools(spec);
-  const grantedMcp = useGrantedMcp(spec);
   const target = (spec.target.kind === "project" || spec.target.kind === "predraft") ? projects.find((p) => p.id === (spec.target as { project_id: string }).project_id) : existing ? projects.find((p) => p.id === existing.project_id) : source ? projects.find((p) => p.id === source.project_id) : null;
   const repo = target?.gh_repo ?? target?.gh_upstream ?? null;
   // A worktree launch that names one pull request of this folder continues it: start from its head and push there.
