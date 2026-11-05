@@ -9,7 +9,7 @@ Cards are sorted by filter, then newest first. Each filter is a chip with its co
 | Filter | Cards | Buttons |
 | --- | --- | --- |
 | **Answer** | An agent asks a question. | The answer choices, in place. **Open agent** to type another answer. |
-| **Review** | A finished agent you have not seen; a failed or interrupted agent; a Local PR not yet published. | Finished: **Merge into &lt;base&gt;** when it is safe, otherwise **Review changes**; **Archive**; **Mark seen**. Failed: **Resume**, **Archive**, **Mark seen**. Local PR: **Review & publish**. |
+| **Review** | A finished agent you have not seen; a failed or interrupted agent; a Local PR not yet published. | Finished: **Merge into &lt;base&gt;** when it is safe, otherwise **Review changes** when there are changes, otherwise **Archive**. Failed: **Resume**. Hover the card for **Archive** and **Mark seen** (always visible on touch screens). Local PR: **Review & publish**. |
 | **Approve** | A proposal card from a bot or an agent. | **Start** (or Send, Schedule, Add routine, Apply to BOT.md), **Edit**, **Dismiss**. **Start all** starts every waiting card after one confirmation. A ready card has the button of its action (for example **Merge** or **Post**) and **Dismiss**; Start all skips it. |
 | **Send** | A message an agent drafted for an outgoing channel. | Edit it, then **Send** (with a confirmation) or **Discard**. An uncertain send offers **It arrived** or **Discard**. |
 | **GitHub** | A suggestion (a comment or review written by an agent) and an open review request. | Suggestion: **Edit**, **Post**, **Discard**. Review request: **Review with agent**, **Open PR**. |

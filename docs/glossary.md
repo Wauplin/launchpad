@@ -10,7 +10,7 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Local PR | pre-draft PR, pre-draft, Local pre-draft | A PR prepared in Launchpad on a branch of Home Git, published or merged with a click. |
 | Plain folder | non-Git folder | A folder without Git whose files Home stores, with versions and trash. |
 | Asset folder | assets | Large or generated files of a Git folder, stored by Home instead of Git. |
-| Bot | assistant, teammate, persona | A named agent that stays: one thread of sessions, `BOT.md` instructions, notes in the knowledge base. Ask Launchpad is the bot every workspace starts with. Its page has Memory · Proposals · Routines · Instructions (`BOT.md`, `bot.toml`) · Sessions · Settings. |
+| Bot | assistant, teammate, persona | A named agent that stays: one thread of sessions, `BOT.md` instructions, notes in the knowledge base. Ask Launchpad is the bot every workspace starts with. Its page is a chat, with the panels Memory · Proposals · Routines · Settings (`BOT.md`, `bot.toml`). |
 | Routine | cron, cron agent, repeating agent | Work that starts on its own again and again: on a schedule, on GitHub activity or when another agent is done. "Cron" stays in the code (`crons.rs`, `/api/launch/crons`) and names only the schedule format. |
 | Schedules | Cron group, Scheduled group | The one page with Routines · Scheduled launches. |
 | Knowledge | memory, notes, wiki | The knowledge base of a workspace: notes and media that are the only memory agents have. |
@@ -22,6 +22,7 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Shell / TUI | Terminal, Open in terminal, Show TUI | A shell in the dock / the harness's own terminal UI. "Continue in Claude Code TUI" (harness name from metadata) replaces "Open in terminal"; "Show TUI tab" shows it. The dock and its status-bar chip are "Terminals". |
 | Archive · Discard · Remove · Delete files | Done, Archive, Discard, Remove, Delete folder, Close | Archive: hide but keep (agents, inbox threads; the Inbox Done button keeps its GitHub name "Done"). Discard: drop a local draft, suggestion or Local PR. Remove: unregister, files kept ("Remove from Launchpad"); a folder changes workspace with "Move to <workspace>". "Delete files" only when files are deleted from disk. |
 | New agent here / Send later… | Follow up / Schedule follow-up | A separate agent in the same folder / a message delivered later to the same session. |
+| ⋯ | More ▾, More actions | The menu of the other actions of a row, card or header. |
 | Open agent | Agent, Agent session, View session, Back to session | Every link to a session ("← Back to agent"). |
 | Workspace | Everything, All workspaces, project group | A group of folders with their agents, bots, schedules and knowledge base. A window shows one workspace; the rail shows the others as counts. There is no view of all workspaces. |
 | Today | Now, Needs you page, Proposals page, Outbox page, Review page, dashboard | The first page (`/`) and phone tab: every decision that waits for you in the workspace, one card each, with filters Answer · Review · Approve · Send · GitHub · Fix and Done. |

@@ -44,9 +44,9 @@ The page you look at is the context: a folder, a GitHub item, an agent's trace, 
 Folder pages, inbox rows and every **▶** button open the composer too. The composer opens as a side drawer:
 
 - **Prompt.** Type `@` for files and folders, `/` for skills and `#` for folders, agent traces and GitHub items. Paste or drop images and files (up to eight files, 5 MB each).
-- **Folder and Run in.** A folder of the workspace, or **Temporary folder** for a question or a task that needs no folder (see [Temporary folders](#temporary-folders)). In a Git folder: **New worktree** (default), **Checkout**, or **New Local PR** (see [GitHub](github.md#local-prs)). When the prompt or the context names one pull request of the folder's repository (for example a pasted link to a review comment), **Push to PR #N** is checked: the worktree starts from the PR head and the agent pushes its commits to the PR branch (see [GitHub](github.md#continue-a-pull-request)).
-- **Context.** **+ Add context** attaches issues, pull requests, file selections, other folders and the trace of another agent. Traces are referenced by a `launchpad trace` command, not copied into the prompt.
-- **Options.** Profile, model, effort, permission mode, paid usage, cost limit, presets and start conditions. The summary line shows only non-default values and warnings.
+- **Attach** and **+ Add context**, under the prompt. **+ Add context** attaches issues, pull requests, file selections, other folders and the trace of another agent; the chips show only when there are some. Traces are referenced by a `launchpad trace` command, not copied into the prompt.
+- **Folder.** A folder of the workspace, or **Temporary folder** for a question or a task that needs no folder (see [Temporary folders](#temporary-folders)).
+- **Options.** One line sums up the launch: where the agent runs and what happens when it is done (for example "New worktree from main · keep branch"), then the profile and only the values that differ from the defaults, and warnings. Click it to open the options: **Run in** (in a Git folder: **New worktree**, the default, **Checkout**, **New Local PR** or an existing worktree or Local PR; see [Local PRs](github.md#local-prs)), **From** (the base branch), **When done** (see [Worktrees and merging](#worktrees-and-merging)), profile, model, effort, permission mode, paid usage, cost limit, presets and start conditions. When the prompt or the context names one pull request of the folder's repository (for example a pasted link to a review comment), **Push to PR #N** is checked under Run in: the worktree starts from the PR head and the agent pushes its commits to the PR branch (see [GitHub](github.md#continue-a-pull-request)).
 - **Preview prompt** shows exactly what the agent will receive.
 
 The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the **Options** button while you collect more context.
@@ -95,7 +95,14 @@ Each session has three views:
 - **Trace**: the full conversation with tool calls, diffs, reasoning and nested subagents.
 - **Changes**: the Git diff of the session folder, with viewed markers and line notes that you send back to the agent as one message.
 
-The header has one primary button that depends on the state: **Stop**, **Answer**, **Review changes**, **Archive**, **Resume** or **Re-attach**. **New agent here** opens a new draft in the same folder with this session's trace as context.
+On a laptop, the session header has two rows:
+
+- **First row**: the title, the status and one main action that depends on the state: **Merge into &lt;base&gt;** when the merge is safe (the same check as in [Today](today.md)), otherwise **Stop**, **Answer**, **Review changes**, **Archive**, **Resume** or **Re-attach**. Then **Terminal** and **⋯**.
+- **Second row**: the view tabs, chips for run settings, paid usage and cost limit only when they differ from the defaults, and one muted line with the bot, the folder, the worktree, the Local PR, the profile and the context use. **ⓘ** shows the folder path, profile, model, usage and start time.
+
+**⋯** holds the other actions, among them **New agent here** (a new draft in the same folder with this session's trace as context), **Jump to the final message** (in the trace), **Mark as unread**, **Use trace as context** and **Archive**. On a phone, **⋯** also has **Jump to the final message**, and **New agent here** is in the session details.
+
+A state band above the trace shows only an open question or a turn you stopped.
 
 ### Questions and permissions
 
