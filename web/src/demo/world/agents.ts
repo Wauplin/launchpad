@@ -332,11 +332,11 @@ export function agentsWorld() {
     { id: "demo-prop-empty-cart", workspace_id: WS.acme, session_id: "demo-s-ask-acme", title: "Fix the empty-cart 500 in the invoices API",
       note: "Issue #77 mentions you: `GET /invoices` returns 500 when the cart is empty. The fix is likely a missing empty check.",
       body: { kind: "launch", spec: defaultSpec({ harness: "codex", profile: "codex-plus", target: { kind: "project", project_id: P.billing }, worktree: { base: null, when_done: "keep" }, text: "Fix acme-labs/billing-api#77: GET /invoices returns 500 when the cart is empty. Add a regression test.", workspace_id: WS.acme }) },
-      state: "proposed", result_id: "demo-s-proposed-cart", replaced_by: null, error: null, created_at: clock.ago(31), updated_at: clock.ago(31) },
+      state: "proposed", result_id: "demo-s-proposed-cart", replaced_by: null, error: null, created_at: clock.ago(14), updated_at: clock.ago(14) },
     { id: "demo-prop-links", workspace_id: WS.acme, session_id: "demo-s-ask-acme", title: "Weekly docs link check",
       note: "Broken links in docs were reported twice this month. A weekly check catches them before customers do.",
       body: { kind: "cron", spec: defaultSpec({ harness: "opencode", profile: "opencode-router", target: { kind: "project", project_id: P.docs }, text: "Run pnpm docs:check and report broken links with the page and the fix. Do not change files.", workspace_id: WS.acme }), schedule: "0 9 * * 1", conditions: [{ kind: "previous_run_finished" }] },
-      state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(31), updated_at: clock.ago(31) },
+      state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(14), updated_at: clock.ago(14) },
   ];
   state.proposals.push(...proposals);
 

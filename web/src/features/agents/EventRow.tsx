@@ -32,7 +32,7 @@ function duration(ms: number | null | undefined) {
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
 }
 
-function AssistantRow({ text, streaming }: { text: string; streaming: boolean }) {
+export function AssistantRow({ text, streaming }: { text: string; streaming: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   return (
     <div className="group relative">
@@ -237,7 +237,7 @@ function RoutineRow({ title, cause, body, queued }: { title: string; cause: stri
   </div>;
 }
 
-function Separator({ children, tone = "" }: { children: React.ReactNode; tone?: string }) {
+export function Separator({ children, tone = "" }: { children: React.ReactNode; tone?: string }) {
   return (
     <div className={`flex items-center gap-2 text-[12px] text-ink-3 before:h-px before:flex-1 before:bg-line-2 after:h-px after:flex-1 after:bg-line-2 ${tone}`}>{children}</div>
   );

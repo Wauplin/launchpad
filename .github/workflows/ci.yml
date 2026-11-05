@@ -73,6 +73,9 @@ jobs:
       - name: Ask proposal regressions
         working-directory: web
         run: pnpm test:proposals
+      - name: Bot chat rows
+        working-directory: web
+        run: pnpm test:chat
       - name: Draft persistence regressions
         working-directory: web
         run: pnpm test:drafts

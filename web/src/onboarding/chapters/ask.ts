@@ -19,18 +19,18 @@ const botSessions = () => world.sessions.filter((s) => s.launch_spec.bot?.id ===
 
 export const ask: Chapter = {
   ...meta("ask"),
-  learned: ["Ask Launchpad is a bot like the others, created in every workspace, with its notes in the knowledge base", "It reads Launchpad state and answers with proposals through the Launchpad CLI tool", "Manual mode waits for your click; auto mode (bot.toml) starts one-time proposals; Edit sends a proposal to the composer", "Its BOT.md and bot.toml have versions; edit them, or replace it with your own bot", "A bot is an agent that stays: one thread, its instructions in BOT.md, its notes in the knowledge base", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
+  learned: ["Ask Launchpad is a bot like the others, created in every workspace, with its notes in the knowledge base", "It reads Launchpad state and answers with proposals through the Launchpad CLI tool", "Manual mode waits for your click; auto mode (bot.toml) starts one-time proposals; Edit sends a proposal to the composer", "Its BOT.md and bot.toml have versions; edit them, or replace it with your own bot", "A bot is an agent that stays: one thread shown as a chat, its instructions in BOT.md, its notes in the knowledge base; the trace stays in Agents", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
   setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {
       id: "ask.thread", route: ASK_ROUTE, anchor: "bots.thread",
       title: "Ask Launchpad",
-      body: "Every workspace starts with this bot. It reads your folders, agents, inbox, schedules and quotas with the Launchpad CLI, and keeps what it learns about you in its notes in the knowledge base.",
+      body: "Every workspace starts with this bot. Its page is a chat: your messages, its answers and the cards it writes. One line per turn counts the steps behind an answer; Open trace shows them in Agents. It reads your folders, agents, inbox, schedules and quotas with the Launchpad CLI, and keeps what it learns about you in its notes in the knowledge base.",
     },
     {
-      id: "ask.question", route: ASK_ROUTE, anchor: "session.reply",
+      id: "ask.question", route: ASK_ROUTE, anchor: "bots.reply",
       title: "Ask in plain words",
-      body: "Ask what needs you, or describe work. It answers in its thread and writes proposal cards for what it suggests. Presets marked for bots appear here (Settings → Presets).",
+      body: "Ask what needs you, or describe work. It answers in the chat and writes proposal cards for what it suggests; they appear at the turn that wrote them. Questions it asks you are answered in place.",
       tryIt: { text: "ask “What needs me today?”.", done: () => proposal()?.state === "proposed", doIt: () => api.post(`/api/sessions/${THREAD}/input`, { text: "What needs me today?" }) },
     },
     {
@@ -57,7 +57,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",
       title: "One thread, many sessions",
-      body: "Messages go to the bot's current session. A new session starts when its profile or folder changes, or on New session; it reads the previous trace only when it needs it.",
+      body: "The chat shows the whole thread, with a divider at each new session; older messages load as you scroll up. Messages go to the current session. A new session starts when its profile or folder changes, or on New session; it reads the previous trace only when it needs it. A routine run with nothing to report is one quiet line.",
       tryIt: { text: "ask the Maintainer for the refund test.", done: () => botSessions().some((s) => (world.events[s.id] ?? []).some((e) => e.body.kind === "user_message" && e.body.text.toLowerCase().includes("refund"))), doIt: () => api.post(`/api/bots/${BOT}/message`, { text: "Prepare the refund end-to-end test as a Local PR." }) },
     },
     {
@@ -70,7 +70,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-panels", route: BOT_ROUTE, anchor: "bots.panels",
       title: "Memory, instructions and settings",
-      body: "Memory lists its notes in the knowledge base and the sessions of its thread. Settings holds BOT.md, its profile, folder and permissions, what it can reach, and bot.toml, with every version for 30 days.",
+      body: "Beside the chat: Memory lists its notes in the knowledge base and the sessions of its thread, Proposals keeps every card it wrote, and Settings holds BOT.md, its profile, folder and permissions, what it can reach, and bot.toml, with every version for 30 days. On the phone they open from ⋯.",
     },
   ],
 };
