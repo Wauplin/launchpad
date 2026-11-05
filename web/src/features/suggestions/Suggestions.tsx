@@ -64,7 +64,7 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
           : <ActionButton name="suggestion.post" params={{ id: s.id }} primary disabled={busy || stale || !body.trim()} before={async () => { setError(null); if (editing) await save(); }} onDone={() => { posted(); settled(); }} onError={failed}>{s.kind === "review" ? "Post review" : "Post comment"}</ActionButton>}
         <span className="text-[12px] text-ink-3">{local ? "Stays on this machine." : "Posts to GitHub when you click."}</span>
       </>}
-      {s.status !== "posted" && <ActionButton name="suggestion.discard" params={{ id: s.id }} disabled={busy || s.status === "posting"} title={["posting", "uncertain"].includes(s.status) ? "Check GitHub first: it may already be posted." : undefined} onDone={() => { toast("Suggestion discarded"); settled(); }} onError={failed} />}
+      {s.status !== "posted" && <ActionButton name="suggestion.discard" params={{ id: s.id }} disabled={busy || s.status === "posting"} consequence={["posting", "uncertain"].includes(s.status) ? "Check GitHub first: it may already be posted." : undefined} onDone={() => { toast("Suggestion discarded"); settled(); }} onError={failed} />}
       {s.url && <button className="btn btn-sm" onClick={() => openGitHub(s.url!)}><Icon name="ext" size={12} />Open posted text</button>}
     </div>
   </article>;

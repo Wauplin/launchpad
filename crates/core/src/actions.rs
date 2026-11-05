@@ -145,7 +145,7 @@ pub const ACTIONS: &[Action] = &[
     Action { name: "inbox.done", route: "/api/inbox/{id}/action", label: "Done", icon: Some("check"), help: "Mark an Inbox thread done, here and on GitHub", fixed: Some("{\"action\": \"done\"}"), effect: Outside, access: Owner, undo: Some("inbox.restore"), ..A },
     Action { name: "inbox.restore", route: "/api/inbox/restore", label: "Restore", icon: Some("refresh"), help: "Bring Inbox threads marked done back", input: &[f("ids", Json)], access: Owner, ..A },
     Action { name: "preset.save", method: "PATCH", route: "/api/config", label: "Save preset", icon: Some("preset"), help: "Create or update a prompt preset in config.toml", access: Owner, card: Some("preset"), ..A },
-    Action { name: "tool.save", method: "PUT", route: "/api/vault/tools/{id}", label: "Add tool", help: "Add a tool to Home's registry", effect: Machine, access: Owner, card: Some("tool"), ..A },
+    Action { name: "tool.save", method: "PUT", route: "/api/vault/tools/{id}", label: "Add tool", help: "Add a tool to Home's registry", confirm: Some("Adds this tool and its credential hosts to Home's registry."), effect: Machine, access: Owner, card: Some("tool"), ..A },
 ];
 
 pub fn get(name: &str) -> Option<&'static Action> {
@@ -157,9 +157,10 @@ pub fn for_card(kind: &str) -> Option<&'static Action> {
     ACTIONS.iter().find(|a| a.card == Some(kind))
 }
 
-/// The action a request runs (path without its query).
+/// The action a request runs (path without its query). The match is exact, like the router's: a trailing slash,
+/// an extra or an empty segment matches no action.
 pub fn find(method: &str, path: &str) -> Option<&'static Action> {
-    let p: Vec<&str> = path.trim_end_matches('/').split('/').collect();
+    let p: Vec<&str> = path.split('/').collect();
     ACTIONS.iter().find(|a| {
         let r: Vec<&str> = a.route.split('/').collect();
         a.method.eq_ignore_ascii_case(method)

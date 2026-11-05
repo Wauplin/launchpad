@@ -149,7 +149,7 @@ const MessageCard = memo(function MessageCard({ m }: { m: OutboxMessage }) {
           {edited && <button className="btn btn-sm" disabled={busy} onClick={() => { setBody(m.body); setTitle(m.title ?? ""); }}>Cancel edit</button>}
         </>}
         {m.status === "uncertain" && <button className="btn btn-sm" disabled={busy} title="You found the message at its destination" onClick={() => void run("mark-sent")}><Icon name="check" size={12} />It arrived</button>}
-        {(draft || m.status === "uncertain") && <ActionButton name="outbox.discard" params={{ id: m.id }} disabled={busy} title={m.status === "uncertain" ? "Check the destination first: it may already be there." : undefined} onDone={() => { toast("Message discarded"); void refresh(); }} onError={failed} />}
+        {(draft || m.status === "uncertain") && <ActionButton name="outbox.discard" params={{ id: m.id }} disabled={busy} consequence={m.status === "uncertain" ? "Check the destination first: it may already be there." : undefined} onDone={() => { toast("Message discarded"); void refresh(); }} onError={failed} />}
       </div>
     </article>
   );

@@ -8,7 +8,7 @@ import { toastError } from "./Toast";
  * A button that runs one action of the action list (crates/core/src/actions.rs): its label, icon, confirmation
  * and API call come from the list. Actions with a confirmation use ConfirmButton.
  */
-export function ActionButton<T = unknown>({ name, params, vars, body, query, before, onDone, onError, children, confirmLabel, primary, small = true, className = "", disabled, title }: {
+export function ActionButton<T = unknown>({ name, params, vars, body, query, before, onDone, onError, children, consequence: override, confirmLabel, primary, small = true, className = "", disabled, title }: {
   name: ActionName;
   /** The route's `{param}` values; they also fill the confirmation. */
   params?: ActionParams;
@@ -23,6 +23,8 @@ export function ActionButton<T = unknown>({ name, params, vars, body, query, bef
   onError?: (e: unknown) => void;
   /** Replaces the label from the list. */
   children?: ReactNode;
+  /** Replaces the list's confirmation text, for a state that needs a stronger warning (an uncertain send). */
+  consequence?: string;
   confirmLabel?: ReactNode;
   primary?: boolean;
   small?: boolean;
@@ -43,7 +45,8 @@ export function ActionButton<T = unknown>({ name, params, vars, body, query, bef
   };
   const icon = (a.icon ?? undefined) as IconName | undefined;
   const label = children ?? a.label;
-  const consequence = actionConfirm(name, { ...vars, ...params });
+  const listed = actionConfirm(name, { ...vars, ...params });
+  const consequence = listed && (override ?? listed);
   if (consequence)
     return <ConfirmButton tone={a.effect === "outside" ? "publish" : "danger"} small={small} className={`${primary ? "btn-primary" : ""} ${className}`} disabled={disabled || busy} title={title ?? a.help} icon={icon} consequence={consequence} confirmLabel={confirmLabel} onConfirm={run}>{label}</ConfirmButton>;
   return (

@@ -124,7 +124,7 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
       {w.pull_request && <div className="text-[12px] text-ink-2">Continues <a href={w.pull_request.url} target="_blank" rel="noreferrer">#{w.pull_request.number}</a>: Home pushes each new commit to {w.pull_request.head_branch}.</div>}
       {w.cleanup_note && w.state === "active" && !i.ahead && <div className="text-[11px] text-ink-3">Cleanup: {w.cleanup_note}</div>}
       <div className="flex flex-wrap gap-1.5">
-        {canMerge && <ActionButton name="worktree.merge" params={{ id: w.id }} vars={{ branch: w.branch, base: base! }} query={{ session: decodeURIComponent(owner) }} primary disabled={running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : undefined}>Merge into {base}</ActionButton>}
+        {canMerge && <ActionButton name="worktree.merge" params={{ id: w.id }} vars={{ branch: w.branch, base: base! }} query={{ session: decodeURIComponent(owner) }} primary disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : undefined}>Merge into {base}</ActionButton>}
         {w.merge && w.merge.phase !== "waiting" && session && <button className="btn btn-sm btn-primary" disabled={busy} title="Send the problem to the agent: it rebases, resolves and asks to merge again" onClick={() => void act("fix", "Sent to the agent")}>Fix with agent</button>}
         <TerminalMenu cwd={i.path} small phone={isPhone} align="left" />
         {w.merge && <button className="btn btn-sm" disabled={busy} onClick={() => void act("cancel-merge")}>Cancel merge</button>}
