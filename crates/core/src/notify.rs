@@ -34,6 +34,18 @@ impl SessionNotification {
         };
         format!("{status} in {project}")
     }
+
+    /// The event's name for the Telegram notification (forwarded to Home by runners).
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            Self::Done => "done",
+            Self::Failed => "failed",
+            Self::Interrupted => "interrupted",
+            Self::QuotaPaused => "quota_paused",
+            Self::CostLimit => "cost_limit",
+            Self::QuotaResumed => "quota_resumed",
+        }
+    }
 }
 
 /// Only completed work and automatic stops qualify; setup, questions and owner actions are silent.
@@ -51,6 +63,8 @@ pub(crate) fn status_notification(before: SessionStatus, after: SessionStatus, q
 
 /// The caller selects an eligible event and checks active-window suppression.
 pub(crate) fn session(app: &App, s: &Session, event: SessionNotification) {
+    // Home's Telegram chat has its own switch (Settings → Channels).
+    crate::telegram::notify(app, s, event.key());
     if !app.config.get().agents.notify {
         return;
     }

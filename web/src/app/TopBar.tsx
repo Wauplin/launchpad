@@ -25,6 +25,7 @@ const SETTINGS: Record<string, string> = {
   devices: "Devices",
   github: "GitHub",
   huggingface: "Hugging Face",
+  channels: "Channels",
   worktrees: "Maintenance",
   onboarding: "Onboarding",
 };
@@ -43,6 +44,7 @@ function routeCrumbs(path: string, projects: Project[]): Crumb[] | "item" | "pre
   }
   if (path.startsWith("/projects")) return [{ label: "Folders" }];
   if (path.startsWith("/review")) return [{ label: "Review" }];
+  if (path.startsWith("/outbox")) return [{ label: "Outbox" }];
   if (path.startsWith("/ask")) return [{ label: "Ask Launchpad" }];
   if (path.startsWith("/setup")) return [{ label: "Setup" }];
   if (path.startsWith("/terminals")) return [{ label: "Terminals" }];

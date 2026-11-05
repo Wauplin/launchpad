@@ -11,6 +11,7 @@
 - [Home and runners](home-and-runners.md): one Home that keeps records, runners that run agents (in progress).
 - [Knowledge](knowledge.md): the knowledge base of each workspace, the only memory agents have.
 - [Bots](bots.md): persistent agents with one thread, their instructions in `BOT.md` and their notes in the knowledge base.
+- [Channels and the Outbox](channels.md): your Telegram chat, outgoing channels whose drafts wait in the Outbox, and incoming hooks.
 - [Chrome extension](../extension/README.md): give an agent the browser tabs you choose.
 - [Configuration](configuration.md): files, environment variables, `config.toml` and the CLI.
 - [Glossary](glossary.md): the words used in the UI.

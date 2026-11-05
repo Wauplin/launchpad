@@ -82,6 +82,18 @@ enum Command {
         #[command(subcommand)]
         command: Suggest,
     },
+    /// Send a message through one of the owner's channels: `telegram` goes to the owner's own chat; other
+    /// channels (Slack, Discord, webhooks) wait in the owner's Outbox until they click Send.
+    Send {
+        /// The channel name (Settings → Channels), or `telegram`.
+        channel: String,
+        #[arg(long)]
+        body_file: std::path::PathBuf,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+    },
     /// Task worktrees managed by Launchpad (for agents).
     Work {
         #[command(subcommand)]
@@ -511,6 +523,13 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Suggest { command } => suggest_command(&paths, command).await,
+        Command::Send { channel, body_file, title, session_id } => {
+            let body = std::fs::read_to_string(&body_file).with_context(|| format!("read {}", body_file.display()))?;
+            let session_id = session_id.or_else(|| std::env::var("LAUNCHPAD_SESSION_ID").ok()).context("pass --session-id <your session id>")?;
+            let result = Client::new(&paths)?.json("POST", "/api/channels/send", Some(serde_json::json!({"channel": channel, "body": body, "title": title, "session_id": session_id}))).await?;
+            println!("{}", result["message"].as_str().unwrap_or("Done."));
+            Ok(())
+        }
         Command::Pr { command } => pr_command(&paths, command).await,
         Command::Work { command } => work_command(&paths, command).await,
         Command::Assets { command } => assets_command(&paths, command).await,

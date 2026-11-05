@@ -52,5 +52,10 @@ export const review: Chapter = {
       title: "Suggestions",
       body: "Agents can write a comment or a review on a GitHub PR. It stays here as a suggestion: edit it, then post it with a click, or discard it. Nothing reaches GitHub on its own.",
     },
+    {
+      id: "review.outbox", route: "/outbox", anchor: "outbox.page",
+      title: "The Outbox",
+      body: "Everything Launchpad would send to other people waits here: GitHub suggestions and messages agents drafted for your Slack, Discord or webhook channels. Edit a draft, then Send it, or Discard it. A send that did not complete is marked uncertain and never sent again.",
+    },
   ],
 };

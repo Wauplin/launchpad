@@ -37,6 +37,11 @@ export const settings: Chapter = {
       tryIt: { text: "create a pairing link.", done: qrShown, doIt: () => clickAnchor("devices.pair") },
     },
     {
+      id: "settings.channels", route: "/settings/channels", anchor: "settings.channels",
+      title: "Channels",
+      body: "Bind your own Telegram chat to get notifications and talk to Ask Launchpad or a bot from anywhere. Add Slack, Discord or webhook channels for agents' messages to other people: those wait in the Outbox. Incoming hooks let CI and scripts message a bot.",
+    },
+    {
       id: "settings.machines", route: "/settings/hosts", anchor: "settings.machines",
       title: "SSH machines",
       body: "Folders can live on other computers over SSH. Agents run there with the same controls; each machine shows its checks. Credentials are never copied.",

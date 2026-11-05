@@ -30,6 +30,7 @@ function pageTitle(path: string): string {
   if (path.startsWith("/agents")) return "Agents";
   if (path.startsWith("/review") || path.startsWith("/publish")) return "Review";
   if (path.startsWith("/inbox") || path === "/") return "Inbox";
+  if (path.startsWith("/outbox")) return "Outbox";
   if (path.startsWith("/github")) return "GitHub";
   if (path.startsWith("/predrafts")) return "Local PR";
   if (path.startsWith("/ask")) return "Ask";
@@ -80,6 +81,7 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
       {workspaces.map((w) => button(w.id, w.name, `${folderCount(all, w.id)} folders`))}
       <div className="seclabel px-4 pt-4 pb-1">Go to</div>
       <MenuLink to="/bots" icon="spark" onClick={onClose}>Bots</MenuLink>
+      <MenuLink to="/outbox" icon="send" onClick={onClose}>Outbox</MenuLink>
       <MenuLink to="/projects" icon="folder" onClick={onClose}>Folders</MenuLink>
       <MenuLink to="/knowledge" icon="book" onClick={onClose}>Knowledge</MenuLink>
       <MenuLink to="/terminals" icon="term" onClick={onClose}>Terminals</MenuLink>

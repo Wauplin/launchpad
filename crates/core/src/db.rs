@@ -202,6 +202,11 @@ CREATE TABLE IF NOT EXISTS bot (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,
 CREATE TABLE IF NOT EXISTS kb_seen (workspace_id TEXT PRIMARY KEY, change_id INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS profile_cost (profile TEXT NOT NULL, at INTEGER NOT NULL, usd REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS onboarding (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS channel (id TEXT PRIMARY KEY, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS outbox_message (id TEXT PRIMARY KEY, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS telegram (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS telegram_reply (session_id TEXT PRIMARY KEY, after_seq INTEGER NOT NULL, at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS incoming_hook (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_id TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, titles INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these

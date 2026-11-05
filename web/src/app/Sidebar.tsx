@@ -2,6 +2,7 @@ import { useKnowledgeUnseen } from "@/lib/knowledge";
 import { useInboxNeeds } from "@/features/inbox/data";
 import { useReviewCount } from "@/features/review/data";
 import { useAskCount } from "@/features/ask/count";
+import { useOutboxCount } from "@/features/outbox/data";
 import { botInitial, botState, botThread, useBots } from "@/lib/bots";
 import type { Bot } from "@/gen/Bot";
 import { openWindow, newWindowWord, useScope } from "@/lib/workspace";
@@ -201,6 +202,7 @@ export function Sidebar() {
   const toReview = useReviewCount();
   const knowledgeNew = useKnowledgeUnseen();
   const proposals = useAskCount();
+  const toSend = useOutboxCount();
   const scope = useScope();
   const all = useProjects().data ?? [];
   const showAdd = useAddFolder((s) => s.show);
@@ -222,6 +224,9 @@ export function Sidebar() {
       <nav aria-label="Places" data-tour="sidebar.nav" className="mt-2 flex flex-col gap-px border-t border-line-2 pt-2">
       <NavItem tour="sidebar.inbox" to="/" icon="inbox" end={needs > 0 ? <span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold text-attn tabular-nums" title={`${needs} for you: unread review requests, mentions and assignments. The Inbox "For you" filter lists them.`} aria-label={`${needs} for you`}>{needs}</span> : undefined}>
         Inbox
+      </NavItem>
+      <NavItem tour="sidebar.outbox" to="/outbox" icon="send" end={toSend > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${toSend} to send: agent drafts and suggestions waiting for your click`}>{toSend}</span> : undefined}>
+        Outbox
       </NavItem>
       <NavItem tour="sidebar.agents" to="/agents" icon="agents">
         <span className="min-w-0 flex-1">

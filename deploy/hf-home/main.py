@@ -49,7 +49,9 @@ class HomeProxy(Proxy):
         machine = (path in ("/api/runners/request", "/api/runners/tunnel")
                    or re.fullmatch(r"/api/runners/request/[^/]+", path)
                    or path.startswith("/api/git/")
-                   or (path.startswith("/api/plain/") and "X-Launchpad-Runner" in request.headers))
+                   or (path.startswith("/api/plain/") and "X-Launchpad-Runner" in request.headers)
+                   # Incoming hooks (curl, CI): the daemon checks X-Launchpad-Hook-Secret.
+                   or (request.method == "POST" and re.fullmatch(r"/hooks/[^/]+", path)))
         # Native clients have no browser Origin. Browser requests still use the normal CSRF checks.
         if machine and "Origin" not in request.headers and "Sec-Fetch-Site" not in request.headers:
             headers = request.headers.copy()

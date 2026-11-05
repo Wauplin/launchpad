@@ -15,7 +15,7 @@ fn read_allowed(path: &str) -> bool {
 pub const KB_BODY_MAX: usize = 128 << 20;
 
 fn own_write(path: &str) -> bool {
-    matches!(path, "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/proposals" | "/api/kb")
+    matches!(path, "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/proposals" | "/api/kb" | "/api/channels/send")
 }
 
 async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
@@ -56,7 +56,7 @@ mod tests {
             assert!(!read_allowed(path));
             assert!(!own_write(path));
         }
-        for path in ["/api/predrafts/p/publish", "/api/predrafts/p/merge-local", "/api/suggestions/s/post"] {
+        for path in ["/api/predrafts/p/publish", "/api/predrafts/p/merge-local", "/api/suggestions/s/post", "/api/outbox/o/send", "/api/channels", "/api/channels/telegram/token"] {
             assert!(!own_write(path));
         }
         assert!(read_allowed("/api/context/folders"));

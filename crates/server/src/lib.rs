@@ -4,6 +4,7 @@ mod api;
 mod bots;
 mod burst;
 mod browser;
+mod channels;
 mod auth;
 mod agent_auth;
 mod code;
@@ -103,6 +104,7 @@ pub(crate) fn router(server: Server) -> Router {
         .merge(suggestions::router())
         .merge(proposals::router())
         .merge(bots::router())
+        .merge(channels::router())
         .merge(prompt_context::router())
         .merge(terminals::router())
         .merge(worktrees::router())

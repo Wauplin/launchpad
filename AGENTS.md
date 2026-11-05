@@ -21,7 +21,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - Tests: `cargo test`, and `(cd web && pnpm test:<name>)` for attachments, code, composer, drafts, markdown, operations, proposals, sessions, terminals and tour (Node 24, all run in CI). Targeted Rust checks: `cargo test -p launchpad-core capacity` (model capacity retries), `cargo test -p launchpad-core trace` (trace backup).
 - Chrome extension: `cd extension && pnpm install --frozen-lockfile && pnpm build` after installing `web/` dependencies; see `extension/README.md`.
 - Icons: keep `packaging/icons/source.png` unchanged; regenerate exports with `python3 packaging/generate-icons.py`; `packaging/install-icons.sh` updates installed icons without a restart.
-- Read-only context CLI for agents: `launchpad folders|bots|sessions|profiles|presets|inbox|schedules|proposals list [--workspace <id or name>]`, `launchpad sessions show <id>`; `launchpad propose …` stores an inert Ask proposal. Local PR CLI: `launchpad pr create|update|show|list`.
+- Read-only context CLI for agents: `launchpad folders|bots|sessions|profiles|presets|inbox|schedules|proposals list [--workspace <id or name>]`, `launchpad sessions show <id>`; `launchpad propose …` stores an inert Ask proposal. Local PR CLI: `launchpad pr create|update|show|list`. Channels: `launchpad send <channel>|telegram --body-file <file> [--title …] --session-id <id>`.
 - CI (`.github/workflows/ci.yml`): lint and debug tests on main, pull requests and tags; release builds only on tags. Linux releases build on Ubuntu 22.04 (verify a downloaded binary locally before changing that baseline); build the UI before the release daemon so it embeds the assets. `.github/workflows/hf-space.yml` publishes the Space image on main pushes. Keep CI commands and this file in sync.
 - Production install/update: `packaging/install.sh` (Linux/macOS, `--headless`, `--prebuilt`) and `packaging/install.ps1` (Windows). They restart the production daemon: only run them when the owner asks.
 
@@ -114,6 +114,13 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - A bot is files on Home (`BOT.md`, `bot.toml`, store `bot-<id>`) plus one thread: the sessions whose `LaunchSpec.bot` names it. `bot.toml` is the only source of its settings; agents never write either file.
 - A new session of the thread starts only on the first message, a profile or folder change, an archived current session or the owner's New session click; it references the previous trace (`launchpad trace`), never inlines it. Harness compaction handles a full context.
 - Bot sessions are normal sessions (counted once, in Agents); the sidebar shows only a state dot per bot. Their notes go in `bots/<slug>/` of the knowledge base. Creating a bot (form or Ask proposal) starts nothing; Ask's bot proposals never auto-start.
+
+### Channels and the Outbox
+
+- Channels live on Home (`channels.rs`, `telegram.rs`, `hooks.rs`); runners forward `/api/channels` and `/api/outbox` (and `/api/suggestions`) to Home. Webhook URLs and the Telegram token are vault entries `channel-…`: never listed in Credentials and tools, never lent to tools or sessions, never returned by an API.
+- Messages to other people (outgoing webhooks, GitHub suggestions) wait in the Outbox for an owner click. A send is claimed (`sending`) before the request and never retried; an incomplete send is `uncertain` until the owner checks. Automated checks never send real Outbox messages.
+- Messages to the owner's own Telegram chat go out directly (notifications with the Web Push events and no code, answers to turns started from Telegram, `launchpad send telegram`). Only the chat bound with the single-use code is answered; every other chat is ignored. Updates are claimed (offset saved) before they are handled. Messages from Telegram never enable paid usage. Never call Telegram with a real token in automated checks.
+- Incoming hooks (`POST /hooks/<id>`) skip the browser sign-in and need `X-Launchpad-Hook-Secret` (SHA-256 stored, constant-time compare), one message per hook per 10 seconds; on a private Space callers also need an HF token. The body is a fenced, size-limited block marked as outside data.
 
 ### Ask Launchpad
 

@@ -300,10 +300,15 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
     save(app, &s).await?;
     Ok(s)
 }
-/// Included in every launched session, with the exact daemon and session identity.
+/// Included in every launched session, with the exact daemon and session identity (and the channels, when the
+/// owner has some).
 pub fn instruction(app: &App, session: &str, cwd: &str) -> String {
-    format!(
+    let text = format!(
         "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `{} suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes. For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
         app.cli_command_in(cwd)
-    )
+    );
+    match crate::channels::instruction(app, session, cwd) {
+        Some(channels) => format!("{text}\n\n{channels}"),
+        None => text,
+    }
 }

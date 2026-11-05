@@ -468,7 +468,9 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
         return private_response(next.run(req).await, private);
     }
     // Runners authenticate these with their own credential, checked by the handlers.
-    if crate::runners::runner_path(path) || crate::burst::runner_path(path) || crate::git_http::git_path(path) || crate::plain_http::runner_request(path, req.headers()) {
+    // Incoming hooks authenticate with their own secret, checked by the handler.
+    if crate::runners::runner_path(path) || crate::burst::runner_path(path) || crate::git_http::git_path(path) || crate::plain_http::runner_request(path, req.headers())
+        || (req.method() == Method::POST && crate::channels::hook_path(path)) {
         return private_response(next.run(req).await, true);
     }
     // Session-scoped CLI token: verify the durable generation and restrict the router surface before relays.

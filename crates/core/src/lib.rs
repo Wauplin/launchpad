@@ -2,6 +2,9 @@
 
 pub mod attachments;
 pub mod bots;
+pub mod channels;
+pub mod hooks;
+pub mod telegram;
 pub mod browser;
 pub mod code;
 pub mod compose;
@@ -209,6 +212,7 @@ impl App {
         home_git::spawn(&app);
         plain::spawn(&app);
         kb::spawn(&app);
+        channels::spawn(&app);
         if let Err(e) = projects::adopt_git_folders(&app).await {
             tracing::warn!("Home Git folders: {e:#}");
         }
@@ -242,6 +246,11 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     let cfg = ts_rs::Config::new().with_out_dir(out).with_large_int("number");
     predrafts::Predraft::export_all(&cfg)?;
     suggestions::Suggestion::export_all(&cfg)?;
+    channels::Channel::export_all(&cfg)?;
+    channels::OutboxMessage::export_all(&cfg)?;
+    telegram::TelegramStatus::export_all(&cfg)?;
+    hooks::Hook::export_all(&cfg)?;
+    hooks::CreatedHook::export_all(&cfg)?;
     config::Config::export_all(&cfg)?;
     status::Status::export_all(&cfg)?;
     analytics::AgentRun::export_all(&cfg)?;

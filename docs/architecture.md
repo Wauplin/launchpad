@@ -103,7 +103,7 @@ A launch only does local work in the request: it records the session (Starting) 
 | Store | Content | Lifetime |
 | --- | --- | --- |
 | `config.toml` | Settings, profiles, presets | Edited in Settings or by hand |
-| `state.db` (SQLite, WAL) | Sessions, events, drafts, Local PRs, suggestions, schedules, devices | Your data; back it up |
+| `state.db` (SQLite, WAL) | Sessions, events, drafts, Local PRs, suggestions, Outbox messages, channels and hooks, schedules, devices | Your data; back it up |
 | `cache.db` (SQLite) | GitHub payloads as JSON | Disposable, rebuilt on demand |
 | Home backup (`home_backup.rs`) | `state.db` copies (`VACUUM INTO`), `config.toml` and Home Git bundles by content hash, one manifest per backup, written last | Home only; last day kept, restored on an empty boot |
 | Harness folders | Native conversations: per session in `<data_dir>/sessions/<id>/home` for contained sessions, else `~/.claude`, `~/.codex`, OpenCode data | Owned by each harness |
@@ -122,6 +122,7 @@ The Home-only Space POC (`deploy/hf-home/`) runs the daemon behind the private H
 - Browsers authenticate with an HttpOnly device cookie after pairing. The CLI uses a bearer token from the data folder.
 - The Ask Launchpad assistant gets a restricted token: read state and write proposals only.
 - GitHub publication, merges and setup commands always require an owner click.
+- Channels live on Home. Messages to other people (outgoing webhooks, GitHub suggestions) wait in the Outbox for a click and are never retried; messages to the owner's own bound Telegram chat go out directly. Home long-polls Telegram, so it needs no inbound endpoint. Incoming hooks (`/hooks/<id>`) skip the browser sign-in and authenticate with their own secret (behind a private Space, also an HF token).
 - Agents run contained: a bubblewrap jail on Linux runners (or a Local VM). They see their session's folders, their own harness home and the machine's toolchains, never your home folder, keys, logins or Launchpad's data. Their network goes through the runner proxy, which adds Home's tokens on known hosts; agents only hold placeholders. Token scopes decide what a request may do; a steered agent can still leak what it reads or misuse a token within its scopes. SSH host sessions are not contained yet.
 
 ## Repository layout

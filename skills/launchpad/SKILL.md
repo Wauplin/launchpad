@@ -1,6 +1,6 @@
 ---
 name: launchpad
-description: Prepare Local PRs and agent-written comment or review suggestions in Launchpad, and work in Launchpad task worktrees. Use in a Launchpad worktree, or when asked to prepare a local PR or suggested GitHub response.
+description: Prepare Local PRs and agent-written comment or review suggestions in Launchpad, send messages through the owner's channels, and work in Launchpad task worktrees. Use in a Launchpad worktree, or when asked to prepare a local PR, a suggested GitHub response or a message to a channel.
 ---
 
 # Local pull requests
@@ -22,6 +22,10 @@ Use the exact CLI path, environment and session id supplied in the Launchpad ses
 For a PR review, inspect a specific committed head and use `launchpad suggest review --repo owner/repo --number 123 --head <40-character-commit> --body-file /path/to/review.md --session-id <session-id>`. The default is a comment review; use `--event approve` or `--event request-changes` when appropriate. Use the commit you actually reviewed, never substitute a newer PR head without reviewing it. Inline suggestions are not supported yet; describe paths and lines in the review body.
 
 For a Local PR, replace `--repo` and `--number` with `--predraft <id>`. Its card lets the owner add the text to local review notes. Publishing the pre-draft does not publish these suggestions. The owner can edit, post or discard GitHub drafts in the issue or PR conversation. Stop after saving the suggestion and report its id; leave posting to the owner.
+
+## Channels
+
+When the session prompt lists the owner's channels, send a message only when the task asks for it: write it to a file, then run `launchpad send <channel> --body-file /path/to/message.md [--title "…"] --session-id <session-id>`. `telegram` is the owner's own chat and is sent at once; keep it short and plain. Every other channel (Slack, Discord, webhooks) reaches other people: the command only saves a draft in the owner's Outbox, and the owner edits and sends it. Never send the same message twice and never use other tools to post to these channels.
 
 ## Task worktrees
 
