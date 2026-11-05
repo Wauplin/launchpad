@@ -34,8 +34,8 @@ cargo run -p launchpad -- gen-types    # writes web/src/gen/
 cargo +1.93.1 clippy --workspace --all-targets --locked -- -D warnings
 cargo test
 (cd web && pnpm typecheck)
-(cd web && pnpm test:<name>)    # attachments, code, composer, drafts, markdown, operations,
-                                # proposals, sessions, terminals, tour
+(cd web && pnpm test:<name>)    # attachments, chat, code, composer, drafts, markdown,
+                                # operations, proposals, sessions, terminals, tour
 ```
 
 Install the pinned toolchain with `rustup toolchain install 1.93.1 --profile minimal --component clippy`.

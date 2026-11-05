@@ -70,6 +70,7 @@ Screens narrower than 720 px get a phone layout (or choose it in **Settings → 
 - Tabs: **Today** (what waits for you, with the card buttons in place), **Agents**, **Bots** and **Inbox**.
 - The workspace button at the top left opens the menu. Its **Workspaces** row shows one square per workspace with the count of what waits in it; tap one to switch, or **New workspace**. Below are the other pages (Schedules, Folders, Knowledge, Terminals when some are open, Settings) and device settings. The button shows how many items wait in the Today lists of the other workspaces.
 - Each screen has one title, in the top bar.
+- Bot pages show the chat; the header's **⋯** menu opens Memory, Proposals, Routines and Settings in place of the chat.
 - Session pages with Summary, Trace and Changes, a reply box and a terminal key bar. In Summary or Trace, tap the expand icon beside the view tabs to fill the screen with a compact header and hide the reply box. Tap collapse to restore the layout and your draft.
 
 <table>

@@ -60,7 +60,19 @@ With a Git folder, each session works in a fresh worktree of Home Git. Without a
 
 ## The bot's page
 
-The thread is on the left. The right side has four tabs:
+The bot's page is a chat over the whole thread. It opens at the newest message; scroll up (or click **Load earlier messages**) to read older turns and older sessions. Each turn shows:
+
+- your message, and the bot's last answer;
+- one steps line ("12 steps · 3 min 10 s") that opens the list of steps, and **Open trace**, which opens the session in Agents with its full trace, terminal and files;
+- its open questions and approval cards, answered in place;
+- the cards it wrote during the turn, at that turn: proposals, drafts and suggestions that wait for your click (**Send**, **Post**, **Review & publish**), **Changed** lines for its knowledge base notes and bot files, and a **Changes** card with the branch (**Merge** when it is safe, otherwise **Review changes**);
+- a line when the turn failed or was interrupted, with **Continue** on the last turn.
+
+A routine run that ends with no update is one muted line. A divider marks the start of each session, with the reason when the profile or folder changed, and **Open in Agents**. While the bot works, a live line shows the current step and **Stop**.
+
+The message box sends to the current session. When the bot asks a question, typed text answers it. During an approval request the box is disabled: choose on the approval card (typed text never grants a permission). When the harness cannot take messages during a turn, the box waits until the turn ends. The page counts as showing the current session: it marks it seen after 1.5 seconds and suppresses its notifications, like Agents.
+
+The header has the bot's state, **Pause**, **New session** and **Open in Agents**. On a laptop, a side panel next to the chat has four tabs. On a phone, the header's **⋯** menu holds the header buttons and the same four panels; a panel replaces the chat, and Back returns to it. The panels:
 
 - **Memory**: the bot's notes in the knowledge base (`bots/<slug>/`), the recent changes made by its sessions, and every session of its thread with its status and context use. Correct a note on the Knowledge page; every change can be restored for 30 days.
 - **Proposals**: the cards its sessions wrote, waiting or handled, with **Start all** and **Dismiss all**.
@@ -85,7 +97,7 @@ A routine sends the bot a task by itself. Open the bot's **Routines** tab and cl
 
 Optional conditions: at least a share of the profile's 5-hour or weekly quota left (with a reading from the last 15 minutes).
 
-Each run is a message to the bot's thread, shown as one line (**Routine “Daily check” · Scheduled**) that opens to the instructions. The bot prepares work for your review unless the instructions ask it to publish, then ends with a short report (a normal Done that notifies you) or with `no_update`, shown as **✓ No update**: no notification, and the thread does not need you unless an earlier result is still unread. A run while the bot is working is skipped, with the reason. Messages from incoming hooks and Telegram never join a running turn: they wait, in order, until the bot's turn ends.
+Each run is a message to the bot's thread, shown in the chat as one line (**Routine “Daily check” · Scheduled**). The bot prepares work for your review unless the instructions ask it to publish, then ends with a short report (a normal Done that notifies you) or with `no_update`, shown as one muted line (**Daily check · Scheduled · no update**): no notification, and the thread does not need you unless an earlier result is still unread. A run while the bot is working is skipped, with the reason. Messages from incoming hooks and Telegram never join a running turn: they wait, in order, until the bot's turn ends.
 
 Every routine shows its last runs as small squares and its history in text: **Report**, **No update**, **Skipped** (why), **Failed** or **Interrupted**, the last successful run and the next one. **Run now** starts a run at once. **Pause** stops one routine; the bot's **Pause** stops all of them.
 
