@@ -90,7 +90,7 @@ Home starts with one workspace, **Personal**; the rail at the left edge shows yo
 3. Choose the folder. The options line under the prompt says where the agent runs, for example "New worktree from main · keep branch": in Git folders, a new worktree (the default) gives the agent its own branch. Click the line to change **Run in**, **From** or **When done**.
 4. Click **Launch**.
 
-![The New agent composer](images/composer.webp)
+![The New agent composer with its options line](images/composer.webp)
 
 The agent appears in **Agents → Running**. When it finishes, a card waits in **Today** until you have looked at it or merged its branch. See [Agents](agents.md) for everything that happens next.
 

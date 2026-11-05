@@ -2,7 +2,7 @@
 
 Launchpad is a desktop app to launch, follow and review coding agents (Claude Code, Codex and OpenCode), with a fast local-first GitHub client built in. It runs on Linux, macOS and Windows, and works from a phone or any browser you pair with it.
 
-![The Agents view: running agents and quota usage](docs/images/agents.webp)
+![Today: questions, finished agents and other decisions, one card each](docs/images/today.webp)
 
 ## Why Launchpad
 
@@ -18,7 +18,7 @@ Launchpad is a desktop app to launch, follow and review coding agents (Claude Co
 <table>
   <tr>
     <td width="66%"><img src="docs/images/session-dark.webp" alt="A running agent: live trace with tool calls and diffs"></td>
-    <td><img src="docs/images/phone-now.webp" alt="The phone layout, with answer buttons"></td>
+    <td><img src="docs/images/phone-today.webp" alt="Today on a phone, with answer buttons and the tab bar"></td>
   </tr>
 </table>
 

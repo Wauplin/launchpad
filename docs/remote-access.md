@@ -78,8 +78,8 @@ Screens narrower than 720 px get a phone layout (or choose it in **Settings → 
 
 <table>
   <tr>
-    <td><img src="images/phone-now.webp" alt="The phone layout" width="300"></td>
-    <td><img src="images/phone-session.webp" alt="A session on a phone" width="300"></td>
+    <td><img src="images/phone-today.webp" alt="Today on a phone" width="300"></td>
+    <td><img src="images/phone-session.webp" alt="A session on a phone, with Reply and Merge into main" width="300"></td>
   </tr>
 </table>
 

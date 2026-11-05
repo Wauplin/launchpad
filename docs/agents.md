@@ -2,7 +2,7 @@
 
 An agent session is one conversation with a coding agent, in one folder. Launchpad starts it, streams its output, keeps its history in a local database and lets you answer, steer, resume or archive it.
 
-![A Done session: Summary with run facts, the first prompt and the final message](images/session.webp)
+![A Done session: the final message, next steps and Merge into main as the main action](images/session.webp)
 
 ## Harnesses
 
@@ -173,7 +173,7 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 **Ask** in the top bar sends your text, with the page as context, to the workspace's default bot: the oldest bot with admin access (Ask Launchpad unless you changed it), else the oldest bot. The bot's chat opens in the **Ask panel** at the right of the page; its menu picks another bot of the workspace, and on a bot's page Ask talks to that bot. The panel has **New session**, a link to the bot's page and **Close**.
 
-![Ask Launchpad with two proposals](images/ask.webp)
+![The Ask panel: an answer and a proposed launch](images/ask.webp)
 
 Any agent granted the Launchpad CLI tool can propose cards too; they wait in Today → Approve and in the session that wrote them; handled cards are in Today → Done. **Add tool** asks you to confirm, then you paste the tool's token. **Edit** moves a proposal into the composer and replaces the card ("Edited in the composer"). **Start all** (in Today and on a bot's Proposals tab) and **Dismiss all** (on a bot's Proposals tab) act on every waiting card after one confirmation.
 

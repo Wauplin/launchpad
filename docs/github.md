@@ -8,7 +8,7 @@ Sign in with `gh auth login` on the machine that runs the daemon. Launchpad read
 
 ## Inbox
 
-![The Inbox with reason filters and a preview](images/inbox.webp)
+![The Inbox with reason filters, Done on each row and a preview](images/inbox.webp)
 
 - The Inbox (`/inbox`) lists the notifications of the workspace's repositories. Notifications of a repository that has no folder appear in no Inbox: **Settings → GitHub → Repositories without a folder** lists those repositories with their notification count and last activity, with **Add to ▾** (clone it as a folder of a workspace) and **Open on GitHub**.
 - Filter by reason: **Review requested**, **Mentioned**, **Assigned**, **Subscribed** or **All**, plus **Unread only** and a repository filter.
