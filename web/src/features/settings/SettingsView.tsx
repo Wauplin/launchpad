@@ -11,7 +11,8 @@ import { useEffect, useState } from "react";
 import type { Config } from "@/gen/Config";
 import type { Preset } from "@/gen/Preset";
 import { Icon, type IconName } from "@/components/Icon";
-import { ConfirmButton, Loading, SettingRow, useSaveState, type SaveState } from "@/components/ui";
+import { ConfirmButton, IntroButton, Loading, SettingRow, useSaveState, type SaveState } from "@/components/ui";
+import { useIntro } from "@/lib/intros";
 import { api } from "@/lib/api";
 import { DEFAULT_ZOOM, ZOOM_LEVELS, useZoom } from "@/lib/zoom";
 import { useConfig, type ConfigResponse } from "@/lib/queries";
@@ -46,10 +47,12 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
   { group: "Help", items: [{ to: "/settings/onboarding", label: "Onboarding", icon: "spark" }] },
 ];
 
-/** The layout of every Settings page: grouped navigation on the left (a scrolling row on phones), one title, one short intro. */
+/** The layout of every Settings page: grouped navigation on the left (a link back to the list on phones), one title, one short intro (first visit only, then behind ⓘ). */
 export function SettingsPage({ title, intro, info, actions, children, tour }: { title?: string; intro?: React.ReactNode; info?: string; actions?: React.ReactNode; children: React.ReactNode; tour?: string }) {
   const phone = usePhone();
   const workspace = useScope().workspace;
+  // The intro shows on the first visit of the page on this device, then behind ⓘ.
+  const explain = useIntro(intro && title ? `settings:${title}` : null);
   const groups = SETTINGS_NAV.map((g) => ({ ...g, items: g.items.filter((e) => !delegatedAccess() || e.to !== "/settings/devices") }));
   const link = (e: NavEntry) => (
     <Link key={e.to} to={e.to} activeOptions={{ exact: !!e.exact }} className="flex h-[30px] items-center gap-2 rounded-[7px] px-2 text-[13px] text-ink-2 no-underline hover:bg-sunk hover:text-ink" activeProps={{ className: "bg-select font-semibold text-ink!", "aria-current": "page" } as never}>
@@ -85,9 +88,9 @@ export function SettingsPage({ title, intro, info, actions, children, tour }: { 
           {title && (
             <div className="flex flex-wrap items-center gap-2">
               <h1 className={`m-0 font-semibold ${phone ? "text-[15px]" : "text-[18px]"}`}>{title}</h1>
-              {info && <span className="text-ink-3" title={info} aria-label={info}><Icon name="info" size={14} /></span>}
+              {intro ? <IntroButton {...explain} /> : info && <span className="text-ink-3" title={info} aria-label={info}><Icon name="info" size={14} /></span>}
               {actions && <span className="ml-auto flex flex-wrap gap-2">{actions}</span>}
-              {intro && <p className="m-0 w-full text-[13px] text-ink-2">{intro}</p>}
+              {intro && explain.open && <p className="m-0 w-full text-[13px] text-ink-2">{intro}{info && <span className="mt-1 block text-[12px] text-ink-3">{info}</span>}</p>}
             </div>
           )}
           {children}

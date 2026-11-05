@@ -96,13 +96,13 @@ export function KnowledgeView() {
   const tabs = <Tabs label="Knowledge views" value={tab} onChange={(t) => { setTab(t); if (t === "notes") setHistoryOf(null); }} items={[{ id: "notes", label: "Notes", count: notes.data?.files.length }, { id: "changes", label: "Changes", count: unseen || undefined }]} tour="knowledge.tabs" />;
   const meta = <>
     <span>{scope.workspace.name}</span>
-    <span>The only memory agents have · every change is restorable for 30 days{role === "runner" ? " · stored by Home" : ""}</span>
+    {role === "runner" && <span>Stored by Home</span>}
   </>;
   const openNote = (path: string) => { setTab("notes"); setPanel("note"); setSelected(path); };
   const showHistory = (path: string) => { setHistoryOf(path); setTab("changes"); };
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="knowledge.page">
-      {phone ? <PhoneHeader title="Knowledge" onBack={selected && tab === "notes" ? () => setSelected(null) : undefined} actions={actions} /> : <PageHeader icon={<Icon name="book" size={18} />} title="Knowledge" meta={meta} actions={actions} tabs={tabs} />}
+      {phone ? <PhoneHeader title="Knowledge" onBack={selected && tab === "notes" ? () => setSelected(null) : undefined} actions={actions} /> : <PageHeader icon={<Icon name="book" size={18} />} title="Knowledge" meta={meta} intro="The only memory agents have. Every change is restorable for 30 days." actions={actions} tabs={tabs} />}
       {phone && <div className="border-b border-line px-3 py-1.5">{tabs}</div>}
       {notes.isLoading ? <Loading what="the knowledge base" /> : notes.error ? <ErrorState error={notes.error} onRetry={() => void notes.refetch()} /> : notes.data && (
         tab === "notes"

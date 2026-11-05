@@ -115,13 +115,13 @@ export function TodayView() {
     <FilterChip active={view === "done"} title="What you handled in the last 30 days, with where it went" onClick={() => setView("done")}>Done</FilterChip>
   </FilterChips>;
   const groupActions = (view === "approve" || view === "all") && <StartAll proposals={waitingProposals} />;
-  const meta = `${items.length ? `${items.length} decision${items.length === 1 ? "" : "s"}` : "Nothing waits"} in ${scope.workspace.name} · nothing reaches GitHub or other people without your click`;
+  const meta = `${items.length ? `${items.length} decision${items.length === 1 ? "" : "s"}` : "Nothing waits"} in ${scope.workspace.name}`;
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="today.page">
       {phone
         ? <div className="phone-page-content grid gap-1.5 border-b border-line-2 py-2"><span className="text-xs text-ink-3">{meta}</span>{chips}{groupActions && <div>{groupActions}</div>}</div>
-        : <PageHeader title="Today" meta={<span>{meta}</span>} actions={groupActions || undefined} tabs={<div className="pb-3">{chips}</div>} />}
+        : <PageHeader title="Today" meta={<span>{meta}</span>} intro="Everything that waits for your decision, one card each. Nothing reaches GitHub or other people without your click." actions={groupActions || undefined} tabs={<div className="pb-3">{chips}</div>} />}
       <div ref={ref} className="min-h-0 flex-1 overflow-y-auto [overflow-wrap:anywhere]">
         {error ? <ErrorState className="m-4" error={error} /> : loading ? <Loading what="Today" /> : shown.length === 0 && <Empty fill={phone} icon="check" className={phone ? "" : "mx-auto max-w-[760px] pt-6"}>{EMPTY[view]}</Empty>}
         <div className={`relative mx-auto w-full ${view === "done" ? "max-w-[860px]" : "max-w-[760px]"}`} style={{ height: list.getTotalSize() }}>

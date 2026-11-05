@@ -3,9 +3,19 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./Icon";
+import { useIntro } from "@/lib/intros";
 
-/** Page title (18/600), one meta line, right-aligned actions (one primary, up to two secondary, then ⋯) and optional tabs. */
-export function PageHeader({ title, meta, actions, tabs, back, icon, className = "" }: { title: ReactNode; meta?: ReactNode; actions?: ReactNode; tabs?: ReactNode; back?: ReactNode; icon?: ReactNode; className?: string }) {
+/** ⓘ next to a page title: shows or hides the page's explanation (open on the first visit only, `useIntro`). */
+export function IntroButton({ open, toggle }: { open: boolean; toggle: () => void }) {
+  return <button type="button" className="iconbtn size-6! flex-none text-ink-3" aria-expanded={open} title={open ? "Hide the explanation" : "About this page"} aria-label={open ? "Hide the explanation" : "About this page"} onClick={toggle}><Icon name="info" size={14} /></button>;
+}
+
+/**
+ * Page title (18/600), one meta line, right-aligned actions (one primary, up to two secondary, then ⋯) and optional
+ * tabs. `intro` explains the page: on the first visit on this device, then behind ⓘ (`introId` defaults to the title).
+ */
+export function PageHeader({ title, meta, intro, introId, actions, tabs, back, icon, className = "" }: { title: ReactNode; meta?: ReactNode; intro?: ReactNode; introId?: string; actions?: ReactNode; tabs?: ReactNode; back?: ReactNode; icon?: ReactNode; className?: string }) {
+  const explain = useIntro(intro ? introId ?? (typeof title === "string" ? title : null) : null);
   return (
     <header className={`page-header border-b border-line-2 bg-paper px-5 pt-3 ${tabs ? "" : "pb-3"} ${className}`}>
       {back && <div className="mb-1 text-[12px]">{back}</div>}
@@ -13,8 +23,12 @@ export function PageHeader({ title, meta, actions, tabs, back, icon, className =
         <div className="flex min-w-0 flex-1 basis-[240px] items-center gap-2">
           {icon}
           <div className="min-w-0">
-            <h1 className="m-0 truncate text-[18px] leading-tight font-semibold">{title}</h1>
+            <div className="flex min-w-0 items-center gap-1">
+              <h1 className="m-0 truncate text-[18px] leading-tight font-semibold">{title}</h1>
+              {intro && <IntroButton {...explain} />}
+            </div>
             {meta && <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3">{meta}</div>}
+            {intro && explain.open && <p className="m-0 mt-1 max-w-[720px] text-[12px] text-ink-2">{intro}</p>}
           </div>
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

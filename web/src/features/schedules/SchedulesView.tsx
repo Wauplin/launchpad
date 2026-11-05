@@ -61,7 +61,7 @@ export function SchedulesView() {
   const tabs = <Tabs label="Schedules" value={tab} onChange={(t) => go({ tab: t })} tour="schedules.tabs" items={[{ id: "routines", label: "Routines", count: routines.length || undefined }, { id: "launches", label: "Scheduled launches", count: launches.length || undefined }]} />;
   const header = phone
     ? <PhoneHeader title="Schedules" />
-    : <PageHeader icon={<Icon name="clock" size={18} />} title="Schedules" meta={<>{scope.workspace.name} · routines start on their own; scheduled launches start once</>} tabs={tabs} />;
+    : <PageHeader icon={<Icon name="clock" size={18} />} title="Schedules" meta={scope.workspace.name} intro="Routines start on their own, on a schedule or an event; scheduled launches start once." tabs={tabs} />;
   const panel = selected
     ? <Side title={selected.title} onClose={() => go({ tab })}><RoutineDetails cron={selected} bot={bots.find((b) => b.id === selected.bot_id)} onOpen={openSession} onDeleted={() => go({ tab })} /></Side>
     : launch ? <ScheduledPane launch={launch} onClose={() => go({ tab })} onStart={(s) => openSession(s.id)} /> : null;
