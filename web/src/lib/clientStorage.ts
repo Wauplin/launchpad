@@ -10,7 +10,7 @@ export async function signOut() {
     try {
       for (let i = storage.length - 1; i >= 0; i--) {
         const key = storage.key(i)!;
-        if (key.startsWith("launchpad") || /^(diff-viewed|github-reply:|predraft-draft:|suggestion-edit:)/.test(key)) storage.removeItem(key);
+        if (key.startsWith("launchpad")) storage.removeItem(key);
       }
     } catch { /* Continue clearing the other stores. */ }
   }
