@@ -89,10 +89,10 @@ async function gateway(path: string, body: Record<string, unknown>): Promise<{ l
   return { login: j.login ?? null };
 }
 
-/** Signs in on Home itself, like its setup page: Home runs `claude setup-token` or `codex login --device-auth`, the
- * owner approves in the browser (and pastes Claude's code back), and the login goes straight into the vault with a
- * profile that uses it. */
-function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | "codex"; name: string; onDone: () => unknown; children: ReactNode }) {
+/** Signs in on Home itself, like its setup page: Home runs `claude setup-token`, `codex login --device-auth` or
+ * `gh auth login --web`, the owner approves in the browser (and pastes Claude's code back). A harness login goes
+ * straight into the vault with a profile that uses it; GitHub's stays Home's own login (sealed in its bucket). */
+export function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | "codex" | "github"; name: string; onDone: () => unknown; children?: ReactNode }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [label, setLabel] = useState("");
@@ -102,6 +102,7 @@ function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | "codex"
   // False once the owner cancels: a cancelled sign-in also ends without an error.
   const watching = useRef(false);
   const active = !!login?.running;
+  const github = tool === "github";
   useEffect(() => {
     if (!active) return;
     const timer = setInterval(() => {
@@ -111,7 +112,7 @@ function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | "codex"
         setLogin(next);
         if (next && !next.running && !next.error) {
           watching.current = false;
-          toast(`Signed in to ${name}: Home keeps the login`);
+          toast(github ? "Signed in to GitHub" : `Signed in to ${name}: Home keeps the login`);
           setOpen(false);
           setLabel("");
           void qc.invalidateQueries({ queryKey: ["config"] });
@@ -125,8 +126,14 @@ function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | "codex"
     setBusy(true);
     return gateway(path, body).then((r) => setLogin(r.login), toastError).finally(() => setBusy(false));
   };
-  if (!open) return <div className="flex flex-wrap gap-2"><button className="btn btn-sm w-fit" onClick={() => setOpen(true)}>Add a {name} login</button></div>;
+  const start = () => { watching.current = true; void run("/_home/login", { tool, name: label.trim() || null }); };
   const failed = login && !login.running ? login.error : null;
+  // GitHub has one login and nothing to name: the button starts the sign-in.
+  if (github && !active) return <div className="grid gap-1.5">
+    <button className="btn btn-sm btn-primary w-fit" disabled={busy} onClick={() => { setOpen(true); start(); }}>{busy ? "Starting…" : "Sign in to GitHub"}</button>
+    {open && failed && <span className="text-[12px] text-attn">{failed}</span>}
+  </div>;
+  if (!open) return <div className="flex flex-wrap gap-2"><button className="btn btn-sm w-fit" onClick={() => setOpen(true)}>Add a {name} login</button></div>;
   return (
     <div className="grid gap-2 rounded-[8px] border border-line-2 p-2.5 text-[13px]">
       {!active ? <>
@@ -134,7 +141,7 @@ function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | "codex"
         <label className="grid gap-1"><span className="text-ink-2">Name <span className="text-ink-3">(optional)</span></span><input className="field-input w-[280px] max-w-full" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Work" /></label>
         {failed && <span className="text-[12px] text-attn">{failed}</span>}
         <div className="flex flex-wrap gap-2">
-          <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => { watching.current = true; void run("/_home/login", { tool, name: label.trim() || null }); }}>{busy ? "Starting…" : `Sign in to ${name}`}</button>
+          <button className="btn btn-sm btn-primary" disabled={busy} onClick={start}>{busy ? "Starting…" : `Sign in to ${name}`}</button>
           <button className="btn btn-sm" onClick={() => setOpen(false)}>Cancel</button>
         </div>
         {children}
@@ -152,7 +159,7 @@ function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | "codex"
             {login.code && <span className="flex items-center gap-2"><code className="font-mono text-[15px] font-semibold">{login.code}</code><button className="btn btn-sm" onClick={() => void navigator.clipboard.writeText(login.code ?? "").then(() => toast("Copied"))}>Copy</button></span>}
             <a className="btn btn-sm btn-primary w-fit" href={login.link} target="_blank" rel="noreferrer">Open the sign-in page</a>
           </>}
-        <span className="text-[12px] text-ink-3">{tool === "claude" ? "The code goes to Claude Code on Home; the token it creates goes straight into the vault." : "The code expires after a few minutes. This updates when you approve it."}</span>
+        <span className="text-[12px] text-ink-3">{tool === "claude" ? "The code goes to Claude Code on Home; the token it creates goes straight into the vault." : github ? "The code expires after a few minutes. This updates when you approve it; Home keeps the login encrypted in its bucket." : "The code expires after a few minutes. This updates when you approve it."}</span>
         <button className="btn btn-sm w-fit" disabled={busy} onClick={() => { watching.current = false; void run("/_home/cancel", {}).then(() => setLogin(null)); }}>Cancel the sign-in</button>
       </>}
     </div>

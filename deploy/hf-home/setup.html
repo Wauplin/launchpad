@@ -161,7 +161,7 @@ function render(s){
   const hf=s.huggingface,key=s.key,gh=s.github,pr=s.profile,fo=s.folders,ru=s.runner;
   $("#s-huggingface .state").textContent=hf.done?`Signed in as ${hf.account}`:"Not signed in";
   $("#s-key .state").textContent=key.done?"Encryption on":key.state==="restarting"?"Home is restarting…":key.state==="manual"?"Waiting for the LP_HOME_KEY secret":"Not set";
-  $("#s-github .state").textContent=gh.done?`Signed in${gh.account?` as ${gh.account}`:""}${gh.secret?" (GH_TOKEN Space secret)":""}`:gh.secret?"The GH_TOKEN Space secret did not work. Check it in the Space settings.":"Not connected";
+  $("#s-github .state").textContent=gh.done?`Signed in${gh.account?` as ${gh.account}`:""}${gh.secret?" (GH_TOKEN Space secret)":""}`:gh.error||(gh.secret?"The GH_TOKEN Space secret did not work. Check it in the Space settings.":"Not connected");
   $("#s-ssh .state").textContent=s.ssh.done?"Added":skipped("ssh")?"Skipped":s.ssh.public_key?"Created: add it to GitHub":"Not created";
   $("#s-identity .state").textContent=s.identity.done?`${s.identity.name} <${s.identity.email}>`:"Not set";
   $("#s-profile .state").textContent=pr.done?`Ready: ${(pr.profiles||[]).map(p=>`${p.name}${p.model?` · ${p.model}`:""}${p.effort?` · ${p.effort}`:""}`).join(", ")}`:pr.ready?"Choose a model":pr.missing?`${pr.missing.name} needs its login`:"No profile yet";

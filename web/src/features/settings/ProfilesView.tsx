@@ -1,4 +1,4 @@
-import { useVault } from "./CredentialsView";
+import { HomeSignIn, useVault } from "./CredentialsView";
 import { delegatedAccess, externalSetup } from "@/lib/deployment";
 import { SpaceSettingsButton } from "@/components/SpaceSettingsButton";
 // Settings → Profiles: how Launchpad runs each coding agent (a harness, the login or key that pays for it, and its
@@ -566,16 +566,18 @@ function HomeProfileLogin({ draft: d }: { draft: Draft }) {
 }
 
 export function GitHubCard() {
+  const qc = useQueryClient();
   const q = useSignIn();
   const c = q.data?.find((x) => x.id === "github");
-  // Home's own GitHub login is set up by the Space's setup page (private bucket), never through a terminal.
+  // Home's own GitHub login is made by the Space gateway (this sign-in or its setup page, sealed in the private bucket), never through a terminal.
   const home = useStatus().data?.role === "home" && delegatedAccess();
   return (
     <Card title="GitHub CLI">
       <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">The Inbox, issues, PRs and publication use the GitHub CLI of this computer. <span className="text-ink-3" title="Git push also needs credentials there (SSH keys or gh auth setup-git); folders on SSH hosts push with the host's own credentials (Settings → Machines)."><Icon name="info" size={13} /></span></p>
       {c && (home ? <CliCheckRow check={c} icon="pr" command={null}>
-        <a href="/_home/setup" className="btn btn-sm w-fit">{c.signed_in ? "Home setup" : "Sign in to GitHub"}</a>
+        {c.signed_in && <a href="/_home/setup" className="btn btn-sm w-fit">Home setup</a>}
       </CliCheckRow> : <CliCheckRow check={c} icon="pr" />)}
+      {c && home && !c.signed_in && <HomeSignIn tool="github" name="GitHub" onDone={() => Promise.all([qc.invalidateQueries({ queryKey: ["sign-in"] }), qc.invalidateQueries({ queryKey: ["setup-summary"] })])} />}
     </Card>
   );
 }

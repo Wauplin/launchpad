@@ -162,6 +162,11 @@ def write_private(path, data):
     temporary.replace(path)
 
 
+def github_refused(stderr):
+    """Whether a failed `gh api` call means GitHub rejected the token (revoked, expired or invalid)."""
+    return bool(re.search(r"HTTP 401|Bad credentials", stderr))
+
+
 def noreply_email(user):
     return f"{user['id']}+{user['login']}@users.noreply.github.com" if user.get("id") and user.get("login") else ""
 
@@ -310,6 +315,8 @@ class Setup:
         self.home_at = 0.0
         self.hf_retry = None  # Retries a check that could not reach Hugging Face, with backoff.
         self.hf_checked_at = 0.0
+        self.github_checked_at = 0.0
+        self.github_check = None
         self.login = None
         self.lock = asyncio.Lock()
         self.api = None  # Set once the daemon is up: async (method, path, body=None) -> JSON.
@@ -421,26 +428,38 @@ class Setup:
                 return
             delay = min(max(delay * 2, 5), 300)
 
-    async def gh(self, *args):
+    async def gh(self, *args, errors=None):
+        """`gh` output on success, else None. `errors` collects stderr of a failed call (it never holds the token)."""
         process = await asyncio.create_subprocess_exec(
             "gh", *args, env=dict(os.environ, GH_PROMPT_DISABLED="1"), stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
-        out, _ = await asyncio.wait_for(process.communicate(), 30)
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        out, err = await asyncio.wait_for(process.communicate(), 30)
+        if process.returncode != 0 and errors is not None:
+            errors.append(err.decode(errors="replace"))
         return out.decode().strip() if process.returncode == 0 else None
 
     async def check_github(self):
+        """Signed in only while GitHub accepts the stored token, like Settings (`gh auth status`): a revoked or expired
+        token is not a login. When GitHub cannot be reached, the stored token counts and the error says so."""
+        self.github_checked_at = time.monotonic()
         try:
-            # A stored token is enough (no network); the account details are best effort.
             stored = self.secret() or (self.gh_dir / "hosts.yml").exists()
             if not stored or not await self.gh("auth", "token", "--hostname", "github.com"):
                 self.github = {"done": False, "account": None, "error": None, "user": {}}
                 return
-            user = {}
-            raw = await self.gh("api", "user", "--jq", "[.login, .name // \"\", .id] | @tsv")
-            if raw:
-                login, name, uid = (raw.split("\t") + ["", "", ""])[:3]
-                user = {"login": login, "name": name or login, "id": uid}
-            self.github = {"done": True, "account": user.get("login"), "error": None, "user": user}
+            errors = []
+            raw = await self.gh("api", "user", "--jq", "[.login, .name // \"\", .id] | @tsv", errors=errors)
+            if raw is None:
+                if github_refused(" ".join(errors)):
+                    refused = ("GitHub refused the GH_TOKEN Space secret. Check it in the Space settings." if self.secret()
+                               else "GitHub refused the saved login: it was revoked or expired. Sign in again.")
+                    self.github = {"done": False, "account": None, "error": refused, "user": {}, "refused": True}
+                else:
+                    self.github = {"done": True, "account": None, "error": "Could not reach GitHub to verify this login.", "user": {}}
+                return
+            login, name, uid = (raw.split("\t") + ["", "", ""])[:3]
+            user = {"login": login, "name": name or login, "id": uid}
+            self.github = {"done": True, "account": login, "error": None, "user": user}
         except (OSError, asyncio.TimeoutError):
             self.github = {"done": False, "account": None, "error": "Could not check the GitHub login.", "user": {}}
 
@@ -528,8 +547,9 @@ class Setup:
 
     @property
     def complete(self):
-        """Home opens once the required steps are done."""
-        return self.unlocked and all(self.step(s[0]) for s in STEPS if s[3])
+        """Home opens once the required steps are done. A GitHub login that GitHub now refuses keeps Home open: the
+        step shows it, and Settings or this page signs in again."""
+        return self.unlocked and all(self.step(s[0]) or (s[0] == "github" and self.github.get("refused")) for s in STEPS if s[3])
 
     def install_command(self):
         """The runner install command, for bash and zsh. The HF token passes the private Space's sign-in: `HF_TOKEN`,
@@ -547,7 +567,7 @@ class Setup:
                 'bash -c "$s")')
 
     def status(self):
-        github = {k: v for k, v in self.github.items() if k != "user"}
+        github = {k: v for k, v in self.github.items() if k not in ("user", "refused")}
         user = self.github.get("user") or {}
         steps = self.steps()
         return {
@@ -774,6 +794,10 @@ class Setup:
             # An unverified login is checked again (at most every 30 seconds) while the page is open.
             if not self.hf["done"] and time.monotonic() - self.hf_checked_at > 30 and (self.hf_retry is None or self.hf_retry.done()):
                 self.hf_retry = asyncio.ensure_future(self.retry_hf(0))
+            # GitHub can revoke a token at any time: verify it again at most every minute.
+            if time.monotonic() - self.github_checked_at > 60 and (self.github_check is None or self.github_check.done()) \
+                    and not (self.login and self.login.running and self.login.tool == "github"):
+                self.github_check = asyncio.ensure_future(self.check_github())
             try:
                 await self.check_home()
             except Exception:

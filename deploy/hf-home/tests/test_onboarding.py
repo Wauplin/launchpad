@@ -1,6 +1,6 @@
 import unittest
 
-from onboarding import SKIPPED, Setup, claude_token, derive_key, device_prompt, key_opens, last_line, noreply_email, seal, unique_id, unseal
+from onboarding import SKIPPED, Setup, claude_token, derive_key, device_prompt, github_refused, key_opens, last_line, noreply_email, seal, unique_id, unseal
 
 
 class DevicePrompt(unittest.TestCase):
@@ -78,6 +78,10 @@ class Email(unittest.TestCase):
     def test_noreply(self):
         self.assertEqual(noreply_email({"id": "42", "login": "octo"}), "42+octo@users.noreply.github.com")
         self.assertEqual(noreply_email({}), "")
+
+    def test_github_refused(self):
+        self.assertTrue(github_refused("gh: Bad credentials (HTTP 401)"))
+        self.assertFalse(github_refused('Get "https://api.github.com/user": dial tcp: connection refused'))
 
 
 class UniqueId(unittest.TestCase):
