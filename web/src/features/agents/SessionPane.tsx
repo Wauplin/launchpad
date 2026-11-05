@@ -344,13 +344,14 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
       {s.live && <button className="iconbtn text-danger" title="Stop the agent while it waits for your decision" aria-label="Stop agent" onClick={() => void act(s.id, "interrupt")}><Icon name="stop" size={14} /></button>}
     </>
   ) : s.status === "waiting" ? (
-    uncommitted
-      ? <button className="btn btn-sm btn-primary" title="Open the uncommitted files in the Changes view" onClick={() => showChanges(false)}>Review changes</button>
+    // Work not merged yet (uncommitted, or commits that differ from main) comes before Archive.
+    changed
+      ? <button className="btn btn-sm btn-primary" title={uncommitted ? "Open the uncommitted files in the Changes view" : "Open the agent's changes: merge, open a Local PR or keep the branch from there"} onClick={() => showChanges(!uncommitted && mainChanges > 0)}>Review changes</button>
       : <button className="btn btn-sm btn-primary" title="Archive the session (it stays resumable)" onClick={archive}><Icon name="archive" size={12} />Archive</button>
   ) : resumable ? (
     <button className="btn btn-sm btn-primary" title={s.status === "closed" ? "Re-attach this archived session; send its original task if it never started" : "Continue the unfinished task"} onClick={() => { void (s.status === "closed" ? act(s.id, "resume") : api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }).catch(toastError)); setView("trace"); }}>Resume</button>
   ) : null;
-  const archivePrimary = s.status === "waiting" && !s.open_question && !uncommitted;
+  const archivePrimary = s.status === "waiting" && !s.open_question && !changed;
 
   return (
     <div className={`relative flex h-full min-h-0 min-w-0 flex-col bg-paper ${readingExpanded ? "session-expanded" : ""}`}
