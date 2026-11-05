@@ -1,0 +1,310 @@
+//! Today: the decision list. Home computes, once for every window, phone and count, what waits for the owner in
+//! each workspace: questions, finished agents, Local PRs, proposals, drafts to send, GitHub suggestions and review
+//! requests, failed routines and outdated runners. The core adds its own records (sessions, Local PRs, runners);
+//! the crates above it add theirs through `ext::Extensions::today`. Each item names its main action from the
+//! action list (`actions::ACTIONS`). A bus event (`today`/`changed`) tells windows when the list changed.
+//!
+//! The same predicates as before decide membership: `Session::needs_you()` for agents, waiting proposals, Outbox
+//! drafts and unposted suggestions. Handled items of the last 30 days form the Done list.
+use std::time::Duration;
+
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+use crate::App;
+use crate::model::{Project, Session, SessionStatus};
+use crate::util::now_ms;
+
+/// The filter chips of the Today page, in the order decisions are made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "TodayFilter")]
+pub enum Filter {
+    /// Open questions of agents.
+    Answer,
+    /// Finished, failed or interrupted agents not seen yet, and Local PRs to publish.
+    Review,
+    /// Proposal cards.
+    Approve,
+    /// Outbox drafts for other people.
+    Send,
+    /// Suggestions to post and review requests.
+    Github,
+    /// Failed routines and outdated runners.
+    Fix,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "TodayKind")]
+pub enum Kind {
+    Question,
+    Finished,
+    Failed,
+    LocalPr,
+    Proposal,
+    Outbox,
+    Suggestion,
+    ReviewRequest,
+    Routine,
+    Runner,
+}
+
+/// Where an item belongs, resolved by `compute` into `Item::workspaces`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Place {
+    /// Every workspace (a runner, a message without a session).
+    #[default]
+    Everywhere,
+    Workspace(Option<String>),
+    Project(String),
+    Session(String),
+    /// `owner/repo`: the workspaces of the folders of that repository; none means the item is not listed.
+    Repo(String),
+}
+
+impl Place {
+    /// The place of a launch: its folder's workspace, else the workspace it was launched in.
+    pub fn of_spec(spec: &crate::model::LaunchSpec) -> Place {
+        use crate::model::Target;
+        match &spec.target {
+            Target::Project { project_id } | Target::Predraft { project_id } => Place::Project(project_id.clone()),
+            Target::SessionFolder { session_id } if spec.workspace_id.is_none() => Place::Session(session_id.clone()),
+            _ => Place::Workspace(spec.workspace_id.clone()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+#[ts(rename = "TodayItem")]
+pub struct Item {
+    /// Stable: `<kind>:<record id>`, such as `session:<id>` or `outbox:<id>`.
+    pub id: String,
+    pub kind: Kind,
+    pub filter: Filter,
+    pub title: String,
+    /// One line under the title.
+    pub detail: String,
+    /// The workspaces whose Today lists it; empty: every workspace.
+    pub workspaces: Vec<String>,
+    /// The record it is about: a session, proposal, Outbox message, suggestion, Local PR, Inbox thread, routine or runner ID.
+    pub record: String,
+    /// The session that asked, finished, wrote or drafted it.
+    pub session_id: Option<String>,
+    /// The main action of its card, from the action list.
+    pub action: Option<String>,
+    /// Unix milliseconds: since when it waits, or when it was handled.
+    #[ts(type = "number")]
+    pub at: i64,
+    /// Done list only: what happened, such as "Sent to team-chat".
+    pub outcome: Option<String>,
+    #[serde(skip)]
+    #[ts(skip)]
+    pub place: Place,
+}
+
+impl Item {
+    pub fn new(kind: Kind, filter: Filter, record: &str, title: impl Into<String>, place: Place, at: i64) -> Item {
+        let prefix = match kind {
+            Kind::Question | Kind::Finished | Kind::Failed => "session",
+            Kind::LocalPr => "local-pr",
+            Kind::Proposal => "proposal",
+            Kind::Outbox => "outbox",
+            Kind::Suggestion => "suggestion",
+            Kind::ReviewRequest => "review-request",
+            Kind::Routine => "routine",
+            Kind::Runner => "runner",
+        };
+        Item { id: format!("{prefix}:{record}"), kind, filter, title: title.into(), detail: String::new(), workspaces: vec![], record: record.into(), session_id: None, action: None, at, outcome: None, place }
+    }
+    pub fn detail(mut self, detail: impl Into<String>) -> Item {
+        self.detail = detail.into();
+        self
+    }
+    pub fn session(mut self, id: Option<String>) -> Item {
+        self.session_id = id;
+        self
+    }
+    pub fn action(mut self, name: &'static str) -> Item {
+        debug_assert!(crate::actions::get(name).is_some(), "unknown action {name}");
+        self.action = Some(name.into());
+        self
+    }
+    /// A handled item, for the Done list.
+    pub fn handled(mut self, outcome: impl Into<String>) -> Item {
+        self.outcome = Some(outcome.into());
+        self
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
+pub struct Today {
+    /// What waits, in the order to decide it.
+    pub items: Vec<Item>,
+    /// What was handled in the last 30 days, newest first.
+    pub done: Vec<Item>,
+}
+
+/// Handled items stay in the Done list this long.
+const DONE_DAYS: i64 = 30;
+const DONE_MAX: usize = 300;
+
+/// The first line of a text, cut for one card line.
+pub fn line(text: &str) -> String {
+    let first = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    let mut out: String = first.chars().take(160).collect();
+    if first.chars().count() > 160 {
+        out.push('…');
+    }
+    out
+}
+
+/// Unix milliseconds of an RFC 3339 time (GitHub's `updated_at`), 0 when unreadable.
+pub fn parse_time(s: &str) -> i64 {
+    time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339).map(|t| (t.unix_timestamp_nanos() / 1_000_000) as i64).unwrap_or(0)
+}
+
+fn session_item(s: &Session) -> Option<Item> {
+    if s.imported_from.is_some() || !s.needs_you() {
+        return None;
+    }
+    let place = Place::Session(s.id.clone());
+    let detail = s.last_message.as_deref().map(line).unwrap_or_default();
+    let item = if s.open_question {
+        Item::new(Kind::Question, Filter::Answer, &s.id, &s.title, place, s.status_since).action("session.answer")
+    } else if s.status.is_done() {
+        Item::new(Kind::Finished, Filter::Review, &s.id, &s.title, place, s.status_since).action("worktree.merge")
+    } else {
+        let what = if s.status == SessionStatus::Error { "Failed" } else { "Interrupted" };
+        Item::new(Kind::Failed, Filter::Review, &s.id, &s.title, place, s.status_since).action("session.resume").detail(what)
+    };
+    let item = if item.detail.is_empty() { item.detail(detail) } else { item };
+    Some(item.session(Some(s.id.clone())))
+}
+
+/// The core's own items: agents that need you, Local PRs to publish, runners to update.
+async fn core_items(app: &App) -> Vec<Item> {
+    let mut out: Vec<Item> = app.sessions.list().iter().filter_map(session_item).collect();
+    match crate::predrafts::list(app).await {
+        Ok(list) => out.extend(list.into_iter().filter(|p| !p.archived && p.published_url.is_none() && p.merged.is_none()).map(|p| {
+            Item::new(Kind::LocalPr, Filter::Review, &p.id, &p.title, Place::Project(p.project_id.clone()), p.created_at)
+                .detail(format!("Local PR · {} → {}", p.branch, p.base_branch))
+                .session(p.session_id.clone())
+                .action("local-pr.publish")
+        })),
+        Err(e) => tracing::warn!("Today: Local PRs: {e:#}"),
+    }
+    if app.paths.role != crate::role::Role::Runner {
+        match crate::runners::list(app).await {
+            Ok(list) => out.extend(list.into_iter().filter(|r| matches!(r.compat, Some(crate::role::Compat::Outdated | crate::role::Compat::Incompatible))).map(|r| {
+                let why = if r.compat == Some(crate::role::Compat::Outdated) { "Runs another build: new sessions wait until you update it" } else { "Another protocol: it cannot connect until you update it" };
+                Item::new(Kind::Runner, Filter::Fix, &r.runner.id, format!("Update {}", r.runner.name), Place::Everywhere, r.runner.last_seen_at.unwrap_or(0)).detail(why)
+            })),
+            Err(e) => tracing::warn!("Today: runners: {e:#}"),
+        }
+    }
+    out
+}
+
+/// The workspaces of a session: its folder's, or the one of its launch (bots, temporary folders).
+fn session_workspace(app: &App, projects: &[Project], id: &str) -> Option<String> {
+    let s = app.sessions.get(id)?;
+    let by_id = s.project_id.as_ref().and_then(|p| projects.iter().find(|x| &x.id == p));
+    let by_path = || projects.iter().find(|p| s.cwd == p.path || s.cwd.starts_with(&format!("{}/", p.path)));
+    by_id.or_else(by_path).and_then(|p| p.workspace_id.clone()).or(s.launch_spec.workspace_id.clone())
+}
+
+/// The workspaces an item belongs to; None: it is not listed (a repository without a folder).
+fn resolve(app: &App, projects: &[Project], place: &Place) -> Option<Vec<String>> {
+    let one = |w: Option<String>| Some(w.into_iter().collect::<Vec<_>>());
+    match place {
+        Place::Everywhere => Some(vec![]),
+        Place::Workspace(w) => one(w.clone()),
+        Place::Project(id) => one(projects.iter().find(|p| &p.id == id).and_then(|p| p.workspace_id.clone())),
+        Place::Session(id) => one(session_workspace(app, projects, id)),
+        Place::Repo(repo) => {
+            let repo = repo.to_lowercase();
+            let mut out: Vec<String> = vec![];
+            for p in projects {
+                let matches = [&p.gh_repo, &p.gh_upstream].iter().any(|r| r.as_deref().is_some_and(|r| r.to_lowercase() == repo));
+                if matches && let Some(w) = &p.workspace_id && !out.contains(w) {
+                    out.push(w.clone());
+                }
+            }
+            (!out.is_empty()).then_some(out)
+        }
+    }
+}
+
+/// The whole list, every workspace. Home (or a single daemon) only: runners send `/api/today` to Home.
+pub async fn compute(app: &App) -> Result<Today> {
+    let projects = crate::projects::list(app).await?;
+    let mut all = core_items(app).await;
+    all.extend(crate::ext::extensions().today(app).await);
+    let since = now_ms() - DONE_DAYS * 86_400_000;
+    let (mut items, mut done) = (vec![], vec![]);
+    for mut item in all {
+        let Some(workspaces) = resolve(app, &projects, &item.place) else { continue };
+        item.workspaces = workspaces;
+        if item.outcome.is_some() {
+            if item.at >= since {
+                done.push(item);
+            }
+        } else {
+            items.push(item);
+        }
+    }
+    items.sort_by(|a, b| a.filter.cmp(&b.filter).then(b.at.cmp(&a.at)));
+    done.sort_by_key(|i| std::cmp::Reverse(i.at));
+    done.truncate(DONE_MAX);
+    Ok(Today { items, done })
+}
+
+/// Bus topics whose changes can change the list.
+const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "inbox", "crons"];
+
+/// Home: recomputes the list after relevant bus events (at most once per 1.5 s) and publishes `today`/`changed`
+/// when the waiting items changed, so every window and phone updates at once.
+pub fn spawn(app: &App) {
+    if app.paths.role == crate::role::Role::Runner {
+        return;
+    }
+    let app = app.clone();
+    tokio::spawn(async move {
+        let mut rx = app.bus.subscribe(None).rx;
+        let mut last: Option<Vec<(String, Vec<String>, Option<String>, String)>> = None;
+        loop {
+            // Wait for a relevant event, then let a burst of them settle.
+            loop {
+                match rx.recv().await {
+                    Ok(e) if relevant(&e.text) => break,
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => break,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+            while let Ok(_) | Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) = rx.try_recv() {}
+            let today = match compute(&app).await {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!("Today: {e:#}");
+                    continue;
+                }
+            };
+            let key: Vec<_> = today.items.iter().map(|i| (i.id.clone(), i.workspaces.clone(), i.action.clone(), i.title.clone())).collect();
+            if last.as_ref() != Some(&key) {
+                last = Some(key);
+                app.bus.publish("today", "changed", serde_json::json!({ "count": today.items.len() }));
+            }
+        }
+    });
+}
+
+fn relevant(text: &str) -> bool {
+    // `{"bus":…,"seq":…,"topic":"<topic>",…}`: read the topic without parsing the payload.
+    let Some(rest) = text.split_once("\"topic\":\"").map(|(_, r)| r) else { return false };
+    let topic = rest.split('"').next().unwrap_or("");
+    TOPICS.contains(&topic)
+}

@@ -32,6 +32,12 @@ impl launchpad_core::ext::Extensions for Extensions {
     async fn inbox_threads(&self, app: &App) -> Result<Vec<launchpad_core::github::Thread>> {
         Ok(launchpad_github::inbox::of(app).list(app).await?.threads)
     }
+    async fn today(&self, app: &App) -> Vec<launchpad_core::today::Item> {
+        let mut out = launchpad_automation::today::items(app).await;
+        out.extend(launchpad_channels::today::items(app).await);
+        out.extend(launchpad_github::today::items(app).await);
+        out
+    }
 }
 
 /// Starts the services of the crates above the core, after `App::start`.

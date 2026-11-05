@@ -171,6 +171,7 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || (path.starts_with("/api/sessions/") && path.ends_with("/access"))
         || path == "/api/suggestions" || path.starts_with("/api/suggestions/")
         || path == "/api/channels" || path.starts_with("/api/channels/") || path == "/api/outbox" || path.starts_with("/api/outbox/")
+        || path == "/api/today"
 }
 
 /// Home: requests a runner may send through its tunnel (as Home's owner).

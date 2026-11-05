@@ -4,6 +4,7 @@
 pub mod inbox;
 pub mod items;
 pub mod suggestions;
+pub mod today;
 
 use anyhow::Result;
 use launchpad_core::App;

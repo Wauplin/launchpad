@@ -69,6 +69,7 @@ pub mod ext;
 pub mod locks;
 pub mod diff;
 pub mod routines;
+pub mod today;
 pub mod launchpad_cli;
 
 /// Build information stamped by the `launchpad` binary (its `build.rs`), so a new commit relinks only the binary
@@ -218,6 +219,7 @@ impl App {
             tracing::warn!("Home Git folders: {e:#}");
         }
         worktrees::spawn(&app);
+        today::spawn(&app);
         handoff::spawn(&app);
         app.hosts.set_app(&app);
         hosts::preflight::spawn(&app);
@@ -260,6 +262,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     analytics::AgentRun::export_all(cfg)?;
     signin::SignInCheck::export_all(cfg)?;
     model::Session::export_all(cfg)?;
+    today::Today::export_all(cfg)?;
     model::MessageContext::export_all(cfg)?;
     model::SessionProcess::export_all(cfg)?;
     model::SessionEvent::export_all(cfg)?;

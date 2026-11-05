@@ -4,6 +4,7 @@
 pub mod channels;
 pub mod hooks;
 pub mod telegram;
+pub mod today;
 
 use anyhow::Result;
 use launchpad_core::App;

@@ -35,6 +35,11 @@ pub trait Extensions: Send + Sync {
     async fn inbox_threads(&self, _app: &App) -> Result<Vec<crate::github::Thread>> {
         Ok(vec![])
     }
+    /// The Today items of the crates above the core (proposals, Outbox drafts, suggestions, review requests,
+    /// failed routines), waiting and handled (`today::Item::handled`).
+    async fn today(&self, _app: &App) -> Vec<crate::today::Item> {
+        vec![]
+    }
 }
 
 struct None_;

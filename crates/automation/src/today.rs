@@ -1,0 +1,46 @@
+//! This crate's part of Today (`launchpad_core::today`): proposal cards that wait or were handled, and routines
+//! whose last run failed (until they run again or are paused).
+use launchpad_core::App;
+use launchpad_core::today::{Filter, Item, Kind, Place, line};
+
+use crate::crons::{self, RunOutcome};
+use crate::proposals::{self, ProposalBody, ProposalState};
+
+pub async fn items(app: &App) -> Vec<Item> {
+    let mut out = vec![];
+    match proposals::list(app).await {
+        Ok(list) => out.extend(list.into_iter().filter_map(|p| {
+            let place = Place::Workspace(p.workspace_id.clone());
+            let card = |at: i64| Item::new(Kind::Proposal, Filter::Approve, &p.id, &p.title, place.clone(), at).session(p.session_id.clone());
+            let status = matches!(p.body, ProposalBody::Status { .. });
+            Some(match p.state {
+                ProposalState::Proposed => card(p.created_at).detail(p.note.as_deref().map(line).unwrap_or_default()).action(if status { "proposal.dismiss" } else { "proposal.start" }),
+                ProposalState::Failed => card(p.updated_at).detail(format!("Failed: {}", p.error.as_deref().map(line).unwrap_or_default())).action("proposal.start"),
+                // Never retried: the owner checks first.
+                ProposalState::Uncertain => card(p.updated_at).detail("Uncertain: check whether it started before you dismiss it").action("proposal.dismiss"),
+                ProposalState::Started => card(p.updated_at).handled("Started"),
+                ProposalState::Dismissed => card(p.updated_at).handled("Dismissed"),
+                ProposalState::Starting | ProposalState::Replaced => return None,
+            })
+        })),
+        Err(e) => tracing::warn!("Today: proposals: {e:#}"),
+    }
+    match crons::list(app).await {
+        Ok(list) => out.extend(list.into_iter().filter_map(|c| {
+            // A paused routine waits for nobody.
+            if c.paused || c.bot_paused {
+                return None;
+            }
+            let last = c.history.last()?;
+            let what = match last.outcome {
+                RunOutcome::Failed => "failed",
+                RunOutcome::Interrupted => "was interrupted",
+                _ => return None,
+            };
+            let detail = last.detail.as_deref().map(line).unwrap_or_default();
+            Some(Item::new(Kind::Routine, Filter::Fix, &c.id, format!("Routine “{}” {what}", c.title), Place::of_spec(&c.spec), last.at).detail(detail).session(last.session_id.clone()))
+        })),
+        Err(e) => tracing::warn!("Today: routines: {e:#}"),
+    }
+    out
+}

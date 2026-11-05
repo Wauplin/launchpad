@@ -3,6 +3,7 @@
 pub mod crons;
 pub mod proposals;
 pub mod schedules;
+pub mod today;
 
 use anyhow::Result;
 use launchpad_core::App;
