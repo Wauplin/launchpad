@@ -444,6 +444,10 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const runIn = spec.target.kind === "session_folder" ? (selectedWorktree ? `worktree · ${selectedWorktree.branch}` : "previous agent’s folder") : spec.target.kind === "predraft" ? "new Local PR" : spec.target.kind === "existing_predraft" ? "existing Local PR" : worktreeMode ? (pushToPr ? `PR #${pushToPr.number}` : null) : spec.target.kind === "project" && gitTarget ? "checkout" : null;
   const baseLabel = spec.worktree?.base ?? targetBranches.data?.current ?? "current branch";
   const billingText = !supportsCost && harness?.capabilities.cost ? costUnavailableMessage : payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${profile!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
+  // Where it runs and what happens when done, first on the options line ("New worktree from main · keep branch").
+  const whenDoneText = spec.worktree?.when_done === "merge" ? `merge into ${baseLabel}` : spec.worktree?.when_done === "local_pr" ? "Local PR when done" : "keep branch";
+  const whereLine = browserOnly ? null : worktreeMode ? (pushToPr ? `PR #${pushToPr.number} · pushes to the PR` : `New worktree from ${baseLabel} · ${whenDoneText}`) : spec.target.kind === "temp" ? "Temporary folder" : runIn ? runIn.charAt(0).toUpperCase() + runIn.slice(1) : null;
+  const hasChips = (spec.agent_traces ?? []).length > 0 || spec.github_refs.length > 0 || (spec.skills ?? []).length > 0 || (spec.files ?? []).length > 0 || spec.context_projects.length > 0;
   const presetLabels = agentPresets.filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
 
   return (
@@ -484,7 +488,21 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           />
           <input ref={attachmentInput} type="file" multiple hidden onChange={(e) => { void addAttachments(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
           {/* The attach row sits under the text, so no line passes under the button. */}
-          <div className="flex justify-end border-t border-line-2 px-1 py-1">
+          <div className="flex items-center justify-between gap-1 border-t border-line-2 px-1 py-1">
+            <AddContextMenu
+              compact
+              disabled={launching}
+              projects={(browserOnly ? [] : sorted).filter((p) => p.id !== target?.id && !spec.context_projects.some((c) => c.project_id === p.id))}
+              recent={recentContexts}
+              sessions={recentSessions}
+              selectedTraces={spec.agent_traces ?? []}
+              onProject={addProjectContext}
+              onGitHub={(r) => set((s) => (s.github_refs.some((g) => g.url === r.url) ? s : { ...s, github_refs: [...s.github_refs, r] }))}
+              onToggleTrace={(trace) => set((s) => {
+                const traces = s.agent_traces ?? [];
+                return { ...s, agent_traces: traces.some((t) => t.session_id === trace.session_id) ? traces.filter((t) => t.session_id !== trace.session_id) : [...traces, trace] };
+              })}
+            />
             <button className={isPhone ? "btn btn-ghost text-[13px]" : "btn btn-sm btn-ghost"} disabled={launching || readingAttachments} aria-label="Attach files or images" title={`Attach files or images${isPhone ? "" : "; you can also drop files or paste a screenshot"}. Up to 8 files, 5 MB each, 20 MB total.`} onClick={() => attachmentInput.current?.click()}><Icon name="clip" size={14} />{isPhone ? "Attach files or images" : "Attach"}</button>
           </div>
         </div>
@@ -494,7 +512,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {unsupportedImages && <div className="mt-1 text-[12px] text-danger-ink">This harness does not support attached images. Remove them or choose another harness.</div>}
         </div>}
 
-        {browserOnly ? <div className="rounded-lg border border-line bg-chrome px-3 py-2 text-xs">Browser · explicit page grants · own folder, no worktree<div className="mt-1 text-ink-3">{harness?.browser_isolation}</div></div> : <div className={`grid gap-2.5 ${isPhone ? "grid-cols-1" : "grid-cols-2"}`}>
+        {browserOnly ? <div className="rounded-lg border border-line bg-chrome px-3 py-2 text-xs">Browser · explicit page grants · own folder, no worktree<div className="mt-1 text-ink-3">{harness?.browser_isolation}</div></div> : <div className="grid gap-2.5">
           <Field label="Folder" tour="composer.folder">
             <Popover
               width={300}
@@ -520,55 +538,10 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             </Popover>
             {recentFolders.filter((p) => p.id !== target?.id).length > 0 && <div className="mt-1.5 flex flex-wrap gap-1">{recentFolders.filter((p) => p.id !== target?.id).slice(0, 3).map((p) => <button key={p.id} className="lp-chip h-[22px]! px-2! text-[11px]!" title={`Run in ${p.name}`} onClick={() => set((s) => withFolder(s, p))}>{p.name}</button>)}</div>}
           </Field>
-          <Field label="Run in" tour="composer.runin">
-            {target ? <select className="field-input h-8 w-full" aria-label="Run in" value={selectedWorktree ? `worktree:${selectedWorktree.id}` : worktreeMode ? "worktree" : existing ? `predraft:${existing.id}` : spec.target.kind} onChange={(e) => {
-              const v = e.target.value;
-              const worktree = worktreeChoices.find((w) => v === `worktree:${w.id}`);
-              const predraft = existingPrChoices.find((p) => v === `predraft:${p.id}`);
-              if (worktree) set((s) => ({ ...s, target: { kind: "session_folder", session_id: worktree.source.id }, worktree: null }));
-              else if (predraft) set((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: predraft.id }, worktree: null }));
-              else if (v === "worktree" || v === "project" || v === "predraft") set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, when_done: "keep" }) : null }));
-            }}>
-              {spec.target.kind === "session_folder" && !selectedWorktree && <option value="session_folder">Previous agent’s folder</option>}
-              {gitTarget && <option value="worktree">New worktree</option>}
-              {!target.home_git && <option value="project">{gitTarget ? "Checkout" : "Folder (no Git)"}</option>}
-              {gitTarget && <option value="predraft">New Local PR</option>}
-              {!!worktreeChoices.length && <optgroup label="Existing worktrees">{worktreeChoices.map((w) => <option key={w.id} value={`worktree:${w.id}`} disabled={w.busy}>{w.branch}{w.busy ? " · Agent active" : ""}</option>)}</optgroup>}
-              {existing && !existingPrChoices.some((p) => p.id === existing.id) && <option value={`predraft:${existing.id}`} disabled>Local PR: {existing.title} · Unavailable</option>}
-              {!!existingPrChoices.length && <optgroup label="Existing Local PRs">{existingPrChoices.map((p) => <option key={p.id} value={`predraft:${p.id}`}>{p.title}{p.published_number ? ` · PR #${p.published_number}` : ""}</option>)}</optgroup>}
-            </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "Deleted at Archive" : "—"}</div>}
-            {taskWorktrees.isFetching && !taskWorktrees.data && target && <div className="mt-1 text-xs text-ink-3">Loading existing worktrees…</div>}
-            {taskWorktrees.isError && target && <div className="mt-1 text-xs text-danger-ink">Could not load existing worktrees. <button className="underline" onClick={() => void taskWorktrees.refetch()}>Retry</button></div>}
-            {existing && <div className="mt-1 break-all text-xs text-ink-3">Branch {existing.branch} on Home</div>}
-            {spec.target.kind === "session_folder" && <div className="mt-1 break-all text-xs text-ink-3">{source?.cwd ?? "Source session unavailable"}</div>}
-            {target && spec.target.kind === "project" && !worktreeMode && <div className="mt-1 text-xs text-ink-3">{gitTarget ? <TargetCheckout projectId={target.id} /> : "Runs in the folder"}</div>}
-            {worktreeMode && <div className="mt-1 text-xs text-ink-3" title="Before the agent starts, the runner clones the folder from Home Git into a fresh worktree on a new branch. The branch goes back to Home at the end of every turn.">{pushToPr ? `A fresh clone of PR #${pushToPr.number} from Home Git` : "A fresh clone from Home Git"}</div>}
-          </Field>
         </div>}
 
-        {worktreeMode && target && <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-line-2 bg-chrome px-2.5 py-1.5 text-xs text-ink-2">
-          {detectedPr && <label className="inline-flex items-center gap-1.5" title="The worktree starts from the pull request's head and Home pushes the agent's commits to the PR branch after each turn (never force). Uncheck to keep the work on Home.">
-            <input type="checkbox" className="accent-teal" checked={!!pushToPr} onChange={(e) => setPrOptOut(e.target.checked ? null : `${detectedPr.repo}#${detectedPr.number}`)} />
-            Push to PR #{detectedPr.number}
-          </label>}
-          {!pushToPr && <>
-          <span className="inline-flex items-center gap-1">From<Branch projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="default branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { when_done: "keep" }), base } }))} /></span>
-          <label className="inline-flex items-center gap-1.5 whitespace-nowrap" title="Merge: the agent asks Launchpad to merge when it is done; Home fast-forwards the base branch, and a base that moved goes back to the agent for a rebase. Open a Local PR: the agent opens a Local PR of its branch on Home, with a title and description for you to review and publish.">
-            When done
-            <select className="field-input h-6 py-0 text-xs" aria-label="When done" value={spec.worktree?.when_done ?? "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project" onChange={(e) => {
-              const whenDone = e.target.value as WhenDone;
-              set((s) => ({ ...s, worktree: { ...s.worktree!, when_done: whenDone } }));
-              completionDefault.mutate({ projectId: target.id, whenDone });
-            }}>
-              <option value="keep">Keep branch for review</option>
-              <option value="local_pr">Open a Local PR</option>
-              <option value="merge">Merge into {baseLabel}</option>
-            </select>
-          </label>
-          </>}
-        </div>}
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        {hasChips && <div className="flex flex-wrap items-center gap-1.5">
           {(spec.agent_traces ?? []).map((trace) => (
             <span key={`${trace.session_id}:${trace.through_seq}`} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-[7px] border border-line bg-chrome px-2 text-xs">
               <Icon name="agents" size={13} />
@@ -612,19 +585,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               <button className="text-ink-3 hover:text-ink" title="Remove" onClick={() => set((s) => ({ ...s, context_projects: s.context_projects.filter((x) => x.project_id !== c.project_id) }))}><Icon name="x" size={12} /></button>
             </span>
           ))}
-          <AddContextMenu
-            projects={(browserOnly ? [] : sorted).filter((p) => p.id !== target?.id && !spec.context_projects.some((c) => c.project_id === p.id))}
-            recent={recentContexts}
-            sessions={recentSessions}
-            selectedTraces={spec.agent_traces ?? []}
-            onProject={addProjectContext}
-            onGitHub={(r) => set((s) => (s.github_refs.some((g) => g.url === r.url) ? s : { ...s, github_refs: [...s.github_refs, r] }))}
-            onToggleTrace={(trace) => set((s) => {
-              const traces = s.agent_traces ?? [];
-              return { ...s, agent_traces: traces.some((t) => t.session_id === trace.session_id) ? traces.filter((t) => t.session_id !== trace.session_id) : [...traces, trace] };
-            })}
-          />
-        </div>
+        </div>}
 
         {missingProfile && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">The profile {spec.profile} no longer exists. Pick another profile in the options.</div>}
         {role === "home" && <OutdatedRunnerNotice spec={spec} />}
@@ -637,16 +598,14 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           title={showOptions ? "Hide the options" : "Show the options"}
           onClick={() => setShowOptions((v) => !v)}
         >
+          {whereLine && <span className="min-w-0 truncate text-[12px] text-ink-2" data-tour="composer.runin">{whereLine}</span>}
           <Token warn={!profile}>{spec.harness && <HarnessMark harness={spec.harness} size={13} />}{profile?.name ?? "No profile"}</Token>
           {spec.model && spec.model !== fallbackModel && <Token>{modelLabel}</Token>}
           {!!efforts.length && spec.effort && spec.effort !== (profile?.effort ?? defaults?.effort) && <Token>{effortLabel}</Token>}
           {harness?.capabilities.permission_modes && spec.permission_mode && spec.permission_mode !== "yolo" && <Token>{spec.permission_mode === "auto" ? "Auto approval" : "Ask for approval"}</Token>}
           {targetHost && <Token warn={hostStatus?.state !== "connected"} title={hostStatus?.state === "connected" ? `The agent runs on ${targetHost}` : `${targetHost} is ${hostStatus?.state ?? "unknown"}: the launch waits up to 25 s for a connection`}>on {targetHost}</Token>}
-          {runIn && <Token>{runIn}</Token>}
           {spec.runner_id && <Token warn={launchRunners.some((r) => r.runner.id === spec.runner_id && r.compat === "outdated")} title="The runner this launch goes to">on {runnerName(launchRunners, spec.runner_id)}</Token>}
           {(spec.tools_off ?? []).length > 0 && <Token title={`Switched off for this launch: ${(spec.tools_off ?? []).join(", ")}`}>{(spec.tools_off ?? []).length} tool{(spec.tools_off ?? []).length === 1 ? "" : "s"} off</Token>}
-          {worktreeMode && !pushToPr && spec.worktree?.when_done === "merge" && <Token title={`The agent asks Launchpad to merge into ${baseLabel} when it is done`}>merge when done</Token>}
-          {worktreeMode && !pushToPr && spec.worktree?.when_done === "local_pr" && <Token title="The agent turns its worktree into a Local PR when it is done">Local PR when done</Token>}
           {presetLabels.map((l) => <Token key={l}>{l}</Token>)}
           {scheduled && <Token warn title="Starts when all start conditions are met">start: {conditions.length} condition{conditions.length === 1 ? "" : "s"}</Token>}
           {cron && <Token warn title={`Routine schedule ${cron.schedule}`}>routine {cron.schedule}</Token>}
@@ -657,6 +616,50 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         </button>
 
         {showOptions && <OptionsFrame onClose={() => setShowOptions(false)}>
+          {!browserOnly && <OptionRow label="Run in">
+            <div className="grid gap-1.5">
+              {target ? <select className="field-input h-8 w-full" aria-label="Run in" value={selectedWorktree ? `worktree:${selectedWorktree.id}` : worktreeMode ? "worktree" : existing ? `predraft:${existing.id}` : spec.target.kind} onChange={(e) => {
+                const v = e.target.value;
+                const worktree = worktreeChoices.find((w) => v === `worktree:${w.id}`);
+                const predraft = existingPrChoices.find((p) => v === `predraft:${p.id}`);
+                if (worktree) set((s) => ({ ...s, target: { kind: "session_folder", session_id: worktree.source.id }, worktree: null }));
+                else if (predraft) set((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: predraft.id }, worktree: null }));
+                else if (v === "worktree" || v === "project" || v === "predraft") set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, when_done: "keep" }) : null }));
+              }}>
+                {spec.target.kind === "session_folder" && !selectedWorktree && <option value="session_folder">Previous agent’s folder</option>}
+                {gitTarget && <option value="worktree">New worktree</option>}
+                {!target.home_git && <option value="project">{gitTarget ? "Checkout" : "Folder (no Git)"}</option>}
+                {gitTarget && <option value="predraft">New Local PR</option>}
+                {!!worktreeChoices.length && <optgroup label="Existing worktrees">{worktreeChoices.map((w) => <option key={w.id} value={`worktree:${w.id}`} disabled={w.busy}>{w.branch}{w.busy ? " · Agent active" : ""}</option>)}</optgroup>}
+                {existing && !existingPrChoices.some((p) => p.id === existing.id) && <option value={`predraft:${existing.id}`} disabled>Local PR: {existing.title} · Unavailable</option>}
+                {!!existingPrChoices.length && <optgroup label="Existing Local PRs">{existingPrChoices.map((p) => <option key={p.id} value={`predraft:${p.id}`}>{p.title}{p.published_number ? ` · PR #${p.published_number}` : ""}</option>)}</optgroup>}
+              </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "Deleted at Archive" : "—"}</div>}
+              {taskWorktrees.isFetching && !taskWorktrees.data && target && <div className="mt-1 text-xs text-ink-3">Loading existing worktrees…</div>}
+              {taskWorktrees.isError && target && <div className="mt-1 text-xs text-danger-ink">Could not load existing worktrees. <button className="underline" onClick={() => void taskWorktrees.refetch()}>Retry</button></div>}
+              {existing && <div className="mt-1 break-all text-xs text-ink-3">Branch {existing.branch} on Home</div>}
+              {spec.target.kind === "session_folder" && <div className="mt-1 break-all text-xs text-ink-3">{source?.cwd ?? "Source session unavailable"}</div>}
+              {target && spec.target.kind === "project" && !worktreeMode && <div className="mt-1 text-xs text-ink-3">{gitTarget ? <TargetCheckout projectId={target.id} /> : "Runs in the folder"}</div>}
+              {worktreeMode && <div className="mt-1 text-xs text-ink-3" title="Before the agent starts, the runner clones the folder from Home Git into a fresh worktree on a new branch. The branch goes back to Home at the end of every turn.">{pushToPr ? `A fresh clone of PR #${pushToPr.number} from Home Git` : "A fresh clone from Home Git"}</div>}
+              {worktreeMode && detectedPr && <label className="inline-flex items-center gap-1.5 text-xs text-ink-2" title="The worktree starts from the pull request's head and Home pushes the agent's commits to the PR branch after each turn (never force). Uncheck to keep the work on Home.">
+                <input type="checkbox" className="accent-teal" checked={!!pushToPr} onChange={(e) => setPrOptOut(e.target.checked ? null : `${detectedPr.repo}#${detectedPr.number}`)} />
+                Push to PR #{detectedPr.number}
+              </label>}
+            </div>
+          </OptionRow>}
+          {worktreeMode && target && !pushToPr && <OptionRow label="From"><Branch projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="default branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { when_done: "keep" }), base } }))} /></OptionRow>}
+          {worktreeMode && target && !pushToPr && <OptionRow label="When done">
+            <span className="grid" title="Merge: the agent asks Launchpad to merge when it is done; Home fast-forwards the base branch, and a base that moved goes back to the agent for a rebase. Open a Local PR: the agent opens a Local PR of its branch on Home, with a title and description for you to review and publish.">
+              <select className="field-input w-auto text-xs" aria-label="When done" value={spec.worktree?.when_done ?? "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project" onChange={(e) => {
+                const whenDone = e.target.value as WhenDone;
+                set((s) => ({ ...s, worktree: { ...s.worktree!, when_done: whenDone } }));
+                completionDefault.mutate({ projectId: target.id, whenDone });
+              }}>
+                <option value="keep">Keep branch for review</option>
+                <option value="local_pr">Open a Local PR</option>
+                <option value="merge">Merge into {baseLabel}</option>
+              </select>
+            </span>
+          </OptionRow>}
           <OptionRow label="Profile">
             <span className="grid gap-1">
               <span className="inline-flex flex-wrap gap-0.5 rounded-lg bg-sunk p-0.5">

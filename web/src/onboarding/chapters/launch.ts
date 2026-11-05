@@ -59,13 +59,13 @@ export const launch: Chapter = {
     {
       id: "launch.where", anchor: "composer.runin",
       title: "Folder and Run in",
-      body: "In a Git folder the agent gets its own worktree, a new branch and folder, so your checkout stays untouched. Run in can also reuse a worktree or Local PR. When done keeps the branch for review, opens a Local PR or merges it.",
+      body: "In a Git folder the agent gets its own worktree, a new branch and folder, so your checkout stays untouched. The options line starts with where it runs and what happens when done; click it to change Run in (reuse a worktree or Local PR), From and When done (keep the branch for review, open a Local PR or merge).",
       enter: () => { const s = useComposer.getState().spec; if (s.target.kind === "none") useComposer.getState().update((x) => ({ ...x, target: { kind: "project", project_id: P.storefront } })); },
     },
     {
       id: "launch.options", anchor: "composer.options",
       title: "Profile and options",
-      body: "This line shows the profile (which agent, and how it is paid), then only what differs from the defaults: permission mode, presets, paid usage. Paid usage after the included quota is off unless you turn it on.",
+      body: "After where it runs, this line shows the profile (which agent, and how it is paid), then only what differs from the defaults: permission mode, presets, paid usage. Click it to change them. Paid usage after the included quota is off unless you turn it on.",
     },
     {
       id: "launch.go", anchor: "composer.launch",
