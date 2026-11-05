@@ -35,6 +35,8 @@ import type { CronAgent } from "@/gen/CronAgent";
 import { ProposalCard, useProposalList } from "@/features/ask/ProposalCard";
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
+import { WorkspacePicker } from "@/features/workspaces/WorkspacePicker";
+import { useWorkspace } from "@/stores/workspace";
 
 const PERMISSIONS: { id: PermissionMode; label: string; detail: string }[] = [
   { id: "yolo", label: "YOLO", detail: "Runs commands without asking, inside its jail" },
@@ -167,7 +169,7 @@ function NewBot({ first, onCancel }: { first: boolean; onCancel?: () => void }) 
       void navigate({ to: "/bots/$id", params: { id: bot.id } });
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
-  if (!workspaces.length) return <Empty icon="folder">Create a workspace first: a bot belongs to a workspace and remembers in its knowledge base.</Empty>;
+  if (!workspaces.length) return <Empty icon="folder" action={<WorkspacePicker value={null} label="Create a workspace" onChange={(id) => useWorkspace.getState().switchTo(id)} />}>A bot belongs to a workspace and remembers in its knowledge base. Create one to start.</Empty>;
   return (
     <section className="grid gap-3 rounded-lg border border-line bg-paper p-4" data-tour="bots.form">
       <div>

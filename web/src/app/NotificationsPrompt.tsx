@@ -2,6 +2,9 @@ import { useState } from "react";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { enablePush, usePushState, useRefreshPush } from "@/lib/push";
+import { useSessions } from "@/lib/queries";
+import { isRunning } from "@/lib/sessionStatus";
+import { useOnboarding } from "@/onboarding/data";
 
 const DISMISSED = "launchpad-push-prompt-dismissed";
 
@@ -9,13 +12,16 @@ function dismissed() {
   try { return localStorage.getItem(DISMISSED) === "1"; } catch { return true; }
 }
 
-/** One-time dismissible banner offering push notifications in this browser; Settings → Notifications has the full controls. */
+/** One-time dismissible banner offering push notifications in this browser, once an agent has finished a turn (so
+ * the first screen shows one call to action); Settings → Notifications has the full controls. */
 export function NotificationsPrompt() {
   const push = usePushState().data;
+  const finished = (useSessions().data ?? []).some((s) => !isRunning(s) && s.status !== "closed");
+  const welcome = useOnboarding().data;
   const refresh = useRefreshPush();
   const [hidden, setHidden] = useState(dismissed);
   const [busy, setBusy] = useState(false);
-  if (hidden || !push || push.support !== "supported" || push.permission !== "default" || push.subscribed) return null;
+  if (hidden || !finished || !welcome?.welcome || !push || push.support !== "supported" || push.permission !== "default" || push.subscribed) return null;
   const dismiss = () => {
     try { localStorage.setItem(DISMISSED, "1"); } catch { /* Hidden for this page only. */ }
     setHidden(true);

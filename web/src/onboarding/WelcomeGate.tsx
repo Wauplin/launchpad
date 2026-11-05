@@ -7,14 +7,17 @@ import { Icon, type IconName } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { enterDemo } from "@/demo/mode";
 import { useOnboarding, usePatchOnboarding } from "./data";
+import { useStatus } from "@/lib/queries";
 
 export function WelcomeGate() {
   const q = useOnboarding();
   const patch = usePatchOnboarding();
   const o = q.data;
+  const home = useStatus().data?.role === "home";
   if (!o || o.welcome) return null;
   if (o.fresh_install) return <WelcomeDialog />;
-  if (o.dismissed.includes("banner")) return null;
+  // On Home the setup page is the first step; the tour does not cover Home and runners yet.
+  if (o.dismissed.includes("banner") || home) return null;
   return (
     <div role="region" aria-label="Tour announcement" className="flex flex-none flex-wrap items-center gap-2 border-b border-line-2 bg-demo-soft px-3.5 py-1.5 text-[13px] text-demo">
       <Icon name="spark" size={14} />

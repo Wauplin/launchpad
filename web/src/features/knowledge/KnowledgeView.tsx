@@ -4,6 +4,7 @@
 // harness memories. Home stores everything; every change is restorable for 30 days.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { WorkspacePicker } from "@/features/workspaces/WorkspacePicker";
 import { Link } from "@tanstack/react-router";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -90,7 +91,7 @@ export function KnowledgeView() {
     if (!selected && notes.data && !phone) setSelected(notes.data.files.some((f) => f.path === "INDEX.md") ? "INDEX.md" : notes.data.files[0]?.path ?? null);
   }, [notes.data, selected, phone]);
 
-  if (!ws) return <div className="flex h-full flex-col"><PageHeader title="Knowledge" /><Empty fill icon="book">Create a workspace first: each workspace has its own knowledge base.</Empty></div>;
+  if (!ws) return <div className="flex h-full flex-col"><PageHeader title="Knowledge" /><Empty fill icon="book" action={<WorkspacePicker value={null} label={workspaces.length ? "Open a workspace" : "Create a workspace"} onChange={(id) => useWorkspace.getState().switchTo(id)} />}>Each workspace has its own knowledge base.</Empty></div>;
   const refresh = () => qc.invalidateQueries({ queryKey: ["knowledge"] });
   const gardener = () => {
     if (!notes.data) return;
