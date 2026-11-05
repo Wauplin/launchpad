@@ -528,8 +528,17 @@ class Setup:
         return self.unlocked and all(self.step(s[0]) for s in STEPS if s[3])
 
     def install_command(self):
+        """The runner install command, for bash and zsh. The HF token passes the private Space's sign-in: `HF_TOKEN`,
+        else the `hf auth login` token in `$HF_HOME` (default `~/.cache/huggingface`). It runs in a subshell, so the
+        token stays out of your shell, and says what to do when the token is missing or refused (instead of a bare
+        curl error)."""
         url = f"https://{self.host}/_home/runner/install.sh"
-        return f'curl -fsSL -H "Authorization: Bearer ${{HF_TOKEN:-$(cat ~/.cache/huggingface/token)}}" {url} | bash'
+        token = '${HF_TOKEN:-$(cat "${HF_HOME:-$HOME/.cache/huggingface}/token" 2>/dev/null)}'
+        return ('(t="' + token + '"; '
+                '[ -n "$t" ] || { echo "No Hugging Face sign-in: run \'hf auth login\' first." >&2; exit 1; }; '
+                's="$(curl -fsSL -H "Authorization: Bearer $t" ' + url + ')" || { echo "Download failed. '
+                'On a 401 error, run \'hf auth login\' with an account that can open this Space." >&2; exit 1; }; '
+                'bash -c "$s")')
 
     def status(self):
         github = {k: v for k, v in self.github.items() if k != "user"}

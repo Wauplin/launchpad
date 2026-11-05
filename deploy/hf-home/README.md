@@ -51,14 +51,14 @@ Upload the directory with `hf upload Wauplin/launchpad-home <directory> --type s
 Settings → Home and runners (and step 8 of the setup page) shows the install command for this Home:
 
 ```sh
-curl -fsSL -H "Authorization: Bearer ${HF_TOKEN:-$(cat ~/.cache/huggingface/token)}" https://<your Space host>/_home/runner/install.sh | bash
+(t="${HF_TOKEN:-$(cat "${HF_HOME:-$HOME/.cache/huggingface}/token" 2>/dev/null)}"; [ -n "$t" ] || { echo "No Hugging Face sign-in: run 'hf auth login' first." >&2; exit 1; }; s="$(curl -fsSL -H "Authorization: Bearer $t" https://<your Space host>/_home/runner/install.sh)" || { echo "Download failed. On a 401 error, run 'hf auth login' with an account that can open this Space." >&2; exit 1; }; bash -c "$s")
 ```
 
-The HF token passes the private Space's sign-in. The script, served by Home, does the following:
+Run `hf auth login` on the machine first, or set `HF_TOKEN`: the HF token passes the private Space's sign-in. The command works in bash and zsh, reads `HF_TOKEN`, else the `hf auth login` token in `$HF_HOME` (default `~/.cache/huggingface`), keeps it out of your shell, and says what to do when the token is missing or refused. The setup page and Settings → Home and runners show the same command, given by Home's gateway. The script, served by Home, does the following:
 
 1. It checks the machine: Linux x86_64, glibc 2.34 or newer, `curl`, Git, a working bubblewrap jail and a Hugging Face sign-in. It names the agent CLIs it finds. When a check fails, it prints the fix (for example the AppArmor profile Ubuntu 24.04 needs for bubblewrap) and stops. It never uses `sudo`.
 2. It downloads Home's own `launchpad` binary (`/_home/runner/launchpad`), checks its SHA-256, and installs it in `~/.local/lib/launchpad-runner/`, with a `launchpad-runner` command in `~/.local/bin`. Home and the runner always run the same build. Another Launchpad install on the machine is left alone: the runner has its own folders and port (7320).
-3. It starts the runner as the `launchpad-runner.service` systemd user service (without systemd, it prints the command to run).
+3. It starts the runner as the `launchpad-runner.service` systemd user service (without systemd, it prints the command to run). The service gets `HF_TOKEN` or the token file path in `~/.config/launchpad-runner/env` when the token is not in the default place.
 4. It runs `launchpad connect`, which prints a code. Approve the request with the same code on the setup page or in Settings → Home and runners.
 
 Run the same command again to update a runner after Home is updated. The agent CLI of each profile must be installed on the runner; this POC mounts it read-only. Grant tool credentials only when needed, with scopes that exclude Home and the backup bucket.

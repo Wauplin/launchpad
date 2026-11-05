@@ -113,7 +113,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
   <div class="body"><p class="hint" id="burst-hint"></p>
   <p class="hint"><b>Your laptop</b> <span class="tag">recommended for daily work</span> Agents run there in a jail, at your disk's speed. On your laptop or a Linux server, run this in a terminal:</p>
   <div class="row"><pre class="cmd grow" id="install"></pre><button id="install-copy">Copy</button></div>
-  <small>It checks the machine first (Linux x86_64, bubblewrap, Git, a Hugging Face sign-in), installs a runner next to any other Launchpad, then asks you to approve it here.</small>
+  <small>It needs your Hugging Face sign-in on that machine: run <code>hf auth login</code> there first (or set <code>HF_TOKEN</code>). It checks the machine (Linux x86_64, bubblewrap, Git), installs a runner next to any other Launchpad, then asks you to approve it here.</small>
   <small id="runners-hint" hidden>Approve only the request whose code matches the one in your terminal.</small>
   <div class="list" id="runners" hidden></div>
   <div class="row"><button class="primary" id="runner-burst" hidden>Continue with Burst</button><button class="link" id="runner-skip">Skip for now</button></div></div></li>

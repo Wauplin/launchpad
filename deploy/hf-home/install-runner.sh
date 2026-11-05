@@ -57,10 +57,11 @@ if [ -n "$found" ]; then
 else
   note "No agent CLI found (claude, codex or opencode). Install the one your profile uses before you launch an agent."
 fi
+# Like huggingface_hub: HF_TOKEN, else the token file of hf auth login.
 TOKEN="${HF_TOKEN:-}"
 TOKEN_FILE="${HF_HOME:-$HOME/.cache/huggingface}/token"
 if [ -z "$TOKEN" ] && [ -f "$TOKEN_FILE" ]; then TOKEN="$(cat "$TOKEN_FILE")"; fi
-[ -n "$TOKEN" ] || fail "The runner needs your Hugging Face sign-in to reach this private Home. Run hf auth login (or set HF_TOKEN), then run this command again."
+[ -n "$TOKEN" ] || fail "The runner needs your Hugging Face sign-in to reach this private Home. Run 'hf auth login' (or set HF_TOKEN), then run this command again."
 ok "Hugging Face sign-in"
 
 bold "2/4 · Installing Launchpad ${COMMIT:0:8}"
@@ -78,9 +79,13 @@ EOF
 chmod 755 "$HOME/.local/bin/launchpad-runner"
 ok "$BIN"
 ok "launchpad-runner command in ~/.local/bin"
-if [ -n "${HF_TOKEN:-}" ] && [ ! -f "$TOKEN_FILE" ]; then
-  # The service has no shell environment: keep the token for it, readable only by you.
+# The service has no shell environment: tell it where the token is, readable only by you.
+if [ -n "${HF_TOKEN:-}" ]; then
   (umask 077; printf 'HF_TOKEN=%s\n' "$HF_TOKEN" > "$CONFIG/env")
+elif [ "$TOKEN_FILE" != "$HOME/.cache/huggingface/token" ]; then
+  (umask 077; printf 'HF_TOKEN_PATH=%s\n' "$TOKEN_FILE" > "$CONFIG/env")
+else
+  : > "$CONFIG/env"
 fi
 
 bold "3/4 · Starting the runner"

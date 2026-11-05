@@ -155,7 +155,7 @@ pub fn set_state(app: &App, url: Option<String>, state: TunnelState, message: Op
 }
 
 /// The HF token sent to a Home in a private Space (the Space's sign-in), when there is one: `HF_TOKEN`, or the
-/// `hf auth login` token of this machine.
+/// `hf auth login` token of this machine (`HF_TOKEN_PATH`, `HF_HOME`, `XDG_CACHE_HOME`, like huggingface_hub).
 pub fn space_token(url: &str) -> Option<String> {
     let host = url.split("://").nth(1)?.split('/').next()?;
     if !host.ends_with(".hf.space") {
@@ -166,8 +166,7 @@ pub fn space_token(url: &str) -> Option<String> {
     {
         return Some(t);
     }
-    let home = std::env::var("HF_HOME").map(std::path::PathBuf::from).ok().or_else(|| dirs::home_dir().map(|h| h.join(".cache/huggingface")))?;
-    std::fs::read_to_string(home.join("token")).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
+    crate::profiles::hf_token(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
 }
 
 type Reply = std::pin::Pin<Box<dyn std::future::Future<Output = Result<(u16, String)>> + Send>>;

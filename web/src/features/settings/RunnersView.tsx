@@ -19,6 +19,7 @@ import type { BurstOverview } from "@/gen/BurstOverview";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Card, SettingsPage } from "./SettingsView";
+import { homeStatus } from "@/features/setup/summary";
 
 export function RunnersView() {
   const status = useStatus().data;
@@ -33,23 +34,28 @@ export function RunnersView() {
 }
 
 /** The command that installs and pairs a runner. A Home in a Space serves an install script with its own build (so both
- * always match); another Home pairs with `launchpad connect`. */
-export function installCommand(): string {
-  if (!delegatedAccess()) return `launchpad connect ${location.origin}`;
-  return `curl -fsSL -H "Authorization: Bearer \${HF_TOKEN:-$(cat ~/.cache/huggingface/token)}" ${location.origin}/_home/runner/install.sh | bash`;
+ * always match), and its gateway gives the command (`install` in `/_home/status`, the same as its setup page);
+ * another Home pairs with `launchpad connect`. */
+function useInstallCommand(): string | null {
+  const space = delegatedAccess();
+  const q = useQuery({ queryKey: ["home-setup-status"], queryFn: homeStatus, enabled: space, staleTime: 60_000 });
+  if (!space) return `launchpad connect ${location.origin}`;
+  return typeof q.data?.install === "string" ? q.data.install : null;
 }
 
 function AddRunner() {
-  const command = installCommand();
+  const command = useInstallCommand();
   const space = delegatedAccess();
   return (
     <Card title="Add a runner">
       <span className="text-[13px] text-ink-2">{space ? "On your laptop or a Linux server, run this in a terminal:" : "On the machine, start launchpad daemon --role runner, then run:"}</span>
-      <div className="flex items-start gap-2">
-        <pre className="m-0 min-w-0 flex-1 whitespace-pre-wrap break-all rounded-md border border-line-2 bg-code px-2.5 py-2 font-mono text-[12px]">{command}</pre>
-        <button className="btn btn-sm" onClick={() => void copyText(command).then(() => toast("Copied"))}><Icon name="copy" size={12} />Copy</button>
-      </div>
-      <span className="text-[12px] text-ink-3">{space ? "The script checks the machine first (Linux x86_64, bubblewrap, Git, a Hugging Face sign-in with hf auth login). It installs a runner with the same build as Home, next to any other Launchpad, starts it as a user service, then asks for your approval below. Run it again to update the runner." : "It prints a code. Approve the request below when the codes match."}</span>
+      {command === null ? <Loading what="the install command" /> : (
+        <div className="flex items-start gap-2">
+          <pre className="m-0 min-w-0 flex-1 whitespace-pre-wrap break-all rounded-md border border-line-2 bg-code px-2.5 py-2 font-mono text-[12px]">{command}</pre>
+          <button className="btn btn-sm" onClick={() => void copyText(command).then(() => toast("Copied"))}><Icon name="copy" size={12} />Copy</button>
+        </div>
+      )}
+      <span className="text-[12px] text-ink-3">{space ? "It needs your Hugging Face sign-in on that machine: run hf auth login there first (or set HF_TOKEN). The script checks the machine (Linux x86_64, bubblewrap, Git), installs a runner with the same build as Home, next to any other Launchpad, starts it as a user service, then asks for your approval below. Run it again to update the runner." : "It prints a code. Approve the request below when the codes match."}</span>
     </Card>
   );
 }
