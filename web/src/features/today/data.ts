@@ -15,7 +15,7 @@ export type { TodayItem, TodayFilter };
 // Runners do not receive Home's bus events: a slow poll keeps their windows current.
 export const useToday = () => useQuery({ queryKey: ["today"], queryFn: () => api.get<Today>("/api/today"), staleTime: 15_000, refetchInterval: 60_000 });
 
-/** An item with no workspace (a runner to update) shows in every workspace. */
+/** An item with an empty workspace list (shared: a runner to update, a tool or preset proposal) shows in every workspace. */
 export const inWorkspace = (i: TodayItem, workspace: string | null) => !i.workspaces.length || (!!workspace && i.workspaces.includes(workspace));
 
 /** The chips of the page: each filter has its own address (`/?filter=send`), for Telegram links and Ask cards. */

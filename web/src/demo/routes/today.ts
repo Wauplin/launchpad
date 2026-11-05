@@ -22,17 +22,18 @@ function item(kind: TodayKind, filter: TodayFilter, record: string, title: strin
 const line = (text: string) => (text.split("\n").map((l) => l.trim()).find(Boolean) ?? "").slice(0, 160);
 const specPlace = (spec: LaunchSpec): Place => spec.target.kind === "project" || spec.target.kind === "predraft" ? { project: spec.target.project_id } : { workspace: spec.workspace_id };
 
+/** The workspaces of an item (empty: every workspace); null: not listed (no workspace). */
 function resolve(place: Place): string[] | null {
   const projects = world.projects;
+  const one = (w: string | null | undefined) => (w ? [w] : null);
   if ("everywhere" in place) return [];
-  if ("workspace" in place) return place.workspace ? [place.workspace] : [];
-  if ("project" in place) { const w = projects.find((p) => p.id === place.project)?.workspace_id; return w ? [w] : []; }
+  if ("workspace" in place) return one(place.workspace);
+  if ("project" in place) return one(projects.find((p) => p.id === place.project)?.workspace_id);
   if ("session" in place) {
     const s = world.sessions.find((x) => x.id === place.session);
-    if (!s) return [];
+    if (!s) return null;
     const p = projects.find((x) => x.id === s.project_id) ?? projects.find((x) => s.cwd === x.path || s.cwd.startsWith(`${x.path}/`));
-    const w = p?.workspace_id ?? s.launch_spec.workspace_id;
-    return w ? [w] : [];
+    return one(p?.workspace_id ?? s.launch_spec.workspace_id);
   }
   const repo = place.repo.toLowerCase();
   const out = [...new Set(projects.filter((p) => [p.gh_repo, p.gh_upstream].some((r) => r?.toLowerCase() === repo)).map((p) => p.workspace_id).filter((w): w is string => !!w))];
@@ -54,7 +55,15 @@ function drafts(): Draft[] {
     out.push(item("local_pr", "review", p.id, p.title, { project: p.project_id }, p.created_at, { detail: `Local PR · ${p.branch} → ${p.base_branch}`, session_id: p.session_id, action: "local-pr.publish" }));
   }
   for (const p of world.proposals) {
-    const card = (at: number, more: Partial<Draft>) => out.push(item("proposal", "approve", p.id, p.title, { workspace: p.workspace_id }, at, { session_id: p.session_id, ...more }));
+    const b = p.body;
+    // Without a workspace: the workspace of what it acts on; tools and presets are shared.
+    const place: Place = p.workspace_id ? { workspace: p.workspace_id }
+      : b.kind === "launch" || b.kind === "schedule" || b.kind === "cron" ? specPlace(b.spec)
+      : b.kind === "message" ? { session: b.session_id }
+      : b.kind === "status" && b.session_ids.length ? { session: b.session_ids[0] }
+      : b.kind === "tool" || b.kind === "preset" ? { everywhere: true }
+      : p.session_id ? { session: p.session_id } : { workspace: null };
+    const card = (at: number, more: Partial<Draft>) => out.push(item("proposal", "approve", p.id, p.title, place, at, { session_id: p.session_id, ...more }));
     if (p.state === "proposed") card(p.created_at, { detail: p.note ? line(p.note) : "", action: p.body.kind === "status" ? "proposal.dismiss" : "proposal.start" });
     else if (p.state === "failed") card(p.updated_at, { detail: `Failed: ${line(p.error ?? "")}`, action: "proposal.start" });
     else if (p.state === "uncertain") card(p.updated_at, { detail: "Uncertain: check whether it started before you dismiss it", action: "proposal.dismiss" });

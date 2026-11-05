@@ -4,13 +4,27 @@ use launchpad_core::App;
 use launchpad_core::today::{Filter, Item, Kind, Place, line};
 
 use crate::crons::{self, RunOutcome};
-use crate::proposals::{self, ProposalBody, ProposalState};
+use crate::proposals::{self, Proposal, ProposalBody, ProposalState};
+
+/// A proposal's workspace; without one, the workspace of what it acts on. Tools and presets are shared.
+fn place(p: &Proposal) -> Place {
+    if p.workspace_id.is_some() {
+        return Place::Workspace(p.workspace_id.clone());
+    }
+    match &p.body {
+        ProposalBody::Launch { spec } | ProposalBody::Schedule { spec, .. } | ProposalBody::Cron { spec, .. } => Place::of_spec(spec),
+        ProposalBody::Message { session_id, .. } => Place::Session(session_id.clone()),
+        ProposalBody::Status { session_ids } => session_ids.first().cloned().map(Place::Session).unwrap_or(Place::Workspace(None)),
+        ProposalBody::Tool { .. } | ProposalBody::Preset { .. } => Place::Everywhere,
+        _ => p.session_id.clone().map(Place::Session).unwrap_or(Place::Workspace(None)),
+    }
+}
 
 pub async fn items(app: &App) -> Vec<Item> {
     let mut out = vec![];
     match proposals::list(app).await {
         Ok(list) => out.extend(list.into_iter().filter_map(|p| {
-            let place = Place::Workspace(p.workspace_id.clone());
+            let place = place(&p);
             let card = |at: i64| Item::new(Kind::Proposal, Filter::Approve, &p.id, &p.title, place.clone(), at).session(p.session_id.clone());
             let status = matches!(p.body, ProposalBody::Status { .. });
             Some(match p.state {

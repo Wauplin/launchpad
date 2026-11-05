@@ -11,6 +11,7 @@ import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "reac
 import type { Proposal } from "@/gen/Proposal";
 import type { Session } from "@/gen/Session";
 import type { Suggestion } from "@/gen/Suggestion";
+import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { ActionButton } from "@/components/ActionButton";
 import { HarnessMark } from "@/components/HarnessMark";
 import { Icon, type IconName } from "@/components/Icon";
@@ -43,15 +44,15 @@ const ICON: Record<TodayItem["kind"], IconName> = {
 
 const ghParams = (repo: string, number: number) => ({ owner: repo.split("/")[0], repo: repo.split("/")[1], number: String(number) });
 
-/** The card frame: icon, title, one meta line, then the kind's own content and buttons. */
-function Card({ item, meta, open, children, tone = "border-line" }: { item: TodayItem; meta?: ReactNode; open?: ReactNode; children?: ReactNode; tone?: string }) {
+/** The card frame: icon, title, one meta line, then the kind's own content and buttons. `age: false` when the meta already says since when (a session's status badge). */
+function Card({ item, meta, open, children, tone = "border-line", age = true }: { item: TodayItem; meta?: ReactNode; open?: ReactNode; children?: ReactNode; tone?: string; age?: boolean }) {
   return (
     <article data-tour="today.card" data-tour-id={item.id} className={`grid min-w-0 grid-cols-1 gap-2.5 rounded-xl border bg-paper p-3 ${tone}`}>
       <div className="flex min-w-0 items-start gap-2.5">
         <span className="grid size-7 flex-none place-items-center rounded-lg bg-sunk text-ink-2"><Icon name={ICON[item.kind]} size={14} /></span>
         <div className="min-w-0 flex-1">
           <div className="line-clamp-2 text-[13px] font-semibold" title={item.title}>{item.title}</div>
-          <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] text-ink-3">{meta ?? <span className="truncate">{item.detail}</span>}<span className="flex-none">· {formatAge(item.at)} ago</span></div>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] text-ink-3">{meta ?? <span className="truncate">{item.detail}</span>}{age && <span className="flex-none">· {formatAge(item.at)} ago</span>}</div>
         </div>
         {open && <span className="flex-none">{open}</span>}
       </div>
@@ -89,12 +90,12 @@ function QuestionCard({ item }: { item: TodayItem }) {
     for (let i = rows.length - 1; i >= 0; i--) { const r = rows[i]; if (r.t === "ask" && !r.answers) return r; }
     return null;
   }, [log]);
-  return <Card item={item} tone="border-attn-line" meta={<SessionMeta s={s} item={item} />} open={<OpenSession id={item.record} />}>
+  return <Card item={item} tone="border-attn-line" age={!s} meta={<SessionMeta s={s} item={item} />} open={<OpenSession id={item.record} />}>
     {ask && s?.live ? <AskCard row={ask} sessionId={item.record} live={s.live} hint="Or open the agent to type another answer." /> : <p className="m-0 text-[13px] text-ink-2">{item.detail || "The agent asked a question."}</p>}
   </Card>;
 }
 
-/** A finished agent: Merge from the card only when it is safe (Done, branch on Home, nothing uncommitted, base unchanged); otherwise Review changes. */
+/** A finished agent: Merge from the card only when it is safe (Done, its runner here, branch on Home, nothing uncommitted, base unchanged); otherwise Review changes. */
 function FinishedCard({ item }: { item: TodayItem }) {
   const qc = useQueryClient();
   const s = useSession(item.record);
@@ -102,20 +103,24 @@ function FinishedCard({ item }: { item: TodayItem }) {
   const w = worktrees?.find((i) => i.worktree.primary) ?? worktrees?.[0];
   const t = w?.worktree;
   const base = t?.base_branch;
-  const safe = !!s && isDone(s) && !!t && !!base && t.state === "active" && !t.merge && !t.pull_request && !t.predraft_id && w.ahead > 0 && w.dirty_files === 0 && w.behind === 0 && !w.unpushed && !t.push_note;
+  const safe = !!s && isDone(s) && !!w && w.exists && !w.away && !!t && !!base && t.state === "active" && !t.merge && !t.pull_request && !t.predraft_id && w.ahead > 0 && w.dirty_files === 0 && w.behind === 0 && !w.unpushed && !t.push_note;
   const facts = w && t ? [
     w.ahead ? `${w.ahead} commit${w.ahead === 1 ? "" : "s"} ahead of ${base ?? "base"}` : t.merged ? `merged into ${t.merged.into}` : "no new commit",
     w.dirty_files ? `${w.dirty_files} uncommitted` : "",
     w.behind ? `${base} moved` : "",
     w.unpushed || t.push_note ? "not on Home yet" : "",
   ].filter(Boolean).join(" · ") : null;
-  const seen = () => runAction("session.seen", { id: item.record }).catch(toastError);
-  return <Card item={item} meta={<SessionMeta s={s} item={item} />} open={<OpenSession id={item.record} />}>
+  // Merged: the card is handled. A merge that waits or stopped keeps the card, with Review changes.
+  const merged = async (r: WorktreeInfo) => {
+    void qc.invalidateQueries({ queryKey: ["worktrees"] });
+    if (r.worktree.merged) await runAction("session.seen", { id: item.record }).catch(toastError);
+  };
+  return <Card item={item} age={!s} meta={<SessionMeta s={s} item={item} />} open={<OpenSession id={item.record} />}>
     {s?.last_message && <p className="m-0 line-clamp-3 text-[13px] text-ink-2">{s.last_message}</p>}
     {facts && <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={13} className="flex-none text-ink-3" /><span className="truncate font-mono">{t!.branch}</span><span className="truncate">· {facts}</span></div>}
     <div className="flex flex-wrap items-center gap-1.5">
       {safe
-        ? <ActionButton name="worktree.merge" params={{ id: t!.id }} vars={{ branch: t!.branch, base: base! }} query={{ session: worktreeSession(t!) ?? item.record }} primary onDone={async () => { await seen(); void qc.invalidateQueries({ queryKey: ["worktrees"] }); }}>Merge into {base}</ActionButton>
+        ? <ActionButton name="worktree.merge" params={{ id: t!.id }} vars={{ branch: t!.branch, base: base! }} query={{ session: worktreeSession(t!) ?? item.record }} primary onDone={merged}>Merge into {base}</ActionButton>
         : w && w.ahead > 0 && <Link className="btn btn-sm btn-primary no-underline" to="/agents" search={{ session: item.record, view: "changes" }}>Review changes</Link>}
       <ActionButton name="session.archive" params={{ id: item.record }} />
       <ActionButton name="session.seen" params={{ id: item.record }} title="Keep the agent and remove the card" />
@@ -125,7 +130,7 @@ function FinishedCard({ item }: { item: TodayItem }) {
 
 function FailedCard({ item }: { item: TodayItem }) {
   const s = useSession(item.record);
-  return <Card item={item} tone="border-gh-closed/40" meta={<SessionMeta s={s} item={item} />} open={<OpenSession id={item.record} />}>
+  return <Card item={item} tone="border-gh-closed/40" age={!s} meta={<SessionMeta s={s} item={item} />} open={<OpenSession id={item.record} />}>
     {s?.last_message && <p className="m-0 line-clamp-3 text-[13px] text-ink-2">{s.last_message}</p>}
     <div className="flex flex-wrap items-center gap-1.5">
       <ActionButton name="session.resume" params={{ id: item.record }} body={{ continue_turn: true }} primary />

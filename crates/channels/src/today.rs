@@ -13,17 +13,17 @@ pub async fn items(app: &App) -> Vec<Item> {
             return vec![];
         }
     };
-    list.into_iter().filter_map(|m| {
-        // A message without a session (none today) shows in every workspace rather than nowhere.
+    list.into_iter().map(|m| {
+        // Channels are shared: a message without a session shows in every workspace.
         let place = m.session_id.clone().map(Place::Session).unwrap_or_default();
         let title = m.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| line(&m.body));
         let item = |at: i64| Item::new(Kind::Outbox, Filter::Send, &m.id, title.clone(), place.clone(), at).session(m.session_id.clone()).detail(format!("{} · drafted by {}", m.channel, m.author));
-        Some(match m.status {
+        match m.status {
             OutboxStatus::Draft => item(m.created_at).action("outbox.send"),
             // Never sent again: the owner checks the destination, then marks it sent or discards it.
             OutboxStatus::Uncertain | OutboxStatus::Sending => item(m.created_at).detail(format!("Uncertain: check {} before anything else", m.channel)).action("outbox.discard"),
             OutboxStatus::Sent => item(m.sent_at.unwrap_or(m.created_at)).handled(format!("Sent to {}", m.channel)),
             OutboxStatus::Discarded => item(m.created_at).handled("Discarded"),
-        })
+        }
     }).collect()
 }

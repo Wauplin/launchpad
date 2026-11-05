@@ -51,12 +51,16 @@ pub enum Kind {
     Runner,
 }
 
-/// Where an item belongs, resolved by `compute` into `Item::workspaces`.
+/// Where an item belongs, resolved by `compute` into `Item::workspaces`. A window shows only its workspace: an
+/// item whose place resolves to no workspace (a repository without a folder, a session outside every workspace)
+/// is not listed. Only what Launchpad shares between workspaces shows in every one.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Place {
-    /// Every workspace (a runner, a message without a session).
+    /// Every workspace: what is shared (a runner, a tool or preset proposal without a workspace, an Outbox message
+    /// without a session).
     #[default]
     Everywhere,
+    /// None: not listed.
     Workspace(Option<String>),
     Project(String),
     Session(String),
@@ -215,9 +219,9 @@ fn session_workspace(app: &App, projects: &[Project], id: &str) -> Option<String
     by_id.or_else(by_path).and_then(|p| p.workspace_id.clone()).or(s.launch_spec.workspace_id.clone())
 }
 
-/// The workspaces an item belongs to; None: it is not listed (a repository without a folder).
+/// The workspaces an item belongs to (empty: every workspace); None: it is not listed (no workspace).
 fn resolve(app: &App, projects: &[Project], place: &Place) -> Option<Vec<String>> {
-    let one = |w: Option<String>| Some(w.into_iter().collect::<Vec<_>>());
+    let one = |w: Option<String>| w.map(|w| vec![w]);
     match place {
         Place::Everywhere => Some(vec![]),
         Place::Workspace(w) => one(w.clone()),
@@ -264,28 +268,54 @@ pub async fn compute(app: &App) -> Result<Today> {
 /// Bus topics whose changes can change the list.
 const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "inbox", "crons"];
 
+/// What windows show of a waiting item: when it changes, they refetch.
+type ItemKey = (String, Vec<String>, Option<String>, String);
+
+/// What of the sessions can change the list: the ones that need you, with their title, question and status.
+fn sessions_key(app: &App) -> Vec<(String, String, bool, i64, Option<String>)> {
+    let mut key: Vec<_> = app.sessions.list().into_iter().filter(|s| s.imported_from.is_none() && s.needs_you()).map(|s| (s.id, s.title, s.open_question, s.status_since, s.project_id)).collect();
+    key.sort();
+    key
+}
+
 /// Home: recomputes the list after relevant bus events (at most once per 1.5 s) and publishes `today`/`changed`
-/// when the waiting items changed, so every window and phone updates at once.
+/// when the waiting items changed, so every window and phone updates at once. Session updates (frequent while
+/// agents work) recompute only when the sessions that need you changed.
 pub fn spawn(app: &App) {
+    use tokio::sync::broadcast::error::{RecvError, TryRecvError};
     if app.paths.role == crate::role::Role::Runner {
         return;
     }
     let app = app.clone();
     tokio::spawn(async move {
         let mut rx = app.bus.subscribe(None).rx;
-        let mut last: Option<Vec<(String, Vec<String>, Option<String>, String)>> = None;
+        let mut last: Option<Vec<ItemKey>> = None;
+        let mut last_sessions = None;
         loop {
             // Wait for a relevant event, then let a burst of them settle.
-            loop {
+            let mut full = loop {
                 match rx.recv().await {
-                    Ok(e) if relevant(&e.text) => break,
-                    Ok(_) => {}
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => break,
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                    Ok(e) => match topic(&e.text) {
+                        Some("sessions") => break false,
+                        Some(t) if TOPICS.contains(&t) => break true,
+                        _ => {}
+                    },
+                    Err(RecvError::Lagged(_)) => break true,
+                    Err(RecvError::Closed) => return,
+                }
+            };
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+            loop {
+                match rx.try_recv() {
+                    Ok(e) => full |= topic(&e.text).is_some_and(|t| t != "sessions" && TOPICS.contains(&t)),
+                    Err(TryRecvError::Lagged(_)) => full = true,
+                    Err(_) => break,
                 }
             }
-            tokio::time::sleep(Duration::from_millis(1500)).await;
-            while let Ok(_) | Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) = rx.try_recv() {}
+            let sessions = sessions_key(&app);
+            if !full && last_sessions.as_ref() == Some(&sessions) {
+                continue;
+            }
             let today = match compute(&app).await {
                 Ok(t) => t,
                 Err(e) => {
@@ -293,6 +323,7 @@ pub fn spawn(app: &App) {
                     continue;
                 }
             };
+            last_sessions = Some(sessions);
             let key: Vec<_> = today.items.iter().map(|i| (i.id.clone(), i.workspaces.clone(), i.action.clone(), i.title.clone())).collect();
             if last.as_ref() != Some(&key) {
                 last = Some(key);
@@ -302,9 +333,7 @@ pub fn spawn(app: &App) {
     });
 }
 
-fn relevant(text: &str) -> bool {
-    // `{"bus":…,"seq":…,"topic":"<topic>",…}`: read the topic without parsing the payload.
-    let Some(rest) = text.split_once("\"topic\":\"").map(|(_, r)| r) else { return false };
-    let topic = rest.split('"').next().unwrap_or("");
-    TOPICS.contains(&topic)
+/// `{"bus":…,"seq":…,"topic":"<topic>",…}`: reads the topic without parsing the payload.
+fn topic(text: &str) -> Option<&str> {
+    text.split_once("\"topic\":\"").and_then(|(_, r)| r.split('"').next())
 }
