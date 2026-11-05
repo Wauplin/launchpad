@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { Bot } from "@/gen/Bot";
 import type { Change } from "@/gen/Change";
 import type { Proposal } from "@/gen/Proposal";
@@ -20,6 +21,7 @@ import { AskCard } from "@/features/agents/AskCard";
 import { AssistantRow, Separator } from "@/features/agents/EventRow";
 import { ATTACH_LIMITS, AttachmentList, useMessageAttachments } from "@/features/agents/MessageAttachments";
 import { usePresets } from "@/features/agents/MessagePresets";
+import { useMarkSeen, useWindowFocused } from "@/features/agents/useSeen";
 import { buildRows } from "@/features/agents/rows";
 import { foldTrace } from "@/features/agents/traceRows";
 import { ProposalCard, useProposalList } from "@/features/proposals/ProposalCard";
@@ -34,6 +36,7 @@ import { formatAge } from "@/lib/format";
 import { useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
 import { isRunning } from "@/lib/sessionStatus";
+import { sendPresence } from "@/lib/ws";
 import { chatRows, stepsLabel, type ChatCard, type ChatItem, type ChatSession } from "./chatRows";
 
 /** Today kinds that are a ready click in a bot's chat: Send, Post, Review & publish. */
@@ -86,7 +89,9 @@ export function BotChat({ bot, thread, fresh, rotation, needsProfile, onCancelFr
   const visible = useMemo(() => thread.slice(from), [thread, from]);
   const ids = useMemo(() => new Set(thread.map((s) => s.id)), [thread]);
 
-  const logs = useSessionLogs((st) => st.logs);
+  // Only the shown sessions' logs: events of other sessions do not re-render the chat.
+  const shownLogs = useSessionLogs(useShallow((st) => visible.map((s) => st.logs[s.id])));
+  const logs = useMemo(() => Object.fromEntries(visible.map((s, i) => [s.id, shownLogs[i]])) as Record<string, SessionLog | undefined>, [visible, shownLogs]);
   const load = useSessionLogs((st) => st.load);
   const loadEarlier = useSessionLogs((st) => st.loadEarlier);
   useEffect(() => {
@@ -113,18 +118,26 @@ export function BotChat({ bot, thread, fresh, rotation, needsProfile, onCancelFr
   // A session shows once its newest events are loaded.
   const ready = visible.filter((s) => logs[s.id]?.loaded);
   const sessions = useMemo<ChatSession[]>(() => ready.map((s) => {
-    const log = logs[s.id];
+    const log = logs[s.id]!;
     let rows = folded.get(log);
     if (!rows) { rows = foldTrace(buildRows(log), s.launch_spec.text, presets); folded.set(log, rows); }
     return {
       id: s.id, started_at: s.started_at, profile: s.launch_spec.profile, folder: s.launch_spec.target.kind === "temp" ? null : s.project_id,
       running: isRunning(s), rows, firstTs: log.events[0]?.ts ?? null, partial: !!log.earlier, changes: s.status !== "closed",
     };
-  }), [ready.map((s) => `${s.id}:${s.status}`).join(), logs, presets]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [ready.map((s) => `${s.id}:${s.status}`).join(), shownLogs, presets]); // eslint-disable-line react-hooks/exhaustive-deps
   const first = ready[0] ? thread.indexOf(ready[0]) : 0;
   const items = useMemo(() => chatRows(sessions, cards, first), [sessions, cards, first]);
   const more = from > 0 || !!(ready[0] && logs[ready[0].id]?.earlier);
   const failedLog = visible.map((s) => logs[s.id]).find((l) => l?.error);
+
+  // The chat shows the current session as Agents does: no notification about it, and seen after 1.5 s of use.
+  const focused = useWindowFocused();
+  const shownCurrent = current && logs[current.id]?.loaded ? current : null;
+  const shownId = shownCurrent?.id ?? null;
+  useEffect(() => { sendPresence(focused, shownId ? [shownId] : []); }, [focused, shownId]);
+  useEffect(() => () => sendPresence(false, []), []);
+  useMarkSeen(shownCurrent, focused);
 
   // The open question of the current session: typed text answers it, unless it asks for a permission.
   const ask = useMemo(() => {
@@ -148,17 +161,21 @@ export function BotChat({ bot, thread, fresh, rotation, needsProfile, onCancelFr
   useLayoutEffect(() => {
     if (atBottom.current && items.length) v.scrollToIndex(items.length - 1, { align: "end" });
   }, [items.length, total, v]);
-  // Loading above keeps the row that was on top in view.
-  const anchor = useRef<string | null>(null);
+  // Loading above keeps the row that was on top in view: once rows were added before it, scroll back to it.
+  const anchor = useRef<{ key: string; index: number } | null>(null);
   useLayoutEffect(() => {
-    if (!anchor.current) return;
-    const i = items.findIndex((it) => it.key === anchor.current);
-    if (i > 0) { v.scrollToIndex(i, { align: "start" }); anchor.current = null; }
+    const a = anchor.current;
+    if (!a) return;
+    const i = items.findIndex((it) => it.key === a.key);
+    if (i < 0) anchor.current = null;
+    else if (i !== a.index) { v.scrollToIndex(i, { align: "start" }); anchor.current = null; }
   }, [items, v]);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadMore = () => {
     if (loadingMore || !more || ready.length < visible.length) return;
-    anchor.current = items[0]?.key ?? null;
+    const top = scrollRef.current?.scrollTop ?? 0;
+    const shownTop = v.getVirtualItems().find((it) => it.end > top);
+    anchor.current = shownTop ? { key: String(shownTop.key), index: shownTop.index } : null;
     atBottom.current = false;
     const first = ready[0];
     if (first && logs[first.id]?.earlier) {
@@ -177,6 +194,7 @@ export function BotChat({ bot, thread, fresh, rotation, needsProfile, onCancelFr
         onScroll={(e) => {
           const el = e.currentTarget;
           atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+          if (atBottom.current) anchor.current = null;
           if (el.scrollTop < 150) loadMore();
         }}>
         <div className="mx-auto w-full max-w-[760px]">
@@ -212,7 +230,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
     case "divider":
       return <div className="pt-4 pb-2"><Separator>
         <span>Session {item.index} · started {day(item.at)}{item.reason ? ` because ${item.reason}` : ""}</span>
-        <Link to="/agents" search={{ session: item.sessionId }} className="text-teal-ink no-underline hover:underline" title="The whole trace of this session in Agents">Open in Agents</Link>
+        <Link to="/agents" search={{ session: item.sessionId }} className="chat-tap text-teal-ink no-underline hover:underline" title="The whole trace of this session in Agents">Open in Agents</Link>
       </Separator></div>;
     case "user":
       return <div className="flex py-1.5"><div className="ml-auto max-w-[85%] rounded-[10px_10px_3px_10px] bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap">
@@ -247,10 +265,10 @@ function StepsRow({ item }: { item: Extract<ChatItem, { t: "steps" }> }) {
   const [open, setOpen] = useState(false);
   return <div className="py-1">
     <div className="flex items-center gap-2 text-[12px] text-ink-3">
-      <button className="flex items-center gap-1 hover:text-ink" aria-expanded={open} title="The work behind this answer, one line per step" onClick={() => setOpen(!open)}>
+      <button className="chat-tap flex items-center gap-1 hover:text-ink" aria-expanded={open} title="The work behind this answer, one line per step" onClick={() => setOpen(!open)}>
         <Icon name="chev" size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />{stepsLabel(item.count, item.durationMs)}
       </button>
-      <Link to="/agents" search={{ session: item.sessionId }} className="text-teal-ink no-underline hover:underline" title="The full trace in Agents">Open trace</Link>
+      <Link to="/agents" search={{ session: item.sessionId }} className="chat-tap text-teal-ink no-underline hover:underline" title="The full trace in Agents">Open trace</Link>
     </div>
     {open && <ol className="m-0 mt-1 grid gap-0.5 border-l-2 border-line-2 pl-3 text-[12px] text-ink-3">{item.steps.map((s, i) => <li key={i} className="list-none truncate font-mono text-[11px]" title={s}>{s}</li>)}</ol>}
   </div>;
@@ -314,8 +332,10 @@ function BotComposer({ bot, current, fresh, rotation, needsProfile, onCancelFres
   const { files, reading } = attachments;
   // Grows with the text up to 10 lines, then scrolls.
   useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 220)}px`; }, [text]);
-  const answering = !!ask && !fresh && !!current?.live;
-  const blocked = answering && ask!.permission;
+  const answering = !!ask && !fresh && !!current?.open_question && !!current.live;
+  // Typed text never grants a permission; a harness that cannot take messages while it works waits for the turn end.
+  const busyTurn = !fresh && !!current && isRunning(current) && !current.open_question && !!harness && !harness.capabilities.messages_while_running;
+  const blocked = (answering && ask!.permission) || busyTurn;
   const send = async () => {
     const t = text.trim();
     if ((!t && !files.length) || busy || reading || blocked) return;
@@ -348,7 +368,7 @@ function BotComposer({ bot, current, fresh, rotation, needsProfile, onCancelFres
         <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
         <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
           <textarea ref={ref} rows={1} value={text} disabled={busy || blocked} aria-label={`Message ${bot.settings.name}`}
-            placeholder={blocked ? "Choose a decision on the approval card." : answering ? `Answer or message ${bot.settings.name}…` : `Message ${bot.settings.name}…`}
+            placeholder={busyTurn ? `${bot.settings.name} is working: Stop it or wait for the turn to end.` : blocked ? "Choose a decision on the approval card." : answering ? `Answer or message ${bot.settings.name}…` : `Message ${bot.settings.name}…`}
             onChange={(e) => setText(e.target.value)}
             onPaste={(e) => { if (!acceptsImages || busy) return; const pasted = pastedImages(e); if (pasted) void attachments.add(pasted); }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}

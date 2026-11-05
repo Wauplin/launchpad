@@ -87,7 +87,10 @@ function why(prev: ChatSession | undefined, s: ChatSession): string | null {
 export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first = 0): ChatItem[] {
   const out: ChatItem[] = [];
   sessions.forEach((s, si) => {
-    out.push({ key: `div:${s.id}`, v: "", t: "divider", sessionId: s.id, index: first + si + 1, at: s.started_at, reason: why(sessions[si - 1], s) });
+    // Event keys (`e<seq>`) repeat across sessions: every item key names its session.
+    const k = (key: string) => `${s.id}/${key}`;
+    const reason = why(sessions[si - 1], s);
+    out.push({ key: k("div"), v: reason ?? "", t: "divider", sessionId: s.id, index: first + si + 1, at: s.started_at, reason });
 
     // Turns: a message starts one, a turn end closes it.
     const turns: Turn[] = [];
@@ -106,12 +109,13 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
     }
     if (cur) turns.push(cur);
 
-    // Cards go to the first turn that ended after they were written; later ones to the last turn.
+    // Cards go to the first turn that ended after they were written (an unfinished turn other than the last, cut by
+    // the next message, takes none); later ones to the last turn.
     const mine = cards.filter((c) => c.session_id === s.id && !(s.partial && s.firstTs !== null && c.at < s.firstTs)).sort((a, b) => a.at - b.at);
     const placed = turns.map(() => [] as ChatCard[]);
     const after: ChatCard[] = [];
     for (const c of mine) {
-      const i = turns.findIndex((t) => !t.end || t.end.ts >= c.at);
+      const i = turns.findIndex((t, ti) => t.end ? t.end.ts >= c.at : ti === turns.length - 1);
       if (i >= 0) placed[i].push(c); else after.push(c);
     }
     if (turns.length) placed[turns.length - 1].push(...after);
@@ -128,21 +132,21 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
       const routine = t.user ? routineMessage(t.user.text) : null;
 
       if (routine && t.end && !t.end.error && !t.end.interrupted && answer && !answer.streaming && isNoUpdate(answer.text)) {
-        out.push({ key: `q:${t.key}`, v: "", t: "quiet", title: routine.title, cause: routine.cause, at: t.end.ts });
+        out.push({ key: k(`q:${t.key}`), v: "", t: "quiet", title: routine.title, cause: routine.cause, at: t.end.ts });
       } else {
-        if (routine) out.push({ key: `r:${t.key}`, v: t.user!.queued ? "q" : "", t: "routine", title: routine.title, cause: routine.cause });
-        else if (t.user) out.push({ key: t.user.key, v: t.user.queued ? "q" : "", t: "user", text: t.user.text, images: t.user.images, queued: t.user.queued });
-        if (answer) out.push({ key: answer.key, v: `${answer.text.length}${answer.streaming ? "s" : ""}`, t: "answer", text: answer.text, streaming: answer.streaming });
-        if (steps.length && !working) out.push({ key: `s:${t.key}`, v: `${steps.length}:${t.end?.duration_ms ?? ""}`, t: "steps", sessionId: s.id, count: steps.length, durationMs: t.end?.duration_ms ?? null, steps });
+        if (routine) out.push({ key: k(`r:${t.key}`), v: t.user!.queued ? "q" : "", t: "routine", title: routine.title, cause: routine.cause });
+        else if (t.user) out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "user", text: t.user.text, images: t.user.images, queued: t.user.queued });
+        if (answer) out.push({ key: k(answer.key), v: `${answer.text.length}${answer.streaming ? "s" : ""}`, t: "answer", text: answer.text, streaming: answer.streaming });
+        if (steps.length && !working) out.push({ key: k(`s:${t.key}`), v: `${steps.length}:${t.end?.duration_ms ?? ""}`, t: "steps", sessionId: s.id, count: steps.length, durationMs: t.end?.duration_ms ?? null, steps });
       }
-      for (const r of t.body) if (r.t === "ask") out.push({ key: r.key, v: r.answers ? "a" : "", t: "ask", sessionId: s.id, row: r });
+      for (const r of t.body) if (r.t === "ask") out.push({ key: k(r.key), v: r.answers ? "a" : "", t: "ask", sessionId: s.id, row: r });
       for (const c of placed[ti]) out.push({ key: `c:${c.kind}:${c.id}`, v: c.v, t: "card", kind: c.kind, id: c.id, text: c.text ?? null });
-      if (t.end && (t.end.error || t.end.interrupted)) out.push({ key: `e:${t.end.key}`, v: "", t: "ended", sessionId: s.id, interrupted: t.end.interrupted, error: t.end.error });
-      if (working) out.push({ key: `w:${s.id}`, v: steps.at(-1) ?? "", t: "working", sessionId: s.id, step: steps.at(-1) ?? null });
+      if (t.end && (t.end.error || t.end.interrupted)) out.push({ key: k(`e:${t.end.key}`), v: "", t: "ended", sessionId: s.id, interrupted: t.end.interrupted, error: t.end.error });
+      if (working) out.push({ key: k("w"), v: steps.at(-1) ?? "", t: "working", sessionId: s.id, step: steps.at(-1) ?? null });
     });
     if (!turns.length) for (const c of after) out.push({ key: `c:${c.kind}:${c.id}`, v: c.v, t: "card", kind: c.kind, id: c.id, text: c.text ?? null });
-    if (s.running && (!turns.length || turns[turns.length - 1].end)) out.push({ key: `w:${s.id}`, v: "", t: "working", sessionId: s.id, step: null });
-    if (s.changes) out.push({ key: `ch:${s.id}`, v: "", t: "changes", sessionId: s.id });
+    if (s.running && (!turns.length || turns[turns.length - 1].end)) out.push({ key: k("w"), v: "", t: "working", sessionId: s.id, step: null });
+    if (s.changes) out.push({ key: k("ch"), v: "", t: "changes", sessionId: s.id });
   });
   return out;
 }

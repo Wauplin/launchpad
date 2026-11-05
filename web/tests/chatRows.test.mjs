@@ -49,3 +49,10 @@ test("cards written before the loaded events of a session wait until they load",
   const items = chatRows([session("a", [user("x"), answer("y"), end(500)], { partial: true, firstTs: 400 })], [{ kind: "proposal", id: "old", session_id: "a", at: 100, v: "" }, { kind: "ready", id: "new", session_id: "a", at: 450, v: "" }]);
   assert.deepEqual(items.filter((i) => i.t === "card").map((i) => i.id), ["new"]);
 });
+
+test("a turn cut by the next message takes no cards, and keys stay unique across sessions", () => {
+  const rows = [user("first"), answer("one"), user("second"), answer("two"), end(300)];
+  const items = chatRows([session("a", rows), session("b", rows)], [{ kind: "proposal", id: "p", session_id: "a", at: 250, v: "" }]);
+  assert.deepEqual(kinds(items).slice(0, 6), ["divider", "user", "answer", "user", "answer", "card"]);
+  assert.equal(new Set(items.map((i) => i.key)).size, items.length);
+});

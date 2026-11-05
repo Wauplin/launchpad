@@ -638,6 +638,8 @@ button {
 .lp-phone .agent-row-action.agent-row-unread { right: 44px; }
 .lp-phone .agent-row-line-1 { padding-right: 44px; }
 .lp-phone .agent-row-line-2 { padding-right: 88px; }
+/* Bot chat: the steps line and the Open trace / Open in Agents links. */
+.lp-phone .chat-tap { min-height: 44px; display: inline-flex; align-items: center; }
 .lp-phone .page-header h1 { font-size: 16px; white-space: normal; overflow-wrap: anywhere; }
 
 /* Demo mode (src/demo/) and the tour overlay (src/onboarding/tour/). One dimming element, no blur. */
