@@ -250,7 +250,7 @@ route("POST", "/api/sessions/:id/close", (r) => {
   const s = found(r.params.id);
   stopTurn(s);
   delete world.dormant[s.id];
-  const done = s.status === "waiting";
+  const done = s.status === "waiting" && !s.open_question;
   updateSession(s.id, { quota_pause: null });
   setStatus(s.id, "closed", { live: false, open_question: false, ended_at: clock.now(), archived_done: done });
   refreshCounts();

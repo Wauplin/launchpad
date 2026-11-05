@@ -469,6 +469,9 @@ mod tests {
             status: ScheduleStatus::Queued, error: None,
         };
         assert!(ready(&record, 0, |_| session.dependency_done()));
+        session.open_question = true; // Stopped for a question: not done.
+        assert!(!ready(&record, 0, |_| session.dependency_done()));
+        session.open_question = false;
         session.change_status(SessionStatus::Closed);
         assert!(!session.needs_you());
         // The same saved state is used after restarting the daemon.

@@ -183,9 +183,10 @@ pub struct Session {
 
 impl Session {
     /// Archiving a completed turn must not block delayed launches waiting for it.
+    /// An open question is not done: the agent waits for the owner.
     pub fn dependency_done(&self) -> bool {
         if self.imported_from.is_some() { return self.archived_done; }
-        self.status.is_done() || (self.status == SessionStatus::Closed && self.archived_done)
+        (self.status.is_done() && !self.open_question) || (self.status == SessionStatus::Closed && self.archived_done)
     }
 
     pub(crate) fn change_status(&mut self, status: SessionStatus) {
