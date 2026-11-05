@@ -136,6 +136,17 @@ The Home-only Space POC (`deploy/hf-home/`) runs the daemon behind the private H
 - Channels live on Home. Messages to other people (outgoing webhooks, GitHub suggestions) wait in the Outbox for a click and are never retried; messages to the owner's own bound Telegram chat go out directly. Home long-polls Telegram, so it needs no inbound endpoint. Incoming hooks (`/hooks/<id>`) skip the browser sign-in and authenticate with their own secret (behind a private Space, also an HF token). Hook and Telegram messages to a busy bot or Ask Launchpad thread wait in `queued_message` (`hooks::deliver`) until its turn ends; each is claimed (deleted) before its single send.
 - Agents run contained: a bubblewrap jail on Linux runners (or a Local VM). They see their session's folders, their own harness home and the machine's toolchains, never your home folder, keys, logins or Launchpad's data. Their network goes through the runner proxy, which adds Home's tokens on known hosts; agents only hold placeholders. Token scopes decide what a request may do; a steered agent can still leak what it reads or misuse a token within its scopes. SSH host sessions are not contained yet.
 
+## Action list
+
+Every action that a button, a proposal card, the Launchpad CLI or the admin rules name is defined once in `crates/core/src/actions.rs`: its name (`<group>.<verb>`), method and route, label and icon, input fields, confirmation text, effect (checks, record, starts, outside, machine), access (owner or admin), the card kind whose acceptance runs it, and its undo action. The handlers stay in their crates. Four places read the list:
+
+- `agent_auth::admin_allows` allows a non-GET request from an admin session only when its route matches an admin action exactly. Accepting a card runs the action of its kind (`actions::for_card`), so admin accepts only cards of admin actions.
+- `launchpad_cli::cli_reference` writes one usage line per admin action into the session's instructions.
+- `launchpad do <group>.<verb>` and the short verb `launchpad <group> <verb>` build the request from route ids and `--<field>` options, and refuse owner actions.
+- The UI reads the generated `web/src/gen/actions.ts`: `ActionButton` asks for the confirmation, and `runAction` sends the request.
+
+Actions that reach GitHub or other people, money, credentials or the machine are owner actions. They have a confirmation or an undo.
+
 ## Code layout
 
 ```text

@@ -48,7 +48,7 @@ Agents write comments and reviews with the `launchpad suggest` CLI. They are sav
 launchpad suggest review --repo owner/repo --number 123 --head <commit> --body-file review.md --event approve
 ```
 
-A suggestion appears as a card on the item's Conversation tab and in **Review → To publish**. **Edit**, then **Post review** (or **Post comment**) publishes it under your account. **Discard** deletes it.
+A suggestion appears as a card on the item's Conversation tab and in **Review → To publish**. **Edit**, then **Post review** (or **Post comment**) publishes it under your account after you confirm. **Discard** deletes it; for a suggestion that is posted or uncertain, the confirmation asks you to check GitHub first.
 
 ## Local PRs
 

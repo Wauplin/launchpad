@@ -18,7 +18,7 @@ Ask Launchpad has no special treatment: its `BOT.md` and `bot.toml` are edited, 
 | --- | --- |
 | `read` | Read Launchpad state: `launchpad folders\|bots\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list`, `launchpad trace`. |
 | `propose` (default) | Read, and write proposals (`launchpad propose …`) that wait for your click. Agents that are not bots always get this level. |
-| `admin` | Propose, and change Launchpad itself with `launchpad api <method> <path>`: bots (their `BOT.md` and `bot.toml` included), routines, scheduled launches, workspaces, dismissing proposals, accepting a proposal whose action admin may run itself (tool and preset cards wait for you), launching agents and messaging sessions, MCP tool switches. Ask Launchpad starts with this level. |
+| `admin` | Propose, and change Launchpad itself with the admin actions of the action list, as `launchpad do <group>.<verb>` or the short verb `launchpad <group> <verb>` (for example `launchpad session archive <id>`), or with `launchpad api <method> <path>`: bots (their `BOT.md` and `bot.toml` included), routines, scheduled launches, workspaces, dismissing proposals, accepting a proposal whose action is an admin action (tool and preset cards wait for you), launching agents and messaging sessions, MCP tool switches. Ask Launchpad starts with this level. |
 
 No level reaches GitHub, the Outbox, channels, credentials, devices, terminals, hosts, runners, setup fixes, backups, Burst, `config.toml` (including presets and folder settings) or paid usage: those stay your clicks. A change of level applies to running sessions within ten minutes. Remove a workspace from the tool (or switch it off for one launch) and its sessions can no longer read Launchpad state at all.
 

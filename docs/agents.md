@@ -124,7 +124,7 @@ flowchart LR
 
 - Every agent in a Git folder works in a fresh worktree cloned from Home Git before it starts; your own checkouts are never used. Its branch (`lp/…`) goes back to Home at the end of every turn, and running worktrees are snapshotted to Home every five minutes.
 - **When done** is remembered per folder: **Keep branch for review** (default), **Open a Local PR** or **Merge into &lt;base&gt;**. With **Open a Local PR**, the agent runs `launchpad work finish` when it is done: Launchpad opens a Local PR of its branch on Home, and the agent sets its title and description. You review and publish it.
-- Merges wait until the agents are idle and the worktree is clean, push the branch to Home, then Home pushes the branch's commit to the base branch on the folder's remote and fast-forwards the base branch on Home. If the base branch moved, the agent rebases first. Launchpad never stashes, resets or force-pushes. When the remote refuses the push, nothing is merged: the worktree card and the session trace show the reason.
+- **Merge** asks you to confirm (on the laptop and on the phone) and names the branch and the base. It waits while another action of the worktree card runs. Merges wait until the agents are idle and the worktree is clean, push the branch to Home, then Home pushes the branch's commit to the base branch on the folder's remote and fast-forwards the base branch on Home. If the base branch moved, the agent rebases first. Launchpad never stashes, resets or force-pushes. When the remote refuses the push, nothing is merged: the worktree card and the session trace show the reason.
 - A per-folder **Worktree setup** command prepares new worktrees (dependencies).
 - Worktrees of archived agents are removed after a retention limit (`[worktrees] keep`), once Home has their branch; uncommitted files go to a `lp-scratch/…` branch first. **Resume** clones the folder again.
 - Home keeps every previous tip of a Launchpad branch for 30 days: the folder page lists them under **Launchpad branches**, with **Restore**.
@@ -147,7 +147,7 @@ For subscription profiles, **Allow paid usage** is off by default:
 - When the 5-hour or weekly quota is reported exhausted, protected sessions move to **Quota paused** and new input waits.
 - When fresh readings confirm capacity in both windows, Launchpad continues the same conversation automatically.
 - Messages you send to a paused session are queued and delivered, in order, with the continuation. Stop or Archive discards them.
-- **Resume with paid usage** lets one session use extra credits. A **Paid usage on** badge stays in its header.
+- **Resume with paid usage** lets one session use extra credits, after you confirm. A **Paid usage on** badge stays in its header.
 
 The status bar shows one pair of quota meters per subscription login. Protection is best effort: quota readings can arrive late.
 
@@ -159,7 +159,7 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ![Ask Launchpad with two proposals](images/ask.webp)
 
-Any agent granted the Launchpad CLI tool can propose cards too; they wait on the **Proposals** page (sidebar) and in the session that wrote them. After **Add tool**, paste the tool's token. **Edit** moves a proposal into the composer and replaces the card ("Edited in the composer"). **Start all** and **Dismiss all** act on every waiting card after one confirmation.
+Any agent granted the Launchpad CLI tool can propose cards too; they wait on the **Proposals** page (sidebar) and in the session that wrote them. **Add tool** asks you to confirm, then you paste the tool's token. **Edit** moves a proposal into the composer and replaces the card ("Edited in the composer"). **Start all** and **Dismiss all** act on every waiting card after one confirmation.
 
 In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or both for each preset. The Presets button adds selected instructions after your message, in settings order. Bots can also propose a new preset or new values (label, text, agent availability) for an existing one; they cannot delete presets. Agent availability includes launches, steering and Send later. For example, a bots-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
 
