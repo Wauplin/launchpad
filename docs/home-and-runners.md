@@ -120,7 +120,7 @@ Docker needs root, so it never runs in the jail. A **Local VM** is a runner insi
 
 ## Versions
 
-Home and its runners compare their protocol and build. A runner with another protocol cannot connect. A runner with another build of the same protocol shows **Update this runner** and takes no new sessions; its running sessions continue.
+Home and its runners compare their protocol and build. A runner with another protocol cannot connect. A runner with another build of the same protocol takes no new sessions; its running sessions continue. The status bar then shows **<runner> needs an update**, the composer warns before a launch (the chosen runner, or with Automatic, where the launch goes instead), the Runner option marks it **needs an update**, and Settings → Home and runners explains how to update it. With a Home in a Space, run the install command again on that machine: it installs Home's build and restarts the runner, which stays paired. Otherwise, install Launchpad at Home's commit and restart the runner daemon. The restart interrupts the runner's running turns: update it when its agents are done.
 
 ## Runner guard
 

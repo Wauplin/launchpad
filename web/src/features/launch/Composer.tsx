@@ -1,4 +1,4 @@
-import { RunnerChoice, runnerName, ToolsChoice, useGrantedMcp, useGrantedTools, useLaunchRunners } from "./LaunchExtras";
+import { OutdatedRunnerNotice, RunnerChoice, runnerName, ToolsChoice, useGrantedMcp, useGrantedTools, useLaunchRunners } from "./LaunchExtras";
 import { isDesktopShell } from "@/lib/platform";
 import { hostOf, profileOnHost, useHosts } from "@/lib/hosts";
 import { isPhone } from "@/lib/phone";
@@ -624,6 +624,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         </div>
 
         {missingProfile && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">The profile {spec.profile} no longer exists. Pick another profile in the options.</div>}
+        {role === "home" && <OutdatedRunnerNotice spec={spec} />}
         {!profiles.length && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">No profile yet. A profile says which harness runs the agent and what pays for it. <Link to="/settings/profiles" className="font-semibold underline">Add one in Settings → Profiles</Link>.</div>}
 
         <button
@@ -639,7 +640,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {harness?.capabilities.permission_modes && spec.permission_mode && spec.permission_mode !== "yolo" && <Token>{spec.permission_mode === "auto" ? "Auto approval" : "Ask for approval"}</Token>}
           {targetHost && <Token warn={hostStatus?.state !== "connected"} title={hostStatus?.state === "connected" ? `The agent runs on ${targetHost}` : `${targetHost} is ${hostStatus?.state ?? "unknown"}: the launch waits up to 25 s for a connection`}>on {targetHost}</Token>}
           {runIn && <Token>{runIn}</Token>}
-          {spec.runner_id && <Token title="The runner this launch goes to">on {runnerName(launchRunners, spec.runner_id)}</Token>}
+          {spec.runner_id && <Token warn={launchRunners.some((r) => r.runner.id === spec.runner_id && r.compat === "outdated")} title="The runner this launch goes to">on {runnerName(launchRunners, spec.runner_id)}</Token>}
           {(spec.tools_off ?? []).length > 0 && <Token title={`Switched off for this launch: ${(spec.tools_off ?? []).join(", ")}`}>{(spec.tools_off ?? []).length} tool{(spec.tools_off ?? []).length === 1 ? "" : "s"} off</Token>}
           {worktreeMode && !pushToPr && spec.worktree?.when_done === "merge" && <Token title={`The agent asks Launchpad to merge into ${baseLabel} when it is done`}>merge when done</Token>}
           {worktreeMode && !pushToPr && spec.worktree?.when_done === "local_pr" && <Token title="The agent turns its worktree into a Local PR when it is done">Local PR when done</Token>}

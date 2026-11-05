@@ -10,11 +10,27 @@ import { HarnessMark, useHarnessInfo, useHarnesses, type Harness } from "@/compo
 import { formatAge, formatReset, resetLabel } from "@/lib/format";
 import { onConnectionChange } from "@/lib/ws";
 import { Popover } from "@/components/Popover";
+import { Icon } from "@/components/Icon";
 import { TerminalsChip } from "@/features/terminals/TerminalDock";
 import { isDesktopShell } from "@/lib/platform";
 import { HostChip } from "./Connection";
 import { Link } from "@tanstack/react-router";
 import { linkLabel, useHosts } from "@/lib/hosts";
+import { outdatedLabel, useOutdatedRunners } from "@/lib/runners";
+
+/** Runners with another build than Home's take no new sessions: a warning that opens Settings → Home and runners. */
+function OutdatedRunners({ data }: { data: Status }) {
+  const outdated = useOutdatedRunners().map((r) => r.runner.name);
+  const self = data.role === "runner" && data.home?.compat === "outdated";
+  if (!self && outdated.length === 0) return null;
+  const label = self ? "This runner needs an update" : outdatedLabel(outdated);
+  const title = self ? "Its build differs from Home's: Home sends it no new sessions. Open Settings → Home and runners to see how to update it." : "Their build differs from Home's: they take no new sessions until updated. Open Settings → Home and runners to see how to update them.";
+  return (
+    <Link to="/settings/runners" className="inline-flex items-center gap-1 rounded bg-attn-soft px-1.5 font-semibold text-attn hover:underline" title={title}>
+      <Icon name="alert" size={12} />{label}
+    </Link>
+  );
+}
 
 /** Compact health of the SSH hosts; quota meters stay per account, not per machine. */
 function Hosts() {
@@ -190,6 +206,7 @@ export function StatusBar() {
           {data.spend.map((v) => <Fragment key={v.profile}><span className="h-3.5 w-px bg-line" /><SpendPair v={v} /></Fragment>)}
           </span>
           {harnesses.map((h) => <Warnings key={h.id} harness={h.id} s={data.harnesses[h.id] ?? emptyStatus} />)}
+          <OutdatedRunners data={data} />
           {quota.map((e) => <StaleQuota key={e.key} e={e} />)}
           {low.map(([k, v]) => <span key={k} className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={`Resets ${formatReset(v.reset_at)}`}>GitHub {k} {v.remaining} calls left</span>)}
           <span className="ml-auto inline-flex items-center gap-2.5">

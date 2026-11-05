@@ -6,7 +6,8 @@ import { FilterChip, FilterChips } from "@/components/ui";
 import { useVault } from "@/features/settings/CredentialsView";
 import { useMcpServers } from "@/features/settings/McpServers";
 import { useStatus } from "@/lib/queries";
-import { useRunners } from "@/lib/runners";
+import { outdatedLabel, useRunners } from "@/lib/runners";
+import { Link } from "@tanstack/react-router";
 import { useBurst } from "@/lib/burst";
 
 type Set = (f: (s: LaunchSpec) => LaunchSpec) => void;
@@ -22,10 +23,35 @@ export function runnerName(runners: ReturnType<typeof useLaunchRunners>, id: str
   return runners.find((r) => r.runner.id === id)?.runner.name ?? "a runner";
 }
 
+type LaunchRunner = ReturnType<typeof useLaunchRunners>[number];
+
+/** Connected, same build as Home, accepting launches from other devices and not paused. */
+const takesLaunches = (r: LaunchRunner) => r.connected && r.compat === "same" && r.guard?.accept_launches !== false && !r.guard?.paused;
+
+/** A warning before launching when a runner needs an update: the chosen one, or (Automatic) any connected one. */
+export function OutdatedRunnerNotice({ spec }: { spec: LaunchSpec }) {
+  const runners = useLaunchRunners();
+  const burst = useBurst().data;
+  const outdated = runners.filter((r) => r.connected && r.compat === "outdated");
+  const chosen = spec.runner_id ? outdated.find((r) => r.runner.id === spec.runner_id) : undefined;
+  if (spec.runner_id === "burst" || (spec.runner_id && !chosen) || outdated.length === 0) return null;
+  const names = chosen ? [chosen.runner.name] : outdated.map((r) => r.runner.name);
+  const effect = chosen
+    ? "It takes no new session: choose another runner in the options, or update it first."
+    : runners.some(takesLaunches)
+      ? "It takes no new session: this launch goes to another runner."
+      : burst && !burst.unavailable ? "No up-to-date runner takes launches: this one starts on Burst unless you update it first." : "No up-to-date runner takes launches: update it before launching.";
+  return (
+    <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">
+      {outdatedLabel(names)}: its build differs from Home's. {effect} <Link to="/settings/runners" className="font-semibold underline">How to update</Link>
+    </div>
+  );
+}
+
 export function RunnerChoice({ spec, set }: { spec: LaunchSpec; set: Set }) {
   const runners = useLaunchRunners();
   const burst = useBurst().data;
-  const online = runners.some((r) => r.connected && r.guard?.accept_launches !== false && !r.guard?.paused);
+  const online = runners.some(takesLaunches);
   const hint = spec.runner_id === "burst"
     ? "An HF Job started by Home for this session: no laptop needed. It stops after each turn, once Home has saved everything; the next message starts a new one."
     : !spec.runner_id
@@ -35,7 +61,7 @@ export function RunnerChoice({ spec, set }: { spec: LaunchSpec; set: Set }) {
     <span className="grid gap-1">
       <select className="field-input w-auto text-xs" aria-label="Runner" value={spec.runner_id ?? ""} onChange={(e) => set((s) => ({ ...s, runner_id: e.target.value || null }))}>
         <option value="">Automatic</option>
-        {runners.map((r) => <option key={r.runner.id} value={r.runner.id} disabled={!r.connected}>{r.runner.name}{r.runner.capabilities.vm ? " · Local VM" : ""}{r.runner.capabilities.docker ? " · Docker" : ""}{r.connected ? "" : " · offline"}</option>)}
+        {runners.map((r) => <option key={r.runner.id} value={r.runner.id} disabled={!r.connected || r.compat === "outdated"}>{r.runner.name}{r.runner.capabilities.vm ? " · Local VM" : ""}{r.runner.capabilities.docker ? " · Docker" : ""}{!r.connected ? " · offline" : r.compat === "outdated" ? " · needs an update" : ""}</option>)}
         {burst && <option value="burst" disabled={!!burst.unavailable}>Burst · HF Job{burst.unavailable ? " · unavailable" : ""}</option>}
       </select>
       <span className="text-[12px] text-ink-3">{hint}</span>

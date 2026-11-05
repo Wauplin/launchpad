@@ -60,6 +60,33 @@ function AddRunner() {
   );
 }
 
+/** How to update a runner whose build differs from Home's. A Home in a Space serves its own build through the install
+ * command; another Home's runner installs the same Launchpad commit as Home. */
+function UpdateRunner({ name, commit }: { name: string; commit: string }) {
+  const command = useInstallCommand();
+  const space = delegatedAccess();
+  const home = useStatus().data?.commit ?? "";
+  return (
+    <div className="grid gap-1.5 rounded-lg bg-attn-soft px-3 py-2 text-[12px] text-ink-2">
+      <span><b className="text-attn">Update {name}.</b> Its build{commit ? ` (${commit.slice(0, 8)})` : ""} differs from Home's ({home.slice(0, 8)}): its running sessions continue, but it takes no new session until it runs Home's build.</span>
+      {space ? (
+        <>
+          <span>In a terminal on {name}, run the install command again. It downloads Home's build, replaces the runner and restarts it; the runner stays paired.</span>
+          {command !== null && (
+            <div className="flex items-start gap-2">
+              <pre className="m-0 min-w-0 flex-1 whitespace-pre-wrap break-all rounded-md border border-line-2 bg-code px-2.5 py-2 font-mono text-[12px]">{command}</pre>
+              <button className="btn btn-sm" onClick={() => void copyText(command).then(() => toast("Copied"))}><Icon name="copy" size={12} />Copy</button>
+            </div>
+          )}
+        </>
+      ) : (
+        <span>On {name}, install Launchpad at Home's commit <span className="font-mono">{home.slice(0, 12)}</span> (the same way you installed it), then restart its runner daemon (<span className="font-mono">launchpad daemon --role runner</span>). It stays paired.</span>
+      )}
+      <span className="text-ink-3">The restart interrupts the turns running on {name}: update it when its agents are done.</span>
+    </div>
+  );
+}
+
 function HomeRunners() {
   const qc = useQueryClient();
   const runners = useRunners();
@@ -84,12 +111,15 @@ function HomeRunners() {
           )}
           <Card title="Runners" tour="settings.runners">
             {approved.length === 0 ? <Empty icon="term">No runner yet. Add one with the command below.</Empty> : approved.map((r) => (
-              <div key={r.runner.id} className="flex flex-wrap items-center gap-2 text-[13px]">
+              <div key={r.runner.id} className="grid gap-2">
+              <div className="flex flex-wrap items-center gap-2 text-[13px]">
                 <span className="grid min-w-0 flex-1">
-                  <span className="flex items-center gap-2"><b>{r.runner.name}</b>{r.connected ? <Badge tone="ok">connected</Badge> : <Badge>offline</Badge>}{r.runner.capabilities.vm && <Badge tone="teal" title="The virtual machine contains its agents">Local VM</Badge>}{r.runner.capabilities.docker && <Badge tone="teal">Docker</Badge>}{r.compat === "outdated" && <Badge tone="attn" title="Run the install command again on this machine">Update this runner</Badge>}{r.guard?.paused && <Badge tone="attn">paused</Badge>}{r.guard && !r.guard.accept_launches && <Badge>own launches only</Badge>}</span>
+                  <span className="flex items-center gap-2"><b>{r.runner.name}</b>{r.connected ? <Badge tone="ok">connected</Badge> : <Badge>offline</Badge>}{r.runner.capabilities.vm && <Badge tone="teal" title="The virtual machine contains its agents">Local VM</Badge>}{r.runner.capabilities.docker && <Badge tone="teal">Docker</Badge>}{r.compat === "outdated" && <Badge tone="attn" title="Its build differs from Home's: it takes no new sessions. See below how to update it.">Update this runner</Badge>}{r.guard?.paused && <Badge tone="attn">paused</Badge>}{r.guard && !r.guard.accept_launches && <Badge>own launches only</Badge>}</span>
                   <span className="text-[12px] text-ink-3">{r.runner.os}{r.runner.last_seen_at ? ` · last connected ${formatAge(r.runner.last_seen_at)} ago` : ""}{r.runner.commit ? ` · build ${r.runner.commit.slice(0, 8)}` : ""}</span>
                 </span>
                 <ConfirmButton icon="trash" consequence={`Disconnects ${r.runner.name}; it must pair again. Its sessions stay on Home.`} confirmLabel="Remove runner" onConfirm={() => api.delete(`/api/runners/${r.runner.id}`).then(() => { toast(`Removed ${r.runner.name}`); return refresh(); }, toastError)}>Remove</ConfirmButton>
+              </div>
+              {r.compat === "outdated" && <UpdateRunner name={r.runner.name} commit={r.runner.commit} />}
               </div>
             ))}
           </Card>
@@ -158,7 +188,8 @@ function BurstCard() {
 
 function ThisRunner() {
   const qc = useQueryClient();
-  const home = useStatus().data?.home;
+  const status = useStatus().data;
+  const home = status?.home;
   const guard = home?.guard;
   const boundary = useConfig().data?.config.runner.boundary ?? "jail";
   const launches = useQuery({ queryKey: ["runner-launches"], queryFn: () => api.get<RemoteLaunch[]>("/api/runner/launches"), refetchInterval: 30_000 });
@@ -170,6 +201,13 @@ function ThisRunner() {
         <SettingRow label="Home" hint={home?.message ?? (home?.state === "not_connected" ? "Run launchpad connect <Home address> in a terminal on this machine." : undefined)}>
           <span className="flex items-center gap-2 text-[13px]">{home?.url && <span className="font-mono text-[12px]">{home.url}</span>}<Badge tone={home?.state === "connected" ? "ok" : "attn"}>{state[home?.state ?? "not_connected"]}</Badge>{home?.compat === "outdated" && <Badge tone="attn">Update this runner</Badge>}</span>
         </SettingRow>
+        {home?.compat === "outdated" && (
+          <div className="grid gap-1 rounded-lg bg-attn-soft px-3 py-2 text-[12px] text-ink-2">
+            <span><b className="text-attn">Update this runner.</b> Its build ({status?.commit.slice(0, 8)}) differs from Home's: its running sessions continue, but Home sends it no new session.</span>
+            <span>With a Home in a Space, copy the install command from Home's Settings → Home and runners and run it again in a terminal here: it installs Home's build and restarts the runner, which stays paired. Otherwise, install Launchpad at Home's commit, then restart this runner daemon.</span>
+            <span className="text-ink-3">The restart interrupts the turns running here: update when the agents are done.</span>
+          </div>
+        )}
       </Card>
       <Card title="Boundary">
         <SettingRow label="Agents run in" hint={boundary === "vm" ? "This runner is a Local VM: the virtual machine contains its agents, which may use Docker." : "A bubblewrap jail: agents see only their session's folders, never your files, keys or logins. Set [runner] boundary = \"vm\" in config.toml only inside a dedicated virtual machine."}>
