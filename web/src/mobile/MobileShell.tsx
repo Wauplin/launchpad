@@ -37,7 +37,7 @@ function Tab({ to, icon, label, count, highlight, exact = false }: { to: string;
       to={to}
       className="relative flex min-h-[54px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] text-ink-3 no-underline"
       activeProps={{ className: "!text-teal-ink font-semibold" }}
-      activeOptions={{ exact }}
+      activeOptions={{ exact, includeSearch: false }}
     >
       <Icon name={icon} size={20} />
       {label}

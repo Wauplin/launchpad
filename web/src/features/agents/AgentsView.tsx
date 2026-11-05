@@ -258,7 +258,7 @@ export function AgentsView() {
         {visibleSession ? (
           <SessionPane key={`${scope.workspace.id}:${visibleSession}:${panelLoad}`} sessionId={visibleSession} initialView={phone ? search.view : initialView} onClear={() => (phone ? back() : clearSession(visibleSession))} />
         ) : phone ? null : (
-          <Empty fill icon="agents" action={<LaunchButton small />}>Pick an agent on the left. Questions and finished agents wait in <Link to="/">Today</Link>.</Empty>
+          <Empty fill icon="agents" action={<LaunchButton small />}>Pick an agent on the left. Questions and finished agents wait in <Link to="/" className="text-teal-ink">Today</Link>.</Empty>
         )}
       </div>
     </div>

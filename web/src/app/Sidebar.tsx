@@ -30,7 +30,7 @@ function NavItem({ to, icon, children, end, tour }: { to: string; icon: IconName
       data-tour={tour}
       className="flex min-h-[31px] flex-none items-center gap-[9px] rounded-[7px] px-[9px] py-1 text-ink-2 no-underline hover:bg-sunk"
       activeProps={{ className: "!bg-paper !text-ink font-semibold shadow-[inset_0_0_0_1px_var(--color-line)]" }}
-      activeOptions={{ exact: to === "/" }}
+      activeOptions={{ exact: to === "/", includeSearch: false }}
     >
       <Icon name={icon} />
       {children}
