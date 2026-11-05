@@ -53,15 +53,14 @@ When you archive the last agent of a temporary folder, Launchpad deletes the fol
 
 ## Following agents
 
-The **Agents** list groups sessions by state:
+**Agents** is a monitor of what runs and what ran. Its list groups sessions by state:
 
-- **Needs you**: an open question, or a finished, failed or interrupted run you have not seen yet.
 - **Running**: starting, working, or waiting on background commands.
 - **Quota paused**: held until subscription quota is available again.
 - **Done**, **Stopped**, **Interrupted**, **Failed**, **In terminal** and **Archived** for local sessions. Routines and scheduled launches are on the **Schedules** page.
 - **Synced traces**, below Archived: read-only traces imported from other instances, collapsed by default. Search reveals matching traces in this group. Open one to read it or use it as context for a new local agent; it cannot be resumed or archived here.
 
-A session counts as seen after it was on screen for 1.5 seconds in a window you used recently. With no session selected, the dashboard shows what needs you, what runs, quota usage and what comes next (scheduled launches and routines).
+A session **needs you** when it has an open question, or when it finished, failed or was interrupted and you have not seen it yet. Such sessions wait as cards in [Today](today.md) and stay bold in their group here. A session counts as seen after it was on screen for 1.5 seconds in a window you used recently. The sidebar shows only how many agents run or wait for quota.
 
 ```mermaid
 stateDiagram-v2
@@ -135,7 +134,7 @@ flowchart LR
 
 - **Start conditions** (combine several; all must be met): after a delay, at a date and time, after other agents are Done (an agent waiting on a question is not Done), when a quota resets.
 - **Routines** run again and again. **Repeat on a schedule…** turns a launch into a routine: each run starts a new agent with the same prompt, on a 5-field cron schedule in the time zone of the browser that saved it, shown next to the schedule (for example `30 8 * * 1-5 (Europe/Paris)`). Routines saved before Launchpad kept a zone run in the server's time; save them again to fix their zone. A [bot's routines](bots.md#routines) send their task to the bot's thread instead, and can also start on GitHub activity or when another agent is done.
-- Each run ends with a short report, or with `no_update` when there is nothing to report: a quiet run never notifies you and does not count as Needs you. Each routine shows its last runs as **Report**, **No update**, **Skipped** (with the reason), **Failed** or **Interrupted**, its last successful run and its next run. A routine whose last run failed shows a count next to Schedules in the sidebar.
+- Each run ends with a short report, or with `no_update` when there is nothing to report: a quiet run never notifies you and never waits in Today. Each routine shows its last runs as **Report**, **No update**, **Skipped** (with the reason), **Failed** or **Interrupted**, its last successful run and its next run. A routine whose last run failed waits in Today → Fix.
 - Runs are claimed before they start and never repeated after a crash. A run more than one hour late (Launchpad was stopped) or with unmet conditions is skipped, never caught up. **Run now** starts a run at once, whatever the trigger and conditions.
 - The **Morning brief** is a routine of Ask Launchpad (or of another bot): weekdays at 8:30 it writes in its thread what needs you and what was handled. Add it from Schedules and edit its time there.
 - **Send later…** delivers a message to an existing session at a later time.
@@ -155,11 +154,11 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ## Ask Launchpad
 
-**Ask Launchpad** is a [bot](bots.md#ask-launchpad) that every workspace starts with. It reads your folders, agents, inbox and quotas with the Launchpad CLI tool, and proposes launches, messages, schedules, routines, presets, tools and bots as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create routine**, **Save preset**, **Add tool** or **Create bot**, unless its `bot.toml` sets `proposals = "auto"`. With admin access to the Launchpad CLI, it also changes bots, routines, schedules and workspaces when you ask. It remembers what it learns about you in its notes, like any bot, and you edit, replace or delete it like any bot. The field at the top of the Agents home sends a message to a bot of the workspace (Ask Launchpad first) and opens its page.
+**Ask Launchpad** is a [bot](bots.md#ask-launchpad) that every workspace starts with. It reads your folders, agents, inbox and quotas with the Launchpad CLI tool, and proposes launches, messages, schedules, routines, presets, tools and bots as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create routine**, **Save preset**, **Add tool** or **Create bot**, unless its `bot.toml` sets `proposals = "auto"`. With admin access to the Launchpad CLI, it also changes bots, routines, schedules and workspaces when you ask. It remembers what it learns about you in its notes, like any bot, and you edit, replace or delete it like any bot. The field at the top of [Today](today.md) sends a message to a bot of the workspace (Ask Launchpad first) and opens its page.
 
 ![Ask Launchpad with two proposals](images/ask.webp)
 
-Any agent granted the Launchpad CLI tool can propose cards too; they wait on the **Proposals** page (sidebar) and in the session that wrote them. **Add tool** asks you to confirm, then you paste the tool's token. **Edit** moves a proposal into the composer and replaces the card ("Edited in the composer"). **Start all** and **Dismiss all** act on every waiting card after one confirmation.
+Any agent granted the Launchpad CLI tool can propose cards too; they wait in Today → Approve and in the session that wrote them; handled cards are in Today → Done. **Add tool** asks you to confirm, then you paste the tool's token. **Edit** moves a proposal into the composer and replaces the card ("Edited in the composer"). **Start all** (in Today and on a bot's Proposals tab) and **Dismiss all** (on a bot's Proposals tab) act on every waiting card after one confirmation.
 
 In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or both for each preset. The Presets button adds selected instructions after your message, in settings order. Bots can also propose a new preset or new values (label, text, agent availability) for an existing one; they cannot delete presets. Agent availability includes launches, steering and Send later. For example, a bots-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
 
@@ -167,7 +166,7 @@ In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or b
 
 Workspaces are yours to define, for example "Work" and "Personal". Home creates a first workspace, **Personal**, and always keeps at least one. Every folder belongs to exactly one workspace, chosen when you add, clone or create it, and its agents, schedules, crons and inbox threads follow it. A window shows one workspace at a time: every list, count, badge and suggestion follows it, including `#` and `@` in prompts and the folders of **Add context**.
 
-- **Rail**: the column of squares at the left edge, one per workspace. Click a square to show that workspace in this window. Other workspaces show only a count of what waits in them (agents that need you, waiting proposals, Inbox items for you). **+** creates a workspace.
+- **Rail**: the column of squares at the left edge, one per workspace. Click a square to show that workspace in this window. Other workspaces show only the count of their Today list. **+** creates a workspace.
 - **Workspace menu**: the workspace name at the top of the sidebar. It offers **Rename**, **Open in a new window** (to see two workspaces side by side), **Workspace settings**, **New workspace** and **Delete**. Only an empty workspace can be deleted, and never the last one.
 - Move a folder with **Move to …** in its menu or in its settings.
 - Desktop and Telegram notifications name the workspace, and opening one shows that workspace.

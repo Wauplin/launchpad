@@ -3,15 +3,15 @@
 Channels connect your agents to chats and outside tools. They live on Home, in **Settings → Channels**; a runner's window shows Home's. There are three kinds:
 
 - **Telegram**: your own chat. Messages to it go out directly.
-- **Outgoing** (Slack, Discord, any webhook): other people. Agents only draft messages; each one waits in the **Outbox** until you click **Send**.
+- **Outgoing** (Slack, Discord, any webhook): other people. Agents only draft messages; each one waits in the **Outbox** (shown in [Today](today.md) → Send) until you click **Send**.
 - **Incoming hooks**: a URL that turns a request from a script or a CI job into a message to a bot.
 
 ## The Outbox
 
-**Outbox** in the sidebar lists everything Launchpad would send to other people for you: GitHub suggestions (comments and reviews written by agents) and messages agents drafted for your outgoing channels. The sidebar shows how many wait.
+The Outbox holds everything Launchpad would send to other people for you: messages agents drafted for your outgoing channels, and GitHub suggestions (comments and reviews written by agents). There is no Outbox page: drafts wait as cards in [Today](today.md) → **Send**, and suggestions in Today → **GitHub**.
 
-- **To send**: each draft shows who drafted it (with a link to the session), the channel and the text. Edit it, then **Send** (it asks you to confirm) or **Discard**.
-- **Sent** and **Discarded** keep the history. Discarded GitHub suggestions are deleted, so they are not listed.
+- Each draft shows who drafted it (with a link to the session), the channel and the text. Edit it, then **Send** (it asks you to confirm) or **Discard**.
+- Today → **Done** keeps the history of the last 30 days: sent and discarded messages, posted suggestions. Discarded GitHub suggestions are deleted, so they are not listed.
 
 Nothing is sent on its own, and nothing is sent twice. When a send does not complete (the network dropped, or Launchpad stopped during it), the message is marked **Uncertain**: check the destination, then click **It arrived** or **Discard** (its confirmation reminds you to check the destination first). Launchpad never retries it. A destination that refuses the message (a wrong URL, a message too long for Discord) leaves the draft editable, with the reason.
 
@@ -31,7 +31,7 @@ Agents draft a message with:
 launchpad send team-chat --body-file message.md [--title "Release 2.4"] --session-id <session id>
 ```
 
-The command saves the draft and says that you send it from the Outbox. Agents learn the channel names from their session prompt.
+The command saves the draft in the Outbox and tells the agent that nothing was sent; you send it from Today. Agents learn the channel names from their session prompt.
 
 ## Telegram
 

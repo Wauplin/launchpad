@@ -147,6 +147,14 @@ Every action that a button, a proposal card, the Launchpad CLI or the admin rule
 
 Actions that reach GitHub or other people, money, credentials or the machine are owner actions. They have a confirmation or an undo.
 
+## Decision list
+
+Home computes, once for every window, phone and count, what waits for the owner: the Today list (`crates/core/src/today.rs`). `today::compute` collects the core's items (sessions with `Session::needs_you()`, unpublished Local PRs, outdated runners) and the items of the feature crates through `ext::Extensions::today` (proposals and failed routines, Outbox drafts, GitHub suggestions and open review requests). Each item names its filter (Answer, Review, Approve, Send, GitHub, Fix), its record and the main action of its card from the action list. Handled items of the last 30 days form the Done list.
+
+- **Workspaces**: Home resolves each item's place (folder, session, launch, repository) to workspaces with the same rules as the UI's `useScope()`. An item with no workspace is not listed, except what is shared: outdated runners, tool or preset proposals without a workspace, Outbox messages without a session.
+- **API and event**: `GET /api/today` (`crates/api/src/today.rs`, optional `?workspace=`) is Home-owned; runners forward it. A background task recomputes the list after relevant bus events, at most every 1.5 s, and publishes `today`/`changed` when the waiting items changed. Session updates recompute only when the set of sessions that need you changed. Runner windows poll every 60 s.
+- **Counts**: the sidebar, the workspace rail, the phone, the window title and the app badge read only this list.
+
 ## Code layout
 
 ```text
@@ -199,7 +207,7 @@ flowchart BT
 The core never names a crate above it. The binary installs two things at startup, before `App::start`:
 
 - **Harness adapters**: `launchpad_harness::install()` hands `REGISTRATIONS` to `harness::install`. The core reads adapters only through `harness::registrations()`. See [Harness adapters](harness-adapters.md).
-- **Extensions**: `ext::install` takes the binary's implementation of the `ext::Extensions` trait (`crates/cli/src/extensions.rs`). The trait lists the few calls the core makes upward: Telegram notifications, turn ended (routine runs and triggers), the suggestion and channel instructions of a new session, bot paused or deleted (its routines follow), Inbox synced and the Inbox threads. Until one is installed, and in unit tests, every call does nothing.
+- **Extensions**: `ext::install` takes the binary's implementation of the `ext::Extensions` trait (`crates/cli/src/extensions.rs`). The trait lists the few calls the core makes upward: Telegram notifications, turn ended (routine runs and triggers), the suggestion and channel instructions of a new session, bot paused or deleted (its routines follow), Inbox synced, the Inbox threads, and the items of the decision list (`today`). Until one is installed, and in unit tests, every call does nothing.
 
 Per-daemon state of a crate above the core lives in `App::extras`, one value per type, created on first use (for example the Inbox: `app.extras.get::<Inbox>()`).
 

@@ -10,7 +10,7 @@ Sign in with `gh auth login` on the machine that runs the daemon. Launchpad read
 
 ![The Inbox with reason filters and a preview](images/inbox.webp)
 
-- The Inbox lists the notifications of the workspace's repositories. Notifications of a repository that has no folder appear in no Inbox: **Settings → GitHub → Repositories without a folder** lists those repositories with their notification count and last activity, with **Add to ▾** (clone it as a folder of a workspace) and **Open on GitHub**.
+- The Inbox (`/inbox`) lists the notifications of the workspace's repositories. Notifications of a repository that has no folder appear in no Inbox: **Settings → GitHub → Repositories without a folder** lists those repositories with their notification count and last activity, with **Add to ▾** (clone it as a folder of a workspace) and **Open on GitHub**.
 - Filter by reason: **Review requested**, **Mentioned**, **Assigned**, **Subscribed** or **All**, plus **Unread only** and a repository filter.
 - Each row has **✓ Done**, **▶ Launch** (start an agent with this item as context) and **+ Add** (add it to the current draft).
 - The preview shows the latest comments and a reply box. **Read/Unread** and **Unsubscribe** are in the preview.
@@ -48,7 +48,7 @@ Agents write comments and reviews with the `launchpad suggest` CLI. They are sav
 launchpad suggest review --repo owner/repo --number 123 --head <commit> --body-file review.md --event approve
 ```
 
-A suggestion appears as a card on the item's Conversation tab and in **Review → To publish**. **Edit**, then **Post review** (or **Post comment**) publishes it under your account after you confirm. **Discard** deletes it; for a suggestion that is posted or uncertain, the confirmation asks you to check GitHub first.
+A suggestion appears as a card on the item's Conversation tab and in [Today](today.md) → **GitHub**. **Edit**, then **Post review** (or **Post comment**) publishes it under your account after you confirm. **Discard** deletes it; for a suggestion that is posted or uncertain, the confirmation asks you to check GitHub first.
 
 ## Local PRs
 
@@ -76,12 +76,11 @@ flowchart LR
 
 Publication and merges wait until the Local PR's agent is idle.
 
-## Review
+## What waits for you
 
-**Review** collects everything waiting for your decision, scoped to the current workspace:
+[Today](today.md) lists what waits for your decision in the current workspace:
 
-- **To publish**: unposted suggestions and unpublished Local PRs.
-- **Agent branches**: worktrees with unmerged work from finished agents.
-- **Review requests**: PRs where your review is requested.
+- **GitHub**: unposted suggestions, and open PRs where your review is requested (**Review with agent** prepares a suggested review).
+- **Review**: Local PRs not yet published, and finished agents with their branch (**Merge** when it is safe).
 
-![The Review page](images/review.webp)
+The **Branches** tab of a folder page lists the agent branches with work to look at: commits ahead of their base, uncommitted files or a merge request. Each row opens the agent's Changes.

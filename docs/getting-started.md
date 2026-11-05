@@ -81,7 +81,7 @@ See [Profiles](agents.md#profiles) for the details.
 
 ### Add a folder
 
-Home starts with one workspace, **Personal**; the rail at the left edge shows your workspaces (see [Workspaces](agents.md#workspaces)). Click **+** on the sidebar's **Folders** group (or **+ Add folder** under it while it is empty). The sidebar lists **Bots** first, then Inbox, Outbox, Agents, Schedules, Review and Knowledge, then **Folders** with the folders of the workspace and its active temporary folders. The chevron of each group collapses it on this device. **Clone from GitHub** (the first tab) clones into the folders root (`~/projects` by default); you can also browse any folder on this computer or an SSH host. Clone suggestions list repositories with recent GitHub notifications first, then your recently pushed repositories.
+Home starts with one workspace, **Personal**; the rail at the left edge shows your workspaces (see [Workspaces](agents.md#workspaces)). Click **+** on the sidebar's **Folders** group (or **+ Add folder** under it while it is empty). The sidebar lists **Bots** first, then Today, Agents, Inbox, Schedules and Knowledge, then **Folders** with the folders of the workspace and its active temporary folders. The chevron of each group collapses it on this device. **Clone from GitHub** (the first tab) clones into the folders root (`~/projects` by default); you can also browse any folder on this computer or an SSH host. Clone suggestions list repositories with recent GitHub notifications first, then your recently pushed repositories.
 
 ### Launch your first agent
 
@@ -92,7 +92,7 @@ Home starts with one workspace, **Personal**; the rail at the left edge shows yo
 
 ![The New agent composer](images/composer.webp)
 
-The agent appears in **Agents → Running**. When it finishes, it moves to **Needs you** until you have looked at it. See [Agents](agents.md) for everything that happens next.
+The agent appears in **Agents → Running**. When it finishes, a card waits in **Today** until you have looked at it or merged its branch. See [Agents](agents.md) for everything that happens next.
 
 ### Connect GitHub
 

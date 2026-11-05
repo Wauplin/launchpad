@@ -20,7 +20,7 @@ LAUNCHPAD_ENV=dev cargo run -p launchpad -- url       # a link that signs a brow
 - Hot reload: `(cd web && pnpm dev)` serves the UI on http://localhost:5173 with the API proxied to the dev daemon. Sign in with the `url` link, using port 5173.
 - Desktop window: `cargo build -p launchpad-desktop && LAUNCHPAD_ENV=dev ./target/debug/launchpad-desktop`.
 - Isolated daemon: set `HOME` to a scratch folder and `LAUNCHPAD_PORT` to a free port.
-- Demo mode needs no daemon data: open `/agents?demo=1` on any running UI.
+- Demo mode needs no daemon data: open `/?demo=1` on any running UI.
 
 After changing a Rust type shared with the UI, regenerate the TypeScript types:
 

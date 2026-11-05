@@ -24,7 +24,7 @@ No level reaches GitHub, the Outbox, channels, credentials, devices, terminals, 
 
 ## Proposals
 
-A proposal is an inert card: a launch, a message to a session, a scheduled launch, a cron, a status card, a preset, a tool, a bot, a routine or a new `BOT.md`. Cards wait on the bot's **Proposals** tab, under the session that wrote them, and on the **Proposals** page (sidebar). **Start** (or Send, Schedule, Add routine, Apply to BOT.md) acts; **Edit** opens a launch in the composer and marks the card "Edited in the composer", so it no longer waits; **Dismiss** drops it. **Start all** and **Dismiss all** act on every waiting card of every kind, after one confirmation that lists them. Paid usage is always off for proposals.
+A proposal is an inert card: a launch, a message to a session, a scheduled launch, a cron, a status card, a preset, a tool, a bot, a routine or a new `BOT.md`. Cards wait in [Today](today.md) → Approve, on the bot's **Proposals** tab and under the session that wrote them. **Start** (or Send, Schedule, Add routine, Apply to BOT.md) acts; **Edit** opens a launch in the composer and marks the card "Edited in the composer", so it no longer waits; **Dismiss** drops it. **Start all** and **Dismiss all** act on every waiting card of every kind, after one confirmation that lists them. Paid usage is always off for proposals.
 
 `proposals` in `bot.toml` sets the bot's proposal mode: `manual` (the default: every card waits for your click) or `auto` (new launches, messages, schedules and presets apply at once; crons, routines, bots, tools and `BOT.md` changes still wait).
 
@@ -65,11 +65,11 @@ The thread is on the left. The right side has four tabs:
 - **Memory**: the bot's notes in the knowledge base (`bots/<slug>/`), the recent changes made by its sessions, and every session of its thread with its status and context use. Correct a note on the Knowledge page; every change can be restored for 30 days.
 - **Proposals**: the cards its sessions wrote, waiting or handled, with **Start all** and **Dismiss all**.
 - **Routines**: what the bot does on its own (see below).
-- **Settings**: `BOT.md` (its instructions); how it runs (name, profile, model, folder, permissions, proposal mode and Launchpad CLI access); what it can reach; `bot.toml`, the same settings as a file; **Versions**, every change of both files in the last 30 days with its diff and **Restore previous**; and **Delete bot**. Deleting keeps the bot's sessions, its notes and its folder. A bot cannot edit its files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md`, shown as a diff at the top of this tab (and on the Proposals page) until you click **Apply to BOT.md**; applying fails if `BOT.md` changed in between.
+- **Settings**: `BOT.md` (its instructions); how it runs (name, profile, model, folder, permissions, proposal mode and Launchpad CLI access); what it can reach; `bot.toml`, the same settings as a file; **Versions**, every change of both files in the last 30 days with its diff and **Restore previous**; and **Delete bot**. Deleting keeps the bot's sessions, its notes and its folder. A bot cannot edit its files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md`, shown as a diff at the top of this tab (and in Today) until you click **Apply to BOT.md**; applying fails if `BOT.md` changed in between.
 
 **Pause** (in the header, once the bot has routines) stops every routine and incoming hook of the bot from starting runs; your own messages still go through, and **Stop** in its session ends a run that is working. **Resume** starts them again from their next trigger.
 
-The sidebar's **Bots** group lists **Proposals** (with the number of waiting cards) and the bots of the workspace, Ask Launchpad among them. A dot shows when a bot's current session needs you; a spinner when it works. Counts stay in Agents, so a session is never counted twice. The chevron collapses the group on this device; collapsed, it shows the waiting proposals and one state dot.
+The sidebar's **Bots** group lists the bots of the workspace, Ask Launchpad among them. A dot shows when a bot's current session needs you; a spinner when it works. Counts stay in Today, so a decision is never counted twice. The chevron collapses the group on this device; collapsed, it shows one state dot.
 
 ## Files
 
@@ -89,6 +89,6 @@ Each run is a message to the bot's thread, shown as one line (**Routine “Daily
 
 Every routine shows its last runs as small squares and its history in text: **Report**, **No update**, **Skipped** (why), **Failed** or **Interrupted**, the last successful run and the next one. **Run now** starts a run at once. **Pause** stops one routine; the bot's **Pause** stops all of them.
 
-The bot can propose a routine for itself, for example after you say "check this every morning": the card waits in its Routines tab (and on the Proposals page) until you click **Add routine**. A session can propose routines and `BOT.md` changes for any bot of its own workspace.
+The bot can propose a routine for itself, for example after you say "check this every morning": the card waits in its Routines tab (and in Today) until you click **Add routine**. A session can propose routines and `BOT.md` changes for any bot of its own workspace.
 
 All routines, of bots (the morning brief of Ask Launchpad included) and launches repeated on a schedule, are also on the **Schedules** page. **Add the morning brief** on that page gives Ask Launchpad (or the workspace's first bot) a weekday 8:30 routine.

@@ -24,6 +24,8 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | New agent here / Send later… | Follow up / Schedule follow-up | A separate agent in the same folder / a message delivered later to the same session. |
 | Open agent | Agent, Agent session, View session, Back to session | Every link to a session ("← Back to agent"). |
 | Workspace | Everything, All workspaces, project group | A group of folders with their agents, bots, schedules and knowledge base. A window shows one workspace; the rail shows the others as counts. There is no view of all workspaces. |
-| Review | To publish, /review | The one page with To publish · Agent branches · Review requests. |
+| Today | Now, Needs you page, Proposals page, Outbox page, Review page, dashboard | The first page (`/`) and phone tab: every decision that waits for you in the workspace, one card each, with filters Answer · Review · Approve · Send · GitHub · Fix and Done. |
+| Decision list | attention list, needs-you list | What Today shows, computed by Home. Every attention count (sidebar, rail, phone, window title, app badge) is its length. "Needs you" stays the rule for agents: an open question, or finished, failed or interrupted and unseen. |
+| Outbox | outgoing queue | Messages to other people that wait for your Send. A concept and code name, not a page: drafts show in Today → Send. |
 | Tour | walkthrough, guide, onboarding (for the steps) | The guided steps on demo data (Essentials or Full, chapters). Settings → Onboarding holds the tours and the setup checklist. |
 | Demo | sandbox, playground | The fake world the tour runs on. Nothing in it is real or saved; Exit demo reloads the real app. |

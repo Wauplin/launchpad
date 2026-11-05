@@ -2,11 +2,12 @@
 
 Launchpad is a desktop app to launch, follow and review coding agents (Claude Code, Codex and OpenCode), with a fast local-first GitHub client built in. It runs on Linux, macOS and Windows, and works from a phone or any browser you pair with it.
 
-![The Agents view: agents that need you, running agents and quota usage](docs/images/agents.webp)
+![The Agents view: running agents and quota usage](docs/images/agents.webp)
 
 ## Why Launchpad
 
 - **One place for all your agents.** Start an agent in the right folder with the right context in a few clicks. Follow many runs at once, answer their questions, review their changes and send follow-ups.
+- **One list of decisions.** Today shows what waits for you: questions, finished agents, proposals, drafts to send, GitHub suggestions and review requests. Each card has its button: Answer, Merge, Start, Send or Post.
 - **Every task in its own worktree.** Each agent works on its own Git branch, so its edits stay separate from your checkout. Merge the branch, review it as a local pull request or discard it.
 - **Your subscription, protected.** Launchpad reads the quota of your Claude and ChatGPT subscriptions, pauses agents before they use paid credits, and continues them when quota is available again.
 - **GitHub without waiting.** The inbox, issues, pull requests and reviews come from a local cache, so moving between them is instant.
@@ -17,7 +18,7 @@ Launchpad is a desktop app to launch, follow and review coding agents (Claude Co
 <table>
   <tr>
     <td width="66%"><img src="docs/images/session-dark.webp" alt="A running agent: live trace with tool calls and diffs"></td>
-    <td><img src="docs/images/phone-now.webp" alt="The phone layout: agents that need you, with answer buttons"></td>
+    <td><img src="docs/images/phone-now.webp" alt="The phone layout, with answer buttons"></td>
   </tr>
 </table>
 
@@ -25,13 +26,14 @@ Launchpad is a desktop app to launch, follow and review coding agents (Claude Co
 
 | | |
 | --- | --- |
+| **Today** | Every decision of the workspace in one list, with filters and a 30-day Done history. The sidebar, the workspace rail and the phone count only this list. [Read more](docs/today.md) |
 | **Agents** | Claude Code, Codex and OpenCode behind one session model. Live trace, Summary and Changes views, questions and approval cards, model and permission controls. Temporary folders for work that needs no folder, deleted at Archive unless you keep them. [Read more](docs/agents.md) |
 | **Profiles** | Run each harness with a subscription login, an API key or another provider (for example the Hugging Face router). Several accounts work side by side. [Read more](docs/agents.md#profiles) |
 | **Worktrees** | New agents run in a dedicated worktree and branch. Launchpad tries to update the base from its remote before launch, merges when you ask, and tries to push the merged base. Remote failures stay visible without blocking the task. [Read more](docs/agents.md#worktrees-and-merging) |
 | **Scheduling** | Start later, after other agents finish or when a quota resets. Routines run again and again: on a schedule, on GitHub activity, or when another agent is done, and stay silent when there is nothing to report. One Schedules page lists them all. [Read more](docs/agents.md#scheduling) |
 | **Ask Launchpad** | Describe work in plain words. A bot that every workspace starts with proposes launches, messages, routines, presets and bots as cards that you start with one click, and remembers what it learns in the knowledge base. It uses the Launchpad CLI tool, which any bot can use. [Read more](docs/agents.md#ask-launchpad) |
 | **Bots** | Agents that stay: a name, a job in `BOT.md`, one thread made of sessions that hand off by trace reference, notes in the knowledge base, and files with versions on Home. A folder is optional: a bot without one starts each session in a temporary folder and adds worktrees of the folders it needs. Ask Launchpad is a bot like the others: edit, replace or delete it, and it can propose new bots. [Read more](docs/bots.md) |
-| **Channels and Outbox** | Your own Telegram chat for notifications and messages to your bots, Slack, Discord and webhook channels whose agent drafts wait in the Outbox for your click, and incoming hooks for scripts and CI. [Read more](docs/channels.md) |
+| **Channels and Outbox** | Your own Telegram chat for notifications and messages to your bots, Slack, Discord and webhook channels whose agent drafts wait in Today for your click, and incoming hooks for scripts and CI. [Read more](docs/channels.md) |
 | **GitHub** | Inbox triage, issues, pull requests, diffs, reviews and merges, with local PRs and agent suggestions. [Read more](docs/github.md) |
 | **Terminals and files** | Integrated terminals for shells and harness TUIs, and a read-only file viewer with syntax colors. [Read more](docs/agents.md#terminals-and-files) |
 | **Phone and remote access** | Pair a phone with a QR code, use it over Tailscale, expand Summary or Trace for more reading space; get notifications on the phone through Telegram. [Read more](docs/remote-access.md) |
@@ -61,6 +63,7 @@ The [getting started guide](docs/getting-started.md) covers prebuilt packages, h
 ## Documentation
 
 - [Getting started](docs/getting-started.md): install, onboarding tour, setup checklist and first agent.
+- [Today](docs/today.md): every decision that waits for you, one card each.
 - [Agents](docs/agents.md): profiles, launching, sessions, worktrees, scheduling, quotas, Ask Launchpad, terminals.
 - [GitHub](docs/github.md): inbox, pull requests, review, local PRs and agent suggestions.
 - [Remote access and phones](docs/remote-access.md): pairing, Tailscale, phone layout, notifications and headless servers.
