@@ -55,7 +55,7 @@ pub(crate) async fn run(s: Server, runner_id: String, id: u64, target: HttpTarge
 /// Home Git and plain folders, through Home's router, as the runner (never as the owner).
 async fn home(s: &Server, runner_id: &str, method: &str, path: &str, headers: Vec<(String, String)>, body: ByteStream) -> anyhow::Result<HttpReply> {
     let bare = path.split('?').next().unwrap_or_default();
-    anyhow::ensure!(bare.starts_with("/api/git/") || bare.starts_with("/api/plain/") || bare.starts_with("/api/handoff/"), "runners send only Home Git, plain-folder and handoff requests this way");
+    anyhow::ensure!(bare.starts_with("/api/git/") || bare.starts_with("/api/plain/") || bare.starts_with("/api/handoff/") || bare == "/api/runners/build", "runners send only Home Git, plain-folder, handoff and build requests this way");
     let credential = headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(crate::runners::CREDENTIAL_HEADER)).map(|(_, v)| v.as_str()).unwrap_or("");
     anyhow::ensure!(credential.split_once('.').is_some_and(|(id, _)| id == runner_id), "the request names another runner");
     let router = crate::ROUTER.get().ok_or_else(|| anyhow::anyhow!("Home is starting"))?;

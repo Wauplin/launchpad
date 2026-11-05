@@ -165,7 +165,7 @@ export function demoHost(id: string, destination: string, profiles: Profile[], p
 /** Home and runners (the "Home & runners" chapter switches the demo to the Home role): the owner's laptop runner
  * and two Burst jobs that ran sessions while the laptop slept. In every other chapter the demo is one process. */
 function homeWorld() {
-  const caps = { vm: false, docker: false, burst: false };
+  const caps = { vm: false, docker: false, burst: false, self_update: true };
   const runners: RunnerStatus[] = [{
     runner: { id: "demo-runner-laptop", name: "laptop", os: "linux", code: "", state: "approved", created_at: clock.ago(60 * 24 * 9), approved_at: clock.ago(60 * 24 * 9), last_seen_at: clock.ago(1), commit: "demo", protocol: 1, capabilities: caps, burst: false },
     connected: true, compat: "same", guard: { accept_launches: true, paused: false },

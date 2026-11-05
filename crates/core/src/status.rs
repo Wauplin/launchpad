@@ -36,6 +36,8 @@ pub struct Status {
     pub spend: Vec<crate::spend::ProfileSpend>,
     /// Profiles with unpriced historical usage; rolling cost management is unavailable.
     pub cost_unavailable_profiles: Vec<String>,
+    /// A runner updating itself to Home's build (`self_update`).
+    pub runner_update: Option<crate::self_update::RunnerUpdate>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, TS)]

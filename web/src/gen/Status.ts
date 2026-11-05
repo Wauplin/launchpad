@@ -5,6 +5,7 @@ import type { HostStatus } from "./HostStatus";
 import type { ProfileSpend } from "./ProfileSpend";
 import type { QuotaStatus } from "./QuotaStatus";
 import type { Role } from "./Role";
+import type { RunnerUpdate } from "./RunnerUpdate";
 import type { SessionCounts } from "./SessionCounts";
 
 export type Status = { env: string, 
@@ -43,4 +44,8 @@ spend: Array<ProfileSpend>,
 /**
  * Profiles with unpriced historical usage; rolling cost management is unavailable.
  */
-cost_unavailable_profiles: Array<string>, };
+cost_unavailable_profiles: Array<string>, 
+/**
+ * A runner updating itself to Home's build (`self_update`).
+ */
+runner_update: RunnerUpdate | null, };

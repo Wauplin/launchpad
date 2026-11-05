@@ -136,6 +136,7 @@ async fn shutdown_signal() {
     tokio::select! {
         _ = ctrl_c => {},
         _ = term.recv() => {},
+        _ = launchpad_core::self_update::shutdown_requested() => {},
     }
     #[cfg(not(unix))]
     let _ = ctrl_c.await;

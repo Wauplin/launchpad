@@ -1,7 +1,7 @@
 //! Home's side of runners: pairing requests, approval, and the tunnel each runner keeps open.
 //!
-//! `/api/runners/request*` and `/api/runners/tunnel` skip the browser sign-in: they check the runner's own
-//! credential (`X-Launchpad-Runner: <id>.<secret>`). Everything else here needs the owner.
+//! `/api/runners/request*`, `/api/runners/tunnel` and `/api/runners/build` skip the browser sign-in: they check the
+//! runner's own credential (`X-Launchpad-Runner: <id>.<secret>`). Everything else here needs the owner.
 
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Path, State};
@@ -29,6 +29,9 @@ pub fn router() -> Router<Server> {
         .route("/api/runner/reverse", get(crate::home_client::reverse))
         .route("/api/runners/{id}/approve", post(approve))
         .route("/api/runners/{id}/status", get(runner_status))
+        .route("/api/runners/{id}/update", post(update_runner).delete(cancel_runner_update))
+        .route("/api/runners/build", get(build))
+        .route("/api/runner/update", post(update_self).delete(cancel_update))
         .route("/api/runners/{id}", axum::routing::delete(remove))
         .route("/api/runner/guard", get(guard).put(set_guard))
         .route("/api/runner/launches", get(launches))
@@ -68,7 +71,7 @@ async fn set_guard(State(s): State<Server>, Json(g): Json<runners::Guard>) -> Ap
 
 /// Paths that authenticate with the runner credential instead of the browser sign-in.
 pub fn runner_path(path: &str) -> bool {
-    path == "/api/runners/request" || path == "/api/runners/tunnel" || path.strip_prefix("/api/runners/request/").is_some_and(|id| !id.is_empty() && !id.contains('/'))
+    path == "/api/runners/request" || path == "/api/runners/tunnel" || path == "/api/runners/build" || path.strip_prefix("/api/runners/request/").is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
@@ -112,6 +115,107 @@ async fn approve(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<r
 async fn runner_status(State(s): State<Server>, Path(id): Path<String>) -> Result<Response, ApiError> {
     let (status, body) = s.app.runners.request(&id, "GET", "/api/status", None).await.map_err(bad)?;
     Ok((StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response())
+}
+
+/// Home: asks an outdated runner to update itself to Home's build (`launchpad_core::self_update`).
+async fn update_runner(State(s): State<Server>, Path(id): Path<String>) -> Result<Response, ApiError> {
+    let r = runners::list(&s.app).await.map_err(bad)?.into_iter().find(|r| r.runner.id == id).ok_or_else(|| ApiError::not_found("no such runner"))?;
+    let name = &r.runner.name;
+    if !r.connected {
+        return Err(ApiError::bad_request(format!("{name} is offline: start it, then update it")));
+    }
+    if r.compat != Some(Compat::Outdated) {
+        return Err(ApiError::bad_request(format!("{name} already runs Home's build")));
+    }
+    if !r.runner.capabilities.self_update {
+        return Err(ApiError::bad_request(format!("{name} cannot update itself: run the install command again on that machine")));
+    }
+    if r.runner.os != std::env::consts::OS {
+        return Err(ApiError::bad_request(format!("{name} runs on {} and Home on {}: reinstall it with a build for that machine", r.runner.os, std::env::consts::OS)));
+    }
+    let (status, body) = s.app.runners.request(&id, "POST", "/api/runner/update", None).await.map_err(bad)?;
+    Ok((StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response())
+}
+
+/// Home: cancels a runner update that still waits for agents.
+async fn cancel_runner_update(State(s): State<Server>, Path(id): Path<String>) -> Result<Response, ApiError> {
+    let (status, body) = s.app.runners.request(&id, "DELETE", "/api/runner/update", None).await.map_err(bad)?;
+    Ok((StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response())
+}
+
+/// SHA-256 of this daemon's executable, computed once.
+static BUILD_SHA: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
+
+/// The running executable: `/proc/self/exe` on Linux, so a file replaced on disk since the start is never served.
+fn own_exe() -> std::io::Result<std::path::PathBuf> {
+    if cfg!(target_os = "linux") { Ok("/proc/self/exe".into()) } else { std::env::current_exe() }
+}
+
+/// Home: its own executable, for a runner that updates itself. Runner credential; through the tunnel.
+async fn build(State(s): State<Server>, headers: HeaderMap) -> Result<Response, ApiError> {
+    use launchpad_core::self_update::{ARCH_HEADER, COMMIT_HEADER, OS_HEADER, SHA256_HEADER};
+    let r = runner_of(&s, &headers).await?;
+    if r.state != RunnerState::Approved || s.app.paths.role != role::Role::Home {
+        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "unknown runner"));
+    }
+    let sha = BUILD_SHA
+        .get_or_try_init(|| async {
+            tokio::task::spawn_blocking(|| -> std::io::Result<String> {
+                use sha2::Digest;
+                let mut f = std::fs::File::open(own_exe()?)?;
+                let mut h = sha2::Sha256::new();
+                let mut buf = vec![0u8; 1 << 20];
+                loop {
+                    let n = std::io::Read::read(&mut f, &mut buf)?;
+                    if n == 0 {
+                        break;
+                    }
+                    h.update(&buf[..n]);
+                }
+                Ok(hex::encode(h.finalize()))
+            })
+            .await
+            .map_err(std::io::Error::other)?
+        })
+        .await
+        .map_err(|e| ApiError::bad_request(format!("read Home's executable: {e}")))?
+        .clone();
+    let file = tokio::fs::File::open(own_exe().map_err(|e| ApiError::bad_request(e.to_string()))?).await.map_err(|e| ApiError::bad_request(format!("read Home's executable: {e}")))?;
+    let len = file.metadata().await.map(|m| m.len()).unwrap_or(0);
+    let chunks = futures_util::stream::unfold(file, |mut f| async move {
+        let mut buf = vec![0u8; 256 * 1024];
+        match tokio::io::AsyncReadExt::read(&mut f, &mut buf).await {
+            Ok(0) => None,
+            Ok(n) => {
+                buf.truncate(n);
+                Some((Ok::<_, std::io::Error>(bytes::Bytes::from(buf)), f))
+            }
+            Err(e) => Some((Err(e), f)),
+        }
+    });
+    let body = axum::body::Body::from_stream(chunks);
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE.as_str(), "application/octet-stream".to_string()),
+            (axum::http::header::CONTENT_LENGTH.as_str(), len.to_string()),
+            (SHA256_HEADER, sha),
+            (COMMIT_HEADER, launchpad_core::COMMIT.to_string()),
+            (OS_HEADER, std::env::consts::OS.to_string()),
+            (ARCH_HEADER, std::env::consts::ARCH.to_string()),
+        ],
+        body,
+    )
+        .into_response())
+}
+
+/// Runner: updates itself to Home's build once no agent is in a turn.
+async fn update_self(State(s): State<Server>) -> ApiResult<launchpad_core::self_update::RunnerUpdate> {
+    Ok(Json(launchpad_core::self_update::start(&s.app).map_err(bad)?))
+}
+
+async fn cancel_update(State(s): State<Server>) -> ApiResult<Value> {
+    launchpad_core::self_update::cancel(&s.app).map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
 }
 
 async fn remove(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {

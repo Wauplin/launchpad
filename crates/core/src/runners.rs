@@ -79,6 +79,8 @@ pub struct Capabilities {
     pub docker: bool,
     /// A Burst runner (HF Job): the job contains the agents, Home adds every token.
     pub burst: bool,
+    /// Updates itself to Home's build on Home's request (`self_update`).
+    pub self_update: bool,
 }
 
 /// This runner's capabilities.
@@ -91,7 +93,7 @@ pub async fn capabilities(app: &App) -> Capabilities {
             .ok()
             .and_then(|r| r.ok())
             .is_some_and(|s| s.success());
-    Capabilities { vm, docker, burst }
+    Capabilities { vm, docker, burst, self_update: crate::self_update::supported(app) }
 }
 
 /// A runner with its live state, for Settings.

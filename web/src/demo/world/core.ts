@@ -72,7 +72,7 @@ export function coreWorld() {
     utc_offset_minutes: -new Date().getTimezoneOffset(),
     hosts: [demoHost("gpu-box", "gpu-box", config.profiles)],
     spend: [{ profile: "opencode-router", name: "OpenCode · HF router", harness: "opencode", windows: [{ hours: 24, limit_usd: 5, used_usd: 1.84, available_at: null }] }],
-    cost_unavailable_profiles: [],
+    cost_unavailable_profiles: [], runner_update: null,
   };
   return { projects, workspaces, config, status };
 }

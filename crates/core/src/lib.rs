@@ -1,6 +1,7 @@
 //! Domain types and services of the Launchpad daemon.
 
 pub mod ask_bot;
+pub mod self_update;
 pub mod attachments;
 pub mod away;
 pub mod bots;

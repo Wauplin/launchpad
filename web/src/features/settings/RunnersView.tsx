@@ -20,6 +20,8 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Card, SettingsPage } from "./SettingsView";
 import { homeStatus } from "@/features/setup/summary";
+import type { RunnerStatus } from "@/gen/RunnerStatus";
+import { canSelfUpdate, UpdateRunnerButton, UpdateThisRunnerButton } from "./RunnerUpdate";
 
 export function RunnersView() {
   const status = useStatus().data;
@@ -60,29 +62,43 @@ function AddRunner() {
   );
 }
 
-/** How to update a runner whose build differs from Home's. A Home in a Space serves its own build through the install
- * command; another Home's runner installs the same Launchpad commit as Home. */
-function UpdateRunner({ name, commit }: { name: string; commit: string }) {
+/** How to update a runner whose build differs from Home's: one click for a runner that updates itself, else by hand.
+ * A Home in a Space serves its own build through the install command; another Home's runner installs the same
+ * Launchpad commit as Home. */
+function UpdateRunner({ r }: { r: RunnerStatus }) {
   const command = useInstallCommand();
   const space = delegatedAccess();
   const home = useStatus().data?.commit ?? "";
+  const { name, commit } = r.runner;
+  const oneClick = canSelfUpdate(r);
+  const byHand = space ? (
+    <>
+      <span>{oneClick ? "Or, in" : "In"} a terminal on {name}, run the install command again. It downloads Home's build, replaces the runner and restarts it; the runner stays paired.</span>
+      {command !== null && (
+        <div className="flex items-start gap-2">
+          <pre className="m-0 min-w-0 flex-1 whitespace-pre-wrap break-all rounded-md border border-line-2 bg-code px-2.5 py-2 font-mono text-[12px]">{command}</pre>
+          <button className="btn btn-sm" onClick={() => void copyText(command).then(() => toast("Copied"))}><Icon name="copy" size={12} />Copy</button>
+        </div>
+      )}
+    </>
+  ) : (
+    <span>{oneClick ? "Or, on" : "On"} {name}, install Launchpad at Home's commit <span className="font-mono">{home.slice(0, 12)}</span> (the same way you installed it), then restart its runner daemon (<span className="font-mono">launchpad daemon --role runner</span>). It stays paired.</span>
+  );
   return (
     <div className="grid gap-1.5 rounded-lg bg-attn-soft px-3 py-2 text-[12px] text-ink-2">
       <span><b className="text-attn">Update {name}.</b> Its build{commit ? ` (${commit.slice(0, 8)})` : ""} differs from Home's ({home.slice(0, 8)}): its running sessions continue, but it takes no new session until it runs Home's build.</span>
-      {space ? (
+      {oneClick ? (
         <>
-          <span>In a terminal on {name}, run the install command again. It downloads Home's build, replaces the runner and restarts it; the runner stays paired.</span>
-          {command !== null && (
-            <div className="flex items-start gap-2">
-              <pre className="m-0 min-w-0 flex-1 whitespace-pre-wrap break-all rounded-md border border-line-2 bg-code px-2.5 py-2 font-mono text-[12px]">{command}</pre>
-              <button className="btn btn-sm" onClick={() => void copyText(command).then(() => toast("Copied"))}><Icon name="copy" size={12} />Copy</button>
-            </div>
-          )}
+          <span>Update it from here: {name} downloads Home's build and restarts as soon as none of its agents is in a turn.</span>
+          <UpdateRunnerButton runner={r} />
+          <details className="text-ink-3"><summary className="cursor-pointer">Update by hand</summary><div className="mt-1 grid gap-1.5">{byHand}</div></details>
         </>
       ) : (
-        <span>On {name}, install Launchpad at Home's commit <span className="font-mono">{home.slice(0, 12)}</span> (the same way you installed it), then restart its runner daemon (<span className="font-mono">launchpad daemon --role runner</span>). It stays paired.</span>
+        <>
+          {byHand}
+          <span className="text-ink-3">The restart interrupts the turns running on {name}: update it when its agents are done. Once updated, it updates with one click next time.</span>
+        </>
       )}
-      <span className="text-ink-3">The restart interrupts the turns running on {name}: update it when its agents are done.</span>
     </div>
   );
 }
@@ -119,7 +135,7 @@ function HomeRunners() {
                 </span>
                 <ConfirmButton icon="trash" consequence={`Disconnects ${r.runner.name}; it must pair again. Its sessions stay on Home.`} confirmLabel="Remove runner" onConfirm={() => api.delete(`/api/runners/${r.runner.id}`).then(() => { toast(`Removed ${r.runner.name}`); return refresh(); }, toastError)}>Remove</ConfirmButton>
               </div>
-              {r.compat === "outdated" && <UpdateRunner name={r.runner.name} commit={r.runner.commit} />}
+              {r.compat === "outdated" && <UpdateRunner r={r} />}
               </div>
             ))}
           </Card>
@@ -204,8 +220,8 @@ function ThisRunner() {
         {home?.compat === "outdated" && (
           <div className="grid gap-1 rounded-lg bg-attn-soft px-3 py-2 text-[12px] text-ink-2">
             <span><b className="text-attn">Update this runner.</b> Its build ({status?.commit.slice(0, 8)}) differs from Home's: its running sessions continue, but Home sends it no new session.</span>
-            <span>With a Home in a Space, copy the install command from Home's Settings → Home and runners and run it again in a terminal here: it installs Home's build and restarts the runner, which stays paired. Otherwise, install Launchpad at Home's commit, then restart this runner daemon.</span>
-            <span className="text-ink-3">The restart interrupts the turns running here: update when the agents are done.</span>
+            <UpdateThisRunnerButton />
+            <span className="text-ink-3">It downloads Home's build and restarts as soon as none of its agents is in a turn. By hand: with a Home in a Space, run the install command from Home's Settings → Home and runners again here; otherwise install Launchpad at Home's commit, then restart this runner daemon.</span>
           </div>
         )}
       </Card>

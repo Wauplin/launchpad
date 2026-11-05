@@ -8,6 +8,7 @@ import { useMcpServers } from "@/features/settings/McpServers";
 import { useStatus } from "@/lib/queries";
 import { outdatedLabel, useRunners } from "@/lib/runners";
 import { Link } from "@tanstack/react-router";
+import { canSelfUpdate, UpdateRunnerButton } from "@/features/settings/RunnerUpdate";
 import { useBurst } from "@/lib/burst";
 
 type Set = (f: (s: LaunchSpec) => LaunchSpec) => void;
@@ -35,15 +36,18 @@ export function OutdatedRunnerNotice({ spec }: { spec: LaunchSpec }) {
   const outdated = runners.filter((r) => r.connected && r.compat === "outdated");
   const chosen = spec.runner_id ? outdated.find((r) => r.runner.id === spec.runner_id) : undefined;
   if (spec.runner_id === "burst" || (spec.runner_id && !chosen) || outdated.length === 0) return null;
-  const names = chosen ? [chosen.runner.name] : outdated.map((r) => r.runner.name);
+  const relevant = chosen ? [chosen] : outdated;
+  const names = relevant.map((r) => r.runner.name);
+  const oneClick = relevant.filter(canSelfUpdate);
   const effect = chosen
     ? "It takes no new session: choose another runner in the options, or update it first."
     : runners.some(takesLaunches)
       ? "It takes no new session: this launch goes to another runner."
       : burst && !burst.unavailable ? "No up-to-date runner takes launches: this one starts on Burst unless you update it first." : "No up-to-date runner takes launches: update it before launching.";
   return (
-    <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">
-      {outdatedLabel(names)}: its build differs from Home's. {effect} <Link to="/settings/runners" className="font-semibold underline">How to update</Link>
+    <div className="grid gap-1.5 rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">
+      <span>{outdatedLabel(names)}: its build differs from Home's. {effect} <Link to="/settings/runners" className="font-semibold underline">{oneClick.length === relevant.length ? "Details" : "How to update"}</Link></span>
+      {oneClick.map((r) => <UpdateRunnerButton key={r.runner.id} runner={r} />)}
     </div>
   );
 }

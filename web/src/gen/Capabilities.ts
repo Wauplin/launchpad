@@ -15,4 +15,8 @@ docker: boolean,
 /**
  * A Burst runner (HF Job): the job contains the agents, Home adds every token.
  */
-burst: boolean, };
+burst: boolean, 
+/**
+ * Updates itself to Home's build on Home's request (`self_update`).
+ */
+self_update: boolean, };

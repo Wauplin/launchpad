@@ -598,7 +598,10 @@ async fn main() -> Result<()> {
             let paths = if role == paths.role { paths } else { Paths::for_role(paths.app_env, role) };
             tracing::info!("env {}, role {}, data in {}", paths.app_env.name(), role.name(), paths.data_dir.display());
             let app = launchpad_core::App::start(paths).await?;
-            launchpad_server::serve(app).await
+            launchpad_server::serve(app).await?;
+            // A runner that just installed Home's build starts it in this process.
+            launchpad_core::self_update::restart_if_updated();
+            Ok(())
         }
         Command::Connect { url, name } => {
             let runner = Paths::for_role(paths.app_env, launchpad_core::role::Role::Runner);
