@@ -3,7 +3,7 @@
 // revision they start from, the daemon rejects stale ones (409), and `drafts/changed` events reload idle
 // windows. A window that is being edited shows a conflict notice instead of losing either version.
 
-import { isDemo } from "@/demo/mode";
+import { isDemo } from "../demo/mode.ts";
 import { isExtension } from "../lib/connection.ts";
 import { storageAllowed } from "../lib/clientStorage.ts";
 import { useSaveStatus } from "../lib/saveStatus.ts";
