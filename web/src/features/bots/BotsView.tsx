@@ -244,7 +244,7 @@ export function BotPage() {
   const rotation = rotationReason(bot, current);
   const folder = folderLabel(projects, bot.settings.folder);
   const showSession = current && !rotation && !fresh;
-  const tabs = <Tabs label="Bot panels" value={panel} onChange={setPanel} tour="bots.panels" items={[...(phone ? [{ id: "chat" as const, label: "Thread" }] : []), { id: "memory", label: "Memory" }, { id: "routines", label: "Routines", count: routines.length || undefined }, { id: "files", label: "Instructions" }, { id: "thread", label: "Sessions", count: thread.length || undefined }, { id: "settings", label: "Settings" }]} />;
+  const tabs = <Tabs label="Bot panels" value={panel} onChange={setPanel} tour="bots.panels" items={[...(phone ? [{ id: "chat" as const, label: "Thread" }] : []), { id: "memory", label: "Memory" }, { id: "routines", label: "Routines", count: routines.length || undefined }, { id: "files", label: "Instructions" }, { id: "thread", label: "Sessions" }, { id: "settings", label: "Settings" }]} />;
   const meta = <>
     <StateBadge state={botState(thread)} />
     {bot.paused && <Badge tone="attn" title="Its routines and incoming hooks start nothing until you resume it">Paused</Badge>}
@@ -274,7 +274,7 @@ export function BotPage() {
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
       <PageHeader icon={<BotAvatar name={bot.settings.name} size={24} />} title={bot.settings.name} back={<Link to="/bots" className="iconbtn" title="All bots" aria-label="All bots"><Icon name="chev" size={14} className="rotate-90" /></Link>} meta={meta} actions={<>{routines.length > 0 && pause}{newSession}</>} />
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_380px]">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_440px]">
         <div className="flex min-h-0 flex-col border-r border-line">{conversation}</div>
         <aside className="flex min-h-0 flex-col">
           <div className="border-b border-line px-3 pt-1">{tabs}</div>

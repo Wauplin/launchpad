@@ -7,7 +7,7 @@ import { memo, type ReactNode } from "react";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { Empty, ErrorState, Loading, PageHeader, Tabs } from "@/components/ui";
-import { LaunchButton } from "@/features/launch/LaunchButton";
+import { useComposer } from "@/stores/composer";
 import { conditionsSummary } from "@/features/launch/DelaySelector";
 import { DEFAULT_CRON } from "@/features/launch/CronSelector";
 import { ScheduledPane } from "@/features/agents/ScheduledPane";
@@ -64,7 +64,7 @@ export function SchedulesView() {
   const tabs = <Tabs label="Schedules" value={tab} onChange={(t) => go({ tab: t })} tour="schedules.tabs" items={[{ id: "routines", label: "Routines", count: routines.length || undefined }, { id: "launches", label: "Scheduled launches", count: launches.length || undefined }]} />;
   const header = phone
     ? <PhoneHeader title="Schedules" subtitle={scope.workspace?.name ?? "Everything"} />
-    : <PageHeader icon={<Icon name="clock" size={18} />} title="Schedules" meta={<>{scope.workspace?.name ?? "Everything"} · routines start on their own; scheduled launches start once</>} actions={<LaunchButton small />} tabs={tabs} />;
+    : <PageHeader icon={<Icon name="clock" size={18} />} title="Schedules" meta={<>{scope.workspace?.name ?? "Everything"} · routines start on their own; scheduled launches start once</>} tabs={tabs} />;
   const panel = selected
     ? <Side title={selected.title} onClose={() => go({ tab })}><RoutineDetails cron={selected} bot={bots.find((b) => b.id === selected.bot_id)} onOpen={openSession} onDeleted={() => go({ tab })} /></Side>
     : launch ? <ScheduledPane launch={launch} onClose={() => go({ tab })} onStart={(s) => openSession(s.id)} /> : null;
@@ -78,10 +78,10 @@ export function SchedulesView() {
       </div>}
       {!hasBrief && <Idea icon="spark" title="Morning brief" body="Ask Launchpad summarizes what needs you, weekdays at 8:30. A quiet morning sends nothing." action={<button className="btn btn-sm btn-primary" data-tour="schedules.brief" onClick={async () => { const r = await createBrief(); if (r) go({ tab, routine: r.id }); }}><Icon name="plus" size={12} />Add the morning brief</button>} />}
       <Idea icon="agents" title="A bot's routine" body="Give a bot a job that runs by itself: every morning, when a review is requested or CI fails on GitHub, or when another agent is done." action={bots.length ? <Link to="/bots/$id" params={{ id: bots[0].id }} search={{ panel: "routines" } as never} className="btn btn-sm">Open {bots[0].settings.name}'s routines</Link> : <Link to="/bots" search={{ new: true } as never} className="btn btn-sm">Create a bot</Link>} />
-      <Idea icon="refresh" title="A launch on a schedule" body="In the composer, the arrow next to Launch → Repeat on a schedule turns any prompt into a routine. Each run starts a new agent." action={<LaunchButton small label="Open the composer" />} />
+      <Idea icon="refresh" title="A launch on a schedule" body="In the composer, the arrow next to Launch → Repeat on a schedule turns any prompt into a routine. Each run starts a new agent." action={<OpenComposer />} />
     </> : launches.length ? <div className="grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-lg border border-line">
       {launches.map((l) => <LaunchRow key={l.id} l={l} detail={conditionsSummary(l, sessions, launches)} selected={l.id === launch?.id} onClick={() => go({ tab, launch: l.id })} />)}
-    </div> : <Empty icon="clock" action={<LaunchButton small label="Open the composer" />}>Nothing scheduled. In the composer, the arrow next to Launch → Start later starts an agent after a delay, at a time, after other agents, or when quota is back.</Empty>}
+    </div> : <Empty icon="clock" action={<OpenComposer />}>Nothing scheduled. In the composer, the arrow next to Launch → Start later starts an agent after a delay, at a time, after other agents, or when quota is back.</Empty>}
   </div>;
   if (phone)
     return <div className="flex h-full min-h-0 flex-col">
@@ -96,6 +96,11 @@ export function SchedulesView() {
       </div>
     </div>
   );
+}
+
+function OpenComposer() {
+  const start = useComposer((s) => s.start);
+  return <button className="btn btn-sm" onClick={() => start()}><Icon name="play" size={12} />Open the composer</button>;
 }
 
 function Side({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {

@@ -117,8 +117,8 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
     toast("Routine saved");
   });
   const where = cron.bot_id ? <>Posts to {bot ? <Link to="/bots/$id" params={{ id: bot.id }}>{bot.settings.name}</Link> : "its bot"}'s thread</> : cron.spec.target.kind === "assistant" ? <>Posts to <Link to="/ask">Ask Launchpad</Link></> : <>Starts a new agent · {cron.spec.harness ? harnessName(cron.spec.harness) : "Agent"} · {folder ?? "a new scratch folder"}</>;
-  return <div className="grid gap-3 text-[13px]">
-    <div className="grid gap-2 rounded-lg border border-line bg-chrome p-3">
+  return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 text-[13px]">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-lg border border-line bg-chrome p-3">
       {edit ? <>
         <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input h-[30px] font-normal" value={edit.title} maxLength={80} onChange={(e) => setEdit({ ...edit, title: e.target.value })} /></label>
         {cron.bot_id && <label className="grid gap-1 text-[12px] font-semibold text-ink-2">What it does at each run<textarea className="field-input min-h-[90px] py-1.5 font-normal leading-5" value={edit.instructions} onChange={(e) => setEdit({ ...edit, instructions: e.target.value })} /></label>}
@@ -144,11 +144,11 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
         </div>
       </>}
     </div>
-    {cron.bot_id && !edit && <div className="grid gap-1"><b className="text-xs text-ink-2">What it does at each run</b><p className="m-0 rounded-md bg-sunk px-3 py-2 text-[12px] whitespace-pre-wrap text-ink-2">{cron.spec.text}</p></div>}
-    <div className="grid gap-1">
+    {cron.bot_id && !edit && <div className="grid gap-1"><b className="text-xs text-ink-2">What it does at each run</b><p className="m-0 rounded-md bg-sunk px-3 py-2 text-[12px] break-words whitespace-pre-wrap text-ink-2">{cron.spec.text}</p></div>}
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1">
       <b className="text-xs text-ink-2">Runs ({cron.history.length})</b>
-      {cron.history.length ? [...cron.history].reverse().map((r) => <button key={`${r.at}-${r.cause}`} disabled={!r.session_id} onClick={() => r.session_id && onOpen(r.session_id)} className="grid gap-0.5 rounded-md border border-line px-2 py-1.5 text-left text-xs hover:bg-chrome disabled:cursor-default disabled:hover:bg-transparent">
-        <span className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate">{new Date(r.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {r.cause}</span><OutcomeBadge run={r} /></span>
+      {cron.history.length ? [...cron.history].reverse().map((r) => <button key={`${r.at}-${r.cause}`} disabled={!r.session_id} onClick={() => r.session_id && onOpen(r.session_id)} className="grid min-w-0 gap-0.5 rounded-md border border-line px-2 py-1.5 text-left text-xs hover:bg-chrome disabled:cursor-default disabled:hover:bg-transparent">
+        <span className="flex min-w-0 items-center gap-2"><span className="min-w-0 flex-1 truncate" title={r.cause}>{new Date(r.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {r.cause}</span><OutcomeBadge run={r} /></span>
         {r.detail && <span className="text-ink-3">{r.detail}</span>}
       </button>) : <p className="m-0 text-xs text-ink-3">No run yet. Quiet runs show here as No update; they never notify you.</p>}
     </div>
