@@ -5,7 +5,9 @@ import { api } from "@/lib/api";
 import { useReviewState } from "@/lib/reviewState";
 import { Markdown } from "@/components/Markdown";
 import { openGitHub } from "@/features/github/lib";
-import { Badge, ConfirmButton, ErrorState, FilterChip, FilterChips } from "@/components/ui";
+import { Badge, ErrorState, FilterChip, FilterChips } from "@/components/ui";
+import { ActionButton } from "@/components/ActionButton";
+import { runAction } from "@/lib/actions";
 import { Icon } from "@/components/Icon";
 import { toast } from "@/components/Toast";
 import type { Suggestion } from "@/gen/Suggestion";
@@ -27,14 +29,15 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
   const local = s.target.kind === "predraft";
   const stale = !local && s.kind === "review" && head !== undefined && s.head !== head;
   function clear() { void edit.clear(); }
-  async function run(action: "save" | "post" | "discard") {
+  const save = () => api.patch(`/api/suggestions/${s.id}`, { body, event });
+  const posted = () => { toast(local ? "Suggestion saved to the Local PR notes" : s.kind === "review" ? "Suggested review posted" : "Suggested comment posted"); onPosted?.(); };
+  const settled = () => { clear(); setEditing(false); void qc.invalidateQueries({ queryKey: ["suggestions"] }); };
+  const failed = (e: unknown) => { setError(e); void qc.invalidateQueries({ queryKey: ["suggestions"] }); };
+  async function run(action: "save" | "post") {
     setBusy(true); setError(null);
     try {
-      if (action === "discard") { await api.delete(`/api/suggestions/${s.id}`); toast("Suggestion discarded"); }
-      else {
-        if (editing) await api.patch(`/api/suggestions/${s.id}`, { body, event });
-        if (action === "post") { await api.post(`/api/suggestions/${s.id}/post`); toast(local ? "Suggestion saved to the Local PR notes" : s.kind === "review" ? "Suggested review posted" : "Suggested comment posted"); onPosted?.(); }
-      }
+      if (editing) await save();
+      if (action === "post") { await runAction("suggestion.post", { id: s.id }); posted(); }
       clear(); setEditing(false);
     } catch (e) { setError(e); }
     finally { setBusy(false); void qc.invalidateQueries({ queryKey: ["suggestions"] }); }
@@ -56,10 +59,12 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
       {s.status === "draft" && <>
         <button className="btn btn-sm" disabled={busy || (editing && !body.trim())} onClick={() => editing ? void run("save") : setEditing(true)}>{editing ? "Save edit" : "Edit"}</button>
         {editing && <button className="btn btn-sm" disabled={busy} onClick={() => { clear(); setEditing(false); }}>Cancel edit</button>}
-        <button className="btn btn-primary btn-sm" disabled={busy || stale || !body.trim()} onClick={() => void run("post")}>{busy ? "Working…" : local ? "Add to local notes" : s.kind === "review" ? "Post review" : "Post comment"}</button>
+        {local
+          ? <button className="btn btn-primary btn-sm" disabled={busy || !body.trim()} onClick={() => void run("post")}>{busy ? "Working…" : "Add to local notes"}</button>
+          : <ActionButton name="suggestion.post" params={{ id: s.id }} primary disabled={busy || stale || !body.trim()} before={async () => { setError(null); if (editing) await save(); }} onDone={() => { posted(); settled(); }} onError={failed}>{s.kind === "review" ? "Post review" : "Post comment"}</ActionButton>}
         <span className="text-[12px] text-ink-3">{local ? "Stays on this machine." : "Posts to GitHub when you click."}</span>
       </>}
-      {s.status !== "posted" && <ConfirmButton disabled={busy || s.status === "posting"} consequence={["posting", "uncertain"].includes(s.status) ? "Check GitHub first: it may already be posted." : "Deletes the local suggestion."} confirmLabel="Discard" onConfirm={() => run("discard")}>Discard</ConfirmButton>}
+      {s.status !== "posted" && <ActionButton name="suggestion.discard" params={{ id: s.id }} disabled={busy || s.status === "posting"} title={["posting", "uncertain"].includes(s.status) ? "Check GitHub first: it may already be posted." : undefined} onDone={() => { toast("Suggestion discarded"); settled(); }} onError={failed} />}
       {s.url && <button className="btn btn-sm" onClick={() => openGitHub(s.url!)}><Icon name="ext" size={12} />Open posted text</button>}
     </div>
   </article>;

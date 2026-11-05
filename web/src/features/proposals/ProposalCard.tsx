@@ -18,6 +18,7 @@ import { browserZone, triggerSummary } from "@/lib/routines";
 import { PatchView } from "@/features/github/DiffReview";
 import { useLayout } from "@/stores/layout";
 import { StatusBadge } from "@/features/agents/SessionBits";
+import { runAction } from "@/lib/actions";
 
 export const useProposalList = (enabled = true) => useQuery({ enabled, queryKey: ["proposals"], queryFn: () => api.get<Proposal[]>("/api/proposals"), staleTime: 30_000 });
 
@@ -118,6 +119,11 @@ function SpecTokens({ spec }: { spec: LaunchSpec }) {
   );
 }
 
+const PROPOSAL_ACTIONS = { accept: "proposal.start", dismiss: "proposal.dismiss", recheck: "proposal.recheck" } as const;
+/** Starts, dismisses or rechecks a card. A routine or cron keeps the time zone of the browser that accepts it. */
+export const runProposalAction = <T = unknown,>(id: string, action: keyof typeof PROPOSAL_ACTIONS) =>
+  runAction<T>(PROPOSAL_ACTIONS[action], { id }, undefined, action === "accept" ? { time_zone: browserZone() } : undefined);
+
 /** Replaces the card (so it cannot start twice), then puts its spec into the composer draft. */
 async function editInComposer(p: Proposal, qc: QueryClient) {
   const spec = specOf(p);
@@ -159,8 +165,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
   const act = async (action: "accept" | "dismiss" | "recheck") => {
     setBusy(true);
     try {
-      // A routine or cron keeps the time zone of the browser that accepts it.
-      const next = await api.post<Proposal>(`/api/proposals/${p.id}/${action}${action === "accept" ? `?time_zone=${encodeURIComponent(browserZone())}` : ""}`);
+      const next = await runProposalAction<Proposal>(p.id, action);
       qc.setQueryData<Proposal[]>(["proposals"], (old) => old?.map((x) => (x.id === next.id ? next : x)));
       if (next.state === "started" && (action === "accept" || action === "recheck")) {
         await qc.invalidateQueries({ queryKey: ["sessions"] });

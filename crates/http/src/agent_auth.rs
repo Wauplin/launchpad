@@ -3,6 +3,7 @@
 //! from its lease): read, propose or admin.
 use axum::{body::{Body, to_bytes}, extract::Request, http::Method};
 use launchpad_core::App;
+use launchpad_core::actions::{self, ActionAccess};
 use launchpad_core::vault::LaunchpadAccess;
 use serde_json::Value;
 
@@ -28,45 +29,26 @@ fn access_of(app: &App, id: &str) -> Option<LaunchpadAccess> {
     }
 }
 
-/// Admin access: Launchpad's own records. GitHub, the Outbox, channels, credentials, devices, terminals, hosts,
-/// runners, setup fixes, backups and Burst stay owner-only, whatever the access.
+/// Admin access: reads (except the closed list) and the `Admin` actions of the action list
+/// (`launchpad_core::actions`). GitHub, the Outbox, channels, credentials, devices, terminals, hosts, runners,
+/// setup fixes, backups, Burst and config.toml are never `Admin` actions, whatever the access.
 fn admin_allows(method: &Method, path: &str) -> bool {
-    let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     if *method == Method::GET {
+        let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
         const CLOSED: &[&str] = &["config", "devices", "terminals", "hosts", "vault", "git", "handoff", "runners", "runner", "setup", "burst", "home", "channels", "outbox", "review-state", "plain", "kb", "knowledge", "code", "browser"];
         return p.first() == Some(&"api") && p.get(1).is_some_and(|a| !CLOSED.contains(a));
     }
-    match p.as_slice() {
-        ["api", "bots"] | ["api", "bots", ..] => true,
-        ["api", "launch", "crons"] | ["api", "launch", "crons", ..] | ["api", "launch", "schedules"] | ["api", "launch", "schedules", ..] => true,
-        ["api", "launch", "preview"] => *method == Method::POST,
-        ["api", "proposals", _, "accept" | "dismiss" | "recheck"] => *method == Method::POST,
-        ["api", "workspaces"] | ["api", "workspaces", _] => true,
-        ["api", "sessions"] => *method == Method::POST,
-        ["api", "sessions", _, "input" | "answer" | "interrupt" | "close" | "resume" | "resume-subscription" | "rename" | "model" | "permissions" | "follow-up" | "seen" | "unread"] => *method == Method::POST,
-        ["api", "mcp", _, "tools", _] => *method == Method::PUT,
-        _ => false,
-    }
+    actions::find(method.as_str(), path).is_some_and(|a| a.access == ActionAccess::Admin)
 }
 
-/// The request that runs a proposal of this body directly: accepting a card is running its action, so an admin
-/// session may accept a card only when `admin_allows` that request. None: the card has no direct request at admin
-/// (preset changes go through config.toml, tools through the vault) and waits for the owner.
-fn accept_request(body: &Value) -> Option<(Method, String)> {
-    let id = |k: &str| body[k].as_str().filter(|s| !s.is_empty() && !s.contains('/')).map(str::to_string);
-    Some(match body["kind"].as_str()? {
-        "launch" => (Method::POST, "/api/sessions".into()),
-        "message" => (Method::POST, format!("/api/sessions/{}/input", id("session_id")?)),
-        "schedule" => (Method::POST, "/api/launch/schedules".into()),
-        "cron" => (Method::POST, "/api/launch/crons".into()),
-        "status" => (Method::GET, "/api/sessions".into()),
-        "bot" => (Method::POST, "/api/bots".into()),
-        "routine" => (Method::POST, format!("/api/bots/{}/routines", id("bot_id")?)),
-        "bot_instructions" => (Method::PATCH, format!("/api/bots/{}", id("bot_id")?)),
-        "preset" => (Method::PATCH, "/api/config".into()),
-        "tool" => (Method::PUT, "/api/vault/tools/x".into()),
-        _ => return None,
-    })
+/// Whether accepting a card of this body runs an action admin may run directly: accepting a card is running its
+/// action (`actions::for_card`). Tool and preset cards are owner actions and wait for the owner. A status card
+/// only lists sessions.
+fn admin_may_accept(body: &Value) -> bool {
+    let id = |k: &str| body[k].as_str().is_some_and(|s| !s.is_empty() && !s.contains('/'));
+    let Some(kind) = body["kind"].as_str() else { return false };
+    let ids = match kind { "message" => id("session_id"), "routine" | "bot_instructions" => id("bot_id"), _ => true };
+    kind == "status" || (ids && actions::for_card(kind).is_some_and(|a| a.access == ActionAccess::Admin))
 }
 
 /// A proposal's body: on a runner from Home (which holds proposals), else from this daemon's state.
@@ -120,7 +102,7 @@ pub async fn authorize(app: &App, id: &str, req: Request) -> Result<Request, Api
             return Ok(req);
         }
         if let Some(pid) = path.strip_prefix("/api/proposals/").and_then(|r| r.strip_suffix("/accept")) {
-            let direct = proposal_body(app, pid).await.as_ref().and_then(accept_request).is_some_and(|(m, p)| admin_allows(&m, &p));
+            let direct = proposal_body(app, pid).await.as_ref().is_some_and(admin_may_accept);
             if !direct {
                 return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "admin access cannot run this card's action directly (tools and presets): it waits for the owner's click"));
             }
@@ -179,10 +161,35 @@ mod tests {
             assert!(!admin_allows(&m, path), "{m} {path}");
         }
         assert!(!admin_allows(&Method::GET, "/api/config"));
-        let direct = |b: Value| accept_request(&b).is_some_and(|(m, p)| admin_allows(&m, &p));
+        let direct = |b: Value| admin_may_accept(&b);
         assert!(direct(serde_json::json!({"kind": "routine", "bot_id": "b"})) && direct(serde_json::json!({"kind": "bot_instructions", "bot_id": "b"})));
         assert!(!direct(serde_json::json!({"kind": "tool"})) && !direct(serde_json::json!({"kind": "preset"})));
         assert!(asks_paid_usage(&serde_json::json!({"spec": {"allow_paid_usage": true}})));
         assert!(!asks_paid_usage(&serde_json::json!({"spec": {"allow_paid_usage": false}})));
+    }
+
+    /// Every action has a route that resolves to it, a CLI reference line exactly when admin may run it, and a
+    /// confirmation (or an undo) when it reaches GitHub, other people, money or the machine, or deletes something.
+    #[test]
+    fn action_list_drives_routes_reference_and_confirmations() {
+        let reference = launchpad_core::launchpad_cli::cli_reference("launchpad", None, LaunchpadAccess::Admin);
+        let propose = launchpad_core::launchpad_cli::cli_reference("launchpad", None, LaunchpadAccess::Propose);
+        for a in actions::ACTIONS {
+            let args: Vec<String> = actions::params(a).iter().map(|p| format!("x-{p}")).collect();
+            let path = actions::path(a, &args.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+            assert_eq!(actions::find(a.method, &path).map(|f| f.name), Some(a.name), "{} {path}", a.name);
+            let method = Method::from_bytes(a.method.as_bytes()).unwrap();
+            assert_eq!(admin_allows(&method, &path), a.access == ActionAccess::Admin, "{}", a.name);
+            let line = format!("`{}`", actions::usage("launchpad", a));
+            assert_eq!(reference.contains(&line), a.access == ActionAccess::Admin, "{line}");
+            assert!(!propose.contains(&line), "{line}");
+            if matches!(a.effect, actions::ActionEffect::Outside | actions::ActionEffect::Machine) {
+                assert_eq!(a.access, ActionAccess::Owner, "{}", a.name);
+            }
+            if (matches!(a.effect, actions::ActionEffect::Outside | actions::ActionEffect::Machine) || a.method == "DELETE") && a.undo.is_none() {
+                assert!(a.confirm.is_some(), "{} needs a confirmation or an undo", a.name);
+            }
+            assert!(a.undo.is_none_or(|u| actions::get(u).is_some()), "{}", a.name);
+        }
     }
 }

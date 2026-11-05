@@ -20,8 +20,18 @@ A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"targ
         ));
     }
     if access == LaunchpadAccess::Admin {
+        use crate::actions::{ACTIONS, ActionAccess, usage};
         out.push_str(&format!(
-            "\n\n## Admin\n\nYou may also change Launchpad itself with `{cli} api <GET|POST|PUT|PATCH|DELETE> <path> [--body-file <file.json>]`, the same API the owner's window uses: bots (`/api/bots`, `/api/bots/<id>` with {{\"settings\": …}} or {{\"instructions\": …}}, `/api/bots/<id>/message`, `/api/bots/<id>/routines`, `/api/bots/<id>/pause`), routines and crons (`/api/launch/crons`, `/api/launch/crons/<id>`), scheduled launches (`/api/launch/schedules`), launches (`POST /api/sessions` with a launch spec) and session messages (`/api/sessions/<id>/input|answer|interrupt|close|resume|rename|model|permissions`), proposals (`/api/proposals/<id>/accept|dismiss`; you may accept a card only when you could run its action directly, so tool and preset cards wait for the owner), workspaces (`/api/workspaces`), MCP tool switches (`/api/mcp/<id>/tools/<tool>`). Everything else (folder settings, presets, notifications, config.toml, the tool registry, GitHub actions, the Outbox, channels, credentials, devices, terminals, hosts, runners, setup fixes, paid usage) is refused: propose a card for presets and tools, and ask the owner for the rest. Act directly only when the owner asked for that change or your instructions say so; otherwise propose. Say what you changed, and read it back to check.",
+            "\n\n## Admin\n\nYou may also run these actions directly; each one is the same API call as the owner's button (`{cli} do <action> …` works too). Positional arguments are the ids from the list commands; `--body-file` takes a JSON file. Act directly only when the owner asked for that change or your instructions say so; otherwise propose. Say what you changed, and read it back to check.\n\n"
+        ));
+        for a in ACTIONS.iter().filter(|a| a.access == ActionAccess::Admin) {
+            let body = a.body_file.map(|b| format!(" (body: {b})")).unwrap_or_default();
+            out.push_str(&format!("- `{}`: {}{body}\n", usage(cli, a), a.help));
+        }
+        let owner: Vec<&str> = ACTIONS.iter().filter(|a| a.access == ActionAccess::Owner).map(|a| a.help).collect();
+        out.push_str(&format!(
+            "\nOnly the owner's click runs these, never you: {}. Propose a card for presets and tools. Everything else (folder settings, notifications, config.toml, the Outbox, channels, credentials, devices, terminals, hosts, runners, setup fixes, paid usage) is refused: ask the owner. `{cli} api <GET|POST|PUT|PATCH|DELETE> <path> [--body-file <file.json>]` reads any other state (GET) and runs the same actions by their API path.",
+            owner.iter().map(|h| h[..1].to_lowercase() + &h[1..]).collect::<Vec<_>>().join("; ")
         ));
     }
     out

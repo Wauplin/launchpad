@@ -32,6 +32,8 @@ import { AskCard } from "./AskCard";
 import { RunsOn } from "./RunsOn";
 import { Instructions } from "./EventRow";
 import { KeepFolder } from "@/features/projects/KeepFolder";
+import { runAction } from "@/lib/actions";
+import { ActionButton } from "@/components/ActionButton";
 
 export function StateBand({ session: s, children }: { session: Session; children?: ReactNode }) {
   const { style } = statusInfo(s);
@@ -331,9 +333,9 @@ export function QuotaBand({ session: s }: { session: Session }) {
   const quota = quotaFor(useStatus().data, s.harness, s.launch_spec.profile);
   const p = s.quota_pause;
   if (!p) return null;
-  const act = async (action: string) => {
+  const act = async (action: "session.stop" | "session.resume-subscription") => {
     setBusy(true);
-    try { await api.post(`/api/sessions/${s.id}/${action}`); } catch (e) { toastError(e); } finally { setBusy(false); }
+    try { await runAction(action, { id: s.id }); } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   return <div className="grid gap-2 border-b border-attn-line bg-attn-soft px-4 py-3 text-xs text-attn">
     <b>{p.phase === "needs_attention" ? "Quota pause needs attention" : p.phase === "provider_limited" ? "Provider quota limit reached · retry manually when available" : p.blockers.length ? "Included quota exhausted · automatic continuation pending" : "Waiting for confirmed quota · automatic continuation pending"}</b>
@@ -342,6 +344,6 @@ export function QuotaBand({ session: s }: { session: Session }) {
     {p.phase !== "resuming" && p.phase !== "needs_attention" && <span>You can queue steering messages below; they are sent together when the agent resumes. Stop cancels queued messages.</span>}
     {quota?.quota_error && <span>Quota reading unavailable: {quota.quota_error}</span>}
     <span>Protection is best effort. A manual retry with subscription only keeps paid usage disabled, but may still use paid credits if the included quota is exhausted.</span>
-    <div className="flex flex-wrap gap-2"><button className="btn btn-sm" disabled={busy || p.phase === "resuming"} onClick={() => void act("interrupt")}>Stop</button><button className="btn btn-sm" title="Retry now without enabling paid usage; the quota reading is unconfirmed" disabled={busy || (p.phase !== "paused" && p.phase !== "provider_limited")} onClick={() => void act("resume-subscription")}>Retry with subscription only</button><button className="btn btn-sm" title="Allow paid usage for the rest of this session and continue now" disabled={busy || p.phase === "pausing" || p.phase === "resuming"} onClick={() => void act("resume-paid")}>Resume with paid usage</button></div>
+    <div className="flex flex-wrap gap-2"><button className="btn btn-sm" disabled={busy || p.phase === "resuming"} onClick={() => void act("session.stop")}>Stop</button><button className="btn btn-sm" title="Retry now without enabling paid usage; the quota reading is unconfirmed" disabled={busy || (p.phase !== "paused" && p.phase !== "provider_limited")} onClick={() => void act("session.resume-subscription")}>Retry with subscription only</button><ActionButton name="session.resume-paid" params={{ id: s.id }} title="Allow paid usage for the rest of this session and continue now" disabled={busy || p.phase === "pausing" || p.phase === "resuming"} /></div>
   </div>;
 }

@@ -178,6 +178,17 @@ enum Command {
         #[arg(long)]
         body_file: Option<std::path::PathBuf>,
     },
+    /// Run an action of Launchpad's action list (sessions with admin access): `launchpad do session.archive <id>`.
+    /// Short verbs do the same: `launchpad session archive <id>`, `launchpad bot pause <id> --paused true`.
+    Do {
+        /// The action name, `<group>.<verb>`.
+        action: String,
+        /// Route ids in order, then `--<field> <value>` options and `--body-file <file.json>`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    #[command(external_subcommand)]
+    Verb(Vec<String>),
     /// Print the stored trace of an agent session, for use as reference context.
     Trace {
         session_id: String,
@@ -585,6 +596,11 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&result)?);
             Ok(())
         }
+        Command::Do { action, args } => do_action(&paths, &action, &args).await,
+        Command::Verb(words) => {
+            let [group, verb, args @ ..] = words.as_slice() else { anyhow::bail!("unknown command {:?}: see `launchpad --help`", words.join(" ")) };
+            do_action(&paths, &format!("{group}.{verb}"), args).await
+        }
         Command::Trace { session_id, through } => {
             let mut path = format!("/api/sessions/{}/trace", url_segment(&session_id));
             if let Some(through) = through {
@@ -654,6 +670,52 @@ async fn main() -> Result<()> {
         }
         Command::GenTypes { out } => extensions::gen_types(&out),
     }
+}
+
+/// The request of an action from its arguments: route ids in order, `--<field> <value>`, `--body-file <file>`.
+fn action_request(action: &str, args: &[String]) -> Result<(&'static launchpad_core::actions::Action, String, Option<serde_json::Value>)> {
+    use launchpad_core::actions::{self, ActionAccess, FieldKind};
+    let a = actions::get(action).with_context(|| format!("no action {action:?}: the Launchpad CLI reference lists them"))?;
+    anyhow::ensure!(a.access == ActionAccess::Admin, "{} is the owner's click only: ask the owner to use the Launchpad window", a.name);
+    let (mut ids, mut fields, mut body_file) = (vec![], serde_json::Map::new(), None);
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        let Some(name) = arg.strip_prefix("--") else { ids.push(arg.as_str()); continue };
+        let value = it.next().with_context(|| format!("--{name} needs a value"))?;
+        if name == "body-file" { body_file = Some(value); continue; }
+        let field = a.input.iter().find(|f| f.name == name || f.name.replace('_', "-") == name).with_context(|| format!("{} has no --{name} option: {}", a.name, actions::usage("launchpad", a)))?;
+        let v = match field.kind {
+            FieldKind::Text => serde_json::Value::String(value.clone()),
+            FieldKind::Bool => serde_json::Value::Bool(value.parse().with_context(|| format!("--{name} is true or false"))?),
+            FieldKind::Json => serde_json::from_str(value).with_context(|| format!("--{name} takes JSON"))?,
+        };
+        fields.insert(field.name.into(), v);
+    }
+    let path = actions::path(a, &ids)?;
+    let mut body = match body_file {
+        Some(f) => serde_json::from_str(&std::fs::read_to_string(f).with_context(|| format!("read {f}"))?).context("the body file is not valid JSON")?,
+        None => {
+            anyhow::ensure!(a.body_file.is_none(), "{} takes --body-file <file.json> ({})", a.name, a.body_file.unwrap_or_default());
+            for f in a.input.iter().filter(|f| !f.optional) {
+                anyhow::ensure!(fields.contains_key(f.name), "{} needs --{}: {}", a.name, f.name, actions::usage("launchpad", a));
+            }
+            serde_json::Value::Object(Default::default())
+        }
+    };
+    let obj = body.as_object_mut().context("the body file must hold a JSON object")?;
+    obj.extend(fields);
+    if let Some(fixed) = a.fixed {
+        obj.extend(serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(fixed).expect("valid fixed body"));
+    }
+    let body = (a.method != "DELETE").then_some(body);
+    Ok((a, path, body))
+}
+
+async fn do_action(paths: &Paths, action: &str, args: &[String]) -> Result<()> {
+    let (a, path, body) = action_request(action, args)?;
+    let result = Client::new(paths)?.json(a.method, &path, body).await?;
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
 }
 
 fn url_segment(s: &str) -> String {

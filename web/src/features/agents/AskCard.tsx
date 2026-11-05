@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { toastError } from "@/components/Toast";
-import { api } from "@/lib/api";
+import { runAction } from "@/lib/actions";
 import type { Row } from "./rows";
 
 export function AskCard({ row, sessionId, live, hint = "Or type another answer below." }: { row: Pick<Extract<Row, { t: "ask" }>, "request_id" | "questions" | "answers">; sessionId: string; live: boolean; hint?: string }) {
@@ -13,7 +13,7 @@ export function AskCard({ row, sessionId, live, hint = "Or type another answer b
   const send = async (answers: string[]) => {
     setBusy(true);
     try {
-      await api.post(`/api/sessions/${sessionId}/answer`, { request_id: row.request_id, answers });
+      await runAction("session.answer", { id: sessionId }, { request_id: row.request_id, answers });
     } catch (e) {
       toastError(e);
     } finally {

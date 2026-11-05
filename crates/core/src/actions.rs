@@ -1,0 +1,232 @@
+//! The action list: every action that a button, a card, the Launchpad CLI or the admin rules name, defined once
+//! with its API call, its input, its confirmation, its effect and who may run it. The handlers stay in their
+//! crates; `agent_auth::admin_allows` (http), `launchpad_cli::cli_reference`, `launchpad do` (cli) and the UI's
+//! `ActionButton` (through `gen-types`) all read this list.
+use serde::Serialize;
+use ts_rs::TS;
+
+/// What an action does, which decides who may run it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionEffect {
+    /// Checks its input and changes nothing.
+    Checks,
+    /// Changes a Launchpad record (rename, pause, archive, edit a routine).
+    Record,
+    /// Starts agent work (launch, message, run a routine now).
+    Starts,
+    /// Reaches GitHub or other people (merge, publish, post, send, Inbox done): the owner's click only.
+    Outside,
+    /// Money, credentials or the machine: the owner's click only.
+    Machine,
+}
+
+/// Who may run an action directly. Sessions with admin Launchpad CLI access run `Admin` actions; `Owner`
+/// actions need a click in an owner window (or wait as a card).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionAccess {
+    Owner,
+    Admin,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "ActionFieldKind")]
+pub enum FieldKind {
+    Text,
+    Bool,
+    /// Any JSON value (lists, objects).
+    Json,
+}
+
+/// One field of an action's JSON body.
+#[derive(Clone, Copy, Debug, Serialize, TS)]
+#[ts(rename = "ActionField")]
+pub struct Field {
+    pub name: &'static str,
+    pub kind: FieldKind,
+    pub optional: bool,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, TS)]
+pub struct Action {
+    /// `<group>.<verb>`: `launchpad do <name>` and the short verb `launchpad <group> <verb>`.
+    pub name: &'static str,
+    pub method: &'static str,
+    /// The API path, with `{param}` segments filled in order from the positional arguments.
+    pub route: &'static str,
+    /// Button label.
+    pub label: &'static str,
+    /// Sprite icon name (`web/src/components/Icon.tsx`).
+    pub icon: Option<&'static str>,
+    /// One line for the CLI reference and button titles.
+    pub help: &'static str,
+    /// Body fields, from `--<name> <value>` options.
+    pub input: &'static [Field],
+    /// The whole body comes from `--body-file` (what it holds).
+    pub body_file: Option<&'static str>,
+    /// Fixed body fields (a JSON object) merged into the input, such as `{"action": "done"}`.
+    pub fixed: Option<&'static str>,
+    /// What the second click does. `{name}` takes a route parameter or a value the button passes.
+    pub confirm: Option<&'static str>,
+    pub effect: ActionEffect,
+    pub access: ActionAccess,
+    /// The proposal card kind whose acceptance runs this action.
+    pub card: Option<&'static str>,
+    /// The action that undoes this one, when there is one (an action with an undo needs no confirmation).
+    pub undo: Option<&'static str>,
+}
+
+const fn f(name: &'static str, kind: FieldKind) -> Field {
+    Field { name, kind, optional: false }
+}
+const fn opt(name: &'static str, kind: FieldKind) -> Field {
+    Field { name, kind, optional: true }
+}
+
+use ActionAccess::{Admin, Owner};
+use ActionEffect::{Checks, Machine, Outside, Record, Starts};
+use FieldKind::{Bool, Json, Text};
+
+const A: Action = Action { name: "", method: "POST", route: "", label: "", icon: None, help: "", input: &[], body_file: None, fixed: None, confirm: None, effect: Record, access: Admin, card: None, undo: None };
+
+/// Every action. Keep the names stable: the UI and agents use them.
+pub const ACTIONS: &[Action] = &[
+    // Sessions.
+    Action { name: "session.launch", route: "/api/sessions", label: "Launch", icon: Some("play"), help: "Launch an agent", body_file: Some("a launch spec"), effect: Starts, card: Some("launch"), ..A },
+    Action { name: "session.message", route: "/api/sessions/{id}/input", label: "Send", icon: Some("send"), help: "Send a message to an agent session", input: &[f("text", Text)], effect: Starts, card: Some("message"), ..A },
+    Action { name: "session.answer", route: "/api/sessions/{id}/answer", label: "Answer", help: "Answer an agent's open question (request_id from `sessions show`)", input: &[f("request_id", Text), f("answers", Json)], effect: Starts, ..A },
+    Action { name: "session.stop", route: "/api/sessions/{id}/interrupt", label: "Stop", icon: Some("stop"), help: "Stop an agent's turn", ..A },
+    Action { name: "session.archive", route: "/api/sessions/{id}/close", label: "Archive", icon: Some("archive"), help: "Archive an agent session (stops it first)", ..A },
+    Action { name: "session.resume", route: "/api/sessions/{id}/resume", label: "Resume", icon: Some("play"), help: "Resume an interrupted or failed agent", input: &[opt("continue_turn", Bool)], effect: Starts, ..A },
+    Action { name: "session.resume-subscription", route: "/api/sessions/{id}/resume-subscription", label: "Resume on subscription", icon: Some("play"), help: "Resume a quota-paused agent on its subscription", effect: Starts, ..A },
+    Action { name: "session.rename", route: "/api/sessions/{id}/rename", label: "Rename", icon: Some("pencil"), help: "Rename an agent session", input: &[f("title", Text)], ..A },
+    Action { name: "session.model", route: "/api/sessions/{id}/model", label: "Change model", help: "Change an agent's model or effort for its next turns", input: &[opt("model", Text), opt("effort", Text)], ..A },
+    Action { name: "session.permissions", route: "/api/sessions/{id}/permissions", label: "Change permissions", help: "Change an agent's permission mode (yolo, ask or auto)", input: &[f("mode", Text)], ..A },
+    Action { name: "session.follow-up", route: "/api/sessions/{id}/follow-up", label: "Follow up", icon: Some("clock"), help: "Schedule a follow-up message to an agent", input: &[f("message", Text), f("conditions", Json)], effect: Starts, ..A },
+    Action { name: "session.seen", route: "/api/sessions/{id}/seen", label: "Mark seen", icon: Some("eye"), help: "Mark an agent as seen", ..A },
+    Action { name: "session.unread", route: "/api/sessions/{id}/unread", label: "Mark unread", icon: Some("eye"), help: "Mark an agent as unread", ..A },
+    Action { name: "session.resume-paid", route: "/api/sessions/{id}/resume-paid", label: "Resume with paid usage", help: "Resume a quota-paused agent with paid usage", confirm: Some("Continues on paid usage, billed to the profile's account."), effect: Machine, access: Owner, ..A },
+    // Bots.
+    Action { name: "bot.create", route: "/api/bots", label: "Create bot", icon: Some("plus"), help: "Create a bot (it starts nothing)", body_file: Some("{\"workspace_id\", \"name\", \"instructions\", \"profile\", \"folder\"}"), card: Some("bot"), ..A },
+    Action { name: "bot.update", method: "PATCH", route: "/api/bots/{id}", label: "Save", help: "Change a bot's settings or its BOT.md", body_file: Some("{\"settings\": …} or {\"instructions\": \"<whole BOT.md>\"}"), card: Some("bot_instructions"), ..A },
+    Action { name: "bot.delete", method: "DELETE", route: "/api/bots/{id}", label: "Delete bot", icon: Some("trash"), help: "Delete a bot and its routines", confirm: Some("Deletes the bot and its routines. Its sessions stay in Agents."), ..A },
+    Action { name: "bot.message", route: "/api/bots/{id}/message", label: "Send", icon: Some("send"), help: "Send a message to a bot's thread", input: &[f("text", Text), opt("new_session", Bool)], effect: Starts, ..A },
+    Action { name: "bot.pause", route: "/api/bots/{id}/pause", label: "Pause", help: "Pause or resume a bot (and its routines and hooks)", input: &[f("paused", Bool)], ..A },
+    Action { name: "bot.restore", route: "/api/bots/{id}/restore/{change}", label: "Restore", icon: Some("refresh"), help: "Restore an earlier version of a bot's files", ..A },
+    Action { name: "bot.add-routine", route: "/api/bots/{id}/routines", label: "Add routine", icon: Some("plus"), help: "Add a routine to a bot", body_file: Some("{\"title\", \"instructions\", \"trigger\", \"schedule\", \"conditions\"}"), card: Some("routine"), ..A },
+    // Routines and scheduled launches.
+    Action { name: "routine.create", route: "/api/launch/crons", label: "Create routine", icon: Some("clock"), help: "Create a routine that launches a spec", body_file: Some("{\"spec\": <launch spec>, \"schedule\", \"conditions\", \"trigger\", \"title\"}"), card: Some("cron"), ..A },
+    Action { name: "routine.update", method: "PATCH", route: "/api/launch/crons/{id}", label: "Save", help: "Change a routine (schedule, conditions, paused, title, instructions)", body_file: Some("the fields to change"), ..A },
+    Action { name: "routine.delete", method: "DELETE", route: "/api/launch/crons/{id}", label: "Delete", icon: Some("trash"), help: "Delete a routine", confirm: Some("Deletes the routine. Its past runs stay in Agents."), ..A },
+    Action { name: "routine.run", route: "/api/launch/crons/{id}/run", label: "Run now", icon: Some("play"), help: "Run a routine now", effect: Starts, ..A },
+    Action { name: "schedule.create", route: "/api/launch/schedules", label: "Schedule", icon: Some("clock"), help: "Schedule a launch", body_file: Some("{\"spec\": <launch spec>, \"conditions\": […]}"), effect: Starts, card: Some("schedule"), ..A },
+    Action { name: "schedule.cancel", method: "DELETE", route: "/api/launch/schedules/{id}", label: "Cancel", icon: Some("x"), help: "Cancel a scheduled launch", confirm: Some("Cancels this scheduled launch."), ..A },
+    Action { name: "schedule.start", route: "/api/launch/schedules/{id}/start", label: "Start now", icon: Some("play"), help: "Start a scheduled launch now", effect: Starts, ..A },
+    Action { name: "launch.check", route: "/api/launch/preview", label: "Check", help: "Check a launch spec without starting it", body_file: Some("a launch spec"), effect: Checks, ..A },
+    // Proposals.
+    Action { name: "proposal.start", route: "/api/proposals/{id}/accept", label: "Start", icon: Some("play"), help: "Start a card (you may start a card only when you could run its action directly)", effect: Starts, ..A },
+    Action { name: "proposal.dismiss", route: "/api/proposals/{id}/dismiss", label: "Dismiss", icon: Some("x"), help: "Dismiss a card", ..A },
+    Action { name: "proposal.recheck", route: "/api/proposals/{id}/recheck", label: "Check again", icon: Some("refresh"), help: "Validate a card again", effect: Checks, ..A },
+    // Workspaces and tools.
+    Action { name: "workspace.create", route: "/api/workspaces", label: "New workspace", icon: Some("plus"), help: "Create a workspace", input: &[f("name", Text)], ..A },
+    Action { name: "workspace.rename", method: "PATCH", route: "/api/workspaces/{id}", label: "Rename", icon: Some("pencil"), help: "Rename a workspace", input: &[f("name", Text)], ..A },
+    Action { name: "workspace.delete", method: "DELETE", route: "/api/workspaces/{id}", label: "Delete workspace", icon: Some("trash"), help: "Delete an empty workspace (not the last one)", confirm: Some("Deletes the empty workspace {name}."), ..A },
+    Action { name: "mcp.tool", method: "PUT", route: "/api/mcp/{id}/tools/{tool}", label: "Switch", help: "Switch one tool of an MCP server on or off", input: &[f("on", Bool)], ..A },
+    // The owner's clicks: GitHub, other people, config.toml, credentials and money.
+    Action { name: "worktree.merge", route: "/api/worktrees/{id}/merge", label: "Merge", icon: Some("branch"), help: "Merge an agent's branch into its base branch", confirm: Some("Home pushes {branch} to {base} on the folder's remote, then fast-forwards {base} on Home. If {base} moved, the agent rebases first."), effect: Outside, access: Owner, ..A },
+    Action { name: "local-pr.publish", route: "/api/predrafts/{id}/publish", label: "Publish", icon: Some("pr"), help: "Publish a Local PR to GitHub", input: &[f("remote_branch", Text), f("draft", Bool), f("head", Text), opt("fork", Bool)], confirm: Some("Home pushes the reviewed commit and opens the pull request on GitHub."), effect: Outside, access: Owner, ..A },
+    Action { name: "local-pr.merge", route: "/api/predrafts/{id}/merge-local", label: "Merge", icon: Some("branch"), help: "Merge a Local PR into its base branch", input: &[f("head", Text)], confirm: Some("Home pushes the reviewed commit to {base} on the folder's remote, then fast-forwards {base} on Home; if the remote refuses the push, nothing is merged."), effect: Outside, access: Owner, ..A },
+    Action { name: "suggestion.post", route: "/api/suggestions/{id}/post", label: "Post", icon: Some("comment"), help: "Post an agent's suggested comment or review to GitHub", confirm: Some("Posts this text to GitHub as you."), effect: Outside, access: Owner, ..A },
+    Action { name: "suggestion.discard", method: "DELETE", route: "/api/suggestions/{id}", label: "Discard", help: "Discard a suggestion", confirm: Some("Deletes the local suggestion."), access: Owner, ..A },
+    Action { name: "outbox.send", route: "/api/outbox/{id}/send", label: "Send", icon: Some("send"), help: "Send an Outbox message", confirm: Some("Sends this message to {channel} now."), effect: Outside, access: Owner, ..A },
+    Action { name: "outbox.discard", route: "/api/outbox/{id}/discard", label: "Discard", help: "Discard an Outbox message", confirm: Some("Moves the draft to Discarded."), access: Owner, ..A },
+    Action { name: "inbox.done", route: "/api/inbox/{id}/action", label: "Done", icon: Some("check"), help: "Mark an Inbox thread done, here and on GitHub", fixed: Some("{\"action\": \"done\"}"), effect: Outside, access: Owner, undo: Some("inbox.restore"), ..A },
+    Action { name: "inbox.restore", route: "/api/inbox/restore", label: "Restore", icon: Some("refresh"), help: "Bring Inbox threads marked done back", input: &[f("ids", Json)], access: Owner, ..A },
+    Action { name: "preset.save", method: "PATCH", route: "/api/config", label: "Save preset", icon: Some("preset"), help: "Create or update a prompt preset in config.toml", access: Owner, card: Some("preset"), ..A },
+    Action { name: "tool.save", method: "PUT", route: "/api/vault/tools/{id}", label: "Add tool", help: "Add a tool to Home's registry", effect: Machine, access: Owner, card: Some("tool"), ..A },
+];
+
+pub fn get(name: &str) -> Option<&'static Action> {
+    ACTIONS.iter().find(|a| a.name == name)
+}
+
+/// The action a card kind runs when it is accepted.
+pub fn for_card(kind: &str) -> Option<&'static Action> {
+    ACTIONS.iter().find(|a| a.card == Some(kind))
+}
+
+/// The action a request runs (path without its query).
+pub fn find(method: &str, path: &str) -> Option<&'static Action> {
+    let p: Vec<&str> = path.trim_end_matches('/').split('/').collect();
+    ACTIONS.iter().find(|a| {
+        let r: Vec<&str> = a.route.split('/').collect();
+        a.method.eq_ignore_ascii_case(method)
+            && r.len() == p.len()
+            && r.iter().zip(&p).all(|(r, p)| if r.starts_with('{') { !p.is_empty() } else { r == p })
+    })
+}
+
+/// The route's `{param}` names, in order.
+pub fn params(a: &Action) -> Vec<&'static str> {
+    a.route.split('/').filter_map(|s| s.strip_prefix('{')?.strip_suffix('}')).collect()
+}
+
+/// The route with its parameters filled in order (each one a single path segment).
+pub fn path(a: &Action, args: &[&str]) -> anyhow::Result<String> {
+    let names = params(a);
+    anyhow::ensure!(args.len() == names.len(), "{} takes {}", a.name, usage_args(a));
+    let mut it = args.iter();
+    let mut out = String::new();
+    for seg in a.route.split('/').skip(1) {
+        out.push('/');
+        if seg.starts_with('{') {
+            let v = it.next().expect("counted");
+            anyhow::ensure!(!v.is_empty() && !v.contains('/'), "{v:?} is not an id");
+            out.push_str(&encode(v));
+        } else {
+            out.push_str(seg);
+        }
+    }
+    Ok(out)
+}
+
+fn encode(s: &str) -> String {
+    s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+}
+
+fn usage_args(a: &Action) -> String {
+    let p = params(a);
+    if p.is_empty() { "no argument".into() } else { p.iter().map(|n| format!("<{n}>")).collect::<Vec<_>>().join(" ") }
+}
+
+/// The action's CLI usage: `<cli> <group> <verb> <id> --text <text> [--effort <text>]`.
+pub fn usage(cli: &str, a: &Action) -> String {
+    let (group, verb) = a.name.split_once('.').unwrap_or((a.name, ""));
+    let mut out = format!("{cli} {group} {verb}");
+    for p in params(a) {
+        out.push_str(&format!(" <{p}>"));
+    }
+    for fl in a.input {
+        let v = match fl.kind { Text => "text", Bool => "true|false", Json => "json" };
+        out.push_str(&if fl.optional { format!(" [--{} <{v}>]", fl.name) } else { format!(" --{} <{v}>", fl.name) });
+    }
+    if a.body_file.is_some() {
+        out.push_str(" --body-file <file.json>");
+    }
+    out
+}
+
+/// The TypeScript list for the UI's `ActionButton` (`web/src/gen/actions.ts`).
+pub fn typescript() -> String {
+    let names: Vec<String> = ACTIONS.iter().map(|a| format!("{:?}", a.name)).collect();
+    let mut out = String::from("// Generated by `launchpad gen-types` from crates/core/src/actions.rs. Do not edit.\nimport type { Action } from \"./Action\";\n\n");
+    out.push_str(&format!("export type ActionName =\n  | {};\n\n", names.join("\n  | ")));
+    out.push_str("export const ACTIONS: Record<ActionName, Action> = {\n");
+    for a in ACTIONS {
+        out.push_str(&format!("  {:?}: {},\n", a.name, serde_json::to_string(a).expect("serializable")));
+    }
+    out.push_str("};\n");
+    out
+}

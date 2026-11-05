@@ -10,7 +10,8 @@ import type { OutboxMessage } from "@/gen/OutboxMessage";
 import type { Suggestion } from "@/gen/Suggestion";
 import { Icon } from "@/components/Icon";
 import { toast } from "@/components/Toast";
-import { Badge, ConfirmButton, Empty, ErrorState, Loading, PageHeader, Tabs, Token } from "@/components/ui";
+import { ActionButton } from "@/components/ActionButton";
+import { Badge, Empty, ErrorState, Loading, PageHeader, Tabs, Token } from "@/components/ui";
 import { SuggestionCard } from "@/features/suggestions/Suggestions";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
@@ -107,16 +108,16 @@ const MessageCard = memo(function MessageCard({ m }: { m: OutboxMessage }) {
   const draft = m.status === "draft";
   const edited = body !== m.body || title !== (m.title ?? "");
   const refresh = () => qc.invalidateQueries({ queryKey: ["outbox"] });
-  const run = async (action: "save" | "send" | "discard" | "mark-sent") => {
+  const save = async () => { if (edited) await api.patch(`/api/outbox/${m.id}`, { body, title: title.trim() || null }); };
+  const run = async (action: "save" | "mark-sent") => {
     setBusy(true); setError(null);
     try {
-      if (edited && (action === "save" || action === "send")) await api.patch(`/api/outbox/${m.id}`, { body, title: title.trim() || null });
-      if (action === "send") { await api.post(`/api/outbox/${m.id}/send`); toast(`Sent to ${m.channel}`); }
-      if (action === "discard") { await api.post(`/api/outbox/${m.id}/discard`); toast("Message discarded"); }
+      if (action === "save") await save();
       if (action === "mark-sent") await api.post(`/api/outbox/${m.id}/mark-sent`);
     } catch (e) { setError(e); }
     finally { setBusy(false); void refresh(); }
   };
+  const failed = (e: unknown) => { setError(e); void refresh(); };
   const uncertain = m.status === "uncertain" || m.status === "sending";
   return (
     <article className="rounded-lg border border-line bg-paper p-4" data-tour="outbox.card">
@@ -143,12 +144,12 @@ const MessageCard = memo(function MessageCard({ m }: { m: OutboxMessage }) {
       {!!error && <ErrorState className="mt-2" error={error} />}
       <div className={`mt-3 flex flex-wrap items-center gap-2 ${phone ? "[&_.btn]:min-h-11" : ""}`}>
         {draft && <>
-          <ConfirmButton tone="publish" disabled={busy || !body.trim()} consequence={`Sends this message to ${m.channel} now.`} confirmLabel={<><Icon name="send" size={12} />Send now</>} onConfirm={() => run("send")}><Icon name="send" size={12} />Send</ConfirmButton>
+          <ActionButton name="outbox.send" params={{ id: m.id }} vars={{ channel: m.channel }} disabled={busy || !body.trim()} confirmLabel="Send now" before={() => { setError(null); return save(); }} onDone={() => { toast(`Sent to ${m.channel}`); void refresh(); }} onError={failed} />
           {edited && <button className="btn btn-sm" disabled={busy || !body.trim()} onClick={() => void run("save")}>Save edit</button>}
           {edited && <button className="btn btn-sm" disabled={busy} onClick={() => { setBody(m.body); setTitle(m.title ?? ""); }}>Cancel edit</button>}
         </>}
         {m.status === "uncertain" && <button className="btn btn-sm" disabled={busy} title="You found the message at its destination" onClick={() => void run("mark-sent")}><Icon name="check" size={12} />It arrived</button>}
-        {(draft || m.status === "uncertain") && <ConfirmButton disabled={busy} consequence={m.status === "uncertain" ? "Check the destination first: it may already be there." : "Moves the draft to Discarded."} confirmLabel="Discard" onConfirm={() => run("discard")}>Discard</ConfirmButton>}
+        {(draft || m.status === "uncertain") && <ActionButton name="outbox.discard" params={{ id: m.id }} disabled={busy} title={m.status === "uncertain" ? "Check the destination first: it may already be there." : undefined} onDone={() => { toast("Message discarded"); void refresh(); }} onError={failed} />}
       </div>
     </article>
   );

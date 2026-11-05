@@ -32,6 +32,7 @@ import { toastError } from "@/components/Toast";
 import { useHarnesses } from "@/components/HarnessMark";
 import { useQuotas } from "@/lib/profiles";
 import { usePhone } from "@/lib/phone";
+import { runAction } from "@/lib/actions";
 
 /** Statuses whose badge tells more than the group heading. */
 const informative = (s: Session) => s.open_question || s.status === "error" || s.status === "interrupted" || s.status === "quota_paused";
@@ -46,7 +47,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
     setActing(true);
     try {
       if (unread) onMarkUnread();
-      await api.post(`/api/sessions/${s.id}/${unread ? "unread" : stop ? "interrupt" : "close"}`);
+      await runAction(unread ? "session.unread" : stop ? "session.stop" : "session.archive", { id: s.id });
     }
     catch (e) { toastError(e); }
     finally { setActing(false); }

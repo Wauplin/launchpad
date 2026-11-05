@@ -8,13 +8,11 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader } from "@/components/ui";
-import { api } from "@/lib/api";
-import { browserZone } from "@/lib/routines";
 import { usePhone } from "@/lib/phone";
 import { useScope } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
 import { isWaiting, visibleProposals } from "./proposalState";
-import { ProposalCard, useProposalList } from "./ProposalCard";
+import { ProposalCard, runProposalAction, useProposalList } from "./ProposalCard";
 import type { Proposal } from "@/gen/Proposal";
 
 const KIND: Record<Proposal["body"]["kind"], [string, string]> = {
@@ -51,8 +49,7 @@ export function ProposalList({ proposals, reveal = null, empty }: { proposals: P
     setBusy(true);
     try {
       for (const p of cards) {
-        // A routine or cron keeps the time zone of the browser that accepts it.
-        try { await api.post(`/api/proposals/${p.id}/${action}${action === "accept" ? `?time_zone=${encodeURIComponent(browserZone())}` : ""}`); }
+        try { await runProposalAction(p.id, action); }
         catch (e) { toastError(e); }
       }
       await Promise.all([qc.invalidateQueries({ queryKey: ["proposals"] }), qc.invalidateQueries({ queryKey: ["sessions"] })]);

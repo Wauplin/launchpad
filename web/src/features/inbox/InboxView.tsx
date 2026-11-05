@@ -16,6 +16,7 @@ import type { Suggestion } from "@/gen/Suggestion";
 import { Markdown } from "@/components/Markdown";
 import { MenuItem, Popover } from "@/components/Popover";
 import { Icon } from "@/components/Icon";
+import { runAction } from "@/lib/actions";
 import { toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader } from "@/components/ui";
 import { LaunchButton } from "@/features/launch/LaunchButton";
@@ -43,7 +44,7 @@ export function useInboxAction() {
   const qc = useQueryClient();
   return useMutation({
     mutationKey: ["inbox-action"],
-    mutationFn: ({ id, action }: Action) => api.post(`/api/inbox/${id}/action`, { action }),
+    mutationFn: ({ id, action }: Action) => action === "done" ? runAction("inbox.done", { id }) : api.post(`/api/inbox/${id}/action`, { action }),
     onMutate: async ({ id, action }) => {
       await qc.cancelQueries({ queryKey: ["inbox"] });
       const prior = qc.getQueryData<InboxSnapshot>(["inbox"])?.threads.find((t) => t.id === id);

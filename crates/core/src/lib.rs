@@ -1,5 +1,6 @@
 //! Domain types and services of the Launchpad daemon.
 
+pub mod actions;
 pub mod ask_bot;
 pub mod self_update;
 pub mod attachments;
@@ -249,6 +250,8 @@ pub fn types_config(out: &std::path::Path) -> Result<ts_rs::Config> {
 /// Writes the TypeScript versions of this crate's types shared with the UI (ts-rs).
 pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     use ts_rs::TS;
+    actions::Action::export_all(cfg)?;
+    std::fs::write(cfg.out_dir().join("actions.ts"), actions::typescript())?;
     predrafts::Predraft::export_all(cfg)?;
     config::Config::export_all(cfg)?;
     burst::BurstOverview::export_all(cfg)?;

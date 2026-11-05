@@ -50,9 +50,10 @@ import { PresetButton, PresetChips, usePresets } from "./MessagePresets";
 import { EMPTY_CONTEXT, hasMessageContext, MessageContextPicker } from "./MessageContext";
 import { PromptField } from "@/features/launch/PromptField";
 import { withPresets } from "@/lib/presets";
+import { runAction } from "@/lib/actions";
 
-function act(id: string, action: string) {
-  return api.post(`/api/sessions/${id}/${action}`).catch(toastError);
+function act(id: string, action: "session.archive" | "session.stop" | "session.resume" | "session.unread") {
+  return runAction(action, { id }).catch(toastError);
 }
 
 type PendingAsk = { request_id: string; count: number; permission: boolean } | null;
@@ -322,7 +323,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false, emb
   const gitUnknown = !changed && !gitLoading && (history.isError || (git.isError && failed(git.error)));
   const showChanges = (main: boolean) => { setGitMain(main); setView("changes"); };
   const onlyMain = (git.data?.files.length ?? 0) === 0 && mainChanges > 0;
-  const archive = () => void act(s.id, "close");
+  const archive = () => void act(s.id, "session.archive");
   const quotaPaused = s.status === "quota_paused";
   const quotaMessageBlocked = quotaPaused && !["pausing", "paused", "provider_limited"].includes(s.quota_pause?.phase ?? "");
   const placeholder = quotaPaused
@@ -339,18 +340,18 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false, emb
 
   // The one primary action, depending on the state.
   const primary = s.imported_from ? <FollowUpAgent session={s} /> : running || s.status === "quota_paused" ? (
-    <button className="btn btn-sm border-gh-closed! bg-danger! text-white!" title={s.status === "quota_paused" ? "Stop: cancel automatic continuation" : "Stop: interrupt the agent"} onClick={() => void act(s.id, "interrupt")}>
+    <button className="btn btn-sm border-gh-closed! bg-danger! text-white!" title={s.status === "quota_paused" ? "Stop: cancel automatic continuation" : "Stop: interrupt the agent"} onClick={() => void act(s.id, "session.stop")}>
       <Icon name="stop" size={12} />Stop
     </button>
   ) : s.status === "in_terminal" ? (
     tui && reattaching ? <>
       <button className="btn btn-sm btn-primary" onClick={() => { setReattaching(false); void api.post(`/api/sessions/${s.id}/resume`, { close_terminal: true }).catch(toastError); }}>Close the TUI and re-attach</button>
       <button className="btn btn-sm" onClick={() => setReattaching(false)}>Cancel</button>
-    </> : <button className="btn btn-sm btn-primary" title="Continue this session in Launchpad" onClick={() => (tui ? setReattaching(true) : void act(s.id, "resume"))}>Re-attach</button>
+    </> : <button className="btn btn-sm btn-primary" title="Continue this session in Launchpad" onClick={() => (tui ? setReattaching(true) : void act(s.id, "session.resume"))}>Re-attach</button>
   ) : s.status === "waiting" && s.open_question ? (
     <>
       <button className="btn btn-sm btn-primary" title={ask?.permission ? "Review the requested operation" : "Show the question and focus the message box"} onClick={() => { setExpanded(false); setView("trace"); setAnswering((n) => n + 1); }}>{ask?.permission ? "Review approval" : "Answer"}</button>
-      {s.live && <button className="iconbtn text-danger" title="Stop the agent while it waits for your decision" aria-label="Stop agent" onClick={() => void act(s.id, "interrupt")}><Icon name="stop" size={14} /></button>}
+      {s.live && <button className="iconbtn text-danger" title="Stop the agent while it waits for your decision" aria-label="Stop agent" onClick={() => void act(s.id, "session.stop")}><Icon name="stop" size={14} /></button>}
     </>
   ) : s.status === "waiting" ? (
     // Work not merged yet (uncommitted, or commits that differ from main) comes before Archive.
@@ -360,7 +361,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false, emb
         ? <button className="btn btn-sm btn-primary" title="Git state unknown: check the worktree and its branch before archiving" onClick={() => setView("summary")}>Review work</button>
         : gitLoading ? null : <button className="btn btn-sm btn-primary" title="Archive the session (it stays resumable)" onClick={archive}><Icon name="archive" size={12} />Archive</button>
   ) : resumable ? (
-    <button className="btn btn-sm btn-primary" title={s.status === "closed" ? "Re-attach this archived session; send its original task if it never started" : "Continue the unfinished task"} onClick={() => { void (s.status === "closed" ? act(s.id, "resume") : api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }).catch(toastError)); setView("trace"); }}>Resume</button>
+    <button className="btn btn-sm btn-primary" title={s.status === "closed" ? "Re-attach this archived session; send its original task if it never started" : "Continue the unfinished task"} onClick={() => { void (s.status === "closed" ? act(s.id, "session.resume") : api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }).catch(toastError)); setView("trace"); }}>Resume</button>
   ) : null;
   const archivePrimary = s.status === "waiting" && !s.open_question && !changed && !gitUnknown && !gitLoading;
 
@@ -440,7 +441,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false, emb
             <Popover viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={phone ? "iconbtn" : "btn btn-sm"} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}>{phone ? <Icon name="more" size={20} /> : <>More<Icon name="chev" size={12} /></>}</button>}>
               {(close) => <>
                 {!phone && !s.imported_from && !running && s.status !== "in_terminal" && <span className="contents @min-[640px]:hidden"><MenuItem icon={<Icon name="agents" size={14} />} label="New agent here" detail="A separate agent in the same folder, with this trace as context" onClick={() => { close(); useComposer.getState().followUpFrom(s); }} /></span>}
-                {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Needs you for later" onClick={() => { close(); onClear(); void act(s.id, "unread"); }} />}
+                {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Needs you for later" onClick={() => { close(); onClear(); void act(s.id, "session.unread"); }} />}
                 {phone && <>
                   <MenuItem label="Session details" detail="Branch, usage and New agent here" onClick={() => { close(); setDetailsOpen(true); }} />
                   {terminalsHere && !(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder (the checkout when its worktree is gone)" onClick={() => { close(); void openTerminal.folder(s.cwd); }} />}
