@@ -27,9 +27,9 @@ export const folders: Chapter = {
       body: "The workspace name opens its menu: rename it, open it in a new window, open its settings, or create another workspace. There is always one workspace: the last one cannot be deleted.",
     },
     {
-      id: "folders.add", route: "/projects", anchor: "sidebar.add-folder",
+      id: "folders.add", route: "/projects", anchor: "folders.add",
       title: "Add folder",
-      body: "Register a folder you work in, in one workspace: Git repositories of your folders root are suggested, any folder can be browsed, and Clone from GitHub clones one. On SSH machines too.",
+      body: "Folders in the sidebar lists the folders of the workspace. Add folder registers one you work in: Git repositories of your folders root are suggested, any folder can be browsed, and Clone from GitHub clones one. On SSH machines too.",
     },
     {
       id: "folders.knowledge", route: "/knowledge", anchor: "knowledge.notes",

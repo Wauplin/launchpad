@@ -5,20 +5,15 @@ import { botInitial, botState, botThread, useBots } from "@/lib/bots";
 import type { Bot } from "@/gen/Bot";
 import { useScope } from "@/lib/workspace";
 import { WorkspaceMenu } from "@/features/workspaces/WorkspaceMenu";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { memo, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { Link } from "@tanstack/react-router";
+import { memo, type ReactNode } from "react";
 import type { Project } from "@/gen/Project";
 import { isRunning, isQuotaPaused, needsYou } from "@/lib/sessionStatus";
 import type { Session } from "@/gen/Session";
 import { Icon, type IconName } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
-import { formatAge } from "@/lib/format";
 import { useSessions } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
-import { useComposer } from "@/stores/composer";
-import { useOpenTerminal, useTerminalsHere } from "@/features/terminals/lib";
-import { useAddFolder } from "@/features/projects/addFolderStore";
 import { useSetupSummary } from "@/features/setup/summary";
 import { useOnboarding, usePatchOnboarding } from "@/onboarding/data";
 import { useSidebar, type SidebarGroup } from "@/stores/sidebar";
@@ -39,12 +34,8 @@ function NavItem({ to, icon, children, end, tour }: { to: string; icon: IconName
   );
 }
 
-export function SideLabel({ children, end }: { children: ReactNode; end?: ReactNode }) {
-  return <div className="flex min-h-[28px] items-center gap-1 px-[9px] pt-3 pb-0.5"><span className="seclabel min-w-0 flex-1 truncate">{children}</span>{end}</div>;
-}
-
 /**
- * A collapsible group of the sidebar (Bots, Folders): the chevron in the icon column shows or hides its rows
+ * A collapsible group of the sidebar (Bots): the chevron in the icon column shows or hides its rows
  * (remembered on this device), the label opens its page. `end` shows while it is collapsed (counts, state dots).
  */
 function Group({ id, to, label, end, actions, tour, children }: { id: SidebarGroup; to: string; label: string; end?: ReactNode; actions?: ReactNode; tour?: string; children: ReactNode }) {
@@ -68,10 +59,8 @@ function Group({ id, to, label, end, actions, tour, children }: { id: SidebarGro
 }
 
 const inProject = (p: Project, s: Session) => s.project_id === p.id || s.cwd === p.path || s.cwd.startsWith(p.path + "/");
-/** Needs you, quota paused or running: the states the sidebar marks. */
-const active = (s: Session) => needsYou(s) || isQuotaPaused(s) || isRunning(s);
 
-/** State dots of a set of sessions: needs you, quota paused, running. */
+/** State dots of a set of sessions (Folders): needs you, quota paused, running. */
 function RunDots({ sessions }: { sessions: Session[] }) {
   return <span className="flex items-center gap-1.5">
     {sessions.some(needsYou) && <span className="size-[7px] rounded-full bg-attn" title="Needs you" />}
@@ -79,41 +68,6 @@ function RunDots({ sessions }: { sessions: Session[] }) {
     {sessions.some(isRunning) && <span className="lp-spin" title="Running" />}
   </span>;
 }
-
-function RunDot({ p, sessions }: { p: Project; sessions: Session[] }) {
-  return <RunDots sessions={sessions.filter((s) => inProject(p, s))} />;
-}
-
-const ROW = 28;
-
-/** A folder row: the link, its state dots, and quick actions on hover or focus (always visible on touch): Files · Terminal · Launch. */
-const FolderLink = memo(function FolderLink({ p, sessions }: { p: Project; sessions: Session[] }) {
-  const navigate = useNavigate();
-  const terminal = useOpenTerminal();
-  const terminalsHere = useTerminalsHere();
-  const start = useComposer((s) => s.start);
-  const name = p.is_temp ? p.name.replace(/^tmp-\d{4}-/, "") || p.name : p.name;
-  return (
-    <div className="group/folder relative flex h-[28px] flex-none items-center rounded-md hover:bg-sunk focus-within:bg-sunk">
-      <Link
-        to="/projects/$id"
-        params={{ id: p.id }}
-        className={`flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-[9px] no-underline ${p.is_temp ? "text-[12px] text-ink-2" : "text-[13px] text-ink"}`}
-        activeProps={{ className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)]" }}
-        activeOptions={{ exact: true }}
-        title={p.is_temp ? `${p.name} · created ${formatAge(p.created_at)} ago` : p.path}
-      >
-        <span className="min-w-0 truncate">{name}</span>
-        <span className="ml-auto group-hover/folder:hidden group-focus-within/folder:hidden [@media(hover:none)]:hidden"><RunDot p={p} sessions={sessions} /></span>
-      </Link>
-      <span className="absolute right-0.5 hidden items-center group-hover/folder:flex group-focus-within/folder:flex [@media(hover:none)]:static [@media(hover:none)]:flex">
-        <button className="iconbtn size-[22px]!" title={`Files of ${name}`} aria-label={`Files of ${name}`} onClick={() => void navigate({ to: "/projects/$id/code", params: { id: p.id } })}><Icon name="folder" size={13} /></button>
-        {terminalsHere && <button className="iconbtn size-[22px]!" title={`Terminal in ${name}`} aria-label={`Terminal in ${name}`} onClick={() => void terminal.shell(p.path)}><Icon name="term" size={13} /></button>}
-        <button className="iconbtn size-[22px]!" title={`Launch an agent in ${name}`} aria-label={`Launch an agent in ${name}`} onClick={() => start({ projectId: p.id })}><Icon name="play" size={13} /></button>
-      </span>
-    </div>
-  );
-});
 
 /** "Finish setup · N left" until the required setup items pass or the owner dismisses it. */
 function FinishSetup() {
@@ -127,20 +81,6 @@ function FinishSetup() {
         <NavItem to="/setup" icon="check" end={<span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold whitespace-nowrap text-attn tabular-nums">{left} left</span>}><span className="whitespace-nowrap">Finish setup</span></NavItem>
       </div>
       <button type="button" className="iconbtn size-[22px]!" title="Hide Finish setup (the checklist stays in Settings → Onboarding)" aria-label="Hide Finish setup" onClick={() => void patch({ dismiss: ["setup"] }).catch(toastError)}><Icon name="x" size={12} /></button>
-    </div>
-  );
-}
-
-/** Folders of the workspace, virtualized against the sidebar's scroll area with fixed row heights. */
-function FolderList({ folders, sessions, scroller }: { folders: Project[]; sessions: Session[]; scroller: RefObject<HTMLDivElement | null> }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [margin, setMargin] = useState(0);
-  // The list's offset in the scroll area moves when a group above it opens or closes.
-  useLayoutEffect(() => { const top = ref.current?.offsetTop ?? 0; if (top !== margin) setMargin(top); });
-  const v = useVirtualizer({ count: folders.length, getScrollElement: () => scroller.current, estimateSize: () => ROW, overscan: 6, scrollMargin: margin, useFlushSync: false });
-  return (
-    <div ref={ref} className="relative flex-none" style={{ height: v.getTotalSize() }}>
-      {v.getVirtualItems().map((it) => <div key={folders[it.index].id} className="absolute inset-x-0" style={{ top: it.start - margin, height: ROW }}><FolderLink p={folders[it.index]} sessions={sessions} /></div>)}
     </div>
   );
 }
@@ -192,23 +132,15 @@ export function Sidebar() {
   const today = useTodayCount();
   const knowledgeNew = useKnowledgeUnseen();
   const scope = useScope();
-  const showAdd = useAddFolder((s) => s.show);
   const projects = scope.projects;
   const sessions = (useSessions().data ?? []).filter(scope.hasSession);
-  const [allTemp, setAllTemp] = useState(false);
   const running = sessions.filter(isRunning).length;
   const quotaPaused = sessions.filter(isQuotaPaused).length;
-  const folders = projects.filter((p) => !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
-  const temp = projects.filter((p) => p.is_temp).sort((a, b) => b.created_at - a.created_at);
-  // Temporary folders: only those with agents that need you, run or wait for quota, unless expanded.
-  const tempActive = temp.filter((p) => sessions.some((s) => inProject(p, s) && active(s)));
-  const shownTemp = allTemp ? temp : tempActive;
-  const scroller = useRef<HTMLDivElement>(null);
   return (
     <aside className="flex w-[200px] flex-none flex-col border-r border-line bg-chrome">
       {/* One scroll area for the groups; Settings stays at the bottom. */}
       <WorkspaceMenu />
-      <div ref={scroller} className="relative flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-2 pt-2.5 pb-2">
+      <div className="relative flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-2 pt-2.5 pb-2">
       <BotList sessions={sessions} />
       <nav aria-label="Places" data-tour="sidebar.nav" className="mt-2 flex flex-none flex-col gap-px border-t border-line-2 pt-2">
       <NavItem tour="sidebar.today" to="/" icon="okcircle" end={today > 0 ? <span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold text-attn tabular-nums" title={`${today} decisions wait: questions, finished agents, proposals, drafts to send and reviews`} aria-label={`${today} waiting`}>{today}</span> : undefined}>
@@ -226,21 +158,9 @@ export function Sidebar() {
       <NavItem tour="sidebar.knowledge" to="/knowledge" icon="book" end={knowledgeNew > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${knowledgeNew} changes by agents since your last look`}>{knowledgeNew}</span> : undefined}>
         Knowledge
       </NavItem>
-      <Group id="folders" to="/projects" label="Folders" tour="sidebar.folders" end={<RunDots sessions={sessions.filter((s) => projects.some((p) => inProject(p, s)))} />} actions={
-        <button className="iconbtn size-[22px]!" title={`Add folders to ${scope.workspace.name}`} aria-label="Add folders" data-tour="sidebar.add-folder" onClick={() => showAdd()}><Icon name="plus" size={13} /></button>
-      }>
-        {folders.length === 0 && <button className="mx-[9px] my-1 text-left text-[12px] text-teal-ink hover:underline" onClick={() => showAdd()}>+ Add folder</button>}
-        <FolderList folders={folders} sessions={sessions} scroller={scroller} />
-        {temp.length > 0 && <SideLabel>{allTemp ? "Temporary folders" : "Temporary · active"}</SideLabel>}
-        {shownTemp.map((p) => (
-          <FolderLink key={p.id} p={p} sessions={sessions} />
-        ))}
-        {temp.length > tempActive.length && (
-          <button className="h-[25px] flex-none rounded-md px-[9px] text-left text-[12px] text-ink-3 hover:bg-sunk" aria-expanded={allTemp} onClick={() => setAllTemp(!allTemp)}>
-            {allTemp ? "Show only folders with agents" : `+ ${temp.length - tempActive.length} more temporary ${temp.length - tempActive.length === 1 ? "folder" : "folders"}`}
-          </button>
-        )}
-      </Group>
+      <NavItem tour="sidebar.folders" to="/projects" icon="folder" end={<RunDots sessions={sessions.filter((s) => projects.some((p) => inProject(p, s)))} />}>
+        Folders
+      </NavItem>
       </nav>
       </div>
       <div className="flex-none border-t border-line-2 px-2 pt-1.5 pb-2.5">

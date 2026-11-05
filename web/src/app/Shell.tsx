@@ -1,4 +1,4 @@
-import { Outlet } from "@tanstack/react-router";
+import { Outlet, useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { IconSprite } from "@/components/Icon";
@@ -9,6 +9,7 @@ import { useLayoutEffect } from "react";
 import { useZoomScale } from "@/lib/zoom";
 import { useWorkspaceSync } from "@/lib/workspace";
 import { Sidebar } from "./Sidebar";
+import { inSettings, SettingsSidebar, useRememberPlace } from "./SettingsSidebar";
 import { WorkspaceRail } from "@/features/workspaces/Rail";
 import { NoWorkspace } from "@/features/workspaces/WorkspaceMenu";
 import { StatusBar } from "./StatusBar";
@@ -56,6 +57,9 @@ export function Shell() {
   }, [scale]);
   const { empty } = useWorkspaceSync();
   useHubPillInset();
+  useRememberPlace();
+  // Settings replaces the sidebar with its own pages, so there is one level of navigation.
+  const settings = useRouterState({ select: (s) => inSettings(s.location.pathname) });
   return (
     <div className="flex h-full flex-col">
       <IconSprite />
@@ -63,7 +67,7 @@ export function Shell() {
       {/* relative: the composer overlay (narrow windows) and the draft pill are positioned here. */}
       <div className="relative flex min-h-0 flex-1">
         <WorkspaceRail />
-        <Sidebar />
+        {settings ? <SettingsSidebar /> : <Sidebar />}
         <div className="flex min-w-0 flex-1 flex-col">
           {!isDemo && <WelcomeGate />}
           <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-paper">

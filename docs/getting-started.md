@@ -81,7 +81,7 @@ See [Profiles](agents.md#profiles) for the details.
 
 ### Add a folder
 
-Home starts with one workspace, **Personal**; the rail at the left edge shows your workspaces (see [Workspaces](agents.md#workspaces)). Click **+** on the sidebar's **Folders** group (or **+ Add folder** under it while it is empty). The sidebar lists **Bots** first, then Today, Agents, Inbox, Schedules and Knowledge, then **Folders** with the folders of the workspace and its active temporary folders. The chevron of each group collapses it on this device. **Clone from GitHub** (the first tab) clones into the folders root (`~/projects` by default); you can also browse any folder on this computer or an SSH host. Clone suggestions list repositories with recent GitHub notifications first, then your recently pushed repositories.
+Home starts with one workspace, **Personal**; the rail at the left edge shows your workspaces (see [Workspaces](agents.md#workspaces)). Open **Folders** in the sidebar and click **Add folder**. The sidebar lists **Bots** first (its chevron collapses the group on this device), then Today, Agents, Inbox, Schedules, Knowledge and Folders. The Folders page lists the folders of the workspace and its temporary folders. **Clone from GitHub** (the first tab) clones into the folders root (`~/projects` by default); you can also browse any folder on this computer or an SSH host. Clone suggestions list repositories with recent GitHub notifications first, then your recently pushed repositories.
 
 ### Launch your first agent
 
@@ -98,7 +98,7 @@ The agent appears in **Agents → Running**. When it finishes, a card waits in *
 
 - **One action per row.** Lists show one button per row or card: **Done** on Inbox rows, **Launch** on Folders rows, the main action on Today cards. Hover the row, or focus it with the keyboard, for the other actions (on Folders: **Files**, **Terminal** and **⋯**). On touch screens they are always visible.
 - **Page explanations.** A page explains itself under its title on your first visit on this device. After that, click **ⓘ** next to the title to read it again.
-- **Settings search.** On a laptop, the field above the Settings navigation finds pages by name and by keyword: "telegram" finds Channels and "ssh" finds Machines.
+- **Settings search.** On a laptop, Settings replaces the sidebar with its pages (**Back to Launchpad** returns to the page you were on); the field at the top finds pages by name and by keyword: "telegram" finds Channels and "ssh" finds Machines.
 
 ### Connect GitHub
 

@@ -186,7 +186,7 @@ export function ProjectsView() {
   const regular = assigned.filter((p) => !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const mine = regular.filter((p) => scope.hasProject(p.id));
   const temp = assigned.filter((p) => p.is_temp && scope.hasProject(p.id));
-  const add = <button className="btn btn-primary" onClick={() => showAdd()}><Icon name="plus" size={14} />Add folder</button>;
+  const add = <button className="btn btn-primary" data-tour="folders.add" onClick={() => showAdd()}><Icon name="plus" size={14} />Add folder</button>;
   return (
     <div className="h-full overflow-y-auto">
       {phone ? <PhoneHeader title="Folders" subtitle={`${mine.length} folder${mine.length === 1 ? "" : "s"}`} primary={add} /> : <PageHeader title={`Folders in ${w.name}`} meta={`${mine.length} folder${mine.length === 1 ? "" : "s"}`} actions={add} />}

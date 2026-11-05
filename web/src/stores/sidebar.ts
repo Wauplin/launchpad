@@ -1,9 +1,9 @@
-// Sidebar groups (Bots, Folders) open or collapsed on this device. The demo never writes browser storage.
+// Sidebar groups (Bots) open or collapsed on this device. The demo never writes browser storage.
 
 import { create } from "zustand";
 import { isDemo } from "../demo/mode";
 
-export type SidebarGroup = "bots" | "folders";
+export type SidebarGroup = "bots";
 type Collapsed = Partial<Record<SidebarGroup, boolean>>;
 const key = "launchpad.sidebar";
 

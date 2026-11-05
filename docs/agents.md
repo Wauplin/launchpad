@@ -54,7 +54,7 @@ New launches ask the agent to end its first task with a short, self-contained su
 
 ## Temporary folders
 
-**Temporary folder** in the composer's folder menu starts the agent in a new, empty folder in Launchpad's data folder (`<data_dir>/tmp/`), outside your folders root. The agent is told that the folder is temporary, and how to list the workspace's folders and add a worktree of one with `launchpad work add-project`. The sidebar lists temporary folders that have an active agent; the Folders page lists all of them.
+**Temporary folder** in the composer's folder menu starts the agent in a new, empty folder in Launchpad's data folder (`<data_dir>/tmp/`), outside your folders root. The agent is told that the folder is temporary, and how to list the workspace's folders and add a worktree of one with `launchpad work add-project`. The Folders page lists them.
 
 When you archive the last agent of a temporary folder, Launchpad deletes the folder; such a session cannot be resumed. To keep the files, click **Keep as folder** in the session's Next steps (or on the Folders page) once the agent is done, and choose a name: the folder moves to the folders root under that name and becomes a normal folder, and its sessions stay resumable. To create a folder before launching, use **Add folder** instead.
 

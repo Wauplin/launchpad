@@ -26,7 +26,7 @@ export const layout: Chapter = {
     {
       id: "layout.places", route: "/", anchor: "sidebar.nav",
       title: "The places you use every day",
-      body: "Today carries the one count that needs you. Agents shows what runs and what ran. Inbox holds your GitHub notifications. Bots and Folders sit above and below; Ask Launchpad is the first bot.",
+      body: "Today carries the one count that needs you. Agents shows what runs and what ran. Inbox holds your GitHub notifications. Bots sit above, Schedules, Knowledge and Folders below; Ask Launchpad is the first bot.",
     },
     {
       id: "layout.workspaces", route: "/", anchor: "rail.workspaces",
