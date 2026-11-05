@@ -75,7 +75,7 @@ const ThreadRow = memo(function ThreadRow({ t, selected, projects, ready, select
         <span className="mt-1 flex items-center gap-2 overflow-hidden text-[11px] text-ink-3">
           <span className="truncate">{t.repo}{t.number !== null && ` #${t.number}`}</span>
           {t.state && <span className={`flex-none ${t.state === "merged" ? "text-gh-merged" : t.state === "open" ? "text-gh-open" : ""}`}>{t.state}</span>}
-          <span className={`flex-none ${whyOf(t.reason) === "other" ? "text-ink-2" : "font-semibold text-attn"}`}>{reason(t.reason)}</span>
+          <span className={`min-w-0 truncate ${whyOf(t.reason) === "other" ? "text-ink-2" : "font-semibold text-attn"}`}>{reason(t.reason)}</span>
           {ready && t.number !== null && <ReadyChip t={t} s={ready} />}
           {!phone && t.participant_count > 0 && <span className="truncate" title={t.participants.join(", ")}>{t.participants.slice(0, 2).join(", ")}{t.participant_count > 2 && ` +${t.participant_count - 2}`}</span>}
           <span className="ml-auto flex-none">{formatAge(Date.parse(t.updated_at))}</span>

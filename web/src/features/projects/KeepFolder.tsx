@@ -21,8 +21,8 @@ export function KeepFolder({ p, disabled, title }: { p: Project; disabled?: bool
     onError: toastError,
   });
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex h-[30px] min-w-0 flex-1 items-center overflow-hidden rounded-[7px] border border-line">
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex h-[30px] min-w-0 flex-1 basis-48 items-center overflow-hidden rounded-[7px] border border-line">
         <span className="flex h-full max-w-[45%] min-w-0 items-center border-r border-line bg-sunk px-2 font-mono text-xs text-ink-3" title={root}><span className="truncate [direction:rtl]">{root}</span></span>
         <input className="h-full min-w-0 flex-1 px-2 font-mono text-xs outline-none" aria-label="Folder name" value={name} onChange={(e) => setName(e.target.value)} />
       </div>

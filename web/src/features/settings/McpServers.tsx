@@ -40,7 +40,7 @@ function ServerRow({ s, wsName, onEdit, onDone }: { s: McpServer; wsName: (id: s
   const toggle = (tool: string, on: boolean) => api.put(`/api/mcp/${s.id}/tools/${encodeURIComponent(tool)}`, { on }).then(onDone, toastError);
   const reload = () => { setBusy(true); void api.post<McpServer>(`/api/mcp/${s.id}/refresh`, {}).then((r) => { if (r.error) toastError(new Error(r.error)); else toast(`${r.tools.length} tools`); return onDone(); }, toastError).finally(() => setBusy(false)); };
   return (
-    <div className="grid gap-1.5 border-b border-line-2 pb-2.5 last:border-b-0 last:pb-0">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-1.5 border-b border-line-2 pb-2.5 last:border-b-0 last:pb-0">
       <div className="flex flex-wrap items-center gap-2 text-[13px]">
         <span className="grid min-w-0 flex-1 gap-0.5">
           <span className="flex flex-wrap items-center gap-1.5"><b>{s.name}</b><span className="font-mono text-[12px] text-ink-3">{s.id}</span>{s.error && <Badge tone="attn" title={s.error}>not reachable</Badge>}</span>
@@ -56,7 +56,7 @@ function ServerRow({ s, wsName, onEdit, onDone }: { s: McpServer; wsName: (id: s
           {s.tools.map((t) => {
             const on = !s.tools_off.includes(t.name);
             return (
-              <div key={t.name} className="flex items-center gap-2 text-[12px]">
+              <div key={t.name} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
                 <FilterChips label={`${t.name} on or off`}>
                   <FilterChip active={on} onClick={() => !on && void toggle(t.name, true)}>On</FilterChip>
                   <FilterChip active={!on} onClick={() => on && void toggle(t.name, false)}>Off</FilterChip>
@@ -64,7 +64,7 @@ function ServerRow({ s, wsName, onEdit, onDone }: { s: McpServer; wsName: (id: s
                 <span className="font-mono">{t.name}</span>
                 {t.read_only && <Badge tone="teal">read only</Badge>}
                 {t.destructive && <Badge tone="attn">destructive</Badge>}
-                <span className="min-w-0 flex-1 truncate text-ink-3" title={t.description}>{t.description}</span>
+                <span className="min-w-0 flex-1 basis-40 truncate text-ink-3" title={t.description}>{t.description}</span>
               </div>
             );
           })}

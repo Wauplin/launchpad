@@ -53,10 +53,10 @@ function AddHost({ onDone }: { onDone: () => void }) {
     }
   };
   return (
-    <div className="grid gap-2.5 rounded-md border border-line p-3 text-[13px]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 rounded-md border border-line p-3 text-[13px]">
       <b className="font-[650]">Add host</b>
       {(config.data ?? []).length > 0 && (
-        <div className="grid gap-1">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-1">
           <span className="text-ink-2">From ~/.ssh/config (jump hosts, certificates and agent keys work as in a terminal):</span>
           <div className="flex flex-wrap gap-1.5">
             {config.data!.map((c) => (
@@ -102,16 +102,16 @@ function Checks({ h }: { h: HostStatus }) {
     }
   };
   return (
-    <div className="grid gap-1.5">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-1.5">
       <div className="flex items-center gap-2 text-xs text-ink-3">
         <b className="text-ink-2">Preflight</b>
         {h.checked_at && <span>checked {formatAge(h.checked_at)} ago</span>}
         <button className="btn btn-sm ml-auto" disabled={running || h.state !== "connected"} onClick={() => void run()}><Icon name="refresh" size={12} />{running ? "Checking…" : "Run checks again"}</button>
       </div>
-      <div className="grid rounded-md border border-line">
+      <div className="grid grid-cols-[minmax(0,1fr)] rounded-md border border-line">
         {h.checks.length === 0 && <div className="px-3 py-2 text-xs text-ink-3">{h.state === "connected" ? "Checking…" : "Checks run once the host is connected."}</div>}
         {h.checks.map((c) => (
-          <div key={c.id} className="grid gap-1 border-b border-line-2 px-3 py-1.5 text-[13px] last:border-0">
+          <div key={c.id} className="grid grid-cols-[minmax(0,1fr)] gap-1 border-b border-line-2 px-3 py-1.5 text-[13px] last:border-0">
             <div className="flex items-center gap-2">
               <span className={c.ok === true ? "text-gh-open" : c.ok === false ? "text-gh-closed" : "text-attn"} aria-hidden>{c.ok === true ? "✓" : c.ok === false ? "✕" : "!"}</span>
               {c.found !== null ? <HarnessMark harness={c.id} size={14} /> : null}
@@ -144,7 +144,7 @@ function HostCard({ h }: { h: HostStatus }) {
   const running = sessions.filter((s) => s.cwd.startsWith(`${h.host.id}:`) && ["starting", "working", "background"].includes(s.status)).length;
   const act = (p: Promise<unknown>, done?: string) => p.then(() => { if (done) toast(done); return qc.invalidateQueries({ queryKey: ["status"] }); }).catch(toastError);
   return (
-    <div className="grid gap-2.5 rounded-md border border-line p-3">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 rounded-md border border-line p-3">
       <div className="flex flex-wrap items-center gap-2 text-[13px]">
         <Icon name="term" size={14} />
         <b className="font-[650]">{h.host.id}</b>

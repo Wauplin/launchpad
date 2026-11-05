@@ -67,7 +67,7 @@ export function TempProjectCard({ p }: { p: Project }) {
   const open = mine.filter((s) => s.status !== "closed");
   const running = mine.some(isRunning);
   return (
-    <div className="grid min-w-0 gap-2.5 rounded-lg border border-line p-3.5">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2.5 rounded-lg border border-line p-3.5">
       <div className="flex items-center gap-2">
         <HostLabel path={p.path} />
         <span className="min-w-0 truncate font-mono text-[13px] font-semibold" title={p.path}>

@@ -24,7 +24,7 @@ export function Card({ title, end, children, id, tour }: { title: string; end?: 
         <b className="font-semibold text-ink">{title}</b>
         {end && <span className="ml-auto flex max-w-full flex-wrap justify-end gap-1.5">{end}</span>}
       </div>
-      <div className="grid gap-2.5 p-3.5">{children}</div>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 p-3.5">{children}</div>
     </section>
   );
 }
@@ -66,7 +66,7 @@ export function SettingsPage({ title, intro, info, actions, children, tour }: { 
     <div className="h-full overflow-y-auto">
       <div className={`phone-page-content mx-auto grid max-w-[1080px] gap-5 p-6 ${phone ? "grid-cols-[minmax(0,1fr)]" : "grid-cols-[180px_minmax(0,1fr)]"}`}>
         {nav}
-        <div className="grid min-w-0 content-start gap-4" data-tour={tour}>
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4" data-tour={tour}>
           {title && (
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="m-0 text-[18px] font-semibold">{title}</h1>
