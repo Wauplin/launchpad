@@ -306,6 +306,10 @@ impl Inbox {
         }
         changed(app);
         drop(_lock);
+        {
+            let app = app.clone();
+            tokio::spawn(async move { crate::crons::inbox_synced(&app).await });
+        }
         // Summary enrichment also fills the preview cache; prioritize likely next clicks.
         let top: Vec<_> = self
             .list(app)

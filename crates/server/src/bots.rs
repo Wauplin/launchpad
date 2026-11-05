@@ -19,6 +19,8 @@ pub fn router() -> Router<Server> {
         .route("/api/bots/{id}/history", get(history))
         .route("/api/bots/{id}/history/{change}", get(diff))
         .route("/api/bots/{id}/restore/{change}", post(restore))
+        .route("/api/bots/{id}/routines", post(create_routine))
+        .route("/api/bots/{id}/pause", post(pause))
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
@@ -64,4 +66,17 @@ async fn diff(State(s): State<Server>, Path((id, change)): Path<(String, i64)>) 
 }
 async fn restore(State(s): State<Server>, Path((id, change)): Path<(String, i64)>) -> ApiResult<Bot> {
     Ok(Json(bots::restore(&s.app, &id, change).await.map_err(bad)?))
+}
+
+async fn create_routine(State(s): State<Server>, Path(id): Path<String>, Json(r): Json<launchpad_core::crons::BotRoutine>) -> ApiResult<launchpad_core::crons::CronAgent> {
+    Ok(Json(launchpad_core::crons::create_for_bot(&s.app, &id, r).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct Pause {
+    paused: bool,
+}
+
+async fn pause(State(s): State<Server>, Path(id): Path<String>, Json(p): Json<Pause>) -> ApiResult<Bot> {
+    Ok(Json(bots::set_paused(&s.app, &id, p.paused).await.map_err(bad)?))
 }

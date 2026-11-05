@@ -239,6 +239,8 @@ CREATE TABLE IF NOT EXISTS push_subscription (endpoint TEXT PRIMARY KEY, device_
     let device_columns = conn.prepare("PRAGMA table_info(browser_device)")?
         .query_map([], |r| r.get::<_, String>(1))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let bot_columns = conn.prepare("PRAGMA table_info(bot)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !bot_columns.iter().any(|c| c == "paused") { conn.execute_batch("ALTER TABLE bot ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;")?; }
     if !device_columns.iter().any(|c| c == "last_seen_at") { conn.execute_batch("ALTER TABLE browser_device ADD COLUMN last_seen_at INTEGER;")?; }
     conn.execute_batch("CREATE TABLE IF NOT EXISTS trace_import_cursor (source TEXT PRIMARY KEY, json TEXT NOT NULL);")?;
     if !has("imported_from") { conn.execute_batch("ALTER TABLE session ADD COLUMN imported_from TEXT;")?; }

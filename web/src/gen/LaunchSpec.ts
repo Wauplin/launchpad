@@ -8,6 +8,7 @@ import type { GitHubRef } from "./GitHubRef";
 import type { HarnessKind } from "./HarnessKind";
 import type { PermissionMode } from "./PermissionMode";
 import type { PromptMention } from "./PromptMention";
+import type { RoutineLaunch } from "./RoutineLaunch";
 import type { SkillRef } from "./SkillRef";
 import type { Target } from "./Target";
 import type { WorktreeOptions } from "./WorktreeOptions";
@@ -59,4 +60,8 @@ runner_id: string | null,
 /**
  * A session of a bot's thread: Home composes it from the bot's files (`bots::message`).
  */
-bot?: BotLaunch, };
+bot?: BotLaunch, 
+/**
+ * A run of a routine (`crons.rs`): its prompt says what started it and how to end.
+ */
+routine?: RoutineLaunch, };

@@ -549,6 +549,9 @@ impl Sessions {
                     self.inner.records.lock().unwrap().insert(s.id.clone(), s.clone());
                     app.bus.publish("sessions", "updated", serde_json::to_value(s.light())?);
                     self.publish_counts(app);
+                    if let Some(before) = current.filter(|c| c.status.is_running() && !s.status.is_running()) {
+                        self.replica_turn_ended(app, &before, &s);
+                    }
                 }
             }
             Item::Event { generation, event } => {
@@ -596,6 +599,20 @@ impl Sessions {
             Item::Access { access } => return crate::replica::apply_access(app, runner_id, n, access).await,
         }
         Ok(())
+    }
+
+    /// Home: a runner's session left Running. Phones get their Web Push here, since subscriptions live on Home
+    /// (the runner keeps its own desktop notification and forwards Telegram); routines settle and trigger.
+    fn replica_turn_ended(&self, app: &App, before: &Session, s: &Session) {
+        let silent = s.status == SessionStatus::Waiting && crate::crons::is_no_update(s.last_message.as_deref());
+        if let Some(event) = crate::notify::status_notification(before.status, s.status, before.open_question, false, false)
+            && !silent
+            && !self.is_watched(&s.id)
+            && app.config.get().agents.notify
+        {
+            app.push.session(app, s, event);
+        }
+        crate::crons::turn_ended(app, s);
     }
 
     /// Applies a change to a session record, stores it, and pushes it to the UI.
@@ -836,6 +853,10 @@ impl Sessions {
             }
             prompt.push_str("\n\n");
             prompt.push_str(&crate::browser::instruction(*act, !spec.target.browser_only(), !spec.agent_traces.is_empty()));
+        }
+        if let Some(r) = &spec.routine {
+            prompt.push_str("\n\n");
+            prompt.push_str(&crate::crons::instruction(r));
         }
         if let Target::Assistant { workspace_id } = &spec.target {
             anyhow::ensure!(spec.context_projects.is_empty() && spec.worktree.is_none() && !spec.allow_paid_usage, "The assistant has no folders, worktrees or paid usage");
@@ -2289,8 +2310,19 @@ impl Sink {
                 crate::handoff::after_turn(&app, &id).await;
             });
         }
+        // A turn that ends with `no_update` (a routine with nothing to report) stays silent and is not Needs you.
+        let silent = status == SessionStatus::Waiting && self.sessions.get(&self.id).is_some_and(|s| crate::crons::is_no_update(s.last_message.as_deref()));
+        if silent {
+            let _ = self.sessions.update(&self.app, &self.id, |s| s.seen_at = s.seen_at.max(s.status_since)).await;
+        }
+        if before.status.is_running() && !status.is_running() && crate::home_git::here(&self.app)
+            && let Some(s) = self.sessions.get(&self.id)
+        {
+            crate::crons::turn_ended(&self.app, &s);
+        }
         self.sessions.publish_counts(&self.app);
         if let Some(event) = crate::notify::status_notification(before.status, status, before.open_question, manual_stop, budget_stop)
+            && !silent
             && !self.sessions.is_watched(&self.id) {
             let s = self.sessions.get(&self.id).unwrap();
             crate::notify::session(&self.app, &s, event);

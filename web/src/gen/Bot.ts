@@ -13,4 +13,8 @@ settings_text: string, settings_error: string | null,
 /**
  * The folder was created for this bot (deleting the bot keeps it).
  */
-own_folder: boolean, version: number, };
+own_folder: boolean, 
+/**
+ * Paused: its routines and incoming hooks start nothing; your own messages still go through.
+ */
+paused: boolean, version: number, };

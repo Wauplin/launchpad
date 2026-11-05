@@ -58,6 +58,8 @@ pub struct Bot {
     pub settings_error: Option<String>,
     /// The folder was created for this bot (deleting the bot keeps it).
     pub own_folder: bool,
+    /// Paused: its routines and incoming hooks start nothing; your own messages still go through.
+    pub paused: bool,
     #[ts(type = "number")]
     pub version: i64,
 }
@@ -117,12 +119,12 @@ fn render_settings(s: &BotSettings) -> Result<String> {
     Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n{}", toml::to_string(s)?))
 }
 
-type Row = (String, String, String, i64, Option<String>);
+type Row = (String, String, String, i64, Option<String>, bool);
 
 async fn rows(app: &App) -> Result<Vec<Row>> {
     app.state_db.call(|c| {
-        let mut st = c.prepare("SELECT id, workspace_id, slug, created_at, own_folder FROM bot ORDER BY created_at")?;
-        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut st = c.prepare("SELECT id, workspace_id, slug, created_at, own_folder, paused FROM bot ORDER BY created_at")?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get::<_, i64>(5)? != 0)))?.collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }).await
 }
@@ -134,7 +136,7 @@ async fn text_of(app: &App, files: &[plain::Entry], path: &str) -> String {
     }
 }
 
-async fn load(app: &App, (id, workspace_id, slug, created_at, own): Row) -> Result<Bot> {
+async fn load(app: &App, (id, workspace_id, slug, created_at, own, paused): Row) -> Result<Bot> {
     let tree = plain::tree(app, &store(&id)).await?;
     let instructions = text_of(app, &tree.files, INSTRUCTIONS).await;
     let settings_text = text_of(app, &tree.files, SETTINGS).await;
@@ -143,7 +145,7 @@ async fn load(app: &App, (id, workspace_id, slug, created_at, own): Row) -> Resu
         Err(e) => (BotSettings { name: slug.clone(), ..Default::default() }, Some(format!("{e:#}"))),
     };
     let own_folder = own.as_deref() == Some(settings.folder.as_str());
-    Ok(Bot { id, workspace_id, slug, created_at, settings, instructions, settings_text, settings_error, own_folder, version: tree.version })
+    Ok(Bot { id, workspace_id, slug, created_at, settings, instructions, settings_text, settings_error, own_folder, paused, version: tree.version })
 }
 
 pub async fn list(app: &App) -> Result<Vec<Bot>> {
@@ -241,10 +243,21 @@ pub async fn update(app: &App, id: &str, p: Patch) -> Result<Bot> {
     get(app, id).await
 }
 
-/// Deletes the bot and its files. Its notes in the knowledge base, its folder and its sessions stay.
+/// Pause or Resume: a paused bot's routines and incoming hooks start nothing. Stop ends the current run.
+pub async fn set_paused(app: &App, id: &str, paused: bool) -> Result<Bot> {
+    get(app, id).await?;
+    let id2 = id.to_string();
+    app.state_db.call(move |c| Ok(c.execute("UPDATE bot SET paused = ?2 WHERE id = ?1", params![id2, paused])?)).await?;
+    crate::crons::set_bot_paused(app, id, paused).await?;
+    app.bus.publish("bots", "changed", serde_json::json!({"id": id}));
+    get(app, id).await
+}
+
+/// Deletes the bot, its files and its routines. Its notes in the knowledge base, its folder and its sessions stay.
 pub async fn delete(app: &App, id: &str) -> Result<()> {
     ensure_home(app)?;
     ensure!(thread(app, id).iter().all(|s| !s.status.is_running()), "the bot is working: stop it first");
+    crate::crons::delete_for_bot(app, id).await?;
     let (id2, st) = (id.to_string(), store(id));
     app.state_db.call(move |c| {
         let tx = c.transaction()?;
@@ -313,8 +326,15 @@ pub fn rotation(bot: &BotSettings, current: Option<(SessionStatus, Option<&str>,
 
 /// Sends the owner's message to the bot's thread: to its open session, or to a new one.
 pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, new_session: bool) -> Result<Session> {
+    message_with(app, id, text, attachments, new_session, false).await
+}
+
+/// A message to the bot's thread. `automatic` (routines, incoming hooks): a paused bot refuses it, and a new
+/// session needs confirmed quota.
+pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, new_session: bool, automatic: bool) -> Result<Session> {
     ensure!(!text.trim().is_empty() || !attachments.is_empty(), "the message is empty");
     let bot = get(app, id).await?;
+    ensure!(!automatic || !bot.paused, "{} is paused", bot.settings.name);
     if let Some(e) = &bot.settings_error {
         bail!("bot.toml cannot be used ({e}); fix it in the bot's Files tab");
     }
@@ -353,7 +373,7 @@ pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAtt
         bot: Some(BotLaunch { id: bot.id.clone(), name: s.name.clone(), slug: bot.slug.clone(), instructions: bot.instructions.clone(), previous }),
         ..Default::default()
     };
-    crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), false).await
+    crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), automatic).await
 }
 
 /// The bot part of a session's first prompt.

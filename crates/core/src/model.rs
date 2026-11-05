@@ -454,6 +454,22 @@ pub struct LaunchSpec {
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bot: Option<BotLaunch>,
+    /// A run of a routine (`crons.rs`): its prompt says what started it and how to end.
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routine: Option<RoutineLaunch>,
+}
+
+/// What a routine's run tells the agent: the routine, what started this run and the related items.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
+#[serde(default)]
+pub struct RoutineLaunch {
+    pub id: String,
+    pub title: String,
+    /// For example "Scheduled" or "GitHub, review requested: owner/repo#12".
+    pub cause: String,
+    /// The items behind an event (GitHub threads, a finished session), one per line.
+    pub context: String,
 }
 
 /// What a bot session needs to know about its bot, carried in the launch spec to the runner.

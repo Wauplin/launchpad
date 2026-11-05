@@ -188,7 +188,7 @@ pub async fn receive(app: &App, id: &str, secret: Option<&str>, body: &[u8]) -> 
     let text = message(&hook.name, body);
     // Sent once: a failure is reported to the caller, never retried by Home.
     let session = match &hook.target {
-        Target::Bot { id } => crate::bots::message(app, id, text, vec![], false).await,
+        Target::Bot { id } => crate::bots::message_with(app, id, text, vec![], false, true).await,
         Target::Ask { workspace_id } => crate::proposals::ask(app, workspace_id.clone(), text, vec![]).await,
     }
     .map_err(|e| Refused(503, format!("{e:#}")))?;

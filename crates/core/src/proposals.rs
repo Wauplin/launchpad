@@ -332,7 +332,7 @@ async fn accept_inner(app: &App, id: &str, close_thread: bool) -> Result<Proposa
                 Ok(session_id)
             }
             ProposalBody::Schedule { spec, conditions } => Ok(crate::schedules::create(app, spec, conditions).await?.id),
-            ProposalBody::Cron { spec, schedule, conditions } => Ok(crate::crons::create(app, spec, schedule, conditions).await?.id),
+            ProposalBody::Cron { spec, schedule, conditions } => Ok(crate::crons::create(app, spec, schedule, conditions, Default::default()).await?.id),
             ProposalBody::Status { .. } => bail!("a status card has nothing to start"),
             ProposalBody::Tool { mut tool, .. } => {
                 let tools = crate::vault::tools(app).await?;
