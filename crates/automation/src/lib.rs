@@ -1,5 +1,7 @@
-//! Automation: routines (code: crons), one-time scheduled launches and agent proposals.
+//! Automation: routines (code: crons), one-time scheduled launches, agent proposals and the activity list of
+//! admin actions.
 
+pub mod activity;
 pub mod crons;
 pub mod proposals;
 pub mod schedules;
@@ -24,5 +26,6 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     schedules::ScheduledLaunch::export_all(cfg)?;
     crons::CronAgent::export_all(cfg)?;
     proposals::Proposal::export_all(cfg)?;
+    activity::Activity::export_all(cfg)?;
     Ok(())
 }

@@ -49,7 +49,7 @@ const EMPTY: Record<View, string> = {
 function StartAll({ proposals }: { proposals: Proposal[] }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
-  const startable = proposals.filter((p) => p.state === "proposed" && p.body.kind !== "status");
+  const startable = proposals.filter((p) => p.state === "proposed" && p.body.kind !== "status" && p.body.kind !== "ready");
   if (startable.length < 2) return null;
   const run = async () => {
     setBusy(true);

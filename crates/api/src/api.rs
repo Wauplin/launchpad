@@ -26,7 +26,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/projects/{id}/branches", get(branches))
         .route("/api/projects/{id}/promote", post(promote))
         .route("/api/workspaces", get(list_workspaces).post(create_workspace))
-        .route("/api/workspaces/{id}", axum::routing::patch(patch_workspace).delete(delete_workspace))
+        .route("/api/workspaces/{id}", get(get_workspace).patch(patch_workspace).delete(delete_workspace))
         .route("/api/window", post(open_window))
         .route("/api/uploads", post(upload).layer(axum::extract::DefaultBodyLimit::max(6 * 1024 * 1024)))
         .route("/api/uploads/{hash}", get(uploaded_image))
@@ -37,7 +37,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/launch/schedules/{id}/start", post(start_schedule))
         .route("/api/launch/crons", get(crons).post(create_cron).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/launch/crons/next", get(cron_next))
-        .route("/api/launch/crons/{id}", axum::routing::patch(update_cron).delete(delete_cron))
+        .route("/api/launch/crons/{id}", get(get_cron).patch(update_cron).delete(delete_cron))
         .route("/api/launch/crons/{id}/run", post(run_cron))
         .route("/api/launch/draft", get(get_draft).put(put_draft).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/harnesses", get(harnesses))
@@ -226,6 +226,10 @@ struct NewWorkspace {
 
 async fn create_workspace(State(s): State<Ctx>, Json(b): Json<NewWorkspace>) -> ApiResult<Workspace> {
     Ok(Json(workspace::create(&s.app, &b.name).await.map_err(bad)?))
+}
+
+async fn get_workspace(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Workspace> {
+    Ok(Json(workspace::get(&s.app, &id).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?))
 }
 
 async fn patch_workspace(State(s): State<Ctx>, Path(id): Path<String>, Json(patch): Json<workspace::Patch>) -> ApiResult<Workspace> {
@@ -728,6 +732,15 @@ use launchpad_automation::crons::{self, CronAgent, CronCondition, CronPatch};
 struct CronRequest { spec: LaunchSpec, #[serde(default)] schedule: String, conditions: Vec<CronCondition>, #[serde(default)] trigger: crons::Trigger, #[serde(default)] title: Option<String>, #[serde(default)] time_zone: Option<String> }
 async fn crons(State(s): State<Ctx>) -> ApiResult<Vec<CronAgent>> { Ok(Json(crons::list(&s.app).await?)) }
 async fn create_cron(State(s): State<Ctx>, Json(b): Json<CronRequest>) -> ApiResult<CronAgent> { Ok(Json(crons::create(&s.app, b.spec, b.schedule, b.conditions, b.trigger, b.title, b.time_zone).await.map_err(bad)?)) }
+/// One routine, with a bot routine's instructions (`spec.text`) as `instructions`, the key its edits use.
+async fn get_cron(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
+    let c = crons::get(&s.app, &id).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+    let mut v = serde_json::to_value(&c).map_err(|e| ApiError::bad_request(format!("{e}")))?;
+    if c.bot_id.is_some() {
+        v["instructions"] = Value::String(c.spec.text.clone());
+    }
+    Ok(Json(v))
+}
 async fn update_cron(State(s): State<Ctx>, Path(id): Path<String>, Json(b): Json<CronPatch>) -> ApiResult<CronAgent> { Ok(Json(crons::update(&s.app, &id, b).await.map_err(bad)?)) }
 async fn delete_cron(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
     crons::delete(&s.app, &id).await.map_err(bad)?;

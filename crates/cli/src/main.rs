@@ -150,9 +150,19 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
-    /// Store an inert proposal for the owner to start from the Ask page; never starts anything.
+    /// What waits for the owner today (JSON), optionally of one workspace.
+    Today {
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+    /// What sessions with admin access changed directly, with the values before (JSON).
+    Activity {
+        #[command(subcommand)]
+        command: ListOnly,
+    },
+    /// Store an inert proposal for the owner to start with a click; never starts anything.
     Propose {
-        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot", "routine", "bot-instructions"])]
+        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot", "routine", "bot-instructions", "ready"])]
         kind: String,
         #[arg(long)]
         title: String,
@@ -256,6 +266,13 @@ enum Sessions {
 }
 
 /// Read-only context commands: GET `/api/context/<what>`.
+async fn list_command(paths: &Paths, base: &str, workspace: Option<String>) -> Result<()> {
+    let path = match workspace { Some(w) => query(base, &[("workspace", &w)]), None => base.into() };
+    let body = Client::new(paths)?.json("GET", &path, None).await?;
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
+}
+
 async fn context_command(paths: &Paths, what: &str, workspace: Option<String>) -> Result<()> {
     let path = match workspace { Some(w) => query(&format!("/api/context/{what}"), &[("workspace", &w)]), None => format!("/api/context/{what}") };
     let body = Client::new(paths)?.json("GET", &path, None).await?;
@@ -573,6 +590,8 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&proposals)?);
             Ok(())
         }
+        Command::Today { workspace } => list_command(&paths, "/api/today", workspace).await,
+        Command::Activity { command: ListOnly::List { workspace } } => list_command(&paths, "/api/activity", workspace).await,
         Command::Propose { kind, title, note, replaces, spec_file, session_id } => {
             let text = std::fs::read_to_string(&spec_file).with_context(|| format!("read {}", spec_file.display()))?;
             let mut body: serde_json::Value = serde_json::from_str(&text).context("the spec file is not valid JSON")?;

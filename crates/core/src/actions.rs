@@ -76,6 +76,12 @@ pub struct Action {
     pub card: Option<&'static str>,
     /// The action that undoes this one, when there is one (an action with an undo needs no confirmation).
     pub undo: Option<&'static str>,
+    /// For an undo: the GET route (same parameters) whose answer holds the values before the change, by body key.
+    /// The undo then runs `undo` with the same parameters and those values. None: the action creates a record and
+    /// the undo takes the new record's `id` as its only parameter.
+    pub before: Option<&'static str>,
+    /// An agent may propose it as a ready card: the owner's click runs it, with the same button and confirmation.
+    pub ready: bool,
 }
 
 const fn f(name: &'static str, kind: FieldKind) -> Field {
@@ -89,7 +95,7 @@ use ActionAccess::{Admin, Owner};
 use ActionEffect::{Checks, Machine, Outside, Record, Starts};
 use FieldKind::{Bool, Json, Text};
 
-const A: Action = Action { name: "", method: "POST", route: "", label: "", icon: None, help: "", input: &[], body_file: None, fixed: None, confirm: None, effect: Record, access: Admin, card: None, undo: None };
+const A: Action = Action { name: "", method: "POST", route: "", label: "", icon: None, help: "", input: &[], body_file: None, fixed: None, confirm: None, effect: Record, access: Admin, card: None, undo: None, before: None, ready: false };
 
 /// Every action. Keep the names stable: the UI and agents use them.
 pub const ACTIONS: &[Action] = &[
@@ -101,7 +107,7 @@ pub const ACTIONS: &[Action] = &[
     Action { name: "session.archive", route: "/api/sessions/{id}/close", label: "Archive", icon: Some("archive"), help: "Archive an agent session (stops it first)", ..A },
     Action { name: "session.resume", route: "/api/sessions/{id}/resume", label: "Resume", icon: Some("play"), help: "Resume an interrupted or failed agent", input: &[opt("continue_turn", Bool)], effect: Starts, ..A },
     Action { name: "session.resume-subscription", route: "/api/sessions/{id}/resume-subscription", label: "Resume on subscription", icon: Some("play"), help: "Resume a quota-paused agent on its subscription", effect: Starts, ..A },
-    Action { name: "session.rename", route: "/api/sessions/{id}/rename", label: "Rename", icon: Some("pencil"), help: "Rename an agent session", input: &[f("title", Text)], ..A },
+    Action { name: "session.rename", route: "/api/sessions/{id}/rename", label: "Rename", icon: Some("pencil"), help: "Rename an agent session", input: &[f("title", Text)], undo: Some("session.rename"), before: Some("/api/sessions/{id}"), ..A },
     Action { name: "session.model", route: "/api/sessions/{id}/model", label: "Change model", help: "Change an agent's model or effort for its next turns", input: &[opt("model", Text), opt("effort", Text)], ..A },
     Action { name: "session.permissions", route: "/api/sessions/{id}/permissions", label: "Change permissions", help: "Change an agent's permission mode (yolo, ask or auto)", input: &[f("mode", Text)], ..A },
     Action { name: "session.follow-up", route: "/api/sessions/{id}/follow-up", label: "Follow up", icon: Some("clock"), help: "Schedule a follow-up message to an agent", input: &[f("message", Text), f("conditions", Json)], effect: Starts, ..A },
@@ -109,19 +115,19 @@ pub const ACTIONS: &[Action] = &[
     Action { name: "session.unread", route: "/api/sessions/{id}/unread", label: "Mark unread", icon: Some("eye"), help: "Mark an agent as unread", ..A },
     Action { name: "session.resume-paid", route: "/api/sessions/{id}/resume-paid", label: "Resume with paid usage", help: "Resume a quota-paused agent with paid usage", confirm: Some("Continues on paid usage, billed to the profile's account."), effect: Machine, access: Owner, ..A },
     // Bots.
-    Action { name: "bot.create", route: "/api/bots", label: "Create bot", icon: Some("plus"), help: "Create a bot (it starts nothing)", body_file: Some("{\"workspace_id\", \"name\", \"instructions\", \"profile\", \"folder\"}"), card: Some("bot"), ..A },
-    Action { name: "bot.update", method: "PATCH", route: "/api/bots/{id}", label: "Save", help: "Change a bot's settings or its BOT.md", body_file: Some("{\"settings\": …} or {\"instructions\": \"<whole BOT.md>\"}"), card: Some("bot_instructions"), ..A },
+    Action { name: "bot.create", route: "/api/bots", label: "Create bot", icon: Some("plus"), help: "Create a bot (it starts nothing)", body_file: Some("{\"workspace_id\", \"name\", \"instructions\", \"profile\", \"folder\"}"), card: Some("bot"), undo: Some("bot.delete"), ..A },
+    Action { name: "bot.update", method: "PATCH", route: "/api/bots/{id}", label: "Save", help: "Change a bot's settings or its BOT.md", body_file: Some("{\"settings\": …} or {\"instructions\": \"<whole BOT.md>\"}"), card: Some("bot_instructions"), undo: Some("bot.update"), before: Some("/api/bots/{id}"), ..A },
     Action { name: "bot.delete", method: "DELETE", route: "/api/bots/{id}", label: "Delete bot", icon: Some("trash"), help: "Delete a bot and its routines", confirm: Some("Deletes the bot and its routines. Its sessions stay in Agents."), ..A },
     Action { name: "bot.message", route: "/api/bots/{id}/message", label: "Send", icon: Some("send"), help: "Send a message to a bot's thread", input: &[f("text", Text), opt("new_session", Bool)], effect: Starts, ..A },
-    Action { name: "bot.pause", route: "/api/bots/{id}/pause", label: "Pause", help: "Pause or resume a bot (and its routines and hooks)", input: &[f("paused", Bool)], ..A },
+    Action { name: "bot.pause", route: "/api/bots/{id}/pause", label: "Pause", help: "Pause or resume a bot (and its routines and hooks)", input: &[f("paused", Bool)], undo: Some("bot.pause"), before: Some("/api/bots/{id}"), ..A },
     Action { name: "bot.restore", route: "/api/bots/{id}/restore/{change}", label: "Restore", icon: Some("refresh"), help: "Restore an earlier version of a bot's files", ..A },
-    Action { name: "bot.add-routine", route: "/api/bots/{id}/routines", label: "Add routine", icon: Some("plus"), help: "Add a routine to a bot", body_file: Some("{\"title\", \"instructions\", \"trigger\", \"schedule\", \"conditions\"}"), card: Some("routine"), ..A },
+    Action { name: "bot.add-routine", route: "/api/bots/{id}/routines", label: "Add routine", icon: Some("plus"), help: "Add a routine to a bot", body_file: Some("{\"title\", \"instructions\", \"trigger\", \"schedule\", \"conditions\"}"), card: Some("routine"), undo: Some("routine.delete"), ..A },
     // Routines and scheduled launches.
-    Action { name: "routine.create", route: "/api/launch/crons", label: "Create routine", icon: Some("clock"), help: "Create a routine that launches a spec", body_file: Some("{\"spec\": <launch spec>, \"schedule\", \"conditions\", \"trigger\", \"title\"}"), card: Some("cron"), ..A },
-    Action { name: "routine.update", method: "PATCH", route: "/api/launch/crons/{id}", label: "Save", help: "Change a routine (schedule, conditions, paused, title, instructions)", body_file: Some("the fields to change"), ..A },
+    Action { name: "routine.create", route: "/api/launch/crons", label: "Create routine", icon: Some("clock"), help: "Create a routine that launches a spec", body_file: Some("{\"spec\": <launch spec>, \"schedule\", \"conditions\", \"trigger\", \"title\"}"), card: Some("cron"), undo: Some("routine.delete"), ..A },
+    Action { name: "routine.update", method: "PATCH", route: "/api/launch/crons/{id}", label: "Save", help: "Change a routine (schedule, conditions, paused, title, instructions)", body_file: Some("the fields to change"), undo: Some("routine.update"), before: Some("/api/launch/crons/{id}"), ..A },
     Action { name: "routine.delete", method: "DELETE", route: "/api/launch/crons/{id}", label: "Delete", icon: Some("trash"), help: "Delete a routine", confirm: Some("Deletes the routine. Its past runs stay in Agents."), ..A },
     Action { name: "routine.run", route: "/api/launch/crons/{id}/run", label: "Run now", icon: Some("play"), help: "Run a routine now", effect: Starts, ..A },
-    Action { name: "schedule.create", route: "/api/launch/schedules", label: "Schedule", icon: Some("clock"), help: "Schedule a launch", body_file: Some("{\"spec\": <launch spec>, \"conditions\": […]}"), effect: Starts, card: Some("schedule"), ..A },
+    Action { name: "schedule.create", route: "/api/launch/schedules", label: "Schedule", icon: Some("clock"), help: "Schedule a launch", body_file: Some("{\"spec\": <launch spec>, \"conditions\": […]}"), effect: Starts, card: Some("schedule"), undo: Some("schedule.cancel"), ..A },
     Action { name: "schedule.cancel", method: "DELETE", route: "/api/launch/schedules/{id}", label: "Cancel", icon: Some("x"), help: "Cancel a scheduled launch", confirm: Some("Cancels this scheduled launch."), ..A },
     Action { name: "schedule.start", route: "/api/launch/schedules/{id}/start", label: "Start now", icon: Some("play"), help: "Start a scheduled launch now", effect: Starts, ..A },
     Action { name: "launch.check", route: "/api/launch/preview", label: "Check", help: "Check a launch spec without starting it", body_file: Some("a launch spec"), effect: Checks, ..A },
@@ -130,21 +136,23 @@ pub const ACTIONS: &[Action] = &[
     Action { name: "proposal.dismiss", route: "/api/proposals/{id}/dismiss", label: "Dismiss", icon: Some("x"), help: "Dismiss a card", ..A },
     Action { name: "proposal.recheck", route: "/api/proposals/{id}/recheck", label: "Check again", icon: Some("refresh"), help: "Validate a card again", effect: Checks, ..A },
     // Workspaces and tools.
-    Action { name: "workspace.create", route: "/api/workspaces", label: "New workspace", icon: Some("plus"), help: "Create a workspace", input: &[f("name", Text)], ..A },
-    Action { name: "workspace.rename", method: "PATCH", route: "/api/workspaces/{id}", label: "Rename", icon: Some("pencil"), help: "Rename a workspace", input: &[f("name", Text)], ..A },
+    Action { name: "workspace.create", route: "/api/workspaces", label: "New workspace", icon: Some("plus"), help: "Create a workspace", input: &[f("name", Text)], undo: Some("workspace.delete"), ..A },
+    Action { name: "workspace.rename", method: "PATCH", route: "/api/workspaces/{id}", label: "Rename", icon: Some("pencil"), help: "Rename a workspace", input: &[f("name", Text)], undo: Some("workspace.rename"), before: Some("/api/workspaces/{id}"), ..A },
     Action { name: "workspace.delete", method: "DELETE", route: "/api/workspaces/{id}", label: "Delete workspace", icon: Some("trash"), help: "Delete an empty workspace (not the last one)", confirm: Some("Deletes the empty workspace {name}."), ..A },
     Action { name: "mcp.tool", method: "PUT", route: "/api/mcp/{id}/tools/{tool}", label: "Switch", help: "Switch one tool of an MCP server on or off", input: &[f("on", Bool)], ..A },
-    // The owner's clicks: GitHub, other people, config.toml, credentials and money.
-    Action { name: "worktree.merge", route: "/api/worktrees/{id}/merge", label: "Merge", icon: Some("branch"), help: "Merge an agent's branch into its base branch", confirm: Some("Home pushes {branch} to {base} on the folder's remote, then fast-forwards {base} on Home. If {base} moved, the agent rebases first."), effect: Outside, access: Owner, ..A },
-    Action { name: "local-pr.publish", route: "/api/predrafts/{id}/publish", label: "Publish", icon: Some("pr"), help: "Publish a Local PR to GitHub", input: &[f("remote_branch", Text), f("draft", Bool), f("head", Text), opt("fork", Bool)], confirm: Some("Home pushes the reviewed commit and opens the pull request on GitHub."), effect: Outside, access: Owner, ..A },
-    Action { name: "local-pr.merge", route: "/api/predrafts/{id}/merge-local", label: "Merge", icon: Some("branch"), help: "Merge a Local PR into its base branch", input: &[f("head", Text)], confirm: Some("Home pushes the reviewed commit to {base} on the folder's remote, then fast-forwards {base} on Home; if the remote refuses the push, nothing is merged."), effect: Outside, access: Owner, ..A },
-    Action { name: "suggestion.post", route: "/api/suggestions/{id}/post", label: "Post", icon: Some("comment"), help: "Post an agent's suggested comment or review to GitHub", confirm: Some("Posts this text to GitHub as you."), effect: Outside, access: Owner, ..A },
+    // Folder settings and the shared settings of config.toml (the closed list below; the rest of config.toml stays the owner's).
+    Action { name: "folder.set", method: "PATCH", route: "/api/projects/{id}", label: "Save", icon: Some("folder"), help: "Change a folder's name, description, When done (keep, merge or local_pr) or workspace", input: &[opt("name", Text), opt("description", Text), opt("when_done", Text), opt("workspace_id", Text)], undo: Some("folder.set"), before: Some("/api/projects/{id}"), ..A },
+    Action { name: "settings.set", method: "PATCH", route: "/api/settings/shared", label: "Save", icon: Some("preset"), help: "Change the shared settings: presets (the whole list of {id, label, text, bots, agent}), notify, github_poll_interval_seconds, worktrees_keep", input: &[opt("presets", Json), opt("notify", Bool), opt("github_poll_interval_seconds", Json), opt("worktrees_keep", Json)], card: Some("preset"), undo: Some("settings.set"), before: Some("/api/settings/shared"), ..A },
+    // The owner's clicks: GitHub, other people, credentials and money.
+    Action { name: "worktree.merge", route: "/api/worktrees/{id}/merge", label: "Merge", icon: Some("branch"), help: "Merge an agent's branch into its base branch", confirm: Some("Home pushes {branch} to {base} on the folder's remote, then fast-forwards {base} on Home. If {base} moved, the agent rebases first."), effect: Outside, access: Owner, ready: true, ..A },
+    Action { name: "local-pr.publish", route: "/api/predrafts/{id}/publish", label: "Publish", icon: Some("pr"), help: "Publish a Local PR to GitHub", input: &[f("remote_branch", Text), f("draft", Bool), f("head", Text), opt("fork", Bool)], confirm: Some("Home pushes the reviewed commit and opens the pull request on GitHub."), effect: Outside, access: Owner, ready: true, ..A },
+    Action { name: "local-pr.merge", route: "/api/predrafts/{id}/merge-local", label: "Merge", icon: Some("branch"), help: "Merge a Local PR into its base branch", input: &[f("head", Text)], confirm: Some("Home pushes the reviewed commit to {base} on the folder's remote, then fast-forwards {base} on Home; if the remote refuses the push, nothing is merged."), effect: Outside, access: Owner, ready: true, ..A },
+    Action { name: "suggestion.post", route: "/api/suggestions/{id}/post", label: "Post", icon: Some("comment"), help: "Post an agent's suggested comment or review to GitHub", confirm: Some("Posts this text to GitHub as you."), effect: Outside, access: Owner, ready: true, ..A },
     Action { name: "suggestion.discard", method: "DELETE", route: "/api/suggestions/{id}", label: "Discard", help: "Discard a suggestion", confirm: Some("Deletes the local suggestion."), access: Owner, ..A },
-    Action { name: "outbox.send", route: "/api/outbox/{id}/send", label: "Send", icon: Some("send"), help: "Send an Outbox message", confirm: Some("Sends this message to {channel} now."), effect: Outside, access: Owner, ..A },
+    Action { name: "outbox.send", route: "/api/outbox/{id}/send", label: "Send", icon: Some("send"), help: "Send an Outbox message", confirm: Some("Sends this message to {channel} now."), effect: Outside, access: Owner, ready: true, ..A },
     Action { name: "outbox.discard", route: "/api/outbox/{id}/discard", label: "Discard", help: "Discard an Outbox message", confirm: Some("Moves the draft to Discarded."), access: Owner, ..A },
-    Action { name: "inbox.done", route: "/api/inbox/{id}/action", label: "Done", icon: Some("check"), help: "Mark an Inbox thread done, here and on GitHub", fixed: Some("{\"action\": \"done\"}"), effect: Outside, access: Owner, undo: Some("inbox.restore"), ..A },
+    Action { name: "inbox.done", route: "/api/inbox/{id}/action", label: "Done", icon: Some("check"), help: "Mark an Inbox thread done, here and on GitHub", fixed: Some("{\"action\": \"done\"}"), effect: Outside, access: Owner, undo: Some("inbox.restore"), ready: true, ..A },
     Action { name: "inbox.restore", route: "/api/inbox/restore", label: "Restore", icon: Some("refresh"), help: "Bring Inbox threads marked done back", input: &[f("ids", Json)], access: Owner, ..A },
-    Action { name: "preset.save", method: "PATCH", route: "/api/config", label: "Save preset", icon: Some("preset"), help: "Create or update a prompt preset in config.toml", access: Owner, card: Some("preset"), ..A },
     Action { name: "tool.save", method: "PUT", route: "/api/vault/tools/{id}", label: "Add tool", help: "Add a tool to Home's registry", confirm: Some("Adds this tool and its credential hosts to Home's registry."), effect: Machine, access: Owner, card: Some("tool"), ..A },
 ];
 

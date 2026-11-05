@@ -25,7 +25,11 @@ before: string,
 /**
  * The unified diff from `before` (filled by Home).
  */
-patch: string, } | { "kind": "tool", tool: Tool, 
+patch: string, } | { "kind": "ready", action: string, args: Array<string>, input: Record<string, unknown>, 
+/**
+ * The agent session the click is about; a merge names the session whose branch it merges.
+ */
+session_id?: string, } | { "kind": "tool", tool: Tool, 
 /**
  * Where the owner creates the token.
  */

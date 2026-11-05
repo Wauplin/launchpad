@@ -11,7 +11,7 @@ use crate::error::ApiError;
 
 /// The access a Launchpad CLI request needs: Read for state, Propose for writing proposals.
 fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
-    if method == Method::GET && (path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals") {
+    if method == Method::GET && (path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/today" || path == "/api/activity") {
         Some(LaunchpadAccess::Read)
     } else if method == Method::POST && path == "/api/proposals" {
         Some(LaunchpadAccess::Propose)
@@ -31,7 +31,8 @@ fn access_of(app: &App, id: &str) -> Option<LaunchpadAccess> {
 
 /// Admin access: reads (except the closed list) and the `Admin` actions of the action list
 /// (`launchpad_core::actions`). GitHub, the Outbox, channels, credentials, devices, terminals, hosts, runners,
-/// setup fixes, backups, Burst and config.toml are never `Admin` actions, whatever the access.
+/// setup fixes, backups, Burst and config.toml (except the shared settings list, `settings.set`) are never `Admin`
+/// actions, whatever the access.
 fn admin_allows(method: &Method, path: &str) -> bool {
     if *method == Method::GET {
         let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
@@ -42,8 +43,8 @@ fn admin_allows(method: &Method, path: &str) -> bool {
 }
 
 /// Whether accepting a card of this body runs an action admin may run directly: accepting a card is running its
-/// action (`actions::for_card`). Tool and preset cards are owner actions and wait for the owner. A status card
-/// only lists sessions.
+/// action (`actions::for_card`). Tool cards and ready cards are owner actions and wait for the owner. A status
+/// card only lists sessions.
 fn admin_may_accept(body: &Value) -> bool {
     let id = |k: &str| body[k].as_str().is_some_and(|s| !s.is_empty() && !s.contains('/'));
     let Some(kind) = body["kind"].as_str() else { return false };
@@ -62,13 +63,22 @@ async fn proposal_body(app: &App, id: &str) -> Option<Value> {
     serde_json::from_str::<Value>(&json?).ok().map(|p| p["body"].clone())
 }
 
+/// A body field an action with a fixed input list does not take (folder.set never sets a setup command).
+fn unknown_field(a: &actions::Action, body: Option<&Value>) -> Option<String> {
+    if a.body_file.is_some() || (a.input.is_empty() && a.fixed.is_none()) {
+        return None;
+    }
+    let fixed: Vec<String> = a.fixed.and_then(|f| serde_json::from_str::<serde_json::Map<String, Value>>(f).ok()).map(|m| m.keys().cloned().collect()).unwrap_or_default();
+    body?.as_object()?.keys().find(|k| !a.input.iter().any(|f| f.name == k.as_str()) && !fixed.contains(k)).cloned()
+}
+
 /// Paid usage is the owner's choice only.
 fn asks_paid_usage(v: &Value) -> bool {
     v["allow_paid_usage"] == Value::Bool(true) || v["spec"]["allow_paid_usage"] == Value::Bool(true)
 }
 
 fn read_allowed(path: &str) -> bool {
-    path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/predrafts"
+    path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/today" || path == "/api/activity" || path == "/api/predrafts"
         || (path.starts_with("/api/predrafts/") && !path.ends_with("/resolve"))
         || (path.starts_with("/api/sessions/") && path.ends_with("/trace"))
 }
@@ -104,13 +114,19 @@ pub async fn authorize(app: &App, id: &str, req: Request) -> Result<Request, Api
         if let Some(pid) = path.strip_prefix("/api/proposals/").and_then(|r| r.strip_suffix("/accept")) {
             let direct = proposal_body(app, pid).await.as_ref().is_some_and(admin_may_accept);
             if !direct {
-                return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "admin access cannot run this card's action directly (tools and presets): it waits for the owner's click"));
+                return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "admin access cannot run this card's action directly (tools and ready cards): it waits for the owner's click"));
             }
         }
         let (parts, body) = req.into_parts();
         let bytes = to_bytes(body, 1 << 20).await.map_err(|_| denied())?;
-        if serde_json::from_slice::<Value>(&bytes).is_ok_and(|v| asks_paid_usage(&v)) {
+        let value = serde_json::from_slice::<Value>(&bytes).ok();
+        if value.as_ref().is_some_and(asks_paid_usage) {
             return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "paid usage is the owner's choice: leave allow_paid_usage off"));
+        }
+        if let Some(a) = actions::find(parts.method.as_str(), &path)
+            && let Some(key) = unknown_field(a, value.as_ref())
+        {
+            return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, format!("{} takes no field {key:?}: {}", a.name, actions::usage("launchpad", a))));
         }
         return Ok(Request::from_parts(parts, Body::from(bytes)));
     }
@@ -163,7 +179,11 @@ mod tests {
         assert!(!admin_allows(&Method::GET, "/api/config"));
         let direct = |b: Value| admin_may_accept(&b);
         assert!(direct(serde_json::json!({"kind": "routine", "bot_id": "b"})) && direct(serde_json::json!({"kind": "bot_instructions", "bot_id": "b"})));
-        assert!(!direct(serde_json::json!({"kind": "tool"})) && !direct(serde_json::json!({"kind": "preset"})));
+        assert!(direct(serde_json::json!({"kind": "preset"})));
+        assert!(!direct(serde_json::json!({"kind": "tool"})) && !direct(serde_json::json!({"kind": "ready", "action": "outbox.send"})));
+        let folder = actions::get("folder.set").unwrap();
+        assert_eq!(unknown_field(folder, Some(&serde_json::json!({"worktree_setup": "x"}))).as_deref(), Some("worktree_setup"));
+        assert!(unknown_field(folder, Some(&serde_json::json!({"when_done": "keep"}))).is_none());
         assert!(asks_paid_usage(&serde_json::json!({"spec": {"allow_paid_usage": true}})));
         assert!(!asks_paid_usage(&serde_json::json!({"spec": {"allow_paid_usage": false}})));
     }
@@ -190,6 +210,15 @@ mod tests {
                 assert!(a.confirm.is_some(), "{} needs a confirmation or an undo", a.name);
             }
             assert!(a.undo.is_none_or(|u| actions::get(u).is_some()), "{}", a.name);
+            // An admin action's undo is an admin action: it fits the route parameters, or the new record's id.
+            if a.access == ActionAccess::Admin && let Some(u) = a.undo.and_then(actions::get) {
+                assert_eq!(u.access, ActionAccess::Admin, "{}", a.name);
+                match a.before {
+                    Some(b) => assert!(actions::params(u) == actions::params(a) && b.split('/').filter(|s| s.starts_with('{')).count() == actions::params(a).len(), "{}", a.name),
+                    None => assert_eq!(actions::params(u).len(), 1, "{}", a.name),
+                }
+            }
+            assert!(!a.ready || a.access == ActionAccess::Owner, "{}", a.name);
         }
     }
 }

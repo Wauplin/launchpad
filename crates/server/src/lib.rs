@@ -1,5 +1,6 @@
 //! HTTP + WebSocket server; loopback plus discovered tailnet access, or a configured gateway.
 
+mod activity;
 mod burst;
 mod browser;
 mod auth;

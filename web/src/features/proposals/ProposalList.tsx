@@ -12,7 +12,7 @@ import type { Proposal } from "@/gen/Proposal";
 
 const KIND: Record<Proposal["body"]["kind"], [string, string]> = {
   launch: ["launch", "launches"], message: ["message", "messages"], schedule: ["scheduled launch", "scheduled launches"], cron: ["routine", "routines"], status: ["status list", "status lists"],
-  preset: ["preset", "presets"], tool: ["tool", "tools"], bot: ["bot", "bots"], routine: ["routine", "routines"], bot_instructions: ["BOT.md change", "BOT.md changes"],
+  preset: ["preset", "presets"], tool: ["tool", "tools"], bot: ["bot", "bots"], routine: ["routine", "routines"], bot_instructions: ["BOT.md change", "BOT.md changes"], ready: ["ready click", "ready clicks"],
 };
 
 /** "2 launches, 1 tool": what a group action covers. */
@@ -37,8 +37,9 @@ export function ProposalList({ proposals, reveal = null, empty }: { proposals: P
   }, [reveal, filter, proposals]);
   const waiting = proposals.filter(isWaiting);
   const shown = visibleProposals(proposals, filter === "open", reveal);
-  // Every kind starts; a status list has nothing to start. Uncertain cards wait for a check in Agents.
-  const startable = waiting.filter((p) => p.state === "proposed" && p.body.kind !== "status");
+  // Every kind starts; a status list has nothing to start, and a ready click runs only from its own button.
+  // Uncertain cards wait for a check in Agents.
+  const startable = waiting.filter((p) => p.state === "proposed" && p.body.kind !== "status" && p.body.kind !== "ready");
   const dismissable = waiting.filter((p) => p.state !== "uncertain");
   const runAll = async (action: "accept" | "dismiss", cards: Proposal[]) => {
     setBusy(true);

@@ -47,4 +47,14 @@ card: string | null,
 /**
  * The action that undoes this one, when there is one (an action with an undo needs no confirmation).
  */
-undo: string | null, };
+undo: string | null, 
+/**
+ * For an undo: the GET route (same parameters) whose answer holds the values before the change, by body key.
+ * The undo then runs `undo` with the same parameters and those values. None: the action creates a record and
+ * the undo takes the new record's `id` as its only parameter.
+ */
+before: string | null, 
+/**
+ * An agent may propose it as a ready card: the owner's click runs it, with the same button and confirmation.
+ */
+ready: boolean, };

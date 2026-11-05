@@ -27,8 +27,10 @@ pub async fn items(app: &App) -> Vec<Item> {
             let place = place(&p);
             let card = |at: i64| Item::new(Kind::Proposal, Filter::Approve, &p.id, &p.title, place.clone(), at).session(p.session_id.clone());
             let status = matches!(p.body, ProposalBody::Status { .. });
+            // A ready card's main action is the owner action it names.
+            let main = match &p.body { ProposalBody::Ready { action, .. } => launchpad_core::actions::get(action).map(|a| a.name), _ => None };
             Some(match p.state {
-                ProposalState::Proposed => card(p.created_at).detail(p.note.as_deref().map(line).unwrap_or_default()).action(if status { "proposal.dismiss" } else { "proposal.start" }),
+                ProposalState::Proposed => card(p.created_at).detail(p.note.as_deref().map(line).unwrap_or_default()).action(main.unwrap_or(if status { "proposal.dismiss" } else { "proposal.start" })),
                 ProposalState::Failed => card(p.updated_at).detail(format!("Failed: {}", p.error.as_deref().map(line).unwrap_or_default())).action("proposal.start"),
                 // Never retried: the owner checks first.
                 ProposalState::Uncertain => card(p.updated_at).detail("Uncertain: check whether it started before you dismiss it").action("proposal.dismiss"),

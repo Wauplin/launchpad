@@ -18,11 +18,14 @@ import { browserZone, triggerSummary } from "@/lib/routines";
 import { PatchView } from "@/features/github/DiffReview";
 import { useLayout } from "@/stores/layout";
 import { StatusBadge } from "@/features/agents/SessionBits";
-import { runAction } from "@/lib/actions";
+import { action as actionOf, runAction, type ActionName } from "@/lib/actions";
+import { ActionButton } from "@/components/ActionButton";
+import { ACTIONS } from "@/gen/actions";
+import { BranchActions } from "@/features/today/TodayCards";
 
 export const useProposalList = (enabled = true) => useQuery({ enabled, queryKey: ["proposals"], queryFn: () => api.get<Proposal[]>("/api/proposals"), staleTime: 30_000 });
 
-const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create routine", status: "", preset: "Save preset", tool: "Add tool", bot: "Create bot", routine: "Add routine", bot_instructions: "Apply to BOT.md" };
+const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create routine", status: "", preset: "Save preset", tool: "Add tool", bot: "Create bot", routine: "Add routine", bot_instructions: "Apply to BOT.md", ready: "" };
 
 /** A new BOT.md: the bot and the diff. Applying fails when BOT.md changed since. */
 function BotInstructionsBody({ body }: { body: Extract<Proposal["body"], { kind: "bot_instructions" }> }) {
@@ -90,6 +93,51 @@ function ToolBody({ body }: { body: Extract<Proposal["body"], { kind: "tool" }> 
       {t.hosts.length > 0 && <Token tone="warn">token sent to {t.hosts.map((h) => h.host).join(", ")}</Token>}
       {body.token_url && <a className="text-[12px] text-teal-ink hover:underline" href={body.token_url} target="_blank" rel="noreferrer">Create the token</a>}
     </span>
+  );
+}
+
+type Ready = Extract<Proposal["body"], { kind: "ready" }>;
+
+/** Where the owner checks what a ready click acts on. */
+function readyLink(body: Ready): { to: string; params?: Record<string, string>; search?: Record<string, string>; label: string } | null {
+  const id = body.args[0] ?? "";
+  switch (body.action) {
+    case "local-pr.publish": case "local-pr.merge": return { to: "/predrafts/$id", params: { id }, label: "Review the Local PR" };
+    case "outbox.send": return { to: "/", search: { filter: "send" }, label: "Open in Today" };
+    case "suggestion.post": return { to: "/", search: { filter: "github" }, label: "Open in Today" };
+    case "inbox.done": return { to: "/inbox", label: "Open the Inbox" };
+    default: return body.session_id ? { to: "/agents", search: { session: body.session_id, view: "changes" }, label: "Review changes" } : null;
+  }
+}
+
+/** A ready click: an owner action an agent prepared. The owner's click runs the action's own call with its
+ * confirmation, as on its page (a merge shows the branch and Merge only when safe); then the card is started. */
+function ReadyBody({ p, body }: { p: Proposal; body: Ready }) {
+  const qc = useQueryClient();
+  const known = body.action in ACTIONS;
+  const name = body.action as ActionName;
+  const session = useSessions().data?.find((s) => s.id === body.session_id) ?? null;
+  const waiting = p.state === "proposed" || p.state === "failed";
+  const ran = async () => {
+    const next = await api.post<Proposal>(`/api/proposals/${p.id}/ran`);
+    qc.setQueryData<Proposal[]>(["proposals"], (old) => old?.map((x) => (x.id === next.id ? next : x)));
+    void qc.invalidateQueries({ queryKey: ["today"] });
+  };
+  if (!known) return <ErrorState error={`Unknown action ${body.action}`} />;
+  const a = actionOf(name);
+  const route = a.route.match(/\{(\w+)\}/g)?.map((x) => x.slice(1, -1)) ?? [];
+  const params = Object.fromEntries(route.map((k, i) => [k, body.args[i] ?? ""]));
+  const link = readyLink(body);
+  return (
+    <>
+      <span className="flex flex-wrap gap-1"><Token icon="alert" tone="warn">Your click · {a.help}</Token></span>
+      {waiting && (name === "worktree.merge" && body.session_id
+        ? <BranchActions sessionId={body.session_id} s={session} onMerged={ran}>{link && <Link className="btn btn-sm no-underline" to={link.to as never} params={link.params as never} search={link.search as never}>{link.label}</Link>}</BranchActions>
+        : <div className="flex flex-wrap items-center gap-1.5">
+            <ActionButton name={name} params={params} body={body.input} primary vars={{ base: "the base branch", branch: "the branch", channel: "its channel", ...params }} onDone={() => ran().catch(toastError)} />
+            {link && <Link className="btn btn-sm no-underline" to={link.to as never} params={link.params as never} search={link.search as never}>{link.label}</Link>}
+          </div>)}
+    </>
   );
 }
 
@@ -181,7 +229,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
   return (
     <article id={anchor ? `proposal-${p.id}` : undefined} data-tour="proposal.card" data-tour-id={p.id} tabIndex={-1} className={`grid gap-2 rounded-xl border bg-paper p-3 ${(p.body.kind === "cron" || p.body.kind === "routine") && !started ? "border-attn-line" : "border-line"}`}>
       <div className="flex items-start gap-2">
-        <Icon name={p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" || p.body.kind === "routine" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : p.body.kind === "tool" ? "term" : p.body.kind === "bot" ? "spark" : p.body.kind === "bot_instructions" ? "file" : "play"} size={14} className="mt-0.5 flex-none text-ink-3" />
+        <Icon name={p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" || p.body.kind === "routine" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : p.body.kind === "tool" ? "term" : p.body.kind === "bot" ? "spark" : p.body.kind === "bot_instructions" ? "file" : p.body.kind === "ready" ? "check" : "play"} size={14} className="mt-0.5 flex-none text-ink-3" />
         <div className="min-w-0 flex-1">
           <b className="block text-[13px]">{p.title}</b>
           {p.note && <p className="m-0 text-[12px] text-ink-2">{p.note}</p>}
@@ -197,14 +245,16 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
       {p.body.kind === "bot" && <BotBody body={p.body} />}
       {p.body.kind === "routine" && <RoutineBody body={p.body} />}
       {p.body.kind === "bot_instructions" && <BotInstructionsBody body={p.body} />}
+      {p.body.kind === "ready" && <ReadyBody p={p} body={p.body} />}
       {statusSessions.length > 0 && <div className="grid">{statusSessions.map((s) => <SessionRow key={s.id} s={s} />)}</div>}
       {session && <SessionRow s={session} />}
-      {started && !session && p.body.kind !== "status" && <span className="text-[12px] text-gh-open"><Icon name="check" size={11} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "settings" }}>Settings</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : "Started"}</span>}
+      {started && !session && p.body.kind !== "status" && <span className="text-[12px] text-gh-open"><Icon name="check" size={11} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "settings" }}>Settings</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : p.body.kind === "ready" ? "Done" : "Started"}</span>}
       {p.state === "replaced" && <span className="text-[12px] text-ink-3">{p.replaced_by ? "Replaced" : "Edited in the composer"}{p.replaced_by && <> · <Link to="/" search={{ card: `proposal:${p.replaced_by}` }} onClick={() => { if (p.workspace_id) useWorkspace.getState().switchTo(p.workspace_id); }} className="underline">View replacement</Link></>}</span>}
       {p.state === "dismissed" && <span className="text-[12px] text-ink-3">Dismissed</span>}
       {p.state === "failed" && p.error && <ErrorState error={p.error} />}
       {p.state === "uncertain" && <div className="grid gap-1.5 text-[12px] text-attn">Delivery not confirmed. Check Agents before starting a new attempt.<button className="btn btn-sm w-fit" disabled={busy} onClick={() => void act("recheck")}>I checked Agents — check again</button></div>}
-      {(p.state === "proposed" || p.state === "failed") && p.body.kind !== "status" && (
+      {(p.state === "proposed" || p.state === "failed") && p.body.kind === "ready" && <button className="btn btn-sm btn-ghost w-fit" disabled={busy} onClick={() => void act("dismiss")}>Dismiss</button>}
+      {(p.state === "proposed" || p.state === "failed") && p.body.kind !== "status" && p.body.kind !== "ready" && (
         <div className="flex flex-wrap items-center gap-1.5">
           <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void act("accept")}><Icon name="play" size={12} />{busy ? "Starting…" : START[p.body.kind]}</button>
           <EditButton p={p} />

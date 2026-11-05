@@ -19,6 +19,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/proposals/{id}/dismiss", post(dismiss))
         .route("/api/proposals/{id}/edit", post(edited))
         .route("/api/proposals/{id}/recheck", post(recheck))
+        .route("/api/proposals/{id}/ran", post(ran))
         .route("/api/context/folders", get(folders))
         .route("/api/context/bots", get(bots))
         .route("/api/context/sessions", get(sessions))
@@ -58,6 +59,10 @@ async fn dismiss(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Prop
 }
 async fn edited(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Proposal> {
     Ok(Json(proposals::edited(&s.app, &id).await.map_err(bad)?))
+}
+/// A ready card's action ran from the owner's click.
+async fn ran(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Proposal> {
+    Ok(Json(proposals::ran(&s.app, &id).await.map_err(bad)?))
 }
 async fn recheck(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Proposal> {
     Ok(Json(proposals::recheck(&s.app, &id).await.map_err(bad)?))

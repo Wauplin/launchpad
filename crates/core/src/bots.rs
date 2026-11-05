@@ -34,8 +34,8 @@ pub enum ProposalMode {
     /// Every proposal waits for the owner's click.
     #[default]
     Manual,
-    /// One-time launches, messages, schedules and presets start at once; routines, crons, bots, tools and BOT.md
-    /// changes still wait.
+    /// One-time launches, messages and schedules start at once; routines, crons, bots, presets, tools, BOT.md
+    /// changes and ready cards still wait.
     Auto,
 }
 

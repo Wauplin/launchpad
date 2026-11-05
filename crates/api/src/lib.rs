@@ -1,6 +1,7 @@
 //! The JSON API routes that need only the App and the front door's state. `launchpad-server` serves them behind
 //! its authentication, relay and forwarding layers.
 
+mod activity;
 mod api;
 mod bots;
 mod channels;
@@ -40,4 +41,5 @@ pub fn router() -> Router<Ctx> {
         .merge(vault::router())
         .merge(kb_http::router())
         .merge(today::router())
+        .merge(activity::router())
 }

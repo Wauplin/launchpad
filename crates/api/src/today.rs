@@ -20,7 +20,7 @@ struct Q {
 
 async fn list(State(s): State<Ctx>, Query(q): Query<Q>) -> ApiResult<Today> {
     let mut t = today::compute(&s.app).await?;
-    if let Some(w) = q.workspace {
+    if let Some(w) = crate::activity::workspace_id(&s, q.workspace).await? {
         let keep = |i: &today::Item| i.workspaces.is_empty() || i.workspaces.contains(&w);
         t.items.retain(keep);
         t.done.retain(keep);

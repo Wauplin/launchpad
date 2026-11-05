@@ -1,5 +1,7 @@
 //! Proposals: inert cards written by agents with the Launchpad CLI tool (`launchpad propose`), accepted by an
 //! owner click, or at once for one-time starts when the author is a bot in auto mode (`bot.toml` `proposals`).
+//! Ready cards name an owner action of the action list (merge, publish, post, send, Inbox done): the owner's click
+//! runs that action's own API call from the card, then marks the card started (`ran`); accepting never runs them.
 //! Like agent suggestions, the agent drafts and the owner publishes. Accepting claims the proposal
 //! durably before acting; a claim interrupted by a crash becomes Uncertain and is never retried
 //! automatically. Launches use the session ID chosen at proposal time, so a finished launch is found
@@ -75,6 +77,20 @@ pub enum ProposalBody {
         /// The unified diff from `before` (filled by Home).
         #[serde(default)]
         patch: String,
+    },
+    /// A ready click: an owner action of the action list (`actions::Action::ready`) with its route parameters and
+    /// body, run only by the owner's click on the card (the same button, confirmation and API call as its page).
+    Ready {
+        action: String,
+        args: Vec<String>,
+        #[serde(default)]
+        #[ts(type = "Record<string, unknown>")]
+        input: serde_json::Value,
+        /// The agent session the click is about; a merge names the session whose branch it merges.
+        #[serde(default)]
+        #[ts(optional)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
     /// A new tool in Home's registry. Adding it asks for nothing secret; the owner pastes the token after.
     /// Its token is always a new vault entry named like the tool, never an existing one.
@@ -254,6 +270,25 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
             *patch = launchpad_core::kb::unified(&bot.instructions, instructions);
             workspace_id = Some(bot.workspace_id);
         }
+        ProposalBody::Ready { action, args, input, session_id } => {
+            use launchpad_core::actions;
+            if let Some(sid) = session_id {
+                ensure!(app.sessions.get(sid).is_some(), "no session {sid}");
+            }
+            ensure!(action != "worktree.merge" || session_id.is_some(), "a merge card names the session whose branch it merges (session_id)");
+            let a = actions::get(action).filter(|a| a.ready).with_context(|| format!("{action} is not a ready action: use one of {}", actions::ACTIONS.iter().filter(|a| a.ready).map(|a| a.name).collect::<Vec<_>>().join(", ")))?;
+            actions::path(a, &args.iter().map(String::as_str).collect::<Vec<_>>())?;
+            if input.is_null() {
+                *input = serde_json::json!({});
+            }
+            let obj = input.as_object().context("input is a JSON object")?;
+            for f in a.input {
+                ensure!(f.optional || obj.contains_key(f.name), "{} needs input.{}", a.name, f.name);
+            }
+            if let Some(k) = obj.keys().find(|k| !a.input.iter().any(|f| f.name == k.as_str())) {
+                bail!("{} takes no input.{k}", a.name);
+            }
+        }
         ProposalBody::Preset { preset_id, label, text, .. } => {
             ensure!(!label.trim().is_empty(), "give the preset a label");
             ensure!(!text.trim().is_empty(), "write the preset text");
@@ -274,9 +309,10 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     app.state_db.call(move |db| store_created(db, &stored, c.replaces.as_deref())).await?;
     app.bus.publish("proposals", "changed", serde_json::to_value(&p)?);
     drop(_lock);
-    // Only proposals authored by a bot in auto mode are eligible, and only one-time starts, messages and presets.
-    // Anything that repeats or lasts (crons, routines, bots, BOT.md, tools) always waits for the owner's click.
-    if matches!(p.body, ProposalBody::Launch { .. } | ProposalBody::Message { .. } | ProposalBody::Schedule { .. } | ProposalBody::Preset { .. })
+    // Only proposals authored by a bot in auto mode are eligible, and only one-time starts and messages. Anything
+    // that repeats or lasts (crons, routines, bots, BOT.md, presets, tools) and ready cards always wait for a click
+    // (presets are shared settings: a session with admin access changes them directly, with Undo).
+    if matches!(p.body, ProposalBody::Launch { .. } | ProposalBody::Message { .. } | ProposalBody::Schedule { .. })
         && auto_mode(app, author.as_ref()).await
     {
         return accept_inner(app, &p.id, false, None).await;
@@ -365,6 +401,7 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                 Ok(bot_id)
             }
             ProposalBody::Status { .. } => bail!("a status card has nothing to start"),
+            ProposalBody::Ready { action, .. } => bail!("a ready card runs {action} from its own button"),
             ProposalBody::Tool { mut tool, .. } => {
                 let tools = launchpad_core::vault::tools(app).await?;
                 if tools.iter().any(|t| t.id == tool.id) {
@@ -429,6 +466,20 @@ pub async fn dismiss(app: &App, id: &str) -> Result<Proposal> {
     let mut p = get(app, id).await?;
     ensure!(matches!(p.state, ProposalState::Proposed | ProposalState::Failed | ProposalState::Uncertain), "only waiting proposals can be dismissed");
     p.state = ProposalState::Dismissed;
+    p.updated_at = now_ms();
+    save(app, &p).await?;
+    Ok(p)
+}
+
+/// A ready card whose action the owner just ran from the card: Started.
+pub async fn ran(app: &App, id: &str) -> Result<Proposal> {
+    let _lock = ACCEPT.lock().await;
+    let mut p = get(app, id).await?;
+    let ProposalBody::Ready { action, .. } = &p.body else { bail!("only ready cards run from their button") };
+    ensure!(matches!(p.state, ProposalState::Proposed | ProposalState::Failed), "this card is not waiting");
+    p.result_id = Some(action.clone());
+    p.state = ProposalState::Started;
+    p.error = None;
     p.updated_at = now_ms();
     save(app, &p).await?;
     Ok(p)

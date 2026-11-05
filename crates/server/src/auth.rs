@@ -473,7 +473,11 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
         return match crate::agent_auth::authorize(&s.app, &session.id, req).await {
             Ok(mut req) => {
                 req.extensions_mut().insert(Access { session: None, device: None, changes: s.auth.changes.subscribe() });
-                private_response(next.run(req).await, private)
+                // Direct admin actions go to the activity list, with the values before them for Undo.
+                let (req, pending) = crate::activity::prepare(&s.app, &session.id, req).await;
+                let res = next.run(req).await;
+                let res = match pending { Some(p) => crate::activity::finish(&s.app, p, res).await, None => res };
+                private_response(res, private)
             }
             Err(e) => e.into_response(),
         };
