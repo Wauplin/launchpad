@@ -2769,8 +2769,6 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
- "chrono-tz",
- "croner",
  "dirs",
  "futures-util",
  "hex",
