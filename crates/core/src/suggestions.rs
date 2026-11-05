@@ -126,7 +126,7 @@ pub async fn create(app: &App, q: Create) -> Result<Suggestion> {
             let p = predrafts::get(app, id).await?;
             ensure!(
                 p.is_open(),
-                "pre-draft is archived, published or merged locally"
+                "this Local PR is archived, published or merged locally"
             );
         }
     }
@@ -206,7 +206,7 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
             let mut p = predrafts::get(app, id).await?;
             ensure!(
                 p.is_open() && p.pushed_head.is_none(),
-                "pre-draft is no longer editable"
+                "this Local PR can no longer be edited"
             );
             p.notes.push(predrafts::Note {
                 path: None,

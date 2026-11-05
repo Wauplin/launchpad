@@ -75,10 +75,10 @@ pub async fn run(app: &App, id: &str) -> anyhow::Result<Vec<Check>> {
             if ok {
                 check("gh", "GitHub CLI", Some(true), format!("Signed in{} · publication and merges push from this host", account.map(|a| format!(" as {a}")).unwrap_or_default()))
             } else {
-                Check { command: Some("gh auth login".into()), ..check("gh", "GitHub CLI", None, "Not signed in: pre-draft Publish needs push access from this host") }
+                Check { command: Some("gh auth login".into()), ..check("gh", "GitHub CLI", None, "Not signed in: Local PR Publish needs push access from this host") }
             }
         }
-        Err(_) => Check { command: Some("Install the GitHub CLI: https://cli.github.com".into()), ..check("gh", "GitHub CLI", None, "Not installed: pre-draft Publish needs it on this host") },
+        Err(_) => Check { command: Some("Install the GitHub CLI: https://cli.github.com".into()), ..check("gh", "GitHub CLI", None, "Not installed: Local PR Publish needs it on this host") },
     };
     checks.push(gh);
     let programs: Vec<String> = crate::harness::REGISTRATIONS.iter().map(|r| app.harnesses.get(r.descriptor.id).sign_in_program().to_string()).collect();
