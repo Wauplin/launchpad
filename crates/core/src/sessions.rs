@@ -1354,7 +1354,8 @@ impl Sessions {
 
     /// Durable claim before sending, serialized with owner actions. An uncertain send is never replayed.
     pub(crate) async fn check_capacity_retries(&self, app: &App) -> Result<()> {
-        for pending in self.list().into_iter().filter(|s| s.capacity_retry_at.is_some_and(|at| at <= now_ms())) {
+        // A runner's session (on Home) is retried by its runner.
+        for pending in self.list().into_iter().filter(|s| s.runner_id.is_none() && s.capacity_retry_at.is_some_and(|at| at <= now_ms())) {
             let _action = self.inner.actions.lock().await;
             let _guard = self.allow_work().await;
             let Some(s) = self.get(&pending.id) else { continue };
@@ -1390,6 +1391,8 @@ impl Sessions {
         let _action = self.inner.actions.lock().await;
         crate::spend::publish(app);
         for s in self.list() {
+            // Home: a runner's session is protected by its runner, which receives Home's readings.
+            if s.runner_id.is_some() { continue; }
             // Setup has not sent a task yet; start_new checks quota after it finishes.
             if self.setup_running(&s.id) { continue; }
             if s.live && s.quota_pause.is_none() && (s.status.is_running() || s.status.is_done()) {
