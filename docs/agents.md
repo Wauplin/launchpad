@@ -165,11 +165,16 @@ In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or b
 
 ## Workspaces
 
-Workspaces are yours to define, for example "Work" and "Personal"; none is built in. Every folder belongs to exactly one workspace, chosen when you add, clone or create it, and its agents, schedules, crons and inbox threads follow it. Each window shows one workspace or **Everything**, a view of all of them, and every list, count and badge follows it. Switch with the buttons in the top bar; create, rename and delete workspaces from the ⋯ menu of the sidebar's **Folders** group. Move a folder with **Move to …** in its menu or in its settings. Only an empty workspace can be deleted.
+Workspaces are yours to define, for example "Work" and "Personal". Home creates a first workspace, **Personal**, and always keeps at least one. Every folder belongs to exactly one workspace, chosen when you add, clone or create it, and its agents, schedules, crons and inbox threads follow it. A window shows one workspace at a time: every list, count, badge and suggestion follows it, including `#` and `@` in prompts and the folders of **Add context**.
+
+- **Rail**: the column of squares at the left edge, one per workspace. Click a square to show that workspace in this window. Other workspaces show only a count of what waits in them (agents that need you, waiting proposals, Inbox items for you). **+** creates a workspace.
+- **Workspace menu**: the workspace name at the top of the sidebar. It offers **Rename**, **Open in a new window** (to see two workspaces side by side), **Workspace settings**, **New workspace** and **Delete**. Only an empty workspace can be deleted, and never the last one.
+- Move a folder with **Move to …** in its menu or in its settings.
+- Desktop and Telegram notifications name the workspace, and opening one shows that workspace.
 
 To use the same repository in two workspaces, clone it again from the other workspace: it becomes a second folder (`<name>-<workspace>`) with its own agents, Local PRs and settings. A temporary folder joins the workspace of the window, so launch it from a workspace.
 
-Folders registered before workspaces were required appear in the **Unassigned folders** card on the Folders page until you choose a workspace for each or remove them.
+Folders without a workspace appear in the **Unassigned folders** card on the Folders page until you choose a workspace for each or remove them.
 
 ## Terminals and files
 

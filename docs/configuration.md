@@ -1,6 +1,6 @@
 # Configuration
 
-Most settings are editable in **Settings** and saved as soon as they change. Settings that apply to the whole daemon are written to `config.toml`. Settings that apply to one device (zoom, theme, layout) stay in that browser.
+Most settings are editable in **Settings** and saved as soon as they change. Settings has two parts: **This workspace** (its name, folders, bots, granted tools and MCP servers, Delete) and **Launchpad** (shared by every workspace). Settings that apply to the whole daemon are written to `config.toml`. Settings that apply to one device (zoom, theme, layout) stay in that browser.
 
 ## Files and folders
 

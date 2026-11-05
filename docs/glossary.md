@@ -23,7 +23,7 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Archive · Discard · Remove · Delete files | Done, Archive, Discard, Remove, Delete folder, Close | Archive: hide but keep (agents, inbox threads; the Inbox Done button keeps its GitHub name "Done"). Discard: drop a local draft, suggestion or Local PR. Remove: unregister, files kept ("Remove from Launchpad"); a folder changes workspace with "Move to <workspace>". "Delete files" only when files are deleted from disk. |
 | New agent here / Send later… | Follow up / Schedule follow-up | A separate agent in the same folder / a message delivered later to the same session. |
 | Open agent | Agent, Agent session, View session, Back to session | Every link to a session ("← Back to agent"). |
-| Everything | All workspaces | The view of every workspace. It is not a workspace: folders always belong to one. |
+| Workspace | Everything, All workspaces, project group | A group of folders with their agents, bots, schedules and knowledge base. A window shows one workspace; the rail shows the others as counts. There is no view of all workspaces. |
 | Review | To publish, /review | The one page with To publish · Agent branches · Review requests. |
 | Tour | walkthrough, guide, onboarding (for the steps) | The guided steps on demo data (Essentials or Full, chapters). Settings → Onboarding holds the tours and the setup checklist. |
 | Demo | sandbox, playground | The fake world the tour runs on. Nothing in it is real or saved; Exit demo reloads the real app. |

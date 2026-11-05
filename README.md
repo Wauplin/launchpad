@@ -11,6 +11,7 @@ Launchpad is a desktop app to launch, follow and review coding agents (Claude Co
 - **Your subscription, protected.** Launchpad reads the quota of your Claude and ChatGPT subscriptions, pauses agents before they use paid credits, and continues them when quota is available again.
 - **GitHub without waiting.** The inbox, issues, pull requests and reviews come from a local cache, so moving between them is instant.
 - **Nothing reaches GitHub without your click.** Comments and reviews written by agents, and pull requests prepared locally, stay on your machine until you publish them.
+- **One workspace at a time.** Group folders into workspaces such as "Work" and "Personal". A window shows one workspace; the others show only how many items wait in them.
 - **Use it from anywhere.** One daemon runs the agents. The desktop window, your phone and other browsers are clients of that daemon.
 
 <table>

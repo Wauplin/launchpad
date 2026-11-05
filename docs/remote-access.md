@@ -69,7 +69,7 @@ Screens narrower than 720 px get a phone layout (or choose it in **Settings → 
 
 - **Now**: what needs you, with answer buttons in place, and open terminals.
 - **Agents**, **Ask**, **Review** and **Inbox** tabs.
-- The workspace button at the top left opens the menu: workspaces, other pages (Proposals, Schedules, Outbox, Folders, Knowledge, Settings) and device settings. Pages show their counts there, like the laptop sidebar, and the button shows how many proposals and Outbox messages wait.
+- The workspace button at the top left opens the menu. Its **Workspaces** row shows one square per workspace with the count of what waits in it; tap one to switch, or **New workspace**. Below are the other pages (Proposals, Schedules, Outbox, Folders, Knowledge, Settings) and device settings. Pages show their counts there, like the laptop sidebar. The button shows how many proposals and Outbox messages wait, plus a badge when other workspaces need you.
 - Each screen has one title, in the top bar.
 - Session pages with Summary, Trace and Changes, a reply box and a terminal key bar. In Summary or Trace, tap the expand icon beside the view tabs to fill the screen with a compact header and hide the reply box. Tap collapse to restore the layout and your draft.
 
