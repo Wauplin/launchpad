@@ -18,7 +18,7 @@
 
 ## Work on Launchpad
 
-- [Architecture](architecture.md): the daemon, the UI, sessions, storage and the security model.
+- [Architecture](architecture.md): the daemon, the UI, sessions, storage, the security model and the Rust crates.
 - [Development](development.md): build, run, checks and CI.
 - [Harness adapters](harness-adapters.md): how to add a coding agent harness.
 - [Foundations spikes](foundations-spikes.md): harness logins through a proxy and conversations moved between runners, checked for the Home and runners plan.

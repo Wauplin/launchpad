@@ -4,7 +4,8 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 
 ## Where things are
 
-- `crates/core`: domain and services. `crates/server`: axum API, WebSocket, auth, embedded UI. `crates/cli`: the `launchpad` binary (and the `build.rs` that stamps the commit). `web/`: React app. `desktop/`: Tauri shell. `extension/`: Chrome extension. `deploy/hf-space/`: Hugging Face Space connector. `packaging/`: installers. `skills/launchpad/SKILL.md`: the agent skill for the CLI.
+- Rust crates (layout and dependencies in [docs/architecture.md](docs/architecture.md#code-layout)): `crates/core` (domain and services, the harness contract), `crates/harness` (adapters), `crates/channels` (channels, Telegram, hooks), `crates/github` (issue and PR views, Inbox, Suggestions), `crates/automation` (routines, scheduled launches, proposals), `crates/setup` (setup checklist, clone, onboarding), `crates/http` (API error type and route state, session token checks), `crates/api` (JSON routes that need only the `App`), `crates/server` (auth, runner tunnel and relay, WebSockets, embedded UI) and `crates/cli` (the `launchpad` binary, `extensions.rs` that connects the crates, and the `build.rs` that stamps the commit).
+- `web/`: React app. `desktop/`: Tauri shell. `extension/`: Chrome extension. `deploy/hf-space/`: Hugging Face Space connector. `packaging/`: installers. `skills/launchpad/SKILL.md`: the agent skill for the CLI.
 - `docs/`: user documentation by feature, plus `architecture.md`, `development.md`, `harness-adapters.md` and `glossary.md`. `initial.md`: the original project description, in the owner's words.
 
 ## Commands
@@ -27,13 +28,15 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 
 ## Checks to run (keep iteration fast)
 
-Run only what your change can break; CI runs everything.
+Run only what your change can break, and rebuild only what you changed; CI runs everything.
 
 - Docs only: nothing.
 - Web only: `(cd web && pnpm typecheck)`, `pnpm lint:hooks` if you touched hooks, and the matching `pnpm test:<name>`. Do not run cargo.
-- Rust, while working: `cargo check --all-targets` (about 20 s after a change in `core`). Run `cargo test <filter>` only when you changed code that has tests (the whole run takes about one second once built).
-- Rust, once before committing: `cargo clippy --all-targets -- -D warnings` (about 1.5 min after a change in `core`), plus `cargo test` if you changed tested code.
-- Run cargo from the repository root without `-p`: selecting one crate resolves different dependency features and rebuilds every dependency. Do not run release builds or `cargo clean`.
+- Rust: Cargo rebuilds only the crate you changed and the crates that depend on it. After a change in a feature crate, `api` or `server`, `cargo check --all-targets` takes 1–2 s, Clippy 2–4 s and `cargo test` 3–5 s. After a change in `core`, every crate rebuilds: about 9 s for `cargo check` and 20 s for Clippy or `cargo test`. Keep code out of `core` when the core does not call it.
+- Rust, while working: `cargo check --all-targets`. Run `cargo test <filter>` only when you changed code that has tests; tests sit next to the code in each crate.
+- Rust, once before committing: `cargo clippy --all-targets -- -D warnings`, plus `cargo test` if you changed tested code.
+- Run checks and tests from the repository root without `-p`, even for one crate: selecting one crate resolves different dependency features and recompiles dozens of dependencies. Do not run release builds or `cargo clean`.
+- Skip builds your change cannot affect: `gen-types` only when a type shared with the UI changed, `pnpm build` only when a running daemon must show a `web/` change, the desktop shell only for `desktop/` changes, the extension only for `extension/` changes.
 - Contained sessions share compiled dependencies through `sccache` when it is installed on the runner (`cargo install sccache --locked`).
 
 ## Safety rules
@@ -52,6 +55,7 @@ Run only what your change can break; CI runs everything.
 
 - Single user: no backward compatibility, versioning or migration framework. `cache.db` can be deleted and rebuilt; keep `state.db` schema changes simple.
 - Linux (Ubuntu) is primary; gate OS-specific APIs and keep native release builds and tests in CI.
+- Crate layering: `launchpad-core` depends on no other Launchpad crate; the feature crates (`harness`, `channels`, `github`, `automation`, `setup`) depend only on the core, never on each other; `server` never depends on `api` or a feature crate. The core reaches the crates above it only through `harness::install` and `ext::Extensions`, both installed by `crates/cli`. Put new code in the highest crate that can hold it; move code into the core only when the core calls it.
 - Phase 7 extensions need an owner-approved scope. The daemon owns harnesses and terminals; there are no session workers.
 - Click only: every action is a visible button. Keyboard shortcuts are limited to `Ctrl+F` in Files, `Ctrl+T`/`Cmd+T` for a new terminal, terminal clipboard and clear keys, normal text-editing keys, `Enter`/`Shift+Enter` in the session message box and the find field, and `@`, `/`, `#` suggestions in prompts.
 - No editor integration (buttons, settings or endpoints).
@@ -59,7 +63,7 @@ Run only what your change can break; CI runs everything.
 
 ### Harnesses and sessions
 
-- `crates/core/src/harness/mod.rs` is the registration list and common contract; each adapter owns startup/resume, discovery, monitors, markers, terminal commands and title hooks. No harness identity branches in core, server or React (UI metadata: `GET /api/harnesses`). See `docs/harness-adapters.md`.
+- `crates/core/src/harness/mod.rs` is the common contract and `crates/harness/src/lib.rs` the registration list; each adapter owns startup/resume, discovery, monitors, markers, terminal commands and title hooks. No harness identity branches in core, server or React (UI metadata: `GET /api/harnesses`). See `docs/harness-adapters.md`.
 - Adapters start processes with `procs::child_command(&app.env.on(spec.host), …)` and the native `spec.cwd` (works on SSH hosts). `exec::is_lost` exits are Interrupted.
 - Shared session states: Done means waiting for input; Running includes starting, working and background commands (including Codex background commands until real completion); never infer Done from a silent command. Stopped differs from Interrupted and Failed. Idle checks for publication, merge and root Stop include child turns and commands that outlive a turn.
 - Needs you = an open question, or Done/Failed/Interrupted and unseen. `Session::needs_you()` and `needsYou`/`isUnseen` (`web/src/lib/sessionStatus.ts`) are the only predicates. A session becomes seen only after a focused, visible, recently used window showed it for 1.5 s (notification suppression uses the same rule).
@@ -67,7 +71,7 @@ Run only what your change can break; CI runs everything.
 - Permission modes (YOLO default, Ask for approval, Auto) use native mechanisms only; never implement Auto by accepting requests blindly. Typed replies cannot grant permissions.
 - Only the initial prompt gets `compose::append_initial_summary_instruction`; follow-ups stay verbatim, typed text first in `render_prompt`. Trace context is referenced (`launchpad trace <id> --through <seq>`), never inlined; missing traces fail visibly.
 - Schedules and routines (code: crons) claim before launching (advance `next_run_at` or the GitHub watermark, write the history entry first) and never catch up: runs over one hour late or with unmet conditions (all must hold; quota needs a fresh reading; dependencies use `dependency_done`) are skipped. Claimed but not started at shutdown becomes Failed, never retried.
-- Routine triggers: schedule, new Inbox activity (one run per check), another agent's turn ending Done; a routine's own runs never trigger routines. Bot routines message the bot's thread (`crons::bot_message`) and skip while it works; other routines launch their spec. Pausing a bot pauses its routines and hooks, never the owner's messages. A final `no_update` message (`crons::is_no_update`) never notifies and is marked seen only if nothing was unseen when the run started.
+- Routine triggers: schedule, new Inbox activity (one run per check), another agent's turn ending Done; a routine's own runs never trigger routines. Bot routines message the bot's thread (`crons::bot_message`) and skip while it works; other routines launch their spec. Pausing a bot pauses its routines and hooks, never the owner's messages. A final `no_update` message (`routines::is_no_update`) never notifies and is marked seen only if nothing was unseen when the run started.
 - Attachments upload once (`upload:<mime>;<sha256>`); non-image files go to `<data_dir>/attachments/<session-id>/`, never into the checkout.
 - Capacity retries: terminal capacity/overload failures only, persisted five-minute deadline, at most five per session, cancelled by Resume, input, Stop or Archive.
 - Launch and session input use `Idempotency-Key` headers and durable `browser_operation` claims; keep authentication before retry middleware.
@@ -122,7 +126,7 @@ The Git and storage design is in `docs/architecture.md`; these rules must hold.
 
 ### Channels and the Outbox
 
-- Channels live on Home (`channels.rs`, `telegram.rs`, `hooks.rs`); runners forward `/api/channels`, `/api/outbox` and `/api/suggestions`. Webhook URLs and the Telegram token are `channel-…` vault entries: never listed, lent or returned by an API.
+- Channels live on Home (`crates/channels`: `channels.rs`, `telegram.rs`, `hooks.rs`); runners forward `/api/channels`, `/api/outbox` and `/api/suggestions`. Webhook URLs and the Telegram token are `channel-…` vault entries: never listed, lent or returned by an API.
 - Messages to other people (webhooks, GitHub suggestions) wait in the Outbox for an owner click; a send is claimed (`sending`) first, never retried, and `uncertain` if incomplete. Automated checks never send real Outbox messages or call Telegram with a real token.
 - The owner's own Telegram chat (bound with a single-use code; other chats ignored) gets messages directly. Updates are claimed (offset saved) before handling. Telegram never enables paid usage.
 - Incoming hooks (`POST /hooks/<id>`) need `X-Launchpad-Hook-Secret` (SHA-256 stored, constant-time compare), one message per 10 seconds, an HF token on a private Space; the body is a fenced, size-limited block marked as outside data.
@@ -130,7 +134,7 @@ The Git and storage design is in `docs/architecture.md`; these rules must hold.
 ### Ask Launchpad and proposals
 
 - Ask Launchpad is a normal bot with no special code path: Home creates it once per workspace (`ask_bot::seed`, recorded in the `seeded` table) with its own plain folder; the owner may edit, replace or delete it, and Home never recreates it. Never add Ask-only branches to sessions, crons, hooks, proposals or the UI.
-- The Launchpad CLI is a tool of Home's registry (`vault::LAUNCHPAD_TOOL`), added once and granted to every workspace, with three access levels (`vault::LaunchpadAccess`): **read** (`/api/status`, `/api/context/*`, `GET /api/proposals`), **propose** (plus `POST /api/proposals`; the default for bots and every other agent) and **admin** (plus Launchpad's own records through `launchpad api`: bots, routines, schedules, workspaces, proposal accept/dismiss, launches and session messages, MCP tool switches). Bots set it with `launchpad` in `bot.toml`; Ask Launchpad is created with admin. Home puts the level in the lease (`Lease.launchpad`); `agent_auth` enforces it on the session CLI token, and `proposals::cli_reference` tells the session what it may do. A session without a lease on its machine gets propose. Admin never reaches GitHub, the Outbox, channels, credentials, devices, terminals, hosts, runners, setup fixes, backups, Burst, config.toml or paid usage (`agent_auth::admin_allows`); keep that list closed.
+- The Launchpad CLI is a tool of Home's registry (`vault::LAUNCHPAD_TOOL`), added once and granted to every workspace, with three access levels (`vault::LaunchpadAccess`): **read** (`/api/status`, `/api/context/*`, `GET /api/proposals`), **propose** (plus `POST /api/proposals`; the default for bots and every other agent) and **admin** (plus Launchpad's own records through `launchpad api`: bots, routines, schedules, workspaces, proposal accept/dismiss, launches and session messages, MCP tool switches). Bots set it with `launchpad` in `bot.toml`; Ask Launchpad is created with admin. Home puts the level in the lease (`Lease.launchpad`); `agent_auth` enforces it on the session CLI token, and `launchpad_cli::cli_reference` tells the session what it may do. A session without a lease on its machine gets propose. Admin never reaches GitHub, the Outbox, channels, credentials, devices, terminals, hosts, runners, setup fixes, backups, Burst, config.toml or paid usage (`agent_auth::admin_allows`); keep that list closed.
 - Proposals are inert. Every start needs an owner click, except one-time launches, messages, schedules and presets of a bot whose `bot.toml` says `proposals = "auto"`, and what an admin session does directly; proposed crons, routines, bots, tools and BOT.md changes always wait. Paid usage is forced off. A session proposes routines and BOT.md changes only for bots of its own workspace. Preset proposals create or update presets and never delete them.
 
 ### Terminals

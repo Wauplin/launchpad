@@ -1,14 +1,14 @@
 # Harness adapters
 
-The registration list in `crates/core/src/harness/mod.rs` is the only host list of harness identities. Claude Code, Codex and OpenCode are registered integrations. Pi is intentionally left for a follow-up that checks this boundary in practice.
+Adapters live in the `launchpad-harness` crate (`crates/harness/`). Its `REGISTRATIONS` list in `crates/harness/src/lib.rs` is the only host list of harness identities. The contract (`Harness`, `LiveSession`, `Registration`) and the registry are in `launchpad-core` (`crates/core/src/harness/mod.rs`); the `launchpad` binary hands the list to the core at startup (`launchpad_harness::install`). The core never names an adapter. Claude Code, Codex and OpenCode are registered integrations. Pi is intentionally left for a follow-up that checks this boundary in practice.
 
 ## Files to change
 
-1. Add `crates/core/src/harness/<name>.rs`, with private protocol helpers and an SVG asset if needed.
-2. Declare the module and add its `REGISTRATION` to `REGISTRATIONS` in `harness/mod.rs`.
+1. Add `crates/harness/src/<name>.rs`, with private protocol helpers and an SVG asset if needed.
+2. Declare the module and add its `REGISTRATION` to `REGISTRATIONS` in `crates/harness/src/lib.rs`.
 3. Run `cargo run -p launchpad -- gen-types` when changing shared metadata types. Registering an adapter alone does not change the shared types.
 
-A registration contains an ID (`HarnessKind::new("stable-id")`), display metadata, integration capabilities, documented environment variables (`env_vars`), the variables that select another subscription login (`account_env`, for example `CLAUDE_CONFIG_DIR`) and preset profiles (`profile_templates`, each with a `ProfileKind`: subscription, API key or provider) for Settings → Profiles, an adapter factory and an inherited-environment-marker predicate. The ID is stored in sessions, launch specs and schedules. IDs must be unique; unknown IDs fail explicitly. Native conversation IDs remain opaque strings. Assets live beside the module, with their source/license recorded in `harness/icons/README.md`.
+A registration contains an ID (`HarnessKind::new("stable-id")`), display metadata, integration capabilities, documented environment variables (`env_vars`), the variables that select another subscription login (`account_env`, for example `CLAUDE_CONFIG_DIR`) and preset profiles (`profile_templates`, each with a `ProfileKind`: subscription, API key or provider) for Settings → Profiles, an adapter factory and an inherited-environment-marker predicate. The ID is stored in sessions, launch specs and schedules. IDs must be unique; unknown IDs fail explicitly. Native conversation IDs remain opaque strings. Assets live beside the module, with their source/license recorded in `crates/harness/src/icons/README.md`.
 
 `Harness` is the adapter contract. Only startup and version discovery are required; defaults for optional hooks return empty discovery, no services/title request, or a clear unsupported error. Set capabilities only for hooks actually implemented. For cost-reporting adapters, `cost_model_prefixes` restricts pricing to supported model families (empty means unrestricted). Never forward fallback prices for unknown models: set `Usage.cost_unavailable` and clear `cost_usd`; the host retains tokens, disables cost management and warns the owner. The factory can own a shared native process and routing state, as Codex does; it can also be stateless and create one process per session.
 
@@ -30,7 +30,7 @@ The host owns persistence, prompts, project/worktree creation, scheduling, quota
 
 ## Reusing ACP
 
-OpenCode is the first consumer of `harness::acp::start(command, spec, sink, extensions)`. Its module supplies native child-update capabilities/translation and delegation-tool identification through `Extensions`, as well as `opencode acp` with the correct working directory/environment, CLI model/version discovery, metadata and terminal resume arguments. The reusable client handles stdio JSON-RPC v1, negotiated new/load/resume, model config options, text/images, ordered updates, tool completion, permission cards, cancellation and transport failure. It advertises no client filesystem or terminal services: the harness runs its own tools.
+OpenCode is the first consumer of `acp::start(command, spec, sink, extensions)` (`crates/harness/src/acp.rs`). Its module supplies native child-update capabilities/translation and delegation-tool identification through `acp::Extensions`, as well as `opencode acp` with the correct working directory/environment, CLI model/version discovery, metadata and terminal resume arguments. The reusable client handles stdio JSON-RPC v1, negotiated new/load/resume, model config options, text/images, ordered updates, tool completion, permission cards, cancellation and transport failure. It advertises no client filesystem or terminal services: the harness runs its own tools.
 
 ACP permission responses select an advertised option; arbitrary typed answers are rejected. Image support is checked against the negotiated agent capability as well as the static integration descriptor; a selected model may still reject an unsupported image. ACP tool output snapshots are converted to incremental output, and reported before/after texts become unified diff previews. Native agents may report only the replaced fragment; the Git panel remains the source for full-file diffs. Reported USD usage is cumulative, without claiming that the provider billed that amount.
 
@@ -38,7 +38,7 @@ Current OpenCode limits are explicit: no messages while a turn is running, effor
 
 ## Checks
 
-Run strict workspace Clippy, UI typecheck/build and the existing short pure-function tests. Exercise the installed native process through an isolated dev database: launch, stream, follow-up, permission answer, stop, archive and resume. Inspect the composer and session controls for capability handling. Do not mock harnesses, publish GitHub items, restart production or start uncancelled test schedules/crons. Keep native behavior gated appropriately for supported operating systems.
+While working, `cargo check --all-targets` rebuilds only `launchpad-harness` and the binary. Before committing, run strict workspace Clippy, UI typecheck/build and the existing short pure-function tests. Exercise the installed native process through an isolated dev database: launch, stream, follow-up, permission answer, stop, archive and resume. Inspect the composer and session controls for capability handling. Do not mock harnesses, publish GitHub items, restart production or start uncancelled test schedules/crons. Keep native behavior gated appropriately for supported operating systems.
 
 ## Native subagents
 

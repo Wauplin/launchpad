@@ -44,7 +44,9 @@ Testing policy: keep tests few, fast and free of mocks. Add a test only for a sm
 
 ## Fast iteration
 
-- Run only the checks your change can break (see "Checks to run" in [AGENTS.md](../AGENTS.md)); CI runs everything. While working, `cargo check --all-targets` is about four times faster than Clippy; run Clippy once before committing. Run cargo without `-p`: a single-crate selection resolves different dependency features and rebuilds all dependencies.
+- Run only the checks your change can break (see [Checks to run](../AGENTS.md#checks-to-run-keep-iteration-fast) in AGENTS.md); CI runs everything. While working, use `cargo check --all-targets`; run Clippy once before committing.
+- The Rust code is split into crates (see [Code layout](architecture.md#code-layout)). Cargo rebuilds only the crate you changed and the crates that depend on it. A change in a feature crate (`harness`, `channels`, `github`, `automation`, `setup`), in `api` or in `server` checks in 1–2 s. A change in `core` rebuilds every crate (about 9 s for `cargo check`, 20 s for Clippy or `cargo test`).
+- Run checks and tests from the repository root without `-p`: a single-crate selection resolves different dependency features and recompiles dozens of dependencies.
 - Debug builds keep only line tables for Launchpad's crates and no debug info for dependencies, and the libraries have no doctests.
 - The commit stamp is computed by `crates/cli/build.rs` and set at startup (`launchpad_core::set_build`): a new commit relinks only the binary. Nothing in the build watches the Git index or `main`.
 - Agents work in fresh worktrees, each with its own `target/`. When `sccache` is installed on a runner (`cargo install sccache --locked`), contained sessions use it (`RUSTC_WRAPPER`), with one cache per workspace (`<data_dir>/caches/<workspace>/sccache`) and one server per session (a socket in the session's `/tmp`). Compiled dependencies are then shared by every session of the workspace.

@@ -54,7 +54,7 @@ The [Home and runners plan](https://wauplin-launchpad-bots-research.static.hf.sp
 
 - **Home** holds every record and runs no agents or terminals: starting one there fails with "connect a runner".
 - **Runner** runs agents and terminals in its own folders and keeps only caches. Harness discovery uses an empty home in the runner data folder, separate from the laptop's existing sign-ins. The daemon's Codex updater runs only in the combined `all` role.
-- **All** (default) keeps both in one process, as before.
+- **All** (default) runs both roles in one process.
 
 A runner pairs with `launchpad connect` (a code approved on Home; Home stores the SHA-256 of the runner's secret) and keeps one outbound WebSocket to `/api/runners/tunnel`, authenticated with `X-Launchpad-Runner`. Home sends API requests over it (`runners::Hub::request`), which the runner answers by calling its own router as its local owner. A runner and Home compare `role::PROTOCOL` and the build commit: another protocol cannot connect; another build of the same protocol keeps its running sessions but takes no new ones. Such a runner updates itself on an owner click (`self_update.rs`, capability `self_update`): Home relays `POST /api/runner/update`; the runner waits until none of its sessions is running, downloads Home's running executable (`GET /api/runners/build`, runner credential, through an `HttpOpen` exchange, with SHA-256, commit, OS and architecture headers), renames it over its own executable, stops its server and `exec`s the new build with the same arguments. The runner guard (accept launches, pause) lives in the runner's folder and is reported to Home.
 
@@ -84,7 +84,7 @@ The jail (`jail.rs`) is bubblewrap with system folders, PATH folders and toolcha
 
 Bots (`bots.rs`) are Home records (`bot` table: workspace, slug) whose files live in a plain store `bot-<id>` with history: `BOT.md` (instructions) and `bot.toml` (`BotSettings`: name, profile, model, optional folder, permission mode), the only source of their settings. A bot without a folder launches each session with `Target::Temp`. A bot's thread is the sessions whose `LaunchSpec.bot` names it; `bots::message` sends to the newest open one (`runners::send_anywhere`) or, on the first message, a profile or folder change, an archived session or New session, closes it and launches a new one (`runners::launch_anywhere`) with a `BotLaunch` (name, slug, `BOT.md`, previous session). The runner's `resolve` appends the bot instruction and the previous session's trace reference; a runner forwards `GET /api/sessions/<id>/trace` for sessions it does not have to Home. Bot sessions are normal sessions in every list; the sidebar shows only a state dot. Home's backups also write readable copies of knowledge bases and bot files under `<workspace>/` in the bucket (`home_backup::readable`).
 
-Routines (`crons.rs`, table `cron_agent`, one JSON record each) live on Home. A `Trigger` starts a run: the record's 5-field schedule (`crons::spawn` checks every 5 s), new Inbox threads after an Inbox sync (`crons::inbox_synced`, watermark `github_seen`), or a turn ending Done (`crons::turn_ended`, called from `Sink::set_status` on `all` and from `Sessions::apply_replica` on Home). Each run is claimed as a `RoutineRun` history entry before it starts; `turn_ended` settles it (Report, No update, Failed, Interrupted, Stopped). A routine with `bot_id` (or an Assistant target) sends `crons::bot_message` to that thread; others launch their spec with `LaunchSpec.routine`, whose prompt gets `crons::instruction`. A paused bot sets `bot_paused` on its routines. A schedule runs in the record's IANA `time_zone` (chrono-tz; the saving browser's zone, else `[home] time_zone`, else the host's).
+Routines (`launchpad-automation`: `crons.rs`, table `cron_agent`, one JSON record each) live on Home. A `Trigger` starts a run: the record's 5-field schedule (`crons::spawn` checks every 5 s), new Inbox threads after an Inbox sync (`crons::inbox_synced`, watermark `github_seen`), or a turn ending Done (`crons::turn_ended`, which the core reaches through `ext::Extensions::turn_ended` from `Sink::set_status` on `all` and from `Sessions::apply_replica` on Home). Each run is claimed as a `RoutineRun` history entry before it starts; `turn_ended` settles it (Report, No update, Failed, Interrupted, Stopped). A routine with `bot_id` (or an Assistant target) sends `crons::bot_message` to that thread; others launch their spec with `LaunchSpec.routine`, whose prompt gets `routines::instruction`. A paused bot sets `bot_paused` on its routines. A schedule runs in the record's IANA `time_zone` (chrono-tz; the saving browser's zone, else `[home] time_zone`, else the host's).
 
 On Home, every start goes through `runners::launch_anywhere` (browser launches, accepted proposals, routines, scheduled launches, bot messages), sent once and never retried. When no runner takes it, or the composer chose Burst, `burst::launch` stores a Starting placeholder record and starts a job; the runner then creates the session with the same ID and its record replaces the placeholder.
 
@@ -104,7 +104,7 @@ Every harness maps to the same model:
 - A **session** is the durable record: status, usage, title, folder, native conversation ID.
 - **Events** are the normalized conversation (messages, tool calls, questions, approvals, subagents), stored in order with a sequence number and pushed to every client over the event bus. Clients reconnect with the last sequence number they received and get what they missed.
 
-Adapters (`crates/core/src/harness/`) translate each native protocol into these events and own everything native: startup, resume, model discovery, quota readings, terminal commands. See [Harness adapters](harness-adapters.md).
+Adapters (`crates/harness/`, contract in `crates/core/src/harness/mod.rs`) translate each native protocol into these events and own everything native: startup, resume, model discovery, quota readings, terminal commands. See [Harness adapters](harness-adapters.md).
 
 A launch only does local work in the request: it records the session (Starting) and its planned worktrees, then returns. A background task has Home refresh its mirror, clones or fetches the runner's repository cache, adds the worktrees, runs worktree setup and starts the harness; Stop cancels it between steps. A worktree that cannot be prepared fails the session visibly. Merges and publications run on Home and never touch a checkout of the owner.
 
@@ -136,20 +136,72 @@ The Home-only Space POC (`deploy/hf-home/`) runs the daemon behind the private H
 - Channels live on Home. Messages to other people (outgoing webhooks, GitHub suggestions) wait in the Outbox for a click and are never retried; messages to the owner's own bound Telegram chat go out directly. Home long-polls Telegram, so it needs no inbound endpoint. Incoming hooks (`/hooks/<id>`) skip the browser sign-in and authenticate with their own secret (behind a private Space, also an HF token). Hook and Telegram messages to a busy bot or Ask Launchpad thread wait in `queued_message` (`hooks::deliver`) until its turn ends; each is claimed (deleted) before its single send.
 - Agents run contained: a bubblewrap jail on Linux runners (or a Local VM). They see their session's folders, their own harness home and the machine's toolchains, never your home folder, keys, logins or Launchpad's data. Their network goes through the runner proxy, which adds Home's tokens on known hosts; agents only hold placeholders. Token scopes decide what a request may do; a steered agent can still leak what it reads or misuse a token within its scopes. SSH host sessions are not contained yet.
 
-## Repository layout
+## Code layout
 
 ```text
 crates/
-├── core/        domain and services: sessions, harness adapters, GitHub, worktrees, quota, terminals, hosts
-├── server/      axum routes, WebSocket, authentication, embedded UI
-└── cli/         the launchpad binary: daemon and agent-facing subcommands
+├── core/        launchpad-core: App, model, database, sessions, worktrees, Home Git, runners, vault, jail, proxy, quota, terminals, hosts, harness contract
+├── harness/     launchpad-harness: the Claude Code, Codex and OpenCode adapters, and the ACP client
+├── channels/    launchpad-channels: channels, the Outbox, Telegram, incoming hooks
+├── github/      launchpad-github: issue and pull request views, the Inbox, Suggestions
+├── automation/  launchpad-automation: routines (crons), scheduled launches, proposals
+├── setup/       launchpad-setup: setup checklist, clone from GitHub, onboarding progress
+├── http/        launchpad-http: API error type, route state (Ctx), session CLI token checks
+├── api/         launchpad-api: the JSON routes that need only the App
+├── server/      launchpad-server: authentication, runner tunnel and relay, Git and plain-folder HTTP, terminals and event WebSockets, Tailscale, embedded UI
+└── cli/         launchpad: the binary (daemon and agent-facing subcommands) and build.rs
 web/             React app (Vite, TanStack Query/Router/Virtual, Tailwind)
 ├── src/features/   one folder per feature
 ├── src/demo/       demo mode: an in-browser fake daemon for the tour
 └── src/gen/        TypeScript types generated from Rust
-desktop/         Tauri v2 shell
+desktop/         Tauri v2 shell (launchpad-desktop, no Launchpad crate dependency)
 extension/       Chrome extension
-deploy/hf-space/ Hugging Face Space connector
+deploy/          Hugging Face Space connector (hf-space) and Home-only Space (hf-home)
 packaging/       installers, systemd unit, icons
 skills/launchpad/ the agent skill for the launchpad CLI
 ```
+
+### Crate dependencies
+
+```mermaid
+flowchart BT
+    core[launchpad-core]
+    harness[launchpad-harness] --> core
+    channels[launchpad-channels] --> core
+    github[launchpad-github] --> core
+    automation[launchpad-automation] --> core
+    setup[launchpad-setup] --> core
+    http[launchpad-http] --> core
+    server[launchpad-server] --> http
+    api[launchpad-api] --> http
+    api --> channels & github & automation & setup
+    cli[launchpad binary] --> harness & server & api
+```
+
+- `launchpad-core` depends on no other Launchpad crate. Every other crate depends on it.
+- The feature crates (`harness`, `channels`, `github`, `automation`, `setup`) depend only on the core. They do not depend on each other, so they compile in parallel.
+- `launchpad-server` does not depend on `launchpad-api` or on the feature crates. `launchpad_server::serve(app, api)` receives the API router from the binary and serves it behind its authentication, relay and forwarding layers.
+- The binary (`crates/cli`) depends on every crate and connects them.
+
+### How the core reaches the crates above it
+
+The core never names a crate above it. The binary installs two things at startup, before `App::start`:
+
+- **Harness adapters**: `launchpad_harness::install()` hands `REGISTRATIONS` to `harness::install`. The core reads adapters only through `harness::registrations()`. See [Harness adapters](harness-adapters.md).
+- **Extensions**: `ext::install` takes the binary's implementation of the `ext::Extensions` trait (`crates/cli/src/extensions.rs`). The trait lists the few calls the core makes upward: Telegram notifications, turn ended (routine runs and triggers), the suggestion and channel instructions of a new session, bot paused or deleted (its routines follow), Inbox synced and the Inbox threads. Until one is installed, and in unit tests, every call does nothing.
+
+Per-daemon state of a crate above the core lives in `App::extras`, one value per type, created on first use (for example the Inbox: `app.extras.get::<Inbox>()`).
+
+After `App::start`, `extensions::start` starts the services of the feature crates (`launchpad_automation::start`, `launchpad_github::spawn`, `launchpad_channels::spawn`). `launchpad gen-types` calls the `gen_types` function of the core and of each feature crate that shares types with the UI.
+
+### Where new code goes
+
+- A new harness: a module in `crates/harness/`.
+- A feature the core does not call: the matching feature crate, or a new crate that depends only on the core. Add the crate to the workspace `members` and `default-members`, and to the binary.
+- A call from the core into a feature crate: a method on `ext::Extensions` with a default that does nothing, implemented in `crates/cli/src/extensions.rs`. Keep the trait small; move a small helper down into the core when sessions or bots need it (for example `routines`, `launchpad_cli`, `diff`, `locks`).
+- A JSON route that needs only the `App`: `crates/api/`. A route that needs authentication internals, the runner tunnel, relays or WebSockets: `crates/server/`.
+- Code that sessions, worktrees, runners or the vault call: the core.
+
+### Build impact
+
+A change rebuilds its crate and every crate that depends on it, then relinks the binary. A change in a feature crate, `api` or `server` rebuilds one or two crates. A change in the core rebuilds every crate. Keep code out of the core when nothing in the core needs it.
