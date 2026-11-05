@@ -212,8 +212,27 @@ fn truncate(text: &str, max: usize) -> String {
     format!("{}… (truncated; the full text is in Launchpad)", text.chars().take(max).collect::<String>().trim_end())
 }
 
-fn session_link(app: &App, id: &str) -> String {
-    format!("{}/agents?session={id}", crate::channels::home_origin(app))
+/// `ws=<id>` of the session's workspace after `sep`, so the link opens the window on it (empty without one).
+async fn ws_param(app: &App, session_id: &str, sep: char) -> String {
+    match launchpad_core::kb::workspace_of_session(app, session_id).await {
+        Some(id) => format!("{sep}ws={id}"),
+        None => String::new(),
+    }
+}
+
+/// Where a session's messages show: its bot's chat, else the session in Agents. With its workspace.
+async fn session_link(app: &App, id: &str) -> String {
+    let origin = crate::channels::home_origin(app);
+    match app.sessions.get(id).and_then(|s| s.launch_spec.bot.map(|b| b.id)) {
+        Some(bot) => format!("{origin}/bots/{bot}{}", ws_param(app, id, '?').await),
+        None => format!("{origin}/agents?session={id}{}", ws_param(app, id, '&').await),
+    }
+}
+
+/// The session's card in Today (`/?card=session:<id>`), which holds its main action. No buttons in Telegram:
+/// every owner click happens in Launchpad.
+async fn card_link(app: &App, id: &str) -> String {
+    format!("{}/?card=session:{id}{}", crate::channels::home_origin(app), ws_param(app, id, '&').await)
 }
 
 fn session_name(s: &Session) -> String {
@@ -227,7 +246,7 @@ fn session_name(s: &Session) -> String {
 pub(crate) async fn send_from_agent(app: &App, session_id: Option<&str>, title: Option<&str>, body: &str) -> Result<()> {
     ensure!(!body.trim().is_empty(), "the message is empty");
     let (from, link) = match session_id {
-        Some(id) => (session_name(&app.sessions.get(id).context("session not found")?), format!("\n\n{}", session_link(app, id))),
+        Some(id) => (session_name(&app.sessions.get(id).context("session not found")?), format!("\n\n{}", session_link(app, id).await)),
         None => ("An agent".to_string(), String::new()),
     };
     let head = match title {
@@ -287,16 +306,16 @@ pub async fn notification(app: &App, session_id: &str, event: &str) -> Result<()
         .flatten()
         .unwrap_or_else(|| std::path::Path::new(&s.cwd).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
     let title = if st.titles && !s.title.is_empty() { format!("\n{}", s.title.chars().take(160).collect::<String>()) } else { String::new() };
-    // Named and linked with its workspace, so the link opens the window on it.
-    let workspace = match launchpad_core::kb::workspace_of_session(app, session_id).await {
-        Some(id) => launchpad_core::workspace::get(app, &id).await.ok(),
-        None => None,
+    // Named with its workspace; the link opens its card in Today (finished, failed, interrupted) or the session.
+    let place = match launchpad_core::kb::workspace_of_session(app, session_id).await {
+        Some(id) => launchpad_core::workspace::get(app, &id).await.map(|w| format!(" ({})", w.name)).unwrap_or_default(),
+        None => String::new(),
     };
-    let (place, ws) = match &workspace {
-        Some(w) => (format!(" ({})", w.name), format!("&ws={}", w.id)),
-        None => (String::new(), String::new()),
+    let link = match event {
+        "done" | "failed" | "interrupted" => card_link(app, session_id).await,
+        _ => session_link(app, session_id).await,
     };
-    say(app, &format!("{} in {project}{place} · {}{title}\n{}{ws}", label(event), session_name(&s), session_link(app, session_id))).await
+    say(app, &format!("{} in {project}{place} · {}{title}\n{link}", label(event), session_name(&s))).await
 }
 
 // ---------------------------------------------------------------- incoming messages
@@ -388,13 +407,16 @@ async fn handle(app: &App, msg: &Value) -> Result<()> {
     };
     match sent {
         Ok((name, d)) if d.queued => {
-            let link = d.session.map(|s| format!("\n{}", session_link(app, &s.id))).unwrap_or_default();
+            let link = match d.session {
+                Some(s) => format!("\n{}", session_link(app, &s.id).await),
+                None => String::new(),
+            };
             say(app, &format!("Queued for {name}: it is busy; your message is sent when its current turn ends, and the answer comes here.{link}")).await
         }
         Ok((name, d)) => {
             let s = d.session.context("no session")?;
             await_reply(app, &s).await?;
-            say(app, &format!("Sent to {name}. Its answer comes here when the turn ends.\n{}", session_link(app, &s.id))).await
+            say(app, &format!("Sent to {name}. Its answer comes here when the turn ends.\n{}", session_link(app, &s.id).await)).await
         }
         Err(e) => say(app, &format!("Launchpad could not send it: {e:#}")).await,
     }
@@ -451,7 +473,7 @@ async fn check_reply(app: &App, id: &str) -> Result<()> {
         return Ok(());
     }
     let name = session_name(&s);
-    let link = session_link(app, id);
+    let link = session_link(app, id).await;
     let text = match (status, last) {
         (SessionStatus::Waiting, Some(t)) => format!("{name}:\n{}\n\n{link}", truncate(t.trim(), MAX_TEXT - 300)),
         (SessionStatus::Waiting, None) => format!("{name} finished its turn without a message.\n{link}"),

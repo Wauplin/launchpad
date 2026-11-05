@@ -98,6 +98,11 @@ export function TodayView() {
     revealed.current = search.card;
     list.scrollToIndex(index, { align: "start" });
   }, [search.card, shown, list]);
+  // A session's card that no longer waits and was not handled here (seen elsewhere, still running): open the session.
+  useEffect(() => {
+    if (loading || error || !search.card?.startsWith("session:") || shown.some((i) => i.id === search.card)) return;
+    void navigate({ to: "/agents", search: { session: search.card.slice("session:".length) }, replace: true });
+  }, [loading, error, search.card, shown, navigate]);
 
   const chips = <FilterChips tour="today.filters" label="Today filters">
     <FilterChip active={view === "all"} count={items.length} onClick={() => setView("all")}>All</FilterChip>
@@ -118,7 +123,7 @@ export function TodayView() {
           {list.getVirtualItems().map((row) => {
             const item = shown[row.index];
             return (
-              <div key={row.key} data-index={row.index} ref={list.measureElement} className={`absolute top-0 left-0 w-full ${view === "done" ? "" : "px-3 pt-3 sm:px-4"}`} style={{ transform: `translateY(${row.start}px)` }}>
+              <div key={row.key} data-index={row.index} ref={list.measureElement} className={`absolute top-0 left-0 w-full ${view === "done" ? "" : "px-3 pt-3 sm:px-4"} ${item.id === search.card ? "[&>*]:ring-2 [&>*]:ring-teal" : ""}`} style={{ transform: `translateY(${row.start}px)` }}>
                 {view === "done" ? <DoneRow item={item} /> : <ItemCard item={item} proposal={byProposal.get(item.record)} suggestion={bySuggestion.get(item.record)} />}
               </div>
             );
