@@ -160,8 +160,8 @@ export function AgentsView() {
   const selected = useSession(wanted);
   const visible = selected && sessions.some((s) => s.id === wanted) ? selected : undefined;
   const visibleSession = visible?.id ?? null;
-  useEffect(() => { sendPresence(focused, visibleSession ? [visibleSession] : []); }, [focused, visibleSession]);
-  useEffect(() => () => sendPresence(false, []), []);
+  useEffect(() => { sendPresence("agents", focused, visibleSession ? [visibleSession] : []); }, [focused, visibleSession]);
+  useEffect(() => () => sendPresence("agents", false, []), []);
   useMarkSeen(visible, focused);
 
   const needle = filter.trim().toLocaleLowerCase();

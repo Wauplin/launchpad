@@ -16,9 +16,12 @@ import { TopBar } from "./TopBar";
 import { HostPrompts } from "./HostPrompt";
 import { isDemo } from "@/demo/mode";
 import { WelcomeGate } from "@/onboarding/WelcomeGate";
+import { useAskPanel } from "@/stores/ask";
 
 // Demo mode only: the tour overlay and its chapters (src/onboarding/tour/) load with the demo.
 const TourRoot = lazy(() => import("@/onboarding/tour/TourRoot").then((m) => ({ default: m.TourRoot })));
+// The Ask panel (a bot's chat) loads when Ask opens it.
+const AskPanel = lazy(() => import("@/features/chat/AskPanel").then((m) => ({ default: m.AskPanel })));
 const AddFolderDialog = lazy(() => import("@/features/projects/AddFolder").then((m) => ({ default: m.AddFolderDialog })));
 
 /** Home is served directly in the Hugging Face Space page, whose mini header (Space name, menu) is a pill fixed 20 px
@@ -44,6 +47,7 @@ function useHubPillInset() {
 
 export function Shell() {
   const addOpen = useAddFolder((s) => s.open);
+  const askOpen = useAskPanel((s) => s.open);
   const scale = useZoomScale();
   useLayoutEffect(() => {
     document.documentElement.style.zoom = String(scale);
@@ -67,6 +71,7 @@ export function Shell() {
           </main>
           <TerminalDock />
         </div>
+        {askOpen && !empty && <Suspense fallback={null}><AskPanel /></Suspense>}
         <Composer />
       </div>
       <StatusBar />

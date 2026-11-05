@@ -166,7 +166,7 @@ function OptionRow({ label, end, children }: { label: string; end?: React.ReactN
 export function Composer({ embedded = false }: { embedded?: boolean }) {
   const harnessName = useHarnessName();
   const harnesses = useHarnesses();
-  const { open, minimized, setMinimized, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, conditions, setConditions, conflict, loadNewer, keepMine } = useComposer();
+  const { open, minimized, setMinimized, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, conditions, setConditions, conflict, loadNewer, keepMine, autoLaunchUntil } = useComposer();
   const browserOnly = spec.target.kind === "browser";
   const projects = useProjects().data ?? [];
   const completionDefault = useMutation({
@@ -430,7 +430,11 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     </span>
   );
 
-  // A minimized draft is the "draft" badge of the top-bar Launch button (TopLaunchButton).
+  // Launch from the top-bar field: launch the hidden draft once it can start now (the field opens it otherwise).
+  if (autoLaunchUntil > Date.now() && canLaunch && !launching && timing === "now" && !conflict)
+    queueMicrotask(() => { if (useComposer.getState().autoLaunchUntil > Date.now()) { useComposer.setState({ autoLaunchUntil: 0 }); void launch(); } });
+
+  // A minimized draft is the "draft" badge of the top-bar Options button (OptionsButton).
   if (minimized) return null;
 
   const modelLabel = spec.model ?? fallbackModel ?? "default model";

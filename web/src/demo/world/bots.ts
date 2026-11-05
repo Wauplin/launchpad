@@ -4,6 +4,7 @@
 
 import type { Bot } from "@/gen/Bot";
 import type { Change } from "@/gen/Change";
+import type { Activity } from "@/gen/Activity";
 import { clock } from "../daemon";
 import { P, WS } from "./ids";
 
@@ -33,5 +34,10 @@ export function botsWorld() {
       { id: 1, path: "BOT.md", sha256: null, new_sha256: "b1", at: clock.ago(60 * 26), session_id: null, author: you, added: 3, removed: 0, patch: "@@ -0,0 +1,3 @@\n+# Maintainer\n+\n+Maintain storefront: answer my questions about the code and prepare fixes as Local PRs.\n" },
     ],
   };
-  return { bots, botChanges };
+  // What Ask Launchpad changed directly (admin access), with Undo: a Changed line in its chat.
+  const activity: Activity[] = [
+    { id: "demo-act-storefront", session_id: "demo-s-ask-acme", workspace_id: WS.acme, action: "folder.set", args: [P.storefront], target: "storefront",
+      body: { when_done: "keep" }, before: { when_done: "merge" }, undo: { action: "folder.set", args: [P.storefront], body: { when_done: "merge" } }, undone_at: null, created_at: clock.ago(13) },
+  ];
+  return { bots, botChanges, activity };
 }

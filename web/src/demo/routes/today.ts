@@ -64,7 +64,7 @@ function drafts(): Draft[] {
       : b.kind === "tool" || b.kind === "preset" ? { everywhere: true }
       : p.session_id ? { session: p.session_id } : { workspace: null };
     const card = (at: number, more: Partial<Draft>) => out.push(item("proposal", "approve", p.id, p.title, place, at, { session_id: p.session_id, ...more }));
-    if (p.state === "proposed") card(p.created_at, { detail: p.note ? line(p.note) : "", action: p.body.kind === "status" ? "proposal.dismiss" : "proposal.start" });
+    if (p.state === "proposed") card(p.created_at, { detail: p.note ? line(p.note) : "", action: p.body.kind === "ready" ? p.body.action : p.body.kind === "status" ? "proposal.dismiss" : "proposal.start" });
     else if (p.state === "failed") card(p.updated_at, { detail: `Failed: ${line(p.error ?? "")}`, action: "proposal.start" });
     else if (p.state === "uncertain") card(p.updated_at, { detail: "Uncertain: check whether it started before you dismiss it", action: "proposal.dismiss" });
     else if (p.state === "started") card(p.updated_at, { outcome: "Started" });

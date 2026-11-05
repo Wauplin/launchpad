@@ -28,7 +28,11 @@ import { ProposalCard, useProposalList } from "@/features/proposals/ProposalCard
 import { useSuggestionList } from "@/features/suggestions/data";
 import { useToday, type TodayItem } from "@/features/today/data";
 import { BranchActions, ItemCard, useBranch } from "@/features/today/TodayCards";
-import { runAction } from "@/lib/actions";
+import { runAction, type ActionName } from "@/lib/actions";
+import { ACTIONS } from "@/gen/actions";
+import type { Activity } from "@/gen/Activity";
+import { ActionButton } from "@/components/ActionButton";
+import { activityLine, useActivity } from "./activity";
 import { api } from "@/lib/api";
 import { pastedImages } from "@/lib/attachments";
 import { daemonAsset } from "@/lib/connection";
@@ -48,23 +52,30 @@ const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digi
 // Display rows per log object: a session whose events did not change keeps its rows.
 const folded = new WeakMap<SessionLog, ReturnType<typeof foldTrace>>();
 
-/** The knowledge-base notes and bot files the thread's sessions changed: Changed lines at their turn. */
-function useChanges(bot: Bot, ids: Set<string>): ChatCard[] {
+/** What the thread's sessions changed: knowledge-base notes, and Launchpad records they changed directly at admin
+ * access (the activity list, with Undo). Changed lines at their turn. */
+function useChanges(bot: Bot, ids: Set<string>): { cards: ChatCard[]; activity: Map<string, Activity> } {
   const ws = bot.workspace_id;
   const kb = useQuery({ queryKey: ["knowledge", ws, "changes"], queryFn: () => api.get<{ changes: Change[] }>(`/api/knowledge/${ws}/changes`) }).data?.changes;
-  const files = useQuery({ queryKey: ["bot-history", bot.id, bot.version], queryFn: () => api.get<Change[]>(`/api/bots/${bot.id}/history`) }).data;
+  const done = useActivity(ws).data;
   return useMemo(() => {
     const line = (c: Change) => `${c.new_sha256 ? (c.sha256 ? "Edited" : "Created") : "Removed"} ${c.path}${c.added != null ? ` · +${c.added} −${c.removed ?? 0}` : ""}`;
     const of = (c: Change) => c.author?.session_id ?? c.session_id;
-    return [
-      ...(kb ?? []).filter((c) => ids.has(of(c) ?? "")).map((c): ChatCard => ({ kind: "changed", id: `kb${c.id}`, session_id: of(c)!, at: c.at, v: "", text: line(c) })),
-      ...(files ?? []).filter((c) => ids.has(of(c) ?? "")).map((c): ChatCard => ({ kind: "changed", id: `bot${c.id}`, session_id: of(c)!, at: c.at, v: "", text: line(c) })),
-    ];
-  }, [kb, files, ids]);
+    const mine = (done ?? []).filter((a) => ids.has(a.session_id));
+    return {
+      cards: [
+        ...(kb ?? []).filter((c) => ids.has(of(c) ?? "")).map((c): ChatCard => ({ kind: "changed", id: `kb${c.id}`, session_id: of(c)!, at: c.at, v: "", text: line(c) })),
+        ...mine.map((a): ChatCard => ({ kind: "changed", id: `act${a.id}`, session_id: a.session_id, at: a.created_at, v: String(a.undone_at ?? ""), text: activityLine(a) })),
+      ],
+      activity: new Map(mine.map((a) => [`act${a.id}`, a])),
+    };
+  }, [kb, done, ids]);
 }
 
-export function BotChat({ bot, thread, fresh, rotation, needsProfile, onCancelFresh, openSettings, intro }: {
+export function BotChat({ bot, thread, fresh, rotation, needsProfile, onCancelFresh, openSettings, intro, view = "bot" }: {
   bot: Bot;
+  /** Which view shows the chat (a bot page, the Ask panel), for the sessions this window reports on screen. */
+  view?: string;
   /** The bot's sessions, oldest first. */
   thread: Session[];
   /** The owner asked for a new session: the next message starts one. */
@@ -105,7 +116,7 @@ export function BotChat({ bot, thread, fresh, rotation, needsProfile, onCancelFr
   const proposals = useProposalList().data;
   const today = useToday().data;
   const suggestions = useSuggestionList().data;
-  const changed = useChanges(bot, ids);
+  const { cards: changed, activity } = useChanges(bot, ids);
   const byProposal = useMemo(() => new Map((proposals ?? []).map((p) => [p.id, p])), [proposals]);
   const byItem = useMemo(() => new Map((today?.items ?? []).map((i) => [i.id, i])), [today]);
   const bySuggestion = useMemo(() => new Map((suggestions ?? []).map((s) => [s.id, s])), [suggestions]);
@@ -135,8 +146,8 @@ export function BotChat({ bot, thread, fresh, rotation, needsProfile, onCancelFr
   const focused = useWindowFocused();
   const shownCurrent = current && logs[current.id]?.loaded ? current : null;
   const shownId = shownCurrent?.id ?? null;
-  useEffect(() => { sendPresence(focused, shownId ? [shownId] : []); }, [focused, shownId]);
-  useEffect(() => () => sendPresence(false, []), []);
+  useEffect(() => { sendPresence(view, focused, shownId ? [shownId] : []); }, [view, focused, shownId]);
+  useEffect(() => () => sendPresence(view, false, []), [view]);
   useMarkSeen(shownCurrent, focused);
 
   // The open question of the current session: typed text answers it, unless it asks for a permission.
@@ -204,7 +215,7 @@ export function BotChat({ bot, thread, fresh, rotation, needsProfile, onCancelFr
             <div style={{ height: total, position: "relative" }}>
               {v.getVirtualItems().map((it) => {
                 const item = items[it.index];
-                const data = item.t === "card" ? item.kind === "proposal" ? byProposal.get(item.id) : item.kind === "ready" ? byItem.get(item.id) : undefined : undefined;
+                const data = item.t === "card" ? item.kind === "proposal" ? byProposal.get(item.id) : item.kind === "ready" ? byItem.get(item.id) : activity.get(item.id) : undefined;
                 const extra = item.t === "card" && item.kind === "ready" && data ? bySuggestion.get((data as TodayItem).record) : undefined;
                 return (
                   <div key={it.key} data-index={it.index} ref={v.measureElement} className="absolute top-0 right-0 left-0" style={{ transform: `translateY(${it.start}px)` }}>
@@ -225,7 +236,7 @@ export function BotChat({ bot, thread, fresh, rotation, needsProfile, onCancelFr
 
 // ---------------------------------------------------------------- rows
 
-const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item: ChatItem; data: Proposal | TodayItem | undefined; extra: Suggestion | undefined; canContinue: boolean }) {
+const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item: ChatItem; data: Proposal | TodayItem | Activity | undefined; extra: Suggestion | undefined; canContinue: boolean }) {
   switch (item.t) {
     case "divider":
       return <div className="pt-4 pb-2"><Separator>
@@ -251,7 +262,10 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
     case "ended":
       return <EndedRow item={item} canContinue={canContinue} />;
     case "card":
-      if (item.kind === "changed") return <div className="flex items-center gap-2 py-1 text-[12px] text-ink-2"><span className="rounded bg-sunk px-1.5 text-[11px] font-semibold text-ink-3">Changed</span><span className="min-w-0 truncate">{item.text}</span></div>;
+      if (item.kind === "changed") return <div className="flex min-h-7 items-center gap-2 py-1 text-[12px] text-ink-2" data-tour="chat.changed">
+        <span className="rounded bg-sunk px-1.5 text-[11px] font-semibold text-ink-3">Changed</span><span className="min-w-0 flex-1 truncate" title={data ? `${(ACTIONS as Record<string, { help: string }>)[(data as Activity).action]?.help ?? ""}: ${item.text}` : item.text ?? undefined}>{item.text}</span>
+        {data && <UndoButton a={data as Activity} />}
+      </div>;
       if (!data) return null;
       return <div className="py-1.5">{item.kind === "proposal" ? <ProposalCard p={data as Proposal} /> : <ItemCard item={data as TodayItem} proposal={undefined} suggestion={extra} />}</div>;
     case "changes":
@@ -260,6 +274,20 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
       return <WorkingRow item={item} />;
   }
 }, (a, b) => a.item.key === b.item.key && a.item.v === b.item.v && a.data === b.data && a.extra === b.extra && a.canContinue === b.canContinue);
+
+/** Undo of a direct change: the undo action itself (the same call and confirmation as its button), then the
+ * change is marked undone. */
+function UndoButton({ a }: { a: Activity }) {
+  const qc = useQueryClient();
+  if (a.undone_at) return <span className="flex-none text-[11px] text-ink-3">Undone</span>;
+  const u = a.undo;
+  if (!u || !(u.action in ACTIONS)) return null;
+  const name = u.action as ActionName;
+  const keys = ACTIONS[name].route.match(/\{(\w+)\}/g)?.map((x) => x.slice(1, -1)) ?? [];
+  const params = Object.fromEntries(keys.map((k, i) => [k, u.args[i] ?? ""]));
+  return <ActionButton name={name} params={params} body={u.body ?? undefined} vars={{ name: a.target ?? "it" }} icon={null} className="chat-tap flex-none" title="Put back what was there before this change"
+    onDone={async () => { await api.post(`/api/activity/${a.id}/undone`); await qc.invalidateQueries({ queryKey: ["activity"] }); }}>Undo</ActionButton>;
+}
 
 function StepsRow({ item }: { item: Extract<ChatItem, { t: "steps" }> }) {
   const [open, setOpen] = useState(false);

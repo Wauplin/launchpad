@@ -10,3 +10,4 @@ import "./knowledge";
 import "./bots";
 import "./channels";
 import "./today";
+import "./ask";

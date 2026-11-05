@@ -56,3 +56,10 @@ export function botJob(bot: Bot): string {
 }
 
 export const botInitial = (name: string) => (name.trim()[0] ?? "B").toUpperCase();
+
+/** The bot the top-bar Ask field talks to by default: the oldest bot of the workspace with admin Launchpad CLI
+ * access (Ask Launchpad unless you changed it), else the oldest bot. Any bot can take that role. */
+export function askTarget(bots: Bot[], workspaceId: string | null | undefined): Bot | null {
+  const mine = bots.filter((b) => b.workspace_id === workspaceId).sort((a, b) => a.created_at - b.created_at);
+  return mine.find((b) => b.settings.launchpad === "admin") ?? mine[0] ?? null;
+}

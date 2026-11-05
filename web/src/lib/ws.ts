@@ -62,9 +62,15 @@ function writePresence() {
   socket.send(JSON.stringify({ type: "presence", ...presence, idle_ms: idleMs() }));
 }
 
-/** Tells the daemon which sessions are on screen, so it does not notify about them while someone uses this window. */
-export function sendPresence(focused: boolean, sessions: string[]) {
-  presence = { focused, sessions };
+/** What each view of this window shows (Agents, the Ask panel, a bot page): the window reports all of them. */
+const shownBy = new Map<string, string[]>();
+
+/** Tells the daemon which sessions `view` shows, so it does not notify about them while someone uses this window.
+ * Views that show sessions side by side (Agents and the Ask panel) each report their own. */
+export function sendPresence(view: string, focused: boolean, sessions: string[]) {
+  if (sessions.length) shownBy.set(view, sessions); else shownBy.delete(view);
+  // A view that stops showing sessions leaves the focus the other views reported.
+  presence = { focused: sessions.length ? focused : presence.focused && shownBy.size > 0, sessions: [...new Set([...shownBy.values()].flat())] };
   writePresence();
 }
 
@@ -130,6 +136,8 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["config"] });
     } else if (topic === "today") {
       void queryClient.invalidateQueries({ queryKey: ["today"] });
+    } else if (topic === "activity") {
+      void queryClient.invalidateQueries({ queryKey: ["activity"] });
     } else if (topic === "proposals") {
       void queryClient.invalidateQueries({ queryKey: ["proposals"] });
     } else if (topic === "runners") {

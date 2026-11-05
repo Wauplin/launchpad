@@ -46,7 +46,7 @@ function syncProfiles() {
   publishStatus();
 }
 
-function saveConfig(next: Config) {
+export function saveConfig(next: Config) {
   const profilesChanged = JSON.stringify(next.profiles) !== JSON.stringify(world.config.profiles);
   world.config = next;
   publish("config", "changed", null);

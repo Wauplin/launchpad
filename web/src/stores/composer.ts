@@ -68,6 +68,10 @@ type Composer = {
   openAfterLaunch: boolean;
   loaded: boolean;
   start: (ctx?: LaunchContext) => void;
+  /** Launch from the top-bar field: a new draft with `ctx` and `text`, launched by the (hidden) composer as soon
+   * as it can, with the folder's defaults. Past `autoLaunchUntil` the composer opens to show what is missing. */
+  launchNow: (ctx: LaunchContext | undefined, text: string) => void;
+  autoLaunchUntil: number;
   followUpFrom: (session: Session) => void;
   rememberLaunch: (spec: LaunchSpec, startedAt: number) => void;
   update: (f: (s: LaunchSpec) => LaunchSpec) => void;
@@ -277,6 +281,16 @@ export const useComposer = create<Composer>((set, get) => ({
     const collect = !!ctx && ctx.projectId === undefined && !!(ctx.githubRefs?.length || ctx.files?.length || ctx.contextProjects?.length || ctx.agentTraces?.length);
     set({ open: true, minimized: get().open && get().minimized && collect, spec });
     save(spec, true, get().conditions);
+  },
+  autoLaunchUntil: 0,
+  launchNow: (ctx, text) => {
+    // A clean draft (the field checks that no draft is kept), with the last launch's profile and options.
+    const { harness, profile, budget_usd } = get().spec;
+    set({ spec: { ...emptySpec(), harness, profile, budget_usd }, open: false, conditions: [] });
+    get().start(ctx);
+    get().update((s) => ({ ...s, text }));
+    set({ minimized: true, autoLaunchUntil: Date.now() + 4_000 });
+    save(get().spec, true, []);
   },
   followUpFrom: (session) => {
     const spec: LaunchSpec = {

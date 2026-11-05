@@ -18,7 +18,6 @@ import { useSuggestionList } from "@/features/suggestions/data";
 import { formatAge } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useScope } from "@/lib/workspace";
-import { BotField } from "./AskField";
 import { FILTERS, isView, useTodayHere, type TodayItem, type TodayView as View } from "./data";
 import { ICON, ItemCard } from "./TodayCards";
 
@@ -113,7 +112,6 @@ export function TodayView() {
       {phone
         ? <div className="phone-page-content grid gap-1.5 border-b border-line-2 py-2"><span className="text-xs text-ink-3">{meta}</span>{chips}{groupActions && <div>{groupActions}</div>}</div>
         : <PageHeader title="Today" meta={<span>{meta}</span>} actions={groupActions || undefined} tabs={<div className="pb-3">{chips}</div>} />}
-      {!phone && <div className="mx-auto w-full max-w-[760px] px-4 pt-3"><BotField /></div>}
       <div ref={ref} className="min-h-0 flex-1 overflow-y-auto [overflow-wrap:anywhere]">
         {error ? <ErrorState className="m-4" error={error} /> : loading ? <Loading what="Today" /> : shown.length === 0 && <Empty fill={phone} icon="check" className={phone ? "" : "mx-auto max-w-[760px] pt-6"}>{EMPTY[view]}</Empty>}
         <div className={`relative mx-auto w-full ${view === "done" ? "max-w-[860px]" : "max-w-[760px]"}`} style={{ height: list.getTotalSize() }}>

@@ -8,8 +8,10 @@ import { WS } from "@/demo/world/ids";
 import { TODAY_PROPOSAL } from "@/demo/scenarios/askToday";
 import { meta } from "./meta";
 import { ASK_BOT, BOT } from "@/demo/world/bots";
+import { useAskPanel } from "@/stores/ask";
 
 const THREAD = "demo-s-ask-acme";
+const READY = "demo-prop-ready-done";
 const proposal = () => world.proposals.find((p) => p.id === TODAY_PROPOSAL);
 const ASK_ROUTE = `/bots/${ASK_BOT}`;
 const BOT_ROUTE = `/bots/${BOT}`;
@@ -19,9 +21,32 @@ const botSessions = () => world.sessions.filter((s) => s.launch_spec.bot?.id ===
 
 export const ask: Chapter = {
   ...meta("ask"),
-  learned: ["Ask Launchpad is a bot like the others, created in every workspace, with its notes in the knowledge base", "It reads Launchpad state and answers with proposals through the Launchpad CLI tool", "Manual mode waits for your click; auto mode (bot.toml) starts one-time proposals; Edit sends a proposal to the composer", "Its BOT.md and bot.toml have versions; edit them, or replace it with your own bot", "A bot is an agent that stays: one thread shown as a chat, its instructions in BOT.md, its notes in the knowledge base; the trace stays in Agents", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
+  learned: ["Ask from the top-bar field on any page: the bot's chat opens as a panel, with the page as context", "Ask Launchpad is a bot like the others, created in every workspace, with its notes in the knowledge base", "It reads Launchpad state and answers with proposals through the Launchpad CLI tool", "Manual mode waits for your click; auto mode (bot.toml) starts one-time proposals; Edit sends a proposal to the composer", "Its BOT.md and bot.toml have versions; edit them, or replace it with your own bot", "A bot is an agent that stays: one thread shown as a chat, its instructions in BOT.md, its notes in the knowledge base; the trace stays in Agents", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
   setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
+    {
+      id: "ask.field", route: "/", anchor: "topbar.field",
+      title: "Ask from anywhere",
+      body: "The top-bar field talks to a bot of the workspace: Ask Launchpad unless you pick another one. The page you are on goes with your message, so “review this” knows which pull request you mean; the ✕ leaves it out. Enter sends with the highlighted button.",
+      tryIt: { text: "press Ask.", done: () => useAskPanel.getState().open, doIt: () => useAskPanel.getState().show(ASK_BOT) },
+    },
+    {
+      id: "ask.panel", route: "/", anchor: "ask.panel",
+      title: "The chat beside the page",
+      body: "Ask opens the bot's chat as a panel: the same chat as its page. Its answers end in cards: proposals you start, ready clicks for what stays yours, and changes it made directly, each with Undo.",
+      enter: () => useAskPanel.getState().show(ASK_BOT),
+    },
+    {
+      id: "ask.ready", route: `${ASK_ROUTE}?panel=proposals`, anchor: "proposal.card", anchorId: READY,
+      title: "Your click",
+      body: "Merging, publishing, posting, sending and marking Inbox threads done stay yours. A bot can prepare them as a ready click: the card runs the same call as the button on its page, with the same confirmation, and only when you click it.",
+      enter: () => useAskPanel.getState().close(),
+    },
+    {
+      id: "ask.changed", route: ASK_ROUTE, anchor: "chat.changed",
+      title: "Changed, with Undo",
+      body: "With admin access, Ask Launchpad changes Launchpad's own records directly: bots, routines, schedules, folder settings, presets and notifications. Each change is a Changed line with the value before and after, and Undo puts the value back.",
+    },
     {
       id: "ask.thread", route: ASK_ROUTE, anchor: "bots.thread",
       title: "Ask Launchpad",

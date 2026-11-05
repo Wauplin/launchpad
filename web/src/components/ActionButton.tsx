@@ -8,7 +8,7 @@ import { toastError } from "./Toast";
  * A button that runs one action of the action list (crates/core/src/actions.rs): its label, icon, confirmation
  * and API call come from the list. Actions with a confirmation use ConfirmButton.
  */
-export function ActionButton<T = unknown>({ name, params, vars, body, query, before, onDone, onError, children, consequence: override, confirmLabel, primary, small = true, className = "", disabled, title }: {
+export function ActionButton<T = unknown>({ name, params, vars, body, query, before, onDone, onError, children, consequence: override, confirmLabel, primary, small = true, className = "", disabled, title, icon: iconOverride }: {
   name: ActionName;
   /** The route's `{param}` values; they also fill the confirmation. */
   params?: ActionParams;
@@ -31,6 +31,8 @@ export function ActionButton<T = unknown>({ name, params, vars, body, query, bef
   className?: string;
   disabled?: boolean;
   title?: string;
+  /** Replaces the list's icon; null: none. */
+  icon?: IconName | null;
 }) {
   const a = action(name);
   const [busy, setBusy] = useState(false);
@@ -43,7 +45,7 @@ export function ActionButton<T = unknown>({ name, params, vars, body, query, bef
     } catch (e) { (onError ?? toastError)(e); }
     finally { setBusy(false); }
   };
-  const icon = (a.icon ?? undefined) as IconName | undefined;
+  const icon = (iconOverride === null ? undefined : iconOverride ?? a.icon ?? undefined) as IconName | undefined;
   const label = children ?? a.label;
   const listed = actionConfirm(name, { ...vars, ...params });
   const consequence = listed && (override ?? listed);

@@ -16,7 +16,7 @@ import type { Bot } from "@/gen/Bot";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import { api } from "@/lib/api";
-import { useBots } from "@/lib/bots";
+import { askTarget, useBots } from "@/lib/bots";
 import { usePhone } from "@/lib/phone";
 import { useCrons, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { browserZone, routineState, triggerSummary } from "@/lib/routines";
@@ -57,8 +57,7 @@ export function SchedulesView() {
   const openSession = (id: string) => void navigate({ to: "/agents", search: { session: id } as never });
   const createBrief = useCreateBrief();
   const hasBrief = routines.some((r) => !!r.bot_id && r.title === BRIEF_TITLE);
-  const scoped = bots.filter((b) => b.workspace_id === scope.workspace.id);
-  const briefBot = scoped.find((b) => b.slug === "ask-launchpad") ?? scoped[0];
+  const briefBot = askTarget(bots, scope.workspace.id);
   const tabs = <Tabs label="Schedules" value={tab} onChange={(t) => go({ tab: t })} tour="schedules.tabs" items={[{ id: "routines", label: "Routines", count: routines.length || undefined }, { id: "launches", label: "Scheduled launches", count: launches.length || undefined }]} />;
   const header = phone
     ? <PhoneHeader title="Schedules" />

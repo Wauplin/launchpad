@@ -59,12 +59,22 @@ export function useDraftItems() {
   return useComposer((s) => (s.spec.attachments ?? []).length + s.spec.github_refs.length + (s.spec.files ?? []).length + s.spec.context_projects.length + (s.spec.agent_traces ?? []).length);
 }
 
+/** Opens the composer with `ctx` and the field's text added, for a launch that needs more choices. */
+export function openOptions(ctx: LaunchContext | undefined, text: string) {
+  const c = useComposer.getState();
+  c.start(ctx);
+  const t = text.trim();
+  if (t) c.update((s) => ({ ...s, text: s.text.trim() ? `${s.text.trimEnd()}\n\n${t}` : t }));
+  c.setMinimized(false);
+}
+
 /**
- * The one Launch control of the top bar. With a minimized draft it shows a "draft" badge, opens that draft,
- * flashes when + Add buttons add context, and its menu starts over or discards the draft (prominent after 7 days).
+ * Options in the top-bar field: the full composer with the field's text. With a minimized draft it shows a "draft"
+ * badge, opens that draft, flashes when + Add buttons add context, and its menu starts over or discards the draft
+ * (prominent after 7 days).
  */
-export function TopLaunchButton({ ctx }: { ctx?: LaunchContext }) {
-  const { open, minimized, setMinimized, start, discard, spec } = useComposer();
+export function OptionsButton({ ctx, text, onUsed, primary = false }: { ctx?: LaunchContext; text: string; onUsed: () => void; primary?: boolean }) {
+  const { open, minimized, discard, spec, autoLaunchUntil } = useComposer();
   const items = useDraftItems();
   const since = useDraftSince(open);
   const [flash, setFlash] = useState(false);
@@ -77,24 +87,26 @@ export function TopLaunchButton({ ctx }: { ctx?: LaunchContext }) {
     const t = setTimeout(() => setFlash(false), 900);
     return () => clearTimeout(t);
   }, [items, minimized]);
-  if (!open || !minimized) return <LaunchButton ctx={ctx} />;
+  const use = () => { openOptions(ctx, text); onUsed(); };
+  const cls = primary ? "btn-primary" : "";
+  if (!open || !minimized || autoLaunchUntil) return <button className={`btn ${cls}`} title="Open the composer with this text, for a launch that needs more choices" data-tour="topbar.options" onClick={use}><Icon name="sliders" size={13} />Options</button>;
   const stale = since !== null && Date.now() - since > STALE_MS;
   const first = spec.text.trim().split("\n")[0];
   const age = since !== null ? `${formatAge(since)} ago` : null;
   return (
-    <span className={`inline-flex rounded-[8px] transition-shadow ${flash ? "ring-[3px] ring-teal" : ""}`}>
-      <button className="btn btn-primary rounded-r-none" title={`Open the draft${first ? `: ${first}` : ""}${age ? ` (started ${age})` : ""}`} onClick={() => setMinimized(false)}>
-        <Icon name="play" size={14} />
-        Launch
-        <span className={`rounded-full px-1.5 text-[11px] leading-4 font-semibold ${stale ? "bg-attn-soft text-attn" : "bg-white/25 text-white"}`}>draft{items ? ` · ${items}` : ""}</span>
+    <span className={`inline-flex rounded-[8px] transition-shadow ${flash ? "ring-[3px] ring-teal" : ""}`} data-tour="topbar.options">
+      <button className={`btn ${cls} rounded-r-none`} title={`Open the draft${first ? `: ${first}` : ""}${age ? ` (started ${age})` : ""}${text.trim() ? "; your text is added to it" : ""}`} onClick={use}>
+        <Icon name="sliders" size={13} />
+        Options
+        <span className={`rounded-full px-1.5 text-[11px] leading-4 font-semibold ${stale ? "bg-attn-soft text-attn" : "bg-sunk text-ink-2"}`}>draft{items ? ` · ${items}` : ""}</span>
       </button>
       <Popover align="right" width={280} trigger={({ open: menu, toggle }) => (
-        <button className="btn btn-primary rounded-l-none border-l-white/30 px-1.5!" aria-label="Draft actions" aria-expanded={menu} onClick={toggle}><Icon name="chev" size={12} /></button>
+        <button className={`btn ${cls} rounded-l-none px-1.5!`} aria-label="Draft actions" aria-expanded={menu} onClick={toggle}><Icon name="chev" size={12} /></button>
       )}>
         {(close) => (
           <>
-            <MenuItem icon={<Icon name="play" size={13} />} label="Open the draft" detail={[first || "No prompt yet", age && `started ${age}`].filter(Boolean).join(" · ")} onClick={() => { close(); setMinimized(false); }} />
-            <MenuItem icon={<Icon name="plus" size={13} />} label="New agent instead" detail="Discards the draft" onClick={() => { close(); discard(); start(ctx); }} />
+            <MenuItem icon={<Icon name="play" size={13} />} label="Open the draft" detail={[first || "No prompt yet", age && `started ${age}`].filter(Boolean).join(" · ")} onClick={() => { close(); use(); }} />
+            <MenuItem icon={<Icon name="plus" size={13} />} label="New agent instead" detail="Discards the draft" onClick={() => { close(); discard(); use(); }} />
             <MenuItem icon={<Icon name="trash" size={13} />} label={stale ? "Discard this old draft" : "Discard draft"} detail={stale ? `Started ${age}` : undefined} onClick={() => { close(); discard(); }} />
           </>
         )}

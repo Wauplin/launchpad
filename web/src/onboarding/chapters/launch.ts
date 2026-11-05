@@ -19,14 +19,14 @@ const launched = () => world.sessions.length > before ? world.sessions.find((s) 
 
 export const launch: Chapter = {
   ...meta("launch"),
-  learned: ["Launch opens the composer, prompt first", "@, / and # in the prompt suggest files, skills and context", "A new worktree keeps your checkout untouched", "The option line shows the profile and only what differs from the defaults", "Trace shows the run; Summary its outcome and next steps"],
+  learned: ["The top-bar field launches at once with the page as context; Options opens the composer, prompt first", "@, / and # in the prompt suggest files, skills and context", "A new worktree keeps your checkout untouched", "The option line shows the profile and only what differs from the defaults", "Trace shows the run; Summary its outcome and next steps"],
   setup: () => { before = world.sessions.length; },
   steps: [
     {
-      id: "launch.open", route: "/agents", anchor: "topbar.launch",
+      id: "launch.open", route: "/agents", anchor: "topbar.options",
       title: "Launch an agent",
-      body: "Launch opens the composer, where you describe the task. A draft survives reloads; Minimize keeps it as a badge on this button.",
-      tryIt: { text: "click Launch.", done: () => { const c = useComposer.getState(); return c.open && !c.minimized; }, doIt: () => clickAnchor("topbar.launch") },
+      body: "Type a task in the top-bar field and press Launch: an agent starts at once with the page you are on as context and the folder's defaults. Options opens the composer instead, for a launch that needs more choices. A draft survives reloads; Minimize keeps it as a badge on Options.",
+      tryIt: { text: "click Options.", done: () => { const c = useComposer.getState(); return c.open && !c.minimized; }, doIt: () => clickAnchor("topbar.options") },
     },
     {
       id: "launch.prompt", anchor: "composer.prompt",

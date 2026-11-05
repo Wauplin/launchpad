@@ -6,7 +6,7 @@ import type { Project } from "@/gen/Project";
 import type { Item } from "@/features/github/types";
 import { itemKey } from "@/features/github/lib";
 import logo from "@/assets/launchpad.png";
-import { TopLaunchButton } from "@/features/launch/LaunchButton";
+import { CommandField } from "./CommandField";
 import { useProjects } from "@/lib/queries";
 import { isDemo } from "@/demo/mode";
 import { DemoChip } from "@/onboarding/DemoChip";
@@ -71,8 +71,6 @@ const HOST_INSET = {
 export function TopBar() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const projects = useProjects().data ?? [];
-  const projectId = path.match(/^\/projects\/([^/]+)/)?.[1];
-  const project = projects.find((p) => p.id === projectId);
   const crumbs = routeCrumbs(path, projects);
   const gh = path.match(/^\/github\/([^/]+)\/([^/]+)\/(\d+)/);
   const predraftId = path.match(/^\/predrafts\/([^/]+)/)?.[1];
@@ -85,9 +83,9 @@ export function TopBar() {
       <nav aria-label="Breadcrumb" className="flex min-w-0 shrink items-center gap-1.5 whitespace-nowrap text-ink-2">
         {crumbs === "item" && gh ? <ItemCrumb repo={`${gh[1]}/${gh[2]}`} number={Number(gh[3])} /> : crumbs === "predraft" && predraftId ? <PredraftCrumb id={predraftId} /> : Array.isArray(crumbs) && <Crumbs list={crumbs} />}
       </nav>
-      <span className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
+      <span className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
         {isDemo && <DemoChip />}
-        <span data-tour="topbar.launch"><TopLaunchButton ctx={project ? { projectId: project.id } : undefined} /></span>
+        <CommandField />
       </span>
     </header>
   );
