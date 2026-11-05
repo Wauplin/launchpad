@@ -78,7 +78,7 @@ stateDiagram-v2
 
 Each session has three views:
 
-- **Summary**: run facts, the first prompt, the exact final message and the next steps (review changes, post suggestions, publish a Local PR).
+- **Summary**: what the agent did first: the exact final message and the next steps (review changes, post suggestions, publish a Local PR), then the first prompt and the run facts.
 - **Trace**: the full conversation with tool calls, diffs, reasoning and nested subagents.
 - **Changes**: the Git diff of the session folder, with viewed markers and line notes that you send back to the agent as one message.
 
