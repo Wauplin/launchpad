@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Icon, type IconName } from "@/components/Icon";
 import { api } from "@/lib/api";
-import { useProjects, useSessions } from "@/lib/queries";
+import { useSessions } from "@/lib/queries";
 import { hostOf } from "@/lib/hosts";
 import { useScope } from "@/lib/workspace";
 import { useZoomScale } from "@/lib/zoom";
@@ -41,7 +41,7 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   const [position, setPosition] = useState<CSSProperties>({});
   const id = useId(), scale = useZoomScale(), scope = useScope();
   const phone = usePhone();
-  const projects = useProjects().data ?? [], sessions = useSessions().data ?? [];
+  const sessions = useSessions().data ?? [];
   const history = useRef(new PromptHistory(doc));
   const identity = `${sessionId ?? "launch"}:${scope.workspace.id}:${autocomplete}`;
   const priorIdentity = useRef(identity);
@@ -62,7 +62,7 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   const rank = (text: string) => matchScore(text, query);
   const suggestions: Suggestion[] = [];
   if (mention?.trigger === "@" && !noFolders && debounced === mention.query) {
-    const hits = [...(files.data?.hits ?? [])].sort((a,b) => Number(scope.hasProject(b.project_id)) - Number(scope.hasProject(a.project_id)));
+    const hits = files.data?.hits ?? [];
     for (const hit of hits) {
       if (root && hostOf(root) !== hostOf(hit.root)) continue;
       const nativeRoot = hit.root.replace(/^[^/:]+:(?=\/)/, "");
@@ -75,7 +75,8 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
     suggestions.push({ id: skill.path, group: "Skill", label: `/${skill.name}`, detail: `${skill.description} · ${skill.source}`, token: `/${skill.name}`, icon: "file", pick: { kind: "skill", value: { name: skill.name, path: skill.path } } });
   }
   if (mention?.trigger === "#") {
-    const folders = noFolders ? [] : projects.filter((p) => p.id !== projectId && hostOf(p.path) === hostOf(root ?? "") && rank(`${p.name} ${p.path} ${p.description}`) !== null).sort((a,b) => Number(scope.hasProject(b.id)) - Number(scope.hasProject(a.id)) || (rank(a.name) ?? 100) - (rank(b.name) ?? 100));
+    // Only the folders of this window's workspace: other workspaces show counts, never their content.
+    const folders = noFolders ? [] : scope.projects.filter((p) => p.id !== projectId && hostOf(p.path) === hostOf(root ?? "") && rank(`${p.name} ${p.path} ${p.description}`) !== null).sort((a,b) => (rank(a.name) ?? 100) - (rank(b.name) ?? 100));
     for (const p of folders.slice(0, 10)) suggestions.push({ id: p.id, group: "Project", label: p.name, detail: p.path, token: `#${p.name.replace(/\s+/g, "-")}`, icon: "folder", pick: { kind: "project", value: { project_id: p.id, branch: null, editable: false } } });
     for (const s of sessions.filter((s) => s.id !== sessionId && s.last_seq > 0 && scope.hasSession(s) && rank(`${s.title} ${s.cwd}`) !== null).sort((a,b) => b.started_at - a.started_at).slice(0, 10)) suggestions.push({ id: s.id, group: "Trace", label: s.title, detail: `${s.cwd} · through event ${s.last_seq}`, token: `#trace:${s.title.replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 40) || "agent"}`, icon: "agents", pick: { kind: "trace", value: { session_id: s.id, through_seq: s.last_seq } } });
     const github = new Map<string, GitHubRef>();

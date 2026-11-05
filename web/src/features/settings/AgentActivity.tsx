@@ -140,6 +140,6 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
       {!total && <p className="py-3 text-center text-sm text-ink-3">{metric === "tokens" ? "No reported tokens for sessions started this month." : "No agents started this month. Activity will appear here after a launch."}</p>}
     </>}
     {metric === "tokens" && <p className="rounded-lg border border-line bg-chrome p-3 text-xs leading-relaxed text-ink-2">Session token totals (input + cached input + output) are grouped by start date, including later follow-ups. Daily consumption history is unavailable; missing usage counts as zero.</p>}
-    <p className="text-xs leading-relaxed text-ink-3">{metric === "agents" && "One count per saved session on its start date, including archived sessions. Follow-up turns and resumes don’t add counts. "}Everything · your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Historical profiles use their saved ID if no longer configured.</p>
+    <p className="text-xs leading-relaxed text-ink-3">{metric === "agents" && "One count per saved session on its start date, including archived sessions. Follow-up turns and resumes don’t add counts. "}Every workspace · your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Historical profiles use their saved ID if no longer configured.</p>
   </Card>;
 }

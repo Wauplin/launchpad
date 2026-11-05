@@ -287,7 +287,16 @@ pub async fn notification(app: &App, session_id: &str, event: &str) -> Result<()
         .flatten()
         .unwrap_or_else(|| std::path::Path::new(&s.cwd).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
     let title = if st.titles && !s.title.is_empty() { format!("\n{}", s.title.chars().take(160).collect::<String>()) } else { String::new() };
-    say(app, &format!("{} in {project} · {}{title}\n{}", label(event), session_name(&s), session_link(app, session_id))).await
+    // Named and linked with its workspace, so the link opens the window on it.
+    let workspace = match launchpad_core::kb::workspace_of_session(app, session_id).await {
+        Some(id) => launchpad_core::workspace::get(app, &id).await.ok(),
+        None => None,
+    };
+    let (place, ws) = match &workspace {
+        Some(w) => (format!(" ({})", w.name), format!("&ws={}", w.id)),
+        None => (String::new(), String::new()),
+    };
+    say(app, &format!("{} in {project}{place} · {}{title}\n{}{ws}", label(event), session_name(&s), session_link(app, session_id))).await
 }
 
 // ---------------------------------------------------------------- incoming messages

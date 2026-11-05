@@ -1,6 +1,7 @@
 //! Notifications, sent by the daemon so they work when every window is closed: the owner's Telegram
-//! chat (`telegram.rs`) and a desktop notification on the host. Clicking a desktop notification
-//! opens the window on the item (`launchpad-desktop --open <route>`).
+//! chat (`telegram.rs`) and a desktop notification on the host. A desktop notification names the session's
+//! workspace, and clicking it opens a window on the item in that workspace
+//! (`launchpad-desktop --open <route> --workspace <id>`).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -72,6 +73,19 @@ pub(crate) fn session(app: &App, s: &Session, event: SessionNotification) {
     let summary = event.summary(&project);
     let body = s.title.clone();
     let route = format!("/agents?session={}", s.id);
+    let (app, id) = (app.clone(), s.id.clone());
+    tokio::spawn(async move {
+        let workspace = match crate::kb::workspace_of_session(&app, &id).await {
+            Some(w) => crate::workspace::get(&app, &w).await.ok(),
+            None => None,
+        };
+        show(&app, summary, body, route, workspace);
+    });
+}
+
+fn show(app: &App, summary: String, body: String, route: String, workspace: Option<crate::workspace::Workspace>) {
+    let summary = match &workspace { Some(w) => format!("{summary} · {}", w.name), None => summary };
+    let workspace = workspace.map(|w| w.id);
     let desktop = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(format!("launchpad-desktop{}", std::env::consts::EXE_SUFFIX)))).filter(|p| p.exists());
     let env = app.env.clone();
     let app_env = app.paths.app_env;
@@ -92,6 +106,9 @@ pub(crate) fn session(app: &App, s: &Session, event: SessionNotification) {
                     let exe = desktop.clone().map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|| "launchpad-desktop".into());
                     let mut cmd = std::process::Command::new(exe);
                     cmd.args(["--open", &route]).env_clear().envs(env.vars().iter());
+                    if let Some(w) = &workspace {
+                        cmd.args(["--workspace", w]);
+                    }
                     if app_env == crate::paths::AppEnv::Dev {
                         cmd.env("LAUNCHPAD_ENV", "dev");
                     }

@@ -8,8 +8,9 @@ import type { Workspace } from "@/gen/Workspace";
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toastError } from "@/components/Toast";
-import { ConfirmButton } from "@/components/ui";
+import { ConfirmButton, Loading } from "@/components/ui";
 import { api } from "@/lib/api";
+import { useStatus } from "@/lib/queries";
 import { newWindowWord, openWindow, useScope, useWorkspaces } from "@/lib/workspace";
 import { useWorkspace } from "@/stores/workspace";
 
@@ -85,12 +86,16 @@ export function WorkspaceMenu() {
 /** Shown instead of the page while there is no workspace: Home creates one at first start, so only a runner that
  * has not heard from Home yet (or a window whose last workspace was removed elsewhere) gets here. */
 export function NoWorkspace() {
+  // A runner gets its workspaces from Home, which always has one: it waits instead of creating a second one there.
+  const runner = useStatus().data?.role === "runner";
   return (
     <div className="grid h-full place-items-center p-6">
-      <div className="grid w-[320px] max-w-full gap-2 rounded-lg border border-line p-3">
-        <p className="m-0 text-[13px] text-ink-2">Launchpad always shows one workspace, and none exists yet. Create one to start.</p>
-        <NewWorkspaceForm onDone={() => undefined} onCancel={() => undefined} />
-      </div>
+      {runner ? <Loading what="the workspaces from Home" /> : (
+        <div className="grid w-[320px] max-w-full gap-2 rounded-lg border border-line p-3">
+          <p className="m-0 text-[13px] text-ink-2">Launchpad always shows one workspace, and none exists yet. Create one to start.</p>
+          <NewWorkspaceForm onDone={() => undefined} onCancel={() => undefined} />
+        </div>
+      )}
     </div>
   );
 }

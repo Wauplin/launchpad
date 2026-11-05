@@ -86,11 +86,12 @@ pub async fn paths(
     ensure!(query.len() <= 512, "Search is too long");
     let scoped = root.is_some();
     let mut projects = crate::projects::list(app).await?;
-    let preferred = match workspace {
-        Some(id) => crate::workspace::project_ids(app, id).await?,
-        None => vec![],
-    };
-    projects.sort_by_key(|p| (!preferred.contains(&p.id), !p.pinned, p.name.to_lowercase()));
+    // A window shows one workspace: its folders only, never another workspace's files.
+    if let Some(id) = workspace {
+        let ids = crate::workspace::project_ids(app, id).await?;
+        projects.retain(|p| ids.contains(&p.id));
+    }
+    projects.sort_by_key(|p| (!p.pinned, p.name.to_lowercase()));
     let roots = if let Some(root) = root {
         let src = crate::code::open(app, root, None).await?;
         vec![(src.root.to_string_lossy().into_owned(), src.project)]

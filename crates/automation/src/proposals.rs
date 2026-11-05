@@ -220,7 +220,7 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
             }
         }
         ProposalBody::Bot { name, instructions, profile, folder } => {
-            let ws = workspace_id.as_deref().context("bots belong to a workspace: ask from a workspace, not Everything")?;
+            let ws = workspace_id.as_deref().context("bots belong to a workspace: propose from a session of that workspace")?;
             ensure!(!name.trim().is_empty(), "give the bot a name");
             ensure!(!instructions.trim().is_empty(), "write the bot's instructions (its BOT.md)");
             if let Some(p) = profile {
