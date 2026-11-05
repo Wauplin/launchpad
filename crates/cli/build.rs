@@ -9,10 +9,17 @@ fn git(args: &[&str]) -> Option<String> {
 
 fn main() {
     let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..").canonicalize().expect("repository root");
-    // Git emits the actual paths, including linked worktree metadata.
-    for name in ["HEAD", "refs/heads/main", "packed-refs", "index"] {
-        if let Some(path) = git(&["rev-parse", "--path-format=absolute", "--git-path", name]) {
+    // Only this checkout's commit matters: HEAD, its branch and packed refs (when the branch is packed). Never the
+    // index or `main`, which other worktrees and `git status` change all the time. Git emits the actual paths,
+    // including linked worktree metadata; a missing path would rerun this script on every build.
+    let rerun = |path: String| {
+        if std::path::Path::new(&path).exists() {
             println!("cargo:rerun-if-changed={path}");
+        }
+    };
+    for name in ["HEAD", "packed-refs"] {
+        if let Some(path) = git(&["rev-parse", "--path-format=absolute", "--git-path", name]) {
+            rerun(path);
         }
     }
     if let Some(reference) = git(&["symbolic-ref", "-q", "HEAD"])
@@ -23,7 +30,7 @@ fn main() {
             &reference,
         ])
     {
-        println!("cargo:rerun-if-changed={path}");
+        rerun(path);
     }
     println!("cargo:rerun-if-env-changed=LAUNCHPAD_BUILD_COMMIT");
     let packaged_commit = std::env::var("LAUNCHPAD_BUILD_COMMIT").ok()

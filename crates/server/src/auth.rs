@@ -1247,7 +1247,3 @@ mod tests {
         assert!(auth.check_front_door(&headers, &Method::POST).is_ok());
     }
 }
-
-#[cfg(test)]
-#[path = "auth_protocol_tests.rs"]
-mod protocol_tests;

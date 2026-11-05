@@ -9,3 +9,10 @@ publish = false
 
 [profile.release]
 debug = "line-tables-only"
+
+# Fast local iteration: line tables are enough for backtraces, and dependencies carry no debug info.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

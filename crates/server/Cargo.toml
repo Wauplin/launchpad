@@ -3,6 +3,10 @@ name = "launchpad-server"
 version = "0.1.0"
 edition = "2024"
 
+# No doctests: skips a rustdoc pass on every `cargo test`.
+[lib]
+doctest = false
+
 [dependencies]
 base64 = "0.22"
 bytes = "1"

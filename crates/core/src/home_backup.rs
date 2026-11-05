@@ -348,7 +348,7 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
         objects.push(Object { name: format!("plain/{sha}"), sha256: sha, size: 0 });
     }
     let now = now_ms();
-    let manifest = Manifest { format: 1, created_at: now, commit: crate::COMMIT.into(), objects };
+    let manifest = Manifest { format: 1, created_at: now, commit: crate::commit().into(), objects };
     store.put(&app.env, &manifest_key(now), serde_json::to_vec_pretty(&manifest)?).await?;
     *backups.changes.lock().unwrap() = Some(changes);
     backups.info.lock().unwrap().last_complete_at = Some(now);

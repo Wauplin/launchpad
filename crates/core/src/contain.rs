@@ -193,6 +193,16 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     let servers: Vec<(String, String)> = lease.mcp.iter().map(|m| (crate::mcp::harness_name(&m.id), format!("{base}/mcp/{}", m.id))).collect();
     harness.contained_mcp(&home, &servers)?;
     let vm = outside_jail(app);
+    // Rust builds: the sessions of a workspace share compiled dependencies through sccache, when it is installed.
+    // Each session runs its own sccache server on a socket in its private /tmp: a server started in another jail
+    // cannot see this session's folders.
+    if !vm && app.env.which("sccache").is_some() {
+        env.extend([
+            ("RUSTC_WRAPPER".to_string(), "sccache".to_string()),
+            ("SCCACHE_DIR".into(), format!("{cache_s}/sccache")),
+            ("SCCACHE_SERVER_UDS".into(), "/tmp/sccache.sock".into()),
+        ]);
+    }
     let mut binds = vec![];
     if lease.ssh {
         // Socket paths are short (108 bytes): the socket lives in the runtime folder, mounted at a fixed path.

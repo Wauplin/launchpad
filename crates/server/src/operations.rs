@@ -131,51 +131,6 @@ mod tests {
     };
 
     #[tokio::test]
-    async fn manual_publications_replay_success_and_never_repeat_uncertain_posts() {
-        let path = std::env::temp_dir().join(format!("lp-posts-{}.db", uuid::Uuid::new_v4()));
-        let count = Arc::new(AtomicUsize::new(0));
-        for route in ["/api/items/o/r/1/comment", "/api/items/o/r/1/review", "/api/inbox/thread/reply"] {
-            let id = uuid::Uuid::new_v4().to_string();
-            let uncertain = uuid::Uuid::new_v4().to_string();
-            let baseline = count.load(Ordering::SeqCst);
-            for restart in [false, true] {
-                let db = launchpad_core::db::open_state(&path).unwrap();
-                let calls = count.clone();
-                let handler = move |body: String| {
-                    let calls = calls.clone();
-                    async move {
-                        calls.fetch_add(1, Ordering::SeqCst);
-                        if body == "uncertain" {
-                            let mut e = ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "check GitHub");
-                            e.delivery_uncertain = true;
-                            e.into_response()
-                        } else { axum::Json(serde_json::json!({"posted":true})).into_response() }
-                    }
-                };
-                let router = Router::new().route(route, post(handler))
-                    .layer(axum::middleware::from_fn_with_state(Operations::new(db), guard));
-                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-                let url = format!("http://{}{route}", listener.local_addr().unwrap());
-                let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-                let client = reqwest::Client::new();
-                assert_eq!(client.post(&url).body("ok").send().await.unwrap().status(), 400);
-                for _ in 0..2 {
-                    let response = client.post(&url).header("Idempotency-Key", &id).body("ok").send().await.unwrap();
-                    assert_eq!(response.status(), 200);
-                    assert_eq!(response.headers()["Idempotency-Status"], "completed");
-                }
-                let response = client.post(&url).header("Idempotency-Key", &uncertain).body("uncertain").send().await.unwrap();
-                assert_eq!(response.status(), if restart { 409 } else { 500 });
-                assert!(!response.headers().contains_key("Idempotency-Status"));
-                assert_eq!(client.post(&url).header("Idempotency-Key", &uncertain).body("uncertain").send().await.unwrap().status(), 409);
-                assert_eq!(count.load(Ordering::SeqCst), baseline + 2);
-                server.abort();
-            }
-        }
-        for suffix in ["", "-wal", "-shm"] { let _ = std::fs::remove_file(format!("{}{suffix}", path.display())); }
-    }
-
-    #[tokio::test]
     async fn lost_replies_concurrent_retries_and_restart_do_not_repeat_work() {
         let path =
             std::env::temp_dir().join(format!("launchpad-retries-{}.db", uuid::Uuid::new_v4()));

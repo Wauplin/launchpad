@@ -120,14 +120,14 @@ pub fn build_id() -> &'static str {
     ID.get_or_init(|| {
         use sha2::{Digest, Sha256};
         let exe = std::env::current_exe().ok().and_then(|p| std::fs::File::open(p).ok());
-        let Some(mut f) = exe else { return crate::COMMIT.chars().take(16).collect() };
+        let Some(mut f) = exe else { return crate::commit().chars().take(16).collect() };
         let mut hasher = Sha256::new();
         let mut buf = vec![0u8; 1 << 20];
         loop {
             match std::io::Read::read(&mut f, &mut buf) {
                 Ok(0) => break,
                 Ok(n) => hasher.update(&buf[..n]),
-                Err(_) => return crate::COMMIT.chars().take(16).collect(),
+                Err(_) => return crate::commit().chars().take(16).collect(),
             }
         }
         hex::encode(hasher.finalize())[..16].to_string()

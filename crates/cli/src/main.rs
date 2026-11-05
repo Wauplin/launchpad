@@ -525,6 +525,7 @@ async fn askpass(paths: &Paths, host: &str, prompt: &str) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    launchpad_core::set_build(env!("LAUNCHPAD_COMMIT"), env!("LAUNCHPAD_SOURCE"));
     let paths = Paths::from_env();
     if let Ok(host) = std::env::var("LAUNCHPAD_ASKPASS") {
         let prompt = std::env::args().nth(1).unwrap_or_default();

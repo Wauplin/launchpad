@@ -352,7 +352,7 @@ async fn session(app: &App, router: &Router, url: &str, mut tx: crate::wire::Wir
     let guard = home_link::guard(&app.paths);
     let status = app.status.get();
     let capabilities = launchpad_core::runners::capabilities(app).await;
-    tx.send(text(&FromRunner::Hello { protocol: role::PROTOCOL, commit: launchpad_core::COMMIT.into(), name: status.host.clone(), os: std::env::consts::OS.into(), guard: guard.clone(), capabilities })).await?;
+    tx.send(text(&FromRunner::Hello { protocol: role::PROTOCOL, commit: launchpad_core::commit().into(), name: status.host.clone(), os: std::env::consts::OS.into(), guard: guard.clone(), capabilities })).await?;
     let (compat, acked) = loop {
         match tokio::time::timeout(Duration::from_secs(30), rx.next()).await? {
             Some(Ok(t)) => match serde_json::from_str::<ToRunner>(&t)? {

@@ -77,10 +77,24 @@ pub mod handoff;
 pub mod burst;
 pub mod mcp;
 
-/// Source revision embedded in the running binary.
-pub const COMMIT: &str = env!("LAUNCHPAD_COMMIT");
+/// Build information stamped by the `launchpad` binary (its `build.rs`), so a new commit relinks only the binary
+/// instead of rebuilding this crate.
+static BUILD: std::sync::OnceLock<(&'static str, &'static str)> = std::sync::OnceLock::new();
+
+/// Called once by the binary at startup.
+pub fn set_build(commit: &'static str, source: &'static str) {
+    let _ = BUILD.set((commit, source));
+}
+
+/// Source revision of the running binary.
+pub fn commit() -> &'static str {
+    BUILD.get().map_or("unknown", |b| b.0)
+}
+
 /// Main checkout used to find the repository skill in source builds.
-pub const SOURCE: &str = env!("LAUNCHPAD_SOURCE");
+pub fn source() -> &'static str {
+    BUILD.get().map_or("", |b| b.1)
+}
 
 use std::sync::Arc;
 

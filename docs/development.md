@@ -40,7 +40,14 @@ cargo test
 
 Install the pinned toolchain with `rustup toolchain install 1.93.1 --profile minimal --component clippy`.
 
-Testing policy: keep tests few, fast and free of mocks. Add a test only for a small pure function with tricky edge cases (parsers, prompt rendering). Check everything else by running the app in the dev environment.
+Testing policy: keep tests few, fast and free of mocks. Add a test only for a small pure function with tricky edge cases (parsers, prompt rendering); no test builds a full `App`, starts processes or takes more than a second. The whole Rust run takes about one second. Check everything else by running the app in the dev environment.
+
+## Fast iteration
+
+- Run only the checks your change can break (see "Checks to run" in [AGENTS.md](../AGENTS.md)); CI runs everything.
+- Debug builds keep only line tables for Launchpad's crates and no debug info for dependencies, and the libraries have no doctests.
+- The commit stamp is computed by `crates/cli/build.rs` and set at startup (`launchpad_core::set_build`): a new commit relinks only the binary. Nothing in the build watches the Git index or `main`.
+- Agents work in fresh worktrees, each with its own `target/`. When `sccache` is installed on a runner (`cargo install sccache --locked`), contained sessions use it (`RUSTC_WRAPPER`), with one cache per workspace (`<data_dir>/caches/<workspace>/sccache`) and one server per session (a socket in the session's `/tmp`). Compiled dependencies are then shared by every session of the workspace.
 
 ## Continuous integration
 

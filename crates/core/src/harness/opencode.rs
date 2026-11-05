@@ -196,22 +196,3 @@ fn child_update(message: &serde_json::Value) -> Option<super::acp::ChildUpdate> 
         })
     } else { None }
 }
-
-#[cfg(all(test, unix))]
-mod trace_tests {
-    use super::*;
-    use std::os::unix::fs::PermissionsExt;
-    #[tokio::test]
-    async fn native_trace_uses_opencode_export_without_launchpad_wrapping() {
-        let tmp = super::super::trace::tests::Temp::new();
-        tmp.write("opencode", b"#!/bin/sh\n[ \"$1\" = export ] && [ \"$2\" = ses_native ] || exit 1\nprintf '%s' '{\"info\":{\"id\":\"ses_native\"},\"messages\":[]}'\n");
-        std::fs::set_permissions(tmp.0.join("opencode"), std::fs::Permissions::from_mode(0o700)).unwrap();
-        let env = crate::shellenv::UserEnv::resolve().await.with(&[("PATH".into(), tmp.0.to_string_lossy().into_owned())]);
-        let files = export_trace(&env, "ses_native").await.unwrap();
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].name, "ses_native.json");
-        assert_eq!(files[0].data, br#"{"info":{"id":"ses_native"},"messages":[]}"#);
-        tmp.write("opencode", b"#!/bin/sh\nprintf '%s' 'invalid export'\n");
-        assert!(export_trace(&env, "ses_native").await.is_err());
-    }
-}

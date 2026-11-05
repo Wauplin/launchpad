@@ -628,7 +628,7 @@ async fn extension(app: &App) -> SetupItem {
             it.found.push(found("Native host", "registered", Some(tilde(&m.to_string_lossy(), home.as_deref()))));
         }
         _ => {
-            let source = std::path::Path::new(crate::SOURCE);
+            let source = std::path::Path::new(crate::source());
             let script = source.join("extension/register-native-host.py");
             let binary = std::env::current_exe().ok().map(|p| p.to_string_lossy().into_owned());
             let (command, detail) = match (tokio::fs::metadata(&script).await.is_ok(), binary) {

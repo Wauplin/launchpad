@@ -129,7 +129,7 @@ pub fn spawn_monitors(app: &App) {
     app.status.update(|s| {
         s.env = app.paths.app_env.name().to_string();
         s.role = app.paths.role;
-        s.commit = crate::COMMIT.to_string();
+        s.commit = crate::commit().to_string();
         s.time_zone = host_time_zone();
         s.host = host_name();
         s.utc_offset_minutes = utc_offset_minutes();

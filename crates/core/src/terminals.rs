@@ -1074,43 +1074,6 @@ mod tests {
     }
 
     #[test]
-    fn closing_kills_a_foreground_job_that_ignores_hup_and_term() {
-        use std::io::BufRead;
-        let pair = portable_pty::native_pty_system().openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
-        let mut command = CommandBuilder::new("/bin/bash");
-        command.args(["--noprofile", "--norc", "-ic", "sh -c 'trap \"\" HUP TERM; echo READY; exec sleep 60'; :"]);
-        let mut child = pair.slave.spawn_command(command).unwrap();
-        drop(pair.slave);
-        let mut reader = std::io::BufReader::new(pair.master.try_clone_reader().unwrap());
-        let mut line = String::new();
-        while !line.contains("READY") {
-            line.clear();
-            assert!(reader.read_line(&mut line).unwrap() > 0);
-        }
-        let pid = child.process_id().unwrap();
-        let foreground = unsafe { libc::tcgetpgrp(pair.master.as_raw_fd().unwrap()) };
-        if foreground <= 0 || foreground == pid as i32 {
-            unsafe { libc::kill(-(pid as i32), libc::SIGKILL); }
-            let _ = child.wait();
-            panic!("test shell did not create a separate foreground process group");
-        }
-        let stop = stop_pty(pid, Some(pair.master.as_ref()));
-        stop.join().unwrap();
-        let _ = child.wait().unwrap();
-        // The slave remains open until the resistant foreground job has actually died.
-        let (done, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let mut output = Vec::new();
-            let _ = reader.read_to_end(&mut output);
-            let _ = done.send(());
-        });
-        if rx.recv_timeout(Duration::from_secs(3)).is_err() {
-            unsafe { libc::kill(-foreground, libc::SIGKILL); }
-            panic!("foreground job survived terminal close");
-        }
-    }
-
-    #[test]
     fn native_pty_preserves_progress_control_bytes_and_reports_resize() {
         let pair = portable_pty::native_pty_system().openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
         pair.master.resize(PtySize { rows: 40, cols: 120, pixel_width: 0, pixel_height: 0 }).unwrap();

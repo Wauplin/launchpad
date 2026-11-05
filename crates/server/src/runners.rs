@@ -262,7 +262,7 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
     let Some(FromRunner::Hello { protocol, commit, guard, capabilities, .. }) = hello else { return };
     let refuse = if runner.state != RunnerState::Approved {
         Some("waiting for approval on Home (Settings → Home and runners)".to_string())
-    } else if role::compat(role::PROTOCOL, launchpad_core::COMMIT, protocol, &commit) == Compat::Incompatible {
+    } else if role::compat(role::PROTOCOL, launchpad_core::commit(), protocol, &commit) == Compat::Incompatible {
         Some(format!("this runner speaks protocol {protocol}, Home speaks {}: update this runner", role::PROTOCOL))
     } else {
         None
@@ -271,7 +271,7 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
         let _ = send(&mut tx, &ToRunner::Refuse { reason }).await;
         return;
     }
-    let compat = role::compat(role::PROTOCOL, launchpad_core::COMMIT, protocol, &commit);
+    let compat = role::compat(role::PROTOCOL, launchpad_core::commit(), protocol, &commit);
     let id = runner.id.clone();
     let runner = match runners::seen(&s.app, runner, &commit, protocol, capabilities).await {
         Ok(r) => r,
@@ -287,7 +287,7 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
             return;
         }
     };
-    if !send(&mut tx, &ToRunner::Welcome { compat, commit: launchpad_core::COMMIT.into(), acked }).await {
+    if !send(&mut tx, &ToRunner::Welcome { compat, commit: launchpad_core::commit().into(), acked }).await {
         return;
     }
     tracing::info!("runner {} ({}) connected, {compat:?}", runner.name, runner.id);

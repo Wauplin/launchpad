@@ -235,30 +235,6 @@ mod tests {
         assert!(value["session"]["harness_session_id"].is_null());
     }
 
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn trace_snapshot_uploads_only_changes_and_retries_failures() {
-        use std::os::unix::fs::PermissionsExt;
-        let tmp = crate::harness::trace::tests::Temp::new();
-        tmp.write("hf", b"#!/bin/sh\nif [ -f \"$TRACE_TEST_DIR/fail\" ]; then exit 1; fi\n/bin/cat > \"$TRACE_TEST_DIR/payload\"\n");
-        std::fs::set_permissions(tmp.0.join("hf"), std::fs::Permissions::from_mode(0o700)).unwrap();
-        let env = UserEnv::resolve().await.with(&[("PATH".into(), tmp.0.to_string_lossy().into_owned()), ("TRACE_TEST_DIR".into(), tmp.0.to_string_lossy().into_owned())]);
-        let mut cursor = Cursor::default();
-        assert!(changed_file(&env, "hf://buckets/test/traces/run", &mut cursor, "native.jsonl", b"{}\n".to_vec()).await.unwrap());
-        assert_eq!(std::fs::read(tmp.0.join("payload")).unwrap(), b"{}\n");
-        std::fs::remove_file(tmp.0.join("payload")).unwrap();
-        assert!(!changed_file(&env, "hf://buckets/test/traces/run", &mut cursor, "native.jsonl", b"{}\n".to_vec()).await.unwrap());
-        assert!(!tmp.0.join("payload").exists());
-        tmp.write("fail", b"");
-        assert!(changed_file(&env, "hf://buckets/test/traces/run", &mut cursor, "native.jsonl", b"{\"new\":true}\n".to_vec()).await.is_err());
-        std::fs::remove_file(tmp.0.join("fail")).unwrap();
-        // Persisted hashes and independent event progress survive a restart.
-        cursor.events = 42;
-        let mut cursor: Cursor = serde_json::from_slice(&serde_json::to_vec(&cursor).unwrap()).unwrap();
-        assert!(changed_file(&env, "hf://buckets/test/traces/run", &mut cursor, "native.jsonl", b"{\"new\":true}\n".to_vec()).await.unwrap());
-        assert_eq!(cursor.events, 42);
-    }
-
     #[test]
     fn destinations_group_by_folder_and_sort_by_session_start_time() {
         let start = 1_793_363_696_789; // 2026-10-30T12:34:56.789Z

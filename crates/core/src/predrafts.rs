@@ -151,7 +151,7 @@ pub fn link_skill() -> Result<()> {
     let source = if installed.exists() {
         installed
     } else {
-        Path::new(crate::SOURCE).join("skills/launchpad")
+        Path::new(crate::source()).join("skills/launchpad")
     };
     if !source.exists() {
         return Ok(());

@@ -256,7 +256,7 @@ async fn rpc(app: &App, s: &McpServer, session: Option<&str>, body: Value) -> Re
 const PROTOCOL: &str = "2025-06-18";
 
 async fn discover(app: &App, s: &McpServer) -> Result<Vec<McpTool>> {
-    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": {"name": "launchpad-home", "version": crate::COMMIT}}});
+    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": {"name": "launchpad-home", "version": crate::commit()}}});
     let (session, answer) = rpc(app, s, None, init).await?;
     let first = answer.into_iter().find(|m| m["id"] == 1).context("the server did not answer initialize")?;
     if let Some(e) = first.get("error") {
