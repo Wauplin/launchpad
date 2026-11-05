@@ -36,7 +36,7 @@ export function LaunchButton({
 }
 
 const STALE_MS = 7 * 86_400_000;
-const sinceKey = (workspace: string | null) => `launchpad-draft-since-${workspace ?? "all"}`;
+const sinceKey = (workspace: string | null) => `launchpad-draft-since-${workspace ?? ""}`;
 
 /** When this browser first saw the current draft (per workspace), for its age. */
 function useDraftSince(open: boolean): number | null {

@@ -3,6 +3,7 @@
 import type { Chapter } from "../tour/types";
 import { useComposer } from "@/stores/composer";
 import { useWorkspace } from "@/stores/workspace";
+import { WS } from "@/demo/world/ids";
 import { world } from "@/demo/world";
 import { clock } from "@/demo/daemon";
 import { continueQuota } from "@/demo/player";
@@ -22,7 +23,7 @@ function fastForward() {
 export const automation: Chapter = {
   ...meta("automation"),
   learned: ["Start later waits for a time, other agents or quota; all conditions must be met", "Repeat on a schedule creates a routine; Schedules lists every routine and scheduled launch", "Quota protection pauses agents before paid usage, and continues them when quota is back", "Send later delivers a message to an agent later"],
-  setup: () => useWorkspace.getState().switchTo(null),
+  setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {
       id: "automation.later", route: "/agents", anchor: "composer.launch",

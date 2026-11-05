@@ -1,6 +1,6 @@
-// What the current workspace contains. Every folder belongs to exactly one workspace (`Project.workspace_id`);
-// "Everything" is a view of all of them. Every list that a workspace narrows (sidebar, agents, projects,
-// inbox, composer) uses these predicates, so counts and markers agree.
+// What the current workspace contains. Every folder belongs to exactly one workspace (`Project.workspace_id`), and a
+// window always shows one workspace. Every list that a workspace narrows (sidebar, agents, projects, inbox,
+// composer) uses these predicates, so counts and markers agree. Other workspaces show counts only.
 
 import { isDesktopShell, setAppBadge } from "./platform";
 import { useQuery } from "@tanstack/react-query";
@@ -18,9 +18,9 @@ import { needsYou } from "./sessionStatus";
 export const useWorkspaces = () => useQuery({ queryKey: ["workspaces"], queryFn: () => api.get<Workspace[]>("/api/workspaces"), staleTime: Infinity });
 
 export type Scope = {
-  /** null: all workspaces. */
-  workspace: Workspace | null;
-  /** The projects of the workspace (every project when there is none). */
+  /** The window's workspace. While the workspaces load, a placeholder with an empty id that matches nothing. */
+  workspace: Workspace;
+  /** The projects of the workspace. */
   projects: Project[];
   hasProject: (id: string | null, cwd?: string) => boolean;
   hasSession: (s: Session) => boolean;
@@ -29,49 +29,50 @@ export type Scope = {
   hasRepo: (repo: string) => boolean;
 };
 
-const yes = () => true;
+const PENDING: Workspace = { id: "", name: "", created_at: 0 };
 
 export function specProject(spec: LaunchSpec): string | null {
   return spec.target.kind === "project" || spec.target.kind === "predraft" ? spec.target.project_id : null;
+}
+
+/** The scope of one workspace: its projects and the predicates every narrowed list uses. Also counts other workspaces. */
+export function scopeOf(workspace: Workspace | undefined, projects: Project[] | undefined): Scope {
+  const w = workspace ?? PENDING;
+  const mine = (projects ?? []).filter((p) => !!workspace && p.workspace_id === workspace.id);
+  const ids = new Set(mine.map((p) => p.id));
+  const repos = new Set(mine.flatMap((p) => [p.gh_repo, p.gh_upstream]).filter((r): r is string => !!r).map((r) => r.toLowerCase()));
+  const hasProject = (id: string | null, cwd?: string) => (!!id && ids.has(id)) || (!!cwd && mine.some((p) => cwd === p.path || cwd.startsWith(p.path + "/")));
+  const hasSpec = (spec: LaunchSpec) => (!!workspace && spec.workspace_id === workspace.id) || hasProject(specProject(spec));
+  return {
+    workspace: w,
+    projects: mine,
+    hasProject,
+    hasSession: (s: Session) => hasProject(s.project_id, s.cwd) || hasSpec(s.launch_spec),
+    hasSpec,
+    hasRepo: (repo: string) => repos.has(repo.toLowerCase()),
+  };
 }
 
 export function useScope(): Scope {
   const current = useWorkspace((s) => s.current);
   const workspaces = useWorkspaces();
   const projects = useProjects().data;
-  return useMemo(() => {
-    const workspace = workspaces.data?.find((w) => w.id === current) ?? null;
-    // While the workspaces load, show nothing rather than every project.
-    if (!workspace && !(current && !workspaces.data)) return { workspace, projects: projects ?? [], hasProject: yes, hasSession: yes, hasSpec: yes, hasRepo: yes };
-    const mine = (projects ?? []).filter((p) => !!workspace && p.workspace_id === workspace.id);
-    const ids = new Set(mine.map((p) => p.id));
-    const repos = new Set(mine.flatMap((p) => [p.gh_repo, p.gh_upstream]).filter((r): r is string => !!r).map((r) => r.toLowerCase()));
-    const hasProject = (id: string | null, cwd?: string) => (!!id && ids.has(id)) || (!!cwd && mine.some((p) => cwd === p.path || cwd.startsWith(p.path + "/")));
-    const hasSpec = (spec: LaunchSpec) => (!!workspace && spec.workspace_id === workspace.id) || hasProject(specProject(spec));
-    return {
-      workspace,
-      projects: mine,
-      hasProject,
-      hasSession: (s: Session) => hasProject(s.project_id, s.cwd) || hasSpec(s.launch_spec),
-      hasSpec,
-      hasRepo: (repo: string) => repos.has(repo.toLowerCase()),
-    };
-  }, [current, workspaces.data, projects]);
+  return useMemo(() => scopeOf(workspaces.data?.find((w) => w.id === current), projects), [current, workspaces.data, projects]);
 }
 
-/** Resolves `?ws=<id or name>` and forgets a workspace deleted from another window. Mounted once in the shell. */
+/** Resolves `?ws=<id or name>`, and picks a workspace when the window has none or its workspace was deleted. Mounted once in the shell. */
 export function useWorkspaceSync() {
   const { current, requested, switchTo } = useWorkspace();
   const workspaces = useWorkspaces().data;
   useEffect(() => {
-    if (!workspaces) return;
+    if (!workspaces?.length) return;
     if (requested !== null) {
       const want = requested.toLowerCase();
       const w = workspaces.find((w) => w.id === requested || w.name.toLowerCase() === want);
-      if (!w && want !== "" && want !== "all") toast(`No workspace named ${requested}: showing all workspaces`);
-      switchTo(w?.id ?? null);
-    } else if (current && !workspaces.some((w) => w.id === current)) {
-      switchTo(null);
+      if (!w) toast(`No workspace named ${requested}: showing ${workspaces.find((x) => x.id === current)?.name ?? workspaces[0].name}`);
+      switchTo(w?.id ?? (workspaces.some((x) => x.id === current) ? current! : workspaces[0].id));
+    } else if (!current || !workspaces.some((w) => w.id === current)) {
+      switchTo(workspaces[0].id);
     }
   }, [workspaces, requested, current, switchTo]);
   const name = workspaces?.find((w) => w.id === current)?.name;
@@ -83,11 +84,13 @@ export function useWorkspaceSync() {
   // The installed app's badge is per app: every workspace counts.
   const allWaiting = (sessions ?? []).filter(needsYou).length;
   useEffect(() => { if (sessions) setAppBadge(allWaiting); }, [sessions, allWaiting]);
+  /** No workspace yet (a runner before Home answered, or every workspace deleted elsewhere): the shell asks for one. */
+  return { empty: workspaces?.length === 0 };
 }
 
-/** Opens another window on a workspace (null: all workspaces): a desktop window in the desktop shell, a browser tab otherwise. */
-export async function openWindow(workspaceId: string | null) {
-  const url = `/?ws=${encodeURIComponent(workspaceId ?? "all")}`;
+/** Opens another window on a workspace: a desktop window in the desktop shell, a browser tab otherwise. */
+export async function openWindow(workspaceId: string) {
+  const url = `/?ws=${encodeURIComponent(workspaceId)}`;
   if (!isDesktopShell) {
     window.open(url, "_blank");
     return;
@@ -107,7 +110,3 @@ export async function moveFolder(project: Project, workspace: Workspace) {
   await api.patch<Project>(`/api/projects/${project.id}`, { workspace_id: workspace.id });
 }
 
-/** Folders per workspace, for counts. */
-export function folderCount(projects: Project[] | undefined, workspaceId: string): number {
-  return (projects ?? []).filter((p) => p.workspace_id === workspaceId).length;
-}

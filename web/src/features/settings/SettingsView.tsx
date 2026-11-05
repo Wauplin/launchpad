@@ -1,6 +1,7 @@
 import { delegatedAccess } from "@/lib/deployment";
 import { usePhone, layoutChoice, setLayoutChoice, type LayoutChoice } from "@/lib/phone";
-// Settings: a grouped navigation (This device · Agents · Machines & access · Maintenance) and one title per page.
+// Settings: two parts, This workspace (its bots, tools and MCP servers) and Launchpad (shared by every workspace:
+// this device, agents, machines and access, maintenance), and one title per page.
 // Fields save when they change and show "Saved" inline; only the profile editor keeps an explicit Save.
 // Daemon settings go to config.toml, which can also be edited by hand.
 
@@ -15,6 +16,7 @@ import { api } from "@/lib/api";
 import { DEFAULT_ZOOM, ZOOM_LEVELS, useZoom } from "@/lib/zoom";
 import { useConfig, type ConfigResponse } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
+import { useScope } from "@/lib/workspace";
 
 /** A section of a Settings page. */
 export function Card({ title, end, children, id, tour }: { title: string; end?: React.ReactNode; children: React.ReactNode; id?: string; tour?: string }) {
@@ -31,6 +33,10 @@ export function Card({ title, end, children, id, tour }: { title: string; end?: 
 
 type NavEntry = { to: string; label: string; icon: IconName; exact?: boolean };
 
+/** Settings of the window's workspace. */
+const WORKSPACE_NAV: NavEntry[] = [{ to: "/settings/workspace", label: "Bots, tools and MCP", icon: "folder" }];
+
+/** Launchpad's settings, shared by every workspace. */
 export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
   { group: "This device", items: [{ to: "/settings", label: "Appearance", icon: "sun", exact: true }, { to: "/settings/notifications", label: "Notifications", icon: "bell" }] },
   { group: "Agents", items: [{ to: "/settings/profiles", label: "Profiles", icon: "agents" }, { to: "/settings/presets", label: "Presets", icon: "preset" }, { to: "/settings/usage", label: "Usage", icon: "clock" }] },
@@ -42,24 +48,33 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
 /** The layout of every Settings page: grouped navigation on the left (a scrolling row on phones), one title, one short intro. */
 export function SettingsPage({ title, intro, info, actions, children, tour }: { title?: string; intro?: React.ReactNode; info?: string; actions?: React.ReactNode; children: React.ReactNode; tour?: string }) {
   const phone = usePhone();
+  const workspace = useScope().workspace;
   const groups = SETTINGS_NAV.map((g) => ({ ...g, items: g.items.filter((e) => !delegatedAccess() || e.to !== "/settings/devices") }));
+  const link = (e: NavEntry) => (
+    <Link key={e.to} to={e.to} activeOptions={{ exact: !!e.exact }} className="flex h-[30px] items-center gap-2 rounded-[7px] px-2 text-[13px] text-ink-2 no-underline hover:bg-sunk hover:text-ink" activeProps={{ className: "bg-select font-semibold text-ink!", "aria-current": "page" } as never}>
+      <Icon name={e.icon} size={14} />
+      {e.label}
+    </Link>
+  );
   const nav = phone ? (
     <nav className="phone-tabs flex gap-1.5" aria-label="Settings pages">
-      {groups.flatMap((g) => g.items).map((e) => <Link key={e.to} to={e.to} className="btn" activeOptions={{ exact: !!e.exact }} activeProps={{ "aria-pressed": true } as never}>{e.label}</Link>)}
+      {[...WORKSPACE_NAV, ...groups.flatMap((g) => g.items)].map((e) => <Link key={e.to} to={e.to} className="btn" activeOptions={{ exact: !!e.exact }} activeProps={{ "aria-pressed": true } as never}>{e.to === "/settings/workspace" ? workspace.name : e.label}</Link>)}
     </nav>
   ) : (
     <nav className="sticky top-0 grid content-start gap-3 self-start pt-1" aria-label="Settings pages">
-      {groups.map((g) => (
-        <div key={g.group} className="grid gap-0.5">
-          <div className="seclabel px-2 pb-1">{g.group}</div>
-          {g.items.map((e) => (
-            <Link key={e.to} to={e.to} activeOptions={{ exact: !!e.exact }} className="flex h-[30px] items-center gap-2 rounded-[7px] px-2 text-[13px] text-ink-2 no-underline hover:bg-sunk hover:text-ink" activeProps={{ className: "bg-select font-semibold text-ink!", "aria-current": "page" } as never}>
-              <Icon name={e.icon} size={14} />
-              {e.label}
-            </Link>
-          ))}
-        </div>
-      ))}
+      <div className="grid gap-0.5">
+        <div className="truncate px-2 pb-1 text-[13px] font-semibold text-ink" title="Settings of the workspace shown in this window">This workspace · {workspace.name}</div>
+        {WORKSPACE_NAV.map(link)}
+      </div>
+      <div className="grid gap-3 border-t border-line-2 pt-3">
+        <div className="px-2 text-[13px] font-semibold text-ink" title="Shared by every workspace">Launchpad</div>
+        {groups.map((g) => (
+          <div key={g.group} className="grid gap-0.5">
+            <div className="seclabel px-2 pb-1">{g.group}</div>
+            {g.items.map(link)}
+          </div>
+        ))}
+      </div>
     </nav>
   );
   return (

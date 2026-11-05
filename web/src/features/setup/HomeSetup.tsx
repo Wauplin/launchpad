@@ -64,7 +64,7 @@ export function HomeSetup() {
       case "ssh": return r.done ? settings("/settings/credentials") : fix("/settings/credentials", "Add the SSH key");
       case "identity": return settings("/settings/credentials", r.done ? "Open" : "Set it");
       case "profile": return r.done ? settings("/settings/profiles") : fix("/settings/profiles", "Add a profile");
-      case "folders": return <button className="btn btn-sm" onClick={showAddFolder}>Add a folder</button>;
+      case "folders": return <button className="btn btn-sm" onClick={() => showAddFolder()}>Add a folder</button>;
       case "runner": return settings("/settings/runners", r.done ? "Open" : "Add a runner");
       case "agent": return r.done ? null : openSetup;
       case "bot": return r.done ? settings("/bots") : <Link to="/bots" search={{ new: true } as never} className="btn btn-sm">Create a bot</Link>;

@@ -2,8 +2,12 @@
 
 import { create } from "zustand";
 
-export const useAddFolder = create<{ open: boolean; show: () => void; close: () => void }>((set) => ({
+/** What the dialog starts with: Settings → GitHub opens it on Clone from GitHub with a repository and a workspace. */
+export type AddFolderPreset = { repo?: string; workspaceId?: string };
+
+export const useAddFolder = create<{ open: boolean; preset: AddFolderPreset; show: (preset?: AddFolderPreset) => void; close: () => void }>((set) => ({
   open: false,
-  show: () => set({ open: true }),
-  close: () => set({ open: false }),
+  preset: {},
+  show: (preset = {}) => set({ open: true, preset }),
+  close: () => set({ open: false, preset: {} }),
 }));

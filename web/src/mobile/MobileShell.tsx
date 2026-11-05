@@ -1,4 +1,5 @@
-// Phone shell (hosting report, section 05): a top bar with the workspace menu and the connection, one page at a
+// Phone shell (hosting report, section 05): a top bar with the workspace sheet (workspaces with their counts,
+// other places) and the connection, one page at a
 // time, and five bottom tabs (Now · Agents · Ask · Review · Inbox). Same daemon, rules and feature components
 // as the desktop shell; only the frame differs. Every action stays a visible button.
 
@@ -15,8 +16,10 @@ import { TerminalDock } from "@/features/terminals/TerminalDock";
 import { useTerminalsHere } from "@/features/terminals/lib";
 import { useInboxNeeds } from "@/features/inbox/data";
 import { useReviewCount } from "@/features/review/data";
-import { folderCount, useScope, useWorkspaces, useWorkspaceSync } from "@/lib/workspace";
-import { useCrons, useProjects, useSessions } from "@/lib/queries";
+import { useScope, useWorkspaces, useWorkspaceSync } from "@/lib/workspace";
+import { useCrons, useSessions } from "@/lib/queries";
+import { describeCount, useWorkspaceCounts, workspaceInitial } from "@/features/workspaces/counts";
+import { NewWorkspaceForm, NoWorkspace } from "@/features/workspaces/WorkspaceMenu";
 import { useKnowledgeUnseen } from "@/lib/knowledge";
 import { useProposalCount } from "@/features/proposals/count";
 import { useOutboxCount } from "@/features/outbox/data";
@@ -53,12 +56,12 @@ function MenuLink({ to, icon, children, onClick, count, attn }: { to: string; ic
   </Link>;
 }
 
-/** Workspace switch, secondary pages and device settings. */
+/** The workspaces with what waits in each (never their content), secondary pages and device settings. */
 function WorkspaceMenu({ onClose }: { onClose: () => void }) {
   const { current, switchTo } = useWorkspace();
   const workspaces = useWorkspaces().data ?? [];
-  const all = useProjects().data;
-  const projects = all?.length ?? 0;
+  const counts = useWorkspaceCounts();
+  const [creating, setCreating] = useState(false);
   const { theme, toggle } = useTheme();
   const terminalsHere = useTerminalsHere();
   const scope = useScope();
@@ -66,17 +69,28 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
   const toSend = useOutboxCount();
   const knowledgeNew = useKnowledgeUnseen();
   const brokenRoutines = (useCrons().data ?? []).filter((c) => scope.hasSpec(c.spec) && ["failed", "interrupted"].includes(c.history.at(-1)?.outcome ?? "")).length;
-  const pick = (id: string | null) => { switchTo(id); onClose(); };
-  const button = (id: string | null, label: string, detail: string) => (
-    <button key={id ?? "all"} className={`flex min-h-12 w-full items-center gap-3 border-b border-line-2 px-4 text-left text-[15px] ${current === id ? "font-semibold text-teal-ink" : ""}`} aria-pressed={current === id} onClick={() => pick(id)}>
-      <span className="flex-1 truncate">{label}</span><span className="text-[13px] text-ink-3">{detail}</span>{current === id && <Icon name="check" size={16} />}
-    </button>
-  );
+  const pick = (id: string) => { switchTo(id); onClose(); };
   return (
-    <Sheet title="Workspace" onClose={onClose}>
-      <div className="seclabel px-4 pt-3 pb-1">Show in this tab</div>
-      {button(null, "Everything", `${projects} folders`)}
-      {workspaces.map((w) => button(w.id, w.name, `${folderCount(all, w.id)} folders`))}
+    <Sheet title="Workspaces" onClose={onClose}>
+      <div data-tour="phone.workspaces">
+        {workspaces.map((w) => {
+          const on = current === w.id;
+          const n = on ? 0 : counts[w.id]?.total ?? 0;
+          return (
+            <button key={w.id} className={`flex min-h-12 w-full items-center gap-3 border-b border-line-2 px-4 text-left text-[15px] ${on ? "font-semibold text-teal-ink" : ""}`} aria-pressed={on} title={on ? undefined : describeCount(counts[w.id])} onClick={() => pick(w.id)}>
+              <span className={`grid size-[28px] flex-none place-items-center rounded-[7px] text-[13px] font-semibold ${on ? "bg-teal text-white" : "bg-sunk text-ink-2"}`} aria-hidden>{workspaceInitial(w.name)}</span>
+              <span className="flex-1 truncate">{w.name}</span>
+              {n > 0 && <span className="min-w-[22px] rounded-full bg-attn-soft px-1.5 text-center text-[13px] leading-[22px] font-semibold text-attn tabular-nums" aria-label={describeCount(counts[w.id])}>{n}</span>}
+              {on && <Icon name="check" size={16} />}
+            </button>
+          );
+        })}
+        {creating ? <NewWorkspaceForm onDone={onClose} onCancel={() => setCreating(false)} /> : (
+          <button className="flex min-h-12 w-full items-center gap-3 border-b border-line-2 px-4 text-left text-[15px] text-teal-ink" onClick={() => setCreating(true)}>
+            <span className="grid size-[28px] flex-none place-items-center rounded-[7px] border border-dashed border-line" aria-hidden><Icon name="plus" size={14} /></span>New workspace
+          </button>
+        )}
+      </div>
       <div className="seclabel px-4 pt-4 pb-1">Go to</div>
       <MenuLink to="/proposals" icon="spark" onClick={onClose} count={proposals} attn>Proposals</MenuLink>
       <MenuLink to="/schedules" icon="clock" onClick={onClose} count={brokenRoutines} attn>Schedules</MenuLink>
@@ -112,7 +126,7 @@ function useTerminalViewport(enabled: boolean) {
 
 export function MobileShell() {
   const addOpen = useAddFolder((s) => s.open);
-  useWorkspaceSync();
+  const { empty } = useWorkspaceSync();
   useLayoutEffect(() => {
     document.documentElement.classList.add("lp-phone");
     document.documentElement.style.zoom = String(recordingZoom() ?? 1);
@@ -125,11 +139,13 @@ export function MobileShell() {
   const running = sessions.filter(isRunning).length;
   const publish = useReviewCount();
   const inbox = useInboxNeeds();
-  // What waits in the menu's places, shown on the button that opens it.
-  const inMenu = useProposalCount() + useOutboxCount();
+  // What waits in the menu's places and in the other workspaces, shown on the button that opens it.
+  const counts = useWorkspaceCounts();
+  const elsewhere = Object.entries(counts).reduce((n, [id, c]) => n + (id === scope.workspace.id ? 0 : c.total), 0);
+  const inMenu = useProposalCount() + useOutboxCount() + elsewhere;
   const terminals = path.startsWith("/terminals");
   const viewport = useTerminalViewport(terminals);
-  const workspaceName = scope.workspace?.name ?? "Everything";
+  const workspaceName = scope.workspace.name;
   return (
     <div className="flex h-dvh flex-col bg-paper pt-[env(safe-area-inset-top)]" style={viewport ? { position: "fixed", insetInline: 0, top: viewport.top, height: viewport.height } : recordingZoom() ? { height: `calc(100dvh / ${recordingZoom()})` } : undefined}>
       <IconSprite />
@@ -137,13 +153,13 @@ export function MobileShell() {
       <header className="grid min-h-12 flex-none grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-chrome px-2">
         <button className="btn btn-ghost max-w-full min-w-0 justify-self-start px-2!" aria-label={`Workspace: ${workspaceName}. Open the menu${inMenu > 0 ? ` (${inMenu} waiting)` : ""}`} onClick={() => setMenu(true)}>
           <span className="truncate font-semibold text-ink">{workspaceName}</span><Icon name="chev" size={14} className="shrink-0" />
-          {inMenu > 0 && <span className="shrink-0 rounded-full bg-attn-soft px-1.5 text-[11px] leading-[18px] font-semibold text-attn tabular-nums" title={`${inMenu} waiting in Proposals and the Outbox`}>{inMenu}</span>}
+          {inMenu > 0 && <span className="shrink-0 rounded-full bg-attn-soft px-1.5 text-[11px] leading-[18px] font-semibold text-attn tabular-nums" title={`${inMenu} waiting in Proposals, the Outbox and other workspaces`}>{inMenu}</span>}
         </button>
         <b className="max-w-[40vw] min-w-0 truncate text-center text-[15px]">{pageTitle(path)}</b>
         <div className="flex min-w-0 justify-end"><ServerStatus /></div>
       </header>
       <main className="relative min-h-0 flex-1 overflow-hidden">
-        {!terminals && <Outlet />}
+        {empty ? <NoWorkspace /> : !terminals && <Outlet />}
         {/* Visited terminals stay mounted while other pages show. */}
         <div className={terminals ? "flex h-full flex-col" : "hidden"}><TerminalDock fill={terminals} />{terminals && <Outlet />}</div>
       </main>

@@ -7,7 +7,7 @@ import { reviewWithAgent } from "@/features/github/reviewAgent";
 import { itemSuggestionKey, useSuggestionsByItem } from "@/features/review/data";
 import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Thread } from "@/gen/Thread";
 import type { ThreadPreview } from "@/gen/ThreadPreview";
 import type { InboxSnapshot } from "@/gen/InboxSnapshot";
@@ -212,11 +212,10 @@ export function InboxView() {
   const pending = useMemo(() => new Set(pendingList), [pendingList]);
   const byItem = useSuggestionsByItem();
   const sync = useMutation({ mutationFn: () => api.post("/api/inbox/sync"), onError: toastError, onSettled: () => void qc.invalidateQueries({ queryKey: ["inbox"] }) });
-  const { threads, total, scope, allRepos } = useInboxThreads();
-  const hidden = total - threads.length;
+  const { threads, scope } = useInboxThreads();
   // Threads read while For you is shown stay listed until the filter changes.
   const kept = useRef(new Set<string>());
-  useEffect(() => { kept.current.clear(); }, [view.why, view.repo, allRepos]);
+  useEffect(() => { kept.current.clear(); }, [view.why, view.repo]);
   const counted = useMemo(() => threads.filter((t) => !view.unread || t.unread), [threads, view.unread]);
   const inRepo = useMemo(() => counted.filter((t) => !view.repo || t.repo === view.repo), [counted, view.repo]);
   const counts = useMemo(() => {
@@ -228,8 +227,8 @@ export function InboxView() {
   const selected = threads.find((t) => t.id === view.selected);
   const unread = threads.filter((t) => t.unread).length;
   const mine = threads.filter(forYou).length;
-  // A repository picked among all repos may not belong to the workspace.
-  useEffect(() => { if (view.repo && !threads.some((t) => t.repo === view.repo)) useView.setState({ repo: null }); }, [allRepos, scope.workspace?.id]);
+  // A repository picked in another workspace does not belong to this one.
+  useEffect(() => { if (view.repo && !threads.some((t) => t.repo === view.repo)) useView.setState({ repo: null }); }, [scope.workspace.id]);
   const v = useVirtualizer({ count: visible.length, getScrollElement: () => ref.current, estimateSize: () => (phone ? 72 : 56), getItemKey: (i) => visible[i].id, overscan: 4, useFlushSync: false, initialOffset: view.scroll });
   const previousFilter = useRef({ repo: view.repo, unread: view.unread, why: view.why });
   useEffect(() => {
@@ -276,20 +275,15 @@ export function InboxView() {
   if (phone && selected) return <div className="flex h-full"><PreviewPane key={selected.id} t={selected} projects={projects} ready={readyOf(selected)} act={act} busy={pending.has(selected.id)} /></div>;
   const syncing = sync.isPending || !!data?.status.syncing;
   const synced = <Synced label={data?.status.syncing ? "Syncing…" : data?.status.last_sync ? `Synced ${formatAge(data.status.last_sync)} ago` : "Waiting for GitHub"} busy={syncing} title="Refresh the inbox from GitHub" onRefresh={() => sync.mutate()} />;
-  const repoScope: ReactNode = scope.workspace && <FilterChips label="Repositories">
-    <FilterChip active={!allRepos} title="Notifications of this workspace's repositories" onClick={() => useView.setState({ allRepos: false, scroll: 0 })}>{scope.workspace.name} repos</FilterChip>
-    <FilterChip active={allRepos} title="Notifications of every repository" count={!allRepos && hidden > 0 ? hidden : undefined} onClick={() => useView.setState({ allRepos: true, scroll: 0 })}>All repos</FilterChip>
-  </FilterChips>;
   const counters = <><span title="Unread notifications in this list">{unread} unread</span><span>·</span><span title="Unread review requests, mentions and assignments: the sidebar count">{mine} for you</span><span>·</span>{synced}</>;
   return <div className="flex h-full flex-col">
     {phone ? <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1">
       <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 text-xs text-ink-3">{counters}</span>
       <PhoneActions label="Inbox filters" closeOnAction={false} details={<div className="grid gap-3">
-        {repoScope}
         <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={view.unread} onChange={(e) => useView.setState({ unread: e.target.checked, scroll: 0 })} />Unread only</label>
         <RepoPicker threads={counted} selected={view.repo} />
       </div>} />
-    </div> : <PageHeader title="Inbox" meta={counters} actions={repoScope} />}
+    </div> : <PageHeader title="Inbox" meta={counters} />}
     {(error || data?.status.error) && <ErrorState className="m-2" error={error ?? data?.status.error} action={<span className="text-ink-2">Cached notifications remain available. Sign in with gh auth login if needed.</span>} />}
     <div className="inbox-filters flex flex-none flex-wrap items-center gap-1.5 border-b border-line px-3 py-2">
       <FilterChips tour="inbox.reasons" label="Why you were notified">
@@ -300,7 +294,7 @@ export function InboxView() {
     </div>
     <div className="flex min-h-0 flex-1">
       <div data-inbox-list ref={ref} className="min-w-0 flex-1 overflow-y-auto" onScroll={() => useView.setState({ scroll: ref.current?.scrollTop ?? 0 })}>
-        {visible.length === 0 && (data?.status.syncing || !data ? <Loading what="notifications" /> : <Empty fill icon="inbox">{view.unread || view.repo || view.why !== "all" ? "No notifications match these filters." : hidden > 0 ? `No notifications for the repositories of ${scope.workspace?.name}. Choose All repos to see all ${hidden}.` : "Your inbox is clear."}</Empty>)}
+        {visible.length === 0 && (data?.status.syncing || !data ? <Loading what="notifications" /> : <Empty fill icon="inbox">{view.unread || view.repo || view.why !== "all" ? "No notifications match these filters." : scope.projects.some((p) => p.gh_repo) ? "Your inbox is clear." : `No folder of ${scope.workspace.name} has a GitHub repository. Settings → GitHub lists repositories without a folder.`}</Empty>)}
         <div className="relative" style={{ height: v.getTotalSize() }}>
           {v.getVirtualItems().map((item) => { const t = visible[item.index]; return <div key={item.key} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${item.start}px)` }}><ThreadRow t={t} selected={t.id === view.selected} projects={projects} ready={readyOf(t)} select={select} act={act} busy={pending.has(t.id)} /></div>; })}
         </div>

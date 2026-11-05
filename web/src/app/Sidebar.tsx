@@ -5,24 +5,19 @@ import { useProposalCount } from "@/features/proposals/count";
 import { useOutboxCount } from "@/features/outbox/data";
 import { botInitial, botState, botThread, useBots } from "@/lib/bots";
 import type { Bot } from "@/gen/Bot";
-import { openWindow, newWindowWord, useScope } from "@/lib/workspace";
+import { useScope } from "@/lib/workspace";
+import { WorkspaceMenu } from "@/features/workspaces/WorkspaceMenu";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
 import { memo, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Project } from "@/gen/Project";
-import type { Workspace } from "@/gen/Workspace";
 import { isRunning, isQuotaPaused, needsYou } from "@/lib/sessionStatus";
 import type { Session } from "@/gen/Session";
 import { Icon, type IconName } from "@/components/Icon";
-import { MenuItem, Popover } from "@/components/Popover";
 import { toastError } from "@/components/Toast";
-import { ConfirmButton } from "@/components/ui";
-import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
-import { useCrons, useProjects, useSessions } from "@/lib/queries";
+import { useCrons, useSessions } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
-import { useWorkspace } from "@/stores/workspace";
 import { useComposer } from "@/stores/composer";
 import { useOpenTerminal, useTerminalsHere } from "@/features/terminals/lib";
 import { useAddFolder } from "@/features/projects/addFolderStore";
@@ -54,7 +49,7 @@ export function SideLabel({ children, end }: { children: ReactNode; end?: ReactN
  * A collapsible group of the sidebar (Bots, Folders): the chevron in the icon column shows or hides its rows
  * (remembered on this device), the label opens its page. `end` shows while it is collapsed (counts, state dots).
  */
-function Group({ id, to, label, detail, end, actions, tour, children }: { id: SidebarGroup; to: string; label: string; detail?: string; end?: ReactNode; actions?: ReactNode; tour?: string; children: ReactNode }) {
+function Group({ id, to, label, end, actions, tour, children }: { id: SidebarGroup; to: string; label: string; end?: ReactNode; actions?: ReactNode; tour?: string; children: ReactNode }) {
   const open = !useSidebar((s) => s.collapsed[id]);
   const toggle = useSidebar((s) => s.toggle);
   return (
@@ -65,7 +60,6 @@ function Group({ id, to, label, detail, end, actions, tour, children }: { id: Si
         </button>
         <Link to={to} className="flex h-[31px] min-w-0 flex-1 items-center gap-1.5 pr-1 text-ink-2 no-underline" activeProps={{ className: "!text-ink font-semibold" }} activeOptions={{ exact: true }}>
           <span className="flex-none">{label}</span>
-          {detail && open && <span className="min-w-0 truncate text-[11px] font-normal text-ink-3" title={`Workspace: ${detail}`}>{detail}</span>}
           {!open && end && <span className="ml-auto flex-none">{end}</span>}
         </Link>
         {actions && <span className="flex flex-none items-center pr-0.5">{actions}</span>}
@@ -139,52 +133,7 @@ function FinishSetup() {
   );
 }
 
-/** The workspace section's menu: New workspace, Rename, Open in new window and Delete. */
-function WorkspaceMenu({ workspace }: { workspace: Workspace | null }) {
-  const qc = useQueryClient();
-  const switchTo = useWorkspace((s) => s.switchTo);
-  const [mode, setMode] = useState<"menu" | "new" | "rename">("menu");
-  const [name, setName] = useState("");
-  const done = () => void qc.invalidateQueries({ queryKey: ["workspaces"] });
-  const submit = async (close: () => void) => {
-    const n = name.trim();
-    if (!n) return;
-    try {
-      if (mode === "new") {
-        const w = await api.post<Workspace>("/api/workspaces", { name: n });
-        switchTo(w.id);
-      } else if (workspace) await api.patch(`/api/workspaces/${workspace.id}`, { name: n });
-      done();
-      close();
-      setMode("menu");
-    } catch (e) { toastError(e); }
-  };
-  return (
-    <Popover width={260} align="right" trigger={({ open, toggle }) => (
-      <button className="iconbtn size-[22px]!" data-tour="sidebar.workspace-menu" aria-label="Workspace actions" title="Workspace actions" aria-expanded={open} onClick={() => { setMode("menu"); toggle(); }}><Icon name="more" size={14} /></button>
-    )}>
-      {(close) => mode !== "menu" ? (
-        <form className="grid gap-2 p-1.5" onSubmit={(e) => { e.preventDefault(); void submit(close); }}>
-          <label className="grid gap-1 text-[12px] text-ink-2">{mode === "new" ? "New workspace name" : `Rename ${workspace?.name}`}<input autoFocus className="field-input h-[30px]" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} /></label>
-          <span className="flex justify-end gap-1.5"><button type="button" className="btn btn-sm btn-ghost" onClick={() => setMode("menu")}>Cancel</button><button type="submit" className="btn btn-sm btn-primary" disabled={!name.trim()}>{mode === "new" ? "Create and show here" : "Rename"}</button></span>
-        </form>
-      ) : (
-        <>
-          <MenuItem icon={<Icon name="plus" size={13} />} label="New workspace" detail="Each folder belongs to one workspace" onClick={() => { setName(""); setMode("new"); }} />
-          {workspace && <MenuItem icon={<Icon name="pencil" size={13} />} label="Rename" onClick={() => { setName(workspace.name); setMode("rename"); }} />}
-          <MenuItem icon={<Icon name="window" size={13} />} label={`Open in new ${newWindowWord}`} onClick={() => { close(); void openWindow(workspace?.id ?? null); }} />
-          {workspace && (
-            <div className="border-t border-line-2 px-2 pt-1.5 pb-1">
-              <ConfirmButton icon="trash" consequence="Only an empty workspace can be deleted: move or remove its folders first." confirmLabel={`Delete ${workspace.name}`} onConfirm={async () => { try { await api.delete(`/api/workspaces/${workspace.id}`); done(); close(); } catch (e) { toastError(e); } }}>Delete workspace</ConfirmButton>
-            </div>
-          )}
-        </>
-      )}
-    </Popover>
-  );
-}
-
-/** Folders of the workspace (or every folder in Everything), virtualized against the sidebar's scroll area with fixed row heights. */
+/** Folders of the workspace, virtualized against the sidebar's scroll area with fixed row heights. */
 function FolderList({ folders, sessions, scroller }: { folders: Project[]; sessions: Session[]; scroller: RefObject<HTMLDivElement | null> }) {
   const ref = useRef<HTMLDivElement>(null);
   const [margin, setMargin] = useState(0);
@@ -215,7 +164,7 @@ const BotLink = memo(function BotLink({ bot, thread }: { bot: Bot; thread: Sessi
 /** Bots of the workspace (Ask Launchpad among them), and the proposals they wrote. Collapsed: the waiting count and one state dot. */
 function BotList({ proposals, sessions }: { proposals: number; sessions: Session[] }) {
   const scope = useScope();
-  const bots = (useBots().data ?? []).filter((b) => !scope.workspace || b.workspace_id === scope.workspace.id);
+  const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
   const states = bots.map((b) => botState(botThread(sessions, b.id)));
   const count = proposals > 0 ? <span className="rounded-full bg-teal-soft px-1.5 text-[11px] font-semibold text-teal-ink tabular-nums" title={`${proposals} proposals wait for your click`}>{proposals}</span> : undefined;
   const summary = <span className="flex items-center gap-1.5">
@@ -253,10 +202,8 @@ export function Sidebar() {
   const proposals = useProposalCount();
   const toSend = useOutboxCount();
   const scope = useScope();
-  const all = useProjects().data ?? [];
   const showAdd = useAddFolder((s) => s.show);
-  // A workspace lists its folders; Everything lists all of them.
-  const projects = scope.workspace ? scope.projects : all;
+  const projects = scope.projects;
   const sessions = (useSessions().data ?? []).filter(scope.hasSession);
   const [allTemp, setAllTemp] = useState(false);
   const waiting = sessions.filter(needsYou).length;
@@ -272,6 +219,7 @@ export function Sidebar() {
   return (
     <aside className="flex w-[200px] flex-none flex-col border-r border-line bg-chrome">
       {/* One scroll area for the groups; Settings stays at the bottom. */}
+      <WorkspaceMenu />
       <div ref={scroller} className="relative flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-2 pt-2.5 pb-2">
       <BotList proposals={proposals} sessions={sessions} />
       <nav aria-label="Places" data-tour="sidebar.nav" className="mt-2 flex flex-none flex-col gap-px border-t border-line-2 pt-2">
@@ -293,11 +241,10 @@ export function Sidebar() {
       <NavItem tour="sidebar.knowledge" to="/knowledge" icon="book" end={knowledgeNew > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${knowledgeNew} changes by agents since your last look`}>{knowledgeNew}</span> : undefined}>
         Knowledge
       </NavItem>
-      <Group id="folders" to="/projects" label="Folders" detail={scope.workspace?.name} tour="sidebar.folders" end={<RunDots sessions={sessions.filter((s) => projects.some((p) => inProject(p, s)))} />} actions={<>
-        <button className="iconbtn size-[22px]!" title={`Add folders${scope.workspace ? ` to ${scope.workspace.name}` : ""}`} aria-label="Add folders" data-tour="sidebar.add-folder" onClick={showAdd}><Icon name="plus" size={13} /></button>
-        <WorkspaceMenu workspace={scope.workspace} />
-      </>}>
-        {folders.length === 0 && <button className="mx-[9px] my-1 text-left text-[12px] text-teal-ink hover:underline" onClick={showAdd}>+ Add folder</button>}
+      <Group id="folders" to="/projects" label="Folders" tour="sidebar.folders" end={<RunDots sessions={sessions.filter((s) => projects.some((p) => inProject(p, s)))} />} actions={
+        <button className="iconbtn size-[22px]!" title={`Add folders to ${scope.workspace.name}`} aria-label="Add folders" data-tour="sidebar.add-folder" onClick={() => showAdd()}><Icon name="plus" size={13} /></button>
+      }>
+        {folders.length === 0 && <button className="mx-[9px] my-1 text-left text-[12px] text-teal-ink hover:underline" onClick={() => showAdd()}>+ Add folder</button>}
         <FolderList folders={folders} sessions={sessions} scroller={scroller} />
         {temp.length > 0 && <SideLabel>{allTemp ? "Temporary folders" : "Temporary · active"}</SideLabel>}
         {shownTemp.map((p) => (

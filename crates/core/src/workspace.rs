@@ -1,6 +1,7 @@
 //! Workspaces: user-defined groups of projects. Every project belongs to exactly one workspace
-//! (`project.workspace_id`); "Everything" is a view, not a workspace. A window shows one workspace at a time;
-//! its agents, scheduled launches, crons and inbox threads are the ones of its projects.
+//! (`project.workspace_id`). A window always shows one workspace; its agents, scheduled launches, crons and inbox
+//! threads are the ones of its projects. There is always one: Home creates the first at its first start, and the
+//! last one cannot be deleted.
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -84,6 +85,17 @@ pub async fn update(app: &App, id: &str, patch: Patch) -> Result<Workspace> {
     Ok(w)
 }
 
+/// The name of the workspace Home creates when there is none.
+pub const FIRST: &str = "Personal";
+
+/// Home: creates the first workspace when there is none, so a window always has one to show.
+pub async fn ensure_one(app: &App) -> Result<()> {
+    if list(app).await?.is_empty() {
+        create(app, FIRST).await?;
+    }
+    Ok(())
+}
+
 /// Runner: replaces every workspace with Home's.
 pub async fn replace_all(app: &App, all: Vec<Workspace>) -> Result<()> {
     let rows: Vec<(String, String)> = all.iter().map(|w| Ok((w.id.clone(), serde_json::to_string(w)?))).collect::<Result<_>>()?;
@@ -117,6 +129,13 @@ pub async fn project_ids(app: &App, id: &str) -> Result<Vec<String>> {
 /// Deletes an empty workspace. Its folders must first move to another workspace or be removed, so every
 /// folder keeps exactly one workspace.
 pub async fn delete(app: &App, id: &str) -> Result<()> {
+    let all = list(app).await?;
+    if !all.iter().any(|w| w.id == id) {
+        bail!("no such workspace");
+    }
+    if all.len() <= 1 {
+        bail!("the last workspace cannot be deleted: Launchpad always shows one");
+    }
     let ids = project_ids(app, id).await?;
     let folders = ids.len();
     if folders > 0 {
@@ -132,7 +151,7 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Opens a new desktop window, on a workspace or on all projects. Each window keeps its own workspace.
+/// Opens a new desktop window, on a workspace (None: the last one shown). Each window keeps its own workspace.
 pub fn open_window(app: &App, id: Option<&str>) -> Result<()> {
     let exe = std::env::current_exe()
         .ok()

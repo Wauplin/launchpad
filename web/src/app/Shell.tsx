@@ -9,6 +9,8 @@ import { useLayoutEffect } from "react";
 import { useZoomScale } from "@/lib/zoom";
 import { useWorkspaceSync } from "@/lib/workspace";
 import { Sidebar } from "./Sidebar";
+import { WorkspaceRail } from "@/features/workspaces/Rail";
+import { NoWorkspace } from "@/features/workspaces/WorkspaceMenu";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
 import { HostPrompts } from "./HostPrompt";
@@ -48,7 +50,7 @@ export function Shell() {
     // Embedding hosts express insets in unzoomed pixels (see TopBar).
     document.documentElement.style.setProperty("--lp-zoom", String(scale));
   }, [scale]);
-  useWorkspaceSync();
+  const { empty } = useWorkspaceSync();
   useHubPillInset();
   return (
     <div className="flex h-full flex-col">
@@ -56,11 +58,12 @@ export function Shell() {
       <TopBar />
       {/* relative: the composer overlay (narrow windows) and the draft pill are positioned here. */}
       <div className="relative flex min-h-0 flex-1">
+        <WorkspaceRail />
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           {!isDemo && <WelcomeGate />}
           <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-paper">
-            <Outlet />
+            {empty ? <NoWorkspace /> : <Outlet />}
           </main>
           <TerminalDock />
         </div>

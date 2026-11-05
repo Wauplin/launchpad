@@ -43,7 +43,7 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   const phone = usePhone();
   const projects = useProjects().data ?? [], sessions = useSessions().data ?? [];
   const history = useRef(new PromptHistory(doc));
-  const identity = `${sessionId ?? "launch"}:${scope.workspace?.id ?? "all"}:${autocomplete}`;
+  const identity = `${sessionId ?? "launch"}:${scope.workspace.id}:${autocomplete}`;
   const priorIdentity = useRef(identity);
   if (priorIdentity.current !== identity) { history.current = new PromptHistory(doc); priorIdentity.current = identity; }
   // Chip operations and external draft changes are also part of full-document history.
@@ -52,8 +52,8 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   const scopeKey = `${root}|${harness}|${profile}|${repo}`;
   useEffect(() => { setMention(null); setSelected(0); }, [scopeKey, autocomplete]);
   useEffect(() => { const t = setTimeout(() => setDebounced(mention?.query ?? ""), 150); return () => clearTimeout(t); }, [mention?.query]);
-  const params = new URLSearchParams({ ...(root ? { root } : {}), ...(scope.workspace ? { workspace: scope.workspace.id } : {}), q: debounced });
-  const files = useQuery({ queryKey: ["prompt-files", root, scope.workspace?.id, debounced], queryFn: ({ signal }) => api.get<PathResults>(`/api/prompt/files?${params}`, signal), enabled: autocomplete && !noFolders && mention?.trigger === "@", staleTime: 15_000 });
+  const params = new URLSearchParams({ ...(root ? { root } : {}), workspace: scope.workspace.id, q: debounced });
+  const files = useQuery({ queryKey: ["prompt-files", root, scope.workspace.id, debounced], queryFn: ({ signal }) => api.get<PathResults>(`/api/prompt/files?${params}`, signal), enabled: autocomplete && !noFolders && mention?.trigger === "@", staleTime: 15_000 });
   const skillParams = new URLSearchParams({ harness: harness ?? "", ...(profile ? { profile } : {}), ...(root ? { root } : {}) });
   const skills = useQuery({ queryKey: ["prompt-skills", root, harness, profile], queryFn: ({ signal }) => api.get<SkillResults>(`/api/prompt/skills?${skillParams}`, signal), enabled: autocomplete && !noFolders && mention?.trigger === "/" && !!harness, staleTime: 30_000 });
   const gh = useQuery({ queryKey: ["gh-suggest", repo, debounced], queryFn: ({ signal }) => api.get<GhItem[]>(`/api/gh/${repo}/suggest?q=${encodeURIComponent(debounced)}`, signal), enabled: mention?.trigger === "#" && !!repo, staleTime: 60_000 });

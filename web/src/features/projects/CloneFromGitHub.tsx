@@ -12,10 +12,11 @@ import type { Workspace } from "@/gen/Workspace";
 
 const SHOWN = 30;
 
-/** `workspace`: the one workspace of the new folder, chosen in the Add folder dialog (null: not chosen yet). */
-export function CloneFromGitHub({ root, host = null, workspace, onDone }: { root: string | undefined; host?: string | null; workspace: Workspace | null; onDone?: () => void }) {
+/** `workspace`: the one workspace of the new folder, chosen in the Add folder dialog (null: not chosen yet).
+ * `initialRepo`: a repository to fill in (Settings → GitHub → Add to). */
+export function CloneFromGitHub({ root, host = null, workspace, initialRepo, onDone }: { root: string | undefined; host?: string | null; workspace: Workspace | null; initialRepo?: string; onDone?: () => void }) {
   const qc = useQueryClient();
-  const [repo, setRepo] = useState("");
+  const [repo, setRepo] = useState(initialRepo ?? "");
   const [cloning, setCloning] = useState<string | null>(null);
   // POST refreshes recent notifications and pushed repositories from GitHub (best effort), then reads the cache.
   const q = useQuery({ queryKey: ["clone-suggestions"], queryFn: () => api.post<CloneSuggestion[]>("/api/projects/clone/suggestions", {}) });

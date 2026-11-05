@@ -4,7 +4,6 @@
 // harness memories. Home stores everything; every change is restorable for 30 days.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { WorkspacePicker } from "@/features/workspaces/WorkspacePicker";
 import { Link } from "@tanstack/react-router";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -23,10 +22,9 @@ import { formatAge } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useSessions, useStatus } from "@/lib/queries";
 import { useRunners } from "@/lib/runners";
-import { useScope, useWorkspaces } from "@/lib/workspace";
+import { useScope } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
 import { useComposer } from "@/stores/composer";
-import { useWorkspace } from "@/stores/workspace";
 
 const ROW = 30;
 const CHANGE_ROW = 52;
@@ -63,40 +61,28 @@ function resolveLink(paths: string[], name: string, from: string): string | null
   return paths.find((p) => stem(p).toLowerCase() === n || p.toLowerCase() === n || p.toLowerCase() === `${n}.md`) ?? null;
 }
 
-function useKnowledgeWorkspace(): [string | null, (id: string) => void] {
-  const scope = useScope();
-  const workspaces = useWorkspaces().data ?? [];
-  const [picked, setPicked] = useState<string | null>(null);
-  const id = scope.workspace?.id ?? picked ?? workspaces[0]?.id ?? null;
-  return [id, setPicked];
-}
-
 export function KnowledgeView() {
   const phone = usePhone();
   const qc = useQueryClient();
   const scope = useScope();
-  const workspaces = useWorkspaces().data ?? [];
   const role = useStatus().data?.role;
-  const [ws, setWs] = useKnowledgeWorkspace();
+  const ws = scope.workspace.id || null;
   const [tab, setTab] = useState<"notes" | "changes">("notes");
   const [selected, setSelected] = useState<string | null>(null);
   const [historyOf, setHistoryOf] = useState<string | null>(null);
   const [panel, setPanel] = useState<"note" | "new" | "import">("note");
   const notes = useQuery({ queryKey: ["knowledge", ws, "notes"], queryFn: () => api.get<Notes>(`/api/knowledge/${ws}`), enabled: !!ws });
   const changes = useQuery({ queryKey: ["knowledge", ws, "changes"], queryFn: () => api.get<{ changes: Change[] }>(`/api/knowledge/${ws}/changes`), enabled: !!ws });
-  const wsName = workspaces.find((w) => w.id === ws)?.name ?? "";
   const unseen = (changes.data?.changes ?? []).filter((c) => c.id > (notes.data?.seen ?? 0) && c.author?.kind === "agent").length;
   useEffect(() => { setSelected(null); setHistoryOf(null); setPanel("note"); }, [ws]);
   useEffect(() => {
     if (!selected && notes.data && !phone) setSelected(notes.data.files.some((f) => f.path === "INDEX.md") ? "INDEX.md" : notes.data.files[0]?.path ?? null);
   }, [notes.data, selected, phone]);
 
-  if (!ws) return <div className="flex h-full flex-col"><PageHeader title="Knowledge" /><Empty fill icon="book" action={<WorkspacePicker value={null} label={workspaces.length ? "Open a workspace" : "Create a workspace"} onChange={(id) => useWorkspace.getState().switchTo(id)} />}>Each workspace has its own knowledge base.</Empty></div>;
+  if (!ws) return <div className="flex h-full flex-col"><PageHeader title="Knowledge" /><Loading what="the knowledge base" /></div>;
   const refresh = () => qc.invalidateQueries({ queryKey: ["knowledge"] });
   const gardener = () => {
     if (!notes.data) return;
-    // A temporary folder joins the window's workspace: the gardener runs in this knowledge base's workspace.
-    if (scope.workspace?.id !== ws) useWorkspace.getState().switchTo(ws);
     const c = useComposer.getState();
     c.start();
     c.update((s) => ({ ...s, target: { kind: "temp" }, worktree: null, text: notes.data!.gardener_prompt, workspace_id: ws }));
@@ -109,7 +95,7 @@ export function KnowledgeView() {
   </>;
   const tabs = <Tabs label="Knowledge views" value={tab} onChange={(t) => { setTab(t); if (t === "notes") setHistoryOf(null); }} items={[{ id: "notes", label: "Notes", count: notes.data?.files.length }, { id: "changes", label: "Changes", count: unseen || undefined }]} tour="knowledge.tabs" />;
   const meta = <>
-    {!scope.workspace && workspaces.length > 1 ? <FilterChips label="Workspace">{workspaces.map((w) => <FilterChip key={w.id} active={w.id === ws} onClick={() => setWs(w.id)}>{w.name}</FilterChip>)}</FilterChips> : <span>{wsName}</span>}
+    <span>{scope.workspace.name}</span>
     <span>The only memory agents have · every change is restorable for 30 days{role === "runner" ? " · stored by Home" : ""}</span>
   </>;
   const openNote = (path: string) => { setTab("notes"); setPanel("note"); setSelected(path); };

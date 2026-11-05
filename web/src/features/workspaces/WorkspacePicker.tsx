@@ -46,7 +46,7 @@ export function WorkspacePicker({ value, onChange, label = "Workspace" }: { valu
   );
 }
 
-/** The default workspace of a new folder: the window's, else the only one. */
-export function defaultWorkspace(current: Workspace | null, all: Workspace[]): string | null {
-  return current?.id ?? (all.length === 1 ? all[0].id : null);
+/** The default workspace of a new folder: the window's. */
+export function defaultWorkspace(current: Workspace, all: Workspace[]): string | null {
+  return all.some((w) => w.id === current.id) ? current.id : all[0]?.id ?? null;
 }

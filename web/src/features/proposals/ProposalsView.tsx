@@ -13,7 +13,6 @@ import { browserZone } from "@/lib/routines";
 import { usePhone } from "@/lib/phone";
 import { useScope } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
-import { useWorkspace } from "@/stores/workspace";
 import { isWaiting, visibleProposals } from "./proposalState";
 import { ProposalCard, useProposalList } from "./ProposalCard";
 import type { Proposal } from "@/gen/Proposal";
@@ -76,13 +75,12 @@ export function ProposalList({ proposals, reveal = null, empty }: { proposals: P
 
 export function ProposalsView() {
   const phone = usePhone();
-  const workspace = useWorkspace((s) => s.current) ?? null;
   const scope = useScope();
   const search = useSearch({ strict: false }) as { proposal?: string };
-  const proposals = (useProposalList().data ?? []).filter((p) => !workspace || (p.workspace_id ?? null) === workspace);
+  const proposals = (useProposalList().data ?? []).filter((p) => p.workspace_id === scope.workspace.id);
   const header = phone
     ? <PhoneHeader title="Proposals" />
-    : <PageHeader icon={<Icon name="spark" size={18} className="text-teal-ink" />} title="Proposals" meta={<>{scope.workspace?.name ?? "Everything"} · cards your bots and agents wrote with the Launchpad CLI; nothing starts without your click</>} />;
+    : <PageHeader icon={<Icon name="spark" size={18} className="text-teal-ink" />} title="Proposals" meta={<>{scope.workspace.name} · cards your bots and agents wrote with the Launchpad CLI; nothing starts without your click</>} />;
   return (
     <div className="flex h-full min-h-0 flex-col">
       {header}

@@ -8,7 +8,7 @@ const findOpen = () => !!document.querySelector('input[placeholder="Find in file
 
 export const folders: Chapter = {
   ...meta("folders"),
-  learned: ["A folder page shows its agents, GitHub items and worktrees", "Files browses any checkout or worktree, with Find", "Each folder belongs to one workspace; Everything shows them all", "Add folder registers, browses or clones folders", "Knowledge is the memory of a workspace: notes agents read and write, every change restorable"],
+  learned: ["A folder page shows its agents, GitHub items and worktrees", "Files browses any checkout or worktree, with Find", "Each folder belongs to one workspace; a window shows one workspace", "Add folder registers, browses or clones folders", "Knowledge is the memory of a workspace: notes agents read and write, every change restorable"],
   steps: [
     {
       id: "folders.page", route: "/projects/demo-storefront", anchor: "folder.page",
@@ -24,7 +24,7 @@ export const folders: Chapter = {
     {
       id: "folders.workspaces", route: "/projects", anchor: "sidebar.workspace-menu",
       title: "Workspaces",
-      body: "This menu creates, renames and deletes workspaces and opens one in a new window. Each window shows one workspace; Everything shows every folder.",
+      body: "The workspace name opens its menu: rename it, open it in a new window, open its settings, or create another workspace. There is always one workspace: the last one cannot be deleted.",
     },
     {
       id: "folders.add", route: "/projects", anchor: "sidebar.add-folder",

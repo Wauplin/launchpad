@@ -10,6 +10,6 @@ export type ProposalSummary = { id: string; workspace_id: string | null; session
 export const useProposals = () => useQuery({ queryKey: ["proposals"], queryFn: () => api.get<ProposalSummary[]>("/api/proposals"), staleTime: 30_000 });
 
 export function useProposalCount(): number {
-  const current = useWorkspace((s) => s.current) ?? null;
-  return (useProposals().data ?? []).filter((p) => p.state === "proposed" && (!current || (p.workspace_id ?? null) === current)).length;
+  const current = useWorkspace((s) => s.current);
+  return (useProposals().data ?? []).filter((p) => p.state === "proposed" && p.workspace_id === current).length;
 }

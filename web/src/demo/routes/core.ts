@@ -161,6 +161,7 @@ route("PATCH", "/api/workspaces/:id", ({ params, body }): Workspace => {
   return w;
 });
 route("DELETE", "/api/workspaces/:id", ({ params }) => {
+  if (world.workspaces.length <= 1) throw new DemoError(400, "the last workspace cannot be deleted: Launchpad always shows one");
   const folders = world.projects.filter((p) => p.workspace_id === params.id).length;
   if (folders) throw new DemoError(400, `move or remove its ${folders} folder${folders === 1 ? "" : "s"} first`);
   world.workspaces = world.workspaces.filter((w) => w.id !== params.id);

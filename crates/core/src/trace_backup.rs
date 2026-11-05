@@ -136,7 +136,7 @@ pub(crate) async fn upload(app: &App) -> Result<()> {
         let project = session.project_id.as_deref().and_then(|id| projects.iter().find(|p| p.id == id));
         let workspace_id = project.and_then(|p| p.workspace_id.as_deref()).or(session.launch_spec.workspace_id.as_deref());
         let workspace = workspace_id.and_then(|id| workspaces.iter().find(|w| w.id == id))
-            .map(|w| w.name.as_str()).unwrap_or("Everything");
+            .map(|w| w.name.as_str()).unwrap_or("No workspace");
         let folder = project.map(|p| p.name.as_str()).unwrap_or(if session.project_id.is_some() { "Removed folder" } else { "Temporary folder" });
         let dest = destination(&config.bucket, &config.prefix, &user, folder, session.started_at, &session.id)?;
         let cursor = cursors.entry(dest.clone()).or_default();

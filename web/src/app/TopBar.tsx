@@ -8,7 +8,6 @@ import { itemKey } from "@/features/github/lib";
 import logo from "@/assets/launchpad.png";
 import { TopLaunchButton } from "@/features/launch/LaunchButton";
 import { useProjects } from "@/lib/queries";
-import { WorkspaceSwitcher } from "@/features/workspaces/Switcher";
 import { isDemo } from "@/demo/mode";
 import { DemoChip } from "@/onboarding/DemoChip";
 
@@ -17,6 +16,7 @@ type Crumb = { label: string; to?: string; params?: Record<string, string> };
 // Settings page names, kept here so the top bar does not load the Settings module.
 const SETTINGS: Record<string, string> = {
   "": "Appearance",
+  workspace: "This workspace",
   notifications: "Notifications",
   profiles: "Profiles",
   presets: "Presets",
@@ -85,7 +85,6 @@ export function TopBar() {
         <img src={logo} alt="" className="size-[22px]" />
         Launchpad
       </div>
-      <WorkspaceSwitcher />
       <nav aria-label="Breadcrumb" className="flex min-w-0 shrink items-center gap-1.5 whitespace-nowrap text-ink-2">
         {crumbs === "item" && gh ? <ItemCrumb repo={`${gh[1]}/${gh[2]}`} number={Number(gh[3])} /> : crumbs === "predraft" && predraftId ? <PredraftCrumb id={predraftId} /> : Array.isArray(crumbs) && <Crumbs list={crumbs} />}
       </nav>

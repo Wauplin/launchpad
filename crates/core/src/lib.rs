@@ -190,6 +190,11 @@ impl App {
         };
         predrafts::link_skill()?;
         app.sessions.load(&app).await?;
+        if home_git::here(&app)
+            && let Err(e) = workspace::ensure_one(&app).await
+        {
+            tracing::warn!("first workspace: {e:#}");
+        }
         if let Err(e) = ask_bot::seed(&app).await {
             tracing::warn!("default bot and tools: {e:#}");
         }

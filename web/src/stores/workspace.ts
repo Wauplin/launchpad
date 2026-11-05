@@ -1,4 +1,5 @@
-// The workspace shown in this window. null means all workspaces.
+// The workspace shown in this window. A window always shows one workspace; null only until the workspaces load
+// and `useWorkspaceSync` picks one.
 //
 // sessionStorage is per window, so several windows show different workspaces and each keeps its own after
 // a reload. localStorage remembers the last choice for the next window. `?ws=<id or name>` (from
@@ -13,7 +14,7 @@ type WorkspaceStore = {
   current: string | null;
   /** An id or name from the address, resolved once the workspaces load. */
   requested: string | null;
-  switchTo: (id: string | null) => void;
+  switchTo: (id: string) => void;
 };
 
 function takeRequested(): string | null {
@@ -27,14 +28,14 @@ function takeRequested(): string | null {
 }
 
 const requested = takeRequested();
-const stored = sessionStorage.getItem(WINDOW_KEY) ?? localStorage.getItem(LAST_KEY);
+const stored = sessionStorage.getItem(WINDOW_KEY) || localStorage.getItem(LAST_KEY) || null;
 
 export const useWorkspace = create<WorkspaceStore>((set) => ({
-  current: requested === null && stored ? stored : null,
+  current: stored,
   requested,
   switchTo: (id) => {
-    sessionStorage.setItem(WINDOW_KEY, id ?? "");
-    localStorage.setItem(LAST_KEY, id ?? "");
+    sessionStorage.setItem(WINDOW_KEY, id);
+    localStorage.setItem(LAST_KEY, id);
     set({ current: id, requested: null });
   },
 }));

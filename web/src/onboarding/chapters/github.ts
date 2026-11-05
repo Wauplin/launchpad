@@ -3,6 +3,7 @@
 import type { Chapter } from "../tour/types";
 import { useComposer } from "@/stores/composer";
 import { useWorkspace } from "@/stores/workspace";
+import { WS } from "@/demo/world/ids";
 import { anchor, waitFor } from "./helpers";
 import { meta } from "./meta";
 
@@ -11,7 +12,7 @@ const reviewRequested = () => !!anchor("inbox.reasons")?.querySelector('button[a
 export const github: Chapter = {
   ...meta("github"),
   learned: ["The Inbox is your GitHub notifications, cached and refreshed every minute", "Reason chips narrow it; Done, Launch and + Add act on a row", "PR pages show the conversation, changes and checks, and why Merge is not primary", "Nothing reaches GitHub without your click"],
-  setup: () => useWorkspace.getState().switchTo(null),
+  setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {
       id: "github.inbox", route: "/", anchor: "inbox.row",

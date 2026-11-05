@@ -52,6 +52,7 @@ function Body({ onClose }: { onClose: () => void }) {
   const workspaces = useWorkspaces().data ?? [];
   const current = useScope().workspace;
   const role = useStatus().data?.role;
+  const preset = useAddFolder((s) => s.preset);
   // Clone first everywhere; Home never holds untracked projects, so it has no Browse.
   const [tab, setTab] = useState<"browse" | "clone" | "plain">("clone");
   const [machine, setMachine] = useState<string | null>(null);
@@ -60,7 +61,7 @@ function Body({ onClose }: { onClose: () => void }) {
   const [at, setAt] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
-  const [chosenId, setChosenId] = useState<string | null>(null);
+  const [chosenId, setChosenId] = useState<string | null>(preset.workspaceId ?? null);
   const [busy, setBusy] = useState(false);
   useEffect(() => { setAt(null); setPicked(new Set()); }, [host]);
   const browse = useQuery({
@@ -119,7 +120,7 @@ function Body({ onClose }: { onClose: () => void }) {
           <Link to="/settings/hosts" className="lp-chip no-underline" onClick={onClose}><Icon name="plus" size={11} />New host…</Link>
         </FilterChips>
         {tab === "plain" ? <NewPlainFolder workspaceId={chosen?.id ?? null} onDone={onClose} /> : tab === "clone" ? (
-          <CloneFromGitHub key={host ?? "local"} host={host} root={host ? `${host}:${hostInfo?.host.projects_root ?? ""}` : config?.projects_root} workspace={chosen} onDone={onClose} />
+          <CloneFromGitHub key={host ?? "local"} host={host} root={host ? `${host}:${hostInfo?.host.projects_root ?? ""}` : config?.projects_root} workspace={chosen} initialRepo={preset.repo} onDone={onClose} />
         ) : (
           <>
             {role === "runner" && <p className="rounded-[6px] bg-attn-soft px-2.5 py-2 text-[12px] text-attn">Folders added here are tracked by Home and backed up to Home's cloud bucket: Git folders send their branches, folders without Git have their files copied.</p>}

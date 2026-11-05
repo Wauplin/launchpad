@@ -197,7 +197,7 @@ function BotField() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const scope = useScope();
-  const bots = (useBots().data ?? []).filter((b) => !scope.workspace || b.workspace_id === scope.workspace.id);
+  const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
   const [chosen, setChosen] = useState<string | null>(null);
   const bot = bots.find((b) => b.id === chosen) ?? bots.find((b) => b.slug === "ask-launchpad") ?? bots[0];
   const [text, setText] = useState("");
@@ -359,7 +359,7 @@ export function AgentsView() {
         <div ref={listRef} data-tour="agents.list" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         {sessions.length === 0 && (
           <div className="grid gap-3 p-4 text-[13px] text-ink-2">
-            {scope.workspace ? `No agent in ${scope.workspace.name} yet.` : "No session yet."}
+            {`No agent in ${scope.workspace.name} yet.`}
             <span>
               <LaunchButton small />
             </span>
@@ -379,7 +379,7 @@ export function AgentsView() {
       </div>
       <div className={`min-h-0 min-w-0 flex-1 bg-paper ${phone && !paneOpen ? "hidden" : ""}`}>
         {visibleSession ? (
-          <SessionPane key={`${scope.workspace?.id ?? "all"}:${visibleSession}:${panelLoad}`} sessionId={visibleSession} initialView={phone ? search.view : initialView} onClear={() => (phone ? back() : clearSession(visibleSession))} />
+          <SessionPane key={`${scope.workspace.id}:${visibleSession}:${panelLoad}`} sessionId={visibleSession} initialView={phone ? search.view : initialView} onClear={() => (phone ? back() : clearSession(visibleSession))} />
         ) : phone ? null : (
           <AgentsHome sessions={sessions} crons={crons} schedules={schedules} name={name} onOpen={open} />
         )}

@@ -28,10 +28,8 @@ const ProjectRow = memo(function ProjectRow({ project, active, onPick }: { proje
   </div>;
 });
 
-export function ProjectPicker({ projects, workspaceName, hasProject, selected, temporary, allowTemporary = false, emptyMessage = "No folder yet: add one from the sidebar.", onPick }: {
+export function ProjectPicker({ projects, selected, temporary, allowTemporary = false, emptyMessage = "No folder yet: add one from the sidebar.", onPick }: {
   projects: Project[];
-  workspaceName?: string;
-  hasProject: (id: string) => boolean;
   selected?: string;
   temporary: boolean;
   allowTemporary?: boolean;
@@ -49,17 +47,16 @@ export function ProjectPicker({ projects, workspaceName, hasProject, selected, t
         return score === null ? [] : [score];
       });
     return scores.length ? [{ project, score: Math.min(...scores) }] : [];
-  }).sort((a, b) => (workspaceName ? Number(hasProject(b.project.id)) - Number(hasProject(a.project.id)) : 0) || (hostOf(a.project.path) ?? "").localeCompare(hostOf(b.project.path) ?? "") || a.score - b.score);
-  // Grouped by machine (this computer first) when some projects live on SSH hosts, then by workspace.
+  }).sort((a, b) => (hostOf(a.project.path) ?? "").localeCompare(hostOf(b.project.path) ?? "") || a.score - b.score);
+  // Grouped by machine (this computer first) when some projects live on SSH hosts.
   const hosts = useHosts();
   const byHost = projects.some((p) => hostOf(p.path));
   const rows: (Project | string)[] = [];
   let group: string | null = null;
   for (const { project } of matches) {
     const host = hostOf(project.path);
-    const outside = !!workspaceName && !hasProject(project.id);
     const machine = host ? `${host}${(() => { const h = hosts.find((x) => x.host.id === host); return h && h.state !== "connected" ? ` · ${linkLabel[h.state].toLowerCase()}` : ""; })()}` : "This computer";
-    const label = [outside ? `Not in ${workspaceName}` : null, byHost ? machine : null].filter(Boolean).join(" · ");
+    const label = byHost ? machine : "";
     if (label && label !== group) rows.push(label);
     group = label;
     rows.push(project);

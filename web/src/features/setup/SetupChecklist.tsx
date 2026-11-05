@@ -346,7 +346,7 @@ function FolderStep({ item, host, onDone }: { item: SetupItem; host: string | nu
           <button type="button" className="btn btn-sm" disabled={busy !== null || !workspace} onClick={() => void add(path)}><Icon name="plus" size={12} />Add</button>
         </div>
       ))}
-      <div><button type="button" className="btn btn-sm" onClick={showAdd}><Icon name="plus" size={12} />Add folder…</button></div>
+      <div><button type="button" className="btn btn-sm" onClick={() => showAdd()}><Icon name="plus" size={12} />Add folder…</button></div>
     </div>
   );
 }

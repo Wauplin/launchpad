@@ -307,8 +307,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const prOf = (s: LaunchSpec) => s.target.kind === "project" && !!s.worktree && gitTarget && target ? pullRequestOf(s.text, s.github_refs, [target.gh_repo, target.gh_upstream]) : null;
   const detectedPr = prOf(spec);
   const pushToPr = detectedPr && prOptOut !== `${detectedPr.repo}#${detectedPr.number}` ? detectedPr : null;
-  const inScope = (p: Project) => Number(!!scope.workspace && scope.hasProject(p.id));
-  const sorted = [...projects.filter((p) => !p.is_temp)].sort((a, b) => inScope(b) - inScope(a) || Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
+  // Only the folders of this window's workspace: other workspaces show counts, never their content.
+  const sorted = scope.projects.filter((p) => !p.is_temp).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
   const ownModels = !!profile?.models_url;
   // The model used when none is chosen for this launch; a provider profile has only its own default.
   const fallbackModel = profile?.model ?? (ownModels ? null : defaults?.model) ?? null;
@@ -337,7 +337,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const hostStatus = targetHost ? (hosts.find((h) => h.host.id === targetHost) ?? null) : null;
   const hostProfile = (p: Profile | null) => (p ? profileOnHost(hostStatus, p) : null);
   const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Machines` : hostProfile(profile)?.ok === false ? hostProfile(profile)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context folders must be on the same machine as the folder" : null;
-  const blocker = selectedWorktree?.busy ? "Stop the active agent before using this worktree" : hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : spec.target.kind === "temp" && !scope.workspace ? "Switch to a workspace for a temporary folder" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const blocker = selectedWorktree?.busy ? "Stop the active agent before using this worktree" : hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
@@ -375,7 +375,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     const draft = useComposer.getState().spec;
     const pr = prOf(draft);
     const pullRequest = pr && prOptOut !== `${pr.repo}#${pr.number}` ? pr : undefined;
-    const spec = { ...draft, workspace_id: scope.workspace?.id ?? null, worktree: draft.target.kind === "project" && !gitTarget ? null : draft.worktree && { ...draft.worktree, pull_request: pullRequest } };
+    const spec = { ...draft, workspace_id: scope.workspace.id || null, worktree: draft.target.kind === "project" && !gitTarget ? null : draft.worktree && { ...draft.worktree, pull_request: pullRequest } };
     try {
       if (cron) {
         await api.post("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions, time_zone: browserZone() });
@@ -504,8 +504,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               {(closeMenu) => (
                 <ProjectPicker
                   projects={sorted}
-                  workspaceName={scope.workspace?.name}
-                  hasProject={scope.hasProject}
                   selected={target?.id}
                   temporary={spec.target.kind === "temp"}
                   allowTemporary

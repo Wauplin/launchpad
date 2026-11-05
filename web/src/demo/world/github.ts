@@ -283,6 +283,8 @@ export function githubWorld() {
     thread(it(REPO.billing, 55), "state_change", true, 360),
     thread(it(REPO.storefront, 115), "comment", false, 420),
     thread(it(REPO.billing, 50), "author", false, 60 * 24),
+    // Repositories without a folder: no workspace receives them; Settings → GitHub lists them.
+    ...([["acme-labs/design-system", "Button focus ring is invisible in dark mode", 12, 180], ["acme-labs/design-system", "Tokens for the new spacing scale", 13, 60 * 26], ["open-tools/lint-kit", "Drop support for Node 18", 431, 60 * 24 * 4]] as const).map(([repo, title, number, ago]) => ({ id: String(9_100_000_000 + ++threadSeq), repo, title, kind: "Issue", number, url: `https://github.com/${repo}/issues/${number}`, subject_path: null, reason: "subscribed", unread: true, local_unread: false, updated_at: iso(ago), state: "open", participants: ["dev-kim"], participant_count: 1, review_decision: null, checks: null })),
     { id: String(9_100_000_000 + ++threadSeq), repo: REPO.storefront, title: "v2.4.0", kind: "Release", number: null, url: `https://github.com/${REPO.storefront}/releases/tag/v2.4.0`, subject_path: null, reason: "subscribed", unread: false, local_unread: false, updated_at: iso(60 * 30), state: null, participants: ["dev-alex"], participant_count: 1, review_decision: null, checks: null },
   ].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   const predrafts: Predraft[] = [

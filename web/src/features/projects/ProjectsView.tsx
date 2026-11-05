@@ -1,7 +1,7 @@
 import { usePhone } from "@/lib/phone";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
-// Folders: the registered folders of this window's workspace (Everything: every workspace, one section each),
-// temporary folders, and the Unassigned folders card for folders registered before workspaces were required.
+// Folders: the registered folders of this window's workspace, its temporary folders, and the Unassigned folders
+// card for folders registered before workspaces were required.
 
 import { useQueryClient } from "@tanstack/react-query";
 import { HostLabel } from "@/components/HostLabel";
@@ -181,23 +181,15 @@ export function ProjectsView() {
   const assigned = projects.filter((p) => p.workspace_id && workspaces.some((x) => x.id === p.workspace_id));
   const unassigned = projects.filter((p) => !assigned.includes(p));
   const regular = assigned.filter((p) => !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
-  const mine = w ? regular.filter((p) => scope.hasProject(p.id)) : regular;
-  // Everything is a view: one section per workspace.
-  const sections = w ? [{ w, folders: mine }] : workspaces.map((x) => ({ w: x, folders: regular.filter((p) => p.workspace_id === x.id) })).filter((x) => x.folders.length > 0);
-  const temp = assigned.filter((p) => p.is_temp && (!w || scope.hasProject(p.id)));
-  const add = <button className="btn btn-primary" onClick={showAdd}><Icon name="plus" size={14} />Add folder</button>;
-  const title = w ? `Folders in ${w.name}` : "Folders";
+  const mine = regular.filter((p) => scope.hasProject(p.id));
+  const temp = assigned.filter((p) => p.is_temp && scope.hasProject(p.id));
+  const add = <button className="btn btn-primary" onClick={() => showAdd()}><Icon name="plus" size={14} />Add folder</button>;
   return (
     <div className="h-full overflow-y-auto">
-      {phone ? <PhoneHeader title="Folders" subtitle={`${mine.length} folder${mine.length === 1 ? "" : "s"}`} primary={add} /> : <PageHeader title={title} meta={`${mine.length} folder${mine.length === 1 ? "" : "s"}${w ? "" : ` · ${workspaces.length} workspace${workspaces.length === 1 ? "" : "s"}`}`} actions={add} />}
+      {phone ? <PhoneHeader title="Folders" subtitle={`${mine.length} folder${mine.length === 1 ? "" : "s"}`} primary={add} /> : <PageHeader title={`Folders in ${w.name}`} meta={`${mine.length} folder${mine.length === 1 ? "" : "s"}`} actions={add} />}
       <div className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
         {unassigned.length > 0 && <UnassignedFolders folders={unassigned} workspaces={workspaces} />}
-        {mine.length === 0 ? <Empty icon="folder" action={add}>{w ? `No folder in ${w.name} yet.` : "No folder yet."}</Empty> : sections.map((x) => (
-          <section key={x.w.id} className="grid gap-2">
-            {!w && <div className="seclabel">{x.w.name}</div>}
-            <FolderTable folders={x.folders} />
-          </section>
-        ))}
+        {mine.length === 0 ? <Empty icon="folder" action={add}>{`No folder in ${w.name} yet.`}</Empty> : <FolderTable folders={mine} />}
         {temp.length > 0 && (
           <>
             <div className="seclabel">Temporary folders</div>

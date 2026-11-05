@@ -57,12 +57,12 @@ export function SchedulesView() {
   const openSession = (id: string) => void navigate({ to: "/agents", search: { session: id } as never });
   const createBrief = useCreateBrief();
   const hasBrief = routines.some((r) => !!r.bot_id && r.title === BRIEF_TITLE);
-  const scoped = bots.filter((b) => !scope.workspace || b.workspace_id === scope.workspace.id);
+  const scoped = bots.filter((b) => b.workspace_id === scope.workspace.id);
   const briefBot = scoped.find((b) => b.slug === "ask-launchpad") ?? scoped[0];
   const tabs = <Tabs label="Schedules" value={tab} onChange={(t) => go({ tab: t })} tour="schedules.tabs" items={[{ id: "routines", label: "Routines", count: routines.length || undefined }, { id: "launches", label: "Scheduled launches", count: launches.length || undefined }]} />;
   const header = phone
     ? <PhoneHeader title="Schedules" />
-    : <PageHeader icon={<Icon name="clock" size={18} />} title="Schedules" meta={<>{scope.workspace?.name ?? "Everything"} · routines start on their own; scheduled launches start once</>} tabs={tabs} />;
+    : <PageHeader icon={<Icon name="clock" size={18} />} title="Schedules" meta={<>{scope.workspace.name} · routines start on their own; scheduled launches start once</>} tabs={tabs} />;
   const panel = selected
     ? <Side title={selected.title} onClose={() => go({ tab })}><RoutineDetails cron={selected} bot={bots.find((b) => b.id === selected.bot_id)} onOpen={openSession} onDeleted={() => go({ tab })} /></Side>
     : launch ? <ScheduledPane launch={launch} onClose={() => go({ tab })} onStart={(s) => openSession(s.id)} /> : null;

@@ -1,8 +1,18 @@
-// Settings → GitHub: the GitHub CLI of this computer and how often the inbox is polled.
+// Settings → GitHub: the GitHub CLI of this computer, how often the inbox is polled, and the repositories with
+// notifications but no folder. Those belong to no workspace: no Inbox, count or badge shows them. Add to clones one
+// into a workspace; the owner checks the others on GitHub.
 
-import { Loading, SettingRow, useSaveState } from "@/components/ui";
-import { useConfig } from "@/lib/queries";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { Icon } from "@/components/Icon";
+import { MenuItem, Popover } from "@/components/Popover";
+import { Empty, Loading, SettingRow, useSaveState } from "@/components/ui";
+import { useInbox } from "@/features/inbox/data";
+import { openExternal } from "@/lib/platform";
+import { formatAge } from "@/lib/format";
+import { useConfig, useProjects } from "@/lib/queries";
+import { useWorkspaces } from "@/lib/workspace";
+import { useAddFolder } from "@/features/projects/addFolderStore";
 import { GitHubCard } from "./ProfilesView";
 import { Card, ConfigError, SettingsPage, usePatchConfig } from "./SettingsView";
 
@@ -29,6 +39,63 @@ export function GitHubView() {
           </SettingRow>
         )}
       </Card>
+      <ReposWithoutFolder />
     </SettingsPage>
+  );
+}
+
+type Orphan = { repo: string; count: number; last: number };
+
+const ROW = 52;
+
+const OrphanRow = memo(function OrphanRow({ r }: { r: Orphan }) {
+  const workspaces = useWorkspaces().data ?? [];
+  return (
+    <div className="flex h-[52px] items-center gap-2 border-b border-line-2 px-3 text-[13px]">
+      <span className="grid min-w-0 flex-1">
+        <b className="truncate font-mono text-[12px]">{r.repo}</b>
+        <span className="text-[12px] text-ink-3">{r.count} notification{r.count === 1 ? "" : "s"} · {formatAge(r.last)} ago</span>
+      </span>
+      <Popover viewport align="right" width={240} trigger={({ open, toggle }) => <button className="btn btn-sm" aria-expanded={open} onClick={toggle}>Add to<Icon name="chev" size={11} /></button>}>
+        {(close) => <>
+          <div className="seclabel px-2 pt-1 pb-0.5">Add {r.repo} to</div>
+          {workspaces.map((w) => <MenuItem key={w.id} label={w.name} onClick={() => { close(); useAddFolder.getState().show({ repo: r.repo, workspaceId: w.id }); }} />)}
+        </>}
+      </Popover>
+      <button className="btn btn-sm btn-ghost" onClick={() => openExternal(`https://github.com/${r.repo}`)}><Icon name="ext" size={12} />Open on GitHub</button>
+    </div>
+  );
+});
+
+/** Repositories with notifications and no folder in any workspace, latest activity first. */
+function ReposWithoutFolder() {
+  const inbox = useInbox();
+  const projects = useProjects().data;
+  const orphans = useMemo(() => {
+    const known = new Set((projects ?? []).flatMap((p) => [p.gh_repo, p.gh_upstream]).filter((r): r is string => !!r).map((r) => r.toLowerCase()));
+    const by = new Map<string, Orphan>();
+    for (const t of inbox.data?.threads ?? []) {
+      if (known.has(t.repo.toLowerCase())) continue;
+      const at = Date.parse(t.updated_at) || 0;
+      const o = by.get(t.repo) ?? { repo: t.repo, count: 0, last: 0 };
+      o.count++;
+      o.last = Math.max(o.last, at);
+      by.set(t.repo, o);
+    }
+    return [...by.values()].sort((a, b) => b.last - a.last);
+  }, [inbox.data, projects]);
+  const ref = useRef<HTMLDivElement>(null);
+  const v = useVirtualizer({ count: orphans.length, getScrollElement: () => ref.current, estimateSize: () => ROW, overscan: 6, useFlushSync: false });
+  return (
+    <Card title="Repositories without a folder" tour="settings.github-repos">
+      <span className="text-[12px] text-ink-3">They have GitHub notifications for you but no folder in any workspace, so no Inbox shows them. Add one to a workspace to see its items there, or check them on GitHub.</span>
+      {inbox.isLoading ? <Loading what="notifications" /> : orphans.length === 0 ? <Empty icon="pr">Every repository with notifications has a folder.</Empty> : (
+        <div ref={ref} className="overflow-y-auto rounded-md border border-line" style={{ maxHeight: 8 * ROW + 2 }}>
+          <div className="relative" style={{ height: v.getTotalSize() }}>
+            {v.getVirtualItems().map((it) => <div key={orphans[it.index].repo} className="absolute inset-x-0" style={{ top: it.start }}><OrphanRow r={orphans[it.index]} /></div>)}
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }

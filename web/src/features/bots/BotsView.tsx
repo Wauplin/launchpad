@@ -46,8 +46,6 @@ const CLI_ACCESS: { id: LaunchpadAccess; label: string; detail: string }[] = [
 ];
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
-import { WorkspacePicker } from "@/features/workspaces/WorkspacePicker";
-import { useWorkspace } from "@/stores/workspace";
 
 const PERMISSIONS: { id: PermissionMode; label: string; detail: string }[] = [
   { id: "yolo", label: "YOLO", detail: "Runs commands without asking, inside its jail" },
@@ -90,12 +88,12 @@ export function BotsView() {
   const projects = useProjects().data ?? [];
   const search = useSearch({ strict: false }) as { new?: boolean };
   const navigate = useNavigate();
-  const mine = (bots.data ?? []).filter((b) => !scope.workspace || b.workspace_id === scope.workspace.id);
+  const mine = (bots.data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
   const creating = !!search.new || (bots.isSuccess && mine.length === 0);
   const close = () => void navigate({ to: "/bots", search: {} as never });
   const header = phone
     ? <PhoneHeader title="Bots" primary={!creating ? <Link to="/bots" search={{ new: true } as never} className="btn btn-sm btn-primary"><Icon name="plus" size={12} />New bot</Link> : undefined} />
-    : <PageHeader icon={<Icon name="spark" size={18} className="text-teal-ink" />} title="Bots" meta={<>{scope.workspace?.name ?? "Everything"} · persistent agents with one thread, memory in the knowledge base and files on Home</>} actions={!creating && <Link to="/bots" search={{ new: true } as never} className="btn btn-sm btn-primary" data-tour="bots.new"><Icon name="plus" size={12} />New bot</Link>} />;
+    : <PageHeader icon={<Icon name="spark" size={18} className="text-teal-ink" />} title="Bots" meta={<>{scope.workspace.name} · persistent agents with one thread, memory in the knowledge base and files on Home</>} actions={!creating && <Link to="/bots" search={{ new: true } as never} className="btn btn-sm btn-primary" data-tour="bots.new"><Icon name="plus" size={12} />New bot</Link>} />;
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.page">
       {header}
@@ -156,12 +154,9 @@ function NewBot({ first, onCancel }: { first: boolean; onCancel?: () => void }) 
   const qc = useQueryClient();
   const navigate = useNavigate();
   const scope = useScope();
-  const workspaces = useWorkspaces().data ?? [];
-  const projects = useProjects().data ?? [];
   const profiles = useProfiles();
-  const [workspaceId, setWorkspaceId] = useState<string | null>(scope.workspace?.id ?? null);
-  const ws = scope.workspace?.id ?? workspaceId ?? workspaces[0]?.id ?? null;
-  const folders = projects.filter((p) => p.workspace_id === ws && !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
+  const ws = scope.workspace.id || null;
+  const folders = scope.projects.filter((p) => !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const [name, setName] = useState("");
   const [job, setJob] = useState("");
   const [profile, setProfile] = useState<string>(profiles.find((p) => p.billing === "subscription")?.id ?? profiles[0]?.id ?? "");
@@ -179,7 +174,6 @@ function NewBot({ first, onCancel }: { first: boolean; onCancel?: () => void }) 
       void navigate({ to: "/bots/$id", params: { id: bot.id } });
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
-  if (!workspaces.length) return <Empty icon="folder" action={<WorkspacePicker value={null} label="Create a workspace" onChange={(id) => useWorkspace.getState().switchTo(id)} />}>A bot belongs to a workspace and remembers in its knowledge base. Create one to start.</Empty>;
   return (
     <section className="grid gap-3 rounded-lg border border-line bg-paper p-4" data-tour="bots.form">
       <div>
@@ -192,14 +186,9 @@ function NewBot({ first, onCancel }: { first: boolean; onCancel?: () => void }) 
       {templates.length > 0 && !name && !job && <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-ink-3">{repo ? "Or from" : "Start from"}
         {templates.map((t) => <button key={t.id} className="btn btn-sm" onClick={() => { setName(t.name); setJob(t.instructions.replace(/^#[^\n]*\n+/, "").trim()); setFolder(""); }}><Icon name="spark" size={12} />{t.name}</button>)}
       </div>}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name
-          <input className="field-input h-[32px] font-normal" maxLength={40} value={name} placeholder="Scout" onChange={(e) => setName(e.target.value)} autoFocus />
-        </label>
-        {!scope.workspace && workspaces.length > 1 && <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Workspace
-          <select className="field-input h-[32px] font-normal" value={ws ?? ""} onChange={(e) => { setWorkspaceId(e.target.value); setFolder(""); }}>{workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select>
-        </label>}
-      </div>
+      <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name
+        <input className="field-input h-[32px] font-normal" maxLength={40} value={name} placeholder="Scout" onChange={(e) => setName(e.target.value)} autoFocus />
+      </label>
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Its job
         <textarea className="field-input min-h-[76px] py-1.5 font-normal leading-5" value={job} placeholder="What it does and how you like it done. For example: “Watch the Xet changelog and tell me only about breaking changes.”" onChange={(e) => setJob(e.target.value)} />
         <span className="font-normal text-ink-3">Saved as BOT.md, the bot's instructions.</span>
@@ -218,7 +207,7 @@ function NewBot({ first, onCancel }: { first: boolean; onCancel?: () => void }) 
       </div>
       <div className="rounded-md bg-sunk px-3 py-2">
         <div className="seclabel pb-1">What it can reach</div>
-        <Access folder={projects.find((p) => p.id === folder) ?? null} workspace={workspaces.find((w) => w.id === ws)?.name ?? ""} workspaceId={ws} mode="yolo" />
+        <Access folder={folders.find((p) => p.id === folder) ?? null} workspace={scope.workspace.name} workspaceId={ws} mode="yolo" />
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2">
         <span className="mr-auto text-[12px] text-ink-3">Creating saves the bot. Nothing runs until you send it a task.</span>
