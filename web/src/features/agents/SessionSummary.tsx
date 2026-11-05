@@ -35,17 +35,16 @@ import { KeepFolder } from "@/features/projects/KeepFolder";
 import { runAction } from "@/lib/actions";
 import { ActionButton } from "@/components/ActionButton";
 
-export function StateBand({ session: s, children }: { session: Session; children?: ReactNode }) {
+/** A band under the header only for states that need words (an open question, a stop by you): the header's badge
+ * already says Done, Failed, Interrupted or Archived, and quota pauses have their own band. */
+export function StateBand({ session: s }: { session: Session }) {
+  if (s.imported_from || s.status !== "waiting" && s.status !== "stopped" || s.status === "waiting" && !s.open_question) return null;
   const { style } = statusInfo(s);
-  if (s.imported_from) return <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-xs text-ink-3"><b>Synced trace</b><span>Follow up with a new local agent</span>{children}</div>;
-  const label = s.status === "waiting" ? s.open_question ? "Question" : "Done" : s.status === "quota_paused" ? "Quota paused" : s.status === "closed" ? "Archived" : s.status === "error" ? "Failed" : s.status === "stopped" ? "Stopped" : s.status === "in_terminal" ? "In terminal" : "Interrupted";
-  const icon = s.status === "waiting" ? s.open_question ? "alert" : "okcircle" : s.status === "closed" ? "archive" : s.status === "stopped" ? "stop" : s.status === "error" ? "xcircle" : "refresh";
-  const at = s.status === "closed" ? s.ended_at ?? s.status_since : s.status_since;
+  const at = s.status_since;
   return <div className={`flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-xs ${STYLES[style]} ${s.status === "stopped" ? "border-dashed" : ""}`}>
-    <Icon name={icon} size={16} /><b>{label}</b>
-    <span>{s.status === "waiting" ? s.open_question ? "The agent needs an answer" : "Waiting for you" : s.status === "closed" ? "Resumable" : s.status === "stopped" ? "By you, during a turn" : null}</span>
-    <span className="ml-auto" title={new Date(at).toLocaleString()}>{s.status === "interrupted" ? "Recorded " : "Status since "}{new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {formatAge(at)} ago</span>
-    {children}
+    <Icon name={s.status === "stopped" ? "stop" : "alert"} size={16} /><b>{s.status === "stopped" ? "Stopped" : "Question"}</b>
+    <span>{s.status === "stopped" ? "By you, during a turn" : "The agent needs an answer"}</span>
+    <span className="ml-auto" title={new Date(at).toLocaleString()}>Since {new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {formatAge(at)} ago</span>
   </div>;
 }
 

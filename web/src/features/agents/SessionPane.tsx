@@ -195,9 +195,9 @@ function SessionWorktreeDetails({ session }: { session: Session }) {
   return <>{list.map((info) => <WorktreeCard key={info.worktree.id} info={info} session={session} />)}</>;
 }
 
-/** The phone bottom bar's main action: Merge into the base when it is safe (the same check as Today cards), else the
- * session's primary action (Review changes, Archive…). */
-function BottomPrimary({ s, primary }: { s: Session; primary: React.ReactNode }) {
+/** The session's one main action: Merge into the base when it is safe (the same check as Today cards), else the
+ * state's action (Answer, Review changes, Archive, Resume, Stop…). In the laptop header and the phone bottom bar. */
+function StatePrimary({ s, primary }: { s: Session; primary: React.ReactNode }) {
   const branch = useBranch(s.id, s);
   if (branch.safe && s.status === "waiting" && !s.open_question) return <MergeButton sessionId={s.id} branch={branch} />;
   return <>{primary}</>;
@@ -300,6 +300,15 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
     inputRef.current?.focus();
     setAnswering(0);
   }, [answering, traceOpen]);
+  // ⋯ → Jump to the final message.
+  const [jumpFinal, setJumpFinal] = useState(0);
+  useEffect(() => {
+    if (!jumpFinal || !traceOpen) return;
+    const i = trace.findLastIndex((r) => r.t === "assistant");
+    atBottom.current = false;
+    if (i >= 0) v.scrollToIndex(i, { align: "start" });
+    setJumpFinal(0);
+  }, [jumpFinal, traceOpen]);
   // Re-render every 20 s for elapsed times.
   const [, tick] = useState(0);
   useEffect(() => {
@@ -376,6 +385,49 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const archivePrimary = s.status === "waiting" && !s.open_question && !changed && !gitUnknown && !gitLoading;
   const canReply = !s.imported_from && !childrenOpen;
 
+  const noShell = s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id;
+  const place = sessionPlace(s, projectName(projects, s.project_id, s.cwd));
+  const profileLabel = s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : null;
+  const contextShare = s.usage.context_tokens && s.usage.context_window ? `${Math.round((100 * s.usage.context_tokens) / s.usage.context_window)}% context` : null;
+  const titleEl = renaming ? <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+    <input autoFocus aria-label="Session title" className="field-input min-w-0 flex-1 basis-32 text-[13px] font-[650]" maxLength={100} value={title} disabled={savingTitle} onChange={(e) => setTitle(e.target.value)} />
+    <button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, { title: title.trim() }); setRenaming(false); } catch (e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button>
+    <button className="btn btn-sm" disabled={savingTitle} onClick={() => setRenaming(false)}>Cancel</button>
+  </div> : <button className={`session-title min-w-0 truncate text-left text-[13px] font-[650] hover:text-teal-ink ${phone ? "flex-1" : ""}`} disabled={!!s.imported_from} title={s.imported_from ? s.title : `${s.title} · Click to edit`} aria-label={s.imported_from ? s.title : `Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
+    {isPinned && <span className="mr-1 text-teal-ink" title="Pinned">★</span>}{s.title}
+  </button>;
+  // Run settings, paid usage and cost limit show only when they differ from the defaults.
+  const stateChips = <>
+    <RunSettingsChip session={s} open={() => setView("summary")} />
+    <PaidUsageToggle session={s} badge />
+    <CostLimit session={s} badge />
+  </>;
+  const viewTabs = <Tabs tour="session.views" className="session-views mr-1 max-w-full border-b-0" label="Session view" value={summary ? "summary" : changesOpen ? "changes" : processesOpen ? "processes" : childrenOpen ? "subagents" : "trace"} onChange={(v) => (v === "changes" ? showChanges(onlyMain) : setView(v))} items={[
+    { id: "summary", label: "Summary" },
+    { id: "trace", label: "Trace" },
+    ...(hasProcesses ? [{ id: "processes" as const, label: `Processes · ${runningProcesses.length}` }] : []),
+    ...(children.length > 0 ? [{ id: "subagents" as const, icon: "agents" as const, label: `Subagents · ${children.filter((a) => a.status === "running").length || children.length}${children.some((a) => a.status === "running") ? " running" : ""}` }] : []),
+    ...(isGit ? [{ id: "changes" as const, title: "Git changes of the session folder", label: `Changes${changed ? ` · ${git.data?.files.length || committedFiles || mainChanges}` : ""}` }] : []),
+  ]} />;
+  const hasFinal = rows.some((r) => r.t === "assistant");
+  const actionsMenu = <Popover viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={phone ? "iconbtn" : "iconbtn border border-line"} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}><Icon name="more" size={phone ? 20 : 14} /></button>}>
+    {(close) => <>
+      {!phone && !s.imported_from && !running && s.status !== "in_terminal" && <MenuItem icon={<Icon name="agents" size={14} />} label="New agent here" detail="A separate agent in the same folder, with this trace as context" onClick={() => { close(); useComposer.getState().followUpFrom(s); }} />}
+      {!phone && hasFinal && <MenuItem icon={<Icon name="comment" size={14} />} label="Jump to the final message" detail="In the trace" onClick={() => { close(); setView("trace"); setJumpFinal((n) => n + 1); }} />}
+      {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Today for later" onClick={() => { close(); onClear(); void act(s.id, "session.unread"); }} />}
+      {phone && <>
+        <MenuItem label="Session details" detail="Branch, usage and New agent here" onClick={() => { close(); setDetailsOpen(true); }} />
+        {terminalsHere && !noShell && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder (the checkout when its worktree is gone)" onClick={() => { close(); void openTerminal.folder(s.cwd); }} />}
+      </>}
+      {s.status === "in_terminal" && tui && <MenuItem icon={<Icon name="term" size={14} />} label="Show TUI tab" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}
+      {terminalsHere && !s.imported_from && s.launch_spec.target.kind !== "browser" && !running && s.status !== "in_terminal" && s.status !== "quota_paused" && harness?.capabilities.terminal && <MenuItem icon={<Icon name="term" size={14} />} label={`Continue in ${name} TUI`} detail="In the terminal dock, outside quota protection; Re-attach brings it back" onClick={() => { close(); void openTerminal.tui(s.id); }} />}
+      {s.project_id && <MenuItem icon={<Icon name="folder" size={14} />} label="Browse files" detail="Read the folder in Files" onClick={() => { close(); void navigate({ to: "/projects/$id/code", params: { id: s.project_id! }, search: { root: s.cwd, session: s.id } }); }} />}
+      <MenuItem icon={<Icon name="agents" size={14} />} label="Use trace as context" detail="Reference this trace in a new agent's prompt" disabled={s.last_seq === 0} onClick={() => { close(); useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] }); }} />
+      {!s.imported_from && s.status !== "closed" && !archivePrimary && <MenuItem icon={<Icon name="archive" size={14} />} label="Archive" detail="It stays resumable" onClick={() => { close(); archive(); }} />}
+      <MenuItem icon={<span className="text-teal-ink">{isPinned ? "★" : "☆"}</span>} label={isPinned ? "Unpin session" : "Pin session"} onClick={() => { close(); togglePin(s.id); }} />
+    </>}
+  </Popover>;
+
   return (
     <div className={`relative flex h-full min-h-0 min-w-0 flex-col bg-paper ${readingExpanded ? "session-expanded" : ""}`}
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }}
@@ -388,80 +440,61 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         <StatusBadge s={s} />
         {!archivePrimary && primary}
       </div>}
-      <div className="session-header @container grid grid-cols-[18px_1fr] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
-        <span className={`order-1 row-span-2 self-start pt-px ${phone ? "hidden" : ""}`}>
-          <HarnessMark harness={s.harness} size={18} />
-        </span>
+      {phone ? <div className="session-header @container grid grid-cols-[18px_1fr] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
         <div className="session-heading order-2 flex min-w-0 items-center gap-1">
-          {renaming ? <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-            <input autoFocus aria-label="Session title" className="field-input min-w-0 flex-1 basis-32 text-[13px] font-[650]" maxLength={100} value={title} disabled={savingTitle} onChange={(e) => setTitle(e.target.value)} />
-            <button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, { title: title.trim() }); setRenaming(false); } catch (e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button>
-            <button className="btn btn-sm" disabled={savingTitle} onClick={() => setRenaming(false)}>Cancel</button>
-          </div> : <button className="session-title min-w-0 flex-1 truncate text-left text-[13px] font-[650] hover:text-teal-ink" disabled={!!s.imported_from} title={s.imported_from ? s.title : `${s.title} · Click to edit`} aria-label={s.imported_from ? s.title : `Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
-            {isPinned && <span className="mr-1 text-teal-ink" title="Pinned">★</span>}{s.title}
-          </button>}
-          {phone
-            ? <button className="iconbtn session-back order-first shrink-0 self-start" title="Back to agents" aria-label="Back to agents" onClick={onClear}><Icon name="chev" size={20} className="rotate-90" /></button>
-            : <button className="iconbtn shrink-0 self-start" title="Close panel" aria-label="Close panel" onClick={onClear}>
-              <Icon name="x" size={14} />
-            </button>}
+          {titleEl}
+          <button className="iconbtn session-back order-first shrink-0 self-start" title="Back to agents" aria-label="Back to agents" onClick={onClear}><Icon name="chev" size={20} className="rotate-90" /></button>
         </div>
         <span className="session-meta order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3 tabular-nums">
-          {phone ? <>
-            <HostLabel path={s.cwd} />
-            <StatusBadge s={s} />
-            <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{sessionPlace(s, projectName(projects, s.project_id, s.cwd))} <Icon name="chev" size={12} /></button>
-            <RunSettingsChip session={s} open={() => setView("summary")} />
-            <PaidUsageToggle session={s} badge />
-            <CostLimit session={s} badge />
-          </> : <>
-            <StatusBadge s={s} />
-            {s.launch_spec.bot && <Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} className="text-teal-ink hover:underline" title="This session belongs to a bot's thread">{s.launch_spec.bot.name}</Link>}
-            <span className="truncate" title={`Started ${new Date(s.started_at).toLocaleString()}`}>{sessionPlace(s, projectName(projects, s.project_id, s.cwd))}</span>
-            <HostLabel path={s.cwd} />
-            <WorktreeChip session={s} />
-            {localPr && <button className="text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Local PR</button>}
-            {s.launch_spec.profile && <span title="Profile">{profileName ?? `${s.launch_spec.profile} (deleted profile)`}</span>}
-            {usageLine(s) && <span>{usageLine(s)}</span>}
-            <RunSettingsChip session={s} open={() => setView("summary")} />
-            <PaidUsageToggle session={s} badge />
-            <CostLimit session={s} badge />
-          </>}
+          <HostLabel path={s.cwd} />
+          <StatusBadge s={s} />
+          <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{place} <Icon name="chev" size={12} /></button>
+          {stateChips}
         </span>
         <div className="session-toolbar order-4 col-span-2 flex flex-wrap items-center gap-1 pt-1">
-          <Tabs tour="session.views" className="session-views mr-1 max-w-full border-b-0" label="Session view" value={summary ? "summary" : changesOpen ? "changes" : processesOpen ? "processes" : childrenOpen ? "subagents" : "trace"} onChange={(v) => (v === "changes" ? showChanges(onlyMain) : setView(v))} items={[
-            { id: "summary", label: "Summary" },
-            { id: "trace", label: "Trace" },
-            ...(hasProcesses ? [{ id: "processes" as const, label: `Processes · ${runningProcesses.length}` }] : []),
-            ...(children.length > 0 ? [{ id: "subagents" as const, icon: "agents" as const, label: `Subagents · ${children.filter((a) => a.status === "running").length || children.length}${children.some((a) => a.status === "running") ? " running" : ""}` }] : []),
-            ...(isGit ? [{ id: "changes" as const, title: "Git changes of the session folder", label: `Changes${changed ? ` · ${git.data?.files.length || committedFiles || mainChanges}` : ""}` }] : []),
-          ]} />
+          {viewTabs}
           <div className="session-actions ml-auto flex flex-wrap items-center gap-1">
             {canExpand && <button className="iconbtn session-expand" aria-label={readingExpanded ? "Collapse session view" : "Expand session view"} title={readingExpanded ? "Collapse session view" : "Expand session view"} aria-pressed={readingExpanded} onClick={() => setExpanded((value) => !value)}><Icon name={readingExpanded ? "collapse" : "expand"} size={18} /></button>}
-            {!phone && <>
-              <span data-tour="session.primary" className="inline-flex">{primary}</span>
-              {!s.imported_from && <span className="contents @max-[640px]:hidden"><FollowUpAgent session={s} /></span>}
-              {!(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <TerminalMenu cwd={s.cwd} small label={<span className="@max-[520px]:sr-only">Terminal</span>} title={`Open a shell in ${s.cwd}`} />}
-            </>}
-            <Popover viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={phone ? "iconbtn" : "btn btn-sm"} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}>{phone ? <Icon name="more" size={20} /> : <>More<Icon name="chev" size={12} /></>}</button>}>
-              {(close) => <>
-                {!phone && !s.imported_from && !running && s.status !== "in_terminal" && <span className="contents @min-[640px]:hidden"><MenuItem icon={<Icon name="agents" size={14} />} label="New agent here" detail="A separate agent in the same folder, with this trace as context" onClick={() => { close(); useComposer.getState().followUpFrom(s); }} /></span>}
-                {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Today for later" onClick={() => { close(); onClear(); void act(s.id, "session.unread"); }} />}
-                {phone && <>
-                  <MenuItem label="Session details" detail="Branch, usage and New agent here" onClick={() => { close(); setDetailsOpen(true); }} />
-                  {terminalsHere && !(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder (the checkout when its worktree is gone)" onClick={() => { close(); void openTerminal.folder(s.cwd); }} />}
-                </>}
-                {s.status === "in_terminal" && tui && <MenuItem icon={<Icon name="term" size={14} />} label="Show TUI tab" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}
-                {terminalsHere && !s.imported_from && s.launch_spec.target.kind !== "browser" && !running && s.status !== "in_terminal" && s.status !== "quota_paused" && harness?.capabilities.terminal && <MenuItem icon={<Icon name="term" size={14} />} label={`Continue in ${name} TUI`} detail="In the terminal dock, outside quota protection; Re-attach brings it back" onClick={() => { close(); void openTerminal.tui(s.id); }} />}
-                {s.project_id && <MenuItem icon={<Icon name="folder" size={14} />} label="Browse files" detail="Read the folder in Files" onClick={() => { close(); void navigate({ to: "/projects/$id/code", params: { id: s.project_id! }, search: { root: s.cwd, session: s.id } }); }} />}
-                <MenuItem icon={<Icon name="agents" size={14} />} label="Use trace as context" detail="Reference this trace in a new agent's prompt" disabled={s.last_seq === 0} onClick={() => { close(); useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] }); }} />
-                {!s.imported_from && s.status !== "closed" && !archivePrimary && <MenuItem icon={<Icon name="archive" size={14} />} label="Archive" detail="It stays resumable" onClick={() => { close(); archive(); }} />}
-                <MenuItem icon={<span className="text-teal-ink">{isPinned ? "★" : "☆"}</span>} label={isPinned ? "Unpin session" : "Pin session"} onClick={() => { close(); togglePin(s.id); }} />
-              </>}
-            </Popover>
+            {actionsMenu}
           </div>
         </div>
-      </div>
+      </div> : <div className="session-header @container grid gap-0.5 border-b border-line-2 pt-1.5 pr-2.5 pl-3">
+        {/* Row 1: title, the one status, the state's primary action, Terminal and ⋯. Row 2: views and one muted meta line. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <div className="session-heading flex min-w-0 flex-1 basis-56 items-center gap-2">
+            <HarnessMark harness={s.harness} size={16} />
+            {titleEl}
+            {!renaming && <StatusBadge s={s} />}
+          </div>
+          <div className="session-actions ml-auto flex flex-wrap items-center gap-1">
+            <span data-tour="session.primary" className="inline-flex items-center gap-1"><StatePrimary s={s} primary={primary} /></span>
+            {!noShell && <TerminalMenu cwd={s.cwd} small label={<span className="@max-[520px]:sr-only">Terminal</span>} title={`Open a shell in ${s.cwd}`} />}
+            {actionsMenu}
+            <button className="iconbtn shrink-0" title="Close panel" aria-label="Close panel" onClick={onClear}><Icon name="x" size={14} /></button>
+          </div>
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3">
+          {viewTabs}
+          <span className="flex shrink-0 items-center gap-1.5 text-[12px] whitespace-nowrap empty:hidden">{stateChips}</span>
+          <span className="session-meta flex min-w-0 flex-1 items-center gap-x-1.5 overflow-hidden text-[12px] whitespace-nowrap text-ink-3 tabular-nums">
+            {s.launch_spec.bot && <><Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} className="shrink-0 text-teal-ink hover:underline" title="This session belongs to a bot's thread">{s.launch_spec.bot.name}</Link>·</>}
+            <span className="max-w-[40%] shrink-0 truncate" title={s.cwd}>{place}</span>
+            <span className="flex min-w-0 [&>button]:max-w-full"><WorktreeChip session={s} /></span>
+            {localPr && <button className="shrink-0 text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Local PR</button>}
+            {(profileLabel || contextShare) && <span className="min-w-0 truncate">{[profileLabel, contextShare].filter(Boolean).join(" · ")}</span>}
+            <HostLabel path={s.cwd} />
+            <Popover align="right" width={280} trigger={({ toggle }) => <button className="iconbtn size-6! shrink-0 text-ink-3" title="Session details" aria-label="Session details" onClick={toggle}><Icon name="info" size={13} /></button>}>
+              {() => <dl className="grid gap-2 p-2 text-[12px] text-ink-2">
+                <div><dt className="text-[11px] text-ink-3">Folder</dt><dd className="break-all">{s.cwd}</dd></div>
+                {s.launch_spec.profile && <div><dt className="text-[11px] text-ink-3">Profile</dt><dd>{name} · {profileName ?? `${s.launch_spec.profile} (deleted profile)`}</dd></div>}
+                {s.model && <div><dt className="text-[11px] text-ink-3">Model</dt><dd>{s.model}{s.effort ? ` · ${s.effort}` : ""}</dd></div>}
+                {usageLine(s) && <div><dt className="text-[11px] text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
+                <div><dt className="text-[11px] text-ink-3">Started</dt><dd>{new Date(s.started_at).toLocaleString()}</dd></div>
+              </dl>}
+            </Popover>
+          </span>
+        </div>
+      </div>}
       {phone && detailsOpen && <Sheet title="Session details" onClose={() => setDetailsOpen(false)}>
         <div className="session-detail-sheet grid gap-4 p-4 text-sm">
           <div className="flex items-start gap-2"><HarnessMark harness={s.harness} size={20} /><div className="min-w-0"><b className="break-words">{s.title}</b><p className="mt-1 text-ink-3">{sessionPlace(s, projectName(projects, s.project_id, s.cwd))} · {s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : name}</p></div></div>
@@ -493,10 +526,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       <ShellCodeContext.Provider value={s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id ? null : s.cwd}>
       {childrenOpen && log && <SubagentsPanel key={s.id} log={log} agents={children} sessionId={s.id} live={s.live} back={() => setView("trace")} />}
       {!changesOpen && !childrenOpen && !processesOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">{log.error ? "Session events unavailable." : "Loading…"}</div> : <SessionSummary key={s.id} session={s} rows={rows} earlier={log?.earlier ?? null} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
-      {traceOpen && !running && <><StateBand session={s}>
-        <button className="btn btn-sm" disabled={!rows.some((r) => r.t === "assistant")} onClick={() => { atBottom.current = false; const i = trace.findLastIndex((r) => r.t === "assistant"); if (i >= 0) v.scrollToIndex(i, { align: "start" }); }}>Final message</button>
-        <button className="btn btn-sm" onClick={() => setView("summary")}>Summary</button>
-      </StateBand><FollowUpBands sessionId={s.id} /><QuotaBand session={s} /></>}
+      {traceOpen && !running && <><StateBand session={s} /><FollowUpBands sessionId={s.id} /><QuotaBand session={s} /></>}
       <div
         ref={scrollRef}
         className={`min-h-0 flex-1 overflow-y-auto px-3 ${traceOpen ? "" : "hidden"}`}
@@ -563,7 +593,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
           onClick={() => { if (replying) setReplying(false); else { setReplying(true); requestAnimationFrame(() => inputRef.current?.focus()); } }}>
           <Icon name="comment" size={14} />{replying && !hasDraft ? "Hide reply" : "Reply"}
         </button>}
-        {primary && <span className="session-bottom-primary flex min-w-0 flex-1 items-center gap-2"><BottomPrimary s={s} primary={primary} /></span>}
+        {primary && <span className="session-bottom-primary flex min-w-0 flex-1 items-center gap-2"><StatePrimary s={s} primary={primary} /></span>}
       </div>}
       </div>
     </div>
