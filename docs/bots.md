@@ -60,16 +60,16 @@ With a Git folder, each session works in a fresh worktree of Home Git. Without a
 
 ## The bot's page
 
-- **Memory**: the bot's notes in the knowledge base (`bots/<slug>/`) and the recent changes made by its sessions. Correct a note on the Knowledge page; every change can be restored for 30 days.
+The thread is on the left. The right side has four tabs:
+
+- **Memory**: the bot's notes in the knowledge base (`bots/<slug>/`), the recent changes made by its sessions, and every session of its thread with its status and context use. Correct a note on the Knowledge page; every change can be restored for 30 days.
 - **Proposals**: the cards its sessions wrote, waiting or handled, with **Start all**.
 - **Routines**: what the bot does on its own (see below).
-- **Instructions**: `BOT.md` (instructions) and `bot.toml` (name, profile, model, folder, permission mode, proposal mode, Launchpad CLI access), editable here. **Versions** lists every change of the last 30 days with its diff and **Restore previous**. A bot cannot edit these files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md`, shown as a diff in this tab (and on the Proposals page) until you click **Apply to BOT.md**; applying fails if `BOT.md` changed in between.
-- **Sessions**: every session of the thread, with its status and context use.
-- **Settings**: name, profile, model, folder, permissions, proposal mode and Launchpad CLI access, what the bot can reach, and **Delete bot**. Deleting keeps the bot's sessions, its notes and its folder.
+- **Settings**: `BOT.md` (its instructions); how it runs (name, profile, model, folder, permissions, proposal mode and Launchpad CLI access); what it can reach; `bot.toml`, the same settings as a file; **Versions**, every change of both files in the last 30 days with its diff and **Restore previous**; and **Delete bot**. Deleting keeps the bot's sessions, its notes and its folder. A bot cannot edit its files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md`, shown as a diff at the top of this tab (and on the Proposals page) until you click **Apply to BOT.md**; applying fails if `BOT.md` changed in between.
 
 **Pause** (in the header, once the bot has routines) stops every routine and incoming hook of the bot from starting runs; your own messages still go through, and **Stop** in its session ends a run that is working. **Resume** starts them again from their next trigger.
 
-The sidebar lists **Proposals** (with the number of waiting cards) and the bots of the workspace, Ask Launchpad among them. A dot shows when a bot's current session needs you; a spinner when it works. Counts stay in Agents, so a session is never counted twice.
+The sidebar's **Bots** group lists **Proposals** (with the number of waiting cards) and the bots of the workspace, Ask Launchpad among them. A dot shows when a bot's current session needs you; a spinner when it works. Counts stay in Agents, so a session is never counted twice. The chevron collapses the group on this device; collapsed, it shows the waiting proposals and one state dot.
 
 ## Files
 

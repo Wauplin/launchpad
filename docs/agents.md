@@ -165,7 +165,7 @@ In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or b
 
 ## Workspaces
 
-Workspaces are yours to define, for example "Work" and "Personal"; none is built in. Every folder belongs to exactly one workspace, chosen when you add, clone or create it, and its agents, schedules, crons and inbox threads follow it. Each window shows one workspace or **Everything**, a view of all of them, and every list, count and badge follows it. Switch with the buttons in the top bar; create, rename and delete workspaces from the sidebar's ⋯ menu. Move a folder with **Move to …** in its menu or in its settings. Only an empty workspace can be deleted.
+Workspaces are yours to define, for example "Work" and "Personal"; none is built in. Every folder belongs to exactly one workspace, chosen when you add, clone or create it, and its agents, schedules, crons and inbox threads follow it. Each window shows one workspace or **Everything**, a view of all of them, and every list, count and badge follows it. Switch with the buttons in the top bar; create, rename and delete workspaces from the ⋯ menu of the sidebar's **Folders** group. Move a folder with **Move to …** in its menu or in its settings. Only an empty workspace can be deleted.
 
 To use the same repository in two workspaces, clone it again from the other workspace: it becomes a second folder (`<name>-<workspace>`) with its own agents, Local PRs and settings. A temporary folder joins the workspace of the window, so launch it from a workspace.
 

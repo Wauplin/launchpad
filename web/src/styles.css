@@ -198,6 +198,17 @@ button {
   }
 }
 
+/* The composer's prompt: one frame for the text and the attach row under it, so no line passes under a button. */
+.composer-prompt {
+  border: 1.5px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-paper);
+}
+.composer-prompt:focus-within {
+  border-color: var(--color-teal);
+  box-shadow: 0 0 0 3px var(--color-teal-soft);
+}
+
 /* Markdown from agents. */
 .lp-md {
   font-size: 12.5px;
@@ -499,22 +510,11 @@ button {
 .lp-phone .session-expanded .session-views,
 .lp-phone .session-expanded .session-expand { grid-row: 1; }
 
-/* Keep attachments outside the scrolling prompt so no line can pass under the button. */
-.lp-phone .composer-prompt {
-  border: 1.5px solid var(--color-line);
-  border-radius: 8px;
-  background: var(--color-paper);
-}
-.lp-phone .composer-prompt:focus-within {
-  border-color: var(--color-teal);
-  box-shadow: 0 0 0 3px var(--color-teal-soft);
-}
+/* The phone prompt: larger text (no zoom on focus in iOS). The frame is .composer-prompt (shared). */
 .lp-phone .composer-prompt > textarea {
-  border: 0;
   padding: 12px;
   font-size: 16px;
   line-height: 24px;
-  box-shadow: none;
 }
 
 /* Center one line beside the 44 px actions; keep the last line aligned as it grows. */

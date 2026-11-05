@@ -125,13 +125,20 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
     el.addEventListener("beforeinput", before);
     return () => el.removeEventListener("beforeinput", before);
   }, [ref, onDocumentChange]);
+  // The full prompt grows with its text up to a limit, then scrolls; its frame (.composer-prompt) holds the attach row.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (compact || !el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, phone ? 320 : 440)}px`;
+  }, [compact, doc.text, phone, ref]);
   const pending = mention?.trigger === "@" ? files.isFetching || debounced !== mention.query : mention?.trigger === "/" ? skills.isFetching : gh.isFetching;
   const error = mention?.trigger === "@" ? files.error : mention?.trigger === "/" ? skills.error : gh.error;
   const warnings = mention?.trigger === "@" ? files.data?.unavailable.map((p) => `${p} unavailable`) : mention?.trigger === "/" ? skills.data?.warnings : [];
   return <>
     <textarea ref={ref} disabled={disabled} value={doc.text} rows={compact ? 1 : 7} autoFocus={!compact} onPaste={onPaste} placeholder={placeholder ?? "What should the agent do?\n@ files and folders · / skills · # context"}
       aria-label={compact ? "Message agent" : "Agent prompt"} aria-autocomplete="list" aria-expanded={!!mention} aria-controls={mention ? id : undefined} aria-activedescendant={mention && rows.length ? `${id}-${active}` : undefined}
-      className={compact ? "max-h-40 min-h-5 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none disabled:opacity-60" : "block min-h-[140px] w-full resize-y rounded-lg border-[1.5px] border-line bg-paper px-2.5 pt-2 pb-9 text-[13px] leading-normal outline-none focus:border-teal focus:shadow-[0_0_0_3px_var(--color-teal-soft)]"}
+      className={compact ? "max-h-40 min-h-5 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none disabled:opacity-60" : "block min-h-[140px] w-full resize-none rounded-t-lg bg-transparent px-2.5 pt-2 pb-2 text-[13px] leading-normal outline-none"}
       onChange={(e) => {
         const el = e.currentTarget, before = selection.current; selection.current = null;
         let next = editText(doc, el.value);

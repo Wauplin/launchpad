@@ -45,7 +45,7 @@ export const ask: Chapter = {
       body: "A started proposal becomes a normal agent, listed in Agents like any other. Cron proposals say “Creates a repeating agent” before you accept them.",
     },
     {
-      id: "ask.customize", route: `${ASK_ROUTE}?panel=files`, anchor: "bots.files",
+      id: "ask.customize", route: `${ASK_ROUTE}?panel=settings`, anchor: "bots.files",
       title: "Make it yours",
       body: "Its BOT.md says how it works and answers; edit it here, or tell it “from now on, …” and it proposes the change. bot.toml holds its profile, folder, permissions and proposal mode. You can also delete it and build your own: any bot with the Launchpad CLI tool can do the same.",
     },
@@ -70,7 +70,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-panels", route: BOT_ROUTE, anchor: "bots.panels",
       title: "Memory, instructions and settings",
-      body: "Memory lists its notes in the knowledge base. Instructions holds BOT.md and bot.toml, with every version for 30 days. Settings shows its profile, folder, permissions and what it can reach.",
+      body: "Memory lists its notes in the knowledge base and the sessions of its thread. Settings holds BOT.md, its profile, folder and permissions, what it can reach, and bot.toml, with every version for 30 days.",
     },
   ],
 };

@@ -196,7 +196,8 @@ function SessionWorktreeDetails({ session }: { session: Session }) {
 type View = "summary" | "trace" | "changes" | "subagents" | "processes";
 
 /** `chat`: an Ask Launchpad thread. It opens on Trace and, on phones, replaces the session header with one status row. */
-export function SessionPane({ sessionId, onClear, initialView, chat = false }: { sessionId: string; onClear: () => void; initialView?: "changes" | "trace"; chat?: boolean }) {
+/** `embedded`: shown inside another page (a bot's thread), without the close button and the bot link. */
+export function SessionPane({ sessionId, onClear, initialView, chat = false, embedded = false }: { sessionId: string; onClear: () => void; initialView?: "changes" | "trace"; chat?: boolean; embedded?: boolean }) {
   const phone = usePhone();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -380,7 +381,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
         <span className="min-w-0 flex-1 truncate">{usageLine(s)}</span>
         {!archivePrimary && primary}
         <button className="btn btn-sm" aria-pressed={summary} title="The thread's run facts, model and effort" onClick={() => setView(summary ? "trace" : "summary")}>{summary ? "Chat" : "Summary"}</button>
-      </div> : <div className="session-header grid grid-cols-[18px_1fr] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
+      </div> : <div className="session-header @container grid grid-cols-[18px_1fr] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
         <span className={`order-1 row-span-2 self-start pt-px ${phone ? "hidden" : ""}`}>
           <HarnessMark harness={s.harness} size={18} />
         </span>
@@ -392,7 +393,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
           </div> : <button className="session-title min-w-0 flex-1 truncate text-left text-[13px] font-[650] hover:text-teal-ink" disabled={!!s.imported_from} title={s.imported_from ? s.title : `${s.title} · Click to edit`} aria-label={s.imported_from ? s.title : `Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
             {isPinned && <span className="mr-1 text-teal-ink" title="Pinned">★</span>}{s.title}
           </button>}
-          {phone
+          {embedded ? null : phone
             ? <button className="iconbtn session-back order-first shrink-0 self-start" title="Back to agents" aria-label="Back to agents" onClick={onClear}><Icon name="chev" size={20} className="rotate-90" /></button>
             : <button className="iconbtn shrink-0 self-start" title="Close panel" aria-label="Close panel" onClick={onClear}>
               <Icon name="x" size={14} />
@@ -409,7 +410,7 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
             <CostLimit session={s} badge />
           </> : <>
             <StatusBadge s={s} />
-            {s.launch_spec.bot && <Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} className="text-teal-ink hover:underline" title="This session belongs to a bot's thread">{s.launch_spec.bot.name}</Link>}
+            {s.launch_spec.bot && !embedded && <Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} className="text-teal-ink hover:underline" title="This session belongs to a bot's thread">{s.launch_spec.bot.name}</Link>}
             <span className="truncate" title={`Started ${new Date(s.started_at).toLocaleString()}`}>{sessionPlace(s, projectName(projects, s.project_id, s.cwd))}</span>
             <HostLabel path={s.cwd} />
             <WorktreeChip session={s} />
@@ -433,11 +434,12 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
             {canExpand && <button className="iconbtn session-expand" aria-label={readingExpanded ? "Collapse session view" : "Expand session view"} title={readingExpanded ? "Collapse session view" : "Expand session view"} aria-pressed={readingExpanded} onClick={() => setExpanded((value) => !value)}><Icon name={readingExpanded ? "collapse" : "expand"} size={18} /></button>}
             {!phone && <>
               <span data-tour="session.primary" className="inline-flex">{primary}</span>
-              {!s.imported_from && <FollowUpAgent session={s} />}
-              {!(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <TerminalMenu cwd={s.cwd} small />}
+              {!s.imported_from && <span className="contents @max-[640px]:hidden"><FollowUpAgent session={s} /></span>}
+              {!(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) && <TerminalMenu cwd={s.cwd} small label={<span className="@max-[520px]:sr-only">Terminal</span>} title={`Open a shell in ${s.cwd}`} />}
             </>}
             <Popover viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={phone ? "iconbtn" : "btn btn-sm"} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}>{phone ? <Icon name="more" size={20} /> : <>More<Icon name="chev" size={12} /></>}</button>}>
               {(close) => <>
+                {!phone && !s.imported_from && !running && s.status !== "in_terminal" && <span className="contents @min-[640px]:hidden"><MenuItem icon={<Icon name="agents" size={14} />} label="New agent here" detail="A separate agent in the same folder, with this trace as context" onClick={() => { close(); useComposer.getState().followUpFrom(s); }} /></span>}
                 {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Needs you for later" onClick={() => { close(); onClear(); void act(s.id, "unread"); }} />}
                 {phone && <>
                   <MenuItem label="Session details" detail="Branch, usage and New agent here" onClick={() => { close(); setDetailsOpen(true); }} />

@@ -81,7 +81,7 @@ See [Profiles](agents.md#profiles) for the details.
 
 ### Add a folder
 
-Click **+ Add folder** in the sidebar. **Clone from GitHub** (the first tab) clones into the folders root (`~/projects` by default); you can also browse any folder on this computer or an SSH host. Clone suggestions list repositories with recent GitHub notifications first, then your recently pushed repositories.
+Click **+** on the sidebar's **Folders** group (or **+ Add folder** under it while it is empty). The sidebar lists **Bots** first, then Inbox, Outbox, Agents, Schedules, Review and Knowledge, then **Folders** with the folders of the workspace and its active temporary folders. The chevron of each group collapses it on this device. **Clone from GitHub** (the first tab) clones into the folders root (`~/projects` by default); you can also browse any folder on this computer or an SSH host. Clone suggestions list repositories with recent GitHub notifications first, then your recently pushed repositories.
 
 ### Launch your first agent
 

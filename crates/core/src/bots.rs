@@ -375,7 +375,7 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
     let bot = get(app, id).await?;
     ensure!(!automatic || !bot.paused, "{} is paused", bot.settings.name);
     if let Some(e) = &bot.settings_error {
-        bail!("bot.toml cannot be used ({e}); fix it in the bot's Instructions tab");
+        bail!("bot.toml cannot be used ({e}); fix it in the bot's Settings tab");
     }
     let s = &bot.settings;
     let config = app.config.get();
