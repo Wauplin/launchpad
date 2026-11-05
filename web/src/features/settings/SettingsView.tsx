@@ -8,6 +8,7 @@ import { usePhone, layoutChoice, setLayoutChoice, type LayoutChoice } from "@/li
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { create } from "zustand";
 import type { Config } from "@/gen/Config";
 import type { Preset } from "@/gen/Preset";
 import { Icon, type IconName } from "@/components/Icon";
@@ -33,19 +34,44 @@ export function Card({ title, end, children, id, tour }: { title: string; end?: 
   );
 }
 
-type NavEntry = { to: string; label: string; icon: IconName; exact?: boolean };
+/** `keywords`: other words the Settings search finds the page by. */
+type NavEntry = { to: string; label: string; icon: IconName; exact?: boolean; keywords?: string };
 
 /** Settings of the window's workspace. */
-const WORKSPACE_NAV: NavEntry[] = [{ to: "/settings/workspace", label: "Bots, tools and MCP", icon: "folder" }];
+const WORKSPACE_NAV: NavEntry[] = [{ to: "/settings/workspace", label: "Bots, tools and MCP", icon: "folder", keywords: "workspace name mcp servers tools bots" }];
 
 /** Launchpad's settings, shared by every workspace. */
 export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
-  { group: "This device", items: [{ to: "/settings", label: "Appearance", icon: "sun", exact: true }, { to: "/settings/notifications", label: "Notifications", icon: "bell" }] },
-  { group: "Agents", items: [{ to: "/settings/profiles", label: "Profiles", icon: "agents" }, { to: "/settings/presets", label: "Presets", icon: "preset" }, { to: "/settings/usage", label: "Usage", icon: "clock" }] },
-  { group: "Machines & access", items: [{ to: "/settings/hosts", label: "Machines", icon: "term" }, { to: "/settings/runners", label: "Home and runners", icon: "window" }, { to: "/settings/credentials", label: "Credentials and tools", icon: "sliders" }, { to: "/settings/channels", label: "Channels", icon: "send" }, { to: "/settings/devices", label: "Devices", icon: "window" }, { to: "/settings/github", label: "GitHub", icon: "pr" }, { to: "/settings/huggingface", label: "Hugging Face", icon: "huggingface" }] },
-  { group: "Maintenance", items: [{ to: "/settings/worktrees", label: "Maintenance", icon: "archive" }] },
-  { group: "Help", items: [{ to: "/settings/onboarding", label: "Onboarding", icon: "spark" }] },
+  { group: "This device", items: [
+    { to: "/settings", label: "Appearance", icon: "sun", exact: true, keywords: "theme dark light zoom layout phone desktop" },
+    { to: "/settings/notifications", label: "Notifications", icon: "bell", keywords: "desktop notify alerts" },
+  ] },
+  { group: "Agents", items: [
+    { to: "/settings/profiles", label: "Profiles", icon: "agents", keywords: "harness claude codex opencode model effort billing subscription pay as you go api key quota" },
+    { to: "/settings/presets", label: "Presets", icon: "preset", keywords: "instructions prompt snippets" },
+    { to: "/settings/usage", label: "Usage", icon: "clock", keywords: "analytics activity cost tokens spend month" },
+  ] },
+  { group: "Machines & access", items: [
+    { to: "/settings/hosts", label: "Machines", icon: "term", keywords: "ssh hosts remote computer" },
+    { to: "/settings/runners", label: "Home and runners", icon: "window", keywords: "runner home burst vm jail update connect approve jobs" },
+    { to: "/settings/credentials", label: "Credentials and tools", icon: "sliders", keywords: "vault tokens secrets logins mcp tools proxy launchpad cli access admin" },
+    { to: "/settings/channels", label: "Channels", icon: "send", keywords: "telegram webhook outbox hooks messages" },
+    { to: "/settings/devices", label: "Devices", icon: "window", keywords: "browser pair qr phone sign out tailscale remote access" },
+    { to: "/settings/github", label: "GitHub", icon: "pr", keywords: "token account repositories poll rate limit inbox" },
+    { to: "/settings/huggingface", label: "Hugging Face", icon: "huggingface", keywords: "trace backup sync bucket hf token" },
+  ] },
+  { group: "Maintenance", items: [{ to: "/settings/worktrees", label: "Maintenance", icon: "archive", keywords: "disk cleanup worktrees local prs kept trash" }] },
+  { group: "Help", items: [{ to: "/settings/onboarding", label: "Onboarding", icon: "spark", keywords: "tour demo setup checklist help" }] },
 ];
+
+/** The Settings search: kept while moving between Settings pages. */
+const useSettingsSearch = create<{ query: string; set: (query: string) => void }>((set) => ({ query: "", set: (query) => set({ query }) }));
+
+/** Every word of `query` starts a word of the page's label or keywords. */
+function matches(e: NavEntry, query: string): boolean {
+  const words = `${e.label} ${e.keywords ?? ""}`.toLowerCase().split(/[^a-z0-9]+/);
+  return query.toLowerCase().split(/\s+/).filter(Boolean).every((q) => words.some((w) => w.startsWith(q)));
+}
 
 /** The layout of every Settings page: grouped navigation on the left (a link back to the list on phones), one title, one short intro (first visit only, then behind ⓘ). */
 export function SettingsPage({ title, intro, info, actions, children, tour }: { title?: string; intro?: React.ReactNode; info?: string; actions?: React.ReactNode; children: React.ReactNode; tour?: string }) {
@@ -53,7 +79,10 @@ export function SettingsPage({ title, intro, info, actions, children, tour }: { 
   const workspace = useScope().workspace;
   // The intro shows on the first visit of the page on this device, then behind ⓘ.
   const explain = useIntro(intro && title ? `settings:${title}` : null);
-  const groups = SETTINGS_NAV.map((g) => ({ ...g, items: g.items.filter((e) => !delegatedAccess() || e.to !== "/settings/devices") }));
+  const query = useSettingsSearch((s) => s.query);
+  const setQuery = useSettingsSearch((s) => s.set);
+  const groups = SETTINGS_NAV.map((g) => ({ ...g, items: g.items.filter((e) => (!delegatedAccess() || e.to !== "/settings/devices") && matches(e, query)) })).filter((g) => g.items.length > 0);
+  const workspaceNav = WORKSPACE_NAV.filter((e) => matches(e, query));
   const link = (e: NavEntry) => (
     <Link key={e.to} to={e.to} activeOptions={{ exact: !!e.exact }} className="flex h-[30px] items-center gap-2 rounded-[7px] px-2 text-[13px] text-ink-2 no-underline hover:bg-sunk hover:text-ink" activeProps={{ className: "bg-select font-semibold text-ink!", "aria-current": "page" } as never}>
       <Icon name={e.icon} size={14} />
@@ -65,11 +94,15 @@ export function SettingsPage({ title, intro, info, actions, children, tour }: { 
     <Link to="/settings" className="btn btn-ghost w-fit px-1! no-underline"><Icon name="chev" size={14} className="rotate-90" />All settings</Link>
   ) : (
     <nav className="sticky top-0 grid content-start gap-3 self-start pt-1" aria-label="Settings pages">
-      <div className="grid gap-0.5">
+      <label className="flex h-8 items-center gap-1.5 rounded-[7px] border border-line bg-paper px-2 text-ink-3 focus-within:border-teal">
+        <Icon name="search" size={13} />
+        <input type="search" size={1} aria-label="Search settings" placeholder="Search settings" className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none" value={query} onChange={(e) => setQuery(e.target.value)} />
+      </label>
+      {workspaceNav.length > 0 && <div className="grid gap-0.5">
         <div className="truncate px-2 pb-1 text-[13px] font-semibold text-ink" title="Settings of the workspace shown in this window">This workspace · {workspace.name}</div>
-        {WORKSPACE_NAV.map(link)}
-      </div>
-      <div className="grid gap-3 border-t border-line-2 pt-3">
+        {workspaceNav.map(link)}
+      </div>}
+      {groups.length > 0 && <div className={`grid gap-3 ${workspaceNav.length > 0 ? "border-t border-line-2 pt-3" : ""}`}>
         <div className="px-2 text-[13px] font-semibold text-ink" title="Shared by every workspace">Launchpad</div>
         {groups.map((g) => (
           <div key={g.group} className="grid gap-0.5">
@@ -77,7 +110,8 @@ export function SettingsPage({ title, intro, info, actions, children, tour }: { 
             {g.items.map(link)}
           </div>
         ))}
-      </div>
+      </div>}
+      {!workspaceNav.length && !groups.length && <div className="px-2 text-[12px] text-ink-3">No settings page matches “{query.trim()}”.</div>}
     </nav>
   );
   return (
