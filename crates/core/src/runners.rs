@@ -555,6 +555,14 @@ impl Hub {
 
 /// Home: the runner for a new session. The one chosen in the composer, the one whose disk has the folder, or
 /// the first that takes launches from other devices.
+/// The runner of the session whose folder a launch continues in (New agent here, Run in → existing worktree).
+fn source_runner(app: &App, spec: &crate::model::LaunchSpec) -> Option<String> {
+    match &spec.target {
+        crate::model::Target::SessionFolder { session_id } => app.sessions.get(session_id).and_then(|s| s.runner_id),
+        _ => None,
+    }
+}
+
 pub async fn launch_runner(app: &App, spec: &crate::model::LaunchSpec) -> Result<String> {
     use crate::model::Target;
     let project = match &spec.target {
@@ -566,6 +574,12 @@ pub async fn launch_runner(app: &App, spec: &crate::model::LaunchSpec) -> Result
         list(app).await.ok().and_then(|l| l.into_iter().find(|x| x.runner.id == id)).map(|x| x.runner.name)
     };
     let refused = |name: Option<String>, fallback: &str| anyhow::anyhow!("{} does not take this launch now: it is offline, paused, refuses launches from other devices or needs an update", name.unwrap_or_else(|| fallback.into()));
+    // Continue in a session's folder: its worktrees exist only on that session's runner.
+    if let Some(r) = source_runner(app, spec) {
+        anyhow::ensure!(spec.runner_id.as_ref().is_none_or(|c| c == &r), "this agent continues in another session's folder, which is on {}: choose that runner", name_of(r.clone()).await.unwrap_or_else(|| "another runner".into()));
+        anyhow::ensure!(available.contains(&r), refused(name_of(r.clone()).await, "The runner of that session"));
+        return Ok(r);
+    }
     if let Some(r) = &spec.runner_id {
         anyhow::ensure!(available.contains(r), refused(name_of(r.clone()).await, "The chosen runner"));
         if let Some(project) = &project {
@@ -602,7 +616,7 @@ pub async fn launch_anywhere(app: &App, spec: crate::model::LaunchSpec, id: Stri
     let runner = match launch_runner(app, &spec).await {
         Ok(r) => r,
         // No runner takes it (the laptop is off): Burst, unless a runner was chosen or Burst is unavailable.
-        Err(e) if spec.runner_id.is_none() && app.runners.available().is_empty() => match crate::burst::unavailable(app).await {
+        Err(e) if spec.runner_id.is_none() && source_runner(app, &spec).is_none() && app.runners.available().is_empty() => match crate::burst::unavailable(app).await {
             None => return crate::burst::launch(app, spec, id, automatic).await,
             Some(why) => bail!("{e:#}. {why}."),
         },
