@@ -549,8 +549,8 @@ impl Sessions {
                     self.inner.records.lock().unwrap().insert(s.id.clone(), s.clone());
                     app.bus.publish("sessions", "updated", serde_json::to_value(s.light())?);
                     self.publish_counts(app);
-                    if let Some(before) = current.filter(|c| c.status.is_running() && !s.status.is_running()) {
-                        self.replica_turn_ended(app, &before, &s);
+                    if current.is_some_and(|c| c.status.is_running() && !s.status.is_running()) {
+                        self.replica_turn_ended(app, &s);
                     }
                 }
             }
@@ -601,17 +601,9 @@ impl Sessions {
         Ok(())
     }
 
-    /// Home: a runner's session left Running. Phones get their Web Push here, since subscriptions live on Home
-    /// (the runner keeps its own desktop notification and forwards Telegram); routines settle and trigger.
-    fn replica_turn_ended(&self, app: &App, before: &Session, s: &Session) {
-        let silent = s.status == SessionStatus::Waiting && crate::crons::is_no_update(s.last_message.as_deref());
-        if let Some(event) = crate::notify::status_notification(before.status, s.status, before.open_question, false, false)
-            && !silent
-            && !self.is_watched(&s.id)
-            && app.config.get().agents.notify
-        {
-            app.push.session(app, s, event);
-        }
+    /// Home: a runner's session left Running, so routines settle and trigger. The runner keeps its own desktop
+    /// notification and forwards Telegram.
+    fn replica_turn_ended(&self, app: &App, s: &Session) {
         crate::crons::turn_ended(app, s);
     }
 
@@ -661,6 +653,21 @@ impl Sessions {
             if status == SessionStatus::Closed {
                 s.ended_at = Some(now_ms());
             }
+        })
+        .await?;
+        self.publish_counts(app);
+        Ok(s)
+    }
+
+    /// Home: a replicated session shows Failed with `reason` as its last message, when Home could not continue
+    /// it and no runner holds it. Only the record changes, like `end_replica`.
+    pub(crate) async fn fail_replica(&self, app: &App, id: &str, reason: String) -> Result<Session> {
+        let _action = self.action_lock().await;
+        let s = self.update(app, id, |s| {
+            s.change_status(SessionStatus::Error);
+            s.status_since = now_ms();
+            s.live = false;
+            s.last_message = Some(reason);
         })
         .await?;
         self.publish_counts(app);

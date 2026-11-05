@@ -73,7 +73,7 @@ function syncWorktrees() {
       continue;
     }
     const g = world.sessionGit[t.sessions[0]];
-    list.push({ worktree: t, project_name: FOLDER[t.project_id] ?? t.project_id, path: t.root, exists: true, dirty_files: g && !g.committed ? g.files.length : 0, ahead: g?.commits.length ?? 0, behind: 0, unpushed: false });
+    list.push({ worktree: t, project_name: FOLDER[t.project_id] ?? t.project_id, path: t.root, exists: true, dirty_files: g && !g.committed ? g.files.length : 0, ahead: g?.commits.length ?? 0, behind: 0, unpushed: false, away: null });
     world.codeRoots[t.root] ??= { projectId: t.project_id, branch: t.branch, base: "main", overrides: {}, exists: true };
   }
   lastSync = `${world.agentWorktrees.length}:${list.length}`;

@@ -2,7 +2,8 @@
 # Installs a Launchpad runner for the Home at @HOME_URL@ and pairs it.
 # Served by Home: it downloads the exact build Home runs, so both always match.
 # It changes nothing outside ~/.local/lib/launchpad-runner, ~/.local/bin/launchpad-runner,
-# ~/.config/launchpad-runner and the user service launchpad-runner.service. It never uses sudo.
+# ~/.config/launchpad-runner, the user service launchpad-runner.service and systemd lingering for
+# your user (so the runner keeps running after you log out). It never uses sudo.
 set -euo pipefail
 
 HOME_URL="@HOME_URL@"
@@ -20,8 +21,11 @@ note() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 fail() { printf '\n\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 
 bold "1/4 · Checking this machine"
-[ "$(uname -s)" = Linux ] || fail "Runners need Linux. This machine runs $(uname -s)."
-[ "$(uname -m)" = x86_64 ] || fail "Home provides a Linux x86_64 build. This machine is $(uname -m)."
+BURST="Use Burst instead: on Home's setup page, choose Continue with Burst. Burst runs agents in a Hugging Face Job, with nothing to install."
+[ "$(uname -s)" = Linux ] || fail "Runners need Linux x86_64. This machine runs $(uname -s) $(uname -m).
+$BURST"
+[ "$(uname -m)" = x86_64 ] || fail "Runners need Linux x86_64. This machine is Linux $(uname -m).
+$BURST"
 ok "Linux x86_64"
 glibc="$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $2}')"
 if [ -n "$glibc" ] && [ "$(printf '%s\n2.34\n' "$glibc" | sort -V | head -1)" != 2.34 ]; then
@@ -67,7 +71,12 @@ ok "Hugging Face sign-in"
 bold "2/4 · Installing Launchpad ${COMMIT:0:8}"
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
-curl -fsSL -H "Authorization: Bearer $TOKEN" "$HOME_URL/_home/runner/launchpad" -o "$tmp" || fail "Could not download Launchpad from Home."
+code="$(curl -sSL -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$HOME_URL/_home/runner/launchpad" -o "$tmp")" || fail "Could not reach Home at $HOME_URL."
+if [ "$code" = 401 ]; then
+  fail "Home refused your Hugging Face sign-in (401). Run 'hf auth login' with an account that can open this Space, then run this command again."
+elif [ "$code" != 200 ]; then
+  fail "Could not download Launchpad from Home (HTTP $code): $(head -c 300 "$tmp")"
+fi
 echo "$SHA256  $tmp" | sha256sum -c --quiet - || fail "The download does not match Home's build. Run this command again."
 mkdir -p "$DIR" "$HOME/.local/bin" "$CONFIG"
 install -m 755 "$tmp" "$BIN"
@@ -113,7 +122,16 @@ EOF
   systemctl --user enable launchpad-runner.service >/dev/null 2>&1
   systemctl --user restart launchpad-runner.service
   service=true
-  ok "launchpad-runner.service (starts when you log in)"
+  ok "launchpad-runner.service"
+  # Without lingering, systemd stops user services when you log out. Best effort: never fail the install for it.
+  user="${USER:-$(id -un)}"
+  if loginctl show-user "$user" -p Linger 2>/dev/null | grep -q '=yes'; then
+    ok "Keeps running after you log out (lingering is on)"
+  elif loginctl enable-linger "$user" >/dev/null 2>&1; then
+    ok "Keeps running after you log out (lingering enabled)"
+  else
+    note "Could not enable lingering: the runner stops when you log out. To keep it running, run: sudo loginctl enable-linger $user"
+  fi
 else
   note "No systemd user session. Start the runner yourself in another terminal: launchpad-runner daemon --role runner"
 fi

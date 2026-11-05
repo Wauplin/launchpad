@@ -26,7 +26,7 @@ pub enum ProposalBody {
     Message { session_id: String, text: String },
     /// A new agent that starts when every condition is met.
     Schedule { spec: LaunchSpec, conditions: Vec<LaunchDelay> },
-    /// A repeating agent (cron, local time).
+    /// A repeating agent (cron, in the time zone of the browser that accepts it, else `[home] time_zone`).
     Cron { spec: LaunchSpec, schedule: String, conditions: Vec<CronCondition> },
     /// A list of sessions to look at; nothing to start.
     Status { session_ids: Vec<String> },
@@ -277,7 +277,7 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
             ensure!(!title.trim().is_empty(), "give the routine a name");
             ensure!(!instructions.trim().is_empty(), "write what the bot does at each run");
             if *trigger == crate::crons::Trigger::Schedule {
-                crate::crons::next_after(schedule, now_ms()).context("invalid cron schedule")?;
+                crate::crons::next_after(schedule, None, now_ms()).context("invalid cron schedule")?;
             }
             workspace_id = Some(bot.workspace_id);
         }
@@ -305,7 +305,7 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
         }
     }
     if let ProposalBody::Cron { schedule, .. } = &body {
-        crate::crons::next_after(schedule, now_ms()).context("invalid cron schedule")?;
+        crate::crons::next_after(schedule, None, now_ms()).context("invalid cron schedule")?;
     }
     let now = now_ms();
     let p = Proposal { id: uuid::Uuid::new_v4().to_string(), workspace_id, session_id: c.session_id, title: c.title.trim().to_string(), note: c.note.filter(|n| !n.trim().is_empty()), body, state: ProposalState::Proposed, result_id, replaced_by: None, error: None, created_at: now, updated_at: now };
@@ -315,13 +315,13 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     app.state_db.call(move |db| store_created(db, &stored, c.replaces.as_deref())).await?;
     app.bus.publish("proposals", "changed", serde_json::to_value(&p)?);
     drop(_lock);
-    // Only proposals authored by an assistant thread are eligible. Status cards are informational; tools always
-    // wait for the owner, who pastes their token.
+    // Only proposals authored by an assistant thread are eligible, and only one-time starts, messages and presets.
+    // Anything that repeats or lasts (crons, routines, bots, BOT.md, tools) always waits for the owner's click.
     if app.config.get().assistant.auto_mode
         && p.session_id.as_deref().and_then(|id| app.sessions.get(id)).is_some_and(|s| s.launch_spec.target.is_assistant())
-        && !matches!(p.body, ProposalBody::Status { .. } | ProposalBody::Tool { .. } | ProposalBody::Bot { .. } | ProposalBody::BotInstructions { .. })
+        && matches!(p.body, ProposalBody::Launch { .. } | ProposalBody::Message { .. } | ProposalBody::Schedule { .. } | ProposalBody::Preset { .. })
     {
-        return accept_inner(app, &p.id, false).await;
+        return accept_inner(app, &p.id, false, None).await;
     }
     Ok(p)
 }
@@ -349,10 +349,15 @@ static ACCEPT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Owner click: claim, act, record the result. `body` may replace the proposal's spec (edited in the card).
 pub async fn accept(app: &App, id: &str) -> Result<Proposal> {
-    accept_inner(app, id, true).await
+    accept_inner(app, id, true, None).await
 }
 
-async fn accept_inner(app: &App, id: &str, close_thread: bool) -> Result<Proposal> {
+/// Accept from a browser: a routine or cron keeps the browser's time zone.
+pub async fn accept_in(app: &App, id: &str, time_zone: Option<String>) -> Result<Proposal> {
+    accept_inner(app, id, true, time_zone).await
+}
+
+async fn accept_inner(app: &App, id: &str, close_thread: bool, time_zone: Option<String>) -> Result<Proposal> {
     let mut p = {
         let _lock = ACCEPT.lock().await;
         let mut p = get(app, id).await?;
@@ -386,8 +391,8 @@ async fn accept_inner(app: &App, id: &str, close_thread: bool) -> Result<Proposa
                 Ok(session_id)
             }
             ProposalBody::Schedule { spec, conditions } => Ok(crate::schedules::create(app, spec, conditions).await?.id),
-            ProposalBody::Cron { spec, schedule, conditions } => Ok(crate::crons::create(app, spec, schedule, conditions, Default::default(), None).await?.id),
-            ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions } => Ok(crate::crons::create_for_bot(app, &bot_id, crate::crons::BotRoutine { title, instructions, trigger, schedule, conditions }).await?.id),
+            ProposalBody::Cron { spec, schedule, conditions } => Ok(crate::crons::create(app, spec, schedule, conditions, Default::default(), None, time_zone).await?.id),
+            ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions } => Ok(crate::crons::create_for_bot(app, &bot_id, crate::crons::BotRoutine { title, instructions, trigger, schedule, conditions, time_zone }).await?.id),
             ProposalBody::BotInstructions { bot_id, instructions, before, .. } => {
                 let bot = crate::bots::get(app, &bot_id).await?;
                 ensure!(bot.instructions == before, "BOT.md changed since this proposal: ask {} again", bot.settings.name);

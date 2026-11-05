@@ -63,6 +63,9 @@ pub struct HomeConfig {
     pub git_name: String,
     pub git_email: String,
     pub burst: BurstConfig,
+    /// IANA time zone (for example `Europe/Paris`) of schedules created without a browser's zone. Empty: the
+    /// host's time zone.
+    pub time_zone: String,
 }
 
 /// Burst: HF Jobs that Home starts as runners when no runner takes a launch, or on Continue on Burst.

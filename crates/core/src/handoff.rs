@@ -290,6 +290,14 @@ pub fn blocked(s: &Session) -> Option<&'static str> {
     None
 }
 
+/// Home: the handoff a session continues from while its runner is offline. The latest one Home stored, even
+/// from an older generation: a runner that adopted the session but stopped before its first turn end (a Burst
+/// job that failed) uploaded none, and the previous one still holds the conversation.
+pub async fn offline_copy(app: &App, s: &Session) -> Result<Handoff> {
+    let h = latest(app, &s.id).await?.filter(|h| h.generation <= s.generation && (s.harness_session_id.is_none() || !h.files.is_empty()));
+    h.context("its runner is offline and Home has no copy of this agent's conversation yet: wait for the runner to be back")
+}
+
 /// Home: moves an idle session to `to` (a connected runner). The old runner prepares the move when it is
 /// connected; otherwise its last handoff is used (its uncommitted files stay there).
 pub async fn move_to(app: &App, id: &str, to: &str) -> Result<Session> {
@@ -306,10 +314,8 @@ pub async fn move_to(app: &App, id: &str, to: &str) -> Result<Session> {
         let (status, body) = app.runners.request(&from, "POST", &format!("/api/sessions/{id}/handoff"), Some(serde_json::json!({"final": true}).to_string())).await?;
         ensure!((200..300).contains(&status), "{}", serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| v["error"].as_str().map(str::to_string)).unwrap_or(body));
     } else {
-        let h = latest(app, id).await?;
-        let ok = h.as_ref().is_some_and(|h| h.generation == s.generation && (s.harness_session_id.is_none() || !h.files.is_empty()));
-        ensure!(ok, "its runner is offline and Home has no copy of this agent's conversation yet");
-        lost_files = h.is_some_and(|h| !h.is_final && h.worktrees.iter().any(|w| w.state == WorktreeState::Active));
+        let h = offline_copy(app, &s).await?;
+        lost_files = !h.is_final && h.worktrees.iter().any(|w| w.state == WorktreeState::Active);
     }
     let s = app.sessions.reassign(app, id, to).await?;
     let (status, body) = app.runners.request(to, "POST", &format!("/api/sessions/{id}/adopt"), None).await?;

@@ -20,14 +20,14 @@ import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { nativePath, useHosts } from "@/lib/hosts";
 import { useConfig, useProjects, useStatus } from "@/lib/queries";
-import { isDesktopShell, usePushState } from "@/lib/push";
+import { isDesktopShell } from "@/lib/platform";
 import { useComposer } from "@/stores/composer";
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { WorkspacePicker, defaultWorkspace } from "@/features/workspaces/WorkspacePicker";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
-import { NotificationsCard } from "@/features/settings/DevicesView";
 import { usePatchConfig } from "@/features/settings/SettingsView";
+import type { ChannelsOverview } from "@/features/settings/ChannelsView";
 import { useOnboarding, usePatchOnboarding } from "@/onboarding/data";
 import { SUMMARY_KEY } from "./summary";
 import { HomeSetup } from "./HomeSetup";
@@ -391,20 +391,24 @@ function GitHubExpectations() {
   );
 }
 
-/** Browser notifications are per device: checked here, not by the daemon. */
+/** Desktop notifications in the desktop app; the phone gets them through Telegram (Settings → Channels). */
 function NotificationsItem() {
-  const push = usePushState().data;
   const notify = useConfig().data?.config.agents.notify;
-  const desktop = isDesktopShell();
-  if (!push && !desktop) return null;
-  const ready = notify !== false && (desktop || !!push?.subscribed);
+  const telegram = useQuery({ queryKey: ["channels"], queryFn: () => api.get<ChannelsOverview>("/api/channels"), staleTime: 30_000, enabled: !isDesktopShell }).data?.telegram;
+  if (!isDesktopShell) {
+    const on = !!telegram?.bound && telegram.notify;
+    return (
+      <ItemShell title="Phone notifications" importance="optional" state={on ? "ready" : "missing"} why="Get finished agents and routine reports on your phone through Telegram.">
+        {on ? <p className="m-0 text-[13px]">Telegram notifications are on{telegram.chat_name ? ` for ${telegram.chat_name}` : ""}.</p> : <SettingsLink to="/settings/channels">Open Settings → Channels</SettingsLink>}
+      </ItemShell>
+    );
+  }
+  const ready = notify !== false;
   return (
     <ItemShell title="Notifications" importance="recommended" state={ready ? "ready" : "missing"} why="Know when an agent finishes or fails, on this device.">
       {ready ? (
-        <p className="m-0 text-[13px]">{desktop ? "The desktop app shows notifications through this computer's notification center." : "On for this browser."}</p>
-      ) : notify === false ? (
-        <SettingsLink to="/settings/notifications">Agent notifications are off for all devices: open Settings → Notifications</SettingsLink>
-      ) : <NotificationsCard />}
+        <p className="m-0 text-[13px]">The desktop app shows notifications through this computer's notification center.</p>
+      ) : <SettingsLink to="/settings/notifications">Agent notifications are off: open Settings → Notifications</SettingsLink>}
     </ItemShell>
   );
 }

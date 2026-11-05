@@ -51,7 +51,7 @@ const routeTree = root.addChildren([
   // Workspaces are managed from the sidebar; Analytics became Usage.
   createRoute({ getParentRoute: () => root, path: "/settings/workspaces", beforeLoad: () => { throw redirect({ to: "/settings" }); } }),
   createRoute({ getParentRoute: () => root, path: "/settings/analytics", beforeLoad: () => { throw redirect({ to: "/settings/usage" }); } }),
-  createRoute({ getParentRoute: () => root, path: "/settings/notifications", component: lazyRouteComponent(() => import("@/features/settings/DevicesView"), "NotificationsPage") }),
+  createRoute({ getParentRoute: () => root, path: "/settings/notifications", component: lazyRouteComponent(() => import("@/features/settings/SettingsView"), "NotificationsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/presets", component: lazyRouteComponent(() => import("@/features/settings/SettingsView"), "PresetsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/huggingface", component: lazyRouteComponent(() => import("@/features/settings/HuggingFaceView"), "HuggingFaceView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/github", component: lazyRouteComponent(() => import("@/features/settings/GitHubView"), "GitHubView") }),

@@ -51,7 +51,7 @@ function AssistantOptions({ close }: { close: () => void }) {
   return <>
     <div className="seclabel px-2 pt-1 pb-0.5">Proposal mode</div>
     <MenuItem label="Manual" detail="Review each proposal before it starts" active={!auto} onClick={() => void save({ assistant_auto_mode: false })} />
-    <MenuItem label="Auto" detail="New proposals start immediately, including messages and crons" active={auto} onClick={() => void save({ assistant_auto_mode: true })} />
+    <MenuItem label="Auto" detail="New launches, messages and presets apply immediately; crons, routines and bots still wait for a click" active={auto} onClick={() => void save({ assistant_auto_mode: true })} />
     <div className="seclabel border-t border-line-2 px-2 pt-2 pb-0.5">Assistant profile (new threads)</div>
     {profiles.map((p) => <MenuItem key={p.id} label={p.name} detail={p.billing === "pay_as_you_go" ? "Pay as you go" : "Subscription"} active={p.id === current?.id} onClick={() => void save({ assistant_profile: p.id, assistant_model: "", assistant_effort: "" })} />)}
     <div className="seclabel border-t border-line-2 px-2 pt-2 pb-0.5">Model (a fast model keeps replies quick)</div>

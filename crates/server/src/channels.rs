@@ -96,7 +96,7 @@ struct Notify {
     session_id: String,
     event: String,
 }
-/// A runner's notification for one of its sessions (the same events as Web Push).
+/// A runner's notification for one of its sessions (the same events as desktop notifications).
 async fn telegram_notify(State(s): State<Server>, Json(n): Json<Notify>) -> ApiResult<Value> {
     telegram::notification(&s.app, &n.session_id, &n.event).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
@@ -129,7 +129,10 @@ async fn mark_sent(State(s): State<Server>, Path(id): Path<String>) -> ApiResult
 async fn receive(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> Response {
     let secret = headers.get("x-launchpad-hook-secret").and_then(|v| v.to_str().ok());
     match hooks::receive(&s.app, &id, secret, &body).await {
-        Ok(session) => (StatusCode::ACCEPTED, Json(json!({"ok": true, "session_id": session}))).into_response(),
+        Ok(d) => {
+            let note = if d.queued { "queued: the target is busy; the message is sent when its current turn ends" } else { "sent" };
+            (StatusCode::ACCEPTED, Json(json!({"ok": true, "session_id": d.session.map(|s| s.id), "queued": d.queued, "status": note}))).into_response()
+        }
         Err(hooks::Refused(status, message)) => (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST), Json(json!({"error": message}))).into_response(),
     }
 }

@@ -530,14 +530,16 @@ class Setup:
     def install_command(self):
         """The runner install command, for bash and zsh. The HF token passes the private Space's sign-in: `HF_TOKEN`,
         else the `hf auth login` token in `$HF_HOME` (default `~/.cache/huggingface`). It runs in a subshell, so the
-        token stays out of your shell, and says what to do when the token is missing or refused (instead of a bare
-        curl error)."""
+        token stays out of your shell. On failure it prints Home's error message, and the sign-in hint only on a 401."""
         url = f"https://{self.host}/_home/runner/install.sh"
         token = '${HF_TOKEN:-$(cat "${HF_HOME:-$HOME/.cache/huggingface}/token" 2>/dev/null)}'
         return ('(t="' + token + '"; '
                 '[ -n "$t" ] || { echo "No Hugging Face sign-in: run \'hf auth login\' first." >&2; exit 1; }; '
-                's="$(curl -fsSL -H "Authorization: Bearer $t" ' + url + ')" || { echo "Download failed. '
-                'On a 401 error, run \'hf auth login\' with an account that can open this Space." >&2; exit 1; }; '
+                's="$(curl -sSL -w "%{http_code}" -H "Authorization: Bearer $t" ' + url + ')" '
+                '|| { echo "Could not reach Home." >&2; exit 1; }; c="${s: -3}"; s="${s%???}"; '
+                'if [ "$c" = 401 ]; then echo "Home refused your Hugging Face sign-in (401): run \'hf auth login\' '
+                'with an account that can open this Space." >&2; exit 1; fi; '
+                '[ "$c" = 200 ] || { printf "Download failed (HTTP %s): %.300s\\n" "$c" "$s" >&2; exit 1; }; '
                 'bash -c "$s")')
 
     def status(self):
@@ -771,7 +773,7 @@ class Setup:
             return web.json_response(self.status(), headers={"Cache-Control": "no-store"})
         if path in ("/_home/runner/install.sh", "/_home/runner/launchpad") and request.method in ("GET", "HEAD"):
             if not self.unlocked or not self.api:
-                return web.Response(status=503, text="echo 'Finish Home setup first.' >&2; exit 1\n")
+                return web.Response(status=503, text="Finish Home setup first.")
             return await self.runner_file(request, path)
         if path.startswith("/_home/") and request.method == "POST":
             body = await request.json()

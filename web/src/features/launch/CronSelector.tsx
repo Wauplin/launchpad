@@ -4,7 +4,7 @@ import type { CronCondition } from "@/gen/CronCondition";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import { useHarnessName, useHarnessInfo } from "@/components/HarnessMark";
 import { api } from "@/lib/api";
-import { useServerTimeZone } from "@/lib/serverTime";
+import { browserZone } from "@/lib/routines";
 
 export type CronDraft = { schedule: string; conditions: CronCondition[] };
 
@@ -17,11 +17,11 @@ export function conditionSummary(c: CronCondition, harness: HarnessKind | null, 
   return `${harness ? name(harness) : "Agent"} has at least ${c.min_left_percent}% of its ${c.window === "five_hour" ? "5-hour" : "weekly"} quota left`;
 }
 
-/** Next run times for a schedule, checked by the daemon (same parser as the scheduler). */
+/** Next run times for a schedule in this browser's time zone, checked by the daemon (same parser as the scheduler). */
 export function useCronNext(schedule: string) {
   const [debounced, setDebounced] = useState(schedule);
   useEffect(() => { const t = setTimeout(() => setDebounced(schedule.trim()), 300); return () => clearTimeout(t); }, [schedule]);
-  return useQuery({ queryKey: ["cron-next", debounced], queryFn: () => api.get<number[]>(`/api/launch/crons/next?schedule=${encodeURIComponent(debounced)}`), enabled: !!debounced, retry: false });
+  return useQuery({ queryKey: ["cron-next", debounced], queryFn: () => api.get<number[]>(`/api/launch/crons/next?schedule=${encodeURIComponent(debounced)}&time_zone=${encodeURIComponent(browserZone())}`), enabled: !!debounced, retry: false });
 }
 
 /** Schedule field and condition list, shared by the composer and the routine forms. `schedule={false}`: only the
@@ -30,8 +30,7 @@ export function CronFields({ draft, harness, onChange, onValidityChange, schedul
   const name = useHarnessName();
   const supportsQuota = useHarnessInfo(harness)?.capabilities.quota ?? false;
   const next = useCronNext(withSchedule ? draft.schedule : "");
-  const tz = useServerTimeZone();
-  const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = browserZone();
   const previous = draft.conditions.some((c) => c.kind === "previous_run_finished");
   const quotas = draft.conditions.filter((c) => c.kind === "quota_left");
   const badPercent = quotas.some((c) => !Number.isInteger(c.min_left_percent) || c.min_left_percent < 1 || c.min_left_percent > 100);
@@ -47,8 +46,8 @@ export function CronFields({ draft, harness, onChange, onValidityChange, schedul
     <div className="flex flex-wrap gap-1.5">{PRESETS.map(([label, schedule]) => <button key={schedule} className={`btn btn-sm ${draft.schedule.trim() === schedule ? "btn-primary" : ""}`} onClick={() => onChange({ ...draft, schedule })}>{label}</button>)}</div>
     <input aria-label="Cron schedule" className="field-input font-mono" placeholder="minute hour day month weekday" value={draft.schedule} onChange={(e) => onChange({ ...draft, schedule: e.target.value })} />
     {next.error ? <p role="alert" className="text-xs text-gh-closed">{next.error.message}</p>
-      : next.data && <p className="text-xs text-ink-2">Next runs{tz?.differs ? ` (your time, ${browserZone})` : ""}: {next.data.map((at) => new Date(at).toLocaleString()).join(" · ")}</p>}
-    <p className="text-xs text-ink-3">5 fields: minute, hour, day of month, month, day of week. {tz?.differs ? <b className="font-semibold text-attn">Server time ({tz.label}), not your time zone.</b> : <>Your local time · {browserZone}</>}</p>
+      : next.data && <p className="text-xs text-ink-2">Next runs: {next.data.map((at) => new Date(at).toLocaleString()).join(" · ")}</p>}
+    <p className="text-xs text-ink-3">5 fields: minute, hour, day of month, month, day of week. In your time zone · {zone}: the routine keeps it when you save.</p>
     </>}
     <b className="text-[12px] font-[650] text-ink-2">Run only if</b>
     {previousRun && <label className="flex items-center gap-2 text-xs"><input type="checkbox" className="accent-teal" checked={previous} onChange={(e) => onChange({ ...draft, conditions: [...(e.target.checked ? [{ kind: "previous_run_finished" as const }] : []), ...quotas] })} />The previous run is no longer Running</label>}

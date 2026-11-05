@@ -10,10 +10,9 @@ import { Empty, ErrorState, Loading } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { toast, toastError } from "@/components/Toast";
 import { formatAge } from "@/lib/format";
-import { disablePush, enablePush, sendTestPush, setPushTitles, usePushState, useRefreshPush, type PushState } from "@/lib/push";
-import { Card, NotificationsView, SettingsPage } from "./SettingsView";
+import { Card, SettingsPage } from "./SettingsView";
 
-type Device = { id: string; name: string; created_at: number; expires_at: number; last_seen_at: number | null; push: boolean; current: boolean };
+type Device = { id: string; name: string; created_at: number; expires_at: number; last_seen_at: number | null; current: boolean };
 type Pair = { url: string; svg: string; expires_at: number; warning: string | null };
 
 export function DevicesView() {
@@ -177,7 +176,7 @@ const DeviceRow = memo(function DeviceRow({ device, height, top, busy, onRevoke 
   return <div className="absolute left-0 top-0 flex w-full items-center gap-3 border-b border-line-2" style={{ height, transform: `translateY(${top}px)` }}>
     <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{device.name}{device.current && <span className="ml-2 text-xs font-normal text-ink-3">{isDesktopShell ? "This desktop app" : "This browser"}</span>}</div>
       <div className="truncate text-xs text-ink-3">
-        {device.last_seen_at ? `Last active ${lastActive(device.last_seen_at)}` : "Not active since pairing"} · notifications {device.push ? "on" : "off"} · paired {new Date(device.created_at * 1000).toLocaleDateString()} · expires {new Date(device.expires_at * 1000).toLocaleDateString()}
+        {device.last_seen_at ? `Last active ${lastActive(device.last_seen_at)}` : "Not active since pairing"} · paired {new Date(device.created_at * 1000).toLocaleDateString()} · expires {new Date(device.expires_at * 1000).toLocaleDateString()}
       </div></div>
     {isDesktopShell && device.current ? <span className="text-xs text-ink-3">Local desktop app</span> : <button className="btn btn-sm" disabled={busy} onClick={() => void onRevoke(device)}>{device.current ? "Sign out" : "Revoke"}</button>}
   </div>;
@@ -189,49 +188,4 @@ function lastActive(unixSeconds: number) {
   if (Date.now() - ms < 5 * 60_000) return "in the last 5 min";
   const age = formatAge(ms);
   return age === "yesterday" ? age : `${age} ago`;
-}
-
-const UNAVAILABLE: Record<Exclude<PushState["support"], "supported">, string> = {
-  desktop: "The desktop app shows notifications through the host's notification center. Use a paired browser or an installed web app on another device for push notifications.",
-  "ios-home-screen": "On iPhone and iPad, notifications work only in the installed web app: open Share → Add to Home Screen, start Launchpad from the Home Screen, and come back to this page.",
-  insecure: "Notifications need an HTTPS address or http://127.0.0.1.",
-  unsupported: "This browser does not support push notifications.",
-};
-
-/** Web Push for this browser: completed turns, automatic stops and automatic quota resumption. */
-/** Settings → Notifications. */
-export function NotificationsPage() {
-  return <NotificationsView browser={<NotificationsCard />} />;
-}
-
-export function NotificationsCard() {
-  const state = usePushState();
-  const refresh = useRefreshPush();
-  const [busy, setBusy] = useState(false);
-  // Chosen before turning notifications on, or saved in this browser's subscription.
-  const [titles, setTitles] = useState<boolean | null>(null);
-  const run = async (action: () => Promise<unknown>, done?: string) => {
-    setBusy(true);
-    try { await action(); if (done) toast(done); } catch (error) { toastError(error); }
-    finally { setBusy(false); await refresh(); }
-  };
-  const push = state.data;
-  const on = !!push?.subscribed;
-  const showTitles = on ? push.titles : titles ?? false;
-  return <Card title="This browser" end={push?.support === "supported" && (on
-    ? <button className="btn btn-sm" disabled={busy} onClick={() => void run(disablePush, "Notifications turned off on this browser")}>Turn off</button>
-    : <button className="btn btn-sm btn-primary" disabled={busy || push.permission === "denied"} onClick={() => void run(() => enablePush(showTitles), "Notifications turned on on this browser")}>Turn on</button>)}>
-    <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">Shown when no window in use shows the agent. <span className="text-ink-3" title="Sent when an agent finishes, fails, stops automatically, or resumes after quota becomes available. Launches, questions and manual stops stay silent. Notifications show the status and the folder; never code or messages."><Icon name="info" size={13} /></span></p>
-    {state.error && <ErrorState error={state.error} />}
-    {!push ? <Loading /> : push.support !== "supported" ? <p className="text-sm text-ink-3" role="status">{UNAVAILABLE[push.support]}</p> : <>
-      <p className="text-sm" role="status">
-        {on ? "On for this browser." : push.permission === "denied" ? "Blocked: allow notifications for this site in the browser's site settings, then turn them on here." : "Off for this browser."}
-      </p>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={showTitles} disabled={busy} onChange={(e) => { const value = e.target.checked; setTitles(value); if (on) void run(() => setPushTitles(value)); }} />
-        Show session titles on the lock screen
-      </label>
-      <div><button className="btn btn-sm" disabled={busy || !on} onClick={() => void run(async () => { await sendTestPush(); }, "Test notification sent")}>Send a test notification</button></div>
-    </>}
-  </Card>;
 }

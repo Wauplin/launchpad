@@ -311,6 +311,13 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
   const uncommitted = (git.data?.files.length ?? 0) > 0;
   const committedFiles = history.data?.files.length ?? 0;
   const changed = uncommitted || mainChanges > 0 || committedFiles > 0;
+  // A Git query that failed (its runner is away, a network error) means unknown, never "no changes": Archive
+  // becomes the primary action only once Git confirmed there is nothing to review. A 4xx answer for a folder
+  // that is not a Home Git folder means it is not a Git folder.
+  const gitFolder = !!projects?.find((p) => p.id === s.project_id)?.home_git;
+  const failed = (e: unknown) => !(e instanceof ApiError) || e.status >= 500 || gitFolder;
+  const gitLoading = git.isPending || history.isPending;
+  const gitUnknown = !changed && !gitLoading && (history.isError || (git.isError && failed(git.error)));
   const showChanges = (main: boolean) => { setGitMain(main); setView("changes"); };
   const onlyMain = (git.data?.files.length ?? 0) === 0 && mainChanges > 0;
   const archive = () => void act(s.id, "close");
@@ -347,11 +354,13 @@ export function SessionPane({ sessionId, onClear, initialView, chat = false }: {
     // Work not merged yet (uncommitted, or commits that differ from main) comes before Archive.
     changed
       ? <button className="btn btn-sm btn-primary" title={uncommitted ? "Open the uncommitted files in the Changes view" : "Open the agent's changes: merge, open a Local PR or keep the branch from there"} onClick={() => showChanges(!uncommitted && mainChanges > 0)}>Review changes</button>
-      : <button className="btn btn-sm btn-primary" title="Archive the session (it stays resumable)" onClick={archive}><Icon name="archive" size={12} />Archive</button>
+      : gitUnknown
+        ? <button className="btn btn-sm btn-primary" title="Git state unknown: check the worktree and its branch before archiving" onClick={() => setView("summary")}>Review work</button>
+        : gitLoading ? null : <button className="btn btn-sm btn-primary" title="Archive the session (it stays resumable)" onClick={archive}><Icon name="archive" size={12} />Archive</button>
   ) : resumable ? (
     <button className="btn btn-sm btn-primary" title={s.status === "closed" ? "Re-attach this archived session; send its original task if it never started" : "Continue the unfinished task"} onClick={() => { void (s.status === "closed" ? act(s.id, "resume") : api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }).catch(toastError)); setView("trace"); }}>Resume</button>
   ) : null;
-  const archivePrimary = s.status === "waiting" && !s.open_question && !changed;
+  const archivePrimary = s.status === "waiting" && !s.open_question && !changed && !gitUnknown && !gitLoading;
 
   return (
     <div className={`relative flex h-full min-h-0 min-w-0 flex-col bg-paper ${readingExpanded ? "session-expanded" : ""}`}

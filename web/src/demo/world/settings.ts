@@ -17,7 +17,7 @@ import { clock } from "../daemon";
 import { P, ROOT, USER } from "./ids";
 
 /** A paired browser, as `GET /api/devices` returns it (Unix seconds). */
-export type DemoDevice = { id: string; name: string; created_at: number; expires_at: number; last_seen_at: number | null; push: boolean; current: boolean };
+export type DemoDevice = { id: string; name: string; created_at: number; expires_at: number; last_seen_at: number | null; current: boolean };
 /** `GET /api/setup/trace-backup`. */
 export type DemoTraceBackup = { check: SignInCheck; account: string | null; error: string | null; last_upload: number | null; last_sync: number | null };
 
@@ -117,8 +117,8 @@ export function settingsWorld() {
   const harnessDefaults: Record<string, HarnessDefaults> = structuredClone(DEFAULTS);
   const routerModels: ModelInfo[] = structuredClone(ROUTER_MODELS);
   const devices: DemoDevice[] = [
-    { id: "demo-device-desktop", name: "This desktop", created_at: seconds(clock.ago(60 * 24 * 40)), expires_at: seconds(clock.ago(-60 * 24 * 325)), last_seen_at: seconds(clock.now()), push: false, current: true },
-    { id: "demo-device-phone", name: "Phone", created_at: seconds(clock.ago(60 * 24 * 12)), expires_at: seconds(clock.ago(-60 * 24 * 353)), last_seen_at: seconds(clock.ago(95)), push: true, current: false },
+    { id: "demo-device-desktop", name: "This desktop", created_at: seconds(clock.ago(60 * 24 * 40)), expires_at: seconds(clock.ago(-60 * 24 * 325)), last_seen_at: seconds(clock.now()), current: true },
+    { id: "demo-device-phone", name: "Phone", created_at: seconds(clock.ago(60 * 24 * 12)), expires_at: seconds(clock.ago(-60 * 24 * 353)), last_seen_at: seconds(clock.ago(95)), current: false },
   ];
   // One recorded shell exists from the start ("Terminals · 1" in the status bar); its replay starts when it is shown.
   const terminals: TerminalInfo[] = [

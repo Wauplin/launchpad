@@ -128,7 +128,7 @@ flowchart LR
 **Launch ▾** offers **Start later…** and **Repeat on a schedule…**. The **Schedules** page (sidebar) lists everything that starts on its own: **Routines** and **Scheduled launches**.
 
 - **Start conditions** (combine several; all must be met): after a delay, at a date and time, after other agents are Done, when a quota resets.
-- **Routines** run again and again. **Repeat on a schedule…** turns a launch into a routine: each run starts a new agent with the same prompt, on a 5-field cron schedule in the server's time zone. A [bot's routines](bots.md#routines) send their task to the bot's thread instead, and can also start on GitHub activity or when another agent is done.
+- **Routines** run again and again. **Repeat on a schedule…** turns a launch into a routine: each run starts a new agent with the same prompt, on a 5-field cron schedule in the time zone of the browser that saved it, shown next to the schedule (for example `30 8 * * 1-5 (Europe/Paris)`). Routines saved before Launchpad kept a zone run in the server's time; save them again to fix their zone. A [bot's routines](bots.md#routines) send their task to the bot's thread instead, and can also start on GitHub activity or when another agent is done.
 - Each run ends with a short report, or with `no_update` when there is nothing to report: a quiet run never notifies you and does not count as Needs you. Each routine shows its last runs as **Report**, **No update**, **Skipped** (with the reason), **Failed** or **Interrupted**, its last successful run and its next run. A routine whose last run failed shows a count next to Schedules in the sidebar.
 - Runs are claimed before they start and never repeated after a crash. A run more than one hour late (Launchpad was stopped) or with unmet conditions is skipped, never caught up. **Run now** starts a run at once, whatever the trigger and conditions.
 - The **Morning brief** is a routine of Ask Launchpad: weekdays at 8:30 it writes in its thread what needs you and what was handled. Add it from Schedules and edit its time there.
@@ -149,7 +149,7 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ## Ask Launchpad
 
-**Ask** is an assistant for the current workspace. It reads your folders, agents, inbox and quotas, and proposes launches, messages, schedules, routines, presets, tools and [bots](bots.md) as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create cron**, **Save preset**, **Add tool** or **Create bot**. Ask Launchpad is the built-in bot: it is listed first under **Bots** in the sidebar. Any agent can also propose a tool it needs; after **Add tool**, paste its token. **Edit** moves a proposal into the composer.
+**Ask** is an assistant for the current workspace. It reads your folders, agents, inbox and quotas, and proposes launches, messages, schedules, routines, presets, tools and [bots](bots.md) as cards. Nothing starts until you click **Start**, **Send**, **Schedule**, **Create cron**, **Save preset**, **Add tool** or **Create bot**. Ask Launchpad is the built-in bot: it is listed first under **Bots** in the sidebar. Any agent can also propose a tool it needs; after **Add tool**, paste its token. **Edit** moves a proposal into the composer. In **Auto** mode (menu on the Ask page), new launches, messages, scheduled launches and presets from Ask Launchpad apply without a click; crons, routines, bots, BOT.md changes and tools always wait for your click.
 
 ![Ask Launchpad with two proposals](images/ask.webp)
 
@@ -174,4 +174,4 @@ Folders registered before workspaces were required appear in the **Unassigned fo
 
 ## Notifications
 
-Desktop and Web Push notifications report finished turns, failures, unexpected interruptions and automatic quota stops and resumptions. Questions, manual stops and archives are silent. A window that you are actively using suppresses notifications for the session it shows.
+Desktop and Telegram notifications report finished turns, failures, unexpected interruptions and automatic quota stops and resumptions. Questions, manual stops and archives are silent. A window that you are actively using suppresses notifications for the session it shows.

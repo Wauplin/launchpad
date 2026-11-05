@@ -613,6 +613,20 @@ pub async fn launch_anywhere(app: &App, spec: crate::model::LaunchSpec, id: Stri
     if spec.runner_id.as_deref() == Some(crate::burst::CHOICE) {
         return crate::burst::launch(app, spec, id, automatic).await;
     }
+    // New agent here or Run in, in the folder of a session whose Burst job stopped: that session moves to a
+    // runner that takes launches first (its worktrees come back from their branches on Home Git).
+    if let crate::model::Target::SessionFolder { session_id } = &spec.target
+        && let Some(source) = app.sessions.get(session_id)
+        && crate::burst::needs_new_job(app, &source).await
+    {
+        let available = app.runners.available();
+        let to = match &spec.runner_id {
+            Some(r) => available.contains(r).then(|| r.clone()),
+            None => available.into_iter().next(),
+        };
+        let to = to.context("That session's Burst runner has stopped: connect a runner to continue in its folder, or send that session a message to continue it on Burst")?;
+        crate::handoff::move_to(app, session_id, &to).await?;
+    }
     let runner = match launch_runner(app, &spec).await {
         Ok(r) => r,
         // No runner takes it (the laptop is off): Burst, unless a runner was chosen or Burst is unavailable.
@@ -659,6 +673,16 @@ pub async fn send_anywhere(app: &App, id: &str, text: &str, files: Vec<crate::mo
     if let Some(s) = app.sessions.get(id).filter(|_| app.paths.role == crate::role::Role::Home)
         && crate::burst::needs_new_job(app, &s).await
     {
+        return crate::burst::continue_session(app, id, text.to_string(), files, key).await;
+    }
+    // Its runner is offline (the laptop sleeps): the session continues on Burst, like Move to Burst.
+    if let Some(s) = app.sessions.get(id).filter(|_| app.paths.role == crate::role::Role::Home)
+        && let Some(r) = s.runner_id.as_deref().filter(|r| !app.runners.connected(r))
+        && !is_burst(app, r).await
+    {
+        if let Some(why) = crate::burst::unavailable(app).await {
+            bail!("This session's runner is offline, and Burst cannot take it: {why}.");
+        }
         return crate::burst::continue_session(app, id, text.to_string(), files, key).await;
     }
     match app.sessions.get(id).and_then(|s| s.runner_id).filter(|_| app.paths.role == crate::role::Role::Home) {

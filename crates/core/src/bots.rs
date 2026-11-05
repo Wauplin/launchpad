@@ -262,6 +262,7 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
     app.state_db.call(move |c| {
         let tx = c.transaction()?;
         tx.execute("DELETE FROM bot WHERE id = ?1", [&id2])?;
+        tx.execute("DELETE FROM queued_message WHERE target = 'bot:' || ?1", [&id2])?;
         tx.execute("DELETE FROM plain_file WHERE store = ?1", [&st])?;
         tx.execute("DELETE FROM plain_state WHERE store = ?1", [&st])?;
         tx.commit()?;
@@ -330,7 +331,8 @@ pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAtt
 }
 
 /// A message to the bot's thread. `automatic` (routines, incoming hooks): a paused bot refuses it, and a new
-/// session needs confirmed quota.
+/// session needs confirmed quota. Hooks and Telegram go through `hooks::deliver`, which waits for the end of a
+/// running turn.
 pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, new_session: bool, automatic: bool) -> Result<Session> {
     ensure!(!text.trim().is_empty() || !attachments.is_empty(), "the message is empty");
     let bot = get(app, id).await?;

@@ -1,6 +1,7 @@
 //! Incoming hooks on Home: `POST /hooks/<id>` with `X-Launchpad-Hook-Secret: <secret>` sends a message to a bot
 //! (or Ask Launchpad). The secret is shown once at creation; Home keeps only its SHA-256 and compares in constant
-//! time. A hook accepts at most one message every ten seconds. The message is a fixed template naming the hook,
+//! time. A hook accepts at most one message every ten seconds. A message to a busy thread (and Telegram's) waits
+//! in `queued_message` for the end of its turn. The message is a fixed template naming the hook,
 //! then the request body (JSON pretty-printed, at most 16 KB) in a fenced block, marked as data.
 
 use std::collections::HashMap;
@@ -13,6 +14,7 @@ use sha2::{Digest, Sha256};
 use ts_rs::TS;
 
 use crate::App;
+use crate::model::{Session, SessionStatus};
 use crate::util::now_ms;
 
 pub const MIN_INTERVAL_MS: i64 = 10_000;
@@ -157,8 +159,8 @@ fn internal(e: anyhow::Error) -> Refused {
     Refused(500, format!("{e:#}"))
 }
 
-/// `POST /hooks/<id>`: checks the secret and the rate, then sends the message. Returns the session ID.
-pub async fn receive(app: &App, id: &str, secret: Option<&str>, body: &[u8]) -> Result<String, Refused> {
+/// `POST /hooks/<id>`: checks the secret and the rate, then sends or queues the message.
+pub async fn receive(app: &App, id: &str, secret: Option<&str>, body: &[u8]) -> Result<Delivered, Refused> {
     if !crate::vault::here(app) {
         return Err(Refused(404, "incoming hooks are served by Home".into()));
     }
@@ -186,17 +188,166 @@ pub async fn receive(app: &App, id: &str, secret: Option<&str>, body: &[u8]) -> 
         last.insert(id.to_string(), now);
     }
     let text = message(&hook.name, body);
-    // Sent once: a failure is reported to the caller, never retried by Home.
-    let session = match &hook.target {
-        Target::Bot { id } => crate::bots::message_with(app, id, text, vec![], false, true).await,
-        Target::Ask { workspace_id } => crate::proposals::ask(app, workspace_id.clone(), text, vec![]).await,
-    }
-    .map_err(|e| Refused(503, format!("{e:#}")))?;
+    // Sent once: a failure is reported to the caller, never retried by Home. A busy thread gets it after its turn.
+    let automatic = matches!(hook.target, Target::Bot { .. });
+    let d = deliver(app, hook.target.clone(), text, automatic, false).await.map_err(|e| Refused(503, format!("{e:#}")))?;
     hook.last_at = Some(now_ms());
     hook.count += 1;
-    hook.last_session = Some(session.id.clone());
+    hook.last_session = d.session.as_ref().map(|s| s.id.clone()).or(hook.last_session);
     save(app, &hook, None).await.map_err(internal)?;
-    Ok(session.id)
+    Ok(d)
+}
+
+// ---------------------------------------------------------------- queued messages
+
+/// A message from a hook or Telegram, waiting for the end of the current turn of its thread.
+#[derive(Serialize, Deserialize)]
+struct Queued {
+    target: Target,
+    text: String,
+    automatic: bool,
+    /// The answer goes back to the Telegram chat.
+    telegram: bool,
+}
+
+/// Where a message from a hook or Telegram went.
+pub struct Delivered {
+    /// The session it went to, or the busy session it waits for (None: a new session starts later).
+    pub session: Option<Session>,
+    /// It waits for the end of the current turn.
+    pub queued: bool,
+}
+
+/// The last send to a thread: the session, its `status_since` then, and when.
+type LastSend = HashMap<String, (String, i64, i64)>;
+
+/// Serializes the check and the send, so two messages never both see an idle thread.
+static DELIVERY: std::sync::LazyLock<tokio::sync::Mutex<LastSend>> = std::sync::LazyLock::new(|| tokio::sync::Mutex::new(HashMap::new()));
+
+fn key_of(t: &Target) -> String {
+    match t {
+        Target::Bot { id } => format!("bot:{id}"),
+        Target::Ask { workspace_id } => format!("ask:{}", workspace_id.as_deref().unwrap_or("")),
+    }
+}
+
+/// The open session of the thread.
+fn current(app: &App, t: &Target) -> Option<Session> {
+    match t {
+        Target::Bot { id } => crate::bots::thread(app, id).into_iter().rev().find(|s| s.status != SessionStatus::Closed),
+        Target::Ask { workspace_id } => crate::proposals::thread(app, workspace_id.as_deref()),
+    }
+}
+
+/// The thread cannot take a message now: a turn runs (or starts), a question is open or quota paused it.
+fn busy(s: &Session) -> bool {
+    s.status.is_running() || s.open_question || s.quota_pause.is_some()
+}
+
+async fn send(app: &App, q: &Queued) -> Result<Session> {
+    match &q.target {
+        Target::Bot { id } => crate::bots::message_with(app, id, q.text.clone(), vec![], false, q.automatic).await,
+        Target::Ask { workspace_id } => crate::proposals::ask_with(app, workspace_id.clone(), q.text.clone(), vec![], false).await,
+    }
+}
+
+/// Sends a hook or Telegram message to a bot or Ask Launchpad thread, or queues it (in order, in state.db) while
+/// the thread is busy. A queued message is sent once its turn ends, never into a running turn.
+pub async fn deliver(app: &App, target: Target, text: String, automatic: bool, telegram: bool) -> Result<Delivered> {
+    if let Target::Bot { id } = &target {
+        let bot = crate::bots::get(app, id).await?;
+        ensure!(!automatic || !bot.paused, "{} is paused", bot.settings.name);
+    }
+    let key = key_of(&target);
+    let mut last = DELIVERY.lock().await;
+    let q = Queued { target, text, automatic, telegram };
+    let k = key.clone();
+    let waiting = app.state_db.call(move |c| Ok(c.query_row("SELECT count(*) FROM queued_message WHERE target = ?1", [k], |r| r.get::<_, i64>(0))? > 0)).await?;
+    let cur = current(app, &q.target);
+    if !waiting && cur.as_ref().is_none_or(|s| !busy(s)) {
+        let s = send(app, &q).await?;
+        last.insert(key, (s.id.clone(), s.status_since, now_ms()));
+        return Ok(Delivered { session: Some(s), queued: false });
+    }
+    let json = serde_json::to_string(&q)?;
+    app.state_db.call(move |c| Ok(c.execute("INSERT INTO queued_message (target, at, json) VALUES (?1, ?2, ?3)", rusqlite::params![key, now_ms(), json])?)).await?;
+    Ok(Delivered { session: cur, queued: true })
+}
+
+/// Sends the oldest queued message of each idle thread. Claimed (deleted) before the send, never retried: a
+/// failure is a notice in the thread.
+async fn drain(app: &App) -> Result<()> {
+    let rows: Vec<(i64, String, String)> = app
+        .state_db
+        .call(|c| {
+            let mut st = c.prepare("SELECT n, target, json FROM queued_message ORDER BY n")?;
+            let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await?;
+    let mut done = std::collections::HashSet::new();
+    let mut last = DELIVERY.lock().await;
+    for (n, key, json) in rows {
+        if !done.insert(key.clone()) {
+            continue;
+        }
+        let claim = |app: &App| {
+            let app = app.clone();
+            async move { app.state_db.call(move |c| Ok(c.execute("DELETE FROM queued_message WHERE n = ?1", [n])?)).await.map(|d| d > 0) }
+        };
+        let Ok(q) = serde_json::from_str::<Queued>(&json) else {
+            claim(app).await?;
+            continue;
+        };
+        let cur = current(app, &q.target);
+        if cur.as_ref().is_some_and(busy) {
+            continue;
+        }
+        // The previous delivery may not show as Running yet (a runner reports it later): wait for a status
+        // change of that session, or two minutes.
+        if let (Some(c), Some((id, since, at))) = (&cur, last.get(&key))
+            && c.id == *id
+            && c.status_since <= *since
+            && now_ms() - at < 120_000
+        {
+            continue;
+        }
+        if !claim(app).await? {
+            continue;
+        }
+        match send(app, &q).await {
+            Ok(s) => {
+                last.insert(key, (s.id.clone(), s.status_since, now_ms()));
+                if q.telegram {
+                    crate::telegram::await_reply(app, &s).await?;
+                }
+            }
+            Err(e) => {
+                let text = format!("A queued message could not be delivered and is not sent again: {e:#}");
+                if let Some(c) = &cur {
+                    crate::sessions::notice_anywhere(app, &c.id, &text).await;
+                }
+                tracing::warn!("queued message for {key}: {e:#}");
+                if q.telegram {
+                    let _ = crate::telegram::say(app, &format!("Launchpad could not send your queued message: {e:#}")).await;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Home: delivers queued messages when their thread is idle.
+pub(crate) fn spawn(app: &App) {
+    let app = app.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            if let Err(e) = drain(&app).await {
+                tracing::warn!("queued messages: {e:#}");
+            }
+        }
+    });
 }
 
 #[cfg(test)]

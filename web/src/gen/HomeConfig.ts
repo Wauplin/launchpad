@@ -13,4 +13,9 @@ backup: string,
 /**
  * The Git identity of agents' commits on every runner (runners never use the machine's Git config).
  */
-git_name: string, git_email: string, burst: BurstConfig, };
+git_name: string, git_email: string, burst: BurstConfig, 
+/**
+ * IANA time zone (for example `Europe/Paris`) of schedules created without a browser's zone. Empty: the
+ * host's time zone.
+ */
+time_zone: string, };

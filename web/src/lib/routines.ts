@@ -38,9 +38,13 @@ export const OUTCOME_CLASS: Record<RunOutcome, string> = {
   stopped: "bg-ink-3/40",
 };
 
-export function triggerSummary(r: Pick<CronAgent, "trigger" | "schedule">, folderName?: (id: string) => string): string {
+/** This browser's IANA time zone: schedules saved here run in it. */
+export const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/** `time_zone` absent: a record saved before schedules kept a zone runs in the server's time. */
+export function triggerSummary(r: Pick<CronAgent, "trigger" | "schedule" | "time_zone">, folderName?: (id: string) => string): string {
   const t: Trigger = r.trigger;
-  if (t.kind === "schedule") return `Schedule · ${r.schedule}`;
+  if (t.kind === "schedule") return `Schedule · ${r.schedule} (${r.time_zone ?? "server time"})`;
   if (t.kind === "github") return `GitHub · ${t.events.map((e) => GITHUB_EVENTS.find((x) => x.id === e)?.label.toLowerCase() ?? e).join(", ")} · ${t.repo ?? "the workspace's repositories"}`;
   return `When an agent is done · ${t.folder ? folderName?.(t.folder) ?? "a folder" : "any folder of the workspace"}`;
 }

@@ -1,5 +1,5 @@
 // Demo routes: harnesses and models, configuration, profiles, sign-in checks, usage history, machines (SSH hosts),
-// devices and pairing, Web Push and the desktop-only actions (`/api/open`, `/api/window`).
+// devices and pairing, and the desktop-only actions (`/api/open`, `/api/window`).
 
 import { toast } from "@/components/Toast";
 import type { Config } from "@/gen/Config";
@@ -329,13 +329,7 @@ function qrSvg(seed: string): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/><path fill="#000" d="${d}"/></svg>`;
 }
 
-// ---------------------------------------------------------------- Web Push and desktop actions
-
-const NO_PUSH = "Push notifications are not part of the demo.";
-route("GET", "/api/push", () => ({ public_key: "", subscribed: false, titles: false }));
-route("POST", "/api/push/subscribe", () => { throw new DemoError(400, NO_PUSH); });
-route("POST", "/api/push/unsubscribe", () => ({ ok: true }));
-route("POST", "/api/push/test", () => { throw new DemoError(400, NO_PUSH); });
+// ---------------------------------------------------------------- Desktop actions
 
 const desktopOnly = () => { toast("Demo: opening links and windows is disabled."); return { ok: true }; };
 route("POST", "/api/open", desktopOnly);

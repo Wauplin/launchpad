@@ -157,10 +157,6 @@ impl Auth {
         let sessions = db
             .call(|conn| {
                 conn.execute("DELETE FROM browser_device WHERE expires_at <= ?1", [now()])?;
-                conn.execute(
-                    "DELETE FROM push_subscription WHERE device_id NOT IN (SELECT id FROM browser_device)",
-                    [],
-                )?;
                 let mut stmt = conn.prepare(
                     "SELECT secret_hash, id, expires_at, last_seen_at FROM browser_device",
                 )?;
@@ -404,10 +400,6 @@ impl Auth {
         self.db
             .call(move |conn| {
                 conn.execute("DELETE FROM browser_device WHERE id = ?1", [&db_id])?;
-                conn.execute(
-                    "DELETE FROM push_subscription WHERE device_id = ?1",
-                    [&db_id],
-                )?;
                 Ok(())
             })
             .await?;
@@ -452,11 +444,10 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
     let path = req.uri().path();
     let private = path == "/auth"
         || path.starts_with("/auth/reverse/")
-        || path.starts_with("/api/devices")
-        || path.starts_with("/api/push");
-    // Installable-app files hold no data, and browsers fetch the manifest, icons and service
-    // worker updates without the session cookie (or before pairing on a Home Screen).
-    let public = matches!(path, "/sw.js" | "/manifest.webmanifest") || path.starts_with("/icons/");
+        || path.starts_with("/api/devices");
+    // Installable-app files hold no data, and browsers fetch the manifest and icons without the
+    // session cookie (or before pairing on a Home Screen).
+    let public = path == "/manifest.webmanifest" || path.starts_with("/icons/");
     if path == "/api/health"
         || matches!(path, "/auth" | "/auth/reverse/start" | "/auth/reverse/poll")
         || public
@@ -830,8 +821,6 @@ struct Device {
     created_at: i64,
     expires_at: i64,
     last_seen_at: Option<i64>,
-    /// At least one Web Push subscription.
-    push: bool,
     current: bool,
 }
 async fn devices(
@@ -843,8 +832,7 @@ async fn devices(
         .db
         .call(move |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, name, created_at, expires_at, last_seen_at,
-            EXISTS (SELECT 1 FROM push_subscription p WHERE p.device_id = browser_device.id)
+                "SELECT id, name, created_at, expires_at, last_seen_at
             FROM browser_device WHERE expires_at > ?1 ORDER BY created_at DESC",
             )?;
             let rows = stmt.query_map([now()], |r| {
@@ -854,7 +842,6 @@ async fn devices(
                     created_at: r.get(2)?,
                     expires_at: r.get(3)?,
                     last_seen_at: r.get(4)?,
-                    push: r.get(5)?,
                     current: false,
                 })
             })?;

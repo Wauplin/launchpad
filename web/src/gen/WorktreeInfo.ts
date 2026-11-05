@@ -16,4 +16,8 @@ ahead: number, behind: number,
 /**
  * Commits not on Home yet.
  */
-unpushed: boolean, };
+unpushed: boolean, 
+/**
+ * Set when Home answers for an away runner (offline, or a stopped Burst job): why, for the window.
+ */
+away: string | null, };

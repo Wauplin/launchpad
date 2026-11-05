@@ -195,7 +195,7 @@ async fn hf(app: &App, method: reqwest::Method, path: &str, body: Option<Value>)
     let status = res.status();
     let text = res.text().await.unwrap_or_default();
     let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-    ensure!(status.is_success(), "HF Jobs: {}", v["error"].as_str().map(str::to_string).unwrap_or_else(|| format!("{status} {}", text.chars().take(200).collect::<String>())));
+    ensure!(status.is_success(), "HF Jobs: {}", v["error"].as_str().map(|e| format!("{e} ({status})")).unwrap_or_else(|| format!("{status} {}", text.chars().take(200).collect::<String>())));
     Ok(v)
 }
 
@@ -243,11 +243,41 @@ pub async fn unavailable(app: &App) -> Option<String> {
     if token(app).await.is_err() {
         return Some("Home has no Hugging Face login".into());
     }
+    if let Some(why) = jobs_refused(app).await {
+        return Some(why);
+    }
     let spent = month_cost(&runs(app).await.unwrap_or_default(), now_ms());
     if spent >= config.monthly_cap_usd {
         return Some(format!("Burst reached this month's cap (${:.2} of ${:.2}): raise it in Settings → Home and runners", spent, config.monthly_cap_usd));
     }
     None
+}
+
+/// Why the Hugging Face account cannot run HF Jobs in Home's namespace, or None (also when it cannot tell).
+/// HF Jobs need a PRO account or credits (a Team or Enterprise plan for an organization). Cached ten minutes.
+async fn jobs_refused(app: &App) -> Option<String> {
+    static CACHE: std::sync::Mutex<Option<(i64, Option<String>)>> = std::sync::Mutex::new(None);
+    if let Some((at, why)) = CACHE.lock().unwrap().clone()
+        && now_ms() - at < 10 * 60 * 1000
+    {
+        return why;
+    }
+    let namespace = namespace()?;
+    let me = hf(app, reqwest::Method::GET, "/api/whoami-v2", None).await.ok()?;
+    let why = jobs_refusal(&me, &namespace);
+    *CACHE.lock().unwrap() = Some((now_ms(), why.clone()));
+    why
+}
+
+/// Whether a whoami-v2 answer allows HF Jobs in `namespace`, as a reason to show, or None.
+fn jobs_refusal(me: &Value, namespace: &str) -> Option<String> {
+    let flag = |v: &Value, k: &str| v[k].as_bool().unwrap_or(false);
+    if me["name"].as_str() == Some(namespace) {
+        return (!flag(me, "isPro") && !flag(me, "canPay")).then(|| format!("Burst needs a Hugging Face PRO account or credits on {namespace} to run HF Jobs: pair a runner instead, or upgrade at https://huggingface.co/pricing"));
+    }
+    let org = me["orgs"].as_array().and_then(|o| o.iter().find(|o| o["name"].as_str() == Some(namespace)))?;
+    let plan = org["plan"].as_str().is_some_and(|p| p == "team" || p == "enterprise");
+    (!plan && !flag(org, "canPay")).then(|| format!("Burst needs a Team or Enterprise plan, or credits, on the {namespace} organization to run HF Jobs: pair a runner instead"))
 }
 
 pub async fn overview(app: &App) -> Result<BurstOverview> {
@@ -298,7 +328,15 @@ async fn start(app: &App, session_id: Option<String>, pending: Pending) -> Resul
         error: None,
         pending: Some(pending),
     };
-    match hf(app, reqwest::Method::POST, &format!("/api/jobs/{namespace}"), Some(spec)).await {
+    let created = hf(app, reqwest::Method::POST, &format!("/api/jobs/{namespace}"), Some(spec)).await.map_err(|e| {
+        let text = format!("{e:#}");
+        if text.contains("402 Payment") || text.contains("403 Forbidden") {
+            anyhow::anyhow!("Burst could not start an HF Job in {namespace}: HF Jobs need a Hugging Face PRO account or credits. Pair a runner instead. ({text})")
+        } else {
+            e
+        }
+    });
+    match created {
         Ok(job) => {
             run.job_id = job["id"].as_str().map(str::to_string);
             run.url = job["status"]["exposeUrls"].as_array().and_then(|u| u.iter().filter_map(Value::as_str).find(|u| u.contains(&format!("--{PORT}."))).map(str::to_string));
@@ -322,6 +360,16 @@ async fn start(app: &App, session_id: Option<String>, pending: Pending) -> Resul
 /// Cancels a run's job. Its sessions stay on Home.
 pub async fn stop(app: &App, runner_id: &str, error: Option<String>) -> Result<()> {
     let r = get(app, runner_id).await?.context("no such Burst runner")?;
+    // What the job was started for never happened: the placeholder fails, a message shows it was not sent.
+    let reason = error.clone().or_else(|| r.pending.as_ref().map(|_| "the Burst runner was stopped before it started".to_string()));
+    if let Some(e) = &reason {
+        match &r.pending {
+            Some(Pending::Launch { session_id, .. }) => fail_placeholder(app, session_id).await,
+            Some(Pending::Message { session_id, .. }) => fail_continuation(app, session_id, e, true).await,
+            Some(Pending::Move { session_id }) => fail_continuation(app, session_id, e, false).await,
+            None => {}
+        }
+    }
     if let Some(job) = &r.job_id
         && r.active()
         && let Err(e) = hf(app, reqwest::Method::POST, &format!("/api/jobs/{}/{job}/cancel", r.namespace), None).await
@@ -406,9 +454,6 @@ async fn drive(app: &App, runner_id: &str) {
         }
         Err(e) => {
             tracing::warn!("Burst {runner_id}: {e:#}");
-            if let Some(Pending::Launch { session_id, .. }) = &run.pending {
-                fail_placeholder(app, session_id).await;
-            }
             let _ = stop(app, runner_id, Some(format!("{e:#}"))).await;
         }
     }
@@ -475,6 +520,20 @@ async fn fail_placeholder(app: &App, id: &str) {
     }
 }
 
+/// A message or a move to Burst that failed after the request returned: the session shows Failed with the
+/// reason (Home adds no event to a replicated session), and the job's error stays in Settings → Home and runners.
+async fn fail_continuation(app: &App, id: &str, error: &str, message: bool) {
+    let Some(s) = app.sessions.get(id) else { return };
+    if s.status.is_running() || s.status == SessionStatus::Closed {
+        return;
+    }
+    let lost = if message { " Your message was not sent: send it again." } else { "" };
+    let text = format!("Burst could not continue this session: {error}.{lost}");
+    if let Err(e) = app.sessions.fail_replica(app, id, text).await {
+        tracing::warn!("Burst: {id}: {e:#}");
+    }
+}
+
 /// Home: a message for a session whose Burst job has stopped: a new job takes the session, then the message.
 pub async fn continue_session(app: &App, id: &str, text: String, files: Vec<crate::model::FileAttachment>, key: Option<String>) -> Result<()> {
     let s = app.sessions.get(id).context("no such session")?;
@@ -482,6 +541,9 @@ pub async fn continue_session(app: &App, id: &str, text: String, files: Vec<crat
         bail!("{reason}");
     }
     ensure!(!runs(app).await?.iter().any(|r| r.active() && r.session_id.as_deref() == Some(id) && r.pending.is_some()), "Burst is already starting for this session");
+    if s.runner_id.as_ref().is_some_and(|r| !app.runners.connected(r)) {
+        crate::handoff::offline_copy(app, &s).await?;
+    }
     start(app, Some(id.to_string()), Pending::Message { session_id: id.to_string(), text, files, key }).await.map(|_| ())
 }
 
@@ -496,13 +558,11 @@ pub async fn move_session(app: &App, id: &str) -> Result<()> {
     start(app, Some(id.to_string()), Pending::Move { session_id: id.to_string() }).await.map(|_| ())
 }
 
-/// Whether a message to this session should start Burst: its runner is a Burst runner that is gone.
+/// Whether a message to this session should start Burst: its runner is a Burst runner that is gone, or that
+/// is stopping (the session was handed off and Home cancels the job soon, even while it is still connected).
 pub async fn needs_new_job(app: &App, s: &Session) -> bool {
     let Some(r) = &s.runner_id else { return false };
-    if app.runners.connected(r) {
-        return false;
-    }
-    get(app, r).await.ok().flatten().is_some_and(|run| !run.active() || run.state == BurstState::Stopping)
+    get(app, r).await.ok().flatten().is_some_and(|run| run.state == BurstState::Stopping || (!run.active() && !app.runners.connected(r)))
 }
 
 /// Every 15 s on Home: jobs that ended on their own, finished sessions handed off, and stopped after the
@@ -515,23 +575,34 @@ pub fn spawn(app: &App) {
     tokio::spawn(async move {
         // A start interrupted by a Home restart is never retried: its job is cancelled.
         for r in runs(&app).await.unwrap_or_default().into_iter().filter(|r| r.active() && r.pending.is_some()) {
-            if let Some(Pending::Launch { session_id, .. }) = &r.pending {
-                fail_placeholder(&app, session_id).await;
-            }
-            let _ = stop(&app, &r.runner_id, Some("Home restarted while this Burst runner was starting; send your message again".into())).await;
+            let _ = stop(&app, &r.runner_id, Some("Home restarted while this Burst runner was starting".into())).await;
         }
         let mut handed_off: std::collections::HashMap<String, i64> = Default::default();
+        let mut stuck: std::collections::HashMap<String, Stuck> = Default::default();
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-            if let Err(e) = tick(&app, &mut handed_off).await {
+            if let Err(e) = tick(&app, &mut handed_off, &mut stuck).await {
                 tracing::warn!("Burst: {e:#}");
             }
         }
     });
 }
 
-async fn tick(app: &App, handed_off: &mut std::collections::HashMap<String, i64>) -> Result<()> {
-    for r in runs(app).await?.into_iter().filter(BurstRun::active) {
+/// How long a job may keep running after its final handoff starts failing.
+const STUCK_LIMIT_MS: i64 = 2 * 3600 * 1000;
+/// How long a job waits on an open question before Home says that it keeps billing.
+const QUESTION_NOTICE_MS: i64 = 3600 * 1000;
+
+/// A job that cannot stop yet: since when, and whether its session was told.
+struct Stuck {
+    since: i64,
+    told: bool,
+}
+
+async fn tick(app: &App, handed_off: &mut std::collections::HashMap<String, i64>, stuck: &mut std::collections::HashMap<String, Stuck>) -> Result<()> {
+    let active: Vec<BurstRun> = runs(app).await?.into_iter().filter(BurstRun::active).collect();
+    stuck.retain(|id, _| active.iter().any(|r| &r.runner_id == id));
+    for r in active {
         // Jobs that ended without Home (timeout, error, cancelled on the Hub).
         if let Some(job) = &r.job_id
             && let Ok(j) = hf(app, reqwest::Method::GET, &format!("/api/jobs/{}/{job}", r.namespace), None).await
@@ -539,11 +610,22 @@ async fn tick(app: &App, handed_off: &mut std::collections::HashMap<String, i64>
             && matches!(stage, "COMPLETED" | "ERROR" | "CANCELED" | "DELETED")
         {
             let message = j["status"]["message"].as_str().map(str::to_string);
-            let error = (stage == "ERROR").then(|| message.unwrap_or_else(|| "the job failed".into()));
+            let error = match stage {
+                "ERROR" => Some(message.unwrap_or_else(|| "the job failed".into())),
+                _ if r.pending.is_some() => Some(format!("the job ended ({}) before its runner connected", stage.to_lowercase())),
+                _ => None,
+            };
             stop(app, &r.runner_id, error).await?;
             continue;
         }
+        let sessions: Vec<Session> = app.sessions.list().into_iter().filter(|s| s.runner_id.as_deref() == Some(r.runner_id.as_str())).collect();
         if r.state == BurstState::Stopping {
+            // A message reached the job between its handoff and Stopping: it runs again, so it is not stopped.
+            if sessions.iter().any(|s| s.status.is_running() || s.status == SessionStatus::Starting) {
+                handed_off.remove(&r.runner_id);
+                update(app, &r.runner_id, |r| r.state = BurstState::Running).await?;
+                continue;
+            }
             // Stopped once Home's backup holds the handoff (or right away without a backup).
             let since = handed_off.get(&r.runner_id).copied().unwrap_or(0);
             let info = app.home_backups.info();
@@ -557,29 +639,49 @@ async fn tick(app: &App, handed_off: &mut std::collections::HashMap<String, i64>
         if r.state != BurstState::Running || r.pending.is_some() || !app.runners.connected(&r.runner_id) {
             continue;
         }
-        let sessions: Vec<Session> = app.sessions.list().into_iter().filter(|s| s.runner_id.as_deref() == Some(r.runner_id.as_str())).collect();
-        let idle = !sessions.is_empty() && sessions.iter().all(|s| !s.status.is_running() && !s.open_question && s.status != SessionStatus::Starting);
-        let unused = sessions.is_empty() && r.connected_at.is_some_and(|t| now_ms() - t > CONNECT_TIMEOUT_MS);
-        if !(idle || unused) {
+        // An open question keeps the job (its answer goes to this process); say once that it keeps billing.
+        if let Some(q) = sessions.iter().find(|s| s.open_question) {
+            let entry = stuck.entry(r.runner_id.clone()).or_insert(Stuck { since: now_ms(), told: false });
+            if !entry.told && now_ms() - entry.since > QUESTION_NOTICE_MS {
+                entry.told = true;
+                crate::sessions::notice_anywhere(app, &q.id, &format!("This agent's Burst runner keeps running (about ${:.2} per hour) while it waits for your answer. Answer it, or Stop it, so the runner can stop.", r.cost_per_minute * 60.0)).await;
+            }
             continue;
         }
-        let mut ok = true;
+        let idle = !sessions.is_empty() && sessions.iter().all(|s| !s.status.is_running() && s.status != SessionStatus::Starting);
+        let unused = sessions.is_empty() && r.connected_at.is_some_and(|t| now_ms() - t > CONNECT_TIMEOUT_MS);
+        if !(idle || unused) {
+            stuck.remove(&r.runner_id);
+            continue;
+        }
+        let mut failure = None;
         for s in sessions.iter().filter(|s| s.status != SessionStatus::Closed) {
-            match app.runners.request(&r.runner_id, "POST", &format!("/api/sessions/{}/handoff", s.id), Some(json!({"final": true}).to_string())).await {
-                Ok((status, _)) if (200..300).contains(&status) => {}
-                Ok((_, body)) => {
-                    tracing::info!("Burst {}: {} kept running: {}", r.runner_id, s.id, error_of(&body));
-                    ok = false;
+            let why = match app.runners.request(&r.runner_id, "POST", &format!("/api/sessions/{}/handoff", s.id), Some(json!({"final": true}).to_string())).await {
+                Ok((status, _)) if (200..300).contains(&status) => continue,
+                Ok((_, body)) => error_of(&body),
+                Err(e) => format!("{e:#}"),
+            };
+            tracing::info!("Burst {}: {} kept running: {why}", r.runner_id, s.id);
+            failure = Some((s.id.clone(), why));
+        }
+        match failure {
+            None => {
+                stuck.remove(&r.runner_id);
+                handed_off.insert(r.runner_id.clone(), now_ms());
+                update(app, &r.runner_id, |r| r.state = BurstState::Stopping).await?;
+            }
+            // The branches are on Home after every turn: a job that cannot hand off is told, then stopped.
+            Some((session, why)) => {
+                let entry = stuck.entry(r.runner_id.clone()).or_insert(Stuck { since: now_ms(), told: false });
+                if !entry.told {
+                    entry.told = true;
+                    crate::sessions::notice_anywhere(app, &session, &format!("This agent's Burst runner cannot stop yet: {why}. Ask the agent to fix it. Otherwise the runner stops in two hours, and files not committed there are lost.")).await;
                 }
-                Err(e) => {
-                    tracing::info!("Burst {}: {e:#}", r.runner_id);
-                    ok = false;
+                if now_ms() - entry.since > STUCK_LIMIT_MS {
+                    stuck.remove(&r.runner_id);
+                    stop(app, &r.runner_id, Some(format!("stopped after two hours without a handoff: {why}"))).await?;
                 }
             }
-        }
-        if ok {
-            handed_off.insert(r.runner_id.clone(), now_ms());
-            update(app, &r.runner_id, |r| r.state = BurstState::Stopping).await?;
         }
     }
     Ok(())
@@ -588,6 +690,18 @@ async fn tick(app: &App, handed_off: &mut std::collections::HashMap<String, i64>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jobs_need_pro_credits_or_a_paid_org() {
+        let me = json!({"name": "ada", "isPro": false, "canPay": false, "orgs": [{"name": "team", "plan": "team"}, {"name": "free", "canPay": false}]});
+        assert!(jobs_refusal(&me, "ada").is_some());
+        assert!(jobs_refusal(&json!({"name": "ada", "isPro": true}), "ada").is_none());
+        assert!(jobs_refusal(&json!({"name": "ada", "canPay": true}), "ada").is_none());
+        assert!(jobs_refusal(&me, "team").is_none());
+        assert!(jobs_refusal(&me, "free").is_some());
+        // Not a namespace of this account: Home cannot tell, the job creation answers.
+        assert!(jobs_refusal(&me, "other").is_none());
+    }
 
     fn run(created: i64, stopped: Option<i64>) -> BurstRun {
         BurstRun { runner_id: "r".into(), job_id: None, namespace: "n".into(), flavor: "cpu-basic".into(), url: None, state: BurstState::Stopped, session_id: None, created_at: created, connected_at: None, stopped_at: stopped, cost_per_minute: 0.01, error: None, pending: None }

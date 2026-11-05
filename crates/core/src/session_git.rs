@@ -59,7 +59,12 @@ pub async fn history(app: &App, id: &str, commit: Option<&str>) -> Result<Option
         return Ok(None);
     };
     // Read committed objects in the registered repository, including after folder cleanup.
-    let cwd = std::path::Path::new(&w.repo);
+    history_in(app, &w, std::path::Path::new(&w.repo), commit).await.map(Some)
+}
+
+/// The committed history of a task branch in `cwd`, a repository with the branch and its base as local
+/// branches: the runner's clone, or Home's mirror.
+pub async fn history_in(app: &App, w: &crate::worktrees::TaskWorktree, cwd: &std::path::Path, commit: Option<&str>) -> Result<GitHistory> {
     let branch_head = procs::output(&app.env, "git", &["rev-parse", "--verify", &format!("refs/heads/{}", w.branch)], Some(cwd)).await;
     let head = match branch_head {
         Ok(head) => head,
@@ -91,14 +96,19 @@ pub async fn history(app: &App, id: &str, commit: Option<&str>) -> Result<Option
     {
         Some(target.clone())
     } else { None };
-    Ok(Some(GitHistory { commits, files, merged_into, base: from, head: to }))
+    Ok(GitHistory { commits, files, merged_into, base: from, head: to })
 }
 
 pub async fn committed_diff(app: &App, id: &str, path: &str, commit: Option<&str>) -> Result<GitDiff> {
-    let h = history(app, id, commit).await?.context("no task worktree history")?;
-    anyhow::ensure!(h.files.iter().any(|f| f.path == path), "file is not changed in this selection");
     let w = crate::worktrees::for_session(app, id).await?.into_iter().find(|w| w.primary).context("no task worktree")?;
-    let patch = procs::output(&app.env, "git", &["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", &h.base, &h.head, "--", path], Some(std::path::Path::new(&w.repo))).await?;
+    committed_diff_in(app, &w, std::path::Path::new(&w.repo), path, commit).await
+}
+
+/// One file of `history_in`.
+pub async fn committed_diff_in(app: &App, w: &crate::worktrees::TaskWorktree, cwd: &std::path::Path, path: &str, commit: Option<&str>) -> Result<GitDiff> {
+    let h = history_in(app, w, cwd, commit).await?;
+    anyhow::ensure!(h.files.iter().any(|f| f.path == path), "file is not changed in this selection");
+    let patch = procs::output(&app.env, "git", &["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", &h.base, &h.head, "--", path], Some(cwd)).await?;
     Ok(GitDiff { staged: String::new(), truncated: patch.len() > 200_000, unstaged: truncate_output(&patch, 200_000) })
 }
 

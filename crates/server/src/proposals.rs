@@ -45,8 +45,13 @@ async fn list(State(s): State<Server>, Query(q): Query<Scope>) -> ApiResult<Vec<
 async fn create(State(s): State<Server>, Json(c): Json<Create>) -> ApiResult<Proposal> {
     Ok(Json(proposals::create(&s.app, c).await.map_err(bad)?))
 }
-async fn accept(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Proposal> {
-    Ok(Json(proposals::accept(&s.app, &id).await.map_err(bad)?))
+#[derive(Deserialize)]
+struct AcceptQuery {
+    /// The browser's IANA time zone, for routines and crons.
+    time_zone: Option<String>,
+}
+async fn accept(State(s): State<Server>, Path(id): Path<String>, Query(q): Query<AcceptQuery>) -> ApiResult<Proposal> {
+    Ok(Json(proposals::accept_in(&s.app, &id, q.time_zone).await.map_err(bad)?))
 }
 async fn dismiss(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Proposal> {
     Ok(Json(proposals::dismiss(&s.app, &id).await.map_err(bad)?))

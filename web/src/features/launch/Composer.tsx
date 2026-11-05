@@ -35,6 +35,7 @@ import { costUnavailableMessage, supportsModelCost, parseUsd, usd, usesModelRefe
 import { ModelSearch } from "@/components/ModelSearch";
 import { findModel, pickModel, ProviderPicker } from "@/components/ProviderPicker";
 import { availablePresets } from "@/lib/presets";
+import { browserZone } from "@/lib/routines";
 import { useScope } from "@/lib/workspace";
 import { useZoomScale } from "@/lib/zoom";
 import { rememberProjectCompletion, rememberedRun, rememberSuccessfulSession, useComposer } from "@/stores/composer";
@@ -377,7 +378,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     const spec = { ...draft, workspace_id: scope.workspace?.id ?? null, worktree: draft.target.kind === "project" && !gitTarget ? null : draft.worktree && { ...draft.worktree, pull_request: pullRequest } };
     try {
       if (cron) {
-        await api.post("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions });
+        await api.post("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions, time_zone: browserZone() });
         setCron(null);
         discard();
         void navigate({ to: "/agents" });

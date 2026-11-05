@@ -10,7 +10,6 @@ import { isPhone, watchLayout } from "@/lib/phone";
 import { isDesktopShell } from "@/lib/platform";
 import { persistCache, restoreCache } from "@/lib/offlineCache";
 import { logToDaemon } from "@/lib/api";
-import { registerServiceWorker } from "@/lib/push";
 import { connectEvents } from "@/lib/ws";
 import { useComposer } from "@/stores/composer";
 import { isDemo } from "@/demo/mode";
@@ -34,10 +33,13 @@ const queryClient = new QueryClient({
 // Demo mode answers every request in the browser (src/demo/); its chunk loads only then.
 const demo = isDemo ? import("@/demo/boot").then((m) => m.bootDemo(queryClient)) : Promise.resolve();
 void demo.then(() => useComposer.getState().restore());
-// Notification clicks open their route in this window through the router.
 let navigateTo: ((url: string) => void) | null = null;
 const deployment = demo.then(() => loadDeployment());
-if (!isDemo) void deployment.then(() => registerServiceWorker((url) => (navigateTo ? navigateTo(url) : location.assign(url))));
+// Earlier versions registered a service worker (offline shell and Web Push); remove it and its caches.
+if (!isDemo && "serviceWorker" in navigator) {
+  void navigator.serviceWorker.getRegistrations().then((all) => all.forEach((r) => void r.unregister())).catch(() => {});
+  if ("caches" in window) void caches.keys().then((names) => names.filter((n) => n.startsWith("launchpad-")).forEach((n) => void caches.delete(n))).catch(() => {});
+}
 
 window.addEventListener("error", (e) => logToDaemon(`uncaught: ${e.message} at ${e.filename}:${e.lineno}`, "error"));
 window.addEventListener("unhandledrejection", (e) => logToDaemon(`unhandled rejection: ${String(e.reason)}`, "error"));

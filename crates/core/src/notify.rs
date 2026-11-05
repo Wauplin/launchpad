@@ -1,5 +1,5 @@
-//! Notifications, sent by the daemon so they work when every window is closed: Web Push to paired
-//! browsers (`push.rs`) and a desktop notification on the host. Clicking a desktop notification
+//! Notifications, sent by the daemon so they work when every window is closed: the owner's Telegram
+//! chat (`telegram.rs`) and a desktop notification on the host. Clicking a desktop notification
 //! opens the window on the item (`launchpad-desktop --open <route>`).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -68,7 +68,6 @@ pub(crate) fn session(app: &App, s: &Session, event: SessionNotification) {
     if !app.config.get().agents.notify {
         return;
     }
-    app.push.session(app, s, event);
     let project = std::path::Path::new(&s.cwd).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let summary = event.summary(&project);
     let body = s.title.clone();

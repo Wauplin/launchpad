@@ -66,11 +66,11 @@ route("POST", "/api/bots/:id/pause", ({ params, body }) => {
 });
 route("POST", "/api/bots/:id/routines", ({ params, body }) => {
   const b = botOf(params.id);
-  const r = body as { title?: string; instructions?: string; trigger?: CronAgent["trigger"]; schedule?: string; conditions?: CronAgent["conditions"] };
+  const r = body as { title?: string; instructions?: string; trigger?: CronAgent["trigger"]; schedule?: string; conditions?: CronAgent["conditions"]; time_zone?: string };
   if (!r.title?.trim()) throw new DemoError(400, "give the routine a name");
   if (!r.instructions?.trim()) throw new DemoError(400, "write what the bot does at each run");
   const profile = world.config.profiles.find((p) => p.id === b.settings.profile);
-  return createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: b.settings.profile ?? null, target: { kind: "project", project_id: b.settings.folder }, text: r.instructions.trim(), workspace_id: b.workspace_id }, r.schedule ?? "", r.conditions ?? [], r.trigger ?? { kind: "schedule" }, { title: r.title.trim(), bot_id: b.id, bot_paused: b.paused });
+  return createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: b.settings.profile ?? null, target: { kind: "project", project_id: b.settings.folder }, text: r.instructions.trim(), workspace_id: b.workspace_id }, r.schedule ?? "", r.conditions ?? [], r.trigger ?? { kind: "schedule" }, { title: r.title.trim(), bot_id: b.id, bot_paused: b.paused, ...(r.time_zone ? { time_zone: r.time_zone } : {}) });
 });
 route("DELETE", "/api/bots/:id", ({ params }) => {
   world.bots = world.bots.filter((b) => b.id !== params.id);

@@ -13,7 +13,7 @@ configured: boolean, bot_username: string | null, bound: boolean, chat_name: str
  */
 code: string | null, link: string | null, code_expires_at: number | null, 
 /**
- * Notifications to the chat (the same events as Web Push).
+ * Notifications to the chat (the same events as desktop notifications).
  */
 notify: boolean, 
 /**

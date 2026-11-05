@@ -22,7 +22,7 @@ import type { Trigger } from "@/gen/Trigger";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { useProjects } from "@/lib/queries";
-import { GITHUB_EVENTS, OUTCOME, OUTCOME_CLASS, lastSuccess, routineState, triggerSummary } from "@/lib/routines";
+import { GITHUB_EVENTS, OUTCOME, OUTCOME_CLASS, browserZone, lastSuccess, routineState, triggerSummary } from "@/lib/routines";
 
 export type RoutineDraft = { trigger: Trigger; schedule: string; conditions: CronCondition[] };
 
@@ -112,7 +112,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
   };
   const save = () => act(async () => {
     if (!edit) return;
-    await api.patch(`/api/launch/crons/${cron.id}`, { title: edit.title, trigger: edit.trigger, schedule: edit.schedule, conditions: edit.conditions, ...(cron.bot_id ? { instructions: edit.instructions } : {}) });
+    await api.patch(`/api/launch/crons/${cron.id}`, { title: edit.title, trigger: edit.trigger, schedule: edit.schedule, conditions: edit.conditions, time_zone: browserZone(), ...(cron.bot_id ? { instructions: edit.instructions } : {}) });
     setEdit(null);
     toast("Routine saved");
   });
@@ -180,7 +180,7 @@ export function NewRoutine({ bot, repo, harness, onDone }: { bot: Bot; repo: str
   const add = async () => {
     setBusy(true);
     try {
-      await api.post<CronAgent>(`/api/bots/${bot.id}/routines`, { title: title.trim(), instructions: instructions.trim(), ...draft });
+      await api.post<CronAgent>(`/api/bots/${bot.id}/routines`, { title: title.trim(), instructions: instructions.trim(), ...draft, time_zone: browserZone() });
       await qc.invalidateQueries({ queryKey: ["crons"] });
       toast(`Routine added to ${bot.settings.name}`);
       onDone();

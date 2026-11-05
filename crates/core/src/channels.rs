@@ -443,6 +443,7 @@ pub fn spawn(app: &App) {
         }
         refresh_names(&app).await;
         crate::telegram::spawn(&app);
+        crate::hooks::spawn(&app);
     });
 }
 

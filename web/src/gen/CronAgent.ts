@@ -6,9 +6,13 @@ import type { Trigger } from "./Trigger";
 
 export type CronAgent = { id: string, spec: LaunchSpec, title: string, 
 /**
- * Standard 5-field cron expression, in the local time zone (Schedule trigger).
+ * Standard 5-field cron expression, in `time_zone` (Schedule trigger).
  */
-schedule: string, trigger: Trigger, 
+schedule: string, 
+/**
+ * IANA time zone of the schedule, from the browser that saved it. None: the host's time zone.
+ */
+time_zone?: string, trigger: Trigger, 
 /**
  * A routine of this bot: its runs are messages to the bot's thread (`spec.text` is the instructions).
  */

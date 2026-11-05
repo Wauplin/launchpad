@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
         sessions: core::sessions::Sessions::new(), inbox: core::inbox::Inbox::new(), models: Default::default(),
         suggestion_locks: Default::default(),
         predraft_lock: Arc::new(tokio::sync::Mutex::new(())), worktree_lock: Arc::new(tokio::sync::Mutex::new(())),
-        terminals: Default::default(), push: core::push::Push::new(Arc::new(paths)),
+        terminals: Default::default(),
     };
     let result = async {
         for name in ["codex", "claude"] {

@@ -20,8 +20,7 @@ import { StatusBadge } from "@/features/agents/SessionBits";
 import { useReviewCount } from "@/features/review/data";
 import { useConnection } from "@/app/Connection";
 import { cachedAt } from "@/lib/offlineCache";
-import { NotificationsPrompt } from "@/app/NotificationsPrompt";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { projectName, useProjects, useSessions } from "@/lib/queries";
 import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
@@ -121,9 +120,12 @@ const QuestionCard = memo(function QuestionCard({ s, project }: { s: Session; pr
   </AgentCard>;
 });
 
-function GitFacts({ id }: { id: string }) {
+function GitFacts({ id, projectId }: { id: string; projectId: string | null }) {
+  const gitFolder = !!useProjects().data?.find((p) => p.id === projectId)?.home_git;
   const git = useQuery({ queryKey: ["session-git", id], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${id}/git`), staleTime: 30_000, retry: false });
   const d = git.data;
+  // A failed query means unknown, never "no changes".
+  if (git.isError && (gitFolder || !(git.error instanceof ApiError) || git.error.status >= 500)) return <div className="flex min-w-0 items-start gap-1.5 text-[12px] text-attn"><Icon name="branch" size={13} className="mt-0.5 flex-none" /><span>Git state unknown: open the session before archiving</span></div>;
   if (!d) return null;
   const parts: string[] = [];
   if (d.files.length) parts.push(`${d.files.length} uncommitted file${d.files.length === 1 ? "" : "s"}`);
@@ -153,7 +155,7 @@ const OutcomeCard = memo(function OutcomeCard({ s, project }: { s: Session; proj
   return <AgentCard s={s} className={done ? "border-line" : "border-gh-closed/40"}>
     <CardHead s={s} project={project} />
     {s.last_message && <p className="line-clamp-4 text-[13px] text-ink-2">{s.last_message}</p>}
-    {done && <GitFacts id={s.id} />}
+    {done && <GitFacts id={s.id} projectId={s.project_id} />}
     <div className="pointer-events-none relative z-20 flex flex-wrap gap-2 [&_button]:pointer-events-auto">
       {done && <button className="btn" disabled={busy} title="Archive the session (it stays resumable)" onClick={() => void act("close")}><Icon name="archive" size={14} />Archive</button>}
       {!done && <button className="btn" disabled={busy} title="Send “Continue the unfinished turn.”" onClick={() => void act("input", { text: "Continue the unfinished turn." })}>Resume</button>}
@@ -217,7 +219,6 @@ export function NowView() {
   return (
     <div className="h-full overflow-y-auto [overflow-wrap:anywhere]">
       <div className="mx-auto grid min-w-0 max-w-[640px] grid-cols-1 gap-5 px-3 pt-4">
-        <div className="-mx-3 -mt-4"><NotificationsPrompt /></div>
         <div className="flex min-w-0 items-center gap-2 px-1">
           <h1 className="m-0 min-w-0 flex-1 text-[18px] font-semibold">{needs.length ? `${needs.length} ${needs.length === 1 ? "agent needs" : "agents need"} you` : "Nothing waits for you"}</h1>
           <LaunchButton small label="New agent" title="Open the composer (the draft if one exists)" />

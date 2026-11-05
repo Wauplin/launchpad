@@ -19,7 +19,7 @@ import { api } from "@/lib/api";
 import { useBots } from "@/lib/bots";
 import { usePhone } from "@/lib/phone";
 import { useCrons, useProjects, useSchedules, useSessions } from "@/lib/queries";
-import { routineState, triggerSummary } from "@/lib/routines";
+import { browserZone, routineState, triggerSummary } from "@/lib/routines";
 import { useScope } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
 import { RoutineDetails, RunStrip } from "./Routines";
@@ -35,7 +35,7 @@ export function useCreateBrief() {
   const scope = useScope();
   return async () => {
     try {
-      const r = await api.post<CronAgent>("/api/launch/crons", { spec: { target: { kind: "assistant", workspace_id: scope.workspace?.id ?? null }, text: BRIEF, workspace_id: scope.workspace?.id ?? null }, schedule: "30 8 * * 1-5", conditions: DEFAULT_CRON.conditions.filter((c) => c.kind === "quota_left"), trigger: { kind: "schedule" }, title: BRIEF_TITLE });
+      const r = await api.post<CronAgent>("/api/launch/crons", { spec: { target: { kind: "assistant", workspace_id: scope.workspace?.id ?? null }, text: BRIEF, workspace_id: scope.workspace?.id ?? null }, schedule: "30 8 * * 1-5", conditions: DEFAULT_CRON.conditions.filter((c) => c.kind === "quota_left"), trigger: { kind: "schedule" }, title: BRIEF_TITLE, time_zone: browserZone() });
       await qc.invalidateQueries({ queryKey: ["crons"] });
       toast("Morning brief added: weekdays at 8:30, in Ask Launchpad");
       return r;

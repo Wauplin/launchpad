@@ -14,7 +14,7 @@ import { useProjects, useSessions } from "@/lib/queries";
 import { useComposer } from "@/stores/composer";
 import { useWorkspace } from "@/stores/workspace";
 import { useBots } from "@/lib/bots";
-import { triggerSummary } from "@/lib/routines";
+import { browserZone, triggerSummary } from "@/lib/routines";
 import { PatchView } from "@/features/github/DiffReview";
 import { useLayout } from "@/stores/layout";
 import { StatusBadge } from "@/features/agents/SessionBits";
@@ -42,7 +42,7 @@ function RoutineBody({ body }: { body: Extract<Proposal["body"], { kind: "routin
     <>
       <span className="flex flex-wrap gap-1">
         <Token icon="refresh" tone="warn">Routine of {bots.find((b) => b.id === body.bot_id)?.settings.name ?? "a bot"}</Token>
-        <Token>{triggerSummary(body, (id) => projects.find((p) => p.id === id)?.name ?? "a folder")}</Token>
+        <Token>{triggerSummary({ ...body, time_zone: browserZone() }, (id) => projects.find((p) => p.id === id)?.name ?? "a folder")}</Token>
       </span>
       <p className="m-0 line-clamp-4 text-[12px] whitespace-pre-wrap text-ink-2">{body.instructions}</p>
     </>
@@ -154,7 +154,8 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
   const act = async (action: "accept" | "dismiss" | "recheck") => {
     setBusy(true);
     try {
-      const next = await api.post<Proposal>(`/api/proposals/${p.id}/${action}`);
+      // A routine or cron keeps the time zone of the browser that accepts it.
+      const next = await api.post<Proposal>(`/api/proposals/${p.id}/${action}${action === "accept" ? `?time_zone=${encodeURIComponent(browserZone())}` : ""}`);
       qc.setQueryData<Proposal[]>(["proposals"], (old) => old?.map((x) => (x.id === next.id ? next : x)));
       if (next.state === "started" && (action === "accept" || action === "recheck")) {
         await qc.invalidateQueries({ queryKey: ["sessions"] });
@@ -177,7 +178,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
         </div>
       </div>
       {spec && <SpecTokens spec={spec} />}
-      {p.body.kind === "cron" && <Token tone="warn" icon="refresh">Creates a routine · {p.body.schedule}</Token>}
+      {p.body.kind === "cron" && <Token tone="warn" icon="refresh">Creates a routine · {p.body.schedule} ({browserZone()})</Token>}
       {p.body.kind === "schedule" && <Token tone="warn" icon="clock">{p.body.conditions.length} start condition{p.body.conditions.length === 1 ? "" : "s"}</Token>}
       {spec && !started && <p className="m-0 line-clamp-3 text-[12px] whitespace-pre-wrap text-ink-2">{spec.text}</p>}
       {p.body.kind === "message" && !started && <p className="m-0 line-clamp-3 text-[12px] whitespace-pre-wrap text-ink-2">To “{sessions.find((s) => s.id === (p.body as { session_id: string }).session_id)?.title ?? "an agent"}”: {p.body.text}</p>}

@@ -54,13 +54,13 @@ Home stores each bot's files with versions, like a plain folder, and includes th
 
 A routine sends the bot a task by itself. Open the bot's **Routines** tab and click **New routine** (or start from **Daily check**, **Review requests**, **CI failures** or **After each agent**). A routine has a name, what the bot does at each run, and when it runs:
 
-- **On a schedule**: a 5-field cron schedule in the server's time zone, for example weekdays at 9:00.
+- **On a schedule**: a 5-field cron schedule in your browser's time zone (kept with the routine and shown next to it), for example weekdays at 9:00. A proposed routine takes the zone of the browser where you click **Add routine**; without a browser, `[home] time_zone` in config.toml, else the server's.
 - **GitHub activity**: new activity in your Inbox (GitHub notifications) for the bot's repository or any repository of the workspace: review requested, mentioned, assigned, CI activity, new release, or any activity. Home is a private Space that GitHub cannot call, so Launchpad reads the Inbox about every minute; all new matching activity of one check starts one run, listed in the run's message.
 - **When an agent is done**: another agent's turn ends Done in a folder (or any folder of the workspace). The run gets a reference to that agent's trace. Runs of routines never start other routines.
 
 Optional conditions: at least a share of the profile's 5-hour or weekly quota left (with a reading from the last 15 minutes).
 
-Each run is a message to the bot's thread, shown as one line (**Routine “Daily check” · Scheduled**) that opens to the instructions. The bot prepares work for your review unless the instructions ask it to publish, then ends with a short report (a normal Done that notifies you) or with `no_update`, shown as **✓ No update**: no notification, and the thread does not need you unless an earlier result is still unread. A run while the bot is working is skipped, with the reason.
+Each run is a message to the bot's thread, shown as one line (**Routine “Daily check” · Scheduled**) that opens to the instructions. The bot prepares work for your review unless the instructions ask it to publish, then ends with a short report (a normal Done that notifies you) or with `no_update`, shown as **✓ No update**: no notification, and the thread does not need you unless an earlier result is still unread. A run while the bot is working is skipped, with the reason. Messages from incoming hooks and Telegram never join a running turn: they wait, in order, until the bot's turn ends.
 
 Every routine shows its last runs as small squares and its history in text: **Report**, **No update**, **Skipped** (why), **Failed** or **Interrupted**, the last successful run and the next one. **Run now** starts a run at once. **Pause** stops one routine; the bot's **Pause** stops all of them.
 

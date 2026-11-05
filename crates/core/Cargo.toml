@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = "1.0.104"
 base64 = "0.22"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+chrono-tz = "0.10.4"
 croner = "2.2.0"
 async-trait = "0.1.92"
 dirs = "7.0.0"
@@ -30,8 +31,6 @@ ts-rs = { version = "12.0.1", features = ["serde-json-impl", "uuid-impl", "no-se
 uuid = { version = "1.26.1", features = ["v4", "serde"] }
 ignore = "0.4.33"
 portable-pty = "0.9"
-p256 = { version = "0.14", default-features = false, features = ["ecdh", "ecdsa", "std"] }
-hkdf = "0.13"
 aes-gcm = "0.11"
 serde_yaml_ng = "0.10"
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }

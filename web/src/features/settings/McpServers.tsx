@@ -8,7 +8,7 @@ import { toast, toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading } from "@/components/ui";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
-import { useWorkspaces } from "@/lib/workspace";
+import { useScope, useWorkspaces } from "@/lib/workspace";
 import { Card } from "./SettingsView";
 
 export function useMcpServers() {
@@ -23,10 +23,11 @@ export function McpServers() {
   const [editing, setEditing] = useState<McpServer | null>(null);
   const refresh = () => qc.invalidateQueries({ queryKey: ["mcp"] });
   const workspaces = useWorkspaces().data ?? [];
+  const current = useScope().workspace;
   const wsName = (id: string) => (id === "*" ? "every workspace" : workspaces.find((w) => w.id === id)?.name ?? id);
   return (
-    <Card title="MCP servers" tour="settings.mcp" end={!editing ? <button className="btn btn-sm" onClick={() => setEditing({ id: "", name: "", url: "", auth: null, workspaces: ["*"], tools: [], tools_off: [], refreshed_at: null, error: null })}>Add MCP server</button> : undefined}>
-      <span className="text-[12px] text-ink-3">Remote MCP servers (Streamable HTTP). Agents on every runner reach them through Home, which adds the token: it never reaches a runner. A tool that is on acts directly with that token; switch off what agents must not do. Read only and destructive are what the server says about its tools, not a guarantee.</span>
+    <Card title="MCP servers" tour="settings.mcp" end={!editing ? <button className="btn btn-sm" onClick={() => setEditing({ id: "", name: "", url: "", auth: null, workspaces: current ? [current.id] : [], tools: [], tools_off: [], refreshed_at: null, error: null })}>Add MCP server</button> : undefined}>
+      <span className="text-[12px] text-ink-3">Remote MCP servers (Streamable HTTP). Agents on every runner reach them through Home, which adds the token: it never reaches a runner. A tool that is on acts directly with that token. Tools start off, also those a later refresh finds: turn on only what agents may do. Read only and destructive are what the server says about its tools, not a guarantee.</span>
       {servers.isLoading ? <Loading what="MCP servers" /> : servers.error ? <ErrorState error={servers.error} /> : (servers.data ?? []).length === 0 && !editing ? <Empty icon="spark">No MCP server yet.</Empty> : null}
       {(servers.data ?? []).map((s) => <ServerRow key={s.id} s={s} wsName={wsName} onEdit={() => setEditing(s)} onDone={refresh} />)}
       {editing && <ServerForm server={editing} onClose={() => setEditing(null)} onDone={refresh} />}
@@ -79,7 +80,7 @@ function ServerForm({ server, onClose, onDone }: { server: McpServer; onClose: (
   const [name, setName] = useState(server.name);
   const [url, setUrl] = useState(server.url);
   const [token, setToken] = useState("");
-  const [granted, setGranted] = useState<string[]>(server.workspaces.length ? server.workspaces : ["*"]);
+  const [granted, setGranted] = useState<string[]>(server.workspaces);
   const [busy, setBusy] = useState(false);
   const id = isNew ? slug(name) : server.id;
   const everywhere = granted.includes("*");
@@ -100,6 +101,7 @@ function ServerForm({ server, onClose, onDone }: { server: McpServer; onClose: (
           <FilterChip active={everywhere} onClick={() => setGranted(["*"])}>Every workspace</FilterChip>
           {workspaces.map((w) => <FilterChip key={w.id} active={!everywhere && granted.includes(w.id)} onClick={() => setGranted((g) => { const rest = g.filter((x) => x !== "*"); return rest.includes(w.id) ? rest.filter((x) => x !== w.id) : [...rest, w.id]; })}>{w.name}</FilterChip>)}
         </FilterChips>
+        {!granted.length && <span className="text-ink-3">Choose where agents may use it.</span>}
       </div>
       <div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !id || !url.trim() || !granted.length} onClick={save}>{busy ? "Reading its tools…" : "Save"}</button><button className="btn btn-sm" onClick={onClose}>Cancel</button></div>
     </div>

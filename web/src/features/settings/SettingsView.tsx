@@ -202,7 +202,8 @@ export function PresetsView() {
 }
 
 /** Settings → Notifications: this browser's push subscription and the daemon-wide switch. */
-export function NotificationsView({ browser }: { browser: React.ReactNode }) {
+/** Settings → Notifications: desktop notifications here, and Telegram for the phone. */
+export function NotificationsView() {
   const q = useConfig();
   const patch = usePatchConfig();
   const { state, error, run } = useSaveState();
@@ -211,11 +212,14 @@ export function NotificationsView({ browser }: { browser: React.ReactNode }) {
     <SettingsPage title="Notifications" intro="When an agent finishes, fails or stops on its own.">
       <ConfigError />
       <Card title="All devices">
-        <SettingRow label="Agent notifications" hint="Desktop and phone notifications for every paired browser." scope="all" state={state} error={error}>
+        <SettingRow label="Agent notifications" hint="Desktop notifications on the machine that runs the agent." scope="all" state={state} error={error}>
           {notify === undefined ? <Loading /> : <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" className="accent-teal" checked={notify} onChange={(e) => void run(() => patch({ notify: e.target.checked }))} />Send notifications</label>}
         </SettingRow>
       </Card>
-      {browser}
+      <Card title="Your phone">
+        <p className="m-0 text-[13px] text-ink-2">Get finished agents and routine reports on your phone through Telegram.</p>
+        <div><Link to={"/settings/channels" as never} className="btn btn-sm no-underline">Open Settings → Channels</Link></div>
+      </Card>
     </SettingsPage>
   );
 }

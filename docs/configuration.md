@@ -15,7 +15,6 @@ The data folder contains:
 - `state.db`: your data (sessions, events, drafts, Local PRs, suggestions, devices). Back it up.
 - `cache.db`: the GitHub cache. Delete it at any time; it is rebuilt.
 - `uploads/`, `attachments/`: files attached to prompts.
-- `vapid.json`: Web Push keys.
 
 Task worktrees live in `<data folder>/worktrees/<folder id>/`, cloned from `<data folder>/repos/<folder id>/`. Home keeps its Git mirrors in `<data folder>/git/`.
 
@@ -55,7 +54,7 @@ bucket = "launchpad"                  # <your account>/launchpad, shared with a 
 prefix = "traces"
 
 [agents]
-notify = true                       # desktop and Web Push notifications
+notify = true                       # desktop notifications
 
 [worktrees]
 keep = 15                           # clean task worktrees of idle agents kept on disk (0: keep all)
@@ -64,6 +63,7 @@ keep = 15                           # clean task worktrees of idle agents kept o
 backup = ""                         # Home only: hf://buckets/<you>/launchpad or a folder; empty: no backup
 git_name = ""                       # Home only: the author of agents' commits on every runner
 git_email = ""
+time_zone = ""                      # IANA zone (Europe/Paris) of routines saved without a browser; empty: the server's
 
 [runner]
 boundary = "jail"                   # jail (bubblewrap) or vm: only inside a dedicated Local VM, where agents may use Docker

@@ -147,6 +147,8 @@ pub struct WorktreeInfo {
     pub behind: u32,
     /// Commits not on Home yet.
     pub unpushed: bool,
+    /// Set when Home answers for an away runner (offline, or a stopped Burst job): why, for the window.
+    pub away: Option<String>,
 }
 
 const MAX_AGENT_RETRIES: u32 = 3;
@@ -650,7 +652,7 @@ pub async fn info(app: &App, w: TaskWorktree) -> WorktreeInfo {
     {
         ahead = count(app, &w.repo, &format!("refs/remotes/origin/{base}..{pushed}")).await;
     }
-    WorktreeInfo { worktree: w, project_name, path, exists, dirty_files, ahead, behind, unpushed }
+    WorktreeInfo { worktree: w, project_name, path, exists, dirty_files, ahead, behind, unpushed, away: None }
 }
 
 pub async fn session_info(app: &App, session_id: &str) -> Result<Vec<WorktreeInfo>> {

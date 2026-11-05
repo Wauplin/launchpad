@@ -120,8 +120,13 @@ pub struct CronAgent {
     pub id: String,
     pub spec: LaunchSpec,
     pub title: String,
-    /// Standard 5-field cron expression, in the local time zone (Schedule trigger).
+    /// Standard 5-field cron expression, in `time_zone` (Schedule trigger).
     pub schedule: String,
+    /// IANA time zone of the schedule, from the browser that saved it. None: the host's time zone.
+    #[serde(default)]
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
     #[serde(default)]
     pub trigger: Trigger,
     /// A routine of this bot: its runs are messages to the bot's thread (`spec.text` is the instructions).
@@ -166,6 +171,9 @@ pub struct CronPatch {
     /// A bot routine's instructions.
     #[serde(default)]
     pub instructions: Option<String>,
+    /// The editing browser's time zone.
+    #[serde(default)]
+    pub time_zone: Option<String>,
 }
 
 /// A new routine of a bot.
@@ -179,6 +187,9 @@ pub struct BotRoutine {
     pub schedule: String,
     #[serde(default)]
     pub conditions: Vec<CronCondition>,
+    /// The browser's time zone.
+    #[serde(default)]
+    pub time_zone: Option<String>,
 }
 
 /// Whether a final message means "nothing to report" (`no_update`, alone, maybe quoted or with a period).
@@ -196,26 +207,42 @@ fn parse(schedule: &str) -> Result<croner::Cron> {
         .map_err(|e| anyhow::anyhow!("invalid cron schedule: {e}"))
 }
 
-/// The first local time matching `schedule` strictly after `after` (Unix milliseconds).
-pub fn next_after(schedule: &str, after: i64) -> Result<i64> {
-    use chrono::TimeZone;
-    let cron = parse(schedule)?;
-    let after = chrono::Local
-        .timestamp_millis_opt(after)
-        .single()
-        .context("invalid time")?;
-    let next = cron
-        .find_next_occurrence(&after, false)
-        .map_err(|e| anyhow::anyhow!("this schedule never runs: {e}"))?;
+fn parse_zone(zone: &str) -> Result<chrono_tz::Tz> {
+    zone.parse().map_err(|_| anyhow::anyhow!("unknown time zone {zone}"))
+}
+
+/// The zone a new or edited schedule keeps: the browser's, else `[home] time_zone`, else None (the host's).
+pub fn zone_for(app: &App, given: Option<String>) -> Result<Option<String>> {
+    if let Some(z) = given.map(|z| z.trim().to_string()).filter(|z| !z.is_empty()) {
+        parse_zone(&z)?;
+        return Ok(Some(z));
+    }
+    let home = app.config.get().home.time_zone.trim().to_string();
+    Ok((!home.is_empty() && parse_zone(&home).is_ok()).then_some(home))
+}
+
+fn next_in<Z: chrono::TimeZone>(cron: &croner::Cron, zone: &Z, after: i64) -> Result<i64> {
+    let after = zone.timestamp_millis_opt(after).single().context("invalid time")?;
+    let next = cron.find_next_occurrence(&after, false).map_err(|e| anyhow::anyhow!("this schedule never runs: {e}"))?;
     Ok(next.timestamp_millis())
 }
 
+/// The first time matching `schedule` in `zone` (None: the host's time zone) strictly after `after` (Unix
+/// milliseconds).
+pub fn next_after(schedule: &str, zone: Option<&str>, after: i64) -> Result<i64> {
+    let cron = parse(schedule)?;
+    match zone {
+        Some(z) => next_in(&cron, &parse_zone(z)?, after),
+        None => next_in(&cron, &chrono::Local, after),
+    }
+}
+
 /// The next `count` run times, to preview a schedule in the UI.
-pub fn next_runs(schedule: &str, count: usize) -> Result<Vec<i64>> {
+pub fn next_runs(schedule: &str, zone: Option<&str>, count: usize) -> Result<Vec<i64>> {
     let mut at = now_ms();
     let mut out = Vec::with_capacity(count);
     for _ in 0..count {
-        at = next_after(schedule, at)?;
+        at = next_after(schedule, zone, at)?;
         out.push(at);
     }
     Ok(out)
@@ -317,9 +344,9 @@ async fn modify<T: Send + 'static>(
     Ok(out)
 }
 
-fn validate_trigger(trigger: &Trigger, schedule: &str) -> Result<()> {
+fn validate_trigger(trigger: &Trigger, schedule: &str, zone: Option<&str>) -> Result<()> {
     match trigger {
-        Trigger::Schedule => next_after(schedule, now_ms()).map(|_| ()),
+        Trigger::Schedule => next_after(schedule, zone, now_ms()).map(|_| ()),
         Trigger::Github { repo, events } => {
             ensure!(!events.is_empty(), "pick at least one kind of GitHub activity");
             if let Some(r) = repo {
@@ -333,7 +360,7 @@ fn validate_trigger(trigger: &Trigger, schedule: &str) -> Result<()> {
 
 /// The next due time of a schedule trigger, None for event triggers and paused routines.
 fn next_due(r: &CronAgent, now: i64) -> Result<Option<i64>> {
-    Ok(if r.active() && r.trigger == Trigger::Schedule { Some(next_after(&r.schedule, now)?) } else { None })
+    Ok(if r.active() && r.trigger == Trigger::Schedule { Some(next_after(&r.schedule, r.time_zone.as_deref(), now)?) } else { None })
 }
 
 async fn insert(app: &App, record: &CronAgent) -> Result<()> {
@@ -359,6 +386,7 @@ pub async fn create(
     conditions: Vec<CronCondition>,
     trigger: Trigger,
     title: Option<String>,
+    time_zone: Option<String>,
 ) -> Result<CronAgent> {
     // Ask Launchpad's routines (the morning brief) follow the assistant's own profile and model.
     let spec = match &spec.target {
@@ -376,13 +404,15 @@ pub async fn create(
     validate_conditions(&conditions)?;
     validate_harness_conditions(harness, &conditions)?;
     let schedule = normalize(&schedule);
-    validate_trigger(&trigger, &schedule)?;
+    let time_zone = zone_for(app, time_zone)?;
+    validate_trigger(&trigger, &schedule, time_zone.as_deref())?;
     let now = now_ms();
     let mut record = CronAgent {
         id: uuid::Uuid::new_v4().to_string(),
         spec,
         title: title.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).unwrap_or(preview.title),
         schedule,
+        time_zone,
         trigger,
         bot_id: None,
         bot_paused: false,
@@ -438,13 +468,15 @@ pub async fn create_for_bot(app: &App, bot_id: &str, r: BotRoutine) -> Result<Cr
     validate_conditions(&r.conditions)?;
     validate_harness_conditions(spec.harness.context("pick a harness")?, &r.conditions)?;
     let schedule = normalize(&r.schedule);
-    validate_trigger(&r.trigger, &schedule)?;
+    let time_zone = zone_for(app, r.time_zone)?;
+    validate_trigger(&r.trigger, &schedule, time_zone.as_deref())?;
     let now = now_ms();
     let mut record = CronAgent {
         id: uuid::Uuid::new_v4().to_string(),
         spec,
         title,
         schedule,
+        time_zone,
         trigger: r.trigger,
         bot_id: Some(bot.id.clone()),
         bot_paused: bot.paused,
@@ -471,9 +503,16 @@ pub async fn update(app: &App, id: &str, patch: CronPatch) -> Result<CronAgent> 
         ensure!(!t.trim().is_empty(), "give the routine a name");
     }
     let now = now_ms();
+    let zone = match patch.time_zone {
+        Some(z) => Some(zone_for(app, Some(z))?),
+        None => None,
+    };
     let (record, ()) = modify(app, id, move |r| {
         if let Some(s) = patch.schedule {
             r.schedule = normalize(&s);
+        }
+        if let Some(z) = zone {
+            r.time_zone = z;
         }
         if let Some(t) = patch.trigger {
             if t != r.trigger {
@@ -481,7 +520,7 @@ pub async fn update(app: &App, id: &str, patch: CronPatch) -> Result<CronAgent> 
             }
             r.trigger = t;
         }
-        validate_trigger(&r.trigger, &r.schedule)?;
+        validate_trigger(&r.trigger, &r.schedule, r.time_zone.as_deref())?;
         if let Some(c) = patch.conditions {
             validate_harness_conditions(r.spec.harness.context("pick a harness")?, &c)?;
             r.conditions = c;
@@ -718,7 +757,7 @@ async fn tick(app: &App, record: CronAgent) -> Result<()> {
         if !r.active() || r.next_run_at != due {
             bail!("already handled");
         }
-        r.next_run_at = Some(next_after(&r.schedule, now)?);
+        r.next_run_at = Some(next_after(&r.schedule, r.time_zone.as_deref(), now)?);
         r.last_check_at = Some(now);
         Ok(due.is_some_and(|d| now - d > MISSED_GRACE_MS))
     })
@@ -975,5 +1014,14 @@ mod tests {
         assert!(GithubEvent::CiActivity.matches("CheckSuite", "subscribed"));
         assert!(GithubEvent::Release.matches("Release", "subscribed"));
         assert!(GithubEvent::Any.matches("Discussion", "comment"));
+    }
+
+    #[test]
+    fn schedules_run_in_their_time_zone() {
+        // 2026-01-05 00:00 UTC, a Monday: 8:30 in Paris (UTC+1 in winter) is 7:30 UTC.
+        let monday = 1_767_571_200_000;
+        assert_eq!(next_after("30 8 * * 1-5", Some("Europe/Paris"), monday).unwrap(), monday + (7 * 60 + 30) * 60_000);
+        assert_eq!(next_after("30 8 * * 1-5", Some("UTC"), monday).unwrap(), monday + (8 * 60 + 30) * 60_000);
+        assert!(next_after("30 8 * * *", Some("Mars/Base"), monday).is_err());
     }
 }

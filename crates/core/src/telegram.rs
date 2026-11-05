@@ -3,7 +3,7 @@
 //! chat is ever answered; other chats are ignored. Home long-polls `getUpdates` (a private Space has no inbound
 //! endpoint for Telegram).
 //!
-//! Messages to the owner's own chat go out directly (owner decision): notifications (the Web Push events, never
+//! Messages to the owner's own chat go out directly (owner decision): notifications (the desktop notification events, never
 //! code), the final message of turns started from Telegram, and `launchpad send telegram`. Incoming text goes to
 //! a bot's thread (`/<bot> text`, `/bot <name> text`) or to Ask Launchpad; launches from Telegram never allow paid
 //! usage. An update is marked handled before it is acted on, so a crash never runs a message twice.
@@ -58,7 +58,7 @@ pub struct TelegramStatus {
     pub link: Option<String>,
     #[ts(type = "number | null")]
     pub code_expires_at: Option<i64>,
-    /// Notifications to the chat (the same events as Web Push).
+    /// Notifications to the chat (the same events as desktop notifications).
     pub notify: bool,
     /// Include session titles in notifications.
     pub titles: bool,
@@ -193,7 +193,7 @@ pub async fn remove(app: &App) -> Result<()> {
 }
 
 /// Sends text to the owner's chat (plain text, no link previews).
-async fn say(app: &App, text: &str) -> Result<()> {
+pub(crate) async fn say(app: &App, text: &str) -> Result<()> {
     let st = load(app).await;
     let chat = st.chat_id.context("no Telegram chat is bound: bind yours in Settings → Channels")?;
     let token = token(app).await.context("no Telegram bot token: add it in Settings → Channels")?;
@@ -364,17 +364,22 @@ async fn handle(app: &App, msg: &Value) -> Result<()> {
     let sent = match parse(text) {
         Incoming::Start(_) | Incoming::Help => return say(app, &help(app).await).await,
         Incoming::Empty(name) => return say(app, &format!("Add the task after the command, for example /{name} check the open issues.")).await,
-        Incoming::Ask(t) => crate::proposals::ask(app, None, format!("{t}{FROM_TELEGRAM}"), vec![]).await.map(|s| ("Ask Launchpad".to_string(), s)),
+        Incoming::Ask(t) => crate::hooks::deliver(app, crate::hooks::Target::Ask { workspace_id: None }, format!("{t}{FROM_TELEGRAM}"), false, true).await.map(|d| ("Ask Launchpad".to_string(), d)),
         Incoming::Bot { name, text } => {
             let bots = crate::bots::list(app).await?;
             match bots.iter().find(|b| same_name(&b.slug, &name) || same_name(&b.settings.name, &name)) {
-                Some(b) => crate::bots::message(app, &b.id, format!("{text}{FROM_TELEGRAM}"), vec![], false).await.map(|s| (b.settings.name.clone(), s)),
+                Some(b) => crate::hooks::deliver(app, crate::hooks::Target::Bot { id: b.id.clone() }, format!("{text}{FROM_TELEGRAM}"), false, true).await.map(|d| (b.settings.name.clone(), d)),
                 None => return say(app, &format!("No bot named {name}. {}", help(app).await)).await,
             }
         }
     };
     match sent {
-        Ok((name, s)) => {
+        Ok((name, d)) if d.queued => {
+            let link = d.session.map(|s| format!("\n{}", session_link(app, &s.id))).unwrap_or_default();
+            say(app, &format!("Queued for {name}: it is busy; your message is sent when its current turn ends, and the answer comes here.{link}")).await
+        }
+        Ok((name, d)) => {
+            let s = d.session.context("no session")?;
             await_reply(app, &s).await?;
             say(app, &format!("Sent to {name}. Its answer comes here when the turn ends.\n{}", session_link(app, &s.id))).await
         }
@@ -387,7 +392,7 @@ async fn handle(app: &App, msg: &Value) -> Result<()> {
 /// Sessions whose current turn came from Telegram (`telegram_reply`): Home sends their final message to the chat.
 static PENDING: std::sync::LazyLock<Mutex<HashSet<String>>> = std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
 
-async fn await_reply(app: &App, s: &Session) -> Result<()> {
+pub(crate) async fn await_reply(app: &App, s: &Session) -> Result<()> {
     let (id, after) = (s.id.clone(), s.last_seq);
     app.state_db
         .call(move |c| Ok(c.execute("INSERT INTO telegram_reply (session_id, after_seq, at) VALUES (?1, ?2, ?3) ON CONFLICT (session_id) DO UPDATE SET after_seq = ?2, at = ?3", rusqlite::params![id, after, now_ms()])?))

@@ -259,7 +259,7 @@ export function createCron(spec: LaunchSpec, expr: string, conditions: CronCondi
 
 route("GET", "/api/launch/crons", () => world.crons);
 route("GET", "/api/launch/crons/next", (r) => nextRuns(r.query.get("schedule") ?? "", 3));
-route("POST", "/api/launch/crons", (r) => createCron({ ...defaultSpec(), ...(r.body?.spec as LaunchSpec) }, String(r.body?.schedule ?? ""), r.body?.conditions ?? [], r.body?.trigger ?? { kind: "schedule" }, r.body?.title ? { title: String(r.body.title) } : {}));
+route("POST", "/api/launch/crons", (r) => createCron({ ...defaultSpec(), ...(r.body?.spec as LaunchSpec) }, String(r.body?.schedule ?? ""), r.body?.conditions ?? [], r.body?.trigger ?? { kind: "schedule" }, { ...(r.body?.title ? { title: String(r.body.title) } : {}), ...(r.body?.time_zone ? { time_zone: String(r.body.time_zone) } : {}) }));
 route("PATCH", "/api/launch/crons/:id", (r) => {
   const c = cronOf(r.params.id);
   if (r.body?.trigger) c.trigger = r.body.trigger;
@@ -267,6 +267,7 @@ route("PATCH", "/api/launch/crons/:id", (r) => {
   if (c.trigger.kind === "schedule") nextRuns(c.schedule, 1);
   if (r.body?.conditions) c.conditions = r.body.conditions;
   if (r.body?.paused != null) c.paused = !!r.body.paused;
+  if (r.body?.time_zone) c.time_zone = String(r.body.time_zone);
   if (r.body?.title != null) c.title = String(r.body.title).trim() || c.title;
   if (r.body?.instructions != null) c.spec = { ...c.spec, text: String(r.body.instructions).trim() };
   c.next_run_at = nextDue(c);

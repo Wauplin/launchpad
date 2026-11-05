@@ -48,14 +48,14 @@ function AddRunner() {
   const space = delegatedAccess();
   return (
     <Card title="Add a runner">
-      <span className="text-[13px] text-ink-2">{space ? "On your laptop or a Linux server, run this in a terminal:" : "On the machine, start launchpad daemon --role runner, then run:"}</span>
+      <span className="text-[13px] text-ink-2">{space ? "On your Linux x86_64 laptop or a Linux server, run this in a terminal. On a Mac or an ARM machine, use Burst." : "On the machine, start launchpad daemon --role runner, then run:"}</span>
       {command === null ? <Loading what="the install command" /> : (
         <div className="flex items-start gap-2">
           <pre className="m-0 min-w-0 flex-1 whitespace-pre-wrap break-all rounded-md border border-line-2 bg-code px-2.5 py-2 font-mono text-[12px]">{command}</pre>
           <button className="btn btn-sm" onClick={() => void copyText(command).then(() => toast("Copied"))}><Icon name="copy" size={12} />Copy</button>
         </div>
       )}
-      <span className="text-[12px] text-ink-3">{space ? "It needs your Hugging Face sign-in on that machine: run hf auth login there first (or set HF_TOKEN). The script checks the machine (Linux x86_64, bubblewrap, Git), installs a runner with the same build as Home, next to any other Launchpad, starts it as a user service, then asks for your approval below. Run it again to update the runner." : "It prints a code. Approve the request below when the codes match."}</span>
+      <span className="text-[12px] text-ink-3">{space ? "It needs your Hugging Face sign-in on that machine: run hf auth login there first (or set HF_TOKEN). The script checks the machine (Linux x86_64, bubblewrap, Git), installs a runner with the same build as Home, next to any other Launchpad, starts it as a user service that keeps running after you log out, then asks for your approval below. Run it again to update the runner." : "It prints a code. Approve the request below when the codes match."}</span>
     </Card>
   );
 }

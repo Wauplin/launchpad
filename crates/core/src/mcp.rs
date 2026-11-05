@@ -2,7 +2,7 @@
 //!
 //! An MCP server (Streamable HTTP) is configured once on Home with its address and token (a vault entry that
 //! never leaves Home). Each server is granted per workspace like a tool, can be switched off for one launch,
-//! and each of its tools is on or off. Harnesses on any runner see a local address on their runner proxy
+//! and each of its tools is on or off (off when first seen). Harnesses on any runner see a local address on their runner proxy
 //! (`/lp/<lease key>/mcp/<server>`); the proxy sends every request through the tunnel to this gateway, which
 //! checks the session's lease, refuses calls to tools that are off, removes them from `tools/list`, adds the
 //! token and forwards the request. An enabled tool acts directly: grant only what you mean. The annotations a
@@ -128,13 +128,14 @@ pub async fn put(app: &App, id: &str, p: Put) -> Result<McpServer> {
     ensure!(!p.name.trim().is_empty(), "give the server a name");
     let url = reqwest::Url::parse(p.url.trim()).context("the address is not a valid URL")?;
     ensure!(url.scheme() == "https" || url.host_str().is_some_and(|h| h == "127.0.0.1" || h == "localhost"), "the address must use https");
+    ensure!(!p.workspaces.is_empty(), "choose the workspaces where agents may use this server");
     let old = get(app, id).await.ok();
     let mut s = McpServer {
         id: id.into(),
         name: p.name.trim().into(),
         url: url.to_string(),
         auth: p.auth,
-        workspaces: if p.workspaces.is_empty() { vec!["*".into()] } else { p.workspaces },
+        workspaces: p.workspaces,
         tools: old.as_ref().map(|o| o.tools.clone()).unwrap_or_default(),
         tools_off: old.as_ref().map(|o| o.tools_off.clone()).unwrap_or_default(),
         refreshed_at: old.as_ref().and_then(|o| o.refreshed_at),
@@ -169,11 +170,17 @@ pub async fn set_tool(app: &App, id: &str, tool: &str, on: bool) -> Result<McpSe
     Ok(s)
 }
 
-/// Reads a server's tools (initialize, then tools/list) and keeps them for Settings.
+/// Reads a server's tools (initialize, then tools/list) and keeps them for Settings. Tools it did not list
+/// before start off: the owner turns them on.
 pub async fn refresh(app: &App, id: &str) -> Result<McpServer> {
     let mut s = get(app, id).await?;
     match discover(app, &s).await {
         Ok(tools) => {
+            for name in new_tools(&s.tools, &tools) {
+                if !s.tools_off.contains(&name) {
+                    s.tools_off.push(name);
+                }
+            }
             s.tools = tools;
             s.error = None;
         }
@@ -182,6 +189,11 @@ pub async fn refresh(app: &App, id: &str) -> Result<McpServer> {
     s.refreshed_at = Some(now_ms());
     save(app, &s).await?;
     Ok(s)
+}
+
+/// Names in `now` that `before` did not list.
+fn new_tools(before: &[McpTool], now: &[McpTool]) -> Vec<String> {
+    now.iter().filter(|t| !before.iter().any(|b| b.name == t.name)).map(|t| t.name.clone()).collect()
 }
 
 // ------------------------------------------------------------------ talking to a server

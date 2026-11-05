@@ -747,17 +747,17 @@ async fn start_schedule(State(s): State<Server>, Path(id): Path<String>) -> ApiR
 use launchpad_core::crons::{self, CronAgent, CronCondition, CronPatch};
 
 #[derive(Deserialize)]
-struct CronRequest { spec: LaunchSpec, #[serde(default)] schedule: String, conditions: Vec<CronCondition>, #[serde(default)] trigger: crons::Trigger, #[serde(default)] title: Option<String> }
+struct CronRequest { spec: LaunchSpec, #[serde(default)] schedule: String, conditions: Vec<CronCondition>, #[serde(default)] trigger: crons::Trigger, #[serde(default)] title: Option<String>, #[serde(default)] time_zone: Option<String> }
 async fn crons(State(s): State<Server>) -> ApiResult<Vec<CronAgent>> { Ok(Json(crons::list(&s.app).await?)) }
-async fn create_cron(State(s): State<Server>, Json(b): Json<CronRequest>) -> ApiResult<CronAgent> { Ok(Json(crons::create(&s.app, b.spec, b.schedule, b.conditions, b.trigger, b.title).await.map_err(bad)?)) }
+async fn create_cron(State(s): State<Server>, Json(b): Json<CronRequest>) -> ApiResult<CronAgent> { Ok(Json(crons::create(&s.app, b.spec, b.schedule, b.conditions, b.trigger, b.title, b.time_zone).await.map_err(bad)?)) }
 async fn update_cron(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<CronPatch>) -> ApiResult<CronAgent> { Ok(Json(crons::update(&s.app, &id, b).await.map_err(bad)?)) }
 async fn delete_cron(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
     crons::delete(&s.app, &id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 #[derive(Deserialize)]
-struct CronNext { schedule: String }
-async fn cron_next(Query(q): Query<CronNext>) -> ApiResult<Vec<i64>> { Ok(Json(crons::next_runs(&q.schedule, 3).map_err(bad)?)) }
+struct CronNext { schedule: String, #[serde(default)] time_zone: Option<String> }
+async fn cron_next(Query(q): Query<CronNext>) -> ApiResult<Vec<i64>> { Ok(Json(crons::next_runs(&q.schedule, q.time_zone.as_deref().filter(|z| !z.is_empty()), 3).map_err(bad)?)) }
 async fn run_cron(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Session> { Ok(Json(crons::run_now(&s.app, &id).await.map_err(bad)?)) }
 
 #[derive(Deserialize)]

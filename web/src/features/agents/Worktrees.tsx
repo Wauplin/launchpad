@@ -106,7 +106,10 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
     parts.push(i.unpushed ? "new commits go to Home at the end of the turn" : "saved on Home");
     text = parts.join(" · ");
   }
-  const canMerge = w.state === "active" && !w.merge && !!base && i.ahead > 0 && !w.pull_request && !w.predraft_id;
+  // Its runner is away: Home shows the branch it holds, and Merge and Create Local PR run on Home.
+  const away = i.away;
+  const onHome = w.state === "active" || (!!away && w.state === "removed");
+  const canMerge = onHome && !w.merge && !!base && i.ahead > 0 && !w.pull_request && !w.predraft_id;
   return (
     <div className="grid gap-1.5 text-xs">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -116,6 +119,7 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
       </div>
       <div className={warn(i) ? "text-attn" : "text-ink-2"}>{text}</div>
       {w.state === "active" && <div className="truncate font-mono text-[11px] text-ink-3" title={i.path}>{i.path}</div>}
+      {away && <div className="text-[12px] text-attn">{away}: this is the branch saved on Home. Merge and Create Local PR run on Home.</div>}
       {w.push_note && <div className="text-[12px] text-attn">{w.push_note}</div>}
       {w.merged?.note && <div className="text-[12px] text-ink-2">{w.merged.note}</div>}
       {w.pull_request && <div className="text-[12px] text-ink-2">Continues <a href={w.pull_request.url} target="_blank" rel="noreferrer">#{w.pull_request.number}</a>: Home pushes each new commit to {w.pull_request.head_branch}.</div>}
@@ -134,9 +138,9 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
         {w.merge && w.merge.phase !== "waiting" && session && <button className="btn btn-sm btn-primary" disabled={busy} title="Send the problem to the agent: it rebases, resolves and asks to merge again" onClick={() => void act("fix", "Sent to the agent")}>Fix with agent</button>}
         <TerminalMenu cwd={i.path} small phone={isPhone} align="left" />
         {w.merge && <button className="btn btn-sm" disabled={busy} onClick={() => void act("cancel-merge")}>Cancel merge</button>}
-        {w.state === "active" && w.primary && !w.merge && !w.pull_request && <button className="btn btn-sm" disabled={busy} title="Turn this branch into a Local PR, published to GitHub only with your click" onClick={() => void predraft()}>Create Local PR</button>}
-        {w.state === "removed" && <button className="btn btn-sm" disabled={busy} onClick={() => void act("restore", "Worktree restored")}>Restore folder</button>}
-        {(w.state === "active" || w.state === "removed") && <button className="btn btn-sm text-gh-closed" disabled={busy || running} title={`Delete the folder and the branch, including uncommitted work${w.primary ? ", and archive its agents" : ""}. The branch tip stays restorable on Home for 30 days.`} onClick={() => { if (!confirm) return setConfirm(true); setConfirm(false); void act("discard", "Worktree discarded"); }}>{confirm ? `Confirm: delete ${i.ahead ? `${i.ahead} unmerged commits and ` : ""}the folder` : "Discard"}</button>}
+        {onHome && w.primary && !w.merge && !w.pull_request && <button className="btn btn-sm" disabled={busy} title="Turn this branch into a Local PR, published to GitHub only with your click" onClick={() => void predraft()}>Create Local PR</button>}
+        {w.state === "removed" && !away && <button className="btn btn-sm" disabled={busy} onClick={() => void act("restore", "Worktree restored")}>Restore folder</button>}
+        {(w.state === "active" || w.state === "removed") && !away && <button className="btn btn-sm text-gh-closed" disabled={busy || running} title={`Delete the folder and the branch, including uncommitted work${w.primary ? ", and archive its agents" : ""}. The branch tip stays restorable on Home for 30 days.`} onClick={() => { if (!confirm) return setConfirm(true); setConfirm(false); void act("discard", "Worktree discarded"); }}>{confirm ? `Confirm: delete ${i.ahead ? `${i.ahead} unmerged commits and ` : ""}the folder` : "Discard"}</button>}
         {confirm && <button className="btn btn-sm" onClick={() => setConfirm(false)}>Cancel</button>}
       </div>
     </div>

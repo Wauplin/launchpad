@@ -44,5 +44,5 @@ export function useRunnerTag(runnerId: string | null | undefined): RunnerTag | n
     }
   }
   const r = runners?.find((x) => x.runner.id === runnerId);
-  return r && !r.connected ? { label: `${r.runner.name} offline`, title: "Its runner is disconnected: the status is the last one Home received. Archive works now; the runner stops the session when it reconnects.", tone: "quiet" } : null;
+  return r && !r.connected ? { label: `${r.runner.name} offline`, title: "Its runner is disconnected: the status is the last one Home received. Your next message continues it on Burst when Burst is on. Archive works now; the runner stops the session when it reconnects.", tone: "quiet" } : null;
 }

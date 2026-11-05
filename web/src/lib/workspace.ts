@@ -2,7 +2,7 @@
 // "Everything" is a view of all of them. Every list that a workspace narrows (sidebar, agents, projects,
 // inbox, composer) uses these predicates, so counts and markers agree.
 
-import { isDesktopShell } from "./platform";
+import { isDesktopShell, setAppBadge } from "./platform";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
@@ -12,7 +12,6 @@ import type { Workspace } from "@/gen/Workspace";
 import { toast } from "@/components/Toast";
 import { useWorkspace } from "@/stores/workspace";
 import { api } from "./api";
-import { setAppBadge } from "./push";
 import { useProjects, useSessions } from "./queries";
 import { needsYou } from "./sessionStatus";
 
@@ -81,7 +80,7 @@ export function useWorkspaceSync() {
   const sessions = useSessions().data;
   const waiting = (sessions ?? []).filter((s) => scope.hasSession(s) && needsYou(s)).length;
   useEffect(() => { document.title = `${waiting > 0 ? `(${waiting}) ` : ""}${name ? `${name} · ` : ""}Launchpad`; }, [name, waiting]);
-  // The installed app's badge is per app, like push notifications: every workspace counts.
+  // The installed app's badge is per app: every workspace counts.
   const allWaiting = (sessions ?? []).filter(needsYou).length;
   useEffect(() => { if (sessions) setAppBadge(allWaiting); }, [sessions, allWaiting]);
 }

@@ -339,6 +339,7 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
     };
     let headers: Vec<(String, String)> = req.headers().get("idempotency-key").and_then(|v| v.to_str().ok()).map(|v| vec![("idempotency-key".to_string(), v.to_string())]).unwrap_or_default();
     let path_and_query = req.uri().path_and_query().map(|p| p.to_string()).unwrap_or_else(|| path.clone());
+    let uri = req.uri().clone();
     let body = match axum::body::to_bytes(req.into_body(), 32 << 20).await {
         Ok(b) => (!b.is_empty()).then(|| String::from_utf8_lossy(&b).into_owned()),
         Err(e) => return ApiError::bad_request(format!("{e}")).into_response(),
@@ -348,6 +349,12 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
         // A launch: a runner that takes it, else Burst (`runners::launch_anywhere`).
         None => return launch(&s, body.as_deref(), headers).await,
     };
+    // Its runner is away (offline, or a stopped Burst job): Home answers reviews from Home Git.
+    if !s.app.runners.connected(&runner)
+        && let Some(r) = away(&s, get, &parts, &uri, body.as_deref()).await
+    {
+        return r;
+    }
     // A session whose Burst job stopped: a message starts a new job, Archive is Home's.
     if !s.app.runners.connected(&runner)
         && let ["api", "sessions", id, rest @ ..] = parts.as_slice()
@@ -373,6 +380,43 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
         Ok((status, body)) => (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response(),
         Err(e) => ApiError::new(StatusCode::BAD_GATEWAY, format!("{e:#}")).into_response(),
     }
+}
+
+/// Home: reviews of a session whose runner is away, from Home Git and its last handoff (`core::away`). None:
+/// not a review request.
+async fn away(s: &Server, get: bool, parts: &[&str], uri: &axum::http::Uri, body: Option<&str>) -> Option<Response> {
+    use launchpad_core::away;
+    let app = &s.app;
+    let query = axum::extract::Query::<std::collections::HashMap<String, String>>::try_from_uri(uri).map(|q| q.0).unwrap_or_default();
+    let flag = |k: &str| query.get(k).is_some_and(|v| v == "true");
+    let session = |id: &str| app.sessions.get(id).ok_or_else(|| anyhow::anyhow!("no such session"));
+    let result: anyhow::Result<Value> = match parts {
+        ["api", "sessions", id, "git"] if get => async { Ok(json!(away::status(app, &session(id)?).await?)) }.await,
+        ["api", "sessions", id, "git-commits"] if get => async { Ok(json!(away::history(app, &session(id)?, query.get("commit").map(String::as_str)).await?)) }.await,
+        ["api", "sessions", id, "git-diff"] if get => async {
+            let path = query.get("path").ok_or_else(|| anyhow::anyhow!("path required"))?;
+            Ok(json!(away::diff(app, &session(id)?, path, flag("main"), flag("committed"), query.get("commit").map(String::as_str)).await?))
+        }
+        .await,
+        ["api", "sessions", id, "worktrees"] if get => async { Ok(json!(away::worktrees(app, &session(id)?).await?)) }.await,
+        ["api", "worktrees", worktree, action] if !get => async {
+            let id = session_param(uri).ok_or_else(|| anyhow::anyhow!("session required"))?;
+            Ok(json!(away::worktree_action(app, &session(&id)?, worktree, action).await?))
+        }
+        .await,
+        ["api", "predrafts"] if !get => async {
+            let id = session_param(uri).ok_or_else(|| anyhow::anyhow!("session required"))?;
+            let b: Value = serde_json::from_str(body.unwrap_or("{}"))?;
+            let cwd = b["cwd"].as_str().ok_or_else(|| anyhow::anyhow!("cwd required"))?;
+            Ok(json!(away::local_pr(app, &session(&id)?, cwd, b["title"].as_str().map(str::to_string)).await?))
+        }
+        .await,
+        _ => return None,
+    };
+    Some(match result {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => ApiError::bad_request(format!("{e:#}")).into_response(),
+    })
 }
 
 /// The `session` query parameter of a request.

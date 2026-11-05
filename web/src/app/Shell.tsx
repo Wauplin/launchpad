@@ -12,7 +12,6 @@ import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
 import { HostPrompts } from "./HostPrompt";
-import { NotificationsPrompt } from "./NotificationsPrompt";
 import { isDemo } from "@/demo/mode";
 import { WelcomeGate } from "@/onboarding/WelcomeGate";
 
@@ -60,7 +59,6 @@ export function Shell() {
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           {!isDemo && <WelcomeGate />}
-          {!isDemo && <NotificationsPrompt />}
           <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-paper">
             <Outlet />
           </main>

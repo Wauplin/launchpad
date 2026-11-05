@@ -1,6 +1,7 @@
 //! Domain types and services of the Launchpad daemon.
 
 pub mod attachments;
+pub mod away;
 pub mod bots;
 pub mod channels;
 pub mod hooks;
@@ -28,7 +29,6 @@ pub mod operations;
 pub mod paths;
 pub mod predrafts;
 pub mod procs;
-pub mod push;
 pub mod project_clone;
 pub mod projects;
 pub mod proposals;
@@ -104,7 +104,6 @@ pub struct App {
     /// Serializes task worktree creation, merges and cleanup. Take the session action lock first.
     pub worktree_lock: Arc<tokio::sync::Mutex<()>>,
     pub terminals: terminals::Terminals,
-    pub push: push::Push,
     pub hosts: hosts::Hosts,
     pub browser: browser::Broker,
     pub trace_backup: trace_backup::BackupStatus,
@@ -154,7 +153,6 @@ impl App {
         let status = status::StatusHandle::new(bus.clone());
         let harnesses = harness::Registry::new(&env);
         let github = github::GitHub::new(env.clone(), cache_db.clone());
-        let web_push = push::Push::new(paths.clone());
         let hosts = hosts::Hosts::start(paths.clone(), env.clone(), state_db.clone(), status.clone()).await?;
         let app = App {
             paths,
@@ -173,7 +171,6 @@ impl App {
             predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
             worktree_lock: Arc::new(tokio::sync::Mutex::new(())),
             terminals: terminals::Terminals::default(),
-            push: web_push,
             hosts,
             browser: browser::Broker::default(),
             trace_backup: trace_backup::BackupStatus::default(),

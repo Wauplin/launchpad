@@ -19,7 +19,6 @@ mod hosts;
 mod items;
 mod operations;
 mod predrafts;
-mod push;
 mod review_state;
 mod routes;
 mod runners;
@@ -111,7 +110,6 @@ pub(crate) fn router(server: Server) -> Router {
         .merge(worktrees::router())
         .merge(setup::router())
         .merge(hosts::router())
-        .merge(push::router())
         .merge(runners::router())
         .merge(burst::router())
         .merge(mcp::router())

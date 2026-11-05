@@ -44,7 +44,7 @@ To set up HTTPS, open **Settings → Devices → Pair a device** and click **Run
 tailscale serve --bg 7317
 ```
 
-HTTPS is required for Web Push notifications and for installing Launchpad as an app on a phone. Set `[server] auto_tailnet = false` to disable discovery.
+HTTPS is required for installing Launchpad as an app on a phone. Set `[server] auto_tailnet = false` to disable discovery.
 
 ### Another reverse proxy
 
@@ -80,10 +80,9 @@ Screens narrower than 720 px get a phone layout (or choose it in **Settings → 
 
 ### Install as an app and get notifications
 
-1. Open the paired HTTPS origin in the phone's browser and use **Install** or **Add to Home Screen**. On iOS, notifications only work for apps added to the Home Screen.
-2. Open **Settings → Notifications** and turn on notifications for this browser.
+Open the paired HTTPS origin in the phone's browser and use **Install** or **Add to Home Screen**.
 
-Notifications contain the status and the folder name. Session titles appear only if you allow them for that device. They never contain code or messages.
+Get finished agents and routine reports on your phone through Telegram: bind your chat in **Settings → Channels** ([Channels](channels.md)).
 
 ## Run on a headless server
 
@@ -99,12 +98,12 @@ This installs `~/.local/bin/launchpad` and the systemd user unit, and enables li
 1. Set up Tailscale Serve (see above) or a private reverse proxy.
 2. Run `launchpad pair` over SSH and scan the QR code.
 3. Open **Finish setup** to sign in to each harness and the GitHub CLI. Sign-in commands run in a terminal on the page.
-4. Set the server's time zone on purpose: crons and start times use it.
+4. Routines run in the time zone of the browser that saved them; set `[home] time_zone` (or the server's time zone) for the rest.
 
 Operations:
 
 - Restarting the daemon interrupts running agents. Update when no agent is running.
-- Back up `state.db` while the daemon runs: `sqlite3 ~/.local/share/launchpad/state.db ".backup /backups/launchpad-state.db"`. `cache.db` can be rebuilt. Keep `vapid.json` to keep Web Push subscriptions.
+- Back up `state.db` while the daemon runs: `sqlite3 ~/.local/share/launchpad/state.db ".backup /backups/launchpad-state.db"`. `cache.db` can be rebuilt.
 - Logs: `journalctl --user -u launchpad -f`.
 
 ## Several devices at once

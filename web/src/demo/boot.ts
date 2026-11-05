@@ -28,7 +28,7 @@ export async function bootDemo(qc: QueryClient) {
   } as unknown as typeof WebSocket;
   Object.assign(Socket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
   window.WebSocket = Socket;
-  // No permission prompt, no Web Push: notifications stay in the page.
+  // No permission prompt: notifications stay in the page.
   if ("Notification" in window) Object.defineProperty(window, "Notification", { value: Object.assign(function () {}, { permission: "denied", requestPermission: async () => "denied" }), configurable: true });
   window.__lpDemo!.asset = demoAsset;
   // Scripted recordings (videos, screenshots) move the demo clock and finish runs like the tour does.

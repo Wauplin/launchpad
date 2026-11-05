@@ -31,7 +31,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - **Nothing reaches GitHub without an owner click.** Automated checks must not post comments or reviews, request reviewers, change labels, state or draft status, merge real items, publish Local PRs, post real suggestions, or mute real threads. Local unread markers, viewed markers and unsent drafts are safe. Use throwaway local bare remotes for publication checks.
 - Agent-written comments and reviews go through `launchpad suggest comment|review` (reviews need `--head <inspected commit>`; Local PRs use `--predraft <id>`). The CLI never publishes.
 - Automated checks must close the terminals they open, never type into harness TUIs, pause or delete test routines, cancel test follow-ups and scheduled launches, discard test worktrees (use throwaway repositories), close throwaway browsers and servers, cancel test HF jobs and remove test SSH hosts.
-- Never run setup fixes that change the real machine's configuration, never enable trace backup against a real account, and use **Send test notification** only on throwaway Web Push subscriptions.
+- Never run setup fixes that change the real machine's configuration, and never enable trace backup against a real account.
 - Never refresh the Claude OAuth token; only read it. Never log in, refresh tokens or copy credentials to hosts on the owner's behalf.
 - Never retry an uncertain operation automatically after a crash (launch/send claims, quota continuations, scheduled launches, Ask proposals, merges, browser actions, GitHub posts). Show the uncertainty and let the owner check.
 
@@ -63,7 +63,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - Attachments upload once (`upload:<mime>;<sha256>` references); non-image files go to `<data_dir>/attachments/<session-id>/`, never into the project checkout.
 - Model capacity retries: only terminal capacity/overload failures, five-minute persisted deadline, at most five per session, cancelled by Resume, input, Stop or Archive.
 - Immediate Launch and session input use UUID `Idempotency-Key` headers and durable `browser_operation` claims. Keep authentication before retry middleware.
-- Notifications (desktop and Web Push) only for completed turns, failures, unexpected interruptions, automatic quota/cost stops and automatic resumption. Push payloads never contain code or messages. Home sends Web Push for runners' sessions when their replicated status changes (subscriptions live on Home); runners keep their desktop notification and forward Telegram.
+- Notifications (desktop and Telegram) only for completed turns, failures, unexpected interruptions, automatic quota/cost stops and automatic resumption. Notifications never contain code or messages. Runners keep their desktop notification and forward Telegram to Home. There is no Web Push: Telegram is the phone channel.
 
 ### Profiles, quota and costs
 
@@ -104,7 +104,6 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - With a remote origin, `[commands]` is file-only.
 - Only the desktop shell uses `/api/open` and `/api/window`; browser tabs open links and windows locally.
 - Session lists and bus events carry `Session::light()` (no attachment bytes, prompt cut at 4,000 bytes); fetch `GET /api/sessions/{id}` for the full record. Sessions open tail-first.
-- The Web Push service worker never caches `/api`, `/ws` or `/auth`, and never registers in the desktop shell.
 
 ### GitHub
 
@@ -121,7 +120,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 
 - Channels live on Home (`channels.rs`, `telegram.rs`, `hooks.rs`); runners forward `/api/channels` and `/api/outbox` (and `/api/suggestions`) to Home. Webhook URLs and the Telegram token are vault entries `channel-…`: never listed in Credentials and tools, never lent to tools or sessions, never returned by an API.
 - Messages to other people (outgoing webhooks, GitHub suggestions) wait in the Outbox for an owner click. A send is claimed (`sending`) before the request and never retried; an incomplete send is `uncertain` until the owner checks. Automated checks never send real Outbox messages.
-- Messages to the owner's own Telegram chat go out directly (notifications with the Web Push events and no code, answers to turns started from Telegram, `launchpad send telegram`). Only the chat bound with the single-use code is answered; every other chat is ignored. Updates are claimed (offset saved) before they are handled. Messages from Telegram never enable paid usage. Never call Telegram with a real token in automated checks.
+- Messages to the owner's own Telegram chat go out directly (notifications with the desktop notification events and no code, answers to turns started from Telegram, `launchpad send telegram`). Only the chat bound with the single-use code is answered; every other chat is ignored. Updates are claimed (offset saved) before they are handled. Messages from Telegram never enable paid usage. Never call Telegram with a real token in automated checks.
 - Incoming hooks (`POST /hooks/<id>`) skip the browser sign-in and need `X-Launchpad-Hook-Secret` (SHA-256 stored, constant-time compare), one message per hook per 10 seconds; on a private Space callers also need an HF token. The body is a fenced, size-limited block marked as outside data.
 
 ### Ask Launchpad
