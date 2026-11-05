@@ -1,7 +1,7 @@
 // Settings → Credentials and tools: Home's vault (harness logins, tokens, the SSH key), the tool registry, the Git
 // identity of agents' commits and the active session leases. Secrets are write-only: the page never reads them.
 
-import { useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { HomeToken } from "@/gen/HomeToken";
 import type { LeaseInfo } from "@/gen/LeaseInfo";
@@ -14,6 +14,8 @@ import type { VaultOverview } from "@/gen/VaultOverview";
 import { toast, toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, SettingRow, Token } from "@/components/ui";
 import { api } from "@/lib/api";
+import { delegatedAccess } from "@/lib/deployment";
+import { homeStatus } from "@/features/setup/summary";
 import { formatAge } from "@/lib/format";
 import { useSessions } from "@/lib/queries";
 import { useWorkspaces } from "@/lib/workspace";
@@ -49,7 +51,11 @@ function Vault({ v }: { v: VaultOverview }) {
               <div className="text-[13px] font-semibold">{l.name}</div>
               {mine.length === 0 && <span className="text-[12px] text-ink-3">No login yet: {l.name} sessions cannot start.</span>}
               {mine.map((e, i) => <EntryRow key={e.id} id={e.id} name={e.name} detail={e.detail} note={i === 0 ? "default" : undefined} updatedAt={e.updated_at} onDone={refresh} />)}
-              <AddSecret label={`Add a ${l.name} login`} kind={l.kind} hint={l.how} multiline={l.kind === "codex_login"} onDone={refresh} />
+              {delegatedAccess() && SIGN_IN[l.harness] ? (
+                <HomeSignIn tool={SIGN_IN[l.harness]} name={l.name} onDone={refresh}>
+                  <AddSecret label="Paste a login instead" kind={l.kind} hint={l.how} multiline={l.kind === "codex_login"} onDone={refresh} />
+                </HomeSignIn>
+              ) : <AddSecret label={`Add a ${l.name} login`} kind={l.kind} hint={l.how} multiline={l.kind === "codex_login"} onDone={refresh} />}
             </div>
           );
         })}
@@ -67,6 +73,89 @@ function Vault({ v }: { v: VaultOverview }) {
       <Identity v={v} onDone={refresh} />
       <Leases />
     </>
+  );
+}
+
+/** Harnesses whose sign-in Home's Space gateway runs itself (`/_home/login`, the same as its setup page). */
+const SIGN_IN: Record<string, "claude" | "codex"> = { claude: "claude", codex: "codex" };
+
+type GatewayLogin = { tool: string; running: boolean; link: string | null; code: string | null; needs_code: boolean; error: string | null };
+
+async function gateway(path: string, body: Record<string, unknown>): Promise<{ login: GatewayLogin | null }> {
+  const { csrf } = (await homeStatus()) as { csrf?: string };
+  const r = await fetch(path, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, csrf }) });
+  const j = (await r.json().catch(() => ({}))) as { error?: string; login?: GatewayLogin | null };
+  if (!r.ok) throw new Error(j.error || `Home setup answered ${r.status}`);
+  return { login: j.login ?? null };
+}
+
+/** Signs in on Home itself, like its setup page: Home runs `claude setup-token` or `codex login --device-auth`, the
+ * owner approves in the browser (and pastes Claude's code back), and the login goes straight into the vault with a
+ * profile that uses it. */
+function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | "codex"; name: string; onDone: () => unknown; children: ReactNode }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [label, setLabel] = useState("");
+  const [login, setLogin] = useState<GatewayLogin | null>(null);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  // False once the owner cancels: a cancelled sign-in also ends without an error.
+  const watching = useRef(false);
+  const active = !!login?.running;
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => {
+      void homeStatus().then((s) => {
+        if (!watching.current) return;
+        const next = (s.login ?? null) as GatewayLogin | null;
+        setLogin(next);
+        if (next && !next.running && !next.error) {
+          watching.current = false;
+          toast(`Signed in to ${name}: Home keeps the login`);
+          setOpen(false);
+          setLabel("");
+          void qc.invalidateQueries({ queryKey: ["config"] });
+          void onDone();
+        }
+      }, () => undefined);
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [active, name, onDone, qc]);
+  const run = (path: string, body: Record<string, unknown>) => {
+    setBusy(true);
+    return gateway(path, body).then((r) => setLogin(r.login), toastError).finally(() => setBusy(false));
+  };
+  if (!open) return <div className="flex flex-wrap gap-2"><button className="btn btn-sm w-fit" onClick={() => setOpen(true)}>Add a {name} login</button></div>;
+  const failed = login && !login.running ? login.error : null;
+  return (
+    <div className="grid gap-2 rounded-[8px] border border-line-2 p-2.5 text-[13px]">
+      {!active ? <>
+        <span className="text-[12px] text-ink-3">Home runs the {name} sign-in itself. Approve it in your browser with the subscription account; the login goes straight into Home's vault, with a profile that uses it.</span>
+        <label className="grid gap-1"><span className="text-ink-2">Name <span className="text-ink-3">(optional)</span></span><input className="field-input w-[280px] max-w-full" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Work" /></label>
+        {failed && <span className="text-[12px] text-attn">{failed}</span>}
+        <div className="flex flex-wrap gap-2">
+          <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => { watching.current = true; void run("/_home/login", { tool, name: label.trim() || null }); }}>{busy ? "Starting…" : `Sign in to ${name}`}</button>
+          <button className="btn btn-sm" onClick={() => setOpen(false)}>Cancel</button>
+        </div>
+        {children}
+      </> : <>
+        {!login.link ? <span className="text-[12px] text-ink-3">Starting the {name} sign-in…</span>
+          : tool === "claude" ? (login.needs_code ? <>
+            <span className="text-[12px] text-ink-2">Open the Claude sign-in page, approve, then paste the code it shows:</span>
+            <a className="btn btn-sm btn-primary w-fit" href={login.link} target="_blank" rel="noreferrer">Open the sign-in page</a>
+            <div className="flex flex-wrap gap-2">
+              <input className="field-input w-[360px] max-w-full font-mono" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Paste the code" autoComplete="off" spellCheck={false} />
+              <button className="btn btn-sm" disabled={busy || !code.trim()} onClick={() => void run("/_home/code", { code: code.trim() }).then(() => setCode(""))}>Send</button>
+            </div>
+          </> : <span className="text-[12px] text-ink-3">Finishing the Claude Code sign-in…</span>) : <>
+            <span className="text-[12px] text-ink-2">Open the {name} sign-in page and enter this code:</span>
+            {login.code && <span className="flex items-center gap-2"><code className="font-mono text-[15px] font-semibold">{login.code}</code><button className="btn btn-sm" onClick={() => void navigator.clipboard.writeText(login.code ?? "").then(() => toast("Copied"))}>Copy</button></span>}
+            <a className="btn btn-sm btn-primary w-fit" href={login.link} target="_blank" rel="noreferrer">Open the sign-in page</a>
+          </>}
+        <span className="text-[12px] text-ink-3">{tool === "claude" ? "The code goes to Claude Code on Home; the token it creates goes straight into the vault." : "The code expires after a few minutes. This updates when you approve it."}</span>
+        <button className="btn btn-sm w-fit" disabled={busy} onClick={() => { watching.current = false; void run("/_home/cancel", {}).then(() => setLogin(null)); }}>Cancel the sign-in</button>
+      </>}
+    </div>
   );
 }
 

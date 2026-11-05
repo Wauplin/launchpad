@@ -100,6 +100,10 @@ def last_line(output):
     return re.sub(r"sk-ant-\S+", "…", line)[:300]
 
 
+def slug(text):
+    return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")[:40]
+
+
 def unique_id(base, taken):
     value, n = base, 2
     while value in taken:
@@ -562,7 +566,9 @@ class Setup:
 
     # ------------------------------------------------------------------ actions
 
-    async def start(self, tool):
+    async def start(self, tool, name=None):
+        """Starts a fixed sign-in. `name` labels a Claude Code or Codex login (Settings → Credentials adds more than one)."""
+        name = re.sub(r"\s+", " ", str(name or "")).strip()[:60] or None
         async with self.lock:
             if self.login and self.login.running:
                 raise ValueError("Finish or cancel the current sign-in first")
@@ -594,7 +600,7 @@ class Setup:
                     (folder / "config.toml").write_text('cli_auth_credentials_store = "file"\n')
 
                     async def done(_):
-                        await self.add_login("codex", (folder / "auth.json").read_text())
+                        await self.add_login("codex", (folder / "auth.json").read_text(), name)
 
                     self.login = Login(tool, ("codex", "login", "--device-auth"), dict(base, CODEX_HOME=str(folder)), done, cleanup)
                 else:
@@ -602,7 +608,7 @@ class Setup:
                         token = claude_token(output, complete=True)
                         if not token:
                             raise ValueError("Claude Code did not print a token. Start the sign-in again.")
-                        await self.add_login("claude", token)
+                        await self.add_login("claude", token, name)
 
                     env = dict(base, CLAUDE_CONFIG_DIR=str(folder), TERM="xterm-256color")
                     env.pop("NO_COLOR")
@@ -626,14 +632,16 @@ class Setup:
             except Exception:
                 pass  # The next poll syncs the inbox.
 
-    async def add_login(self, harness, secret):
-        """Store a harness login in Home's vault; a profile without its login gets it, otherwise a new profile."""
+    async def add_login(self, harness, secret, name=None):
+        """Store a harness login in Home's vault; a profile without its login gets it, otherwise a new profile with the
+        login's name."""
         if not self.api:
             raise ValueError("Home is still starting. Try again in a moment.")
         vault = await self.api("GET", "/api/vault")
         ids = {e["id"] for e in vault["entries"]}
-        entry = unique_id(harness, ids)
-        await self.api("PUT", f"/api/vault/entries/{entry}", {"kind": LOGINS[harness], "name": NAMES[harness], "value": secret})
+        label = name or NAMES[harness]
+        entry = unique_id(slug(name or "") or harness, ids)
+        await self.api("PUT", f"/api/vault/entries/{entry}", {"kind": LOGINS[harness], "name": label, "value": secret})
         config = (await self.api("GET", "/api/config"))["config"]
         has_login = any(e["kind"] == LOGINS[harness] for e in vault["entries"])
         waiting = next((p for p in config["profiles"] if p["harness"] == harness
@@ -641,8 +649,8 @@ class Setup:
         if waiting:
             waiting["login"] = entry
         else:
-            config["profiles"].append({"id": unique_id(harness, {p["id"] for p in config["profiles"]}),
-                                       "name": NAMES[harness], "harness": harness, "login": entry})
+            config["profiles"].append({"id": unique_id(entry, {p["id"] for p in config["profiles"]}),
+                                       "name": label if not name else f"{NAMES[harness]} · {name}", "harness": harness, "login": entry})
         await self.api("PUT", "/api/config", config)
         await self.check_home(force=True)
 
@@ -685,7 +693,7 @@ class Setup:
 
     async def action(self, path, body):
         if path == "/_home/login":
-            await self.start(body.get("tool"))
+            await self.start(body.get("tool"), body.get("name"))
         elif path == "/_home/cancel":
             if self.login:
                 self.login.cancelled = True
