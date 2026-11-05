@@ -117,6 +117,24 @@ def unseal(key, data):
     return AESGCM(key).decrypt(rest[:12], rest[12:], None)
 
 
+def key_opens(key, files):
+    """Whether `key` opens the sealed files of an earlier Home: None when there are none to test."""
+    opened = None
+    for path in files:
+        if not path.exists():
+            continue
+        try:
+            unseal(key, path.read_bytes())
+            opened = True
+        except Exception:
+            return False
+    return opened
+
+
+KEY_MISMATCH = ("This key does not match the key of the earlier Home whose credentials are in this bucket. "
+                "Enter that Home's key (from your password manager or key file).")
+
+
 def write_private(path, data):
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
@@ -270,6 +288,8 @@ class Setup:
         self.passphrase = None  # A key generated or typed on this page, until Home restarts with it.
         self.home = {}  # What Home's daemon has: SSH key, identity, profiles, folders, runners.
         self.home_at = 0.0
+        self.hf_retry = None  # Retries a check that could not reach Hugging Face, with backoff.
+        self.hf_checked_at = 0.0
         self.login = None
         self.lock = asyncio.Lock()
         self.api = None  # Set once the daemon is up: async (method, path, body=None) -> JSON.
@@ -277,6 +297,13 @@ class Setup:
         self.binary_sha = None
 
     # ------------------------------------------------------------------ credentials at rest
+
+    def sealed_files(self):
+        return [sealed for _, sealed in self.files.values()]
+
+    def key_matches(self, key):
+        """False when `key` cannot open the credentials an earlier Home sealed in the bucket."""
+        return key_opens(key, self.sealed_files()) is not False
 
     def restore(self):
         """Decrypt Home's own logins from the bucket into the container's disk."""
@@ -305,6 +332,9 @@ class Setup:
         key = derive_key(passphrase)
         if key is None:
             raise ValueError(f"Use a key of at least {MIN_KEY} characters")
+        # Tested before anything is sealed with it: a wrong key would stop Home at every restart.
+        if not self.key_matches(key):
+            raise ValueError(KEY_MISMATCH)
         self.passphrase = passphrase.strip()
         # Home's HF login is sealed with the new key now, so Home finds it after the restart.
         self.save("huggingface", key)
@@ -328,10 +358,13 @@ class Setup:
 
     async def check_hf(self):
         from huggingface_hub import get_token
+        self.hf_checked_at = time.monotonic()
         token = get_token()
         if not token:
             self.hf = {"done": False, "account": None, "error": None}
             return
+        refused = (f"Could not verify this login and its access to the private bucket {self.bucket}. "
+                   "Sign in with an account that can write to it.")
         try:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as client:
                 headers = {"Authorization": f"Bearer {token}"}
@@ -343,8 +376,30 @@ class Setup:
                     if (await response.json()).get("private") is not True:
                         raise ValueError("private")
             self.hf = {"done": True, "account": account, "error": None}
+        except aiohttp.ClientResponseError as error:
+            if error.status == 429 or error.status >= 500:
+                self.hf_unreachable()
+            else:
+                self.hf = {"done": False, "account": None, "error": refused}
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
+            self.hf_unreachable()
         except Exception:
-            self.hf = {"done": False, "account": None, "error": f"Could not verify this login and its access to the private bucket {self.bucket}. Sign in with an account that can write to it."}
+            self.hf = {"done": False, "account": None, "error": refused}
+
+    def hf_unreachable(self):
+        """Hugging Face did not answer: keep the last verified state and check again with backoff."""
+        if not self.hf["done"]:
+            self.hf = {"done": False, "account": None, "error": "Could not reach Hugging Face to verify this login. Home checks again on its own."}
+        if self.hf_retry is None or self.hf_retry.done():
+            self.hf_retry = asyncio.ensure_future(self.retry_hf())
+
+    async def retry_hf(self, delay=5):
+        while True:
+            await asyncio.sleep(delay)
+            await self.check_hf()
+            if self.hf["done"] or not (self.hf["error"] or "").startswith("Could not reach"):
+                return
+            delay = min(max(delay * 2, 5), 300)
 
     async def gh(self, *args):
         process = await asyncio.create_subprocess_exec(
@@ -573,6 +628,8 @@ class Setup:
         await self.api("PATCH", "/api/onboarding", {"dismiss": [item]})
 
     async def close(self):
+        if self.hf_retry:
+            self.hf_retry.cancel()
         if self.login:
             await self.login.stop()
             if self.login.task:
@@ -654,6 +711,9 @@ class Setup:
     async def handle(self, request, path):
         """A response for setup routes and while setup is unfinished; None lets the request through."""
         if path == "/_home/status" and request.method == "GET":
+            # An unverified login is checked again (at most every 30 seconds) while the page is open.
+            if not self.hf["done"] and time.monotonic() - self.hf_checked_at > 30 and (self.hf_retry is None or self.hf_retry.done()):
+                self.hf_retry = asyncio.ensure_future(self.retry_hf(0))
             try:
                 await self.check_home()
             except Exception:

@@ -1,6 +1,6 @@
 import unittest
 
-from onboarding import claude_token, derive_key, device_prompt, last_line, noreply_email, seal, unique_id, unseal
+from onboarding import claude_token, derive_key, device_prompt, key_opens, last_line, noreply_email, seal, unique_id, unseal
 
 
 class DevicePrompt(unittest.TestCase):
@@ -50,6 +50,17 @@ class DevicePrompt(unittest.TestCase):
 
 
 class Sealing(unittest.TestCase):
+    def test_key_opens(self):
+        import tempfile
+        from pathlib import Path
+        key, other = derive_key("correct horse battery"), derive_key("another key, longer")
+        with tempfile.TemporaryDirectory() as d:
+            files = [Path(d) / "a", Path(d) / "b"]
+            self.assertIsNone(key_opens(key, files))
+            files[0].write_bytes(seal(key, b"token"))
+            self.assertTrue(key_opens(key, files))
+            self.assertFalse(key_opens(other, files))
+
     def test_roundtrip(self):
         key = derive_key("correct horse battery")
         self.assertEqual(len(key), 32)

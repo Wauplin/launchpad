@@ -13,7 +13,7 @@ from aiohttp import web
 import tomlkit
 
 from gateway.proxy import Proxy, canonical_path
-from onboarding import MIN_KEY, Setup, derive_key
+from onboarding import KEY_MISMATCH, MIN_KEY, Setup, derive_key
 
 
 def validate_config(method, value):
@@ -91,6 +91,35 @@ def configure(backup, config):
     config.chmod(0o600)
 
 
+def stop_event():
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, stop.set)
+    return stop
+
+
+MISMATCH_HTML = """<!doctype html><meta charset="utf-8"><title>Launchpad Home: key does not match</title>
+<body style="font: 13px system-ui, sans-serif; max-width: 560px; margin: 48px auto; padding: 0 16px; color: #1f2328">
+<h1 style="font-size: 18px">Key does not match</h1>
+<p>The <code>LP_HOME_KEY</code> Space secret does not open the credentials an earlier Home saved in this bucket, so Home did not start.</p>
+<p>In the Space settings, set <code>LP_HOME_KEY</code> to that Home's key, then restart the Space. Nothing in the bucket was changed.</p>
+</body>"""
+
+
+async def mismatch_page(stop):
+    app = web.Application()
+    app.router.add_route("*", "/{path:.*}", lambda _: web.Response(text=MISMATCH_HTML, content_type="text/html", status=503, headers={"Cache-Control": "no-store"}))
+    runner = web.AppRunner(app, access_log=None)
+    await runner.setup()
+    await web.TCPSite(runner, "0.0.0.0", 7860).start()
+    print(f"Home stopped: {KEY_MISMATCH}", flush=True)
+    try:
+        await stop.wait()
+    finally:
+        await runner.cleanup()
+
+
 async def main():
     space = os.environ["SPACE_ID"]
     host = os.environ["SPACE_HOST"]
@@ -108,16 +137,17 @@ async def main():
     os.environ["GH_CONFIG_DIR"] = str(home / ".config/gh")
     configure(backup, home / ".config/launchpad/config.toml")
     setup = Setup(space, host, os.environ.get("LP_HOME_BUCKET", space + "-bucket"), backup / "home/credentials", key)
+    if key and not setup.key_matches(key):
+        # Home cannot open its credentials or backups with this key: say so instead of restarting in a loop.
+        await mismatch_page(stop_event())
+        return
     setup.restore()
     await setup.check()
     env = dict(os.environ, LAUNCHPAD_HOME_BACKUP=str(backup), LAUNCHPAD_PORT="7319", LAUNCHPAD_DELEGATED_ACCESS="true")
     if key:
         env["LAUNCHPAD_HOME_KEY"] = base64.b64encode(key).decode()
     daemon = await asyncio.create_subprocess_exec("launchpad", "daemon", "--role", "home", env=env)
-    stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop.set)
+    stop = stop_event()
     runner = api_client = None
     try:
         token_path = home / ".local/share/launchpad/token"
