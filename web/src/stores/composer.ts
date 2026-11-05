@@ -3,6 +3,7 @@
 // revision they start from, the daemon rejects stale ones (409), and `drafts/changed` events reload idle
 // windows. A window that is being edited shows a conflict notice instead of losing either version.
 
+import { isDemo } from "@/demo/mode";
 import { isExtension } from "../lib/connection.ts";
 import { storageAllowed } from "../lib/clientStorage.ts";
 import { useSaveStatus } from "../lib/saveStatus.ts";
@@ -91,6 +92,9 @@ type SavedDraft = { spec?: LaunchSpec; open?: boolean; minimized?: boolean; cond
 
 /** Identifies this window in `drafts/changed` events, so it ignores its own saves. */
 const clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+const OPEN_AFTER_LAUNCH = "launchpad-open-after-launch";
+const readOpenAfterLaunch = () => { try { return !isDemo && localStorage.getItem(OPEN_AFTER_LAUNCH) === "1"; } catch { return false; } };
+
 const draftScope = (workspace: string | null) => isExtension ? `chrome-extension:${localStorage.getItem("launchpad-extension-device") ?? "unpaired"}:${workspace ?? "default"}` : workspace;
 const draftPath = (workspace: string | null) => `/api/launch/draft${draftScope(workspace) ? `?workspace=${encodeURIComponent(draftScope(workspace)!)}` : ""}`;
 
@@ -248,7 +252,7 @@ export const useComposer = create<Composer>((set, get) => ({
   spec: emptySpec(),
   conditions: [],
   setConditions: (conditions) => { set({ conditions }); save(get().spec, get().open, conditions); },
-  openAfterLaunch: false,
+  openAfterLaunch: readOpenAfterLaunch(),
   loaded: false,
   rememberLaunch: (spec, startedAt) => {
     if (!spec.harness || spec.target.kind === "assistant" || spec.bot) return;
@@ -310,7 +314,11 @@ export const useComposer = create<Composer>((set, get) => ({
     set({ spec, open: false, minimized: false, conditions: [] });
     save(spec, false, []);
   },
-  setOpenAfterLaunch: (v) => set({ openAfterLaunch: v }),
+  setOpenAfterLaunch: (v) => {
+    set({ openAfterLaunch: v });
+    // Device-local, like theme and zoom; the demo never writes browser storage.
+    if (!isDemo) try { localStorage.setItem(OPEN_AFTER_LAUNCH, v ? "1" : "0"); } catch { /* This page only. */ }
+  },
   restore: async () => {
     try {
       const [sessions, projects] = await Promise.all([api.get<Session[]>("/api/sessions"), api.get<Project[]>("/api/projects")]);
