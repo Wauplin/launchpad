@@ -67,6 +67,7 @@ The tour runs in demo mode: a fictional organization with prerecorded agent runs
 - Git identity, GitHub CLI sign-in, Git credentials and SSH key.
 - Each harness: installed and signed in.
 - A first profile.
+- On Linux, where every agent runs contained: bubblewrap installed and able to create a jail (on Ubuntu 24.04, the AppArmor profile that allows it), a login in the vault for each profile's agent, and the Git identity of agents (both in **Settings → Credentials and tools**). Agents in the jail never use this computer's sign-ins or Git configuration.
 
 Items that are already done show what was found and where. For missing items, a button runs the official command in a visible terminal. The checklist never overwrites an existing Git identity, credential, SSH key or harness login.
 

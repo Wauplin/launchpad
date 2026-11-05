@@ -64,7 +64,8 @@ pub struct LoginSuggestion {
 
 #[derive(Clone, Debug, Serialize, TS)]
 pub struct SetupItem {
-    /// `github`, `git`, `profile`, `folder`, `presets`, `devices`, `huggingface`, `hosts` or `extension`.
+    /// `github`, `git`, `profile`, `jail`, `vault_login`, `vault_git`, `folder`, `presets`, `devices`, `huggingface`,
+    /// `hosts` or `extension`.
     pub id: String,
     pub title: String,
     pub importance: Importance,
@@ -386,6 +387,115 @@ async fn profile(app: &App, host: Option<&str>) -> SetupItem {
     it
 }
 
+// ---------------------------------------------------------------- Contained sessions (Linux)
+
+/// Whether agents of this machine run in a bubblewrap jail with logins from the vault (`contain::contained`).
+fn contained(app: &App, host: Option<&str>) -> bool {
+    crate::contain::contained(app, host)
+}
+
+/// Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor (read-only check).
+fn apparmor_restricts_userns() -> bool {
+    std::fs::read_to_string("/proc/sys/kernel/apparmor_restrict_unprivileged_userns").is_ok_and(|v| v.trim() == "1")
+}
+
+/// The AppArmor profile that lets bwrap create user namespaces. Never overwrites an existing file.
+const APPARMOR_FIX: &str = r#"if [ -e /etc/apparmor.d/bwrap ]; then echo '/etc/apparmor.d/bwrap already exists and was not changed.'; else printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' 'profile bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '  include if exists <local/bwrap>' '}' | sudo tee /etc/apparmor.d/bwrap >/dev/null && sudo apparmor_parser -r /etc/apparmor.d/bwrap; fi"#;
+
+async fn jail(env: &UserEnv) -> SetupItem {
+    let mut it = item("jail", "Agent jail", Importance::Required, "Every agent on Linux runs in a bubblewrap jail: it sees only its own folders, never your home folder or logins.");
+    let Some((true, out, _)) = run(env, "bwrap", &["--version"]).await else {
+        it.missing.push(part("install", "Install bubblewrap", Some("Ubuntu and Debian (asks for your password).".into()), Some("sudo apt update && sudo apt install bubblewrap -y".into()), true, true));
+        return it;
+    };
+    it.found.push(found("Version", first_line(&out).trim_start_matches("bubblewrap ").to_string(), Some("bwrap --version".into())));
+    match crate::jail::check().await {
+        Ok(()) => {
+            it.state = ItemState::Ready;
+            it.found.push(found("Jail", "works", Some("a test jail ran true".into())));
+        }
+        Err(e) if apparmor_restricts_userns() => {
+            it.found.push(found("Jail", format!("{e:#}"), Some("kernel.apparmor_restrict_unprivileged_userns = 1".into())));
+            it.missing.push(part("apparmor", "Allow user namespaces for bwrap", Some("Ubuntu 24.04 blocks them with AppArmor. This adds the profile /etc/apparmor.d/bwrap (asks for your password); an existing file is never changed.".into()), Some(APPARMOR_FIX.into()), true, true));
+        }
+        Err(e) => it.missing.push(part("check", "bubblewrap cannot create a jail", Some(format!("{e:#}")), None, false, false)),
+    }
+    it
+}
+
+/// The vault as this machine sees it: its own (single process) or Home's (a runner). `None`: Home is unreachable.
+async fn vault_view(app: &App) -> Option<(Vec<crate::vault::VaultEntry>, String, String)> {
+    if crate::vault::here(app) {
+        let home = app.config.get().home;
+        return Some((crate::vault::entries(app).await.ok()?, home.git_name, home.git_email));
+    }
+    let v = crate::home_link::home_request("GET", "/api/vault", None).await.ok()?;
+    let entries = serde_json::from_value(v["entries"].clone()).ok()?;
+    Some((entries, v["git_name"].as_str().unwrap_or_default().to_string(), v["git_email"].as_str().unwrap_or_default().to_string()))
+}
+
+const UNREACHABLE: &str = "Home is unreachable: checked again when it answers";
+
+/// Contained sessions take their harness login only from the vault, never from this machine.
+fn vault_logins(app: &App, vault: Option<&[crate::vault::VaultEntry]>) -> SetupItem {
+    let mut it = item("vault_login", "Agent logins in the vault", Importance::Required, "Agents in the jail never use this machine's sign-ins: each profile's agent needs a login in Settings → Credentials and tools.");
+    let Some(entries) = vault else {
+        it.state = ItemState::Unverified;
+        it.found.push(found("Vault", UNREACHABLE, None));
+        return it;
+    };
+    let profiles = app.config.get().profiles;
+    if profiles.is_empty() {
+        it.missing.push(part("profile", "Create a profile first", Some("Then add the login of its agent here.".into()), None, false, false));
+        return it;
+    }
+    for p in &profiles {
+        let Some(kind) = crate::vault::Kind::login_of(p.harness) else { continue };
+        let login = match &p.login {
+            Some(id) => entries.iter().find(|e| &e.id == id && e.kind == kind),
+            None => entries.iter().find(|e| e.kind == kind),
+        };
+        match login {
+            Some(e) => it.found.push(found(&p.name, format!("{} · {}", e.name, e.detail), Some(format!("vault entry {}", e.id)))),
+            None => {
+                let what = match &p.login { Some(id) => format!("The login {id} that this profile names is not in the vault."), None => format!("The vault has no {} login.", p.harness.display()) };
+                it.missing.push(part(&format!("login:{}", p.id), &format!("Add a {} login for {}", p.harness.display(), p.name), Some(what), None, false, false));
+            }
+        }
+    }
+    it.state = if it.missing.is_empty() { ItemState::Ready } else { ItemState::Missing };
+    it
+}
+
+/// The author of agents' commits in the jail: the vault's identity, never this machine's Git config.
+fn vault_git(vault: Option<&(Vec<crate::vault::VaultEntry>, String, String)>) -> SetupItem {
+    let mut it = item("vault_git", "Git identity of agents", Importance::Required, "Agents commit with this name and email on every machine; the jail never reads your Git configuration.");
+    let Some((_, name, email)) = vault else {
+        it.state = ItemState::Unverified;
+        it.found.push(found("Vault", UNREACHABLE, None));
+        return it;
+    };
+    let source = Some("Settings → Credentials and tools".to_string());
+    if name.trim().is_empty() || email.trim().is_empty() {
+        it.missing.push(part("identity", "Set the Git identity of agents", Some("Name and email for agents' commits.".into()), None, false, false));
+    } else {
+        it.state = ItemState::Ready;
+    }
+    if !name.trim().is_empty() { it.found.push(found("Name", name.clone(), source.clone())); }
+    if !email.trim().is_empty() { it.found.push(found("Email", email.clone(), source)); }
+    it
+}
+
+/// The items of contained sessions, on a machine whose agents run in the jail.
+async fn contained_items(app: &App, env: &UserEnv) -> Vec<SetupItem> {
+    let vm = app.config.get().runner.boundary == crate::config::Boundary::Vm;
+    let (jail_item, vault) = tokio::join!(async { if vm { None } else { Some(jail(env).await) } }, vault_view(app));
+    let mut items: Vec<SetupItem> = jail_item.into_iter().collect();
+    items.push(vault_logins(app, vault.as_ref().map(|v| v.0.as_slice())));
+    items.push(vault_git(vault.as_ref()));
+    items
+}
+
 // ---------------------------------------------------------------- First folder
 
 async fn folder(app: &App, host: Option<&str>) -> SetupItem {
@@ -545,12 +655,18 @@ fn required_left(items: &[SetupItem]) -> u32 {
 static SUMMARY: Mutex<Option<(Instant, u32)>> = Mutex::new(None);
 const SUMMARY_TTL: Duration = Duration::from_secs(300);
 
-/// The required items of a machine: GitHub CLI, Git, Agent profile, First folder.
+/// The required items of a machine: GitHub CLI, Git, Agent profile, First folder, and on a machine whose agents
+/// run contained, the jail, the vault logins and the agents' Git identity.
 async fn required(app: &App, host: Option<&str>) -> Vec<SetupItem> {
     let env = app.env.on(host);
     let ((gh_item, gh), profile, folder) = tokio::join!(github(app, &env, host), profile(app, host), folder(app, host));
     let git = git(app, &env, host, &gh).await;
-    vec![gh_item, git, profile, folder]
+    let mut items = vec![gh_item, git, profile];
+    if contained(app, host) {
+        items.extend(contained_items(app, &env).await);
+    }
+    items.push(folder);
+    items
 }
 
 /// Every item of a machine. On this computer, `devices` (from the server's front door) is added too.
@@ -584,6 +700,7 @@ pub async fn item_state(app: &App, host: Option<&str>, id: &str) -> Option<Setup
         }
         "profile" => profile(app, host).await,
         "folder" => folder(app, host).await,
+        "jail" if contained(app, host) => jail(&env).await,
         "huggingface" if host.is_none() => huggingface(app).await,
         "extension" if host.is_none() => extension(app).await,
         _ => return None,

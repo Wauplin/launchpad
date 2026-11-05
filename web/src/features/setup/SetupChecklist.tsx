@@ -203,6 +203,7 @@ function ItemCard({ item, host, recheck, onHide }: { item: SetupItem; host: stri
         {parts.map((p) => <PartRow key={p.id} item={item.id} part={p} host={host} />)}
         {item.id === "devices" && <SettingsLink to="/settings/devices">Open Settings → Devices</SettingsLink>}
         {item.id === "hosts" && <SettingsLink to="/settings/hosts">Open Settings → Machines</SettingsLink>}
+        {(item.id === "vault_login" || item.id === "vault_git") && <SettingsLink to="/settings/credentials">Open Settings → Credentials and tools</SettingsLink>}
         {item.id === "huggingface" && item.missing.some((p) => p.id === "enable") && <SettingsLink to="/settings/huggingface">Open Settings → Hugging Face</SettingsLink>}
       </>}
     </ItemShell>
