@@ -136,10 +136,15 @@ pub struct CommitInfo {
 // ---------------------------------------------------------------- sources and checks
 
 /// Home keeps no working copy of its folders: a Git folder is read from its browse copy (the mirror is bare),
-/// a plain folder from a copy of its store.
+/// a plain or temporary folder from a copy of its store.
 fn on_home(app: &App, mut p: Project) -> Project {
-    if app.paths.role == crate::role::Role::Home && (p.home_git || p.plain) {
+    if app.paths.role != crate::role::Role::Home {
+        return p;
+    }
+    if p.home_git || p.plain {
         p.path = crate::home_git::browse_dir(app, &p.id).to_string_lossy().into_owned();
+    } else if p.is_temp {
+        p.path = crate::home_git::browse_dir(app, &crate::plain::temp_store(&p.id)).to_string_lossy().into_owned();
     }
     p
 }
@@ -155,15 +160,79 @@ async fn home_copy(app: &App, p: &Project) -> Result<Option<PathBuf>> {
     if p.plain {
         return crate::plain::browse_copy(app, &p.id).await.map(Some);
     }
+    if p.is_temp {
+        return crate::plain::browse_copy(app, &crate::plain::temp_store(&p.id)).await.map(Some);
+    }
+    Ok(None)
+}
+
+/// `root` is `dir` or a folder inside it: the part after `dir` ("" for `dir` itself).
+fn inside_of<'a>(root: &'a str, dir: &str) -> Option<&'a str> {
+    let rest = root.strip_prefix(dir.trim_end_matches('/'))?;
+    (rest.is_empty() || rest.starts_with('/')).then(|| rest.trim_start_matches('/'))
+}
+
+/// Home: the sessions on runners whose folder may be `root`: its working directory contains it, or `root` is in
+/// one of its task worktrees (`<data_dir>/worktrees/<session id>/…`).
+fn sessions_at(app: &App, root: &str) -> Vec<crate::model::Session> {
+    app.sessions.list().into_iter().filter(|s| s.runner_id.is_some() && (inside_of(root, &s.cwd).is_some() || root.contains(&format!("/worktrees/{}/", s.id)))).collect()
+}
+
+/// Home: the connected runner that holds `root` (a folder of one of its sessions, or a temporary folder), or the
+/// runner of folder `project` (`/api/code/sources`). Files of that folder are read there, as they are now.
+pub async fn runner_for(app: &App, root: Option<&str>, project: Option<&str>) -> Option<String> {
+    if app.paths.role != crate::role::Role::Home {
+        return None;
+    }
+    let connected = |r: &Option<String>| r.clone().filter(|r| app.runners.connected(r));
+    if let Some(id) = project {
+        return connected(&crate::projects::get(app, id).await.ok().flatten()?.runner_id);
+    }
+    let root = root?;
+    // Home's own folders (and their copies) are read on Home.
+    let all = crate::projects::list(app).await.ok()?;
+    if let Some(p) = all.iter().find(|p| p.path == root || on_home(app, (*p).clone()).path == root) {
+        return connected(&p.runner_id);
+    }
+    sessions_at(app, root).into_iter().find_map(|s| connected(&s.runner_id))
+}
+
+/// Home: what to read for a folder of a session whose runner is away (offline, or a stopped Burst job): a plain
+/// or temporary folder from Home's store, a task worktree from its branch on Home. Returns the folder and the
+/// revision to read.
+async fn away_copy(app: &App, all: &[Project], root: &str) -> Result<Option<(PathBuf, Option<String>)>> {
+    for s in sessions_at(app, root) {
+        if let Some(w) = crate::away::worktree_at(app, &s.id, root).await
+            && let Some(p) = all.iter().find(|p| p.id == w.project_id && p.home_git)
+        {
+            let dir = crate::home_git::browse_copy(app, p).await?;
+            let rest = inside_of(root, &w.root).unwrap_or_default();
+            return Ok(Some((dir.join(rest), Some(format!("origin/{}", w.branch)))));
+        }
+        if let Some(rest) = inside_of(root, &s.cwd)
+            && let Some(p) = all.iter().find(|p| s.project_id.as_deref() == Some(p.id.as_str()) && (p.plain || p.is_temp))
+            && let Some(dir) = home_copy(app, p).await?
+        {
+            return Ok(Some((dir.join(rest), None)));
+        }
+    }
     Ok(None)
 }
 
 /// Checks a root (and resolves a revision) before anything is read. On Home, a folder's own path (what the UI
-/// knows) stands for its copy.
+/// knows) stands for its copy, and a folder of a session whose runner is away for what Home holds of it.
 pub async fn open(app: &App, root: &str, rev: Option<&str>) -> Result<Source> {
     let all = crate::projects::list(app).await?;
+    let mut rev = rev.map(str::trim).filter(|r| !r.is_empty()).map(str::to_string);
     let root = match all.iter().find(|p| p.path == root || on_home(app, (*p).clone()).path == root) {
         Some(p) => home_copy(app, p).await?.map(|d| d.to_string_lossy().into_owned()).unwrap_or_else(|| root.to_string()),
+        None if app.paths.role == crate::role::Role::Home => match away_copy(app, &all, root).await? {
+            Some((dir, branch)) => {
+                rev = rev.or(branch);
+                dir.to_string_lossy().into_owned()
+            }
+            None => root.to_string(),
+        },
         None => root.to_string(),
     };
     let root = crate::files::canonicalize(&root).await.with_context(|| format!("{root} does not exist"))?;
@@ -171,18 +240,22 @@ pub async fn open(app: &App, root: &str, rev: Option<&str>) -> Result<Source> {
     let project = project_for_root(&projects, &root).await
         .with_context(|| format!("{} is not a registered project or one of its worktrees", root.display()))?;
     let git = repository_root(&root).await.is_some();
-    let rev = match rev.map(str::trim).filter(|r| !r.is_empty()) {
+    let rev = match rev.as_deref() {
         None => None,
         Some(r) => {
             if !git {
                 bail!("{} is not a git repository", root.display());
             }
-            let spec = format!("{r}^{{commit}}");
-            let sha = run(&app.env, &root, &["rev-parse", "--verify", "--quiet", "--end-of-options", &spec])
-                .await
-                .ok()
-                .filter(|s| !s.is_empty())
-                .with_context(|| format!("unknown revision {r}"))?;
+            let resolve = |spec: String| {
+                let root = root.clone();
+                async move { run(&app.env, &root, &["rev-parse", "--verify", "--quiet", "--end-of-options", &spec]).await.ok().filter(|s| !s.is_empty()) }
+            };
+            let mut sha = resolve(format!("{r}^{{commit}}")).await;
+            // Home's browse copy has the folder's branches as `origin/<branch>` only.
+            if sha.is_none() && app.paths.role == crate::role::Role::Home && project.home_git {
+                sha = resolve(format!("refs/remotes/origin/{r}^{{commit}}")).await;
+            }
+            let sha = sha.with_context(|| format!("unknown revision {r}"))?;
             Some((r.to_string(), sha))
         }
     };

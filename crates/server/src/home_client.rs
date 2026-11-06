@@ -465,6 +465,12 @@ pub(crate) async fn local(app: &App, router: &Router, method: &str, path: &str, 
     req.extensions_mut().insert(axum::extract::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 0))));
     let res = router.clone().oneshot(req).await?;
     let status = res.status().as_u16();
+    if headers.iter().any(|(k, v)| k.eq_ignore_ascii_case(crate::runners::ENVELOPE_HEADER) && v == "1") {
+        let headers = res.headers().iter().filter(|(k, _)| *k != header::CONTENT_LENGTH).filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string()))).collect();
+        let bytes = axum::body::to_bytes(res.into_body(), 64 << 20).await?;
+        let body = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+        return Ok((status, serde_json::to_string(&crate::runners::Envelope { headers, body })?));
+    }
     let bytes = axum::body::to_bytes(res.into_body(), 64 << 20).await?;
     Ok((status, String::from_utf8_lossy(&bytes).into_owned()))
 }

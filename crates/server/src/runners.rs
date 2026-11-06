@@ -463,9 +463,23 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
             Some(r) => Some(r),
             None => return next.run(req).await,
         },
+        // Files of a folder on a connected runner (a session's worktree, plain copy or temporary folder) are read
+        // there; Home answers for its own folders and for runners that are away (`code::open`).
+        ["api", "code", ..] if get => {
+            let q = axum::extract::Query::<std::collections::HashMap<String, String>>::try_from_uri(req.uri()).map(|q| q.0).unwrap_or_default();
+            match launchpad_core::code::runner_for(&s.app, q.get("root").map(String::as_str), q.get("project").map(String::as_str)).await {
+                Some(r) => Some(r),
+                None => return next.run(req).await,
+            }
+        }
         _ => return next.run(req).await,
     };
-    let headers: Vec<(String, String)> = req.headers().get("idempotency-key").and_then(|v| v.to_str().ok()).map(|v| vec![("idempotency-key".to_string(), v.to_string())]).unwrap_or_default();
+    // Images and downloads are bytes: the runner sends them in an envelope (`home_client::local`).
+    let binary = matches!(parts.as_slice(), ["api", "code", "raw" | "download"]);
+    let mut headers: Vec<(String, String)> = req.headers().get("idempotency-key").and_then(|v| v.to_str().ok()).map(|v| vec![("idempotency-key".to_string(), v.to_string())]).unwrap_or_default();
+    if binary {
+        headers.push((ENVELOPE_HEADER.into(), "1".into()));
+    }
     let path_and_query = req.uri().path_and_query().map(|p| p.to_string()).unwrap_or_else(|| path.clone());
     let uri = req.uri().clone();
     let body = match axum::body::to_bytes(req.into_body(), 32 << 20).await {
@@ -505,9 +519,38 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
         return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{name} is offline")).into_response();
     }
     match s.app.runners.request_with(&runner, method.as_str(), &path_and_query, body, headers).await {
+        Ok((status, body)) if binary => from_envelope(status, &body),
         Ok((status, body)) => (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response(),
         Err(e) => ApiError::new(StatusCode::BAD_GATEWAY, format!("{e:#}")).into_response(),
     }
+}
+
+/// Asks a runner for an answer with its headers and its bytes in base64 (`Envelope`).
+pub(crate) const ENVELOPE_HEADER: &str = "x-launchpad-envelope";
+
+/// An answer that is not text, through the tunnel (whose answers are text).
+#[derive(serde::Serialize, Deserialize)]
+pub(crate) struct Envelope {
+    pub headers: Vec<(String, String)>,
+    pub body: String,
+}
+
+fn from_envelope(status: u16, body: &str) -> Response {
+    let status = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
+    let Ok(e) = serde_json::from_str::<Envelope>(body) else {
+        // A runner of an older build: its error text, or bytes it could not send.
+        return (status, [(axum::http::header::CONTENT_TYPE, "application/json")], body.to_string()).into_response();
+    };
+    let Ok(bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, e.body) else {
+        return ApiError::new(StatusCode::BAD_GATEWAY, "the runner sent a damaged file").into_response();
+    };
+    let mut res = (status, bytes).into_response();
+    for (k, v) in e.headers {
+        if let (Ok(k), Ok(v)) = (axum::http::HeaderName::from_bytes(k.as_bytes()), axum::http::HeaderValue::from_str(&v)) {
+            res.headers_mut().insert(k, v);
+        }
+    }
+    res
 }
 
 /// Home: reviews of a session whose runner is away, from Home Git and its last handoff (`core::away`). None:

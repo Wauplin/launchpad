@@ -256,7 +256,7 @@ function RemovedWorktree({ project, root }: { project: Project; root: string }) 
       <button className="btn btn-sm btn-primary" onClick={() => void navigate({ to: "/projects/$id/code", params: { id: project.id }, search: { root: project.path } })}><Icon name="folder" size={12} />Open checkout</button>
       {branch && <button className="btn btn-sm" onClick={() => void navigate({ to: "/projects/$id/code", params: { id: project.id }, search: { root: project.path, rev: branch } })}><Icon name="branch" size={12} />Open branch {branch} from git</button>}
     </div>}>
-      This worktree was removed, probably after its merge. Its branch stays in git.
+      This folder is not available: it was removed after its merge, or Home has no copy of it. Its branch stays in git.
     </Empty>
   );
 }

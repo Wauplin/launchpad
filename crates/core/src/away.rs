@@ -37,6 +37,11 @@ async fn records(app: &App, session_id: &str) -> Result<Vec<TaskWorktree>> {
     Ok(list)
 }
 
+/// The worktree of the session's last handoff whose folder is `root` or contains it.
+pub async fn worktree_at(app: &App, session_id: &str, root: &str) -> Option<TaskWorktree> {
+    records(app, session_id).await.ok()?.into_iter().find(|w| root == w.root || root.starts_with(&format!("{}/", w.root)))
+}
+
 async fn primary(app: &App, session_id: &str) -> Result<TaskWorktree> {
     records(app, session_id).await?.into_iter().find(|w| w.primary).context("its runner is offline and Home has no record of this session's worktree yet")
 }

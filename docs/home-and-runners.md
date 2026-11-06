@@ -86,7 +86,7 @@ Home keeps a mirror of every Git folder: every branch of the folder's remote, pl
 
 ## Files on Home
 
-Home keeps each Git folder as a bare mirror. For **Files**, it keeps a read-only copy of the default branch next to it, which borrows the mirror's objects and lists every branch as `origin/<branch>`. The copy is refreshed when Files opens, at most every 30 seconds.
+Home keeps each Git folder as a bare mirror. For **Files**, it keeps a read-only copy of the default branch next to it, which borrows the mirror's objects and lists every branch as `origin/<branch>`. The copy is refreshed when Files opens, at most every 30 seconds. Plain and temporary folders get a read-only copy of the files Home holds. Files of a session that runs on a connected runner (its worktrees, plain copy or temporary folder) are read on that runner, as they are now. When that runner is offline or its Burst job has stopped, Home shows a worktree from its branch on Home Git, and a plain or temporary folder from the files of the last turn.
 
 ## Plain and asset folders
 

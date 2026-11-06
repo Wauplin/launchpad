@@ -411,7 +411,8 @@ pub mod proto {
         Ack { n: u64 },
         /// The connection is refused (unknown, pending or incompatible runner); the runner shows the reason.
         Refuse { reason: String },
-        /// An API request for the runner's own daemon. `headers`: only `Idempotency-Key`.
+        /// An API request for the runner's own daemon. `headers`: only `Idempotency-Key`, and `x-launchpad-envelope`
+        /// for an answer that is not text (headers and base64 bytes in JSON).
         Req { id: u64, method: String, path: String, body: Option<String>, #[serde(default)] headers: Vec<(String, String)> },
         /// Answer to `FromRunner::Req`.
         Res { id: u64, status: u16, body: String },
