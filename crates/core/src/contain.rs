@@ -198,7 +198,6 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
         instructions.push_str(&crate::launchpad_cli::cli_reference(&app.paths.cli_command(), kb.as_ref().map(|(ws, _)| ws.as_str()), access));
     }
     env.extend(harness.contained_memory(&home, &instructions)?);
-    env.extend(harness.contained_history(&home)?);
     // MCP servers of Home: a local address on the runner proxy for each one granted.
     let servers: Vec<(String, String)> = lease.mcp.iter().map(|m| (crate::mcp::harness_name(&m.id), format!("{base}/mcp/{}", m.id))).collect();
     harness.contained_mcp(&home, &servers)?;

@@ -63,7 +63,7 @@ Every runner sends the conversation of a session to Home at the end of each turn
 
 A session in a temporary folder (a bot without a folder, such as Ask Launchpad) keeps it when it moves: Home holds the folder's files as of the last turn end, and the new runner puts them back in a folder with the same name.
 
-Home is the place that keeps conversations. In a contained session, Claude Code and Codex do not save their prompt history (`history.jsonl`). They still write their conversation file, because they resume from it. About an hour after a session is archived, its runner sends that conversation to Home one last time. When Home has confirmed it, the runner deletes the session's folder (`<data_dir>/sessions/<id>`). Resume gets the conversation back from Home before the agent starts.
+Home is the place that keeps conversations. Agents save their conversation files normally, in the session's own folder. About an hour after a session is archived, its runner sends that conversation to Home one last time. When Home has confirmed it, the runner deletes the session's folder (`<data_dir>/sessions/<id>`). Resume gets the conversation back from Home before the agent starts.
 
 ## Sessions on Home
 

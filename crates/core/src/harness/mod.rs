@@ -218,11 +218,6 @@ pub trait Harness: Send + Sync {
     fn contained_memory(&self, _home: &Path, _instructions: &str) -> Result<Vec<(String, String)>> {
         Ok(vec![])
     }
-    /// Turns off the harness's own copies of what Launchpad already keeps (prompt history) in a contained
-    /// session's harness home. The native conversation stays: the harness resumes from it, and Home holds a copy.
-    fn contained_history(&self, _home: &Path) -> Result<Vec<(String, String)>> {
-        Ok(vec![])
-    }
     /// Folders of the harness's own memory files on this machine (`home`: the user's home), with a group name
     /// (for example the project), for a one-time import into the knowledge base.
     fn native_memories(&self, _home: &Path) -> Vec<(String, std::path::PathBuf)> {
