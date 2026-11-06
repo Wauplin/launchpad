@@ -27,7 +27,7 @@ A link to one row is `/?card=<id>`: it highlights the row and opens its card. Te
 
 ## Counts
 
-Every attention count comes from this list: the **Today** count in the sidebar and on the phone tab, the workspace squares of the rail, the phone's workspace sheet, the window title and the app badge. **Agents** shows only how many agents run or wait for quota. The **Inbox** count (unread review requests, mentions and assignments) stays on Inbox.
+Every attention count comes from this list: the **Today** count in the sidebar and on the phone tab, the workspace squares of the rail, the phone's workspace sheet, the window title and the app badge. Counts that need you show as amber pills, the others as plain grey numbers. **Agents** shows only how many agents run (grey) or wait for quota (amber). The **Inbox** count (unread review requests, mentions and assignments) stays on Inbox.
 
 ## Workspaces
 

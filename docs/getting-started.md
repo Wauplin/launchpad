@@ -99,7 +99,9 @@ The agent appears in **Agents → Running**. When it finishes, a card waits in *
 
 ### Find your way
 
-- **One action per row.** Lists show one button per row or card: **Done** on Inbox rows, **Launch** on Folders rows, the main actions on Today rows. Hover the row, or focus it with the keyboard, for the other actions (on Folders: **Files**, **Terminal** and **⋯**). On touch screens they are always visible.
+- **One action per row.** Lists show one button per row or card: **Done** on Inbox rows, **Launch** on Folders rows, the main actions on Today rows. Hover the row, or focus it with the keyboard, for the other actions (on Folders, **⋯** holds **Files**, **Terminal**, **Folder settings**, **Move to …** and **Remove**). On touch screens they are always visible.
+- **Colors and counts.** A status is blue while an agent runs, green when it is Done, red when it failed or was interrupted, and grey when it is idle, stopped or archived. Amber is only for what needs your answer or click, for example a question or Quota paused. A small amber dot after a status marks an agent you have not seen yet. Counts that need you are amber pills (Today, Inbox); other counts are plain grey numbers.
+- **Dates.** Past moments read “just now”, “5 min ago”, “3 h ago”, “yesterday” or “Oct 3”. Exact and future moments read “today 15:00”, “tomorrow 03:00” or “Fri 7 Nov, 03:00”, in your browser's time format, without seconds. Schedules read as sentences, for example “Weekdays at 09:00”; hover them to see the cron.
 - **Page explanations.** A page explains itself under its title on your first visit on this device. After that, click **ⓘ** next to the title to read it again.
 - **Settings search.** On a laptop, Settings replaces the sidebar with its pages (**Back to Launchpad** returns to the page you were on); the field at the top finds pages by name and by keyword: "telegram" finds Channels and "runner" finds Home and runners.
 
