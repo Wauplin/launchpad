@@ -28,6 +28,10 @@ session_id: string | null,
  */
 action: string | null, 
 /**
+ * `owner/repo#number`: the GitHub issue or pull request it is about.
+ */
+github: string | null, 
+/**
  * Unix milliseconds: since when it waits, or when it was handled.
  */
 at: number, 

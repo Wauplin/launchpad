@@ -3,7 +3,7 @@
 ## Use Launchpad
 
 - [Getting started](getting-started.md): install, onboarding tour, setup checklist and first agent.
-- [Today](today.md): every decision that waits for you, one card each, with its button.
+- [Today](today.md): every decision that waits for you, one compact row each, with its buttons.
 - [Agents](agents.md): profiles, launching, sessions, worktrees, scheduling, quotas, Ask Launchpad, terminals and files.
 - [GitHub](github.md): inbox, issues and pull requests, suggestions and Local PRs.
 - [Remote access and phones](remote-access.md): pairing, Tailscale, the phone layout, notifications and headless servers.

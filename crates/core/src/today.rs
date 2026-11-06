@@ -98,6 +98,8 @@ pub struct Item {
     pub session_id: Option<String>,
     /// The main action of its card, from the action list.
     pub action: Option<String>,
+    /// `owner/repo#number`: the GitHub issue or pull request it is about.
+    pub github: Option<String>,
     /// Unix milliseconds: since when it waits, or when it was handled.
     #[ts(type = "number")]
     pub at: i64,
@@ -120,7 +122,7 @@ impl Item {
             Kind::Routine => "routine",
             Kind::Runner => "runner",
         };
-        Item { id: format!("{prefix}:{record}"), kind, filter, title: title.into(), detail: String::new(), workspaces: vec![], record: record.into(), session_id: None, action: None, at, outcome: None, place }
+        Item { id: format!("{prefix}:{record}"), kind, filter, title: title.into(), detail: String::new(), workspaces: vec![], record: record.into(), session_id: None, action: None, github: None, at, outcome: None, place }
     }
     pub fn detail(mut self, detail: impl Into<String>) -> Item {
         self.detail = detail.into();
@@ -128,6 +130,10 @@ impl Item {
     }
     pub fn session(mut self, id: Option<String>) -> Item {
         self.session_id = id;
+        self
+    }
+    pub fn github(mut self, repo: &str, number: impl std::fmt::Display) -> Item {
+        self.github = Some(format!("{repo}#{number}"));
         self
     }
     pub fn action(mut self, name: &'static str) -> Item {

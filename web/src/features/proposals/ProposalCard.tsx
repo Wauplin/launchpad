@@ -5,7 +5,7 @@ import type { Proposal } from "@/gen/Proposal";
 import type { Session } from "@/gen/Session";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import { HarnessMark } from "@/components/HarnessMark";
-import { Icon } from "@/components/Icon";
+import { Icon, type IconName } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { ConfirmButton, ErrorState, Token } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -25,7 +25,10 @@ import { BranchActions } from "@/features/today/TodayCards";
 
 export const useProposalList = (enabled = true) => useQuery({ enabled, queryKey: ["proposals"], queryFn: () => api.get<Proposal[]>("/api/proposals"), staleTime: 30_000 });
 
-const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create routine", status: "", preset: "Save preset", tool: "Add tool", bot: "Create bot", routine: "Add routine", bot_instructions: "Apply to BOT.md", ready: "" };
+/** The icon of a proposal's kind: the card's and Today's row. */
+export const proposalIcon = (p: Proposal): IconName => p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" || p.body.kind === "routine" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : p.body.kind === "tool" ? "term" : p.body.kind === "bot" ? "spark" : p.body.kind === "bot_instructions" ? "file" : p.body.kind === "ready" ? "check" : "play";
+
+export const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create routine", status: "", preset: "Save preset", tool: "Add tool", bot: "Create bot", routine: "Add routine", bot_instructions: "Apply to BOT.md", ready: "" };
 
 /** A new BOT.md: the bot and the diff. Applying fails when BOT.md changed since. */
 function BotInstructionsBody({ body }: { body: Extract<Proposal["body"], { kind: "bot_instructions" }> }) {
@@ -232,7 +235,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
   return (
     <article id={anchor ? `proposal-${p.id}` : undefined} data-tour="proposal.card" data-tour-id={p.id} tabIndex={-1} className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-xl border bg-paper p-3 [overflow-wrap:anywhere] ${(p.body.kind === "cron" || p.body.kind === "routine") && !started ? "border-attn-line" : "border-line"}`}>
       <div className="flex items-start gap-2">
-        <Icon name={p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" || p.body.kind === "routine" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : p.body.kind === "tool" ? "term" : p.body.kind === "bot" ? "spark" : p.body.kind === "bot_instructions" ? "file" : p.body.kind === "ready" ? "check" : "play"} size={14} className="mt-0.5 flex-none text-ink-3" />
+        <Icon name={proposalIcon(p)} size={14} className="mt-0.5 flex-none text-ink-3" />
         <div className="min-w-0 flex-1">
           <b className="block text-[13px]">{p.title}</b>
           {p.note && <p className="m-0 text-[12px] text-ink-2">{p.note}</p>}

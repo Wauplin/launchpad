@@ -23,6 +23,7 @@ pub async fn items(app: &App) -> Vec<Item> {
                 };
                 let item = Item::new(Kind::Suggestion, Filter::Github, &s.id, format!("{what} on {repo}#{number}"), Place::Repo(repo.clone()), s.created_at)
                     .session(s.session_id.clone())
+                    .github(repo, number)
                     .detail(format!("Suggestion by {} · {}", s.author, line(&s.body)));
                 out.push(match s.status.as_str() {
                     "posted" => item.handled(match &s.followup_error {
@@ -48,7 +49,7 @@ pub async fn items(app: &App) -> Vec<Item> {
             if !open || reviewed.contains(&format!("{}#{number}", t.repo.to_lowercase())) {
                 return None;
             }
-            Some(Item::new(Kind::ReviewRequest, Filter::Github, &t.id, &t.title, Place::Repo(t.repo.clone()), parse_time(&t.updated_at)).detail(format!("{}#{number} · review requested", t.repo)))
+            Some(Item::new(Kind::ReviewRequest, Filter::Github, &t.id, &t.title, Place::Repo(t.repo.clone()), parse_time(&t.updated_at)).detail(format!("{}#{number} · review requested", t.repo)).github(&t.repo, number))
         })),
         Err(e) => tracing::warn!("Today: review requests: {e:#}"),
     }

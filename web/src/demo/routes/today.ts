@@ -17,7 +17,7 @@ const PREFIX: Record<TodayKind, string> = { question: "session", finished: "sess
 const ORDER: TodayFilter[] = ["answer", "review", "approve", "send", "github", "fix"];
 
 function item(kind: TodayKind, filter: TodayFilter, record: string, title: string, place: Place, at: number, more: Partial<Draft> = {}): Draft {
-  return { id: `${PREFIX[kind]}:${record}`, kind, filter, title, detail: "", record, session_id: null, action: null, at, outcome: null, place, ...more };
+  return { id: `${PREFIX[kind]}:${record}`, kind, filter, title, detail: "", record, session_id: null, action: null, github: null, at, outcome: null, place, ...more };
 }
 const line = (text: string) => (text.split("\n").map((l) => l.trim()).find(Boolean) ?? "").slice(0, 160);
 const specPlace = (spec: LaunchSpec): Place => spec.target.kind === "project" || spec.target.kind === "predraft" ? { project: spec.target.project_id } : { workspace: spec.workspace_id };
@@ -87,14 +87,14 @@ function drafts(): Draft[] {
   for (const s of world.suggestions) {
     if (s.target.kind !== "git_hub") continue;
     const { repo, number } = s.target;
-    const add = (extra: Partial<Draft>) => out.push(item("suggestion", "github", s.id, `${s.kind === "review" ? "Review" : "Comment"} on ${repo}#${number}`, { repo }, s.created_at, { session_id: s.session_id, detail: `Suggestion by ${s.author} · ${line(s.body)}`, ...extra }));
+    const add = (extra: Partial<Draft>) => out.push(item("suggestion", "github", s.id, `${s.kind === "review" ? "Review" : "Comment"} on ${repo}#${number}`, { repo }, s.created_at, { session_id: s.session_id, github: `${repo}#${number}`, detail: `Suggestion by ${s.author} · ${line(s.body)}`, ...extra }));
     if (s.status === "posted") add({ outcome: `Posted to ${repo}#${number}` });
     else if (s.status === "posting" || s.status === "uncertain") add({ detail: "Uncertain: check GitHub before you discard it", action: "suggestion.discard" });
     else { if (s.kind === "review") reviewed.add(`${repo.toLowerCase()}#${number}`); add({ action: "suggestion.post" }); }
   }
   for (const t of world.inboxThreads) {
     if (t.number === null || t.reason !== "review_requested" || t.kind !== "PullRequest" || t.state === "closed" || t.state === "merged" || reviewed.has(`${t.repo.toLowerCase()}#${t.number}`)) continue;
-    out.push(item("review_request", "github", t.id, t.title, { repo: t.repo }, Date.parse(t.updated_at), { detail: `${t.repo}#${t.number} · review requested` }));
+    out.push(item("review_request", "github", t.id, t.title, { repo: t.repo }, Date.parse(t.updated_at), { detail: `${t.repo}#${t.number} · review requested`, github: `${t.repo}#${t.number}` }));
   }
   if (world.status.role !== "runner") {
     for (const r of world.runners) {

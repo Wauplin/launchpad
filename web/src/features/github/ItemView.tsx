@@ -196,7 +196,8 @@ function blocker(item: Item) {
   return `GitHub reports ${human(item.mergeable ?? "unknown")} · ${human(item.mergeStateStatus ?? "unknown")}`;
 }
 
-function Controls({ item, act, busy }: { item: Item; act: (action: string, body: unknown) => Promise<boolean>; busy: boolean }) {
+/** The side panel. In a narrow window (below 760 px) it hides and opens over the conversation (`shown`). */
+function Controls({ item, act, busy, shown = true, onClose }: { item: Item; act: (action: string, body: unknown) => Promise<boolean>; busy: boolean; shown?: boolean; onClose?: () => void }) {
   const isPr = item.__typename === "PullRequest", open = item.state === "OPEN";
   const meta = useRepoMeta(item.repo).data;
   const current = item.labels.nodes.map((l) => l.name);
@@ -214,7 +215,8 @@ function Controls({ item, act, busy }: { item: Item; act: (action: string, body:
   // Latest review per author.
   const reviews = useMemo(() => { const m = new Map<string, string>(); (item.reviews?.nodes ?? []).forEach((r) => m.set(r.author.login ?? "someone", r.state)); return [...m]; }, [item.reviews]);
   const requestedNames = (item.reviewRequests?.nodes ?? []).map((r) => r.requestedReviewer.login ?? r.requestedReviewer.name).filter(Boolean);
-  return <aside className="phone-item-controls w-[280px] flex-none overflow-auto border-l border-line bg-chrome p-3 text-[12px]">
+  return <aside className={`phone-item-controls w-[280px] flex-none overflow-auto border-l border-line bg-chrome p-3 text-[12px] ${onClose ? `${shown ? "absolute inset-y-0 right-0 z-20 shadow-xl" : "hidden"} @min-[760px]:static @min-[760px]:block @min-[760px]:shadow-none` : ""}`}>
+    {onClose && <div className="mb-2 flex justify-end @min-[760px]:hidden"><button type="button" className="btn btn-sm btn-ghost" onClick={onClose}><Icon name="x" size={12} />Close</button></div>}
     <div className="grid gap-3">
       <Section title="Status">
         <div className="flex flex-wrap items-center gap-2"><Badge tone={state.tone} icon={state.icon}>{state.label}</Badge>{!open && !item.merged && <button className="btn btn-sm" disabled={busy} onClick={() => void act("state", { kind: isPr ? "pr" : "issue", state: "open", state_reason: "reopened" })}>Reopen</button>}</div>
@@ -274,6 +276,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   const phone = usePhone();
   const key = itemKey(repo, number), path = itemPath(repo, number), qc = useQueryClient();
   const q = useQuery({ queryKey: key, queryFn: () => api.get<Item>(path), staleTime: 60_000 });
+  const [panel, setPanel] = useState(false);
   const [refreshing, setRefreshing] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(null), [tab, setTab] = useState<"conversation" | "files" | "threads">("conversation");
   const rawDraft = (useSearch({ strict: false }) as { draft?: unknown }).draft;
   const draftParam = rawDraft == null ? undefined : String(rawDraft);
@@ -338,8 +341,9 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
     </> : <PageHeader title={item?.title ?? `#${number}`} meta={meta} actions={actions} tabs={tabs} />}
     {(!!error || q.error) && <ErrorState className="m-2" error={error ?? q.error} onRetry={() => void refresh()} />}
     {item && <SuggestionBanner item={item} onReview={reviewDraft} />}
-    {item ? <div className="flex min-h-0 flex-1">
+    {item ? <div className="@container relative flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
+        {!phone && <div className="flex flex-none justify-end border-b border-line-2 px-3 py-1 @min-[760px]:hidden"><button type="button" className="btn btn-sm" aria-expanded={panel} onClick={() => setPanel(!panel)}><Icon name="sliders" size={12} />Status, checks and labels</button></div>}
         {tab === "files" && isPr ? <FilesChanged repo={repo} number={number} head={item.headRefOid!} base={item.baseRefOid} />
           : tab === "threads" && isPr ? <ReviewThreads item={item} />
             : <Conversation item={item} focus={focus} />}
@@ -355,7 +359,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
           onPosted={(kind) => { if (kind === "review") void notes.set((all) => all.filter((n) => n.head !== head)); void refresh(); }}
         />
       </div>
-      {!phone && <Controls key={item.updatedAt} item={item} act={act} busy={busy} />}
+      {!phone && <Controls key={item.updatedAt} item={item} act={act} busy={busy} shown={panel} onClose={() => setPanel(false)} />}
     </div> : !q.error && <Loading what="this item from GitHub" />}
   </div>;
 }

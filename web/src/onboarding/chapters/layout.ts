@@ -21,7 +21,7 @@ export const layout: Chapter = {
     {
       id: "layout.today", route: "/", anchor: "today.filters",
       title: "Today",
-      body: "Today is your home: every decision of the workspace on one page, in the order to make it. Answer questions, merge finished work, start proposals, send drafts and post reviews from the cards. The chips filter by kind; Done lists what you handled in the last 30 days.",
+      body: "Today is your home: every decision of the workspace on one page, in the order to make it. One compact row per decision, grouped by kind: answer questions, merge finished work, start proposals, send drafts and post reviews from the rows. The icon says what a row is; its title opens the details. The chips filter by kind; Done lists what you handled in the last 30 days.",
     },
     {
       id: "layout.places", route: "/", anchor: "sidebar.nav",

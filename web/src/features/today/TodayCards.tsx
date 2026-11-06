@@ -18,7 +18,6 @@ import { buildRows } from "@/features/agents/rows";
 import { StatusBadge } from "@/features/agents/SessionBits";
 import { useSessionWorktrees, worktreeSession } from "@/features/agents/Worktrees";
 import { reviewWithAgent } from "@/features/github/reviewAgent";
-import { useInbox } from "@/features/inbox/data";
 import { MessageCard, useOutboxMessages } from "@/features/outbox/MessageCard";
 import { ProposalCard } from "@/features/proposals/ProposalCard";
 import { SuggestionCard } from "@/features/suggestions/Suggestions";
@@ -33,7 +32,7 @@ export const ICON: Record<TodayItem["kind"], IconName> = {
   question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", review_request: "pr", routine: "refresh", runner: "window",
 };
 
-const ghParams = (repo: string, number: number) => ({ owner: repo.split("/")[0], repo: repo.split("/")[1], number: String(number) });
+export const ghParams = (repo: string, number: number) => ({ owner: repo.split("/")[0], repo: repo.split("/")[1], number: String(number) });
 
 /** The card frame: icon, title, one meta line, then the kind's own content and buttons. `age: false` when the meta already says since when (a session's status badge). */
 function Card({ item, meta, open, children, tone = "border-line", age = true }: { item: TodayItem; meta?: ReactNode; open?: ReactNode; children?: ReactNode; tone?: string; age?: boolean }) {
@@ -52,16 +51,16 @@ function Card({ item, meta, open, children, tone = "border-line", age = true }: 
   );
 }
 
-const OpenSession = ({ id, view }: { id: string; view?: "changes" }) => <Link className="btn btn-sm no-underline" to="/agents" search={{ session: id, ...(view ? { view } : {}) }}>Open</Link>;
+export const OpenSession = ({ id, view }: { id: string; view?: "changes" }) => <Link className="btn btn-sm no-underline" to="/agents" search={{ session: id, ...(view ? { view } : {}) }}>Open</Link>;
 
-function SessionMeta({ s, item }: { s: Session | null; item: TodayItem }) {
+export function SessionMeta({ s, item }: { s: Session | null; item: TodayItem }) {
   const projects = useProjects().data;
   if (!s) return <span className="truncate">{item.detail}</span>;
   return <><HarnessMark harness={s.harness} size={13} /><span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span><StatusBadge s={s} /></>;
 }
 
 /** Loads the newest events of a session (the same tail page the session view uses). */
-function useTail(id: string) {
+export function useTail(id: string) {
   const log = useSessionLogs((st) => st.logs[id]);
   const load = useSessionLogs((st) => st.load);
   useEffect(() => {
@@ -72,15 +71,20 @@ function useTail(id: string) {
   return log;
 }
 
-/** Answer in place: the open question's options, as in the session. */
-function QuestionCard({ item }: { item: TodayItem }) {
-  const s = useSession(item.record);
-  const log = useTail(item.record);
-  const ask = useMemo(() => {
+/** The open question of a session, from its newest events. */
+export function useOpenQuestion(id: string) {
+  const log = useTail(id);
+  return useMemo(() => {
     const rows = log ? buildRows(log) : [];
     for (let i = rows.length - 1; i >= 0; i--) { const r = rows[i]; if (r.t === "ask" && !r.answers) return r; }
     return null;
   }, [log]);
+}
+
+/** Answer in place: the open question's options, as in the session. */
+function QuestionCard({ item }: { item: TodayItem }) {
+  const s = useSession(item.record);
+  const ask = useOpenQuestion(item.record);
   return <Card item={item} tone="border-attn-line" age={!s} meta={<SessionMeta s={s} item={item} />} open={<OpenSession id={item.record} />}>
     {ask && s?.live ? <AskCard row={ask} sessionId={item.record} live={s.live} hint="Or open the agent to type another answer." /> : <p className="m-0 text-[13px] text-ink-2">{item.detail || "The agent asked a question."}</p>}
   </Card>;
@@ -131,7 +135,7 @@ export function BranchActions({ sessionId, s, onMerged, children }: { sessionId:
 
 /** Archive and Mark seen: on hover and focus of the card (always on touch screens), next to its one main action.
  * `archiveMain`: nothing to merge or review, so Archive is the main action and stays visible. */
-function Later({ id, archiveMain = false }: { id: string; archiveMain?: boolean }) {
+export function Later({ id, archiveMain = false }: { id: string; archiveMain?: boolean }) {
   return <>
     {archiveMain && <ActionButton name="session.archive" params={{ id }} primary />}
     <span className="lp-row-more inline-flex flex-wrap items-center gap-1.5">
@@ -198,16 +202,24 @@ function SuggestionItem({ item, s }: { item: TodayItem; s: Suggestion | undefine
   </div>;
 }
 
-function ReviewRequestCard({ item }: { item: TodayItem }) {
+/** `owner/repo#number` of an item, from `TodayItem.github`. */
+export function githubRef(item: TodayItem) {
+  const m = item.github?.match(/^([^/]+\/[^#]+)#(\d+)$/);
+  return m ? { repo: m[1], number: Number(m[2]) } : null;
+}
+
+/** Review with agent: a launch draft that asks an agent for a local suggested review of the pull request. */
+export function ReviewWithAgent({ item, primary = true }: { item: TodayItem; primary?: boolean }) {
   const projects = useProjects().data ?? [];
-  const t = useInbox().data?.threads.find((x) => x.id === item.record);
-  if (!t || t.number === null) return <Card item={item} />;
-  const n = t.number;
-  return <Card item={item} open={<Link className="btn btn-sm no-underline" to="/github/$owner/$repo/$number" params={ghParams(t.repo, n)}>Open PR</Link>}>
-    <div className="flex flex-wrap items-center gap-1.5">
-      <button className="btn btn-sm btn-primary" title="Opens a launch draft that asks an agent for a local suggested review" onClick={() => reviewWithAgent({ projects, repo: t.repo, number: n, title: t.title, url: t.url })}><Icon name="spark" size={12} />Review with agent</button>
-      <span className="text-[12px] text-ink-3">The review comes back here as a suggestion to post.</span>
-    </div>
+  const ref = githubRef(item);
+  if (!ref) return null;
+  return <button className={`btn btn-sm ${primary ? "btn-primary" : ""}`} title="Opens a launch draft: an agent reviews the pull request and writes a suggested review, which comes back to Today for you to edit and post" onClick={() => reviewWithAgent({ projects, ...ref, title: item.title, url: `https://github.com/${ref.repo}/pull/${ref.number}` })}><Icon name="spark" size={12} />Review with agent</button>;
+}
+
+function ReviewRequestCard({ item }: { item: TodayItem }) {
+  const ref = githubRef(item);
+  return <Card item={item} open={ref && <Link className="btn btn-sm no-underline" to="/github/$owner/$repo/$number" params={ghParams(ref.repo, ref.number)}>Open</Link>}>
+    <div><ReviewWithAgent item={item} /></div>
   </Card>;
 }
 

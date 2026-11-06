@@ -1,13 +1,13 @@
 // Today (laptop home `/` and the phone's first tab): every decision of the window's workspace, in the order to make
-// it, from the decision list Home computes (crates/core/src/today.rs). Each card carries its main action from the
+// it, from the decision list Home computes (crates/core/src/today.rs), one compact row each (TodayRows.tsx). Each row carries its main action from the
 // action list: Answer, Merge (only when safe), Start, Send, Post. Filters are chips with their own address
-// (`/?filter=send`), and `/?card=<item id>` opens one card. Done lists what was handled in the last 30 days.
+// (`/?filter=send`), and `/?card=<item id>` opens one row. Done lists what was handled in the last 30 days.
 // Nothing reaches GitHub or other people without the card's button and its confirmation.
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Proposal } from "@/gen/Proposal";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
@@ -20,12 +20,12 @@ import { usePhone } from "@/lib/phone";
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { useWorkspace } from "@/stores/workspace";
 import { FILTERS, isView, useTodayHere, type TodayItem, type TodayView as View } from "./data";
-import { ICON, ItemCard } from "./TodayCards";
+import { ItemRow, LOOK } from "./TodayRows";
 
 /** Handled in the last 30 days: what it was, what happened and when. */
 const DoneRow = memo(function DoneRow({ item }: { item: TodayItem }) {
   return <div className="grid h-[52px] grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-x-3 border-b border-line-2 px-4">
-    <span className="grid size-7 place-items-center rounded-lg bg-sunk text-ink-3"><Icon name={ICON[item.kind]} size={13} /></span>
+    <span className="grid size-7 place-items-center text-ink-3" title={LOOK[item.kind].name}><Icon name={LOOK[item.kind].icon} size={15} /></span>
     <div className="min-w-0">
       <div className="truncate text-[13px] font-medium" title={item.title}>{item.title}</div>
       <div className="truncate text-[12px] text-ink-3">{item.outcome} · {formatAge(item.at)} ago{item.detail ? ` · ${item.detail}` : ""}</div>
@@ -63,6 +63,9 @@ function StartAll({ proposals }: { proposals: Proposal[] }) {
   return <ConfirmButton tone="publish" className="btn-primary" icon="play" disabled={busy} consequence={`Start ${summary(startable)}?`} confirmLabel="Start all" onConfirm={run}>Start all ({startable.length})</ConfirmButton>;
 }
 
+type Entry = { item?: TodayItem; heading?: TodayItem["filter"] };
+const LABEL = Object.fromEntries(FILTERS.map(([f, label]) => [f, label])) as Record<TodayItem["filter"], string>;
+
 export function TodayView() {
   const phone = usePhone();
   const scope = useScope();
@@ -81,24 +84,38 @@ export function TodayView() {
   const counts = useMemo(() => Object.fromEntries(FILTERS.map(([f]) => [f, items.filter((i) => i.filter === f).length])), [items]);
   const waitingProposals = useMemo(() => items.filter((i) => i.kind === "proposal").map((i) => byProposal.get(i.record)).filter((p): p is Proposal => !!p), [items, byProposal]);
 
+  // All: a heading before each kind of decision (the list comes sorted by filter).
+  const rows = useMemo<Entry[]>(() => {
+    if (view !== "all") return shown.map((item) => ({ item }));
+    const out: Entry[] = [];
+    for (const item of shown) {
+      if (out.at(-1)?.item?.filter !== item.filter) out.push({ heading: item.filter });
+      out.push({ item });
+    }
+    return out;
+  }, [shown, view]);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(search.card ? [search.card] : []));
+  const toggle = useCallback((id: string) => setExpanded((old) => { const next = new Set(old); if (!next.delete(id)) next.add(id); return next; }), []);
+
   const ref = useRef<HTMLDivElement>(null);
   const list = useVirtualizer({
-    count: shown.length,
+    count: rows.length,
     getScrollElement: () => ref.current,
-    estimateSize: () => (view === "done" ? 52 : 160),
-    getItemKey: (i) => shown[i].id,
-    overscan: 3,
+    estimateSize: (i) => (rows[i].heading ? 36 : 54),
+    getItemKey: (i) => rows[i].item?.id ?? `heading:${rows[i].heading}`,
+    overscan: 6,
     useFlushSync: false,
   });
   // Open the linked card once the list has it.
   const revealed = useRef<string | null>(null);
   useEffect(() => {
     if (!search.card || revealed.current === search.card) return;
-    const index = shown.findIndex((i) => i.id === search.card);
+    const index = rows.findIndex((r) => r.item?.id === search.card);
     if (index < 0) return;
     revealed.current = search.card;
+    setExpanded((old) => new Set(old).add(search.card!));
     list.scrollToIndex(index, { align: "start" });
-  }, [search.card, shown, list]);
+  }, [search.card, rows, list]);
   // A session's card that no longer waits and was not handled here (seen elsewhere, still running): open the session.
   // Only once the window shows its workspace: a link's `?ws=` switches it after the workspaces load.
   const current = useWorkspace((st) => (st.requested === null ? st.current : null));
@@ -121,15 +138,17 @@ export function TodayView() {
     <div className="flex h-full min-h-0 flex-col" data-tour="today.page">
       {phone
         ? <div className="phone-page-content grid gap-1.5 border-b border-line-2 py-2"><span className="text-xs text-ink-3">{meta}</span>{chips}{groupActions && <div>{groupActions}</div>}</div>
-        : <PageHeader title="Today" meta={<span>{meta}</span>} intro="Everything that waits for your decision, one card each. Nothing reaches GitHub or other people without your click." actions={groupActions || undefined} tabs={<div className="pb-3">{chips}</div>} />}
+        : <PageHeader title="Today" meta={<span>{meta}</span>} intro="Everything that waits for your decision, one row each, grouped by what to do. Hover an icon to see what it is; click a title to read more. Nothing reaches GitHub or other people without your click." actions={groupActions || undefined} tabs={<div className="pb-3">{chips}</div>} />}
       <div ref={ref} className="min-h-0 flex-1 overflow-y-auto [overflow-wrap:anywhere]">
         {error ? <ErrorState className="m-4" error={error} /> : loading ? <Loading what="Today" /> : shown.length === 0 && <Empty fill={phone} icon="check" className={phone ? "" : "mx-auto max-w-[760px] pt-6"}>{EMPTY[view]}</Empty>}
-        <div className={`relative mx-auto w-full ${view === "done" ? "max-w-[860px]" : "max-w-[760px]"}`} style={{ height: list.getTotalSize() }}>
+        <div className={`relative mx-auto w-full ${view === "done" ? "max-w-[860px]" : "max-w-[1040px]"}`} style={{ height: list.getTotalSize() }}>
           {list.getVirtualItems().map((row) => {
-            const item = shown[row.index];
+            const { item, heading } = rows[row.index];
             return (
-              <div key={row.key} data-index={row.index} ref={list.measureElement} className={`absolute top-0 left-0 w-full ${view === "done" ? "" : "px-3 pt-3 sm:px-4"} ${item.id === search.card ? "[&>*]:ring-2 [&>*]:ring-teal" : ""}`} style={{ transform: `translateY(${row.start}px)` }}>
-                {view === "done" ? <DoneRow item={item} /> : <ItemCard item={item} proposal={byProposal.get(item.record)} suggestion={bySuggestion.get(item.record)} />}
+              <div key={row.key} data-index={row.index} ref={list.measureElement} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${row.start}px)` }}>
+                {heading ? <h2 className="m-0 flex items-baseline gap-2 border-b border-line-2 px-3 pt-4 pb-1.5 text-[11px] font-semibold tracking-wide text-ink-3 uppercase">{LABEL[heading]}<span className="font-normal normal-case">{counts[heading]}</span></h2>
+                  : view === "done" ? <DoneRow item={item!} />
+                  : <ItemRow item={item!} expanded={expanded.has(item!.id)} toggle={toggle} highlight={item!.id === search.card} proposal={byProposal.get(item!.record)} suggestion={bySuggestion.get(item!.record)} />}
               </div>
             );
           })}

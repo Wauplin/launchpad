@@ -22,7 +22,7 @@ GitHub's API cannot mirror the web inbox exactly, so Launchpad tracks inbox memb
 
 ![A pull request with an agent suggestion](images/pr.webp)
 
-An item page has **Conversation**, **Changes** and **Review threads** tabs, and a side panel with status, checks, reviewers and labels.
+An item page has **Conversation**, **Changes** and **Review threads** tabs, and a side panel with status, checks, reviewers and labels. In a narrow window the panel hides: **Status, checks and labels** above the conversation opens it over the page.
 
 - **Changes** loads the diff from local Git first (`pull/N/head`), with the GitHub API as fallback. Files load one at a time, so very large PRs stay fast. Viewed markers and unsent review comments are saved by the daemon and shared across your devices.
 - **Merge** is the primary button only when GitHub reports the PR as mergeable and clean. Otherwise the panel shows the blocking reason.
@@ -48,7 +48,7 @@ Agents write comments and reviews with the `launchpad suggest` CLI. They are sav
 launchpad suggest review --repo owner/repo --number 123 --head <commit> --body-file review.md --event approve
 ```
 
-A suggestion appears as a card on the item's Conversation tab and in [Today](today.md) → **GitHub**. **Edit**, then **Post review** (or **Post comment**) publishes it under your account after you confirm. **Discard** deletes it; for a suggestion that is posted or uncertain, the confirmation asks you to check GitHub first.
+A suggestion appears as a card on the item's Conversation tab and in [Today](today.md) → **GitHub** (**Review & post** opens it there). **Edit**, then **Post review** (or **Post comment**) publishes it under your account after you confirm. **Discard** deletes it; for a suggestion that is posted or uncertain, the confirmation asks you to check GitHub first.
 
 A review can also do one more thing with the same click. An approving review with `--merge squash|merge|rebase` shows **Post review and merge**: it posts the review, then merges the pull request at the reviewed commit. A review with `--run-ci` shows **Post review and run CI**: it posts the review, then approves the GitHub Actions runs of the reviewed commit that wait for a maintainer (pull requests from forks of first-time contributors). **Edit** changes or removes the follow-up (**After posting**). If the merge or the approval fails, the review stays posted, the card shows the error and nothing is retried.
 
