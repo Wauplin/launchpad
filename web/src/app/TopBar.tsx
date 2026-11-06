@@ -10,23 +10,14 @@ import { CommandField } from "./CommandField";
 import { useProjects } from "@/lib/queries";
 import { isDemo } from "@/demo/mode";
 import { DemoChip } from "@/onboarding/DemoChip";
+import { SETTINGS_NAV } from "@/features/settings/nav";
 
 type Crumb = { label: string; to?: string; params?: Record<string, string> };
 
-// Settings page names, kept here so the top bar does not load the Settings module.
+// Settings page names by route segment, from the Settings nav (light: no Settings module).
 const SETTINGS: Record<string, string> = {
-  "": "Appearance",
+  ...Object.fromEntries(SETTINGS_NAV.flatMap((g) => g.items).map((e) => [e.to.replace(/^\/settings\/?/, ""), e.label])),
   workspace: "This workspace",
-  notifications: "Notifications",
-  profiles: "Profiles",
-  presets: "Presets",
-  usage: "Usage",
-  devices: "Devices",
-  github: "GitHub",
-  huggingface: "Hugging Face",
-  channels: "Channels",
-  worktrees: "Maintenance",
-  onboarding: "Onboarding",
 };
 
 /** The breadcrumb of a route: every segment but the last is a link. Today, Inbox and Agents name themselves. */

@@ -9,7 +9,7 @@ import { Icon } from "@/components/Icon";
 import { Empty, ErrorState, Loading } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { toast, toastError } from "@/components/Toast";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import { Card, SettingsPage } from "./SettingsView";
 
 type Device = { id: string; name: string; created_at: number; expires_at: number; last_seen_at: number | null; current: boolean };
@@ -186,6 +186,5 @@ const DeviceRow = memo(function DeviceRow({ device, height, top, busy, onRevoke 
 function lastActive(unixSeconds: number) {
   const ms = unixSeconds * 1000;
   if (Date.now() - ms < 5 * 60_000) return "in the last 5 min";
-  const age = formatAge(ms);
-  return age === "yesterday" ? age : `${age} ago`;
+  return formatAgo(ms);
 }

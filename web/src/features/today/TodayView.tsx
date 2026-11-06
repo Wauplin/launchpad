@@ -15,7 +15,7 @@ import { ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, Pag
 import { runProposalAction, useProposalList } from "@/features/proposals/ProposalCard";
 import { summary } from "@/features/proposals/ProposalList";
 import { useSuggestionList } from "@/features/suggestions/data";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { useWorkspace } from "@/stores/workspace";
@@ -28,7 +28,7 @@ const DoneRow = memo(function DoneRow({ item }: { item: TodayItem }) {
     <span className="grid size-7 place-items-center text-ink-3" title={LOOK[item.kind].name}><Icon name={LOOK[item.kind].icon} size={15} /></span>
     <div className="min-w-0">
       <div className="truncate text-[13px] font-medium" title={item.title}>{item.title}</div>
-      <div className="truncate text-[12px] text-ink-3">{item.outcome} · {formatAge(item.at)} ago{item.detail ? ` · ${item.detail}` : ""}</div>
+      <div className="truncate text-[12px] text-ink-3">{item.outcome} · {formatAgo(item.at)}{item.detail ? ` · ${item.detail}` : ""}</div>
     </div>
     {item.session_id ? <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.session_id }}>Open agent</Link> : <span />}
   </div>;

@@ -29,7 +29,7 @@ import type { VaultOverview } from "@/gen/VaultOverview";
 import { api } from "@/lib/api";
 import { askTarget, botInitial, botJob, botProfile, botState, botThread, currentSession, rotationReason, useBots, useBotTemplates, type BotState } from "@/lib/bots";
 import { daemonUrl } from "@/lib/connection";
-import { formatAge } from "@/lib/format";
+import { formatAge, formatAgo } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useProfiles } from "@/lib/profiles";
 import { useRunnerTag } from "@/lib/burst";
@@ -126,7 +126,7 @@ const BotRow = memo(function BotRow({ bot, thread, folder }: { bot: Bot; thread:
     </span>
     <span className="hidden flex-none text-right text-[12px] text-ink-3 sm:block">
       <span className="block">{folder}</span>
-      <span className="block">{last ? `${formatAge(last.status_since)} ago` : "never ran"}</span>
+      <span className="block">{last ? `${formatAgo(last.status_since)}` : "never ran"}</span>
     </span>
   </Link>;
 });
@@ -483,7 +483,7 @@ export function Version({ base, change }: { base: string; change: Change }) {
   const diff = useQuery({ queryKey: ["bot-diff", base, change.id], queryFn: () => api.get<{ patch: string }>(`${base}/history/${change.id}`), enabled: open, staleTime: Infinity });
   return <div className="grid gap-1">
     <div className="flex items-center gap-2 text-[12px]">
-      <button className="min-w-0 flex-1 truncate text-left hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>{change.path} · {change.author?.name ?? "You"} · {formatAge(change.at)} ago{change.added != null && <span className="text-ink-3"> · +{change.added} −{change.removed ?? 0}</span>}</button>
+      <button className="min-w-0 flex-1 truncate text-left hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>{change.path} · {change.author?.name ?? "You"} · {formatAgo(change.at)}{change.added != null && <span className="text-ink-3"> · +{change.added} −{change.removed ?? 0}</span>}</button>
       {change.sha256 && <ConfirmButton icon="refresh" tone="publish" consequence={`Puts back ${change.path} as it was before this change. The restore is itself a version.`} confirmLabel="Restore" onConfirm={async () => { try { await api.post(`${base}/restore/${change.id}`); await qc.invalidateQueries({ queryKey: ["bots"] }); toast("Restored"); } catch (e) { toastError(e); } }}>Restore previous</ConfirmButton>}
     </div>
     {open && (diff.isLoading ? <Loading what="the diff" /> : diff.data?.patch ? <PatchView patch={diff.data.patch} path={change.path} language={change.path.endsWith(".toml") ? "toml" : "markdown"} split={false} wrap /> : <p className="m-0 text-[12px] text-ink-3">No text difference.</p>)}
@@ -501,7 +501,7 @@ function ThreadSessions({ bot, thread, current }: { bot: Bot; thread: Session[];
           const context = s.usage.context_tokens != null && s.usage.context_window ? `${Math.round((100 * s.usage.context_tokens) / s.usage.context_window)}% context` : null;
           return <Link key={s.id} to="/agents" search={{ session: s.id } as never} className="grid gap-0.5 rounded-md px-2 py-1.5 no-underline hover:bg-sunk">
             <span className="flex items-center gap-2 text-[13px] text-ink"><span className="min-w-0 flex-1 truncate">Session {thread.length - i}{s.id === current?.id ? " · current" : ""}</span><HarnessMark harness={s.harness} size={12} /></span>
-            <span className="truncate text-[12px] text-ink-3">{s.title} · {s.status === "closed" ? "archived" : s.status} · {formatAge(s.started_at)} ago{context ? ` · ${context}` : ""}</span>
+            <span className="truncate text-[12px] text-ink-3">{s.title} · {s.status === "closed" ? "archived" : s.status} · {formatAgo(s.started_at)}{context ? ` · ${context}` : ""}</span>
           </Link>;
         })}
     </Section>

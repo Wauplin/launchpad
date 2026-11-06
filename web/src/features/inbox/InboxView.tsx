@@ -21,7 +21,7 @@ import { toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader } from "@/components/ui";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
-import { formatAge } from "@/lib/format";
+import { formatAge, formatAgo } from "@/lib/format";
 import { useProjects } from "@/lib/queries";
 import { isPhone, usePhone } from "@/lib/phone";
 import { useComposer } from "@/stores/composer";
@@ -190,10 +190,10 @@ function PreviewPane({ t, projects, ready, act, busy }: { t: Thread; projects: P
       {!!refreshError && <ErrorState className="mb-3" error={refreshError} onRetry={() => refresh.mutate(true)} />}
       {preview.isError && <ErrorState className="mb-3" error={preview.error} />}
       {p ? <>
-        <div className="mb-2 flex items-center gap-1 text-[12px] text-ink-3">{p.author} · <Synced label={`Summary cached ${formatAge(p.fetched_at)} ago`} busy={refresh.isPending} title="Refresh the summary from GitHub" onRefresh={() => refresh.mutate(true)} /></div>
+        <div className="mb-2 flex items-center gap-1 text-[12px] text-ink-3">{p.author} · <Synced label={`Summary cached ${formatAgo(p.fetched_at)}`} busy={refresh.isPending} title="Refresh the summary from GitHub" onRefresh={() => refresh.mutate(true)} /></div>
         {p.body_html ? <GitHubHTML html={p.body_html} /> : <Markdown text={p.body || "No description."} />}
         <h3 className="mt-6 mb-3 text-[12px] font-semibold text-ink-2">Latest comments (up to 8)</h3>
-        {p.comments.map((c) => <article key={c.url} className="mb-4 border-t border-line pt-3"><div className="mb-2 flex flex-wrap items-center gap-2 text-[12px] text-ink-3">{c.author} · {formatAge(Date.parse(c.created_at))} ago <button className="text-teal-ink hover:underline" onClick={() => openExternal(c.url)}>Open comment</button><AddContext refItem={{ repo: t.repo, number: t.number, title: t.title, url: c.url, kind: "comment" }} /></div>{c.body_html ? <GitHubHTML html={c.body_html} /> : <Markdown text={c.body} />}</article>)}
+        {p.comments.map((c) => <article key={c.url} className="mb-4 border-t border-line pt-3"><div className="mb-2 flex flex-wrap items-center gap-2 text-[12px] text-ink-3">{c.author} · {formatAgo(Date.parse(c.created_at))} <button className="text-teal-ink hover:underline" onClick={() => openExternal(c.url)}>Open comment</button><AddContext refItem={{ repo: t.repo, number: t.number, title: t.title, url: c.url, kind: "comment" }} /></div>{c.body_html ? <GitHubHTML html={c.body_html} /> : <Markdown text={c.body} />}</article>)}
       </> : hasSummary
         ? refresh.isPending ? <Loading what="the thread summary" /> : <Empty icon="info" action={<button className="btn btn-sm" onClick={() => refresh.mutate(true)}><Icon name="refresh" size={12} />Refresh</button>}>No cached summary.</Empty>
         : <Empty icon="info" action={<button className="btn btn-sm" onClick={() => openExternal(t.url)}>Open on GitHub</button>}>This notification has no issue or PR preview.</Empty>}
@@ -277,7 +277,7 @@ export function InboxView() {
   const readyOf = (t: Thread) => t.number !== null ? byItem.get(itemSuggestionKey(t.repo, t.number))?.[0] : undefined;
   if (phone && selected) return <div className="flex h-full"><PreviewPane key={selected.id} t={selected} projects={projects} ready={readyOf(selected)} act={act} busy={pending.has(selected.id)} /></div>;
   const syncing = sync.isPending || !!data?.status.syncing;
-  const synced = <Synced label={data?.status.syncing ? "Syncing…" : data?.status.last_sync ? `Synced ${formatAge(data.status.last_sync)} ago` : "Waiting for GitHub"} busy={syncing} title="Refresh the inbox from GitHub" onRefresh={() => sync.mutate()} />;
+  const synced = <Synced label={data?.status.syncing ? "Syncing…" : data?.status.last_sync ? `Synced ${formatAgo(data.status.last_sync)}` : "Waiting for GitHub"} busy={syncing} title="Refresh the inbox from GitHub" onRefresh={() => sync.mutate()} />;
   const counters = <><span title="Unread notifications in this list">{unread} unread</span><span>·</span><span title="Unread review requests, mentions and assignments: the sidebar count">{mine} for you</span><span>·</span>{synced}</>;
   return <div className="flex h-full flex-col">
     {phone ? <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1">

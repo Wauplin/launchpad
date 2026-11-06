@@ -24,6 +24,7 @@ import { LocalSuggestions } from "@/features/suggestions/Suggestions";
 import { useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { runAction } from "@/lib/actions";
+import { projectName, useProjects } from "@/lib/queries";
 type Member = { id: string; title: string; folder: string; branch: string; published_url: string | null; merged: boolean };
 type Detail = Diff & { predraft: Predraft; status: string | null; commits: string[]; base_ahead: number; default_remote_branch: string; project_missing?: boolean; change_set?: Member[] };
 type View = "description" | "files" | "commits";
@@ -84,6 +85,7 @@ function Review({ id }: { id: string }) {
   // Another window or device changed the draft.
   useEffect(() => { if (loaded && saved.remote) apply(saved.value); }, [saved.remote]);
   useEffect(() => { if (loaded) saved.set({ title: editing ? title : undefined, body: editing ? body : undefined, notes, note }); }, [loaded, title, body, notes, note, editing]);
+  const projects = useProjects().data;
   const lineNotes = useMemo(() => notes.map(asLineNote).filter((n): n is LineNote => !!n), [notes]);
   async function run(action: () => Promise<unknown>, done?: string) {
     setBusy(true); setError(null);
@@ -114,7 +116,7 @@ function Review({ id }: { id: string }) {
   </>;
   const meta = <>
     <Badge tone={tone} icon="pr-local">Local PR · {state}</Badge>
-    <Link to="/projects/$id" params={{ id: p.project_id }}>Folder</Link>
+    <Link to="/projects/$id" params={{ id: p.project_id }}>{projectName(projects, p.project_id) || "Folder"}</Link>
     <span className="font-mono">{p.branch} → {p.base_branch}</span>
     <button className="iconbtn" aria-label="Refresh" title="Read the branch, commits and changes again" disabled={busy} onClick={refresh}><Icon name="refresh" size={13} /></button>
   </>;

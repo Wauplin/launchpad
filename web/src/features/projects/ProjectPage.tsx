@@ -19,7 +19,7 @@ import { useComposer } from "@/stores/composer";
 import { RepoItems } from "@/features/github/RepoItems";
 import { Link, useParams, useSearch } from "@tanstack/react-router";
 import { Badge, ConfirmButton, Empty, Choice, Choices, SettingRow, Tabs, useSaveState } from "@/components/ui";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import { moveFolder, useWorkspaces } from "@/lib/workspace";
 import { toast } from "@/components/Toast";
 import { HarnessMark } from "@/components/HarnessMark";
@@ -286,7 +286,7 @@ function AssetFolders({ projectId }: { projectId: string }) {
         <Icon name="folder" size={14} className="text-ink-3" />
         <span className="grid min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2"><span className="truncate font-mono font-semibold">{a.asset.name}</span>{a.asset.trashed_at ? <Badge tone="attn">in the trash</Badge> : !a.in_use && <Badge title="No branch, kept tip or note names it">unused</Badge>}</span>
-          <span className="truncate text-[12px] text-ink-3">{a.asset.trashed_at ? `Moved to the trash ${formatAge(a.asset.trashed_at)} ago` : `${a.files} files · ${mb(a.size)}`} · changed {formatAge(a.last_change)} ago</span>
+          <span className="truncate text-[12px] text-ink-3">{a.asset.trashed_at ? `Moved to the trash ${formatAgo(a.asset.trashed_at)}` : `${a.files} files · ${mb(a.size)}`} · changed {formatAgo(a.last_change)}</span>
         </span>
         {a.asset.trashed_at && <ConfirmButton tone="publish" consequence={`Puts the files of ${a.asset.name} back.`} confirmLabel="Restore" onConfirm={() => untrash(a)}>Restore</ConfirmButton>}
       </div>)}

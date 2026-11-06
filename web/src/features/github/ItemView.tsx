@@ -13,7 +13,7 @@ import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, Page
 import { useInbox, useInboxAction } from "@/features/inbox/InboxView";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { useProjects } from "@/lib/queries";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import { AddContext, GitHubHTML, itemKey, itemPath, openGitHub, reference } from "./lib";
 import { SuggestionCard, useSuggestions } from "@/features/suggestions/Suggestions";
 import { LabelChip } from "./LabelChip";
@@ -72,7 +72,7 @@ const EventCard = memo(function EventCard({ event, item }: { event: Timeline; it
     return <div className="flex min-h-7 items-center gap-2 px-1 text-[12px] text-ink-3">
       <span className="grid size-6 flex-none place-items-center rounded-full bg-sunk text-ink-2"><Icon name={eventIcon(event.__typename)} size={12} /></span>
       <span className="min-w-0 truncate"><b className="text-ink-2">{who}</b> {eventText(event)}</span>
-      {time && <span className="flex-none">· {formatAge(Date.parse(time))} ago</span>}
+      {time && <span className="flex-none">· {formatAgo(Date.parse(time))}</span>}
     </div>;
   }
   return <article className="rounded-lg border border-line bg-paper p-4">
@@ -80,7 +80,7 @@ const EventCard = memo(function EventCard({ event, item }: { event: Timeline; it
       {author?.avatarUrl && <img src={author.avatarUrl} width={24} height={24} className="rounded-full" alt="" />}
       <b className="text-ink">{who}</b>
       <span>{event.__typename === "Review comment" ? "commented on a line" : cardVerb(event)}</span>
-      {time && <span>· {formatAge(Date.parse(time))} ago</span>}
+      {time && <span>· {formatAgo(Date.parse(time))}</span>}
       {event.url && <span className="ml-auto flex items-center gap-2">
         <button className="iconbtn" title="Open on GitHub" aria-label="Open on GitHub" onClick={() => openGitHub(event.url!)}><Icon name="ext" size={12} /></button>
         <AddContext refItem={{ ...reference(item.repo, item, "comment"), url: event.url }} />
@@ -322,7 +322,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   const launch = <LaunchButton small primary={!isPr} ctx={{ projectId: project?.id ?? null, githubRefs: item ? [reference(repo, item, isPr ? "pr" : "issue")] : [] }} />;
   const agentReview = isPr && item && <button className="btn btn-sm btn-primary" title="Opens a launch draft that asks an agent for a local suggested review" onClick={() => reviewWithAgent({ projects, repo, number, title: item.title, url: item.url, head })}>Review with agent</button>;
   const openOnGitHub = () => openGitHub(item?.url ?? `https://github.com/${repo}/issues/${number}`);
-  const synced = item && <span className="inline-flex items-center gap-1 whitespace-nowrap">Synced {formatAge(item.fetched_at)} ago<button className="iconbtn" aria-label="Refresh from GitHub" title="Refresh from GitHub" disabled={refreshing} onClick={() => void refresh()}><Icon name="refresh" size={13} className={refreshing ? "animate-spin" : ""} /></button></span>;
+  const synced = item && <span className="inline-flex items-center gap-1 whitespace-nowrap">Synced {formatAgo(item.fetched_at)}<button className="iconbtn" aria-label="Refresh from GitHub" title="Refresh from GitHub" disabled={refreshing} onClick={() => void refresh()}><Icon name="refresh" size={13} className={refreshing ? "animate-spin" : ""} /></button></span>;
   const more = <Popover align="right" width={220} label="More actions" trigger={({ open, toggle }) => <button className="iconbtn" aria-label="More actions" aria-expanded={open} title="More actions" onClick={toggle}><Icon name="more" size={16} /></button>}>
     {(close) => <div className="grid gap-0.5"><MenuItem icon={<Icon name="ext" size={13} />} label="Open on GitHub" onClick={() => { openOnGitHub(); close(); }} /></div>}
   </Popover>;

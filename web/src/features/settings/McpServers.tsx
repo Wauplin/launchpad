@@ -7,7 +7,7 @@ import type { McpServer } from "@/gen/McpServer";
 import { toast, toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading } from "@/components/ui";
 import { api } from "@/lib/api";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { Card } from "./SettingsView";
 
@@ -44,7 +44,7 @@ function ServerRow({ s, wsName, onEdit, onDone }: { s: McpServer; wsName: (id: s
       <div className="flex flex-wrap items-center gap-2 text-[13px]">
         <span className="grid min-w-0 flex-1 gap-0.5">
           <span className="flex flex-wrap items-center gap-1.5"><b>{s.name}</b><span className="font-mono text-[12px] text-ink-3">{s.id}</span>{s.error && <Badge tone="attn" title={s.error}>not reachable</Badge>}</span>
-          <span className="truncate text-[12px] text-ink-3">{s.url} · {s.auth ? "with token" : "no token"} · {s.workspaces.map(wsName).join(", ") || "not granted"}{s.refreshed_at ? ` · tools read ${formatAge(s.refreshed_at)} ago` : ""}</span>
+          <span className="truncate text-[12px] text-ink-3">{s.url} · {s.auth ? "with token" : "no token"} · {s.workspaces.map(wsName).join(", ") || "not granted"}{s.refreshed_at ? ` · tools read ${formatAgo(s.refreshed_at)}` : ""}</span>
         </span>
         <button className="btn btn-sm" disabled={busy} onClick={reload}>{busy ? "Reading…" : "Refresh tools"}</button>
         <button className="btn btn-sm" onClick={onEdit}>Edit</button>

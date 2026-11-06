@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import { useComposer, type LaunchContext } from "@/stores/composer";
 import { useWorkspace } from "@/stores/workspace";
 
@@ -93,7 +93,7 @@ export function LaunchSplitButton({ ctx, text, onLaunch, onUsed, primary = false
   const draft = open && minimized && !autoLaunchUntil;
   const stale = draft && since !== null && Date.now() - since > STALE_MS;
   const first = spec.text.trim().split("\n")[0];
-  const age = since !== null ? `${formatAge(since)} ago` : null;
+  const age = since !== null ? `${formatAgo(since)}` : null;
   return (
     <span className={`inline-flex rounded-[8px] transition-shadow ${flash ? "ring-[3px] ring-teal" : ""}`} data-tour="topbar.launch">
       <button className={`btn ${cls} rounded-r-none`} title={draft ? `Open the draft${first ? `: ${first}` : ""}${age ? ` (started ${age})` : ""}${text.trim() ? "; your text is added to it" : ""}` : title} onClick={onLaunch}>

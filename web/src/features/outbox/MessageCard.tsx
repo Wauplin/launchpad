@@ -11,7 +11,7 @@ import { toast } from "@/components/Toast";
 import { ActionButton } from "@/components/ActionButton";
 import { Badge, ErrorState, Token } from "@/components/ui";
 import { api } from "@/lib/api";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 
 export const useOutboxMessages = () => useQuery({ queryKey: ["outbox"], queryFn: () => api.get<OutboxMessage[]>("/api/outbox"), staleTime: 30_000 });
@@ -49,8 +49,8 @@ export const MessageCard = memo(function MessageCard({ m }: { m: OutboxMessage }
     <article className="rounded-lg border border-line bg-paper p-4" data-tour="outbox.card">
       <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
         <Token icon="send">{m.channel}</Token>
-        <span>{KIND_LABEL[m.kind]} · drafted by <SessionLink id={m.session_id}>{m.author}</SessionLink> {formatAge(m.created_at)} ago</span>
-        {m.status === "sent" && <Badge tone="ok" icon="check">Sent{m.sent_at ? ` ${formatAge(m.sent_at)} ago` : ""}</Badge>}
+        <span>{KIND_LABEL[m.kind]} · drafted by <SessionLink id={m.session_id}>{m.author}</SessionLink> {formatAgo(m.created_at)}</span>
+        {m.status === "sent" && <Badge tone="ok" icon="check">Sent{m.sent_at ? ` ${formatAgo(m.sent_at)}` : ""}</Badge>}
         {uncertain && <Badge tone="attn" icon="alert">{m.status === "sending" ? "Sending" : "Uncertain"}</Badge>}
         {m.status === "discarded" && <Badge tone="done">Discarded</Badge>}
       </div>

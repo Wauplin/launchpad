@@ -17,7 +17,7 @@ import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useStatus } from "@/lib/queries";
 import { copyText } from "@/lib/clipboard";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import { useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { conditionsSummary, DelaySelector } from "@/features/launch/DelaySelector";
 import { budgetReached, costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, useProfile } from "@/lib/profiles";
@@ -43,7 +43,7 @@ export function StateBand({ session: s }: { session: Session }) {
   return <div className={`flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-xs ${STYLES[style]} ${s.status === "stopped" ? "border-dashed" : ""}`}>
     <Icon name={s.status === "stopped" ? "stop" : "alert"} size={16} /><b>{s.status === "stopped" ? "Stopped" : "Question"}</b>
     <span>{s.status === "stopped" ? "By you, during a turn" : "The agent needs an answer"}</span>
-    <span className="ml-auto" title={new Date(at).toLocaleString()}>Since {new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {formatAge(at)} ago</span>
+    <span className="ml-auto" title={new Date(at).toLocaleString()}>Since {new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {formatAgo(at)}</span>
   </div>;
 }
 

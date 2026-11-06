@@ -7,7 +7,7 @@ import type { NetworkCheck } from "@/gen/NetworkCheck";
 import type { RunnerStatus } from "@/gen/RunnerStatus";
 import { ActionButton } from "@/components/ActionButton";
 import { Badge } from "@/components/ui";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 
 const METHOD: Record<string, string> = { jail: "jail", vm: "Local VM", burst: "Burst" };
 
@@ -26,7 +26,7 @@ export function RunnerNetwork({ r }: { r: RunnerStatus }) {
         <span className="min-w-0 flex-1">
           {check === null
             ? "Network not checked yet."
-            : <>Network {check.ok ? <Badge tone="ok">same as everywhere</Badge> : <Badge tone="attn">differs</Badge>} <span className="text-ink-3">{METHOD[check.method] ?? check.method} · checked {formatAge(check.at)} ago</span></>}
+            : <>Network {check.ok ? <Badge tone="ok">same as everywhere</Badge> : <Badge tone="attn">differs</Badge>} <span className="text-ink-3">{METHOD[check.method] ?? check.method} · checked {formatAgo(check.at)}</span></>}
         </span>
         <ActionButton name="runner.check-network" params={{ id: r.runner.id }} disabled={!r.connected} title={r.connected ? undefined : `${r.runner.name} is offline`} onDone={() => qc.invalidateQueries({ queryKey: ["runners"] })}>
           {check === null ? "Check network" : "Check again"}

@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { toastError } from "@/components/Toast";
 
 const ProcessRow = memo(function ProcessRow({ process, selected, select }: { process: SessionProcess; selected: boolean; select: () => void }) {
-  return <button className={`h-12 w-full border-b border-line-2 px-3 text-left ${selected ? "bg-select" : "hover:bg-hover"}`} aria-pressed={selected} onClick={select} title={process.command}>
+  return <button className={`h-12 w-full border-b border-line-2 px-3 text-left ${selected ? "bg-select" : "hover:bg-sunk"}`} aria-pressed={selected} onClick={select} title={process.command}>
     <span className="block truncate font-mono text-xs">{process.command}</span>
     <span className="block truncate text-[11px] text-ink-3">Process {process.process_id}</span>
   </button>;

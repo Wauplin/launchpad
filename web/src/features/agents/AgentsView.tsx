@@ -142,7 +142,8 @@ export function AgentsView() {
   };
   const [initialView, setInitialView] = useState<"changes" | undefined>(undefined);
 
-  // From a notification or another page: /agents?session=<id>[&view=changes]. The desktop then clears the address.
+  // From a notification or another page: /agents?session=<id>[&view=changes]. The desktop then clears the address;
+  // the phone keeps it and reopens the pane when `view` changes (the pane key holds it).
   useEffect(() => {
     if (search.session && !phone) {
       show(search.session);
@@ -248,7 +249,7 @@ export function AgentsView() {
       </div>
       <div className={`min-h-0 min-w-0 flex-1 bg-paper ${phone && !paneOpen ? "hidden" : ""}`}>
         {visibleSession ? (
-          <SessionPane key={`${scope.workspace.id}:${visibleSession}:${panelLoad}`} sessionId={visibleSession} initialView={phone ? search.view : initialView} onClear={() => (phone ? back() : clearSession(visibleSession))} />
+          <SessionPane key={`${scope.workspace.id}:${visibleSession}:${panelLoad}${phone ? `:${search.view ?? ""}` : ""}`} sessionId={visibleSession} initialView={phone ? search.view : initialView} onClear={() => (phone ? back() : clearSession(visibleSession))} />
         ) : phone ? null : (
           <Empty fill icon="agents" action={<LaunchButton small />}>Pick an agent on the left. Questions and finished agents wait in <Link to="/" className="text-teal-ink">Today</Link>.</Empty>
         )}

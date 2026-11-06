@@ -12,7 +12,7 @@ import { Icon } from "@/components/Icon";
 import { Badge, Empty, Loading } from "@/components/ui";
 import { StatusBadge } from "@/features/agents/SessionBits";
 import { api } from "@/lib/api";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useSessions } from "@/lib/queries";
 import { offlineWorktreesNote, useOfflineRunners } from "@/lib/runners";
@@ -29,7 +29,7 @@ const BranchRow = memo(function BranchRow({ i, session }: { i: WorktreeInfo; ses
         <span className="truncate font-mono">{w.branch}</span>
         {i.ahead > 0 && <span className="flex-none">· {i.ahead} commit{i.ahead === 1 ? "" : "s"} ahead</span>}
         {i.dirty_files > 0 && <span className="flex-none">· {i.dirty_files} uncommitted</span>}
-        <span className="flex-none">· {formatAge(w.created_at)} ago</span>
+        <span className="flex-none">· {formatAgo(w.created_at)}</span>
         {state && <Badge tone="attn">{state}</Badge>}
       </div>
     </div>

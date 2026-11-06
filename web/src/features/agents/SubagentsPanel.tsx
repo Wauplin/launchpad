@@ -32,7 +32,7 @@ function childLog(log: SessionLog, id: string): SessionLog {
 }
 
 const AgentRow = memo(function AgentRow({ agent, depth, selected, collapsed, hasChildren, select, toggle }: { agent: Subagent; depth: number; selected: boolean; collapsed: boolean; hasChildren: boolean; select: () => void; toggle: () => void }) {
-  return <div className={`flex h-12 items-center border-b border-line-2 ${selected ? "bg-select" : "hover:bg-hover"}`} style={{ paddingLeft: 4 + Math.min(depth, 6) * 12 }}>
+  return <div className={`flex h-12 items-center border-b border-line-2 ${selected ? "bg-select" : "hover:bg-sunk"}`} style={{ paddingLeft: 4 + Math.min(depth, 6) * 12 }}>
     <button className="iconbtn shrink-0" disabled={!hasChildren} aria-label={`${collapsed ? "Expand" : "Collapse"} ${agent.name}`} aria-expanded={hasChildren ? !collapsed : undefined} onClick={toggle}>{hasChildren ? <span>{collapsed ? "▸" : "▾"}</span> : <span className="w-3" />}</button>
     <button className="min-w-0 flex-1 px-1 py-1 text-left" aria-pressed={selected} title={`${agent.name} · ${agent.id}`} onClick={select}>
       <span className="block truncate text-xs font-medium">{displayName(agent.name)}</span>

@@ -7,7 +7,7 @@ import type { Status } from "@/gen/Status";
 import type { ProfileSpend } from "@/gen/ProfileSpend";
 import { spendLabel, spendPercent, useQuotas, windowLabel, type QuotaEntry } from "@/lib/profiles";
 import { HarnessMark, useHarnessInfo, useHarnesses, type Harness } from "@/components/HarnessMark";
-import { formatAge, formatReset, resetLabel } from "@/lib/format";
+import { formatAge, formatAgo, formatReset, resetLabel } from "@/lib/format";
 import { onConnectionChange } from "@/lib/ws";
 import { Popover } from "@/components/Popover";
 import { Icon } from "@/components/Icon";
@@ -115,7 +115,7 @@ function QuotaLine({ e }: { e: QuotaEntry }) {
   return (
     <div className="grid gap-0.5">
       <span className="inline-flex items-center gap-1.5 font-semibold"><HarnessMark harness={e.harness} size={14} />{name}</span>
-      <span className="text-ink-3">5h {s.five_hour ? `${Math.round(s.five_hour.used_percent)}% · ${resetLabel(s.five_hour.resets_at)}` : "unknown"} · week {s.weekly ? `${Math.round(s.weekly.used_percent)}% · ${resetLabel(s.weekly.resets_at)}` : "unknown"}{s.quota_at && ` · read ${formatAge(s.quota_at)} ago`}</span>
+      <span className="text-ink-3">5h {s.five_hour ? `${Math.round(s.five_hour.used_percent)}% · ${resetLabel(s.five_hour.resets_at)}` : "unknown"} · week {s.weekly ? `${Math.round(s.weekly.used_percent)}% · ${resetLabel(s.weekly.resets_at)}` : "unknown"}{s.quota_at && ` · read ${formatAgo(s.quota_at)}`}</span>
       {s.quota_error && <span className="text-gh-closed">{s.quota_error}</span>}
     </div>
   );

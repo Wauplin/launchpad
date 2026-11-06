@@ -1,5 +1,5 @@
 import type { Session } from "@/gen/Session";
-import { formatAge } from "@/lib/format";
+import { formatAge, formatAgo } from "@/lib/format";
 import { Icon, type IconName } from "@/components/Icon";
 import { useRunnerTag } from "@/lib/burst";
 
@@ -38,7 +38,7 @@ export function statusInfo(s: Session): { label: string; style: keyof typeof STY
     case "background":
       return { label: `Background ${formatAge(s.status_since)}`, style: "work", icon: null };
     case "closed":
-      return { label: `Archived ${formatAge(s.ended_at ?? s.status_since)} ago`, style: "done", icon: "archive" };
+      return { label: `Archived ${formatAgo(s.ended_at ?? s.status_since)}`, style: "done", icon: "archive" };
     case "in_terminal":
       return { label: "In terminal", style: "int", icon: "term" };
     case "quota_paused":

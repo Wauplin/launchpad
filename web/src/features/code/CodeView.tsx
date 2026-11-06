@@ -25,7 +25,7 @@ import DOMPurify from "dompurify";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toast } from "@/components/Toast";
 import { copyText } from "@/lib/clipboard";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import { useProject, useSessions } from "@/lib/queries";
 import { isDone, isRunning } from "@/lib/sessionStatus";
 import { onEvent } from "@/lib/ws";
@@ -330,7 +330,7 @@ function SourcePicker({ project, root, rev, path, session }: { project: Project;
               key={r.name}
               icon={<Icon name={r.kind === "pr" ? "pr" : r.kind === "tag" ? "commit" : "branch"} size={13} />}
               label={<span className="font-mono text-xs">{r.label}</span>}
-              detail={`${r.kind === "branch" ? "Local branch" : r.kind === "remote" ? "Remote branch" : r.kind === "tag" ? "Tag" : "PR head, fetched for its diff"}${r.date ? ` · ${formatAge(r.date)} ago` : ""}`}
+              detail={`${r.kind === "branch" ? "Local branch" : r.kind === "remote" ? "Remote branch" : r.kind === "tag" ? "Tag" : "PR head, fetched for its diff"}${r.date ? ` · ${formatAgo(r.date)}` : ""}`}
               active={rev === r.name}
               onClick={() => (pick(project.path, r.name), close())}
             />

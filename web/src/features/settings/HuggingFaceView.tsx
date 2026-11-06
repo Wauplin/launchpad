@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Icon } from "@/components/Icon";
 import { ErrorState, Loading } from "@/components/ui";
 import { api } from "@/lib/api";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import { externalLinkProps } from "@/lib/platform";
 import { useStatus } from "@/lib/queries";
 import type { SignInCheck } from "@/gen/SignInCheck";
@@ -36,7 +36,7 @@ function HomeHuggingFace() {
     <Card title="Required Home backup">
       <p className="m-0 text-[13px] text-ink-2">The private bucket stores Home’s database and session records, the vault, Git branch bundles, plain folders and assets. Backup cannot be turned off.</p>
       {backup.data && <span className={`text-[13px] ${backup.data.credentials_encrypted ? "text-gh-open" : "text-attn"}`}>{backup.data.credentials_encrypted ? "Credentials (vault secrets and Home’s own logins) are encrypted with your credential key, kept as the LP_HOME_KEY secret of this Space. Other data is stored as plain files." : "Credentials are not encrypted yet: finish Home setup to turn encryption on."}</span>}
-      {backup.isPending ? <Loading /> : backup.isError ? <ErrorState error={backup.error} /> : backup.data?.error ? <ErrorState error={backup.data.error} /> : <span className="text-[13px] text-ink-2">{backup.data?.last_complete_at ? `Last complete backup ${formatAge(backup.data.last_complete_at)} ago` : "Waiting for the first complete backup"}</span>}
+      {backup.isPending ? <Loading /> : backup.isError ? <ErrorState error={backup.error} /> : backup.data?.error ? <ErrorState error={backup.data.error} /> : <span className="text-[13px] text-ink-2">{backup.data?.last_complete_at ? `Last complete backup ${formatAgo(backup.data.last_complete_at)}` : "Waiting for the first complete backup"}</span>}
       <span className="text-[12px] text-ink-3">The bucket mount is managed by the Home deployment.</span>
     </Card>
     <Card title="Traces" end={bucket && <a className="btn btn-sm no-underline" {...externalLinkProps(`https://huggingface.co/buckets/${bucket}`)}><Icon name="ext" size={12} />Open bucket</a>}>

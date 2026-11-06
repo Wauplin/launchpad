@@ -18,7 +18,7 @@ import type { NativeMemory } from "@/gen/NativeMemory";
 import type { Notes } from "@/gen/Notes";
 import { api, ApiError } from "@/lib/api";
 import { daemonUrl } from "@/lib/connection";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useSessions, useStatus } from "@/lib/queries";
 import { useRunners } from "@/lib/runners";
@@ -172,7 +172,7 @@ const NoteRow = memo(function NoteRow({ path, hit, active, onClick }: { path: st
 function Authors({ changes }: { changes: Change[] }) {
   const agents = new Set(changes.filter((c) => c.author?.kind === "agent").map((c) => c.author!.session_id));
   const mine = changes.filter((c) => c.author?.kind === "owner");
-  const parts = [agents.size ? `${agents.size} ${agents.size === 1 ? "session" : "sessions"}` : null, mine.length ? `you (${formatAge(mine[0].at)} ago)` : null].filter(Boolean);
+  const parts = [agents.size ? `${agents.size} ${agents.size === 1 ? "session" : "sessions"}` : null, mine.length ? `you (${formatAgo(mine[0].at)})` : null].filter(Boolean);
   if (!parts.length) return null;
   return <span>Written by {parts.join(", ")}</span>;
 }
@@ -366,10 +366,10 @@ const ChangeRow = memo(function ChangeRow({ c, title, isNew, active, onClick }: 
     <span className="flex min-w-0 items-center gap-1.5 text-[13px]">
       {isNew && <span className="size-1.5 flex-none rounded-full bg-teal" title="New since your last look" />}
       <span className="min-w-0 truncate font-mono text-[12px]">{c.path}</span>
-      {c.added != null && c.added > 0 && <span className="text-[11px] text-ok tabular-nums">+{c.added}</span>}
+      {c.added != null && c.added > 0 && <span className="text-[11px] text-gh-open tabular-nums">+{c.added}</span>}
       {c.removed != null && c.removed > 0 && <span className="text-[11px] text-danger tabular-nums">−{c.removed}</span>}
       {what(c) !== "changed" && <span className="text-[11px] text-ink-3">{what(c)}</span>}
-      <span className="ml-auto flex-none text-[11px] text-ink-3">{formatAge(c.at)} ago</span>
+      <span className="ml-auto flex-none text-[11px] text-ink-3">{formatAgo(c.at)}</span>
     </span>
     <span className="truncate text-[11px] text-ink-3">{a ? `${a.kind === "agent" ? `Agent "${title ?? a.name}"` : a.name}${a.model ? ` · ${a.model}` : ""}${a.runner ? ` · ${a.runner}` : ""}` : "Unknown author"}</span>
   </button>;

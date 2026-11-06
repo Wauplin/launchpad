@@ -11,7 +11,7 @@ import { Icon } from "@/components/Icon";
 import { Badge, ConfirmButton } from "@/components/ui";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 
 export const SLACK_READ = "slack-read";
 export const SLACK_WRITE = "slack-write";
@@ -81,7 +81,7 @@ function SlackMode({ v, mode }: { v: VaultOverview; mode: (typeof MODES)[number]
         </span>
       </div>
       <span className="text-[12px] text-ink-2">{mode.what}</span>
-      {ready && entry && <span className="text-[12px] text-ink-3">Token {entry.detail}, saved {formatAge(entry.updated_at)} ago.{tool.workspaces.length === 0 ? " Not granted in any workspace (Tools → Edit)." : ""}</span>}
+      {ready && entry && <span className="text-[12px] text-ink-3">Token {entry.detail}, saved {formatAgo(entry.updated_at)}.{tool.workspaces.length === 0 ? " Not granted in any workspace (Tools → Edit)." : ""}</span>}
       {test && !test.ok && <span className="text-[12px] text-attn">{test.message}</span>}
       {!ready && (
         <ol className="m-0 grid list-none gap-2 p-0">

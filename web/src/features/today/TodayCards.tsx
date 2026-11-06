@@ -22,7 +22,7 @@ import { MessageCard, useOutboxMessages } from "@/features/outbox/MessageCard";
 import { ProposalCard } from "@/features/proposals/ProposalCard";
 import { SuggestionCard } from "@/features/suggestions/Suggestions";
 import { runAction } from "@/lib/actions";
-import { formatAge } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import { projectName, useProjects, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
 import { isDone } from "@/lib/sessionStatus";
@@ -42,7 +42,7 @@ function Card({ item, meta, open, children, tone = "border-line", age = true }: 
         <span className="grid size-7 flex-none place-items-center rounded-lg bg-sunk text-ink-2"><Icon name={ICON[item.kind]} size={14} /></span>
         <div className="min-w-0 flex-1">
           <div className="line-clamp-2 text-[13px] font-semibold" title={item.title}>{item.title}</div>
-          <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] text-ink-3">{meta ?? <span className="truncate">{item.detail}</span>}{age && <span className="flex-none">· {formatAge(item.at)} ago</span>}</div>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] text-ink-3">{meta ?? <span className="truncate">{item.detail}</span>}{age && <span className="flex-none">· {formatAgo(item.at)}</span>}</div>
         </div>
         {open && <span className="flex-none">{open}</span>}
       </div>
@@ -195,7 +195,7 @@ function SuggestionItem({ item, s }: { item: TodayItem; s: Suggestion | undefine
     <div className="flex flex-wrap items-center gap-2 px-1 text-[12px] text-ink-3">
       <Icon name="pr" size={12} />
       <Link to="/github/$owner/$repo/$number" params={ghParams(t.repo, t.number)} search={{ draft: s.id }} className="text-teal-ink no-underline hover:underline">{t.repo}#{t.number}</Link>
-      <span>· {formatAge(s.created_at)} ago</span>
+      <span>· {formatAgo(s.created_at)}</span>
       {s.session_id && <Link to="/agents" search={{ session: s.session_id }} className="text-teal-ink no-underline hover:underline">Open agent</Link>}
     </div>
     <SuggestionCard suggestion={s} />

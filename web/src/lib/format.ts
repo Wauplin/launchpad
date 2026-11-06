@@ -30,3 +30,9 @@ export function formatAge(ms: number): string {
   const d = Math.round(h / 24);
   return d === 1 ? "yesterday" : `${d} d`;
 }
+
+/** "12 s ago", "4 min ago", "yesterday", "5 d ago": formatAge with " ago", except for "yesterday". */
+export function formatAgo(ms: number): string {
+  const age = formatAge(ms);
+  return age === "yesterday" ? age : `${age} ago`;
+}
