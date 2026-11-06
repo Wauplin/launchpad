@@ -252,7 +252,7 @@ async fn tunnel(State(s): State<Server>, headers: HeaderMap, ws: WebSocketUpgrad
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
-    ws.on_upgrade(move |socket| {
+    crate::wire::accept(ws).on_upgrade(move |socket| {
         let (tx, rx) = crate::wire::axum(socket);
         serve(s, tx, rx, runner)
     })
@@ -486,6 +486,14 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
         Ok(b) => (!b.is_empty()).then(|| String::from_utf8_lossy(&b).into_owned()),
         Err(e) => return ApiError::bad_request(format!("{e}")).into_response(),
     };
+    // A message with uploads: they are stored on Home, so the runner receives their bytes.
+    let body = match (parts.as_slice(), body) {
+        (["api", "sessions", _, "input"], Some(b)) => match inline_uploads(&b) {
+            Ok(b) => Some(b),
+            Err(e) => return ApiError::bad_request(format!("{e:#}")).into_response(),
+        },
+        (_, b) => b,
+    };
     let runner = match runner {
         Some(r) => r,
         // A launch: a runner that takes it, else Burst (`runners::launch_anywhere`).
@@ -523,6 +531,19 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
         Ok((status, body)) => (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response(),
         Err(e) => ApiError::new(StatusCode::BAD_GATEWAY, format!("{e:#}")).into_response(),
     }
+}
+
+/// A session input body with its `files` and `images` references replaced by data URLs.
+fn inline_uploads(body: &str) -> anyhow::Result<String> {
+    let mut v: Value = serde_json::from_str(body)?;
+    for key in ["files", "images"] {
+        if let Some(items) = v.get_mut(key) {
+            let mut files: Vec<launchpad_core::model::FileAttachment> = serde_json::from_value(items.take())?;
+            launchpad_core::attachments::inline_files(&mut files)?;
+            *items = serde_json::to_value(files)?;
+        }
+    }
+    Ok(v.to_string())
 }
 
 /// Asks a runner for an answer with its headers and its bytes in base64 (`Envelope`).

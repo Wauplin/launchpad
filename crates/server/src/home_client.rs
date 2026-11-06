@@ -220,7 +220,7 @@ pub async fn reverse(headers: axum::http::HeaderMap, ws: axum::extract::WebSocke
     if !same {
         return axum::http::StatusCode::UNAUTHORIZED.into_response();
     }
-    ws.on_upgrade(|socket| async move {
+    crate::wire::accept(ws).on_upgrade(|socket| async move {
         let _ = REVERSE.0.send(socket);
     })
 }
@@ -340,7 +340,7 @@ async fn dial(link: &Link) -> anyhow::Result<Result<(crate::wire::WireTx, crate:
     if let Some(token) = home_link::space_token(&link.url) {
         request.headers_mut().insert(header::AUTHORIZATION, format!("Bearer {token}").parse()?);
     }
-    match tokio::time::timeout(Duration::from_secs(30), tokio_tungstenite::connect_async(request)).await? {
+    match tokio::time::timeout(Duration::from_secs(30), crate::wire::dial(request)).await? {
         Ok((socket, _)) => Ok(Ok(crate::wire::tungstenite(socket))),
         Err(tokio_tungstenite::tungstenite::Error::Http(res)) if res.status() == 401 => {
             Ok(Err("this runner is unknown to Home (removed or never approved): run launchpad connect again".into()))

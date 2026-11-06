@@ -11,6 +11,26 @@ use futures_util::{Sink, SinkExt, Stream, StreamExt};
 pub type WireTx = Pin<Box<dyn Sink<String, Error = anyhow::Error> + Send>>;
 pub type WireRx = Pin<Box<dyn Stream<Item = anyhow::Result<String>> + Send>>;
 
+/// The largest tunnel message: a launch or message with inlined attachments (20 MB in base64) or a file
+/// download in an envelope. Each message is one frame, so frames get the same limit (the default is 16 MiB).
+const MAX_MESSAGE: usize = 64 << 20;
+
+/// Accepts a tunnel WebSocket with the tunnel's message limit.
+pub fn accept(ws: axum::extract::WebSocketUpgrade) -> axum::extract::WebSocketUpgrade {
+    ws.max_message_size(MAX_MESSAGE).max_frame_size(MAX_MESSAGE)
+}
+
+/// Dials a tunnel WebSocket with the tunnel's message limit.
+pub async fn dial<R: tokio_tungstenite::tungstenite::client::IntoClientRequest + Unpin>(
+    request: R,
+) -> Result<
+    (tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, tokio_tungstenite::tungstenite::handshake::client::Response),
+    tokio_tungstenite::tungstenite::Error,
+> {
+    let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE)).max_frame_size(Some(MAX_MESSAGE));
+    tokio_tungstenite::connect_async_with_config(request, Some(config), false).await
+}
+
 /// A WebSocket accepted by this daemon's router.
 pub fn axum(socket: axum::extract::ws::WebSocket) -> (WireTx, WireRx) {
     use axum::extract::ws::Message;

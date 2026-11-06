@@ -119,6 +119,15 @@ pub fn to_data_url(url: &str) -> Result<String> {
     Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
 }
 
+/// Replaces stored references in files by data URLs: uploads stay on the machine that received them, so Home
+/// inlines them before it sends a launch or a message to a runner or to Burst.
+pub fn inline_files(files: &mut [FileAttachment]) -> Result<()> {
+    for file in files {
+        file.data_url = to_data_url(&file.data_url)?;
+    }
+    Ok(())
+}
+
 /// Replaces stored references in message images by data URLs (event logs keep the bytes).
 pub fn resolve_images(images: &mut [ImageAttachment]) -> Result<()> {
     for image in images {

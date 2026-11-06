@@ -614,10 +614,12 @@ fn answer<T: serde::de::DeserializeOwned>(status: u16, body: &str) -> Result<T> 
 }
 
 /// Starts a session where agents run: here, or on Home through a runner (sent once, never retried).
-pub async fn launch_anywhere(app: &App, spec: crate::model::LaunchSpec, id: String, automatic: bool) -> Result<crate::model::Session> {
+pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: String, automatic: bool) -> Result<crate::model::Session> {
     if app.paths.role != crate::role::Role::Home {
         return if automatic { app.sessions.launch_automatic(app, spec, id).await } else { app.sessions.launch_with_id(app, spec, id).await };
     }
+    // Uploads are stored on Home: the runner or Burst job receives their bytes.
+    crate::attachments::inline_files(&mut spec.attachments)?;
     if spec.runner_id.as_deref() == Some(crate::burst::CHOICE) {
         return crate::burst::launch(app, spec, id, automatic).await;
     }
@@ -677,7 +679,10 @@ pub fn ensure_burst_action(action: &str) -> Result<()> {
 }
 
 /// A message to a session wherever it runs. `files` are attachments the session's machine stores.
-pub async fn send_anywhere(app: &App, id: &str, text: &str, files: Vec<crate::model::FileAttachment>, key: Option<String>) -> Result<()> {
+pub async fn send_anywhere(app: &App, id: &str, text: &str, mut files: Vec<crate::model::FileAttachment>, key: Option<String>) -> Result<()> {
+    if app.paths.role == crate::role::Role::Home {
+        crate::attachments::inline_files(&mut files)?;
+    }
     if let Some(s) = app.sessions.get(id).filter(|_| app.paths.role == crate::role::Role::Home)
         && crate::burst::needs_new_job(app, &s).await
     {

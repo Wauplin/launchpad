@@ -160,7 +160,7 @@ async fn dial(s: &Server, id: &str, url: &str) -> anyhow::Result<()> {
     let mut request = format!("{base}/api/runner/reverse").into_client_request()?;
     request.headers_mut().insert(crate::runners::CREDENTIAL_HEADER, credential.parse()?);
     request.headers_mut().insert(axum::http::header::AUTHORIZATION, format!("Bearer {token}").parse()?);
-    let (socket, _) = tokio::time::timeout(Duration::from_secs(20), tokio_tungstenite::connect_async(request)).await??;
+    let (socket, _) = tokio::time::timeout(Duration::from_secs(20), crate::wire::dial(request)).await??;
     let runner = launchpad_core::runners::authenticate(&s.app, &credential).await.ok_or_else(|| anyhow::anyhow!("the Burst runner record is gone"))?;
     let (tx, rx) = crate::wire::tungstenite(socket);
     crate::runners::serve(s.clone(), tx, rx, runner).await;
