@@ -14,7 +14,7 @@ import { HarnessMark } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { Markdown } from "@/components/Markdown";
 import { toast, toastError } from "@/components/Toast";
-import { Badge, ConfirmButton, Empty, ErrorState, Loading, PageHeader, Tabs } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, ErrorState, Loading, PageHeader, StatusBadge, Tabs, type StatusTone } from "@/components/ui";
 import { PatchView } from "@/features/github/DiffReview";
 import { BotChat } from "@/features/chat/BotChat";
 import { SplitView } from "@/components/SplitView";
@@ -63,12 +63,12 @@ const PROPOSAL_MODES: { id: ProposalMode; label: string; detail: string }[] = [
   { id: "auto", label: "Auto", detail: "new launches, messages, schedules and presets apply at once; routines, bots, tools and BOT.md changes still wait" },
 ];
 
-const STATE: Record<BotState, { label: string; tone: "attn" | "work" | "neutral" | "teal" }> = {
-  needs: { label: "Needs you", tone: "attn" },
-  running: { label: "Working", tone: "work" },
-  paused: { label: "Quota paused", tone: "attn" },
-  idle: { label: "Idle", tone: "neutral" },
-  new: { label: "No task yet", tone: "teal" },
+const STATE: Record<BotState, { label: string; tone: StatusTone }> = {
+  needs: { label: "Needs you", tone: "needs" },
+  running: { label: "Working", tone: "running" },
+  paused: { label: "Quota paused", tone: "needs" },
+  idle: { label: "Idle", tone: "idle" },
+  new: { label: "No task yet", tone: "idle" },
 };
 
 export function BotAvatar({ name, size = 28 }: { name: string; size?: number }) {
@@ -77,7 +77,7 @@ export function BotAvatar({ name, size = 28 }: { name: string; size?: number }) 
 
 function StateBadge({ state }: { state: BotState }) {
   const s = STATE[state];
-  return <Badge tone={s.tone} dot={state === "needs"}>{state === "running" && <span className="lp-spin mr-1" />}{s.label}</Badge>;
+  return <StatusBadge tone={s.tone} label={s.label} />;
 }
 
 const useBotSessions = () => useSessions().data ?? [];

@@ -39,7 +39,7 @@ import { foldTrace } from "./traceRows";
 import { MenuItem, Popover } from "@/components/Popover";
 import type { SessionGitHistory } from "@/gen/SessionGitHistory";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
-import { StatusBadge, usageLine } from "./SessionBits";
+import { SessionStatus, usageLine } from "./SessionBits";
 import { useOpenTerminal, useTerminals, useTerminalsHere } from "@/features/terminals/lib";
 import { TerminalMenu } from "@/features/terminals/TerminalMenu";
 import { Sheet } from "@/mobile/Sheet";
@@ -437,7 +437,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       {dragging && <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center border-2 border-teal bg-teal-soft/80 font-semibold text-teal-ink">{harness?.capabilities.images ? "Drop files or images to attach to your message" : `Drop files to attach (${name} does not accept images)`}</div>}
       {readingExpanded && <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-line-2 px-3 py-1">
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold" title={s.title}>{s.title}</span>
-        <StatusBadge s={s} />
+        <SessionStatus s={s} />
         {!archivePrimary && primary}
       </div>}
       {phone ? <div className="session-header @container grid grid-cols-[18px_1fr] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
@@ -446,7 +446,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
           <button className="iconbtn session-back order-first shrink-0 self-start" title="Back to agents" aria-label="Back to agents" onClick={onClear}><Icon name="chev" size={20} className="rotate-90" /></button>
         </div>
         <span className="session-meta order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3 tabular-nums">
-          <StatusBadge s={s} />
+          <SessionStatus s={s} />
           <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{place} <Icon name="chev" size={12} /></button>
           {stateChips}
         </span>
@@ -463,7 +463,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
           <div className="session-heading flex min-w-0 flex-1 basis-56 items-center gap-2">
             <HarnessMark harness={s.harness} size={16} />
             {titleEl}
-            {!renaming && <StatusBadge s={s} />}
+            {!renaming && <SessionStatus s={s} />}
           </div>
           <div className="session-actions ml-auto flex flex-wrap items-center gap-1">
             <span data-tour="session.primary" className="inline-flex items-center gap-1"><StatePrimary s={s} primary={primary} /></span>

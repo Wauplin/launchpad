@@ -9,6 +9,7 @@ import { useAddFolder } from "@/features/projects/addFolderStore";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useLayoutEffect, useState } from "react";
 import { IconSprite, Icon, type IconName } from "@/components/Icon";
+import { Count } from "@/components/ui";
 import { Toasts } from "@/components/Toast";
 import { Composer } from "@/features/launch/Composer";
 import { TerminalDock } from "@/features/terminals/TerminalDock";
@@ -42,7 +43,7 @@ function Tab({ to, params, search, icon, label, count, highlight, exact = false,
     >
       <Icon name={icon} size={20} />
       {label}
-      {!!count && <span className={`absolute top-1.5 left-[calc(50%+6px)] min-w-[18px] rounded-full px-1 text-center text-[11px] leading-[18px] font-bold ${highlight ? "bg-attn text-white" : "bg-sunk text-ink-2"}`}>{count}</span>}
+      <Count n={count ?? 0} needs={highlight} className="absolute top-1.5 left-[calc(50%+6px)]" />
     </Link>
   );
 }
@@ -94,7 +95,7 @@ export function MobileShell() {
       <header className="grid min-h-12 flex-none grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-chrome px-2">
         <button className="btn btn-ghost max-w-full min-w-0 justify-self-start px-2!" aria-label={`Workspace: ${workspaceName}. Change workspace${inMenu > 0 ? ` (${inMenu} waiting)` : ""}`} onClick={() => setMenu(true)}>
           <span className="truncate font-semibold text-ink">{workspaceName}</span><Icon name="chev" size={14} className="shrink-0" />
-          {inMenu > 0 && <span className="shrink-0 rounded-full bg-attn-soft px-1.5 text-[11px] leading-[18px] font-semibold text-attn tabular-nums" title={`${inMenu} waiting in Today of other workspaces`}>{inMenu}</span>}
+          <Count n={inMenu} needs title={`${inMenu} waiting in Today of other workspaces`} className="shrink-0" />
         </button>
         <b className="max-w-[40vw] min-w-0 truncate text-center text-[15px]">{onAsk ? "Ask" : pageTitle(path)}</b>
         <div className="flex min-w-0 justify-end"><ServerStatus /></div>

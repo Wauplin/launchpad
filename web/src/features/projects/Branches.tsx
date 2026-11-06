@@ -10,7 +10,7 @@ import type { Session } from "@/gen/Session";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { Icon } from "@/components/Icon";
 import { Badge, Empty, Loading } from "@/components/ui";
-import { StatusBadge } from "@/features/agents/SessionBits";
+import { SessionStatus } from "@/features/agents/SessionBits";
 import { api } from "@/lib/api";
 import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
@@ -24,7 +24,7 @@ const BranchRow = memo(function BranchRow({ i, session }: { i: WorktreeInfo; ses
   return <div className={`grid items-center gap-x-3 border-b border-line-2 px-4 ${phone ? "h-[112px] grid-cols-[32px_minmax(0,1fr)] content-center gap-y-2" : "h-14 grid-cols-[32px_minmax(0,1fr)_auto]"}`}>
     <span className="grid size-8 place-items-center rounded-lg bg-sunk text-ink-2"><Icon name="branch" size={15} /></span>
     <div className="min-w-0">
-      <div className="flex min-w-0 items-center gap-2"><span className="truncate text-[13px] font-semibold">{session?.title ?? w.branch}</span>{session && <StatusBadge s={session} />}</div>
+      <div className="flex min-w-0 items-center gap-2"><span className="truncate text-[13px] font-semibold">{session?.title ?? w.branch}</span>{session && <SessionStatus s={session} />}</div>
       <div className="mt-0.5 flex min-w-0 items-center gap-1.5 truncate text-[12px] text-ink-3">
         <span className="truncate font-mono">{w.branch}</span>
         {i.ahead > 0 && <span className="flex-none">· {i.ahead} commit{i.ahead === 1 ? "" : "s"} ahead</span>}

@@ -1,13 +1,14 @@
 // Shared UI primitives. Features use these instead of hand-building headers, tabs, filters,
 // confirmations, loading/empty/error states, status pills, option tokens or settings rows.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Icon, type IconName } from "./Icon";
+import { Popover } from "./Popover";
 import { useIntro } from "@/lib/intros";
 
 /** ⓘ next to a page title: shows or hides the page's explanation (open on the first visit only, `useIntro`). */
 export function IntroButton({ open, toggle }: { open: boolean; toggle: () => void }) {
-  return <button type="button" className="iconbtn size-6! flex-none text-ink-3" aria-expanded={open} title={open ? "Hide the explanation" : "About this page"} aria-label={open ? "Hide the explanation" : "About this page"} onClick={toggle}><Icon name="info" size={14} /></button>;
+  return <IconButton icon="info" className="text-ink-3" aria-expanded={open} label={open ? "Hide the explanation" : "About this page"} onClick={toggle} />;
 }
 
 /**
@@ -38,7 +39,7 @@ export function PageHeader({ title, meta, intro, introId, actions, tabs, back, i
   );
 }
 
-export type TabItem<T extends string> = { id: T; label: ReactNode; count?: number; disabled?: boolean; title?: string; icon?: IconName };
+export type TabItem<T extends string> = { id: T; label: ReactNode; count?: number; countNeeds?: boolean; disabled?: boolean; title?: string; icon?: IconName };
 
 /** Underline tabs: switch between views of one object (Summary/Trace/Changes, Conversation/Files). */
 export function Tabs<T extends string>({ items, value, onChange, label, className = "", tour }: { items: TabItem<T>[]; value: T; onChange: (id: T) => void; label: string; className?: string; tour?: string }) {
@@ -48,7 +49,7 @@ export function Tabs<T extends string>({ items, value, onChange, label, classNam
         <button key={t.id} role="tab" type="button" data-tour-id={t.id} aria-selected={t.id === value} aria-pressed={t.id === value} disabled={t.disabled} title={t.title} className="lp-tab" onClick={() => onChange(t.id)}>
           {t.icon && <Icon name={t.icon} size={12} />}
           {t.label}
-          {t.count != null && <span className="lp-count">{t.count}</span>}
+          {t.count != null && <Count n={t.count} needs={t.countNeeds} zero />}
         </button>
       ))}
     </div>
@@ -56,11 +57,11 @@ export function Tabs<T extends string>({ items, value, onChange, label, classNam
 }
 
 /** Pill with an optional count: narrows a list (Inbox reasons, PRs/Issues, Review groups). */
-export function FilterChip({ active, onClick, children, count, title, disabled }: { active: boolean; onClick: () => void; children: ReactNode; count?: number; title?: string; disabled?: boolean }) {
+export function FilterChip({ active, onClick, children, count, countNeeds, title, disabled }: { active: boolean; onClick: () => void; children: ReactNode; count?: number; countNeeds?: boolean; title?: string; disabled?: boolean }) {
   return (
     <button type="button" className="lp-chip" aria-pressed={active} title={title} disabled={disabled} onClick={onClick}>
       {children}
-      {count != null && <span className="lp-count">{count}</span>}
+      {count != null && <Count n={count} needs={countNeeds} zero />}
     </button>
   );
 }
@@ -178,6 +179,79 @@ export function humanError(error: unknown): string {
   if (/Permission denied|os error 13\b/i.test(text)) return "Launchpad does not have permission to open this folder or file.";
   if (/Failed to fetch|NetworkError|Load failed/i.test(text)) return "Launchpad cannot reach the daemon. Check the connection and try again.";
   return text;
+}
+
+/**
+ * The one count shape (sidebar, tabs, chips, phone tab bar): an amber pill when the count needs you, a plain grey
+ * number otherwise. Hidden at zero unless `zero`.
+ */
+export function Count({ n, needs = false, zero = false, title, className = "" }: { n: number; needs?: boolean; zero?: boolean; title?: string; className?: string }) {
+  if (!n && !zero) return null;
+  return (
+    <span title={title} aria-label={title} className={`inline-block min-w-[18px] rounded-full px-1.5 text-center text-[11px] leading-[18px] font-semibold tabular-nums ${needs ? "bg-attn-soft text-attn" : "text-ink-3"} ${className}`}>
+      {n}
+    </span>
+  );
+}
+
+/** Status colors: blue running, amber needs you, green done, red failed or interrupted, grey idle, stopped or archived. */
+export type StatusTone = "running" | "needs" | "done" | "failed" | "idle";
+
+export const STATUS_COLORS: Record<StatusTone, string> = {
+  running: "bg-work-soft text-work",
+  needs: "bg-attn-soft text-attn",
+  done: "bg-diff-add text-gh-open",
+  failed: "bg-diff-del text-gh-closed",
+  idle: "bg-sunk text-ink-3",
+};
+
+/**
+ * The one status pill of every list (sessions, bots, runs). `unseen` adds a small amber dot: a Done item stays green
+ * until the owner saw it. Without `icon`, running shows a spinner and the other states a dot.
+ */
+export function StatusBadge({ tone, label, icon, unseen = false, title, className = "" }: { tone: StatusTone; label: ReactNode; icon?: IconName | null; unseen?: boolean; title?: string; className?: string }) {
+  return (
+    <span title={title} className={`inline-flex items-center gap-1 ${className}`}>
+      <span className={`inline-flex h-5 items-center gap-[5px] rounded-full px-2 text-[11px] font-semibold whitespace-nowrap ${STATUS_COLORS[tone]}`}>
+        {icon ? <Icon name={icon} size={11} /> : tone === "running" ? <span className="lp-spin" aria-hidden="true" /> : <span className="size-1.5 rounded-full bg-current" />}
+        {label}
+      </span>
+      {unseen && <span className="size-1.5 flex-none rounded-full bg-attn" title="Not seen yet" aria-label="not seen yet" />}
+    </span>
+  );
+}
+
+/**
+ * Icon-only button: only in a toolbar where every button is icon-only. One size (28 px laptop, 44 px phone, 14 px
+ * icon); `label` is required and becomes the tooltip and the accessible name.
+ */
+export function IconButton({ icon, label, className = "", children, ...props }: { icon: IconName; label: string } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "title" | "aria-label">) {
+  return (
+    <button type="button" {...props} className={`iconbtn ${className}`} title={label} aria-label={label}>
+      <Icon name={icon} size={14} />
+      {children}
+    </button>
+  );
+}
+
+/**
+ * The actions of a list row or card: one visible main action (an outline button with a label) in a fixed-width
+ * column on the right, then ⋯ with the others. ⋯ shows on hover and keyboard focus of the row (the row needs the
+ * `group` class) and always on touch screens. `more` renders the menu (MenuItem, links, ConfirmButton).
+ */
+export function RowActions({ main, more, label, width = 104, menuWidth }: { main?: ReactNode; more?: (close: () => void) => ReactNode; label: string; width?: number; menuWidth?: number }) {
+  return (
+    <span className="flex flex-none items-center gap-1">
+      <span className="flex justify-end" style={{ width }}>{main}</span>
+      {more
+        ? <span className="lp-row-more flex flex-none">
+            <Popover viewport align="right" width={menuWidth} label={label} trigger={({ open, toggle }) => <IconButton icon="more" label={label} aria-expanded={open} aria-haspopup="dialog" onClick={toggle} />}>
+              {(close) => <div className="grid gap-px">{more(close)}</div>}
+            </Popover>
+          </span>
+        : <span className="iconbtn invisible" aria-hidden="true" />}
+    </span>
+  );
 }
 
 export type BadgeTone = "work" | "attn" | "done" | "neutral" | "danger" | "ok" | "teal";

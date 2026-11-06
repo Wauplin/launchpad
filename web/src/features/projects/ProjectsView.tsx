@@ -4,12 +4,12 @@ import { PhoneHeader } from "@/mobile/PhoneHeader";
 // card for folders registered before workspaces were required.
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { memo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Popover } from "@/components/Popover";
-import { ConfirmButton, Empty, PageHeader } from "@/components/ui";
-import { TerminalMenu } from "@/features/terminals/TerminalMenu";
+import { MenuItem } from "@/components/Popover";
+import { ConfirmButton, Empty, PageHeader, RowActions } from "@/components/ui";
+import { useOpenTerminal, useTerminalsHere } from "@/features/terminals/lib";
 import { useAddFolder } from "./addFolderStore";
 import type { Project } from "@/gen/Project";
 import { Icon } from "@/components/Icon";
@@ -89,25 +89,26 @@ export function TempProjectCard({ p }: { p: Project }) {
 }
 
 
-/** Folder settings, Move to another workspace, and Remove from Launchpad with its consequence. */
-function FolderActions({ p }: { p: Project }) {
+/** The ⋯ menu of a folder row: Files, Terminal, Folder settings, Move to another workspace, and Remove with its consequence. */
+function FolderMenu({ p, close }: { p: Project; close: () => void }) {
   const qc = useQueryClient();
   const workspaces = useWorkspaces().data ?? [];
   const others = workspaces.filter((w) => w.id !== p.workspace_id);
+  const terminals = useTerminalsHere();
+  const openTerminal = useOpenTerminal();
+  const navigate = useNavigate();
   return (
-    <Popover viewport align="right" width={300} trigger={({ open, toggle }) => <button className="iconbtn" aria-label={`More actions for ${p.name}`} title="More actions" aria-expanded={open} onClick={toggle}><Icon name="more" size={14} /></button>}>
-      {(close) => (
-        <div className="grid gap-1 p-1">
-          <Link to="/projects/$id" params={{ id: p.id }} search={{ tab: "settings" } as never} className="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] text-ink no-underline hover:bg-sunk" onClick={close}><Icon name="sliders" size={13} />Folder settings</Link>
-          {others.map((w) => (
-            <button key={w.id} className="flex h-8 items-center gap-2 rounded-md px-2 text-left text-[13px] hover:bg-sunk" onClick={() => { close(); void moveFolder(p, w).then(() => { toast(`Moved ${p.name} to ${w.name}`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError); }}><Icon name="folder" size={13} />Move to {w.name}</button>
-          ))}
-          <div className="border-t border-line-2 px-2 pt-1.5 pb-0.5">
-            <ConfirmButton icon="trash" consequence="Unregisters it; files on disk are kept." confirmLabel="Remove" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => { close(); toast(`Removed ${p.name} from Launchpad`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError)}>Remove from Launchpad</ConfirmButton>
-          </div>
-        </div>
-      )}
-    </Popover>
+    <>
+      <MenuItem icon={<Icon name="folder" size={14} />} label="Files" onClick={() => { close(); void navigate({ to: "/projects/$id/code", params: { id: p.id } }); }} />
+      {terminals && <MenuItem icon={<Icon name="term" size={14} />} label="Terminal" detail="A shell in this folder" onClick={() => { close(); void openTerminal.folder(p.path); }} />}
+      <MenuItem icon={<Icon name="sliders" size={14} />} label="Folder settings" onClick={() => { close(); void navigate({ to: "/projects/$id", params: { id: p.id }, search: { tab: "settings" } as never }); }} />
+      {others.map((w) => (
+        <MenuItem key={w.id} icon={<Icon name="folder" size={14} />} label={`Move to ${w.name}`} onClick={() => { close(); void moveFolder(p, w).then(() => { toast(`Moved ${p.name} to ${w.name}`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError); }} />
+      ))}
+      <div className="mt-0.5 border-t border-line-2 px-2 pt-1.5 pb-0.5">
+        <ConfirmButton icon="trash" consequence="Unregisters it; files on disk are kept." confirmLabel="Remove" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => { close(); toast(`Removed ${p.name} from Launchpad`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError)}>Remove from Launchpad</ConfirmButton>
+      </div>
+    </>
   );
 }
 
@@ -144,18 +145,12 @@ const FolderRow = memo(function FolderRow({ p }: { p: Project }) {
       <div className="grid min-w-0 flex-1 gap-0.5">
         <span className="flex min-w-0 items-center gap-2">
           <Link to="/projects/$id" params={{ id: p.id }} className="truncate font-semibold text-ink no-underline hover:underline">{p.name}</Link>
-          
           {p.gh_repo && !phone && <span className="truncate font-mono text-[12px] text-ink-3">{p.gh_repo}</span>}
         </span>
-        <span className="truncate font-mono text-[12px] text-ink-3" title={p.path}>{p.description || p.path}</span>
+        <span className={`truncate text-[12px] text-ink-3 ${p.description ? "" : "font-mono"}`} title={p.path}>{p.description || p.path}</span>
       </div>
-      {/* One visible action (Launch); Files, Terminal and ⋯ on hover. */}
-      <span className="lp-row-more flex flex-none items-center gap-3">
-        <Link to="/projects/$id/code" params={{ id: p.id }} className="btn btn-sm no-underline" title={`Browse the files of ${p.name}`}><Icon name="folder" size={12} />{!phone && "Files"}</Link>
-        {!phone && <TerminalMenu cwd={p.path} small viewport />}
-      </span>
-      <LaunchButton small ctx={{ projectId: p.id }} label={null} title={`Launch an agent in ${p.name}`} />
-      <span className="lp-row-more flex flex-none"><FolderActions p={p} /></span>
+      {/* One visible action (Launch); Files, Terminal and the rest in ⋯. */}
+      <RowActions label={`More actions for ${p.name}`} menuWidth={280} main={<LaunchButton small primary={false} ctx={{ projectId: p.id }} title={`Launch an agent in ${p.name}`} />} more={(close) => <FolderMenu p={p} close={close} />} />
     </div>
   );
 });

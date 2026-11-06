@@ -15,7 +15,7 @@ import { toastError } from "@/components/Toast";
 import { Loading } from "@/components/ui";
 import { AskCard } from "@/features/agents/AskCard";
 import { buildRows } from "@/features/agents/rows";
-import { StatusBadge } from "@/features/agents/SessionBits";
+import { SessionStatus } from "@/features/agents/SessionBits";
 import { useSessionWorktrees, worktreeSession } from "@/features/agents/Worktrees";
 import { reviewWithAgent } from "@/features/github/reviewAgent";
 import { MessageCard, useOutboxMessages } from "@/features/outbox/MessageCard";
@@ -56,7 +56,7 @@ export const OpenSession = ({ id, view }: { id: string; view?: "changes" }) => <
 export function SessionMeta({ s, item }: { s: Session | null; item: TodayItem }) {
   const projects = useProjects().data;
   if (!s) return <span className="truncate">{item.detail}</span>;
-  return <><HarnessMark harness={s.harness} size={13} /><span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span><StatusBadge s={s} /></>;
+  return <><HarnessMark harness={s.harness} size={13} /><span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span><SessionStatus s={s} /></>;
 }
 
 /** Loads the newest events of a session (the same tail page the session view uses). */

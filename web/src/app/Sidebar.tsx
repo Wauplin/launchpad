@@ -11,6 +11,7 @@ import type { Project } from "@/gen/Project";
 import { isRunning, isQuotaPaused, needsYou } from "@/lib/sessionStatus";
 import type { Session } from "@/gen/Session";
 import { Icon, type IconName } from "@/components/Icon";
+import { Count } from "@/components/ui";
 import { toastError } from "@/components/Toast";
 import { useSessions } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
@@ -120,9 +121,9 @@ function BotList({ sessions }: { sessions: Session[] }) {
 /** Agents in the sidebar: a monitor, with the quota-paused and running counts. What needs you is in Today. */
 function AgentCounts({ quotaPaused, running }: { quotaPaused: number; running: number }) {
   if (!quotaPaused && !running) return null;
-  return <span className="flex items-center gap-1 text-[11px] font-semibold tabular-nums">
-    {quotaPaused > 0 && <span className="rounded-full border border-attn-line px-1.5 leading-[14px] text-attn" title={`${quotaPaused} quota paused`} aria-label={`${quotaPaused} quota paused`}>{quotaPaused}</span>}
-    {running > 0 && <span className="flex items-center gap-1 text-work" title={`${running} running`} aria-label={`${running} running`}><span className="lp-spin" />{running}</span>}
+  return <span className="flex items-center gap-1">
+    <Count n={quotaPaused} needs title={`${quotaPaused} quota paused`} />
+    {running > 0 && <span className="flex items-center" title={`${running} running`}><span className="lp-spin" /><Count n={running} title={`${running} running`} /></span>}
   </span>;
 }
 
@@ -143,19 +144,19 @@ export function Sidebar() {
       <div className="relative flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-2 pt-2.5 pb-2">
       <BotList sessions={sessions} />
       <nav aria-label="Places" data-tour="sidebar.nav" className="mt-2 flex flex-none flex-col gap-px border-t border-line-2 pt-2">
-      <NavItem tour="sidebar.today" to="/" icon="okcircle" end={today > 0 ? <span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold text-attn tabular-nums" title={`${today} decisions wait: questions, finished agents, proposals, drafts to send and reviews`} aria-label={`${today} waiting`}>{today}</span> : undefined}>
+      <NavItem tour="sidebar.today" to="/" icon="okcircle" end={<Count n={today} needs title={`${today} decisions wait: questions, finished agents, proposals, drafts to send and reviews`} />}>
         Today
       </NavItem>
       <NavItem tour="sidebar.agents" to="/agents" icon="agents" end={<AgentCounts quotaPaused={quotaPaused} running={running} />}>
         Agents
       </NavItem>
-      <NavItem tour="sidebar.inbox" to="/inbox" icon="inbox" end={needs > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${needs} for you: unread review requests, mentions and assignments. The Inbox "For you" filter lists them.`} aria-label={`${needs} for you`}>{needs}</span> : undefined}>
+      <NavItem tour="sidebar.inbox" to="/inbox" icon="inbox" end={<Count n={needs} needs title={`${needs} for you: unread review requests, mentions and assignments. The Inbox "For you" filter lists them.`} />}>
         Inbox
       </NavItem>
       <NavItem tour="sidebar.schedules" to="/schedules" icon="clock">
         Schedules
       </NavItem>
-      <NavItem tour="sidebar.knowledge" to="/knowledge" icon="book" end={knowledgeNew > 0 ? <span className="text-[11px] font-semibold text-ink-3 tabular-nums" title={`${knowledgeNew} changes by agents since your last look`}>{knowledgeNew}</span> : undefined}>
+      <NavItem tour="sidebar.knowledge" to="/knowledge" icon="book" end={<Count n={knowledgeNew} title={`${knowledgeNew} changes by agents since your last look`} />}>
         Knowledge
       </NavItem>
       <NavItem tour="sidebar.folders" to="/projects" icon="folder" end={<RunDots sessions={sessions.filter((s) => projects.some((p) => inProject(p, s)))} />}>

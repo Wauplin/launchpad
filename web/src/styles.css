@@ -136,8 +136,9 @@ button {
   .btn-ghost:hover:not(:disabled) {
     @apply border-transparent bg-sunk;
   }
+  /* Icon-only buttons: one size, 28 px here and 44 px on the phone, with a 14 px icon (IconButton). */
   .iconbtn {
-    @apply inline-grid size-[26px] place-items-center rounded-md border border-transparent text-ink-2;
+    @apply inline-grid size-7 flex-none place-items-center rounded-md border border-transparent text-ink-2;
   }
   .iconbtn:hover:not(:disabled) {
     @apply bg-sunk text-ink;
@@ -208,13 +209,6 @@ button {
   }
   .lp-seg-item:disabled {
     @apply cursor-not-allowed opacity-45;
-  }
-  .lp-count {
-    @apply rounded-full bg-sunk px-1.5 text-[11px] leading-4 font-semibold text-ink-3 tabular-nums;
-  }
-  [aria-pressed="true"] > .lp-count,
-  [aria-selected="true"] > .lp-count {
-    @apply bg-paper text-teal-ink;
   }
   .seclabel {
     @apply text-[11px] font-[650] tracking-[0.08em] text-ink-3 uppercase;
@@ -458,7 +452,7 @@ button {
     @apply min-h-9 px-2.5 text-[13px];
   }
   .lp-phone .iconbtn {
-    @apply size-10;
+    @apply size-11;
   }
   .lp-phone .lp-seg-item {
     @apply min-h-10 px-3 text-[14px];

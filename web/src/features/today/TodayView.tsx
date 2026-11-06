@@ -127,8 +127,8 @@ export function TodayView() {
   }, [loading, error, settled, search.card, shown, navigate]);
 
   const chips = <FilterChips tour="today.filters" label="Today filters">
-    <FilterChip active={view === "all"} count={items.length} onClick={() => setView("all")}>All</FilterChip>
-    {FILTERS.map(([id, label, title]) => (counts[id] > 0 || view === id) && <FilterChip key={id} active={view === id} count={counts[id]} title={title} onClick={() => setView(id)}>{label}</FilterChip>)}
+    <FilterChip active={view === "all"} count={items.length} countNeeds onClick={() => setView("all")}>All</FilterChip>
+    {FILTERS.map(([id, label, title]) => (counts[id] > 0 || view === id) && <FilterChip key={id} active={view === id} count={counts[id]} countNeeds title={title} onClick={() => setView(id)}>{label}</FilterChip>)}
     <FilterChip active={view === "done"} title="What you handled in the last 30 days, with where it went" onClick={() => setView("done")}>Done</FilterChip>
   </FilterChips>;
   const groupActions = (view === "approve" || view === "all") && <StartAll proposals={waitingProposals} />;

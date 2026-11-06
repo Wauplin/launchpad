@@ -1,7 +1,9 @@
 import type { Session } from "@/gen/Session";
 import { age, ago } from "@/lib/format";
-import { Icon, type IconName } from "@/components/Icon";
+import type { IconName } from "@/components/Icon";
 import { useRunnerTag } from "@/lib/burst";
+import { StatusBadge, type StatusTone } from "@/components/ui";
+import { isDone, isUnseen } from "@/lib/sessionStatus";
 
 /** "12:04" since `ms`. */
 export function elapsed(ms: number): string {
@@ -17,51 +19,41 @@ export function compact(n: number): string {
   return String(n);
 }
 
-// Every status badge has the same shape; only the color and the icon change.
-export const STYLES = {
-  work: "bg-work-soft text-work",
-  needs: "bg-attn-soft text-attn",
-  bg: "bg-attn-soft text-attn",
-  done: "bg-sunk text-ink-3",
-  int: "bg-sunk text-ink-2",
-  err: "bg-diff-del text-gh-closed",
-};
-
-export function statusInfo(s: Session): { label: string; style: keyof typeof STYLES; icon: IconName | null } {
+/** A session's status in words, with its StatusBadge color (blue running, amber needs you, green Done, red failed). */
+export function statusInfo(s: Session): { label: string; tone: StatusTone; icon: IconName | null } {
   switch (s.status) {
     case "starting":
-      return { label: "Starting", style: "work", icon: null };
+      return { label: "Starting", tone: "running", icon: null };
     case "working":
-      return { label: `Working ${elapsed(s.status_since)}`, style: "work", icon: null };
+      return { label: `Working ${elapsed(s.status_since)}`, tone: "running", icon: null };
     case "waiting":
-      return s.open_question ? { label: "Question", style: "needs", icon: "alert" } : { label: `Done ${age(s.status_since)}`, style: "needs", icon: "okcircle" };
+      return s.open_question ? { label: "Question", tone: "needs", icon: "alert" } : { label: `Done ${age(s.status_since)}`, tone: "done", icon: "okcircle" };
     case "background":
-      return { label: `Background ${age(s.status_since)}`, style: "work", icon: null };
+      return { label: `Background ${age(s.status_since)}`, tone: "running", icon: null };
     case "closed":
-      return { label: `Archived ${ago(s.ended_at ?? s.status_since)}`, style: "done", icon: "archive" };
+      return { label: `Archived ${ago(s.ended_at ?? s.status_since)}`, tone: "idle", icon: "archive" };
     case "in_terminal":
-      return { label: "In terminal", style: "int", icon: "term" };
+      return { label: "In terminal", tone: "idle", icon: "term" };
     case "quota_paused":
-      return { label: s.quota_pause?.error ? "Quota paused · needs attention" : "Quota paused", style: "bg", icon: "clock" };
+      return { label: s.quota_pause?.error ? "Quota paused · needs attention" : "Quota paused", tone: "needs", icon: "clock" };
     case "stopped":
-      return { label: "Stopped", style: "int", icon: "stop" };
+      return { label: "Stopped", tone: "idle", icon: "stop" };
     case "interrupted":
-      return { label: "Interrupted", style: "int", icon: "alert" };
+      return { label: "Interrupted", tone: "failed", icon: "alert" };
     case "error":
-      return s.capacity_retry_at != null ? { label: "Automatic retry pending", style: "bg", icon: "clock" } : { label: "Failed", style: "err", icon: "xcircle" };
+      return s.capacity_retry_at != null ? { label: "Automatic retry pending", tone: "idle", icon: "clock" } : { label: "Failed", tone: "failed", icon: "xcircle" };
   }
 }
 
-export function StatusBadge({ s }: { s: Session }) {
-  const { label, style, icon } = statusInfo(s);
+/** The session's StatusBadge (an amber dot while a finished turn is unseen), plus where it runs when that is not here. */
+export function SessionStatus({ s }: { s: Session }) {
+  const { label, tone, icon } = statusInfo(s);
   const where = useRunnerTag(s.runner_id);
+  const unseen = isUnseen(s) && ((isDone(s) && !s.open_question) || s.status === "error" || s.status === "interrupted");
   return (
     <span className="inline-flex items-center gap-1">
-      <span className={`inline-flex h-5 items-center gap-[5px] rounded-full px-2 text-[12px] font-semibold whitespace-nowrap ${STYLES[style]}`}>
-        {icon ? <Icon name={icon} size={11} /> : <span className="size-1.5 rounded-full bg-current" />}
-        {label}
-      </span>
-      {where && <span className={`inline-flex h-5 items-center rounded-full px-2 text-[12px] whitespace-nowrap ${where.tone === "work" ? "bg-work-soft text-work" : where.tone === "err" ? "bg-diff-del text-gh-closed" : "bg-sunk text-ink-3"}`} title={where.title}>{where.label}</span>}
+      <StatusBadge tone={tone} label={label} icon={icon} unseen={unseen} />
+      {where && <span className={`inline-flex h-5 items-center rounded-full px-2 text-[11px] whitespace-nowrap ${where.tone === "work" ? "bg-work-soft text-work" : where.tone === "err" ? "bg-diff-del text-gh-closed" : "bg-sunk text-ink-3"}`} title={where.title}>{where.label}</span>}
     </span>
   );
 }

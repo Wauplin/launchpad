@@ -24,7 +24,7 @@ import { moveFolder, useWorkspaces } from "@/lib/workspace";
 import { toast } from "@/components/Toast";
 import { HarnessMark } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
-import { StatusBadge } from "@/features/agents/SessionBits";
+import { SessionStatus } from "@/features/agents/SessionBits";
 import { useCodeSources } from "@/features/code/lib";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
@@ -126,7 +126,7 @@ export function ProjectPage() {
                     <span className="grid min-w-0 flex-1">
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="truncate font-mono text-xs font-semibold">{w.branch ?? "detached"}</span>
-                        {session && <StatusBadge s={session} />}
+                        {session && <SessionStatus s={session} />}
                         {draft && <Link to="/predrafts/$id" params={{ id: draft.id }} className="truncate text-xs text-teal-ink">Local PR · {draft.archived ? "discarded" : draft.published_number ? `published #${draft.published_number}` : draft.title}</Link>}
                       </span>
                       <span className="truncate font-mono text-[12px] text-ink-3" title={w.path}>{w.path}</span>
@@ -264,7 +264,7 @@ const ProjectAgentRow = memo(function ProjectAgentRow({ s }: { s: Session }) {
     >
       <HarnessMark harness={s.harness} size={16} />
       <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{s.title}</span>
-      <StatusBadge s={s} />
+      <SessionStatus s={s} />
       {!phone && <span className="text-xs text-ink-3">{ago(s.started_at)}</span>}
     </button>
   );

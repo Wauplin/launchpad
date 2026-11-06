@@ -7,7 +7,7 @@ import { memo, useEffect, useState } from "react";
 import { useHarnessName } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
-import { Badge, Choice, Choices, ConfirmButton } from "@/components/ui";
+import { Choice, Choices, ConfirmButton, StatusBadge } from "@/components/ui";
 import { CronFields, DEFAULT_CRON, conditionSummary } from "@/features/launch/CronSelector";
 import type { Bot } from "@/gen/Bot";
 import type { CronAgent } from "@/gen/CronAgent";
@@ -26,7 +26,7 @@ import { GITHUB_EVENTS, OUTCOME, OUTCOME_CLASS, browserZone, cronTitle, lastSucc
 
 export type RoutineDraft = { trigger: Trigger; schedule: string; conditions: CronCondition[] };
 
-const TONE = { ok: "ok", quiet: "neutral", bad: "danger", work: "work" } as const;
+const TONE = { ok: "done", quiet: "idle", bad: "failed", work: "running" } as const;
 
 /** The last runs as small squares, oldest first: report, no update, skipped, failed. */
 export const RunStrip = memo(function RunStrip({ history, count = 14 }: { history: RoutineRun[]; count?: number }) {
@@ -39,7 +39,7 @@ export const RunStrip = memo(function RunStrip({ history, count = 14 }: { histor
 
 export function OutcomeBadge({ run }: { run: RoutineRun }) {
   const o = OUTCOME[run.outcome];
-  return <Badge tone={TONE[o.tone]}>{run.outcome === "running" && <span className="lp-spin mr-1" />}{o.label}</Badge>;
+  return <StatusBadge tone={TONE[o.tone]} label={o.label} />;
 }
 
 /** The repositories of a workspace's folders. */

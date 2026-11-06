@@ -17,7 +17,7 @@ import { useBots } from "@/lib/bots";
 import { browserZone, cronTitle, describeCron, triggerSummary } from "@/lib/routines";
 import { PatchView } from "@/features/github/DiffReview";
 import { useLayout } from "@/stores/layout";
-import { StatusBadge } from "@/features/agents/SessionBits";
+import { SessionStatus } from "@/features/agents/SessionBits";
 import { action as actionOf, runAction, type ActionName } from "@/lib/actions";
 import { ActionButton } from "@/components/ActionButton";
 import { ACTIONS } from "@/gen/actions";
@@ -207,7 +207,7 @@ const SessionRow = memo(function SessionRow({ s }: { s: Session }) {
   return (
     <button className="flex min-h-10 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sunk" onClick={() => { show(s.id); void navigate({ to: "/agents", search: { session: s.id } }); }}>
       <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-semibold">{s.title}</span>{s.last_message && <span className="block truncate text-[12px] text-ink-3">{s.last_message}</span>}</span>
-      <StatusBadge s={s} />
+      <SessionStatus s={s} />
     </button>
   );
 });

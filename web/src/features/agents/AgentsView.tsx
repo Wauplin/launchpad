@@ -19,7 +19,7 @@ import { isNoUpdate } from "@/lib/routines";
 import { sendPresence } from "@/lib/ws";
 import { isCollapsed, useLayout, type AgentGroup } from "@/stores/layout";
 import { SessionPane } from "./SessionPane";
-import { StatusBadge } from "./SessionBits";
+import { SessionStatus } from "./SessionBits";
 import { useMarkSeen, useWindowFocused } from "./useSeen";
 import { age, formatReset } from "@/lib/format";
 import { toastError } from "@/components/Toast";
@@ -61,7 +61,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
           {pinned ? "★ " : ""}{s.title}
         </span>
         <span className="flex items-center gap-1 text-[12px] whitespace-nowrap text-ink-3">
-          {informative(s) ? <StatusBadge s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{age(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
+          {informative(s) ? <SessionStatus s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{age(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
         </span>
         <span className={`col-span-2 line-clamp-2 text-[12px] leading-[1.3] text-ink-3 ${dim ? "" : canMarkUnread ? "agent-row-line-2 pr-14" : "agent-row-line-1 pr-7"}`} title={line ? `${project} · ${line}` : project}>
           <span className="text-ink-2">{sessionPlace(s, project)}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}

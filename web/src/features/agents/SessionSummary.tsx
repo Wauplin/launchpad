@@ -21,7 +21,8 @@ import { ago, formatReset, when } from "@/lib/format";
 import { useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { conditionsSummary, DelaySelector } from "@/features/launch/DelaySelector";
 import { budgetReached, costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, useProfile } from "@/lib/profiles";
-import { compact, statusInfo, STYLES } from "./SessionBits";
+import { compact, statusInfo } from "./SessionBits";
+import { STATUS_COLORS } from "@/components/ui";
 import type { Row } from "./rows";
 import type { Suggestion } from "@/gen/Suggestion";
 import { splitPrompt } from "./traceRows";
@@ -38,9 +39,9 @@ import { ActionButton } from "@/components/ActionButton";
  * already says Done, Failed, Interrupted or Archived, and quota pauses have their own band. */
 export function StateBand({ session: s }: { session: Session }) {
   if (s.status !== "waiting" && s.status !== "stopped" || s.status === "waiting" && !s.open_question) return null;
-  const { style } = statusInfo(s);
+  const { tone } = statusInfo(s);
   const at = s.status_since;
-  return <div className={`flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-xs ${STYLES[style]} ${s.status === "stopped" ? "border-dashed" : ""}`}>
+  return <div className={`flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-xs ${STATUS_COLORS[tone]} ${s.status === "stopped" ? "border-dashed" : ""}`}>
     <Icon name={s.status === "stopped" ? "stop" : "alert"} size={16} /><b>{s.status === "stopped" ? "Stopped" : "Question"}</b>
     <span>{s.status === "stopped" ? "By you, during a turn" : "The agent needs an answer"}</span>
     <span className="ml-auto" title={ago(at)}>Since {when(at)}</span>
