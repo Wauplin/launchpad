@@ -1,8 +1,10 @@
 name: Build
 
-# Release build of the Linux x86_64 package. Called by ci.yml (tag pushes) and
-# release.yml (manual releases). With `release-tag`, it also creates the tag and
-# the GitHub release on the built commit, with the package attached.
+# Release build of the Linux x86_64 package. Called by ci.yml (tag and main pushes)
+# and release.yml (manual releases). With `release-tag`, it also creates the tag and
+# the GitHub release on the built commit, with the package attached. With
+# `main-build`, it attaches the package of this main commit to the `main-build`
+# prerelease (deploy/hf-home/deploy.sh --source uses it instead of compiling).
 
 on:
   workflow_call:
@@ -11,6 +13,10 @@ on:
         description: Tag of the GitHub release to create (empty for no release)
         type: string
         default: ''
+      main-build:
+        description: Publish the package to the main-build prerelease, named by commit
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -48,6 +54,8 @@ jobs:
       - name: Build release binaries
         run: cargo build --release --locked -p launchpad -p launchpad-desktop
       - name: Run release tests
+        # Main builds skip them: ci.yml runs the tests of the same commit.
+        if: ${{ !inputs.main-build }}
         run: cargo test --release --locked
       - name: Smoke-test release CLI
         run: target/release/launchpad --help
@@ -82,3 +90,26 @@ jobs:
             --generate-notes \
             launchpad-linux-x86_64.tar.gz \
             launchpad-linux-x86_64.tar.gz.sha256
+      - name: Publish main build
+        if: inputs.main-build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Only the current main head: a superseded run must not publish.
+          [ "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA" ] || { echo "main moved on; not publishing"; exit 0; }
+          tag=main-build name="launchpad-linux-x86_64-$GITHUB_SHA"
+          cp launchpad-linux-x86_64.tar.gz "$name.tar.gz"
+          sed "s/launchpad-linux-x86_64.tar.gz/$name.tar.gz/" launchpad-linux-x86_64.tar.gz.sha256 > "$name.tar.gz.sha256"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title "Builds of main" --notes "Packages of the latest main commits (launchpad-linux-x86_64-<commit>.tar.gz), used by deploy/hf-home/deploy.sh --source. Not a release."
+          fi
+          gh release upload "$tag" "$name.tar.gz" "$name.tar.gz.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          # Keep the packages of the 20 newest commits.
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" \
+            --jq '[.assets[] | select(.name | endswith(".tar.gz"))] | sort_by(.created_at) | reverse | .[20:][] | .name' \
+            | while read -r old; do
+                gh release delete-asset "$tag" "$old" --repo "$GITHUB_REPOSITORY" -y
+                gh release delete-asset "$tag" "$old.sha256" --repo "$GITHUB_REPOSITORY" -y || true
+              done

@@ -31,7 +31,8 @@ curl -fsSL https://raw.githubusercontent.com/Wauplin/launchpad/main/deploy/hf-ho
 It checks `curl`, `tar`, `python3` and the hf CLI (recent enough for buckets and Space volumes) and your Hugging Face sign-in. It then creates or checks the private bucket `<Space ID>-bucket` and the private Docker Space (default `<your user>/launchpad-home`, `cpu-basic`, the bucket mounted read-write at `/backups`). It refuses a public bucket or Space, other volumes, or a Space Dockerfile it did not write (`--force` replaces it). It uploads the Dockerfile and the Space card (and deletes other files of the Space), waits until the Space runs the uploaded commit, and checks that `/_home/status` answers. Options (after `bash -s --`):
 
 - `--release <tag>`: deploy this release (default: the latest one).
-- `--source [<ref>]`: build from source at a branch, tag or commit (default: `main`). The Space builder compiles the daemon: slower, and it needs more memory.
+- `--source [<ref>]`: deploy a branch, tag or commit (default: `main`). CI builds the package of every push to `main` and attaches it to the `main-build` prerelease as `launchpad-linux-x86_64-<commit>.tar.gz` (the 20 newest commits). When the commit has one, the Space uses it with `Dockerfile.release`, like a release, and compiles nothing. Otherwise (a commit that is not on `main`, an older one, or a push that CI has not finished building, about 15 minutes), the Space builder compiles the daemon: much slower, and it needs more memory.
+- `--compile`: with `--source`, always compile on the Space builder.
 - `--space <[namespace/]name>`, `--bucket <namespace/name>`: other names. A bucket that is not `<Space ID>-bucket` is set as the `LP_HOME_BUCKET` Space variable.
 - `--no-wait`: return after the upload.
 
@@ -46,7 +47,7 @@ hf repos create Wauplin/launchpad-home --type space --sdk docker --private --fla
 
 ### From a release (recommended)
 
-Upload `deploy/hf-home/Dockerfile.release` as the Space's `Dockerfile`, with the Space card below as `README.md`. The image downloads the release archive of the tag in `ARG LAUNCHPAD_RELEASE`, checks it against the release's `.sha256` file, and takes the deploy files (gateway, setup page, runner installer, tool versions) from the source of the commit named in the archive. Nothing is compiled on the Space builder. To update Home, edit the `LAUNCHPAD_RELEASE` line in the Space's Dockerfile on the Hub to a newer tag: the Space rebuilds and restarts. Runners update with the install command afterwards.
+Upload `deploy/hf-home/Dockerfile.release` as the Space's `Dockerfile`, with the Space card below as `README.md`. The image downloads the release archive of the tag in `ARG LAUNCHPAD_RELEASE`, checks it against the release's `.sha256` file, and takes the deploy files (gateway, setup page, runner installer, tool versions) from the source of the commit named in the archive. For a main commit, set `LAUNCHPAD_RELEASE=main-build` and `LAUNCHPAD_PACKAGE=launchpad-linux-x86_64-<commit>`. Nothing is compiled on the Space builder. To update Home, edit the `LAUNCHPAD_RELEASE` line in the Space's Dockerfile on the Hub to a newer tag: the Space rebuilds and restarts. Runners update with the install command afterwards.
 
 ### From source
 

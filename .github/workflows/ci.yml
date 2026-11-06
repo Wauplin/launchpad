@@ -105,3 +105,12 @@ jobs:
     name: Release build
     if: startsWith(github.ref, 'refs/tags/')
     uses: ./.github/workflows/build.yml
+
+  main-build:
+    name: Main build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build.yml
+    with:
+      main-build: true

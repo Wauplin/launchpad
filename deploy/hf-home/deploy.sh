@@ -4,11 +4,12 @@
 #   curl -fsSL https://raw.githubusercontent.com/Wauplin/launchpad/main/deploy/hf-home/deploy.sh | bash
 #   curl -fsSL https://raw.githubusercontent.com/Wauplin/launchpad/main/deploy/hf-home/deploy.sh | bash -s -- --source
 #
-# Options: see --help. With --source, the Space builder compiles the daemon: slower, and it needs more memory.
+# Options: see --help. With --source, the Space uses CI's package of that commit when it has one (main commits),
+# else the Space builder compiles the daemon: much slower, and it needs more memory.
 set -euo pipefail
 
 REPO="Wauplin/launchpad"
-SPACE="" BUCKET="" RELEASE="" SOURCE_REF="" MODE="release" FORCE=0 WAIT=1
+SPACE="" BUCKET="" RELEASE="" SOURCE_REF="" MODE="release" COMPILE=0 FORCE=0 WAIT=1
 
 usage() {
   cat <<'USAGE'
@@ -18,7 +19,9 @@ Options:
   --space <[namespace/]name>  Space to create or update (default: <your user>/launchpad-home)
   --bucket <namespace/name>   Backup bucket (default: <Space ID>-bucket)
   --release <tag>             Deploy this GitHub release (default: the latest release)
-  --source [<ref>]            Build from source at a branch, tag or commit (default: main)
+  --source [<ref>]            Deploy a branch, tag or commit (default: main): CI's package of that
+                              commit when it has one (the 20 newest main commits), else compile it
+  --compile                   With --source: always compile on the Space builder (slow)
   --force                     Replace a Space Dockerfile that this script did not write
   --no-wait                   Do not wait for the build and the first start
 USAGE
@@ -33,6 +36,7 @@ while [ $# -gt 0 ]; do
     --bucket) BUCKET="${2:?--bucket needs a value}"; shift 2 ;;
     --release) RELEASE="${2:?--release needs a tag}"; shift 2 ;;
     --source) MODE="source"; if [ $# -gt 1 ] && [ "${2#--}" = "$2" ]; then SOURCE_REF="$2"; shift; fi; shift ;;
+    --compile) COMPILE=1; shift ;;
     --force) FORCE=1; shift ;;
     --no-wait) WAIT=0; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -40,6 +44,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ "$MODE" = source ] && [ -n "$RELEASE" ] && die "--release and --source cannot be used together"
+[ "$COMPILE" = 1 ] && [ "$MODE" != source ] && die "--compile needs --source"
 
 # --- Checks: tools and Hugging Face sign-in ---------------------------------
 step "Checking tools"
@@ -98,6 +103,23 @@ else
   [ -n "$SOURCE_REF" ] || SOURCE_REF="main"
   COMMIT="$(curl -fsSL -H 'Accept: application/vnd.github.sha' "https://api.github.com/repos/$REPO/commits/$SOURCE_REF")" || die "unknown branch, tag or commit: $SOURCE_REF"
   [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "GitHub returned no commit for $SOURCE_REF"
+  # CI publishes the package of each main commit to the main-build prerelease (.github/workflows/build.yml).
+  PACKAGE="launchpad-linux-x86_64-$COMMIT"
+  base="https://github.com/$REPO/releases/download/main-build"
+  if [ "$COMPILE" = 0 ] && curl -fsSL "$base/$PACKAGE.tar.gz.sha256" -o "$WORK/sha256" 2>/dev/null; then
+    grep -Eq '^[0-9a-f]{64} ' "$WORK/sha256" || die "the CI package of $COMMIT has an unreadable checksum file"
+    curl -fsSL "https://raw.githubusercontent.com/$REPO/$COMMIT/deploy/hf-home/Dockerfile.release" -o "$WORK/upload/Dockerfile" \
+      || die "cannot download Dockerfile.release of $COMMIT"
+    grep -q '^ARG LAUNCHPAD_PACKAGE=' "$WORK/upload/Dockerfile" || die "Dockerfile.release of $COMMIT has no LAUNCHPAD_PACKAGE line"
+    sed -i.bak -e "s#^ARG LAUNCHPAD_RELEASE=.*#ARG LAUNCHPAD_RELEASE=main-build#" -e "s#^ARG LAUNCHPAD_PACKAGE=.*#ARG LAUNCHPAD_PACKAGE=$PACKAGE#" "$WORK/upload/Dockerfile" \
+      && rm -f "$WORK/upload/Dockerfile.bak"
+    WHAT="source $SOURCE_REF ($COMMIT, built by CI)"
+    NOTE="Built from CI's package of commit \`$COMMIT\`. Run the deploy script again to update."
+    ok "$WHAT (package sha256 $(cut -c1-12 "$WORK/sha256")…)"
+  fi
+fi
+if [ "$MODE" = source ] && [ ! -f "$WORK/upload/Dockerfile" ]; then
+  [ "$COMPILE" = 1 ] || ok "no CI package for $COMMIT (CI publishes one about 15 minutes after each push to main): the Space builder compiles it, which takes much longer"
   curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$COMMIT" | tar xz -C "$WORK/upload" --strip-components=1 || die "cannot download the source of $COMMIT"
   cp "$WORK/upload/deploy/hf-home/Dockerfile" "$WORK/upload/Dockerfile"
   grep -q '^ARG LAUNCHPAD_REVISION' "$WORK/upload/Dockerfile" || die "deploy/hf-home/Dockerfile has no LAUNCHPAD_REVISION line"
@@ -175,7 +197,7 @@ if [ "$WAIT" = 0 ]; then
   exit 0
 fi
 
-step "Waiting for the build and the first start (a few minutes; much longer with --source)"
+step "Waiting for the build and the first start (a few minutes; much longer when the Space builder compiles)"
 deadline=$(( $(date +%s) + 3600 )); last=""
 while :; do
   info="$(hf spaces info "$SPACE" --format json 2>/dev/null || echo '{}')"

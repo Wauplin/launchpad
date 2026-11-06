@@ -2,16 +2,20 @@
 # Home Space image from a published GitHub release: no Rust or UI build on the
 # Space builder. To update, change LAUNCHPAD_RELEASE to a newer tag (the Space
 # rebuilds on save). The binary and the deploy files both come from that tag.
+# A main commit uses LAUNCHPAD_RELEASE=main-build and
+# LAUNCHPAD_PACKAGE=launchpad-linux-x86_64-<commit> (published by CI).
 ARG LAUNCHPAD_RELEASE=v2026.11.06.1
+ARG LAUNCHPAD_PACKAGE=launchpad-linux-x86_64
 
 FROM debian:bookworm-slim AS release
 ARG LAUNCHPAD_RELEASE
+ARG LAUNCHPAD_PACKAGE
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /release
 RUN set -eu; base="https://github.com/Wauplin/launchpad/releases/download/${LAUNCHPAD_RELEASE}"; \
-    curl -fsSLO "$base/launchpad-linux-x86_64.tar.gz"; curl -fsSLO "$base/launchpad-linux-x86_64.tar.gz.sha256"; \
-    sha256sum -c launchpad-linux-x86_64.tar.gz.sha256; \
-    mkdir pkg && tar xzf launchpad-linux-x86_64.tar.gz -C pkg; \
+    curl -fsSLO "$base/${LAUNCHPAD_PACKAGE}.tar.gz"; curl -fsSLO "$base/${LAUNCHPAD_PACKAGE}.tar.gz.sha256"; \
+    sha256sum -c "${LAUNCHPAD_PACKAGE}.tar.gz.sha256"; \
+    mkdir pkg && tar xzf "${LAUNCHPAD_PACKAGE}.tar.gz" -C pkg; \
     install -m 0755 pkg/target/release/launchpad /launchpad; commit="$(cat pkg/COMMIT)"; \
     mkdir /src && curl -fsSL "https://codeload.github.com/Wauplin/launchpad/tar.gz/${commit}" | tar xz -C /src --strip-components=1; \
     /launchpad help >/dev/null
