@@ -19,7 +19,7 @@ For one-click pairing on this computer, build/install the new `launchpad` binary
 python3 extension/register-native-host.py --binary "$HOME/.local/bin/launchpad"
 ```
 
-The script writes a launcher and a Google Chrome native-messaging manifest in your user configuration directory; on Windows it also registers the manifest under HKCU. It does not restart Launchpad. For a dev daemon, use `--environment dev --binary /absolute/path/to/target/debug/launchpad`; `--port` supports isolated checks. A custom Chrome `--user-data-dir` needs its own `NativeMessagingHosts` folder. Packaged releases include `extension/dist` and the registration script, so building the extension is unnecessary for those installs. Unregister by deleting `dev.launchpad.browser.json` and its launcher (and the Windows HKCU key).
+The script writes a launcher and a Google Chrome native-messaging manifest in your user configuration directory; on Windows it also registers the manifest under HKCU. It does not restart Launchpad. For a dev daemon, use `--environment dev --binary /absolute/path/to/target/debug/launchpad`; `--port` supports isolated checks. A custom Chrome `--user-data-dir` needs its own `NativeMessagingHosts` folder. Packaged releases do not include the extension while it is on hold: build it from a checkout. Unregister by deleting `dev.launchpad.browser.json` and its launcher (and the Windows HKCU key).
 
 Open the side panel and click **Connect to Launchpad on this computer**. Chrome becomes a normal, revocable device named “Chrome on this computer” in Settings → Devices. The native host exposes only local pairing, never the daemon bearer token. Chrome keeps the HttpOnly device cookie; no credential is written to extension storage.
 

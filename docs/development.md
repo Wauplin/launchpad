@@ -78,7 +78,7 @@ Testing policy: keep tests few, fast and free of mocks. Add a test only for a sm
 
 ## Other components
 
-- **Chrome extension**: `cd extension && pnpm install --frozen-lockfile && pnpm build` after installing the `web/` dependencies. See [extension/README.md](../extension/README.md).
+- **Chrome extension** (on hold, not built in CI or included in releases): `cd extension && pnpm install --frozen-lockfile && pnpm build` after installing the `web/` dependencies. See [extension/README.md](../extension/README.md).
 - **Hugging Face Space**: see [deploy/hf-space/README.md](../deploy/hf-space/README.md).
 - **Icons**: `packaging/icons/source.png` is the master. Regenerate exports with `python3 packaging/generate-icons.py`.
 - **New harness**: see [Harness adapters](harness-adapters.md).

@@ -44,11 +44,6 @@ jobs:
         run: |
           corepack enable
           pnpm install --frozen-lockfile
-      - name: Build Chrome extension
-        working-directory: extension
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm build
       - name: Check Rust linting (including desktop)
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Check UI types
@@ -133,11 +128,6 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
           pnpm build
-      - name: Build Chrome extension
-        working-directory: extension
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm build
       - name: Check installer syntax
         run: bash -n packaging/install.sh packaging/update.sh
       - name: Build release binaries
@@ -153,10 +143,6 @@ jobs:
           cp -r packaging skills artifacts/
           cp -r desktop/src-tauri/icons artifacts/desktop/src-tauri/
           cp -r web/dist artifacts/web/
-          mkdir -p artifacts/extension/public
-          cp -r extension/dist artifacts/extension/
-          cp extension/README.md extension/register-native-host.py artifacts/extension/
-          cp extension/public/manifest.json artifacts/extension/public/
           printf '%s\n' "$GITHUB_SHA" > artifacts/COMMIT
           tar -czf launchpad-linux-x86_64.tar.gz -C artifacts .
           sha256sum launchpad-linux-x86_64.tar.gz > launchpad-linux-x86_64.tar.gz.sha256
