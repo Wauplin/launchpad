@@ -122,7 +122,7 @@ The Git and storage design is in `docs/architecture.md`; these rules must hold.
 ### Bots
 
 - A bot is files on Home (`BOT.md`, `bot.toml`, store `bot-<id>`) plus one thread: the sessions whose `LaunchSpec.bot` names it. `bot.toml` is the only source of its settings (profile, model, folder, permission mode, proposal mode, Launchpad CLI access); no profile means the first subscription profile (`bots::profile_of`). Only the owner and sessions with admin Launchpad CLI access write either file. Its folder is optional: without one, each session runs in a temporary folder and adds worktrees with `launchpad work add-project`.
-- A new session of the thread starts only on the first message, a profile or folder change, an archived current session or the owner's New session click; it references the previous trace (`launchpad trace`), never inlines it. Harness compaction handles a full context.
+- A new session of the thread starts only on the first message, a profile or folder change, an archived current session or the owner's New session checkbox; it references the previous trace (`launchpad trace`), never inlines it. Harness compaction handles a full context.
 - The bot page is a chat over the thread, built from session events by `chatRows` (`web/src/features/chat/`) with no Ask-only code; the full trace stays in Agents (Open trace).
 - Bot sessions are normal sessions (counted once, in Today); the sidebar shows only a state dot per bot. Their notes go in `bots/<slug>/` of the knowledge base. Creating a bot (form or proposal) starts nothing; bot proposals never auto-start.
 

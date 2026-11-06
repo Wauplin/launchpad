@@ -82,7 +82,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",
       title: "One thread, many sessions",
-      body: "The chat shows the whole thread, with a divider at each new session; older messages load as you scroll up. Messages go to the current session. A new session starts when its profile or folder changes, or on New session; it reads the previous trace only when it needs it. A routine run with nothing to report is one quiet line.",
+      body: "The chat shows the whole thread, with a divider at each new session; older messages load as you scroll up. Messages go to the current session. A new session starts when its profile or folder changes, or when you check New session next to the message box; it reads the previous trace only when it needs it. A routine run with nothing to report is one quiet line.",
       tryIt: { text: "ask the Maintainer for the refund test.", done: () => botSessions().some((s) => (world.events[s.id] ?? []).some((e) => e.body.kind === "user_message" && e.body.text.toLowerCase().includes("refund"))), doIt: () => api.post(`/api/bots/${BOT}/message`, { text: "Prepare the refund end-to-end test as a Local PR." }) },
     },
     {

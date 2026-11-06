@@ -56,7 +56,7 @@ A new session starts:
 - for the first message,
 - when the bot's profile or folder changed (the page says so before you send),
 - when the current session was archived,
-- when you click **New session**.
+- when you check **New session** next to the message box before you send (offered while the bot waits for you).
 
 A new session gets a reference to the previous session's trace (`launchpad trace …`), never a copy of it, and the bot's notes in the knowledge base. The harness compacts a long context on its own.
 
@@ -76,7 +76,7 @@ A routine run that ends with no update is one muted line. A divider marks the st
 
 The message box sends to the current session. When the bot asks a question, typed text answers it. During an approval request the box is disabled: choose on the approval card (typed text never grants a permission). When the harness cannot take messages during a turn, the box waits until the turn ends. The page counts as showing the current session: it marks it seen after 1.5 seconds and suppresses its notifications, like Agents.
 
-The header has the bot's state, **Pause**, **New session** and **Open in Agents**. On a laptop, a side panel next to the chat has four tabs; drag the line between the chat and the panel to resize it (double-click resets it). This browser remembers the width. On a phone, the header's **⋯** menu holds the header buttons and the same four panels; a panel replaces the chat, and Back returns to it. The panels:
+The header has the bot's state, **Pause** and **Open in Agents**. On a laptop, a side panel next to the chat has four tabs; drag the line between the chat and the panel to resize it (double-click resets it). This browser remembers the width. On a phone, the header's **⋯** menu holds the header buttons and the same four panels; a panel replaces the chat, and Back returns to it. The panels:
 
 - **Memory**: the bot's notes in the knowledge base (`bots/<slug>/`): short and current, with your preferences, the facts it needs next time and what you asked it to remember, never a journal of its runs; the recent changes made by its sessions, and every session of its thread with its status and context use. Correct a note on the Knowledge page; every change can be restored for 30 days.
 - **Proposals**: the cards its sessions wrote, waiting or handled, with **Start all** and **Dismiss all**.

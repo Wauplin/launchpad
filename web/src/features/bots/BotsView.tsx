@@ -246,13 +246,11 @@ export function BotPage() {
   const routines = (useCrons().data ?? []).filter((c) => c.bot_id === id);
   const proposalList = useProposalList();
   useEffect(() => { if (asked) setPanel(asked); }, [asked]);
-  const [fresh, setFresh] = useState(false);
   const profiles = useProfiles();
   const projects = useProjects().data ?? [];
   const where = useRunnerTag(current?.runner_id);
   const navigate = useNavigate();
   const qc = useQueryClient();
-  useEffect(() => setFresh(false), [current?.id]);
   if (bots.isLoading) return <Loading what="the bot" />;
   if (bots.error) return <ErrorState error={bots.error} onRetry={() => void bots.refetch()} />;
   if (!bot) return <div className="flex h-full flex-col"><PageHeader title="Bot" /><Empty fill icon="spark" action={<Link to="/bots" className="btn btn-sm">All bots</Link>}>This bot no longer exists.</Empty></div>;
@@ -273,9 +271,8 @@ export function BotPage() {
     {where && <span className={where.tone === "quiet" && where.label.startsWith("Burst") ? "text-ink-3" : "text-attn"} title={where.title}>{where.label}</span>}
   </>;
   const pause = <button className="btn btn-sm" data-tour="bots.pause" title={bot.paused ? "Routines and incoming hooks start runs again" : "Routines and incoming hooks start nothing until you resume. Your own messages still go through; Stop ends a run that is working."} onClick={() => void api.post<Bot>(`/api/bots/${bot.id}/pause`, { paused: !bot.paused }).then(() => Promise.all([qc.invalidateQueries({ queryKey: ["bots"] }), qc.invalidateQueries({ queryKey: ["crons"] })])).then(() => toast(bot.paused ? `${bot.settings.name} resumed` : `${bot.settings.name} paused: no routine starts`), toastError)}><Icon name={bot.paused ? "play" : "stop"} size={12} />{bot.paused ? "Resume" : "Pause"}</button>;
-  const newSession = thread.length > 0 && !fresh && <button className="btn btn-sm" title="Start a new session of this thread; it references the previous session's trace" disabled={!!current && current.status !== "waiting" && current.status !== "error" && current.status !== "interrupted" && current.status !== "stopped"} onClick={() => { setFresh(true); if (phone) setPanel(null); }}><Icon name="plus" size={12} />New session</button>;
   const openTrace = current && <Link to="/agents" search={{ session: current.id }} className="btn btn-sm no-underline" title="The current session's trace, terminal and files in Agents"><Icon name="agents" size={12} />Open in Agents</Link>;
-  const chat = <BotChat bot={bot} thread={thread} fresh={fresh} rotation={rotation} needsProfile={!profile} onCancelFresh={() => setFresh(false)} openSettings={() => setPanel("settings")}
+  const chat = <BotChat bot={bot} thread={thread} rotation={rotation} needsProfile={!profile} openSettings={() => setPanel("settings")}
     intro={<p className="m-0 text-[13px] text-ink-2">Send {bot.settings.name} its first task. It reads its instructions (BOT.md in Settings) and the workspace's knowledge base, works in its folder (or a temporary folder), and keeps notes for its next sessions. To have it work on its own, add a routine in Routines.</p>} />;
   const side = <>
     {panel === "memory" && <MemoryPanel bot={bot} thread={thread} current={current} />}
@@ -292,7 +289,7 @@ export function BotPage() {
         subtitle={panel ? undefined : <span className="flex flex-wrap items-center gap-x-2"><StateBadge state={botState(thread)} />{bot.paused && <span className="text-attn">Paused</span>}</span>}
         actions={<span data-tour="bots.panels" className="contents">
           {PANELS.map((p) => <button key={p.id} className="btn btn-sm" aria-pressed={panel === p.id} onClick={() => setPanel(p.id)}>{p.label}{count(p.id) ? ` · ${count(p.id)}` : ""}</button>)}
-          {newSession}{routines.length > 0 && pause}{openTrace}
+          {routines.length > 0 && pause}{openTrace}
         </span>}
         details={<span className="flex flex-wrap items-center gap-x-2 text-[12px] text-ink-3">{meta}</span>} />
       {panel ? <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">{side}</div> : chat}
@@ -300,7 +297,7 @@ export function BotPage() {
   }
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
-      <PageHeader icon={<BotAvatar name={bot.settings.name} size={24} />} title={bot.settings.name} back={<Link to="/bots" className="iconbtn" title="All bots" aria-label="All bots"><Icon name="chev" size={14} className="rotate-90" /></Link>} meta={meta} actions={<>{routines.length > 0 && pause}{newSession}{openTrace}</>} />
+      <PageHeader icon={<BotAvatar name={bot.settings.name} size={24} />} title={bot.settings.name} back={<Link to="/bots" className="iconbtn" title="All bots" aria-label="All bots"><Icon name="chev" size={14} className="rotate-90" /></Link>} meta={meta} actions={<>{routines.length > 0 && pause}{openTrace}</>} />
       <SplitView storageKey="launchpad.bot-panel-width" sideLabel="the bot panel" main={chat} side={<>
         <div className="border-b border-line px-2 pt-1"><Tabs label="Bot panels" className="gap-0" value={panel ?? "memory"} onChange={setPanel} tour="bots.panels" items={PANELS.map((p) => ({ id: p.id, label: p.label, count: count(p.id) }))} /></div>
         <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">{side}</div>
@@ -488,7 +485,7 @@ export function Version({ base, change }: { base: string; change: Change }) {
 function ThreadSessions({ bot, thread, current }: { bot: Bot; thread: Session[]; current: Session | null }) {
   return <div data-tour="bots.sessions">
     <Section title={`Sessions of its thread · ${thread.length}`}>
-      <p className="m-0 text-[12px] text-ink-3">Your messages go to the current session. A new session starts when the profile or folder changes, or on New session; it reads the previous trace only when it needs it.</p>
+      <p className="m-0 text-[12px] text-ink-3">Your messages go to the current session. A new session starts when the profile or folder changes, or when you check New session next to the message box; it reads the previous trace only when it needs it.</p>
       {thread.length === 0 ? <p className="m-0 text-[12px] text-ink-3">{bot.settings.name} has not run yet.</p>
         : [...thread].reverse().map((s, i) => {
           const context = s.usage.context_tokens != null && s.usage.context_window ? `${Math.round((100 * s.usage.context_tokens) / s.usage.context_window)}% context` : null;
