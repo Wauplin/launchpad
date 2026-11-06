@@ -38,6 +38,8 @@ CLAUDE_TOKEN = re.compile(r"sk-ant-oat\d*-[A-Za-z0-9_-]{20,}")
 CLAUDE_TOKEN_END = re.compile(r"Store\s*this\s*token")
 # How long Claude Code may take to exchange a pasted code before the page says so.
 CODE_WAIT = 90
+# Pause between the pasted code and the Enter key, so Claude Code does not read Enter as part of the paste.
+PASTE_GAP = 0.5
 # Claude Code's answer to a rejected code; cursor moves may replace the spaces.
 RETRY = re.compile(r"Press\s*Enter\s*to\s*retry")
 TIMEOUT = 900
@@ -259,12 +261,17 @@ class Login:
             if self.cleanup:
                 self.cleanup()
 
-    def send_code(self, code):
+    async def send_code(self, code):
         if self.master is None or not self.running:
             raise ValueError("Start the sign-in again")
         self.code_at = len(self.output)
-        os.write(self.master, code.encode() + b"\r")
         self.code_sent = True
+        # Claude Code reads a multi-character write as a paste, Enter included: send Enter as its own key press.
+        os.write(self.master, code.encode())
+        await asyncio.sleep(PASTE_GAP)
+        if self.master is None:
+            raise ValueError("Start the sign-in again")
+        os.write(self.master, b"\r")
         if self.watchdog:
             self.watchdog.cancel()
         self.watchdog = asyncio.get_running_loop().create_task(self.wait_for_token())
@@ -724,7 +731,7 @@ class Setup:
                 raise ValueError("Paste the code shown after you approve")
             if not self.login or self.login.tool != "claude":
                 raise ValueError("Start the Claude Code sign-in first")
-            self.login.send_code(code)
+            await self.login.send_code(code)
         elif path == "/_home/check":
             await self.check()
         elif path == "/_home/key/new":
