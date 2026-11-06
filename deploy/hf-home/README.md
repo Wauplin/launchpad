@@ -23,7 +23,22 @@ Home backup is mandatory: the gateway refuses config writes that disable or redi
 
 ## Deploy
 
-Create the bucket and the Space:
+`deploy.sh` installs or updates a Home Space with the hf CLI:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Wauplin/launchpad/main/deploy/hf-home/deploy.sh | bash
+```
+
+It checks `curl`, `tar`, `python3` and the hf CLI (recent enough for buckets and Space volumes) and your Hugging Face sign-in. It then creates or checks the private bucket `<Space ID>-bucket` and the private Docker Space (default `<your user>/launchpad-home`, `cpu-basic`, the bucket mounted read-write at `/backups`). It refuses a public bucket or Space, other volumes, or a Space Dockerfile it did not write (`--force` replaces it). It uploads the Dockerfile and the Space card (and deletes other files of the Space), waits until the Space runs the uploaded commit, and checks that `/_home/status` answers. Options (after `bash -s --`):
+
+- `--release <tag>`: deploy this release (default: the latest one).
+- `--source [<ref>]`: build from source at a branch, tag or commit (default: `main`). The Space builder compiles the daemon: slower, and it needs more memory.
+- `--space <[namespace/]name>`, `--bucket <namespace/name>`: other names. A bucket that is not `<Space ID>-bucket` is set as the `LP_HOME_BUCKET` Space variable.
+- `--no-wait`: return after the upload.
+
+Run it again to update. The manual steps below do the same.
+
+To deploy by hand, create the bucket and the Space:
 
 ```sh
 hf buckets create Wauplin/launchpad-home-bucket --private

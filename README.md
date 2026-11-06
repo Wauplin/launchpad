@@ -4,6 +4,16 @@ Launchpad is a desktop app to launch, follow and review coding agents (Claude Co
 
 ![Today: questions, finished agents and other decisions, one card each](docs/images/today.webp)
 
+## Try it yourself
+
+Deploy your own Launchpad Home as a private Hugging Face Space with one command. You need the [hf CLI](https://huggingface.co/docs/huggingface_hub/guides/cli), signed in with `hf auth login`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Wauplin/launchpad/main/deploy/hf-home/deploy.sh | bash
+```
+
+The script checks your tools and sign-in, creates a private backup bucket and a private Docker Space (`<your user>/launchpad-home`), deploys the latest release, waits for the build and checks that Home answers. Then open the Space URL it prints and follow the setup page. Run the same command again to update to the newest release. Add `bash -s -- --source` to build from the `main` branch instead (`--source <ref>` for another branch, tag or commit), and `--help` for the other options. See [deploy/hf-home/README.md](deploy/hf-home/README.md).
+
 ## Why Launchpad
 
 - **One place for all your agents.** Start an agent in the right folder with the right context in a few clicks. Follow many runs at once, answer their questions, review their changes and send follow-ups.
