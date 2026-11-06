@@ -8,7 +8,7 @@ import type { Tool } from "@/gen/Tool";
 import type { ToolTest } from "@/gen/ToolTest";
 import type { VaultOverview } from "@/gen/VaultOverview";
 import { Icon } from "@/components/Icon";
-import { Badge } from "@/components/ui";
+import { Badge, ConfirmButton } from "@/components/ui";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
@@ -42,7 +42,6 @@ function SlackMode({ v, mode }: { v: VaultOverview; mode: (typeof MODES)[number]
   const tool = v.tools.find((t) => t.id === mode.id);
   const entry = v.entries.find((e) => e.id === mode.id);
   const ready = !!tool && !!entry;
-  const [open, setOpen] = useState(false);
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [test, setTest] = useState<ToolTest | null>(null);
@@ -57,7 +56,6 @@ function SlackMode({ v, mode }: { v: VaultOverview; mode: (typeof MODES)[number]
       await api.put(`/api/vault/tools/${mode.id}`, body);
       toast(`Saved ${template.name}`);
       setToken("");
-      setOpen(false);
       await qc.invalidateQueries({ queryKey: ["vault"] });
       await runTest();
     } catch (e) {
@@ -66,7 +64,9 @@ function SlackMode({ v, mode }: { v: VaultOverview; mode: (typeof MODES)[number]
       setBusy(false);
     }
   };
-  const showForm = !ready || open;
+  // Revoke removes the token from Home and keeps the tool (its workspaces and settings), so the form shows again and a
+  // new token sets it back: replacing a token is a revoke followed by a save.
+  const revoke = () => api.delete(`/api/vault/entries/${mode.id}`).then(() => { setTest(null); toast(`Revoked ${template.name}`); return qc.invalidateQueries({ queryKey: ["vault"] }); }, toastError);
   const odd = token.trim() && !token.trim().startsWith("xoxp-");
   return (
     <div className="grid gap-2 rounded-lg border border-line-2 bg-chrome p-2.5 text-[13px]">
@@ -77,13 +77,13 @@ function SlackMode({ v, mode }: { v: VaultOverview; mode: (typeof MODES)[number]
         <span className="ml-auto flex flex-wrap items-center gap-1.5">
           {test && <Badge tone={test.ok ? "ok" : "attn"} title={test.message}>{test.ok ? "token works" : "token refused"}</Badge>}
           {ready && <button className="btn btn-sm" onClick={() => void runTest()}>Test</button>}
-          {ready && !open && <button className="btn btn-sm" onClick={() => setOpen(true)}>Replace the token</button>}
+          {ready && <ConfirmButton consequence={`Removes the token from Home. Sessions lose ${template.name} at their next lease renewal. To replace it, paste a new token afterwards. The token stays valid in Slack until you uninstall the app there.`} confirmLabel="Revoke" onConfirm={revoke}>Revoke the token</ConfirmButton>}
         </span>
       </div>
       <span className="text-[12px] text-ink-2">{mode.what}</span>
       {ready && entry && <span className="text-[12px] text-ink-3">Token {entry.detail}, saved {formatAge(entry.updated_at)} ago.{tool.workspaces.length === 0 ? " Not granted in any workspace (Tools → Edit)." : ""}</span>}
       {test && !test.ok && <span className="text-[12px] text-attn">{test.message}</span>}
-      {showForm && (
+      {!ready && (
         <ol className="m-0 grid list-none gap-2 p-0">
           <Step n={1}>
             <span>Create the Slack app. The link opens Slack with the name and permissions filled in.</span>
@@ -98,7 +98,6 @@ function SlackMode({ v, mode }: { v: VaultOverview; mode: (typeof MODES)[number]
             <span className="flex flex-wrap items-center gap-2">
               <input className="field-input w-[320px] max-w-full font-mono" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="xoxp-…" autoComplete="off" aria-label={`Slack ${mode.title} token`} />
               <button className="btn btn-sm btn-primary" disabled={busy || !token.trim()} onClick={() => void save()}>{busy ? "Saving…" : "Save on Home"}</button>
-              {ready && <button className="btn btn-sm" onClick={() => { setOpen(false); setToken(""); }}>Cancel</button>}
             </span>
             {odd && <span className="text-[12px] text-attn">This does not look like a User OAuth Token (xoxp-…). Copy the one under Install App.</span>}
           </Step>
