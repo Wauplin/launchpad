@@ -109,13 +109,13 @@ export function useBranch(sessionId: string, s: Session | null) {
 
 /** Merge the branch into its base (call only when `useBranch(…).safe`). `onMerged` runs after a merge that went
  * through; a merge that waits or stopped keeps the card, with Review changes. */
-export function MergeButton({ sessionId, branch: { t, base }, onMerged, className }: { sessionId: string; branch: ReturnType<typeof useBranch>; onMerged?: () => Promise<unknown>; className?: string }) {
+export function MergeButton({ sessionId, branch: { t, base }, onMerged, className, label }: { sessionId: string; branch: ReturnType<typeof useBranch>; onMerged?: () => Promise<unknown>; className?: string; label?: string }) {
   const qc = useQueryClient();
   const merged = async (r: WorktreeInfo) => {
     void qc.invalidateQueries({ queryKey: ["worktrees"] });
     if (r.worktree.merged) await onMerged?.();
   };
-  return <ActionButton name="worktree.merge" params={{ id: t!.id }} vars={{ branch: t!.branch, base: base! }} query={{ session: worktreeSession(t!) ?? sessionId }} primary className={className} onDone={merged}>Merge into {base}</ActionButton>;
+  return <ActionButton name="worktree.merge" params={{ id: t!.id }} vars={{ branch: t!.branch, base: base! }} query={{ session: worktreeSession(t!) ?? sessionId }} primary className={className} onDone={merged}>{label ?? `Merge into ${base}`}</ActionButton>;
 }
 
 /** The branch line and Merge (only when safe) or Review changes. `onMerged` runs after a merge that went through. */
@@ -209,11 +209,11 @@ export function githubRef(item: TodayItem) {
 }
 
 /** Review with agent: a launch draft that asks an agent for a local suggested review of the pull request. */
-export function ReviewWithAgent({ item, primary = true }: { item: TodayItem; primary?: boolean }) {
+export function ReviewWithAgent({ item, primary = true, label = "Review with agent" }: { item: TodayItem; primary?: boolean; label?: string }) {
   const projects = useProjects().data ?? [];
   const ref = githubRef(item);
   if (!ref) return null;
-  return <button className={`btn btn-sm ${primary ? "btn-primary" : ""}`} title="Opens a launch draft: an agent reviews the pull request and writes a suggested review, which comes back to Today for you to edit and post" onClick={() => reviewWithAgent({ projects, ...ref, title: item.title, url: `https://github.com/${ref.repo}/pull/${ref.number}` })}><Icon name="spark" size={12} />Review with agent</button>;
+  return <button className={`btn btn-sm ${primary ? "btn-primary" : ""}`} title="Opens a launch draft: an agent reviews the pull request and writes a suggested review, which comes back to Today for you to edit and post" onClick={() => reviewWithAgent({ projects, ...ref, title: item.title, url: `https://github.com/${ref.repo}/pull/${ref.number}` })}><Icon name="spark" size={12} />{label}</button>;
 }
 
 function ReviewRequestCard({ item }: { item: TodayItem }) {

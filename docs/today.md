@@ -8,12 +8,14 @@ Rows are grouped by filter, with a heading per group under **All**, then newest 
 
 The icon at the start of a row says what it is; hover it for its name. GitHub items use GitHub's icons (a green pull request icon for a review request). A row with something to read (a question, an agent's last message and branch, a proposal, a message, a suggestion) opens its full card below the line: click its title or the arrow at the end. Rows that need reading first have **Answer**, **Review** or **Review & post** as their main button, which opens the card.
 
+On the phone, each row is one line with only its main button, with a shorter label (**Review**, **Merge**). Tap the title to open the row: it shows the card or the agent's last message, then the other buttons (**Open**, **Archive**, **Mark seen**, **Done**, **Dismiss**).
+
 A link to one row is `/?card=<id>`: it highlights the row and opens its card. Telegram notifications use it (`/?card=session:<id>`). When the item no longer waits, the link opens the session.
 
 | Filter | Rows | Buttons |
 | --- | --- | --- |
 | **Answer** | An agent asks a question. | **Answer** opens the answer choices in place; **Open** opens the agent to type another answer. |
-| **Review** | A finished agent you have not seen; a failed or interrupted agent; a Local PR not yet published. | Finished: **Merge into &lt;base&gt;** when it is safe, otherwise **Review changes** when there are changes, otherwise **Archive**. Failed: **Resume**. Both: **Open**, and on hover **Archive** and **Mark seen** (on the phone, under the arrow). Local PR: **Review & publish**. |
+| **Review** | A finished agent you have not seen; a failed or interrupted agent; a Local PR not yet published. | Finished: **Merge into &lt;base&gt;** when it is safe, otherwise **Review changes** when there are changes, otherwise **Archive**. Failed: **Resume**. Both: **Open**, and on hover **Archive** and **Mark seen**. Local PR: **Review & publish**. |
 | **Approve** | A proposal card from a bot or an agent. | **Start** (or Send, Schedule, Add routine, Apply to BOT.md) on the row, **Dismiss** on hover; the card adds **Edit**. **Start all** starts every waiting proposal after one confirmation. A ready card opens with **Review** and has the button of its action (for example **Merge** or **Post**) and **Dismiss**; Start all skips it. |
 | **Send** | A message an agent drafted for an outgoing channel. | **Review** opens it: edit it, then **Send** (with a confirmation) or **Discard**. An uncertain send offers **It arrived** or **Discard**. |
 | **GitHub** | A suggestion (a comment or review written by an agent) and an open review request. | Suggestion: **Review & post** opens it (**Edit**, **Post**, **Discard**), **Open PR**. Review request: **Review with agent** (the agent's review comes back as a suggestion), **Open**, and on hover **Done**, which marks the notification done here and on GitHub and removes the row. |

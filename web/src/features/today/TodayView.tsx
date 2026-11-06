@@ -101,7 +101,7 @@ export function TodayView() {
   const list = useVirtualizer({
     count: rows.length,
     getScrollElement: () => ref.current,
-    estimateSize: (i) => (rows[i].heading ? 36 : 54),
+    estimateSize: (i) => (rows[i].heading ? 36 : phone ? 61 : 54),
     getItemKey: (i) => rows[i].item?.id ?? `heading:${rows[i].heading}`,
     overscan: 6,
     useFlushSync: false,
@@ -137,7 +137,7 @@ export function TodayView() {
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="today.page">
       {phone
-        ? <div className="phone-page-content grid gap-1.5 border-b border-line-2 py-2"><span className="text-xs text-ink-3">{meta}</span>{chips}{groupActions && <div>{groupActions}</div>}</div>
+        ? <div className="phone-page-content grid gap-1 border-b border-line-2 py-1.5"><div className="flex flex-wrap items-center justify-between gap-2"><span className="truncate text-xs text-ink-3">{meta}</span>{groupActions}</div>{chips}</div>
         : <PageHeader title="Today" meta={<span>{meta}</span>} intro="Everything that waits for your decision, one row each, grouped by what to do. Hover an icon to see what it is; click a title to read more. Nothing reaches GitHub or other people without your click." actions={groupActions || undefined} tabs={<div className="pb-3">{chips}</div>} />}
       <div ref={ref} className="min-h-0 flex-1 overflow-y-auto [overflow-wrap:anywhere]">
         {error ? <ErrorState className="m-4" error={error} /> : loading ? <Loading what="Today" /> : shown.length === 0 && <Empty fill={phone} icon="check" className={phone ? "" : "mx-auto max-w-[760px] pt-6"}>{EMPTY[view]}</Empty>}
