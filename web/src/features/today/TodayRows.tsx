@@ -53,7 +53,7 @@ function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, ma
   const title = <span className="block truncate text-[13px] font-semibold" title={item.title}>{item.title}</span>;
   const metaLine = <div className="flex min-w-0 items-center gap-x-1.5 text-[12px] text-ink-3">{meta ?? <span className="truncate">{item.detail}</span>}{age && <span className="flex-none whitespace-nowrap">· {ago(item.at)}</span>}</div>;
   // The agent's Local PRs: links, so on the phone they sit under the line's button, not inside it.
-  const grouped = item.grouped.map((g) => <LocalPrLine key={g.id} item={g} />);
+  const grouped = item.grouped.map((g) => <LocalPrLine key={g.id} item={g} phone={phone} />);
   const kind = <span className={`grid size-6 flex-none place-items-center ${look.color}`} title={look.name} aria-label={look.name} role="img"><Icon name={icon ?? look.icon} size={16} /></span>;
   const chev = (size: number) => <Icon name="chev" size={size} className={`flex-none text-ink-3 transition-transform ${expanded ? "rotate-180" : ""}`} />;
   const label = expanded ? "Hide the details" : "Show the details";
@@ -97,9 +97,10 @@ function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, ma
   );
 }
 
-/** A Local PR of the row's agent (`TodayItem.grouped`): one line under the meta line that opens its page. */
-const LocalPrLine = ({ item }: { item: TodayItem }) => (
-  <Link className="flex min-w-0 items-center gap-1.5 text-[12px] text-teal no-underline hover:underline" to="/predrafts/$id" params={{ id: item.record }} title={`${item.title}: publish to GitHub or merge locally from its page`}>
+/** A Local PR of the row's agent (`TodayItem.grouped`): one line under the meta line that opens its page (44 px
+ * high on the phone, a touch target). */
+const LocalPrLine = ({ item, phone }: { item: TodayItem; phone: boolean }) => (
+  <Link className={`flex min-w-0 items-center gap-1.5 text-[12px] text-teal no-underline hover:underline ${phone ? "min-h-11" : ""}`} to="/predrafts/$id" params={{ id: item.record }} title={`${item.title}: publish to GitHub or merge locally from its page`}>
     <Icon name="pr-local" size={13} className="flex-none" /><span className="truncate">{item.detail}</span><span className="flex-none whitespace-nowrap text-ink-3">· {ago(item.at)}</span>
   </Link>
 );

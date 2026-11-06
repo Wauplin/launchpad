@@ -101,7 +101,7 @@ export function TodayView() {
   const list = useVirtualizer({
     count: rows.length,
     getScrollElement: () => ref.current,
-    estimateSize: (i) => (rows[i].heading ? 36 : (phone ? 61 : 54) + 18 * (rows[i].item?.grouped.length ?? 0)),
+    estimateSize: (i) => (rows[i].heading ? 36 : (phone ? 61 : 54) + (phone ? 44 : 18) * (rows[i].item?.grouped.length ?? 0)),
     getItemKey: (i) => rows[i].item?.id ?? `heading:${rows[i].heading}`,
     overscan: 6,
     useFlushSync: false,

@@ -129,18 +129,18 @@ export function CommandField() {
   const askLabel = bot ? `Ask ${bot.settings.name}` : "Ask";
   return (
     <div className="flex min-w-[280px] max-w-[760px] flex-1 items-center gap-1.5" data-tour="topbar.field">
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-line bg-paper px-2 py-1 focus-within:border-teal">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-lg border border-line bg-paper px-2 py-1 focus-within:border-teal">
         <Icon name="spark" size={14} className="flex-none text-teal-ink" />
-        {!ctx.botId && bots.length > 1 && bot && <select className="max-w-[120px] flex-none bg-transparent text-[12px] font-semibold outline-none" aria-label="Bot that Ask talks to" title="Ask sends to this bot" value={bot.id} onChange={(e) => setPicked(e.target.value)}>{bots.map((b) => <option key={b.id} value={b.id}>{b.settings.name}</option>)}</select>}
-        {ctx.label && <span className="flex max-w-[180px] flex-none items-center gap-1 rounded bg-sunk px-1.5 text-[11px] text-ink-2" title="The page you are on goes with Ask and Launch">
+        {!ctx.botId && bots.length > 1 && bot && <select className="min-w-0 max-w-[120px] shrink bg-transparent text-[12px] font-semibold outline-none" aria-label="Bot that Ask talks to" title="Ask sends to this bot" value={bot.id} onChange={(e) => setPicked(e.target.value)}>{bots.map((b) => <option key={b.id} value={b.id}>{b.settings.name}</option>)}</select>}
+        {ctx.label && <span className="flex min-w-[28px] max-w-[180px] shrink items-center gap-1 rounded bg-sunk px-1.5 text-[11px] text-ink-2" title="The page you are on goes with Ask and Launch">
           <span className="truncate">{ctx.label}</span>
-          <button className="text-ink-3 hover:text-ink" aria-label="Leave out the page" title="Leave out the page" onClick={() => setWithContext(false)}><Icon name="x" size={10} /></button>
+          <button className="flex-none text-ink-3 hover:text-ink" aria-label="Leave out the page" title="Leave out the page" onClick={() => setWithContext(false)}><Icon name="x" size={10} /></button>
         </span>}
         <textarea ref={ref} rows={1} value={text} disabled={busy} aria-label={bot ? "Message to a bot, or prompt for a new agent" : "Prompt for a new agent"}
           placeholder={bot ? "Ask, or launch an agent…" : "Launch an agent…"}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); primary(); } }}
-          className="min-h-6 min-w-0 flex-1 resize-none bg-transparent placeholder-shown:overflow-hidden py-0.5 text-[13px] leading-5 outline-none" />
+          className="min-h-6 min-w-[48px] flex-1 resize-none bg-transparent placeholder-shown:overflow-hidden placeholder-shown:whitespace-nowrap py-0.5 text-[13px] leading-5 outline-none" />
       </div>
       {bot && <button className="btn btn-primary" data-tour="topbar.ask" title={`${askLabel}: the answer opens in the Ask panel${ctx.line ? ", with the page as context" : ""}`} disabled={busy} onClick={() => void ask()}><Icon name="send" size={13} />Ask</button>}
       <LaunchSplitButton ctx={ctx.launch} text={text} onLaunch={launch} onUsed={() => setText("")} primary={!bot}
