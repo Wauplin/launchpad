@@ -8,7 +8,7 @@ import type { SignInCheck } from "@/gen/SignInCheck";
 import type { ProfileSpend } from "@/gen/ProfileSpend";
 import { clock, DemoError, notInDemo, onClock, publish, route, type DemoRequest } from "../daemon";
 import { world } from "../world";
-import { seeded } from "../world/settings";
+import { demoNetworkCheck, seeded } from "../world/settings";
 
 const configResponse = () => ({ config: world.config, error: null, remote: false });
 
@@ -143,6 +143,11 @@ route("GET", "/api/runners", () => (world.status.role === "home" ? world.runners
 route("GET", "/api/runner/launches", () => []);
 route("GET", "/api/runners/:id/status", () => ({ ...world.status, role: "runner", runner_update: null }));
 route("POST", "/api/runners/:id/update", notInDemo);
+route("POST", "/api/runners/:id/network-check", () => {
+  const check = demoNetworkCheck(clock.now());
+  for (const r of world.runners) r.network_check = check;
+  return check;
+});
 route("DELETE", "/api/runners/:id/update", notInDemo);
 route("GET", "/api/home/backup", () => ({ destination: null, last_complete_at: null, error: null, credentials_encrypted: false, traces_error: null }));
 

@@ -173,12 +173,14 @@ impl Cmd {
     fn local(&self) -> tokio::process::Command {
         let resolved = self.env.which(&self.program).unwrap_or_else(|| self.program.clone().into());
         let mut cmd = match self.env.jail() {
-            // A jailed process: bubblewrap runs the program with only the kept machine variables.
+            // A contained process: in its sandbox (bubblewrap, then the network capture), with only the kept
+            // machine variables.
             Some(jail) => {
                 // Symlinks on the way (`~/.local/bin/x` → …/current/…) may not exist in the jail: run the target.
                 let resolved = std::fs::canonicalize(&resolved).unwrap_or(resolved);
-                let mut cmd = tokio::process::Command::new("bwrap");
-                cmd.env_clear().envs(jail.environment(self.env.vars())).args(jail.args(self.cwd.as_deref())).arg("--").arg(&resolved).args(&self.args);
+                let (program, args) = jail.command(resolved.into_os_string(), &self.args, self.cwd.as_deref());
+                let mut cmd = tokio::process::Command::new(program);
+                cmd.env_clear().envs(jail.environment(self.env.vars())).args(args);
                 cmd
             }
             None => {

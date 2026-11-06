@@ -1,6 +1,9 @@
 //! Home: requests of relayed leases. A Burst runner holds no token: its proxy sends each request that needs
 //! one through the tunnel, and Home adds the token on the lease's hosts, sends it, records it in the access
 //! log and streams the answer back. Revoke, Stop and Archive end the lease here at once.
+//!
+//! Every other connection of a Burst agent leaves from Home too (`tcp`): the job's traffic has one exit, Home's,
+//! limited to public addresses.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -92,4 +95,54 @@ pub async fn upstream(app: &App, runner_id: &str, lease_id: &str, host: &str, me
     let access = crate::proxy::Access { at: crate::util::now_ms(), session_id: lease.session_id.clone(), host: host.into(), method: method.into(), path, status, action };
     crate::contain::record_access(app, access);
     Ok(HttpReply { status, headers, body })
+}
+
+/// Home: opens a TCP connection for a Burst runner's agent and streams it both ways. Public addresses only
+/// (`netcap::public`), checked on the address Home connects to. Errors carry `errno <n>` for the agent.
+pub async fn tcp(app: &App, runner_id: &str, host: &str, port: u16, body: ByteStream) -> Result<HttpReply> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    anyhow::ensure!(crate::runners::is_burst(app, runner_id).await, "errno {}: only Burst runners send their traffic through Home", libc::EACCES);
+    let addrs: Vec<std::net::SocketAddr> = match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => vec![std::net::SocketAddr::new(ip, port)],
+        Err(_) => tokio::net::lookup_host((host, port)).await.map_err(|e| anyhow::anyhow!("errno {}: {host}: {e}", libc::EHOSTUNREACH))?.collect(),
+    };
+    let allowed: Vec<_> = addrs.into_iter().filter(|a| crate::netcap::public(a.ip())).collect();
+    anyhow::ensure!(!allowed.is_empty(), "errno {}: {host} is not a public address", libc::EACCES);
+    let mut last = libc::ECONNREFUSED;
+    let mut stream = None;
+    for a in allowed {
+        match tokio::time::timeout(std::time::Duration::from_secs(30), tokio::net::TcpStream::connect(a)).await {
+            Ok(Ok(s)) => {
+                stream = Some(s);
+                break;
+            }
+            Ok(Err(e)) => last = crate::netcap::errno_of(&e),
+            Err(_) => last = libc::ETIMEDOUT,
+        }
+    }
+    let stream = stream.ok_or_else(|| anyhow::anyhow!("errno {last}: connect {host}:{port}"))?;
+    let _ = stream.set_nodelay(true);
+    let (rd, mut wr) = stream.into_split();
+    tokio::spawn(async move {
+        let mut body = body;
+        while let Some(Ok(part)) = body.next().await {
+            if wr.write_all(&part).await.is_err() {
+                return;
+            }
+        }
+        let _ = wr.shutdown().await;
+    });
+    let down: ByteStream = Box::pin(futures_util::stream::unfold(Some(rd), |rd| async move {
+        let mut rd = rd?;
+        let mut buf = vec![0u8; 64 * 1024];
+        match rd.read(&mut buf).await {
+            Ok(0) => None,
+            Ok(n) => {
+                buf.truncate(n);
+                Some((Ok(bytes::Bytes::from(buf)), Some(rd)))
+            }
+            Err(e) => Some((Err(e), None)),
+        }
+    }));
+    Ok(HttpReply { status: 200, headers: vec![], body: down })
 }

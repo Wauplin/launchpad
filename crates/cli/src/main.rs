@@ -4,6 +4,8 @@
 
 mod browser;
 mod extensions;
+#[cfg(target_os = "linux")]
+mod netcap;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -194,6 +196,9 @@ enum Command {
     /// Read-only browser MCP bridge, started by Launchpad harness adapters.
     #[command(hide = true)]
     BrowserMcp { #[arg(long)] data_dir: Option<std::path::PathBuf> },
+    /// Prints the path of this runner's proxy CA certificate (created if needed), for a Local VM's system store.
+    #[command(hide = true)]
+    ProxyCa,
     /// Chrome native messaging host (registered for the pinned extension only).
     #[command(hide = true)]
     NativeHost { origin: String, #[arg(trailing_var_arg = true, allow_hyphen_values = true)] extra: Vec<String> },
@@ -505,8 +510,21 @@ async fn pr_command(paths: &Paths, command: Pr) -> Result<()> {
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    // The network capture of contained sessions forks and execs: it runs before any thread starts.
+    #[cfg(target_os = "linux")]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        match args.get(1).map(String::as_str) {
+            Some("netcap") => netcap::main(&args[2..]),
+            Some("netcap-probe") => netcap::probe(&args[2..]),
+            _ => {}
+        }
+    }
+    tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(run())
+}
+
+async fn run() -> Result<()> {
     launchpad_core::set_build(env!("LAUNCHPAD_COMMIT"), env!("LAUNCHPAD_SOURCE"));
     launchpad_harness::install();
     launchpad_core::ext::install(Box::new(extensions::Extensions));
@@ -587,6 +605,10 @@ async fn main() -> Result<()> {
             if let Some(dir) = data_dir { paths.data_dir = dir; }
             browser::mcp(&paths).await
         },
+        Command::ProxyCa => {
+            println!("{}", launchpad_core::proxy::ca_certificate(&paths)?.display());
+            Ok(())
+        }
         Command::NativeHost { origin, .. } => browser::native_host(&paths, &origin).await,
         Command::Daemon { role } => {
             init_tracing();

@@ -3,7 +3,12 @@
 //! The jail sees the system folders read-only, the toolchains of the machine read-only, and only the folders of
 //! its session read-write: its worktrees and plain folders, its harness home, its own `/tmp` and the build caches
 //! of its workspace. Your home folder, `~/.ssh`, `~/.config/gh`, `~/.claude`, Launchpad's own data and the Docker
-//! socket do not exist inside. The network is shared: traffic goes through the runner proxy (`proxy.rs`).
+//! socket do not exist inside. The network is shared, and every process runs under the network capture
+//! (`netcap.rs`): its connections go through the runner proxy (`proxy.rs`). The runner CA is mounted over the
+//! system certificate bundles.
+//!
+//! On a Local VM or a Burst job the machine is the boundary: the same `Jail` then runs the process without
+//! bubblewrap (`bwrap: false`), still under capture and with only the session's variables.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -51,6 +56,12 @@ pub struct Jail {
     pub tmp: PathBuf,
     /// The session's variables (profile and Launchpad), set on top of the kept machine variables.
     pub env: Vec<(String, String)>,
+    /// Bubblewrap contains the process (the laptop jail). False on a Local VM or Burst.
+    pub bwrap: bool,
+    /// The network capture the process runs under (`netcap`).
+    pub capture: Option<crate::netcap::Capture>,
+    /// The system CAs plus the runner CA, mounted over the system bundles in the jail.
+    pub ca_bundle: Option<PathBuf>,
 }
 
 impl Jail {
@@ -63,6 +74,12 @@ impl Jail {
             push(&["--ro-bind-try", dir, dir]);
         }
         push(&["--proc", "/proc", "--dev", "/dev"]);
+        // Programs that read the system store (Go, OpenSSL, native-certs) trust the runner CA too.
+        if let Some(bundle) = &self.ca_bundle {
+            for target in crate::netcap::SYSTEM_BUNDLES.iter().filter(|p| Path::new(p).exists()) {
+                a.extend(["--ro-bind".into(), bundle.as_os_str().into(), (*target).into()]);
+            }
+        }
         let mut bind = |flag: &str, path: &Path, to: &Path| {
             a.push(flag.into());
             a.push(path.as_os_str().into());
@@ -82,6 +99,22 @@ impl Jail {
             a.push(cwd.as_os_str().into());
         }
         a
+    }
+
+    /// The program and arguments that run `program args` in the sandbox: bubblewrap (when it contains the
+    /// process), then the network capture, then the program.
+    pub fn command(&self, program: std::ffi::OsString, args: &[OsString], cwd: Option<&Path>) -> (OsString, Vec<OsString>) {
+        let mut inner: Vec<OsString> = self.capture.as_ref().map(|c| c.prefix()).unwrap_or_default();
+        inner.push(program);
+        inner.extend(args.iter().cloned());
+        if self.bwrap {
+            let mut all = self.args(cwd);
+            all.push("--".into());
+            all.extend(inner);
+            return ("bwrap".into(), all);
+        }
+        let program = inner.remove(0);
+        (program, inner)
     }
 
     /// The environment of a jailed process: the kept machine variables, then the session's.
@@ -119,7 +152,7 @@ mod tests {
 
     #[test]
     fn jail_mounts_only_session_folders_read_write() {
-        let jail = Jail { rw: vec!["/data/worktrees/s1".into()], ro: vec!["/home/me/.local/bin".into()], tmp: "/data/sessions/s1/tmp".into(), env: vec![] };
+        let jail = Jail { rw: vec!["/data/worktrees/s1".into()], ro: vec!["/home/me/.local/bin".into()], tmp: "/data/sessions/s1/tmp".into(), bwrap: true, ..Default::default() };
         let args: Vec<String> = jail.args(Some(Path::new("/data/worktrees/s1/repo"))).into_iter().map(|a| a.into_string().unwrap()).collect();
         let joined = args.join(" ");
         assert!(joined.contains("--bind-try /data/worktrees/s1 /data/worktrees/s1"));

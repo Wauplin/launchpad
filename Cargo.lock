@@ -2694,6 +2694,7 @@ dependencies = [
  "launchpad-harness",
  "launchpad-server",
  "launchpad-setup",
+ "libc",
  "reqwest",
  "serde_json",
  "tokio",

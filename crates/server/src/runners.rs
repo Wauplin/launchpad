@@ -30,6 +30,8 @@ pub fn router() -> Router<Server> {
         .route("/api/runners/{id}/approve", post(approve))
         .route("/api/runners/{id}/status", get(runner_status))
         .route("/api/runners/{id}/update", post(update_runner).delete(cancel_runner_update))
+        .route("/api/runners/{id}/network-check", post(check_runner_network))
+        .route("/api/runner/network-check", post(check_network))
         .route("/api/runners/build", get(build))
         .route("/api/runner/update", post(update_self).delete(cancel_update))
         .route("/api/runners/{id}", axum::routing::delete(remove))
@@ -115,6 +117,28 @@ async fn approve(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<r
 async fn runner_status(State(s): State<Server>, Path(id): Path<String>) -> Result<Response, ApiError> {
     let (status, body) = s.app.runners.request(&id, "GET", "/api/status", None).await.map_err(bad)?;
     Ok((StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response())
+}
+
+/// Home: runs the network check on a connected runner and keeps the result for its card.
+async fn check_runner_network(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<launchpad_core::netcap::NetworkCheck> {
+    let r = runners::list(&s.app).await.map_err(bad)?.into_iter().find(|r| r.runner.id == id).ok_or_else(|| ApiError::not_found("no such runner"))?;
+    if !r.connected {
+        return Err(ApiError::bad_request(format!("{} is offline: start it, then check it", r.runner.name)));
+    }
+    let (status, body) = s.app.runners.request(&id, "POST", "/api/runner/network-check", None).await.map_err(bad)?;
+    if !(200..300).contains(&status) {
+        let v: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+        return Err(ApiError::bad_request(v["error"].as_str().map(str::to_string).unwrap_or_else(|| format!("{} answered {status}", r.runner.name))));
+    }
+    let check: launchpad_core::netcap::NetworkCheck = serde_json::from_str(&body).map_err(|e| ApiError::bad_request(format!("{e}")))?;
+    launchpad_core::netcap::remember(&id, &check);
+    s.app.bus.publish("runners", "changed", Value::Null);
+    Ok(Json(check))
+}
+
+/// Runner: the network check of this machine's sandbox (`launchpad_core::netcap::network_check`).
+async fn check_network(State(s): State<Server>) -> ApiResult<launchpad_core::netcap::NetworkCheck> {
+    Ok(Json(launchpad_core::netcap::network_check(&s.app).await.map_err(bad)?))
 }
 
 /// Home: asks an outdated runner to update itself to Home's build (`launchpad_core::self_update`).

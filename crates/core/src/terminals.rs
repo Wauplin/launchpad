@@ -437,12 +437,9 @@ impl Terminals {
         if let Some(jail) = &jail {
             // The session's jail: its own home, placeholders and proxy, none of the machine's variables.
             let program = app.env.which(&argv[0]).and_then(|p| std::fs::canonicalize(p).ok()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| argv[0].clone());
-            let mut wrapped: Vec<String> = vec!["bwrap".into()];
-            wrapped.extend(jail.args(Some(std::path::Path::new(&info.cwd))).into_iter().map(|a| a.to_string_lossy().into_owned()));
-            wrapped.push("--".into());
-            wrapped.push(program);
-            wrapped.extend(argv.into_iter().skip(1));
-            argv = wrapped;
+            let args: Vec<std::ffi::OsString> = argv.iter().skip(1).map(Into::into).collect();
+            let (program, args) = jail.command(program.into(), &args, Some(std::path::Path::new(&info.cwd)));
+            argv = std::iter::once(program).chain(args).map(|a| a.to_string_lossy().into_owned()).collect();
         }
         let mut cmd = CommandBuilder::from_argv(argv.iter().map(Into::into).collect());
         cmd.env_clear();

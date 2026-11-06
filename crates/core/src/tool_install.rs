@@ -170,7 +170,8 @@ async fn jailed(app: &App, dir: &Path, cache: &Path, program: &str, args: &[&str
         ("CARGO_HOME".into(), format!("{cache_s}/cargo")),
         ("npm_config_cache".into(), format!("{cache_s}/npm")),
     ];
-    let jail = crate::jail::Jail { rw: vec![dir.to_path_buf(), cache.to_path_buf()], ro, tmp: tmp.clone(), env };
+    // On a Local VM or Burst the machine is the boundary: no bubblewrap there.
+    let jail = crate::jail::Jail { rw: vec![dir.to_path_buf(), cache.to_path_buf()], ro, tmp: tmp.clone(), env, bwrap: !crate::contain::outside_jail(app), capture: None, ca_bundle: None };
     let out = crate::procs::command(&app.env.jailed(Some(std::sync::Arc::new(jail))), program, Some(dir))
         .args(args)
         .stdin(crate::exec::Io::Null)

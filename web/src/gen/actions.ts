@@ -35,6 +35,7 @@ export type ActionName =
   | "proposal.start"
   | "proposal.dismiss"
   | "proposal.recheck"
+  | "runner.check-network"
   | "workspace.create"
   | "workspace.rename"
   | "workspace.delete"
@@ -88,6 +89,7 @@ export const ACTIONS: Record<ActionName, Action> = {
   "proposal.start": {"name":"proposal.start","method":"POST","route":"/api/proposals/{id}/accept","label":"Start","icon":"play","help":"Start a card (you may start a card only when you could run its action directly)","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "proposal.dismiss": {"name":"proposal.dismiss","method":"POST","route":"/api/proposals/{id}/dismiss","label":"Dismiss","icon":"x","help":"Dismiss a card","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "proposal.recheck": {"name":"proposal.recheck","method":"POST","route":"/api/proposals/{id}/recheck","label":"Check again","icon":"refresh","help":"Validate a card again","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"checks","access":"admin","card":null,"undo":null,"before":null,"ready":false},
+  "runner.check-network": {"name":"runner.check-network","method":"POST","route":"/api/runners/{id}/network-check","label":"Check network","icon":"refresh","help":"Check a runner's sandbox network: capture, DNS, UDP policy, IPv4 and IPv6, runner CA","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"checks","access":"owner","card":null,"undo":null,"before":null,"ready":false},
   "workspace.create": {"name":"workspace.create","method":"POST","route":"/api/workspaces","label":"New workspace","icon":"plus","help":"Create a workspace","input":[{"name":"name","kind":"text","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"admin","card":null,"undo":"workspace.delete","before":null,"ready":false},
   "workspace.rename": {"name":"workspace.rename","method":"PATCH","route":"/api/workspaces/{id}","label":"Rename","icon":"pencil","help":"Rename a workspace","input":[{"name":"name","kind":"text","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"admin","card":null,"undo":"workspace.rename","before":"/api/workspaces/{id}","ready":false},
   "workspace.delete": {"name":"workspace.delete","method":"DELETE","route":"/api/workspaces/{id}","label":"Delete workspace","icon":"trash","help":"Delete an empty workspace (not the last one)","input":[],"body_file":null,"fixed":null,"confirm":"Deletes the empty workspace {name}.","effect":"record","access":"admin","card":null,"undo":null,"before":null,"ready":false},

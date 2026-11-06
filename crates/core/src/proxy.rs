@@ -6,6 +6,12 @@
 //! only inside the jail), adds the real token and records host, method and path in the access log. Every other
 //! host is a plain tunnel: the proxy never reads or judges that traffic. What a request may do is decided by the
 //! token's scope on Home, not here.
+//!
+//! Captured connections (`netcap.rs`) arrive on a second port, the capture port, with a header that names the
+//! session's key and the destination. The proxy connects to the destination first and answers the supervisor;
+//! on port 443 of a session with tokens it then reads the TLS server name, and on a lease host it terminates
+//! TLS and adds the token as above. On Burst every outgoing connection (tunnels, plain HTTP, captured
+//! connections) leaves from Home through the runner tunnel (`token_relay::tcp`).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
@@ -46,6 +52,8 @@ pub struct Active {
     pub lease: RwLock<Lease>,
     /// Last successful renewal with Home (ms).
     pub renewed_at: std::sync::atomic::AtomicI64,
+    /// Connections received on the capture port.
+    pub captured: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Clone, Default)]
@@ -56,6 +64,7 @@ pub struct Proxy {
 #[derive(Default)]
 struct Inner {
     port: tokio::sync::OnceCell<u16>,
+    capture_port: std::sync::OnceLock<u16>,
     app: std::sync::OnceLock<App>,
     ca: std::sync::OnceLock<Ca>,
     leases: Mutex<HashMap<String, Arc<Active>>>,
@@ -96,8 +105,17 @@ fn load_ca(dir: &std::path::Path) -> Result<Ca> {
     Ok(Ca { cert_pem: cert.pem(), issuer: rcgen::Issuer::new(ca_params(), key) })
 }
 
-/// System CA bundles, in the usual Linux locations.
-const SYSTEM_BUNDLES: &[&str] = &["/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/ca-bundle.pem", "/etc/ssl/cert.pem"];
+use crate::netcap::SYSTEM_BUNDLES;
+
+/// The runner CA certificate in `<data_dir>/proxy/public/` (the CA is created if needed).
+pub fn ca_certificate(paths: &crate::paths::Paths) -> Result<std::path::PathBuf> {
+    let ca = load_ca(&paths.data_dir.join("proxy"))?;
+    let dir = paths.data_dir.join("proxy/public");
+    std::fs::create_dir_all(&dir)?;
+    let cert = dir.join("launchpad-ca.pem");
+    std::fs::write(&cert, &ca.cert_pem)?;
+    Ok(cert)
+}
 
 impl Proxy {
     /// Starts the proxy once and returns its port.
@@ -124,11 +142,31 @@ impl Proxy {
                         });
                     }
                 });
+                // The capture port: connections of the network capture (`netcap`).
+                let capture = tokio::net::TcpListener::bind("127.0.0.1:0").await.context("start the runner proxy's capture port")?;
+                let _ = inner.capture_port.set(capture.local_addr()?.port());
+                let capture_inner = inner.clone();
+                tokio::spawn(async move {
+                    loop {
+                        let Ok((stream, _)) = capture.accept().await else { continue };
+                        let inner = capture_inner.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = captured(inner, stream).await {
+                                tracing::debug!("captured connection: {e:#}");
+                            }
+                        });
+                    }
+                });
                 tracing::info!("runner proxy on 127.0.0.1:{port}");
                 Ok::<u16, anyhow::Error>(port)
             })
             .await?;
         Ok(*port)
+    }
+
+    /// The capture port, once the proxy started.
+    pub fn capture_port(&self) -> Option<u16> {
+        self.inner.capture_port.get().copied()
     }
 
     /// The CA certificate, and a bundle of the system CAs plus it, for the jail.
@@ -152,6 +190,7 @@ impl Proxy {
             session_id: lease.session_id.clone(),
             lease: RwLock::new(lease),
             renewed_at: std::sync::atomic::AtomicI64::new(crate::util::now_ms()),
+            captured: std::sync::atomic::AtomicU64::new(0),
         });
         leases.insert(active.key.clone(), active.clone());
         active
@@ -217,7 +256,7 @@ async fn handle(inner: Arc<Inner>, req: Request<Incoming>) -> Result<Response<Bo
                 Err(e) => return tracing::debug!("proxy upgrade: {e}"),
             };
             let result = match (intercept, active) {
-                (true, Some(active)) => intercept_tls(inner, active, host.clone(), upgraded).await,
+                (true, Some(active)) => intercept_tls(inner, active, host.clone(), TokioIo::new(upgraded)).await,
                 _ => tunnel(upgraded, &host, port).await,
             };
             if let Err(e) = result {
@@ -249,10 +288,236 @@ async fn handle(inner: Arc<Inner>, req: Request<Incoming>) -> Result<Response<Bo
 }
 
 async fn tunnel(upgraded: hyper::upgrade::Upgraded, host: &str, port: u16) -> Result<()> {
-    let mut upstream = tokio::net::TcpStream::connect((host, port)).await?;
+    let mut upstream = connect_out(host, port).await.map_err(|e| anyhow::anyhow!("connect {host}:{port}: errno {e}"))?;
     let mut client = TokioIo::new(upgraded);
     tokio::io::copy_bidirectional(&mut client, &mut upstream).await?;
     Ok(())
+}
+
+/// A connection out of the runner proxy.
+pub trait Stream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> Stream for T {}
+
+/// Opens a TCP connection to `host:port`: from this machine on a runner, from Home on Burst. Errors are errnos
+/// for the agent.
+async fn connect_out(host: &str, port: u16) -> std::result::Result<Box<dyn Stream>, i32> {
+    if crate::home_link::burst().is_some() {
+        return through_home(host, port).await.map(|s| Box::new(s) as Box<dyn Stream>);
+    }
+    match tokio::time::timeout(std::time::Duration::from_secs(30), tokio::net::TcpStream::connect((host, port))).await {
+        Ok(Ok(s)) => {
+            let _ = s.set_nodelay(true);
+            Ok(Box::new(s))
+        }
+        Ok(Err(e)) => Err(crate::netcap::errno_of(&e)),
+        Err(_) => Err(libc::ETIMEDOUT),
+    }
+}
+
+/// Burst: a TCP connection opened by Home (`HttpTarget::Tcp`), both directions streamed through the tunnel.
+async fn through_home(host: &str, port: u16) -> std::result::Result<tokio::io::DuplexStream, i32> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (ours, theirs) = tokio::io::duplex(256 * 1024);
+    let (rd, mut wr) = tokio::io::split(theirs);
+    let upload: crate::home_link::ByteStream = Box::pin(futures_util::stream::unfold(Some(rd), |rd| async move {
+        let mut rd = rd?;
+        let mut buf = vec![0u8; 64 * 1024];
+        match rd.read(&mut buf).await {
+            Ok(0) => None,
+            Ok(n) => {
+                buf.truncate(n);
+                Some((Ok(Bytes::from(buf)), Some(rd)))
+            }
+            Err(e) => Some((Err(e), None)),
+        }
+    }));
+    let target = crate::runners::proto::HttpTarget::Tcp { host: host.into(), port };
+    let reply = crate::home_link::http(target, "CONNECT", "", vec![], upload).await.map_err(|e| {
+        tracing::debug!("Burst connection to {host}:{port}: {e:#}");
+        libc::ENETUNREACH
+    })?;
+    if reply.status != 200 {
+        let parts: Vec<Bytes> = reply.body.try_collect().await.unwrap_or_default();
+        return Err(crate::netcap::errno_in(&String::from_utf8_lossy(&parts.concat())));
+    }
+    let mut body = reply.body;
+    tokio::spawn(async move {
+        use futures_util::StreamExt;
+        while let Some(Ok(part)) = body.next().await {
+            if wr.write_all(&part).await.is_err() {
+                return;
+            }
+        }
+        let _ = wr.shutdown().await;
+    });
+    Ok(ours)
+}
+
+/// A connection of the network capture: `LPCAP1 <key> <ip> <port>`, then the agent's bytes.
+async fn captured(inner: Arc<Inner>, mut stream: tokio::net::TcpStream) -> Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let _ = stream.set_nodelay(true);
+    let mut line = vec![];
+    let read_line = async {
+        let mut b = [0u8; 1];
+        while line.len() < 200 {
+            if stream.read(&mut b).await? == 0 {
+                anyhow::bail!("closed before the header");
+            }
+            if b[0] == b'\n' {
+                return Ok(());
+            }
+            line.push(b[0]);
+        }
+        anyhow::bail!("header too long")
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(10), read_line).await.context("no header")??;
+    let (key, dest) = crate::netcap::parse_capture_header(&String::from_utf8_lossy(&line)).context("bad header")?;
+    let proxy = Proxy { inner: inner.clone() };
+    let Some(active) = proxy.by_key(&key) else {
+        stream.write_all(crate::netcap::capture_answer(Err(libc::EACCES)).as_bytes()).await?;
+        return Ok(());
+    };
+    active.captured.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut upstream = match connect_out(&dest.ip().to_string(), dest.port()).await {
+        Ok(u) => u,
+        Err(e) => {
+            stream.write_all(crate::netcap::capture_answer(Err(e)).as_bytes()).await?;
+            return Ok(());
+        }
+    };
+    stream.write_all(crate::netcap::capture_answer(Ok(())).as_bytes()).await?;
+    let tokens = dest.port() == 443 && !active.lease.read().unwrap().credentials.is_empty();
+    if !tokens {
+        tokio::io::copy_bidirectional(&mut stream, &mut upstream).await?;
+        return Ok(());
+    }
+    // Port 443 of a session with tokens: the TLS server name decides, unless the server speaks first.
+    let mut hello = vec![];
+    let mut first = vec![0u8; 16 * 1024];
+    let name = tokio::select! {
+        r = read_hello(&mut stream, &mut hello) => r?,
+        r = upstream.read(&mut first) => {
+            let n = r?;
+            stream.write_all(&first[..n]).await?;
+            upstream.write_all(&hello).await?;
+            tokio::io::copy_bidirectional(&mut stream, &mut upstream).await?;
+            return Ok(());
+        }
+    };
+    if let Some(host) = name.filter(|h| credential_for(&active, h).is_some()) {
+        drop(upstream);
+        return intercept_tls(inner, active, host, Prefixed { prefix: hello, pos: 0, inner: stream }).await;
+    }
+    upstream.write_all(&hello).await?;
+    tokio::io::copy_bidirectional(&mut stream, &mut upstream).await?;
+    Ok(())
+}
+
+/// Reads a TLS ClientHello into `buf` and returns its server name; None for other protocols.
+async fn read_hello(stream: &mut tokio::net::TcpStream, buf: &mut Vec<u8>) -> Result<Option<String>> {
+    use tokio::io::AsyncReadExt;
+    let mut chunk = [0u8; 4096];
+    loop {
+        if buf.len() >= 5 {
+            if buf[0] != 0x16 {
+                return Ok(None);
+            }
+            let need = 5 + u16::from_be_bytes([buf[3], buf[4]]) as usize;
+            if buf.len() >= need {
+                return Ok(server_name(&buf[5..need]));
+            }
+        }
+        let n = stream.read(&mut chunk).await?;
+        if n == 0 {
+            return Ok(None);
+        }
+        buf.extend_from_slice(&chunk[..n]);
+    }
+}
+
+/// The server name of a ClientHello handshake message (the record's payload).
+fn server_name(h: &[u8]) -> Option<String> {
+    let mut r = Reader(h);
+    (r.u8()? == 1).then_some(())?;
+    r.skip(3 + 2 + 32)?;
+    let sid = r.u8()? as usize;
+    r.skip(sid)?;
+    let suites = r.u16()? as usize;
+    r.skip(suites)?;
+    let comp = r.u8()? as usize;
+    r.skip(comp)?;
+    let len = r.u16()? as usize;
+    let mut ext = Reader(r.take(len)?);
+    while let (Some(kind), Some(len)) = (ext.u16(), ext.u16()) {
+        let data = ext.take(len as usize)?;
+        if kind == 0 {
+            let mut list = Reader(data);
+            let len = list.u16()? as usize;
+            let mut names = Reader(list.take(len)?);
+            while let Some(t) = names.u8() {
+                let len = names.u16()? as usize;
+                let name = names.take(len)?;
+                if t == 0 {
+                    return std::str::from_utf8(name).ok().map(|n| n.trim_end_matches('.').to_ascii_lowercase());
+                }
+            }
+            return None;
+        }
+    }
+    None
+}
+
+struct Reader<'a>(&'a [u8]);
+impl<'a> Reader<'a> {
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        (self.0.len() >= n).then(|| {
+            let (a, b) = self.0.split_at(n);
+            self.0 = b;
+            a
+        })
+    }
+    fn skip(&mut self, n: usize) -> Option<()> {
+        self.take(n).map(|_| ())
+    }
+    fn u8(&mut self) -> Option<u8> {
+        self.take(1).map(|b| b[0])
+    }
+    fn u16(&mut self) -> Option<u16> {
+        self.take(2).map(|b| u16::from_be_bytes([b[0], b[1]]))
+    }
+}
+
+/// A stream that first replays bytes already read from it.
+struct Prefixed<S> {
+    prefix: Vec<u8>,
+    pos: usize,
+    inner: S,
+}
+
+impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for Prefixed<S> {
+    fn poll_read(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &mut tokio::io::ReadBuf<'_>) -> std::task::Poll<std::io::Result<()>> {
+        if self.pos < self.prefix.len() {
+            let n = (self.prefix.len() - self.pos).min(buf.remaining());
+            let start = self.pos;
+            buf.put_slice(&self.prefix[start..start + n]);
+            self.pos += n;
+            return std::task::Poll::Ready(Ok(()));
+        }
+        std::pin::Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for Prefixed<S> {
+    fn poll_write(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &[u8]) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+    fn poll_flush(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+    fn poll_shutdown(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
 }
 
 fn tls_for(inner: &Inner, host: &str) -> Result<Arc<rustls::ServerConfig>> {
@@ -277,9 +542,9 @@ fn tls_for(inner: &Inner, host: &str) -> Result<Arc<rustls::ServerConfig>> {
     Ok(config)
 }
 
-async fn intercept_tls(inner: Arc<Inner>, active: Arc<Active>, host: String, upgraded: hyper::upgrade::Upgraded) -> Result<()> {
+async fn intercept_tls<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static>(inner: Arc<Inner>, active: Arc<Active>, host: String, io: S) -> Result<()> {
     let config = tls_for(&inner, &host)?;
-    let tls = tokio_rustls::TlsAcceptor::from(config).accept(TokioIo::new(upgraded)).await.context("TLS with the agent")?;
+    let tls = tokio_rustls::TlsAcceptor::from(config).accept(io).await.context("TLS with the agent")?;
     let service = hyper::service::service_fn(move |req: Request<Incoming>| {
         let (inner, active, host) = (inner.clone(), active.clone(), host.clone());
         async move {
@@ -437,6 +702,9 @@ async fn relay(lease_id: String, host: &str, method: &str, target: &str, headers
 }
 
 async fn plain_http(req: Request<Incoming>) -> Response<Body> {
+    if crate::home_link::burst().is_some() {
+        return plain_http_out(req).await.unwrap_or_else(|e| full(StatusCode::BAD_GATEWAY, &format!("Launchpad proxy: {e:#}")));
+    }
     let url = req.uri().to_string();
     let Ok(m) = reqwest::Method::from_bytes(req.method().as_str().as_bytes()) else { return full(StatusCode::BAD_REQUEST, "bad method") };
     let mut headers = reqwest::header::HeaderMap::new();
@@ -460,3 +728,25 @@ async fn plain_http(req: Request<Incoming>) -> Response<Body> {
         Err(e) => full(StatusCode::BAD_GATEWAY, &format!("{e}")),
     }
 }
+
+/// Burst: plain HTTP over a connection Home opens (`connect_out`).
+async fn plain_http_out(req: Request<Incoming>) -> Result<Response<Body>> {
+    let host = req.uri().host().context("no host")?.to_string();
+    let port = req.uri().port_u16().unwrap_or(80);
+    let stream = connect_out(&host, port).await.map_err(|e| anyhow::anyhow!("{host}:{port}: errno {e}"))?;
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream)).await?;
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+    let (mut parts, body) = req.into_parts();
+    parts.uri = parts.uri.path_and_query().map(|p| p.as_str()).unwrap_or("/").parse()?;
+    for h in ["proxy-authorization", "proxy-connection"] {
+        parts.headers.remove(h);
+    }
+    if !parts.headers.contains_key(hyper::header::HOST) {
+        parts.headers.insert(hyper::header::HOST, hyper::header::HeaderValue::from_str(&if port == 80 { host.clone() } else { format!("{host}:{port}") })?);
+    }
+    let res = sender.send_request(Request::from_parts(parts, body)).await?;
+    Ok(res.map(|b| b.map_err(std::io::Error::other).boxed()))
+}
+

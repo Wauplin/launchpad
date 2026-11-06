@@ -3,7 +3,8 @@
 //! Before a harness starts, the runner asks Home for the session's lease, keeps its secrets in the proxy's
 //! memory, writes the session's harness home (`<data_dir>/sessions/<id>/home`: `CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
 //! Git config) with placeholders only, installs the granted tools and builds the jail. The runner never uses the
-//! machine's own clones, Git config, SSH keys, gh or harness logins.
+//! machine's own clones, Git config, SSH keys, gh or harness logins. Every contained process runs under the
+//! network capture (`netcap.rs`), also on a Local VM or Burst where the machine itself is the boundary.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -245,12 +246,19 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     let mut rw: Vec<PathBuf> = vec![start.cwd.clone(), home.clone(), cache.clone(), app.paths.data_dir.join("worktrees"), app.paths.data_dir.join("repos")];
     rw.extend(start.add_dirs.iter().map(PathBuf::from));
     start.env = all.clone();
-    // On a Local VM the virtual machine contains the agents: no jail inside, Docker available.
+    // Every agent runs under the network capture; a machine where it cannot run runs no agents.
+    crate::netcap::check().await?;
+    let capture = crate::netcap::Capture::new(app, &active.key)?;
+    // On a Local VM or Burst the machine contains the agents: no jail inside (Docker available on a VM), the
+    // runner CA in the machine's own store.
     if vm {
-        return Ok(start);
+        if !crate::netcap::system_ca(&ca) {
+            app.sessions.sink(app, &s.id).emit(crate::model::EventBody::Notice { text: "The runner CA is not in this machine's system certificate store, so tools that ignore SSL_CERT_FILE get a TLS error on hosts where Launchpad adds a token. On a Local VM, run packaging/local-vm.sh again.".into() }).await;
+        }
+    } else {
+        crate::jail::check().await?;
     }
-    crate::jail::check().await?;
-    let jail = crate::jail::Jail { rw, ro, tmp, env: all };
+    let jail = crate::jail::Jail { rw, ro, tmp, env: all, bwrap: !vm, capture: Some(capture), ca_bundle: Some(bundle) };
     start.jail = Some(Arc::new(jail));
     Ok(start)
 }

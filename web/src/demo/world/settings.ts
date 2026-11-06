@@ -3,6 +3,7 @@
 
 import type { AgentRun } from "@/gen/AgentRun";
 import type { BurstRun } from "@/gen/BurstRun";
+import type { NetworkCheck } from "@/gen/NetworkCheck";
 import type { RunnerStatus } from "@/gen/RunnerStatus";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { HarnessDescriptor } from "@/gen/HarnessDescriptor";
@@ -128,6 +129,26 @@ export function settingsWorld() {
   return { harnesses, harnessDefaults, routerModels, devices, terminals, githubCheck: gh, huggingface, agentRuns: agentRuns(), homeFolder: HOME, ...homeWorld() };
 }
 
+/** A passing network check of the laptop runner (its jail). */
+export function demoNetworkCheck(at: number): NetworkCheck {
+  const item = (id: string, label: string, detail: string, required = true) => ({ id, label, ok: true, required, detail });
+  return {
+    at, method: "jail", ok: true,
+    items: [
+      item("capture", "Network capture runs", "the supervisor starts on this machine"),
+      item("socket", "Internet sockets go through the supervisor", "internet sockets are created by the supervisor"),
+      item("udp_refused", "UDP other than DNS is refused", "UDP to port 443 is refused"),
+      item("udp_dns", "DNS over UDP is allowed", "UDP to port 53 is allowed"),
+      item("io_uring", "io_uring is blocked", "io_uring is blocked"),
+      item("dns", "Names resolve", "huggingface.co: 4 addresses"),
+      item("tcp_v4", "IPv4 connection from a client that ignores proxy settings", "connected to 18.244.202.73:443"),
+      item("tcp_v6", "IPv6 connection (depends on the network)", "connected to [2600:9000:2001::1]:443", false),
+      item("ca_store", "Runner CA in the system certificate store", "the runner CA is in /etc/ssl/certs/ca-certificates.crt"),
+      item("captured", "The runner proxy received that connection", "2 connection(s) through the capture port"),
+    ],
+  };
+}
+
 /** Home and runners (the "Home & runners" chapter switches the demo to the Home role): the owner's laptop runner
  * and two Burst jobs that ran sessions while the laptop slept. In every other chapter the demo is one process. */
 function homeWorld() {
@@ -135,6 +156,7 @@ function homeWorld() {
   const runners: RunnerStatus[] = [{
     runner: { id: "demo-runner-laptop", name: "laptop", os: "linux", code: "", state: "approved", created_at: clock.ago(60 * 24 * 9), approved_at: clock.ago(60 * 24 * 9), last_seen_at: clock.ago(1), commit: "demo", protocol: 1, capabilities: caps, burst: false },
     connected: true, compat: "same", guard: { accept_launches: true, paused: false },
+    network_check: demoNetworkCheck(clock.ago(60 * 3)),
   }];
   const burstRuns: BurstRun[] = [
     { runner_id: "demo-burst-1", job_id: "demo-job-1", namespace: "demo-owner", flavor: "cpu-basic", url: null, state: "stopped", session_id: "demo-s-audit", created_at: clock.ago(60 * 9 + 2), connected_at: clock.ago(60 * 9 + 1), stopped_at: clock.ago(60 * 9 - 14), cost_per_minute: 0.01 / 60, error: null },

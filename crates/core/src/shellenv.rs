@@ -35,6 +35,8 @@ impl UserEnv {
         // Launchpad's own environment name must not leak either: an agent running `launchpad` commands
         // talks to the instance that started it, which the agent sets explicitly when needed.
         vars.remove("LAUNCHPAD_ENV");
+        // A Burst runner's own credential never reaches a process it starts.
+        vars.remove("LAUNCHPAD_BURST_CREDENTIAL");
         UserEnv { vars: Arc::new(vars), jail: None }
     }
 

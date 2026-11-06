@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Creates a Local VM runner with Multipass: an Ubuntu virtual machine with Docker and a Launchpad runner whose
-# boundary is the VM itself (agents run there without a jail and may use Docker, which needs root). Run it on the
-# laptop; it installs nothing on the laptop itself except the VM.
+# boundary is the VM itself (agents run there without a jail, under Launchpad's network capture, and may use Docker,
+# which needs root; agents cannot use sudo). Run it on the laptop; it installs nothing on the laptop itself except
+# the VM.
 #
 # Usage: packaging/local-vm.sh <Home address> [--name launchpad-vm] [--cpus 4] [--memory 8G] [--disk 40G]
 #
@@ -43,6 +44,8 @@ multipass transfer "$BIN" "$NAME:/tmp/launchpad"
 run 'install -Dm755 /tmp/launchpad ~/.local/bin/launchpad && rm /tmp/launchpad'
 # The VM is the boundary: no jail inside, Docker allowed.
 run 'mkdir -p ~/.config/launchpad-runner && f=~/.config/launchpad-runner/config.toml; grep -q "^\[runner\]" "$f" 2>/dev/null || printf "\n[runner]\nboundary = \"vm\"\n" >> "$f"'
+# Agents run under Launchpad's network capture: the runner proxy's CA goes into the VM's system store.
+run 'sudo install -m 644 "$(LAUNCHPAD_ROLE=runner ~/.local/bin/launchpad proxy-ca)" /usr/local/share/ca-certificates/launchpad-runner.crt && sudo update-ca-certificates >/dev/null'
 run 'mkdir -p ~/.config/systemd/user && cat > ~/.config/systemd/user/launchpad-runner.service <<UNIT
 [Unit]
 Description=Launchpad runner (Local VM)

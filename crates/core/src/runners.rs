@@ -104,6 +104,8 @@ pub struct RunnerStatus {
     /// Build comparison while connected.
     pub compat: Option<Compat>,
     pub guard: Option<Guard>,
+    /// The last network check the owner ran on it (`netcap::network_check`), until Home restarts.
+    pub network_check: Option<crate::netcap::NetworkCheck>,
 }
 
 fn hash(secret: &str) -> String {
@@ -338,7 +340,7 @@ pub async fn deliver_archives(app: &App, runner_id: &str) {
 pub async fn list(app: &App) -> Result<Vec<RunnerStatus>> {
     let mut out: Vec<RunnerStatus> = load(app).await?.into_iter().filter(|(r, _)| !r.burst).map(|(runner, _)| {
         let live = app.runners.live(&runner.id);
-        RunnerStatus { connected: live.is_some(), compat: live.as_ref().map(|l| l.0), guard: live.map(|l| l.1), runner }
+        RunnerStatus { connected: live.is_some(), compat: live.as_ref().map(|l| l.0), guard: live.map(|l| l.1), network_check: crate::netcap::last(&runner.id), runner }
     }).collect();
     out.sort_by_key(|r| (r.runner.state != RunnerState::Pending, r.runner.name.to_lowercase()));
     Ok(out)
@@ -372,6 +374,9 @@ pub mod proto {
         Lease { lease_id: String, host: String },
         /// An MCP server of Home, through its gateway, for any runner.
         Mcp { lease_id: String, server: String },
+        /// A TCP connection Home opens to a public address for a Burst runner (its agents' traffic): status 200
+        /// once connected, then the request body goes to the connection and its bytes come back as the answer.
+        Tcp { host: String, port: u16 },
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
