@@ -27,7 +27,7 @@ import { useConfig, useHarnessDefaults, useStatus, type ConfigResponse } from "@
 import { costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, usesModelReference, useProfileModels, windowLabel } from "@/lib/profiles";
 import { useOpenTerminal } from "@/features/terminals/lib";
 import { Card, ConfigError, SettingsPage } from "./SettingsView";
-import { ConfirmButton, Loading } from "@/components/ui";
+import { ConfirmButton, Loading, MenuSection, MoreMenu } from "@/components/ui";
 import { Link, useBlocker } from "@tanstack/react-router";
 
 /** Editable form of a profile: environment rows keep their order and allow empty names while typing. */
@@ -297,7 +297,7 @@ function ProfileCard({ draft: d, open, problem, dirty, onToggle, onChange, onDel
     spend?.windows.length ? spend.windows.map((w) => `${usd(w.used_usd)}/${usd(w.limit_usd)} per ${windowLabel(w.hours)}`).join(" · ") : null,
   ].filter(Boolean).join(" · ");
   return (
-    <div ref={ref} className={`@container grid scroll-mt-4 rounded-lg border ${problem && open ? "border-attn-line" : "border-line"}`}>
+    <div ref={ref} className={`group @container grid scroll-mt-4 rounded-lg border ${problem && open ? "border-attn-line" : "border-line"}`}>
       <div className="flex min-h-[44px] flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5">
         <button className="flex min-w-0 flex-1 basis-[260px] items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-sunk" aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${d.name || "new profile"}`} onClick={onToggle}>
           <Icon name="chev" size={12} className={`shrink-0 text-ink-3 ${open ? "" : "-rotate-90"}`} />
@@ -315,7 +315,9 @@ function ProfileCard({ draft: d, open, problem, dirty, onToggle, onChange, onDel
               <span className="text-ink-2">{m.label}</span>
             </span>
           ))}
-          {d.saved ? <ConfirmButton icon="trash" title={`Delete ${d.name || "profile"}`} consequence="Sessions using it fail on resume." confirmLabel="Delete" onConfirm={onDelete}>{""}</ConfirmButton> : <button className="iconbtn" title="Discard this new profile" aria-label="Discard this new profile" onClick={() => void onDelete()}><Icon name="trash" size={14} /></button>}
+          <span className="lp-row-more flex"><MoreMenu label={`More actions for ${d.name || "the new profile"}`}>{(close) => d.saved
+            ? <MenuSection><ConfirmButton icon="trash" consequence="Sessions using it fail on resume." confirmLabel="Delete" onConfirm={async () => { close(); await onDelete(); }}>Delete</ConfirmButton></MenuSection>
+            : <MenuItem icon={<Icon name="trash" size={14} />} label="Discard" detail="This new profile is not saved yet" onClick={() => { close(); void onDelete(); }} />}</MoreMenu></span>
         </span>
       </div>
       {open && <ProfileEditor draft={d} problem={problem} onChange={onChange} machines={machines} />}

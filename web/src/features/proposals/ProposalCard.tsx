@@ -8,7 +8,7 @@ import { HarnessMark } from "@/components/HarnessMark";
 import { Icon, type IconName } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { MenuItem } from "@/components/Popover";
-import { ConfirmButton, ErrorState, MoreMenu, Token } from "@/components/ui";
+import { ConfirmButton, ErrorState, MenuSection, MoreMenu, Token } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useProfiles } from "@/lib/profiles";
 import { useProjects, useSessions } from "@/lib/queries";
@@ -205,7 +205,7 @@ function EditMenuItem({ p, close }: { p: Proposal; close: () => void }) {
   const qc = useQueryClient();
   const hasDraft = useComposer((s) => s.open && (!!s.spec.text.trim() || s.spec.github_refs.length > 0));
   if (!specOf(p)) return null;
-  if (hasDraft) return <div className="mt-0.5 border-t border-line-2 px-2 pt-1.5 pb-0.5"><ConfirmButton tone="publish" icon="pencil" consequence="Replace the current draft? This card is then replaced by what you launch." confirmLabel="Replace draft" onConfirm={() => { close(); return editInComposer(p, qc); }}>Edit</ConfirmButton></div>;
+  if (hasDraft) return <MenuSection><ConfirmButton tone="publish" icon="pencil" consequence="Replace the current draft? This card is then replaced by what you launch." confirmLabel="Replace draft" onConfirm={() => { close(); return editInComposer(p, qc); }}>Edit</ConfirmButton></MenuSection>;
   return <MenuItem icon={<Icon name="pencil" size={14} />} label="Edit" detail="In the composer; this card is then replaced by what you launch" onClick={() => { close(); void editInComposer(p, qc); }} />;
 }
 

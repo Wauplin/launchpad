@@ -5,7 +5,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useRef, useState } from "react";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { toastError } from "@/components/Toast";
-import { ConfirmButton, Empty, FilterChip, FilterChips, Loading, SettingRow, useSaveState } from "@/components/ui";
+import { ConfirmButton, Empty, FilterChip, FilterChips, Loading, MenuSection, RowActions, SettingRow, useSaveState } from "@/components/ui";
+import { MenuItem } from "@/components/Popover";
+import { Icon } from "@/components/Icon";
 import { api } from "@/lib/api";
 import { useConfig } from "@/lib/queries";
 import { offlineWorktreesNote, useOfflineRunners } from "@/lib/runners";
@@ -31,15 +33,19 @@ const WorktreeRow = memo(function WorktreeRow({ info: i, bytes }: { info: Worktr
     try { await api.post(`/api/worktrees/${w.id}/${action}?session=${encodeURIComponent(worktreeSession(w) ?? "")}`); } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   return (
-    <div className="flex h-[56px] items-center gap-3 border-b border-line-2 px-3 text-xs">
+    <div className="group flex h-[56px] items-center gap-3 border-b border-line-2 px-3 text-xs">
       <div className="grid min-w-0 flex-1 gap-0.5">
         <span className="flex min-w-0 items-center gap-1.5"><b className="truncate font-mono text-[12px]">{w.branch}</b><span className="shrink-0 text-ink-3">{i.project_name}</span></span>
         <span className="truncate text-ink-3" title={w.push_note ?? w.cleanup_note ?? i.path}>{worktreeState(i)}{w.push_note ? ` · ${w.push_note}` : ""}{w.cleanup_note && w.state === "active" ? ` · ${w.cleanup_note}` : ""}{size(bytes) ? ` · ${size(bytes)}` : ""}</span>
       </div>
-      {w.sessions.length > 0 && <button className="btn btn-sm" onClick={() => { show(w.sessions[w.sessions.length - 1]); void navigate({ to: "/agents" }); }}>Agent</button>}
-      {w.state === "active" && <button className="btn btn-sm" disabled={busy} title="Push the branch to Home, save uncommitted files to a scratch branch, then remove the folder; Resume clones it again" onClick={() => void act("remove")}>Remove folder</button>}
-      {w.state === "removed" && <button className="btn btn-sm" disabled={busy} onClick={() => void act("restore")}>Restore</button>}
-      {(w.state === "active" || w.state === "removed") && <ConfirmButton disabled={busy} consequence="Deletes the folder and the branch, including uncommitted work. The branch tip stays restorable on Home for 30 days." confirmLabel="Discard" onConfirm={() => act("discard")}>Discard</ConfirmButton>}
+      {/* One visible action (Remove folder or Restore); Open agent and Discard in ⋯. */}
+      <RowActions label={`More actions for ${w.branch}`} width={112} main={w.state === "active"
+        ? <button className="btn btn-sm" disabled={busy} title="Push the branch to Home, save uncommitted files to a scratch branch, then remove the folder; Resume clones it again" onClick={() => void act("remove")}>Remove folder</button>
+        : w.state === "removed" && <button className="btn btn-sm" disabled={busy} onClick={() => void act("restore")}>Restore</button>}
+        more={(w.sessions.length > 0 || w.state === "active" || w.state === "removed") && ((close) => <>
+          {w.sessions.length > 0 && <MenuItem icon={<Icon name="agents" size={14} />} label="Open agent" onClick={() => { close(); show(w.sessions[w.sessions.length - 1]); void navigate({ to: "/agents" }); }} />}
+          {(w.state === "active" || w.state === "removed") && <MenuSection><ConfirmButton disabled={busy} icon="trash" consequence="Deletes the folder and the branch, including uncommitted work. The branch tip stays restorable on Home for 30 days." confirmLabel="Discard" onConfirm={() => { close(); return act("discard"); }}>Discard</ConfirmButton></MenuSection>}
+        </>)} />
     </div>
   );
 });

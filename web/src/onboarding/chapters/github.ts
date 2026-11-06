@@ -28,7 +28,7 @@ export const github: Chapter = {
     {
       id: "github.launch", route: "/inbox", anchor: "inbox.row",
       title: "Act on a thread",
-      body: "Done archives the thread like on GitHub. Hover a row for its other actions: Launch starts an agent with the PR or issue as context; + Add adds it to the draft you are writing.",
+      body: "Done archives the thread like on GitHub. The ⋯ of a row holds its other actions: Launch starts an agent with the PR or issue as context; Add to the draft adds it to the draft you are writing.",
       tryIt: {
         text: "hover a row and press Launch to start a draft with that PR.",
         done: () => useComposer.getState().open && useComposer.getState().spec.github_refs.length > 0,

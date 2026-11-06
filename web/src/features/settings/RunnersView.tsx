@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Guard } from "@/gen/Guard";
 import type { RemoteLaunch } from "@/gen/RemoteLaunch";
 import { toast, toastError } from "@/components/Toast";
-import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, SettingRow } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, MenuSection, MoreMenu, SettingRow } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
@@ -147,7 +147,7 @@ function HomeRunners() {
                 <span className="flex min-w-0 flex-wrap items-center justify-end gap-2">
                 <span className="font-mono text-[15px] font-semibold tracking-wide whitespace-nowrap" title="Compare with the code in the terminal">{r.runner.code}</span>
                 <ConfirmButton tone="publish" className="btn-primary" consequence={`Lets ${r.runner.name} run agents for this Home. Approve only if the terminal shows ${r.runner.code}.`} confirmLabel="Approve" onConfirm={() => api.post(`/api/runners/${r.runner.id}/approve`, {}).then(() => { toast(`Approved ${r.runner.name}`); setAdding(false); return refresh(); }, toastError)}>Approve</ConfirmButton>
-                <ConfirmButton icon="trash" consequence="Refuses this request." confirmLabel="Refuse" onConfirm={() => api.delete(`/api/runners/${r.runner.id}`).then(refresh, toastError)}>Refuse</ConfirmButton>
+                <MoreMenu label={`More actions for ${r.runner.name}`}>{(close) => <MenuSection><ConfirmButton icon="trash" consequence="Refuses this request." confirmLabel="Refuse" onConfirm={() => api.delete(`/api/runners/${r.runner.id}`).then(() => { close(); return refresh(); }, toastError)}>Refuse</ConfirmButton></MenuSection>}</MoreMenu>
                 </span>
               </div>
             ))}

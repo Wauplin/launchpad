@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { action, actionConfirm, runAction, type ActionName, type ActionParams } from "@/lib/actions";
-import { ConfirmButton } from "./ui";
+import { ConfirmButton, MenuSection } from "./ui";
 import { MenuItem } from "./Popover";
 import { Icon, type IconName } from "./Icon";
 import { toastError } from "./Toast";
@@ -77,7 +77,7 @@ export function ActionMenuItem<T = unknown>({ name, params, vars, body, query, c
 }) {
   const a = action(name);
   if (actionConfirm(name, { ...vars, ...params }))
-    return <div className="mt-0.5 border-t border-line-2 px-2 pt-1.5 pb-0.5"><ActionButton name={name} params={params} vars={vars} body={body} query={query} onDone={async (r: T) => { close(); await onDone?.(r); }}>{label}</ActionButton></div>;
+    return <MenuSection><ActionButton name={name} params={params} vars={vars} body={body} query={query} onDone={async (r: T) => { close(); await onDone?.(r); }}>{label}</ActionButton></MenuSection>;
   const icon = (iconOverride === null ? undefined : iconOverride ?? a.icon ?? undefined) as IconName | undefined;
   return <MenuItem icon={icon && <Icon name={icon} size={14} />} label={label ?? a.label} detail={detail} onClick={() => {
     close();

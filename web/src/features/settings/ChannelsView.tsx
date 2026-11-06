@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import type { Channel } from "@/gen/Channel";
 import type { ChannelKind } from "@/gen/ChannelKind";
 import type { CreatedHook } from "@/gen/CreatedHook";
@@ -12,7 +12,8 @@ import type { HookTarget } from "@/gen/HookTarget";
 import type { TelegramStatus } from "@/gen/TelegramStatus";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
-import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, SettingRow, Token } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, MenuSection, MoreMenu, RowActions, SettingRow, Token } from "@/components/ui";
+import { MenuItem } from "@/components/Popover";
 import { api } from "@/lib/api";
 import { useBots } from "@/lib/bots";
 import { copyText } from "@/lib/clipboard";
@@ -79,12 +80,15 @@ function Telegram({ t }: { t: TelegramStatus }) {
               <label className="flex items-center gap-2"><input type="checkbox" className="accent-teal" checked={t.titles} disabled={busy || !t.notify} onChange={(e) => act(() => api.patch<TelegramStatus>("/api/channels/telegram", { titles: e.target.checked }).then(set))} />Include session titles</label>
             </span>
           </SettingRow>
-          <div className="flex flex-wrap gap-2">
-            <button className="btn btn-sm" disabled={busy} onClick={() => act(() => api.post("/api/channels/telegram/test").then(() => toast("Test message sent")))}><Icon name="send" size={12} />Send test message</button>
-            {!t.code && <button className="btn btn-sm" disabled={busy} onClick={() => act(() => api.post<TelegramStatus>("/api/channels/telegram/code").then(set))}>Bind another chat</button>}
-          </div>
         </>}
-        <ConfirmButton icon="trash" className="w-fit" consequence="Removes the bot token and the bound chat from Home. Telegram is no longer read or answered." confirmLabel="Remove" onConfirm={() => api.delete("/api/channels/telegram").then(refresh, toastError)}>Remove Telegram</ConfirmButton>
+        {/* One visible button (Send test message); Bind another chat and Remove Telegram in ⋯. */}
+        <div className="flex flex-wrap items-center gap-1">
+          {t.bound && <button className="btn btn-sm" disabled={busy} onClick={() => act(() => api.post("/api/channels/telegram/test").then(() => toast("Test message sent")))}><Icon name="send" size={12} />Send test message</button>}
+          <MoreMenu label="More Telegram actions" width={280}>{(close) => <>
+            {t.bound && !t.code && <MenuItem icon={<Icon name="plus" size={14} />} label="Bind another chat" detail="Shows a new binding code" disabled={busy} onClick={() => { close(); act(() => api.post<TelegramStatus>("/api/channels/telegram/code").then(set)); }} />}
+            <MenuSection><ConfirmButton icon="trash" consequence="Removes the bot token and the bound chat from Home. Telegram is no longer read or answered." confirmLabel="Remove" onConfirm={() => api.delete("/api/channels/telegram").then(() => { close(); return refresh(); }, toastError)}>Remove Telegram</ConfirmButton></MenuSection>
+          </>}</MoreMenu>
+        </div>
       </>}
     </Card>
   );
@@ -145,6 +149,7 @@ function targetName(t: HookTarget, bots: { id: string; settings: { name: string 
 }
 
 function Incoming({ hooks, origin }: { hooks: Hook[]; origin: string }) {
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: ["channels"] });
   const bots = useBots().data ?? [];
@@ -173,13 +178,17 @@ function Incoming({ hooks, origin }: { hooks: Hook[]; origin: string }) {
       )}
       {hooks.length === 0 && !created && <Empty icon="info">No incoming hook yet.</Empty>}
       {hooks.map((h) => (
-        <div key={h.id} className="grid gap-1 border-b border-line-2 pb-2 text-[13px] last:border-b-0 last:pb-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="min-w-0 flex-1"><b>{h.name}</b> <span className="text-[12px] text-ink-3">→ {targetName(h.target, bots)} · {h.count} {h.count === 1 ? "message" : "messages"}{h.last_at ? `, last ${ago(h.last_at)}` : ""}</span></span>
-            {h.last_session && <Link to="/agents" search={{ session: h.last_session } as never} className="text-[12px] text-teal-ink no-underline hover:underline">Last session</Link>}
-            <ConfirmButton icon="trash" consequence={`Deletes ${h.name}: its URL stops working.`} confirmLabel="Delete" onConfirm={() => api.delete(`/api/channels/hooks/${h.id}`).then(refresh, toastError)}>Delete</ConfirmButton>
-          </div>
-          <span className="flex flex-wrap items-center gap-2"><code className="break-all text-[12px] text-ink-2">{origin}/hooks/{h.id}</code><button className="btn btn-sm" onClick={() => copy(`${origin}/hooks/${h.id}`, "URL")}><Icon name="copy" size={12} />Copy URL</button><button className="btn btn-sm" onClick={() => copy(curl(origin, h.id, "<secret>"), "Example")}><Icon name="copy" size={12} />Copy curl example</button></span>
+        <div key={h.id} className="group flex flex-wrap items-center gap-2 border-b border-line-2 pb-2 text-[13px] last:border-b-0 last:pb-0">
+          <span className="grid min-w-0 flex-1 gap-0.5">
+            <span><b>{h.name}</b> <span className="text-[12px] text-ink-3">→ {targetName(h.target, bots)} · {h.count} {h.count === 1 ? "message" : "messages"}{h.last_at ? `, last ${ago(h.last_at)}` : ""}</span></span>
+            <code className="break-all text-[12px] text-ink-2">{origin}/hooks/{h.id}</code>
+          </span>
+          {/* One visible action (Copy URL); the curl example, the last session and Delete in ⋯. */}
+          <RowActions label={`More actions for ${h.name}`} menuWidth={260} main={<button className="btn btn-sm" onClick={() => copy(`${origin}/hooks/${h.id}`, "URL")}><Icon name="copy" size={12} />Copy URL</button>} more={(close) => <>
+            <MenuItem icon={<Icon name="copy" size={14} />} label="Copy curl example" onClick={() => { close(); copy(curl(origin, h.id, "<secret>"), "Example"); }} />
+            {h.last_session && <MenuItem icon={<Icon name="agents" size={14} />} label="Open the last session" onClick={() => { close(); void navigate({ to: "/agents", search: { session: h.last_session! } as never }); }} />}
+            <MenuSection><ConfirmButton icon="trash" consequence={`Deletes ${h.name}: its URL stops working.`} confirmLabel="Delete" onConfirm={() => api.delete(`/api/channels/hooks/${h.id}`).then(() => { close(); return refresh(); }, toastError)}>Delete</ConfirmButton></MenuSection>
+          </>} />
         </div>
       ))}
       {!open ? <button className="btn btn-sm w-fit" data-tour="channels.add-hook" onClick={() => setOpen(true)}><Icon name="plus" size={12} />Create a hook</button> : (

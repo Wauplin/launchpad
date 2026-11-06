@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import type { Config } from "@/gen/Config";
 import type { Preset } from "@/gen/Preset";
 import { Icon } from "@/components/Icon";
-import { ConfirmButton, IntroButton, Loading, SettingRow, useSaveState, type SaveState } from "@/components/ui";
+import { ConfirmButton, IntroButton, Loading, MenuSection, MoreMenu, SettingRow, useSaveState, type SaveState } from "@/components/ui";
 import { useIntro } from "@/lib/intros";
 import { api } from "@/lib/api";
 import { DEFAULT_ZOOM, ZOOM_LEVELS, useZoom } from "@/lib/zoom";
@@ -172,7 +172,7 @@ export function PresetsView() {
               <label className="flex min-h-8 items-center gap-2"><input type="checkbox" checked={p.bots === true} onChange={(e) => save(presets.map((x, j) => j === i ? { ...x, bots: e.target.checked } : x))} />Bots</label>
               <label className="flex min-h-8 items-center gap-2"><input type="checkbox" checked={p.agent !== false} onChange={(e) => save(presets.map((x, j) => j === i ? { ...x, agent: e.target.checked } : x))} />Agent composer / steering</label>
             </div>
-            <div className="preset-delete col-start-4 row-start-1"><ConfirmButton icon="trash" title="Delete preset" consequence="Delete this preset?" confirmLabel="Delete" onConfirm={() => save(presets.filter((_, j) => j !== i))}>{""}</ConfirmButton></div>
+            <div className="preset-delete col-start-4 row-start-1"><MoreMenu label={`More actions for ${p.label || "this preset"}`}>{(close) => <MenuSection><ConfirmButton icon="trash" consequence="Delete this preset?" confirmLabel="Delete" onConfirm={() => { close(); save(presets.filter((_, j) => j !== i)); }}>Delete</ConfirmButton></MenuSection>}</MoreMenu></div>
           </div>
         ))}
       </Card>

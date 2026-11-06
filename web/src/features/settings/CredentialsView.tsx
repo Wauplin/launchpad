@@ -12,7 +12,9 @@ import type { ToolInstallKind } from "@/gen/ToolInstallKind";
 import type { VaultKind } from "@/gen/VaultKind";
 import type { VaultOverview } from "@/gen/VaultOverview";
 import { toast, toastError } from "@/components/Toast";
-import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, SettingRow, Token } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, MenuSection, RowActions, SettingRow, Token } from "@/components/ui";
+import { MenuItem } from "@/components/Popover";
+import { Icon } from "@/components/Icon";
 import { api } from "@/lib/api";
 import { delegatedAccess } from "@/lib/deployment";
 import { homeStatus } from "@/features/setup/summary";
@@ -249,15 +251,26 @@ export function hostConflict(kept: Tool[], t: Tool): Tool | undefined {
   return kept.find((k) => k.credential && k.credential !== t.credential && k.hosts.some((a) => t.hosts.some((b) => a.host.toLowerCase() === b.host.toLowerCase())));
 }
 
-/** Home calls the tool's check URL with the token; only the answer comes back. */
-function TestTool({ tool }: { tool: Tool }) {
+/** A tool row: Edit visible; Test (Home calls the tool's check URL with the token; only the answer comes back) and
+ * Remove in ⋯. The test result shows in the row. */
+function ToolRow({ t, missing, conflict, wsName, onEdit, onDone }: { t: Tool; missing: boolean; conflict: Tool | undefined; wsName: (id: string) => string; onEdit: () => void; onDone: () => unknown }) {
   const [result, setResult] = useState<ToolTest | null>(null);
   const [busy, setBusy] = useState(false);
-  const run = () => { setBusy(true); void api.post<ToolTest>(`/api/vault/tools/${tool.id}/test`, {}).then(setResult, toastError).finally(() => setBusy(false)); };
-  return <>
-    {result && <Badge tone={result.ok ? "ok" : "attn"} title={result.message}>{result.ok ? "token works" : result.status ? `refused · ${result.status}` : "unreachable"}</Badge>}
-    <button className="btn btn-sm" disabled={busy} title={`Calls ${tool.check_url} from Home with the token`} onClick={run}>{busy ? "Testing…" : "Test"}</button>
-  </>;
+  const test = () => { setBusy(true); void api.post<ToolTest>(`/api/vault/tools/${t.id}/test`, {}).then(setResult, toastError).finally(() => setBusy(false)); };
+  return (
+    <div className="group flex flex-wrap items-center gap-2 text-[13px]">
+      <span className="grid min-w-0 flex-1 gap-0.5">
+        <span className="flex flex-wrap items-center gap-1.5"><b>{t.name}</b><span className="font-mono text-[12px] text-ink-3">{t.id}</span>{missing && <Badge tone="attn">token {t.credential} missing</Badge>}</span>
+        {conflict && <span className="text-[12px] text-ink-3">Uses the same host as {conflict.name}: a launch gets {conflict.name} unless you pick {t.name} in the composer's Tools.</span>}
+        <span className="text-[12px] text-ink-3">{installText(t)} · {t.env.join(", ") || "no variable"}{Object.keys(t.vars ?? {}).length > 0 && ` · settings ${Object.entries(t.vars).map(([k, x]) => `${k}=${x}`).join(", ")}`} · {t.hosts.map((h) => h.host).join(", ") || "no host"} · {t.workspaces.length ? t.workspaces.map(wsName).join(", ") : "not granted"}</span>
+      </span>
+      {busy ? <span className="text-[12px] text-ink-3">Testing…</span> : result && <Badge tone={result.ok ? "ok" : "attn"} title={result.message}>{result.ok ? "token works" : result.status ? `refused · ${result.status}` : "unreachable"}</Badge>}
+      <RowActions label={`More actions for ${t.name}`} width={64} main={<button className="btn btn-sm" onClick={onEdit}>Edit</button>} more={(close) => <>
+        {t.check_url && <MenuItem icon={<Icon name="check" size={14} />} label="Test" detail="Home calls its check URL with the token" disabled={busy} onClick={() => { close(); test(); }} />}
+        <MenuSection><ConfirmButton icon="trash" consequence={`Removes ${t.name}. New sessions no longer get it.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/vault/tools/${t.id}`).then(() => { close(); return onDone(); }, toastError)}>Remove</ConfirmButton></MenuSection>
+      </>} />
+    </div>
+  );
 }
 
 function Tools({ v, onDone }: { v: VaultOverview; onDone: () => unknown }) {
@@ -271,18 +284,7 @@ function Tools({ v, onDone }: { v: VaultOverview; onDone: () => unknown }) {
     <Card title="Tools" end={<button className="btn btn-sm" onClick={exportToml}>Copy as TOML</button>}>
       <span className="text-[12px] text-ink-3">Runners install each granted tool in their own folder, on the agent's PATH. Its variables hold a placeholder; the proxy adds the token on its hosts.</span>
       {v.tools.length === 0 && <Empty icon="term">No tool yet. Start from GitHub CLI or Hugging Face CLI below.</Empty>}
-      {v.tools.map((t, i) => (
-        <div key={t.id} className="flex flex-wrap items-center gap-2 text-[13px]">
-          <span className="grid min-w-0 flex-1 gap-0.5">
-            <span className="flex flex-wrap items-center gap-1.5"><b>{t.name}</b><span className="font-mono text-[12px] text-ink-3">{t.id}</span>{t.credential && !v.entries.some((e) => e.id === t.credential) && <Badge tone="attn">token {t.credential} missing</Badge>}</span>
-            {(() => { const first = hostConflict(v.tools.slice(0, i), t); return first && <span className="text-[12px] text-ink-3">Uses the same host as {first.name}: a launch gets {first.name} unless you pick {t.name} in the composer's Tools.</span>; })()}
-            <span className="text-[12px] text-ink-3">{installText(t)} · {t.env.join(", ") || "no variable"}{Object.keys(t.vars ?? {}).length > 0 && ` · settings ${Object.entries(t.vars).map(([k, x]) => `${k}=${x}`).join(", ")}`} · {t.hosts.map((h) => h.host).join(", ") || "no host"} · {t.workspaces.length ? t.workspaces.map(wsName).join(", ") : "not granted"}</span>
-          </span>
-          {t.check_url && <TestTool tool={t} />}
-          <button className="btn btn-sm" onClick={() => setEditing(t)}>Edit</button>
-          <ConfirmButton icon="trash" consequence={`Removes ${t.name}. New sessions no longer get it.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/vault/tools/${t.id}`).then(onDone, toastError)}>Remove</ConfirmButton>
-        </div>
-      ))}
+      {v.tools.map((t, i) => <ToolRow key={t.id} t={t} missing={!!t.credential && !v.entries.some((e) => e.id === t.credential)} conflict={hostConflict(v.tools.slice(0, i), t)} wsName={wsName} onEdit={() => setEditing(t)} onDone={onDone} />)}
       {editing ? <ToolEditor tool={editing} v={v} onClose={() => setEditing(null)} onDone={onDone} /> : (
         <div className="flex flex-wrap gap-2">
           {/* Slack has its own card above. */}

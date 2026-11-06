@@ -7,7 +7,8 @@ import { memo, useEffect, useState } from "react";
 import { useHarnessName } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
-import { Choice, Choices, ConfirmButton, StatusBadge } from "@/components/ui";
+import { Choice, Choices, ConfirmButton, MenuSection, MoreMenu, StatusBadge } from "@/components/ui";
+import { MenuItem } from "@/components/Popover";
 import { CronFields, DEFAULT_CRON, conditionSummary } from "@/features/launch/CronSelector";
 import type { Bot } from "@/gen/Bot";
 import type { CronAgent } from "@/gen/CronAgent";
@@ -136,11 +137,13 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
         <p className="m-0 text-[12px] text-ink-3">{where}</p>
         {cron.conditions.length > 0 && <ul className="m-0 list-disc pl-5 text-xs text-ink-2">{cron.conditions.map((c, i) => <li key={i}>{conditionSummary(c, cron.spec.harness, harnessName)}</li>)}</ul>}
         <p className="m-0 text-xs text-ink-3">{success ? `Last successful run ${ago(success.at)} (${success.outcome === "report" ? "report" : "nothing to report"}).` : "No successful run yet."}{cron.last_outcome && !cron.last_outcome.startsWith("Report") && !cron.last_outcome.startsWith("No update") ? ` Last: ${cron.last_outcome}.` : ""}</p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button className="btn btn-sm btn-primary" disabled={busy} title="Starts a run now, whatever the trigger and the conditions" onClick={() => void act(async () => { onOpen((await api.post<Session>(`/api/launch/crons/${cron.id}/run`)).id); })}><Icon name="play" size={12} />Run now</button>
           <button className="btn btn-sm" disabled={busy} onClick={() => setEdit({ trigger: cron.trigger, schedule: cron.schedule, conditions: cron.conditions, title: cron.title, instructions: cron.spec.text })}><Icon name="pencil" size={12} />Edit</button>
-          <button className="btn btn-sm" disabled={busy || cron.bot_paused} title={cron.bot_paused ? "Resume the bot to resume its routines" : cron.paused ? "Runs start again from the next trigger" : "No run starts until you resume it"} onClick={() => void act(async () => { await api.patch(`/api/launch/crons/${cron.id}`, { paused: !cron.paused }); })}>{cron.paused ? "Resume" : "Pause"}</button>
-          <ConfirmButton icon="trash" consequence={`Delete the routine “${cron.title}”? Its past runs stay in Agents.`} confirmLabel="Delete routine" onConfirm={() => act(async () => { await api.delete(`/api/launch/crons/${cron.id}`); onDeleted?.(); })}>Delete</ConfirmButton>
+          <MoreMenu label={`More actions for ${cron.title}`} width={280}>{(close) => <>
+            <MenuItem icon={<Icon name={cron.paused ? "play" : "stop"} size={14} />} label={cron.paused ? "Resume" : "Pause"} detail={cron.bot_paused ? "Resume the bot to resume its routines" : cron.paused ? "Runs start again from the next trigger" : "No run starts until you resume it"} disabled={busy || cron.bot_paused} onClick={() => { close(); void act(async () => { await api.patch(`/api/launch/crons/${cron.id}`, { paused: !cron.paused }); }); }} />
+            <MenuSection><ConfirmButton icon="trash" consequence={`Delete the routine “${cron.title}”? Its past runs stay in Agents.`} confirmLabel="Delete routine" onConfirm={() => { close(); return act(async () => { await api.delete(`/api/launch/crons/${cron.id}`); onDeleted?.(); }); }}>Delete</ConfirmButton></MenuSection>
+          </>}</MoreMenu>
         </div>
       </>}
     </div>

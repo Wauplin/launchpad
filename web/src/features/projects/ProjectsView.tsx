@@ -8,7 +8,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { memo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { MenuItem } from "@/components/Popover";
-import { ConfirmButton, Empty, PageHeader, RowActions } from "@/components/ui";
+import { ConfirmButton, Empty, MenuSection, MoreMenu, PageHeader, RowActions } from "@/components/ui";
 import { useOpenTerminal, useTerminalsHere } from "@/features/terminals/lib";
 import { useAddFolder } from "./addFolderStore";
 import type { Project } from "@/gen/Project";
@@ -77,12 +77,13 @@ export function TempProjectCard({ p }: { p: Project }) {
         Temporary folder · {open.length ? `${open.length} open agent${open.length > 1 ? "s" : ""}` : "No open agent"} · Saved on Home; leaves this list when its last agent is archived, and Home deletes it 30 days later, unless you keep it as a folder
       </div>
       <KeepFolder p={p} disabled={running} title={running ? "Wait for its agent to finish" : undefined} />
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
         <LaunchButton small ctx={{ projectId: p.id }} label="Launch here" primary={false} />
-        <ConfirmButton icon="trash" consequence={`Deletes ${p.path} from disk${open.length ? " and stops its agents" : ""}. Home keeps a copy of its files 30 days, for a resume.`} confirmLabel="Delete files" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => {
+        <MoreMenu label={`More actions for ${p.name}`} width={280}>{(close) => <MenuSection><ConfirmButton icon="trash" consequence={`Deletes ${p.path} from disk${open.length ? " and stops its agents" : ""}. Home keeps a copy of its files 30 days, for a resume.`} confirmLabel="Delete files" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => {
+          close();
           toast(`Deleted ${p.path}`);
           void qc.invalidateQueries({ queryKey: ["projects"] });
-        }, toastError)}>Delete files</ConfirmButton>
+        }, toastError)}>Delete files</ConfirmButton></MenuSection>}</MoreMenu>
       </div>
     </div>
   );
@@ -105,9 +106,9 @@ function FolderMenu({ p, close }: { p: Project; close: () => void }) {
       {others.map((w) => (
         <MenuItem key={w.id} icon={<Icon name="folder" size={14} />} label={`Move to ${w.name}`} onClick={() => { close(); void moveFolder(p, w).then(() => { toast(`Moved ${p.name} to ${w.name}`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError); }} />
       ))}
-      <div className="mt-0.5 border-t border-line-2 px-2 pt-1.5 pb-0.5">
+      <MenuSection>
         <ConfirmButton icon="trash" consequence="Unregisters it; files on disk are kept." confirmLabel="Remove" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => { close(); toast(`Removed ${p.name} from Launchpad`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError)}>Remove from Launchpad</ConfirmButton>
-      </div>
+      </MenuSection>
     </>
   );
 }

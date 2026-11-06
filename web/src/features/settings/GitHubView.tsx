@@ -6,7 +6,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
-import { Empty, Loading, SettingRow, useSaveState } from "@/components/ui";
+import { Empty, Loading, RowActions, SettingRow, useSaveState } from "@/components/ui";
 import { useInbox } from "@/features/inbox/data";
 import { openExternal } from "@/lib/platform";
 import { usePhone } from "@/lib/phone";
@@ -49,23 +49,24 @@ type Orphan = { repo: string; count: number; last: number };
 
 // The phone puts the two 44 px buttons on their own line.
 const ROW = 52;
-const PHONE_ROW = 108;
+const PHONE_ROW = 64;
 
 const OrphanRow = memo(function OrphanRow({ r, phone }: { r: Orphan; phone: boolean }) {
   const workspaces = useWorkspaces().data ?? [];
+  // One visible action (Add to ▾); Open on GitHub in ⋯.
+  const add = <Popover viewport align="right" width={240} trigger={({ open, toggle }) => <button className="btn btn-sm" aria-expanded={open} onClick={toggle}>Add to<Icon name="chev" size={11} /></button>}>
+    {(close) => <>
+      <div className="seclabel px-2 pt-1 pb-0.5">Add {r.repo} to</div>
+      {workspaces.map((w) => <MenuItem key={w.id} label={w.name} onClick={() => { close(); useAddFolder.getState().show({ repo: r.repo, workspaceId: w.id }); }} />)}
+    </>}
+  </Popover>;
   return (
-    <div className={`flex items-center gap-2 border-b border-line-2 px-3 text-[13px] ${phone ? "h-[108px] flex-wrap content-center [&>.btn]:flex-1" : "h-[52px]"}`}>
-      <span className={`grid min-w-0 ${phone ? "basis-full" : "flex-1"}`}>
+    <div className={`group flex items-center gap-2 border-b border-line-2 px-3 text-[13px] ${phone ? "h-[64px]" : "h-[52px]"}`}>
+      <span className="grid min-w-0 flex-1">
         <b className="truncate font-mono text-[12px]">{r.repo}</b>
         <span className="text-[12px] text-ink-3">{r.count} notification{r.count === 1 ? "" : "s"} · {ago(r.last)}</span>
       </span>
-      <Popover viewport align="right" width={240} className={phone ? "flex-1" : ""} trigger={({ open, toggle }) => <button className={`btn btn-sm ${phone ? "w-full" : ""}`} aria-expanded={open} onClick={toggle}>Add to<Icon name="chev" size={11} /></button>}>
-        {(close) => <>
-          <div className="seclabel px-2 pt-1 pb-0.5">Add {r.repo} to</div>
-          {workspaces.map((w) => <MenuItem key={w.id} label={w.name} onClick={() => { close(); useAddFolder.getState().show({ repo: r.repo, workspaceId: w.id }); }} />)}
-        </>}
-      </Popover>
-      <button className="btn btn-sm btn-ghost" onClick={() => openExternal(`https://github.com/${r.repo}`)}><Icon name="ext" size={12} />Open on GitHub</button>
+      <RowActions label={`More actions for ${r.repo}`} width={phone ? 0 : 104} main={add} more={(close) => <MenuItem icon={<Icon name="ext" size={14} />} label="Open on GitHub" onClick={() => { close(); openExternal(`https://github.com/${r.repo}`); }} />} />
     </div>
   );
 });

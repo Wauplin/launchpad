@@ -45,7 +45,7 @@ export const review: Chapter = {
     {
       id: "review.today", route: "/?filter=review", anchor: "today.filters",
       title: "Review in Today",
-      body: "Review lists finished agents you have not seen and Local PRs to publish. A row offers Merge only when it is safe: the agent is Done, its branch is on Home, nothing is uncommitted and the base did not move. Otherwise it says Review changes. A folder's Branches tab lists all its agent branches.",
+      body: "Review lists finished agents you have not seen and Local PRs to publish. A row offers Merge only when it is safe: the agent is Done, its branch is on Home, nothing is uncommitted and the base did not move. Otherwise it says Review. A folder's Branches tab lists all its agent branches.",
     },
     {
       id: "review.suggestion", route: "/github/acme-labs/storefront/118", anchor: "suggestion.card",

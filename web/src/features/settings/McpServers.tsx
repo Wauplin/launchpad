@@ -5,7 +5,9 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { McpServer } from "@/gen/McpServer";
 import { toast, toastError } from "@/components/Toast";
-import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, MenuSection, RowActions } from "@/components/ui";
+import { MenuItem } from "@/components/Popover";
+import { Icon } from "@/components/Icon";
 import { api } from "@/lib/api";
 import { ago } from "@/lib/format";
 import { useScope, useWorkspaces } from "@/lib/workspace";
@@ -40,15 +42,17 @@ function ServerRow({ s, wsName, onEdit, onDone }: { s: McpServer; wsName: (id: s
   const toggle = (tool: string, on: boolean) => api.put(`/api/mcp/${s.id}/tools/${encodeURIComponent(tool)}`, { on }).then(onDone, toastError);
   const reload = () => { setBusy(true); void api.post<McpServer>(`/api/mcp/${s.id}/refresh`, {}).then((r) => { if (r.error) toastError(new Error(r.error)); else toast(`${r.tools.length} tools`); return onDone(); }, toastError).finally(() => setBusy(false)); };
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-1.5 border-b border-line-2 pb-2.5 last:border-b-0 last:pb-0">
+    <div className="group grid grid-cols-[minmax(0,1fr)] gap-1.5 border-b border-line-2 pb-2.5 last:border-b-0 last:pb-0">
       <div className="flex flex-wrap items-center gap-2 text-[13px]">
         <span className="grid min-w-0 flex-1 gap-0.5">
           <span className="flex flex-wrap items-center gap-1.5"><b>{s.name}</b><span className="font-mono text-[12px] text-ink-3">{s.id}</span>{s.error && <Badge tone="attn" title={s.error}>not reachable</Badge>}</span>
           <span className="truncate text-[12px] text-ink-3">{s.url} · {s.auth ? "with token" : "no token"} · {s.workspaces.map(wsName).join(", ") || "not granted"}{s.refreshed_at ? ` · tools read ${ago(s.refreshed_at)}` : ""}</span>
         </span>
-        <button className="btn btn-sm" disabled={busy} onClick={reload}>{busy ? "Reading…" : "Refresh tools"}</button>
-        <button className="btn btn-sm" onClick={onEdit}>Edit</button>
-        <ConfirmButton icon="trash" consequence={`Removes ${s.name} and its token. New sessions no longer reach it.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/mcp/${s.id}`).then(onDone, toastError)}>Remove</ConfirmButton>
+        {busy && <span className="text-[12px] text-ink-3">Reading…</span>}
+        <RowActions label={`More actions for ${s.name}`} width={64} main={<button className="btn btn-sm" onClick={onEdit}>Edit</button>} more={(close) => <>
+          <MenuItem icon={<Icon name="refresh" size={14} />} label="Refresh tools" detail="Read the server's tool list again" disabled={busy} onClick={() => { close(); reload(); }} />
+          <MenuSection><ConfirmButton icon="trash" consequence={`Removes ${s.name} and its token. New sessions no longer reach it.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/mcp/${s.id}`).then(() => { close(); return onDone(); }, toastError)}>Remove</ConfirmButton></MenuSection>
+        </>} />
       </div>
       {s.error && <span className="text-[12px] text-attn">{s.error}</span>}
       {s.tools.length > 0 && (

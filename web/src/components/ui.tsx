@@ -234,6 +234,11 @@ export function IconButton({ icon, label, className = "", children, ...props }: 
   );
 }
 
+/** The bottom part of a ⋯ menu that holds a ConfirmButton (its consequence shows in the menu). */
+export function MenuSection({ children }: { children: ReactNode }) {
+  return <div className="mt-0.5 border-t border-line-2 px-2 pt-1.5 pb-0.5 first:mt-0 first:border-t-0">{children}</div>;
+}
+
 /** ⋯ that opens a menu of actions (MenuItem, ActionMenuItem, ConfirmButton last). `children` gets `close`. */
 export function MoreMenu({ label, width, children }: { label: string; width?: number; children: (close: () => void) => ReactNode }) {
   return (
