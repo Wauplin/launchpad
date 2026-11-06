@@ -27,7 +27,7 @@ export const ask: Chapter = {
     {
       id: "ask.field", route: "/", anchor: "topbar.field",
       title: "Ask from anywhere",
-      body: "The top-bar field talks to a bot of the workspace: Ask Launchpad unless you pick another one. The page you are on goes with your message, so “review this” knows which pull request you mean; the ✕ leaves it out. Enter sends with the highlighted button.",
+      body: "The top-bar field talks to a bot of the workspace: Ask Launchpad unless you pick another one. The page you are on goes with your message, so “review this” knows which pull request you mean; the ✕ leaves it out. Enter sends with Ask, the green button; Launch starts an agent with the same text.",
       tryIt: { text: "press Ask.", done: () => useAskPanel.getState().open, doIt: () => useAskPanel.getState().show(ASK_BOT) },
     },
     {

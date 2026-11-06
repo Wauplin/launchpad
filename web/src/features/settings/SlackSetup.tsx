@@ -87,7 +87,7 @@ function SlackMode({ v, mode }: { v: VaultOverview; mode: (typeof MODES)[number]
         <ol className="m-0 grid list-none gap-2 p-0">
           <Step n={1}>
             <span>Create the Slack app. The link opens Slack with the name and permissions filled in.</span>
-            <a className="btn btn-sm btn-primary w-fit no-underline" href={help.token_url} target="_blank" rel="noreferrer"><Icon name="ext" size={12} />{help.link_label}</a>
+            <a className="btn btn-sm w-fit no-underline" href={help.token_url} target="_blank" rel="noreferrer"><Icon name="ext" size={12} />{help.link_label}</a>
           </Step>
           <Step n={2}>
             <span>On that page:</span>
@@ -97,7 +97,8 @@ function SlackMode({ v, mode }: { v: VaultOverview; mode: (typeof MODES)[number]
             <span>Paste the token. Home keeps it; agents only see a placeholder.</span>
             <span className="flex flex-wrap items-center gap-2">
               <input className="field-input w-[320px] max-w-full font-mono text-[12px]" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="xoxp-…" autoComplete="off" aria-label={`Slack ${mode.title} token`} />
-              <button className="btn btn-sm btn-primary" disabled={busy || !token.trim()} onClick={() => void save()}>{busy ? "Saving…" : "Save on Home"}</button>
+              {/* Filled only once a token is pasted: the card holds one Save per mode. */}
+              <button className={`btn btn-sm ${token.trim() ? "btn-primary" : ""}`} disabled={busy || !token.trim()} onClick={() => void save()}>{busy ? "Saving…" : "Save on Home"}</button>
             </span>
             {odd && <span className="text-[12px] text-attn">This does not look like a User OAuth Token (xoxp-…). Copy the one under Install App.</span>}
           </Step>

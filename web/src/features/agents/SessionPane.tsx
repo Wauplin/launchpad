@@ -50,7 +50,7 @@ import { EMPTY_CONTEXT, hasMessageContext, MessageContextButton, MessageContextC
 import { PromptField } from "@/features/launch/PromptField";
 import { withPresets } from "@/lib/presets";
 import { runAction } from "@/lib/actions";
-import { MergeButton, useBranch } from "@/features/today/TodayCards";
+import { MergeButton, mergeIsMain, useBranch } from "@/features/today/TodayCards";
 
 function act(id: string, action: "session.archive" | "session.stop" | "session.resume" | "session.unread") {
   return runAction(action, { id }).catch(toastError);
@@ -199,7 +199,7 @@ function SessionWorktreeDetails({ session }: { session: Session }) {
  * state's action (Answer, Review changes, Archive, Resume, Stop…). In the laptop header and the phone bottom bar. */
 function StatePrimary({ s, primary }: { s: Session; primary: React.ReactNode }) {
   const branch = useBranch(s.id, s);
-  if (branch.safe && s.status === "waiting" && !s.open_question) return <MergeButton sessionId={s.id} branch={branch} />;
+  if (mergeIsMain(s, branch)) return <MergeButton sessionId={s.id} branch={branch} />;
   return <>{primary}</>;
 }
 

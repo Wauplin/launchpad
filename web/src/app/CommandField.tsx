@@ -1,7 +1,8 @@
 // The one field of the top bar: Ask (a message to a bot of the workspace, shown in the Ask panel) and Launch (an agent
 // at once, with the page as context and the folder's defaults; its menu opens the full composer with the text).
 // The page you are on is the context: a folder, a GitHub item, a session's trace, a Local PR or a settings page.
-// The primary button follows the page: Launch on folder and session pages, Ask elsewhere. Enter sends with it.
+// Ask is the primary button (and Enter) on every page; Launch is an outline button. Without a bot, Launch is the
+// only button, so it is the primary one.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
@@ -28,7 +29,6 @@ type PageContext = {
   /** The line added to an Ask message so the bot knows what you look at. */
   line: string | null;
   launch?: LaunchContext;
-  primary: "ask" | "launch";
   /** On a bot's page, Ask talks to that bot. */
   botId?: string;
 };
@@ -37,7 +37,7 @@ function pageContext(path: string, search: Record<string, unknown>, projects: Pr
   const project = path.match(/^\/projects\/([^/]+)/);
   if (project) {
     const p = projects.find((x) => x.id === project[1]);
-    return { label: p ? `Folder ${p.name}` : null, line: p ? `the folder ${p.name} (folder id ${p.id})` : null, launch: p ? { projectId: p.id } : undefined, primary: "launch" };
+    return { label: p ? `Folder ${p.name}` : null, line: p ? `the folder ${p.name} (folder id ${p.id})` : null, launch: p ? { projectId: p.id } : undefined };
   }
   const gh = path.match(/^\/github\/([^/]+)\/([^/]+)\/(\d+)/);
   if (gh) {
@@ -49,23 +49,23 @@ function pageContext(path: string, search: Record<string, unknown>, projects: Pr
     const url = `https://github.com/${repo}/${pr ? "pull" : "issues"}/${number}`;
     return {
       label: `${repo}#${number}`, line: `${pr ? "the pull request" : "the GitHub item"} ${repo}#${number}${item ? ` “${item.title}”` : ""} (${url})`,
-      launch: { projectId: p?.id ?? null, githubRefs: [{ url, kind: pr ? "pr" : "issue", repo, number, title: item?.title ?? null }] }, primary: "ask",
+      launch: { projectId: p?.id ?? null, githubRefs: [{ url, kind: pr ? "pr" : "issue", repo, number, title: item?.title ?? null }] },
     };
   }
   const session = path.startsWith("/agents") && typeof search.session === "string" ? sessions.find((s) => s.id === search.session) : undefined;
   if (session) {
     return {
       label: `Agent ${session.title}`, line: `the agent session “${session.title}” (session id ${session.id})`,
-      launch: { projectId: session.project_id && session.launch_spec.target.kind !== "temp" ? session.project_id : undefined, agentTraces: session.last_seq > 0 ? [{ session_id: session.id, through_seq: session.last_seq }] : [] }, primary: "launch",
+      launch: { projectId: session.project_id && session.launch_spec.target.kind !== "temp" ? session.project_id : undefined, agentTraces: session.last_seq > 0 ? [{ session_id: session.id, through_seq: session.last_seq }] : [] },
     };
   }
   const local = path.match(/^\/predrafts\/([^/]+)/);
-  if (local) return { label: predraft ? `Local PR ${predraft.title}` : "Local PR", line: `the Local PR ${predraft ? `“${predraft.title}” ` : ""}(id ${local[1]})`, launch: predraft ? { projectId: predraft.project_id } : undefined, primary: "launch" };
+  if (local) return { label: predraft ? `Local PR ${predraft.title}` : "Local PR", line: `the Local PR ${predraft ? `“${predraft.title}” ` : ""}(id ${local[1]})`, launch: predraft ? { projectId: predraft.project_id } : undefined };
   const settings = path.match(/^\/settings\/?([^/]*)/);
-  if (settings) return { label: `Settings${settings[1] ? ` · ${settings[1]}` : ""}`, line: `the settings page ${settings[1] || "Appearance"}`, primary: "ask" };
+  if (settings) return { label: `Settings${settings[1] ? ` · ${settings[1]}` : ""}`, line: `the settings page ${settings[1] || "Appearance"}` };
   const bot = path.match(/^\/bots\/([^/]+)/);
-  if (bot && bots.some((b) => b.id === bot[1])) return { label: null, line: null, primary: "ask", botId: bot[1] };
-  return { label: null, line: null, primary: "ask" };
+  if (bot && bots.some((b) => b.id === bot[1])) return { label: null, line: null, botId: bot[1] };
+  return { label: null, line: null };
 }
 
 export function CommandField() {
@@ -86,7 +86,7 @@ export function CommandField() {
   const [withContext, setWithContext] = useState(true);
   const pageKey = `${path}:${String(search.session ?? "")}`;
   useEffect(() => setWithContext(true), [pageKey]);
-  const ctx = withContext ? page : { label: null, line: null, launch: undefined, primary: page.primary, botId: page.botId };
+  const ctx = withContext ? page : { label: null, line: null, launch: undefined, botId: page.botId };
   const [picked, setPicked] = useState<string | null>(null);
   const bot = bots.find((b) => b.id === (ctx.botId ?? picked)) ?? askTarget(allBots, scope.workspace.id);
   const [text, setText] = useState("");
@@ -124,8 +124,8 @@ export function CommandField() {
       toast("Finish the launch options, then Launch.");
     }, 4_200);
   };
-  // Without a bot in the workspace, Launch is the primary button (and Enter) everywhere.
-  const primary = ctx.primary === "launch" || !bot ? launch : () => void ask();
+  // Ask is the primary button (and Enter) on every page; without a bot in the workspace, Launch is.
+  const primary = bot ? () => void ask() : launch;
   const askLabel = bot ? `Ask ${bot.settings.name}` : "Ask";
   return (
     <div className="flex min-w-[280px] max-w-[760px] flex-1 items-center gap-1.5" data-tour="topbar.field">
@@ -136,14 +136,14 @@ export function CommandField() {
           <span className="truncate">{ctx.label}</span>
           <button className="text-ink-3 hover:text-ink" aria-label="Leave out the page" title="Leave out the page" onClick={() => setWithContext(false)}><Icon name="x" size={10} /></button>
         </span>}
-        <textarea ref={ref} rows={1} value={text} disabled={busy} aria-label={ctx.primary === "launch" ? "Prompt for a new agent, or a message to a bot" : "Message to a bot, or prompt for a new agent"}
-          placeholder={ctx.primary === "launch" ? "What should an agent do here?" : bot ? "Ask, or launch an agent…" : "Launch an agent…"}
+        <textarea ref={ref} rows={1} value={text} disabled={busy} aria-label={bot ? "Message to a bot, or prompt for a new agent" : "Prompt for a new agent"}
+          placeholder={bot ? "Ask, or launch an agent…" : "Launch an agent…"}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); primary(); } }}
           className="min-h-6 min-w-0 flex-1 resize-none bg-transparent placeholder-shown:overflow-hidden py-0.5 text-[13px] leading-5 outline-none" />
       </div>
-      {bot && <button className={`btn ${ctx.primary === "ask" ? "btn-primary" : ""}`} data-tour="topbar.ask" title={`${askLabel}: the answer opens in the Ask panel${ctx.line ? ", with the page as context" : ""}`} disabled={busy} onClick={() => void ask()}><Icon name="send" size={13} />Ask</button>}
-      <LaunchSplitButton ctx={ctx.launch} text={text} onLaunch={launch} onUsed={() => setText("")} primary={ctx.primary === "launch" || !bot}
+      {bot && <button className="btn btn-primary" data-tour="topbar.ask" title={`${askLabel}: the answer opens in the Ask panel${ctx.line ? ", with the page as context" : ""}`} disabled={busy} onClick={() => void ask()}><Icon name="send" size={13} />Ask</button>}
+      <LaunchSplitButton ctx={ctx.launch} text={text} onLaunch={launch} onUsed={() => setText("")} primary={!bot}
         title={text.trim() ? `Launch an agent at once${ctx.launch ? " with the page as context" : ""}, with the folder's defaults` : "Open the composer"} />
     </div>
   );

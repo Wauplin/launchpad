@@ -113,7 +113,7 @@ export function ProjectPage() {
                 const canLaunch = draft && !draft.archived && !draft.published_url && !draft.merged && !draft.pushed_head;
                 const rowActions = <>
                   {session && <button className="btn btn-sm" title={session.title} onClick={() => { show(session.id); void navigate({ to: "/agents", search: phone ? { session: session.id } : {} }); }}>Agent</button>}
-                    {canLaunch && !session && <button className="btn btn-sm btn-primary" title="Launch an agent in this worktree" onClick={() => { useComposer.getState().start({ projectId: p.id }); useComposer.getState().update((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: draft.id } })); }}><Icon name="play" size={12} />Launch here</button>}
+                    {canLaunch && !session && <button className="btn btn-sm" title="Launch an agent in this worktree" onClick={() => { useComposer.getState().start({ projectId: p.id }); useComposer.getState().update((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: draft.id } })); }}><Icon name="play" size={12} />Launch here</button>}
                     <Link to="/projects/$id/code" params={{ id: p.id }} search={{ root: w.path }} className="btn btn-sm no-underline" title="Browse the files of this worktree">
                       <Icon name="folder" size={12} />
                       Files

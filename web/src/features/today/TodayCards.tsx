@@ -107,6 +107,10 @@ export function useBranch(sessionId: string, s: Session | null) {
   return { w, t, base, safe, facts };
 }
 
+/** The session page's main action is Merge (laptop header, phone bottom bar): safe, finished and no open question.
+ * Next steps then leave Merge out of that worktree's card. */
+export const mergeIsMain = (s: Session, branch: ReturnType<typeof useBranch>) => branch.safe && s.status === "waiting" && !s.open_question;
+
 /** Merge the branch into its base (call only when `useBranch(…).safe`). `onMerged` runs after a merge that went
  * through; a merge that waits or stopped keeps the card, with Review changes. */
 export function MergeButton({ sessionId, branch: { t, base }, onMerged, className, label, primary = true }: { sessionId: string; branch: ReturnType<typeof useBranch>; onMerged?: () => Promise<unknown>; className?: string; label?: string; primary?: boolean }) {

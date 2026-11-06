@@ -103,7 +103,7 @@ function Conversation({ item, focus }: { item: Item; focus: { id: string | null;
     overscan: 3,
     useFlushSync: false,
   });
-  // "Review & post" and ?draft= scroll to the suggestion (the first one when no id is given).
+  // "Post review…" and ?draft= scroll to the suggestion (the first one when no id is given).
   const loaded = suggestions.isSuccess;
   useEffect(() => {
     if (!focus.n || !loaded || !suggestions.data.length) return;
@@ -210,6 +210,8 @@ function Controls({ item, act, busy, shown = true, onClose }: { item: Item; act:
   const methods = [["merge", "mergeCommitAllowed", "Merge commit"], ["squash", "squashMergeAllowed", "Squash"], ["rebase", "rebaseMergeAllowed", "Rebase"]] as const;
   const allowed = methods.filter(([, key]) => item.repository?.[key]);
   const ready = item.mergeable === "MERGEABLE" && ["CLEAN", "HAS_HOOKS"].includes(item.mergeStateStatus ?? "") && !item.isDraft;
+  // One filled button on the page: a waiting suggestion's Post review comes before Merge.
+  const suggested = useSuggestions({ kind: "git_hub", repo: item.repo, number: item.number }).data.some((s) => s.status === "draft");
   const actual = allowed.some(([m]) => m === method) ? method : (allowed[0]?.[0] ?? method);
   const state = stateOf(item);
   // Latest review per author.
@@ -223,7 +225,7 @@ function Controls({ item, act, busy, shown = true, onClose }: { item: Item; act:
         {isPr && open && <div data-tour="item.merge" className="grid gap-2 rounded-lg border border-line bg-paper p-3">
           <span className={`flex items-start gap-1.5 ${ready ? "text-gh-open" : "text-attn"}`}><Icon name={ready ? "okcircle" : "alert"} size={13} className="mt-px flex-none" />{ready ? "Ready to merge" : blocker(item)}</span>
           {allowed.length > 1 && <Choices label="Merge method">{allowed.map(([m, , label]) => <Choice key={m} active={actual === m} onClick={() => setMethod(m)}>{label}</Choice>)}</Choices>}
-          <ConfirmButton tone="publish" small={false} className={`w-full justify-center ${ready ? "btn-primary" : ""}`} disabled={busy || item.isDraft || item.mergeable !== "MERGEABLE" || !allowed.length}
+          <ConfirmButton tone="publish" small={false} className={`w-full justify-center ${ready && !suggested ? "btn-primary" : ""}`} disabled={busy || item.isDraft || item.mergeable !== "MERGEABLE" || !allowed.length}
             consequence={`${methods.find(([m]) => m === actual)?.[2] ?? actual} into ${item.baseRefName} on GitHub.`} confirmLabel={`Confirm ${actual} merge`}
             onConfirm={() => act("merge", { sha: item.headRefOid, merge_method: actual }).then((ok) => { if (ok) localStorage.setItem(`merge-method:${item.repo}`, actual); })}>
             Merge pull request
@@ -239,14 +241,14 @@ function Controls({ item, act, busy, shown = true, onClose }: { item: Item; act:
         {requestedNames.length > 0 && <span className="text-ink-2"><span className="text-ink-3">Requested:</span> {requestedNames.join(", ")}</span>}
         {open && <>
           <Picker label={reviewers.length ? `Reviewers · ${reviewers.length} selected` : "Request reviewers"} options={(meta?.reviewers ?? []).filter((r) => !requested.has(r))} selected={reviewers} onChange={setReviewers} allowNew="Add" disabled={busy} />
-          {reviewers.length > 0 && <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void act("reviewers", { reviewers: reviewers.filter((s) => !s.startsWith("team:")), team_reviewers: reviewers.filter((s) => s.startsWith("team:")).map((s) => s.slice(5)) }).then((ok) => { if (ok) setReviewers([]); })}>Request review from {reviewers.length}</button>}
+          {reviewers.length > 0 && <button className="btn btn-sm" disabled={busy} onClick={() => void act("reviewers", { reviewers: reviewers.filter((s) => !s.startsWith("team:")), team_reviewers: reviewers.filter((s) => s.startsWith("team:")).map((s) => s.slice(5)) }).then((ok) => { if (ok) setReviewers([]); })}>Request review from {reviewers.length}</button>}
         </>}
       </Section>}
       {isPr && <Checks item={item} />}
       <Section title="Labels">
         {item.labels.nodes.length > 0 ? <div className="flex flex-wrap gap-1">{item.labels.nodes.map((l) => <LabelChip key={l.name} label={l} />)}</div> : <span className="text-ink-3">No labels</span>}
         <Picker label={labelsChanged ? `Labels · ${labels.length} selected` : "Edit labels"} options={meta?.labels.map((l) => l.name) ?? []} selected={labels} onChange={setLabels} disabled={busy} render={(name) => <LabelChip label={{ name, color: colors.get(name) ?? "d0d7de" }} />} />
-        {labelsChanged && <div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void act("labels", { labels })}>Save labels</button><button className="btn btn-sm" disabled={busy} onClick={() => setLabels(current)}>Revert</button></div>}
+        {labelsChanged && <div className="flex gap-2"><button className="btn btn-sm" disabled={busy} onClick={() => void act("labels", { labels })}>Save labels</button><button className="btn btn-sm" disabled={busy} onClick={() => setLabels(current)}>Revert</button></div>}
       </Section>
       {open && <Section title="Danger zone">
         <div className="grid justify-items-start gap-2">
@@ -319,8 +321,8 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   const head = item?.headRefOid;
   const current = notes.value.filter((n) => n.head === head);
   const outdated = notes.value.length - current.length;
-  const launch = <LaunchButton small primary={!isPr} ctx={{ projectId: project?.id ?? null, githubRefs: item ? [reference(repo, item, isPr ? "pr" : "issue")] : [] }} />;
-  const agentReview = isPr && item && <button className="btn btn-sm btn-primary" title="Opens a launch draft that asks an agent for a local suggested review" onClick={() => reviewWithAgent({ projects, repo, number, title: item.title, url: item.url, head })}>Review with agent</button>;
+  const launch = <LaunchButton small primary={!!item && !isPr} ctx={{ projectId: project?.id ?? null, githubRefs: item ? [reference(repo, item, isPr ? "pr" : "issue")] : [] }} />;
+  const agentReview = isPr && item && <button className="btn btn-sm" title="Opens a launch draft that asks an agent for a local suggested review" onClick={() => reviewWithAgent({ projects, repo, number, title: item.title, url: item.url, head })}>Review with agent</button>;
   const openOnGitHub = () => openGitHub(item?.url ?? `https://github.com/${repo}/issues/${number}`);
   const synced = item && <span className="inline-flex items-center gap-1 whitespace-nowrap">Synced {ago(item.fetched_at)}<button className="iconbtn" aria-label="Refresh from GitHub" title="Refresh from GitHub" disabled={refreshing} onClick={() => void refresh()}><Icon name="refresh" size={13} className={refreshing ? "animate-spin" : ""} /></button></span>;
   const more = <Popover align="right" width={220} label="More actions" trigger={({ open, toggle }) => <button className="iconbtn" aria-label="More actions" aria-expanded={open} title="More actions" onClick={toggle}><Icon name="more" size={16} /></button>}>
@@ -376,6 +378,6 @@ function SuggestionBanner({ item, onReview }: { item: Item; onReview: (id: strin
     <span>{waiting.length === 1 ? describe(first) : waiting.map(describe).join(" · ")}</span>
     <span className="text-ink-3">· by {first.author}</span>
     {["posting", "uncertain"].includes(first.status) && <Badge tone="attn" icon="alert">Publication attempted: check GitHub</Badge>}
-    <button className="btn btn-primary btn-sm ml-auto" onClick={() => onReview(first.id)}>Review &amp; post</button>
+    <button className="btn btn-sm ml-auto" onClick={() => onReview(first.id)}>{first.kind === "review" ? "Post review…" : "Post comment…"}</button>
   </div>;
 }

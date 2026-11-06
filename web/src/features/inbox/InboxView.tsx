@@ -156,7 +156,7 @@ function PreviewPane({ t, projects, ready, act, busy }: { t: Thread; projects: P
   // One primary, two secondary, then ⋯. Review requests lead with the agent review.
   const primary = request
     ? ready
-      ? <Link className="btn btn-sm btn-primary no-underline" to="/github/$owner/$repo/$number" params={ghParams(t)} search={{ draft: ready.id }}>Review &amp; post</Link>
+      ? <Link className="btn btn-sm btn-primary no-underline" to="/github/$owner/$repo/$number" params={ghParams(t)} search={{ draft: ready.id }}>{ready.kind === "review" ? "Post review…" : "Post comment…"}</Link>
       : <button className="btn btn-sm btn-primary" title="Opens a launch draft that asks an agent for a local suggested review" onClick={() => reviewWithAgent({ projects, repo: t.repo, number: t.number!, title: t.title, url: t.url, head })}>Review with agent</button>
     : done(true);
   const secondary = request ? <>{done(false)}{conversation}</> : <><LaunchButton small primary={false} ctx={launchContext(t, projects)} />{conversation || <button className="btn btn-sm" onClick={() => openExternal(t.url)}>Open on GitHub</button>}</>;

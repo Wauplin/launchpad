@@ -44,7 +44,7 @@ export const github: Chapter = {
     {
       id: "github.merge", route: "/github/acme-labs/storefront/118", anchor: "item.merge",
       title: "Merge, only when GitHub agrees",
-      body: "Merge is the primary button only when GitHub reports the PR mergeable and clean. Otherwise it is secondary and says what blocks it. Label filters apply to the 30 most recent cached items of a folder.",
+      body: "Merge is the primary button only when GitHub reports the PR mergeable and clean and no suggestion waits to be posted. Otherwise it is secondary and says what blocks it. Label filters apply to the 30 most recent cached items of a folder.",
     },
   ],
 };

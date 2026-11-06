@@ -59,15 +59,17 @@ export function WorktreeChip({ session }: { session: Session }) {
   );
 }
 
-/** Summary → Next steps: one card per worktree of the session. */
-export function WorktreeSteps({ session }: { session: Session }) {
+/** Summary → Next steps: one card per worktree of the session. `mainMerge`: the worktree whose Merge is already the
+ * page's main action (header or phone bottom bar), so its card leaves it out. */
+export function WorktreeSteps({ session, mainMerge }: { session: Session; mainMerge?: string }) {
   const list = useSessionWorktrees(session.id).data ?? [];
   return <>{list.filter((i) => i.worktree.state !== "discarded").map((i) => (
-    <div key={i.worktree.id} className="border-t border-line-2 py-2 first:border-0"><WorktreeCard info={i} session={session} /></div>
+    <div key={i.worktree.id} className="border-t border-line-2 py-2 first:border-0"><WorktreeCard info={i} session={session} merge={i.worktree.id !== mainMerge} /></div>
   ))}</>;
 }
 
-export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session?: Session }) {
+/** A worktree's facts and actions, all outline: the session header (or phone bottom bar) holds the one primary. */
+export function WorktreeCard({ info: i, session, merge = true }: { info: WorktreeInfo; session?: Session; merge?: boolean }) {
   const w = i.worktree;
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -108,7 +110,7 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
   // Its runner is away: Home shows the branch it holds, and Merge and Create Local PR run on Home.
   const away = i.away;
   const onHome = w.state === "active" || (!!away && w.state === "removed");
-  const canMerge = onHome && !w.merge && !!base && i.ahead > 0 && !w.pull_request && !w.predraft_id;
+  const canMerge = merge && onHome && !w.merge && !!base && i.ahead > 0 && !w.pull_request && !w.predraft_id;
   return (
     <div className="grid gap-1.5 text-xs">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -124,8 +126,8 @@ export function WorktreeCard({ info: i, session }: { info: WorktreeInfo; session
       {w.pull_request && <div className="text-[12px] text-ink-2">Continues <a href={w.pull_request.url} target="_blank" rel="noreferrer">#{w.pull_request.number}</a>: Home pushes each new commit to {w.pull_request.head_branch}.</div>}
       {w.cleanup_note && w.state === "active" && !i.ahead && <div className="text-[11px] text-ink-3">Cleanup: {w.cleanup_note}</div>}
       <div className="flex flex-wrap gap-1.5">
-        {canMerge && <ActionButton name="worktree.merge" params={{ id: w.id }} vars={{ branch: w.branch, base: base! }} query={{ session: decodeURIComponent(owner) }} primary disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : undefined}>Merge into {base}</ActionButton>}
-        {w.merge && w.merge.phase !== "waiting" && session && <button className="btn btn-sm btn-primary" disabled={busy} title="Send the problem to the agent: it rebases, resolves and asks to merge again" onClick={() => void act("fix", "Sent to the agent")}>Fix with agent</button>}
+        {canMerge && <ActionButton name="worktree.merge" params={{ id: w.id }} vars={{ branch: w.branch, base: base! }} query={{ session: decodeURIComponent(owner) }} disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : undefined}>Merge into {base}</ActionButton>}
+        {w.merge && w.merge.phase !== "waiting" && session && <button className="btn btn-sm" disabled={busy} title="Send the problem to the agent: it rebases, resolves and asks to merge again" onClick={() => void act("fix", "Sent to the agent")}>Fix with agent</button>}
         <TerminalMenu cwd={i.path} small phone={isPhone} align="left" />
         {w.merge && <button className="btn btn-sm" disabled={busy} onClick={() => void act("cancel-merge")}>Cancel merge</button>}
         {onHome && w.primary && !w.merge && !w.pull_request && <button className="btn btn-sm" disabled={busy} title="Turn this branch into a Local PR, published to GitHub only with your click" onClick={() => void predraft()}>Create Local PR</button>}
