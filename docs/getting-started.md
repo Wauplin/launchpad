@@ -68,6 +68,8 @@ The tour runs in demo mode: a fictional organization with prerecorded agent runs
 - A first profile.
 - On Linux, where every agent runs contained: bubblewrap installed and able to create a jail (on Ubuntu 24.04, the AppArmor profile that allows it), a login in the vault for each profile's agent, and the Git identity of agents (both in **Settings → Credentials and tools**). Agents in the jail never use this computer's sign-ins or Git configuration.
 
+- Recommended and optional: notifications, **Slack for agents** (a read-only Slack token, and optionally a write one, see [Credentials and tools](home-and-runners.md#credentials-and-tools)), starter presets, phones and other devices, SSH machines. **Not now** hides an optional item.
+
 Items that are already done show what was found and where. For missing items, a button runs the official command in a visible terminal. The checklist never overwrites an existing Git identity, credential, SSH key or harness login.
 
 ### Create a profile

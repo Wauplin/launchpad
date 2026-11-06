@@ -90,6 +90,7 @@ function ToolBody({ body }: { body: Extract<Proposal["body"], { kind: "tool" }> 
       <Token icon="term">{t.name}</Token>
       {t.install && <Token>installs {t.install.kind === "github_release" ? `GitHub release ${t.install.source}` : `${t.install.kind} ${t.install.source}`}</Token>}
       {t.env.length > 0 && <Token>{t.env.join(", ")}</Token>}
+      {Object.keys(t.vars ?? {}).length > 0 && <Token>settings {Object.entries(t.vars).map(([k, v]) => `${k}=${v}`).join(", ")}</Token>}
       {t.hosts.length > 0 && <Token tone="warn">token sent to {t.hosts.map((h) => h.host).join(", ")}</Token>}
       {body.token_url && <a className="text-[12px] text-teal-ink hover:underline" href={body.token_url} target="_blank" rel="noreferrer">Create the token</a>}
     </span>

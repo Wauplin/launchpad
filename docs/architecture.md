@@ -74,7 +74,7 @@ Plain and asset folders (`plain.rs`): Home keeps each store's tree in `plain_fil
 
 ## Credentials and the jail
 
-Home keeps a vault in `state.db` (`vault.rs`): harness logins (a Claude setup token, a Codex `auth.json`), tokens and the SSH key, all write-only, plus the tool registry (`tool` table: install recipe, variables that get a placeholder, host rules, granted workspaces). Settings → Credentials and tools edits them; runners forward those requests to Home.
+Home keeps a vault in `state.db` (`vault.rs`): harness logins (a Claude setup token, a Codex `auth.json`), tokens and the SSH key, all write-only, plus the tool registry (`tool` table: install recipe, variables that get a placeholder, settings that are not secret, host rules, granted workspaces). A lease keeps one token per host (`vault::host_conflict`: the first tool by name). A tool's settings never enter the session's environment: the runner puts wrapper scripts on PATH that set them and run the tool's programs (`tool_install::wrappers`, in `<data_dir>/sessions/<id>/tools/<tool>/`, read-only in the jail). Settings → Credentials and tools edits them; runners forward those requests to Home.
 
 Before a harness starts, `contain::apply` asks Home for the session's lease (`FromRunner::Call` "lease" through the tunnel; Home checks the session's runner and generation and records `vault_lease`). The lease holds the login's token, the granted tools and their tokens, the Git identity and whether Home has an SSH key. The runner keeps it in `proxy::Proxy` memory, renews it every ten minutes and drops it after an hour without Home, on Stop/Archive (`release`) or at once on Revoke (`ToRunner::Revoke`).
 

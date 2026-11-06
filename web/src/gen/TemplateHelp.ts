@@ -16,4 +16,12 @@ token_url: string,
 /**
  * Home's own login that can fill the token instead.
  */
-home_token: HomeToken | null, };
+home_token: HomeToken | null, 
+/**
+ * The label of the `token_url` link.
+ */
+link_label: string, 
+/**
+ * What to do on that page, step by step, when it is more than "create a token".
+ */
+steps: Array<string>, };

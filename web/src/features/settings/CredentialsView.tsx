@@ -21,6 +21,7 @@ import { useSessions } from "@/lib/queries";
 import { useWorkspaces } from "@/lib/workspace";
 import { Card, SettingsPage } from "./SettingsView";
 import { McpServers } from "./McpServers";
+import { SLACK_READ, SLACK_WRITE, SlackSetup } from "./SlackSetup";
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
 
@@ -68,6 +69,7 @@ function Vault({ v }: { v: VaultOverview }) {
           <AddSecret label="Add the SSH key" kind="ssh_key" hint="A private key without a passphrase. It never leaves Home: sessions use it through a forwarded ssh-agent." multiline onDone={refresh} />
         </div>
       </Card>
+      <Card title="Slack"><SlackSetup v={v} /></Card>
       <Tools v={v} onDone={refresh} />
       <McpServers />
       <Identity v={v} onDone={refresh} />
@@ -228,6 +230,28 @@ function installText(t: Tool): string {
   return i.kind === "github_release" ? `GitHub release ${i.source} (${i.asset})` : `${i.kind === "url" ? "download" : i.kind} ${i.source}`;
 }
 
+/** `KEY=value` per line, the tool's settings (`Tool.vars`). */
+export function parseVars(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const l = line.trim();
+    if (!l) continue;
+    const at = l.indexOf("=");
+    if (at > 0) out[l.slice(0, at).trim()] = l.slice(at + 1).trim();
+    else out[l] = "";
+  }
+  return out;
+}
+
+const varsText = (vars: Tool["vars"]) => Object.entries(vars ?? {}).map(([k, v]) => `${k}=${v}`).join("\n");
+
+/** The kept tool that already sends another token to one of `t`'s hosts: a launch gets only the first (by name), like
+ * the lease (`vault::host_conflict`). */
+export function hostConflict(kept: Tool[], t: Tool): Tool | undefined {
+  if (!t.credential) return undefined;
+  return kept.find((k) => k.credential && k.credential !== t.credential && k.hosts.some((a) => t.hosts.some((b) => a.host.toLowerCase() === b.host.toLowerCase())));
+}
+
 /** Home calls the tool's check URL with the token; only the answer comes back. */
 function TestTool({ tool }: { tool: Tool }) {
   const [result, setResult] = useState<ToolTest | null>(null);
@@ -250,11 +274,12 @@ function Tools({ v, onDone }: { v: VaultOverview; onDone: () => unknown }) {
     <Card title="Tools" end={<button className="btn btn-sm" onClick={exportToml}>Copy as TOML</button>}>
       <span className="text-[12px] text-ink-3">Runners install each granted tool in their own folder, on the agent's PATH. Its variables hold a placeholder; the proxy adds the token on its hosts.</span>
       {v.tools.length === 0 && <Empty icon="term">No tool yet. Start from GitHub CLI or Hugging Face CLI below.</Empty>}
-      {v.tools.map((t) => (
+      {v.tools.map((t, i) => (
         <div key={t.id} className="flex flex-wrap items-center gap-2 text-[13px]">
           <span className="grid min-w-0 flex-1 gap-0.5">
             <span className="flex flex-wrap items-center gap-1.5"><b>{t.name}</b><span className="font-mono text-[12px] text-ink-3">{t.id}</span>{t.credential && !v.entries.some((e) => e.id === t.credential) && <Badge tone="attn">token {t.credential} missing</Badge>}</span>
-            <span className="text-[12px] text-ink-3">{installText(t)} · {t.env.join(", ") || "no variable"} · {t.hosts.map((h) => h.host).join(", ") || "no host"} · {t.workspaces.length ? t.workspaces.map(wsName).join(", ") : "not granted"}</span>
+            {(() => { const first = hostConflict(v.tools.slice(0, i), t); return first && <span className="text-[12px] text-ink-3">Uses the same host as {first.name}: a launch gets {first.name} unless you pick {t.name} in the composer's Tools.</span>; })()}
+            <span className="text-[12px] text-ink-3">{installText(t)} · {t.env.join(", ") || "no variable"}{Object.keys(t.vars ?? {}).length > 0 && ` · settings ${Object.entries(t.vars).map(([k, x]) => `${k}=${x}`).join(", ")}`} · {t.hosts.map((h) => h.host).join(", ") || "no host"} · {t.workspaces.length ? t.workspaces.map(wsName).join(", ") : "not granted"}</span>
           </span>
           {t.check_url && <TestTool tool={t} />}
           <button className="btn btn-sm" onClick={() => setEditing(t)}>Edit</button>
@@ -263,8 +288,9 @@ function Tools({ v, onDone }: { v: VaultOverview; onDone: () => unknown }) {
       ))}
       {editing ? <ToolEditor tool={editing} v={v} onClose={() => setEditing(null)} onDone={onDone} /> : (
         <div className="flex flex-wrap gap-2">
-          {v.templates.filter((t) => !v.tools.some((x) => x.id === t.id)).map((t) => <button key={t.id} className="btn btn-sm" onClick={() => setEditing(t)}>Add {t.name}</button>)}
-          <button className="btn btn-sm" onClick={() => setEditing({ id: "", name: "", install: null, credential: null, env: [], hosts: [], workspaces: ["*"], check_url: null })}>Add another tool</button>
+          {/* Slack has its own card above. */}
+          {v.templates.filter((t) => !v.tools.some((x) => x.id === t.id) && t.id !== SLACK_READ && t.id !== SLACK_WRITE).map((t) => <button key={t.id} className="btn btn-sm" onClick={() => setEditing(t)}>Add {t.name}</button>)}
+          <button className="btn btn-sm" onClick={() => setEditing({ id: "", name: "", install: null, credential: null, env: [], hosts: [], workspaces: ["*"], check_url: null, vars: {} })}>Add another tool</button>
         </div>
       )}
     </Card>
@@ -281,6 +307,7 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
   const homeToken = help?.home_token && v.home_tokens.includes(help.home_token) ? help.home_token : null;
   const [t, setT] = useState<Tool>(tool);
   const [hosts, setHosts] = useState(tool.hosts.map((h) => `${h.host} ${authText(h.auth)}`).join("\n"));
+  const [vars, setVars] = useState(varsText(tool.vars));
   const [token, setToken] = useState("");
   const [useHome, setUseHome] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -296,7 +323,7 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
     try {
       if (credential && useHome && homeToken) await api.post(`/api/vault/entries/${credential}/from-home`, { source: homeToken, name: stored?.name ?? t.name });
       else if (credential && token.trim()) await api.put(`/api/vault/entries/${credential}`, { kind: "token", name: stored?.name ?? t.name, value: token });
-      const body: Tool = { ...t, id, credential, hosts: parseHosts(hosts) };
+      const body: Tool = { ...t, id, credential, hosts: parseHosts(hosts), vars: parseVars(vars) };
       await api.put(`/api/vault/tools/${id}`, body);
       toast(`Saved ${t.name}`);
       onClose();
@@ -316,7 +343,8 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
         <label className="grid gap-1"><span className="text-ink-2">Name</span><input className="field-input w-[280px] max-w-full" value={t.name} onChange={(e) => set({ name: e.target.value })} placeholder="Slack" autoFocus /></label>
       ) : <div className="text-[13px] font-semibold">{t.name}</div>}
       <div className="grid gap-1">
-        <span className="flex flex-wrap items-center gap-2"><span className="text-ink-2">API token</span>{help && <a className="text-[12px] text-teal-ink hover:underline" href={help.token_url} target="_blank" rel="noreferrer">Create a token</a>}</span>
+        <span className="flex flex-wrap items-center gap-2"><span className="text-ink-2">API token</span>{help && <a className="text-[12px] text-teal-ink hover:underline" href={help.token_url} target="_blank" rel="noreferrer">{help.link_label}</a>}</span>
+        {help && help.steps.length > 0 && <ol className="m-0 grid list-decimal gap-0.5 pl-4 text-[12px] text-ink-2">{help.steps.map((x) => <li key={x}>{x}</li>)}</ol>}
         {useHome && homeToken ? (
           <div className="grid gap-1.5 rounded-[6px] bg-attn-soft px-2.5 py-2 text-[12px]">
             <span className="text-attn">Agents will act with Home's own {HOME_TOKEN_LABEL[homeToken]} login and its full access. A fine-grained token limited to what agents need is safer.</span>
@@ -332,7 +360,7 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
         {custom && <span className="text-[12px] text-ink-3">Set the hosts that receive the token and the variables under Advanced.</span>}
       </div>
       <details className="rounded-[6px] border border-line-2 px-3">
-        <summary className="cursor-pointer py-2 text-[12px] text-ink-2">Advanced: ID, install, variables, hosts, workspaces</summary>
+        <summary className="cursor-pointer py-2 text-[12px] text-ink-2">Advanced: ID, install, variables, settings, hosts, workspaces</summary>
         <SettingRow label="Name"><input className="field-input" value={t.name} onChange={(e) => set({ name: e.target.value })} /><input className="field-input w-[160px] font-mono" value={id} onChange={(e) => set({ id: slug(e.target.value) })} disabled={!custom} aria-label="ID" /></SettingRow>
         <SettingRow label="Install" hint="Runs on each runner, in its own folder. {arch} becomes amd64 or arm64.">
           <select className="field-input" value={t.install?.kind ?? "none"} onChange={(e) => set({ install: e.target.value === "none" ? null : { kind: e.target.value as ToolInstallKind, source: t.install?.source ?? "", asset: t.install?.asset ?? "" } })}>
@@ -346,6 +374,9 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
           <datalist id="vault-token-ids">{tokens.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</datalist>
         </SettingRow>
         <SettingRow label="Variables" hint="Set to a placeholder in the agent's environment, for example SLACK_TOKEN."><input className="field-input min-w-[260px] flex-1 font-mono" value={t.env.join(", ")} onChange={(e) => set({ env: e.target.value.split(/[\s,]+/).filter(Boolean) })} /></SettingRow>
+        <SettingRow label="Settings" hint="Values that are not secret, one KEY=value per line, for example an endpoint or a read-only switch. They are set only when the tool's commands run, never in the agent's environment. Needs an install.">
+          <textarea className="field-input min-h-[52px] min-w-[300px] flex-1 font-mono text-[12px]" value={vars} onChange={(e) => setVars(e.target.value)} spellCheck={false} placeholder="SLACKLINE_READONLY=1" aria-label="Settings" />
+        </SettingRow>
         <SettingRow label="Hosts" hint={<>One per line: <code className="font-mono">host bearer</code>, <code className="font-mono">host basic user</code>, <code className="font-mono">host header Name [prefix]</code> or <code className="font-mono">host query param</code>. <code className="font-mono">*.example.com</code> covers subdomains.</>}>
           <textarea className="field-input min-h-[70px] min-w-[300px] flex-1 font-mono text-[12px]" value={hosts} onChange={(e) => setHosts(e.target.value)} spellCheck={false} />
           <span className="text-[11px] text-ink-3">{parseHosts(hosts).map((h) => `${h.host}: ${AUTH_LABEL[h.auth.kind]}`).join(" · ")}</span>

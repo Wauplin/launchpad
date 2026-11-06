@@ -145,7 +145,21 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     for t in lease.tools.iter().filter(|t| t.install.is_some()) {
         match crate::tool_install::ensure(app, t, &cache).await {
             Ok(bin) => {
-                path_prefix.push(p(&bin));
+                // Settings of the tool: its commands run through wrappers that set them (never in `env`).
+                let wrapped = dir.join("tools").join(&t.id);
+                match t.vars.is_empty() {
+                    true => path_prefix.push(p(&bin)),
+                    false => match crate::tool_install::wrappers(t, &bin, &wrapped) {
+                        Ok(()) => {
+                            path_prefix.push(p(&wrapped));
+                            ro.push(wrapped);
+                        }
+                        Err(e) => {
+                            app.sessions.sink(app, &s.id).emit(crate::model::EventBody::Notice { text: format!("The tool {} is left out: its settings could not be prepared on this runner: {e:#}", t.name) }).await;
+                            continue;
+                        }
+                    },
+                }
                 ro.push(bin.parent().map(Path::to_path_buf).unwrap_or(bin));
             }
             Err(e) => {

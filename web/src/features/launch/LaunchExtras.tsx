@@ -3,7 +3,8 @@
 
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import { FilterChip, FilterChips } from "@/components/ui";
-import { useVault } from "@/features/settings/CredentialsView";
+import { hostConflict, useVault } from "@/features/settings/CredentialsView";
+import type { Tool } from "@/gen/Tool";
 import { useMcpServers } from "@/features/settings/McpServers";
 import { useStatus } from "@/lib/queries";
 import { outdatedLabel, useRunners } from "@/lib/runners";
@@ -91,6 +92,13 @@ export function useGrantedMcp(spec: LaunchSpec) {
   return servers.data.filter((s) => s.workspaces.includes("*") || (spec.workspace_id !== null && s.workspaces.includes(spec.workspace_id)));
 }
 
+/** The tools a launch gets: on, and not sending a token to a host an earlier tool already covers. */
+export function effectiveTools(tools: Tool[], isOn: (t: Tool) => boolean): Tool[] {
+  const kept: Tool[] = [];
+  for (const t of tools) if (isOn(t) && !hostConflict(kept, t)) kept.push(t);
+  return kept;
+}
+
 /** The granted tools and MCP servers of a launch, with their state: the defaults of its workspace, folder and bot,
  *  then the launch's own clicks. */
 export function useLaunchTools(spec: LaunchSpec, workspaceId: string | null, folderId: string | null) {
@@ -101,9 +109,21 @@ export function useLaunchTools(spec: LaunchSpec, workspaceId: string | null, fol
   const off = spec.tools_off ?? [];
   const on = spec.tools_on ?? [];
   const items = [...tools.map((t) => ({ key: t.id, name: t.name })), ...mcp.map((s) => ({ key: mcpKey(s.id), name: `${s.name} · MCP` }))];
+  // Tools sending different tokens to one host (Slack read-only and write) exclude each other: the lease keeps only
+  // the first one that is on (`vault::host_conflict`), and switching one on switches the others off.
+  const kept = effectiveTools(tools, (t) => launchOn(layers, off, on, t.id));
+  const rivals = (t: Tool) => tools.filter((x) => x.id !== t.id && (hostConflict([x], t) || hostConflict([t], x)));
   return {
-    items: items.map((i) => ({ ...i, on: launchOn(layers, off, on, i.key), byDefault: defaultOn(layers, i.key) })),
-    flip: (key: string) => flipLaunch(layers, off, on, key),
+    items: items.map((i) => ({ ...i, on: tools.some((t) => t.id === i.key) ? kept.some((t) => t.id === i.key) : launchOn(layers, off, on, i.key), byDefault: defaultOn(layers, i.key) })),
+    flip: (key: string) => {
+      const t = tools.find((x) => x.id === key);
+      if (t && kept.some((x) => x.id === key)) return launchOn(layers, off, on, key) ? flipLaunch(layers, off, on, key) : { tools_off: off, tools_on: on };
+      let next = launchOn(layers, off, on, key) ? { tools_off: off, tools_on: on } : flipLaunch(layers, off, on, key);
+      for (const r of t ? rivals(t) : []) {
+        if (launchOn(layers, next.tools_off, next.tools_on, r.id)) next = flipLaunch(layers, next.tools_off, next.tools_on, r.id);
+      }
+      return next;
+    },
   };
 }
 

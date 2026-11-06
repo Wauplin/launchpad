@@ -13,6 +13,7 @@ import { useBots } from "@/lib/bots";
 import { useWorkspaces } from "@/lib/workspace";
 import { useVault } from "@/features/settings/CredentialsView";
 import { useAddFolder } from "@/features/projects/addFolderStore";
+import { SlackSetup, slackReady } from "@/features/settings/SlackSetup";
 import { SUMMARY_KEY, homeLeft, homeStatus, homeSteps, type HomeStep } from "./summary";
 
 
@@ -97,6 +98,15 @@ export function HomeSetup() {
           </li>
         ))}
       </ol>
+      {vault && vault.templates.some((t) => t.id === "slack-read") && (
+        <section className="grid gap-2 rounded-lg border border-line bg-paper p-4" aria-label="Slack for agents">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="m-0 flex-1 text-[15px] font-semibold">Slack for agents</h2>
+            <span className={`text-[12px] ${slackReady(vault) ? "text-gh-open" : "text-ink-3"}`}>{slackReady(vault) ? "Done" : "Recommended · optional"}</span>
+          </div>
+          <SlackSetup v={vault} />
+        </section>
+      )}
     </div>
   );
 }

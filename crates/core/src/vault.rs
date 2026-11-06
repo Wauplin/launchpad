@@ -134,6 +134,11 @@ pub struct Tool {
     /// An HTTPS address on one of its hosts that answers 2xx with a valid token (Test in Settings).
     #[serde(default)]
     pub check_url: Option<String>,
+    /// Settings that are not secret (an endpoint, a read-only switch, an output format): set only for the tool's
+    /// own commands, through a wrapper on the agent's PATH (`tool_install::wrappers`), never in the session's
+    /// environment. Needs an install.
+    #[serde(default)]
+    pub vars: BTreeMap<String, String>,
 }
 
 /// The result of Test: Home sends one GET to the tool's check URL with the token added.
@@ -177,7 +182,7 @@ pub enum LaunchpadAccess {
 }
 
 pub fn launchpad_tool() -> Tool {
-    Tool { id: LAUNCHPAD_TOOL.into(), name: "Launchpad CLI".into(), install: None, credential: None, env: vec![], hosts: vec![], workspaces: vec!["*".into()], check_url: None }
+    Tool { id: LAUNCHPAD_TOOL.into(), name: "Launchpad CLI".into(), install: None, credential: None, env: vec![], hosts: vec![], workspaces: vec!["*".into()], check_url: None, vars: BTreeMap::new() }
 }
 
 /// Ready-made tools offered by Add tool. Only the Launchpad CLI is added on its own, once.
@@ -198,6 +203,7 @@ pub fn templates() -> Vec<Tool> {
             ],
             workspaces: vec!["*".into()],
             check_url: Some("https://api.github.com/user".into()),
+            vars: BTreeMap::new(),
         },
         Tool {
             id: "hf".into(),
@@ -208,18 +214,50 @@ pub fn templates() -> Vec<Tool> {
             hosts: vec![rule("huggingface.co", Auth::Bearer)],
             workspaces: vec!["*".into()],
             check_url: Some("https://huggingface.co/api/whoami-v2".into()),
+            vars: BTreeMap::new(),
         },
-        Tool {
-            id: "openrouter".into(),
-            name: "OpenRouter API key".into(),
-            install: None,
-            credential: Some("openrouter".into()),
-            env: vec!["OPENROUTER_API_KEY".into()],
-            hosts: vec![rule("openrouter.ai", Auth::Bearer)],
-            workspaces: vec!["*".into()],
-            check_url: Some("https://openrouter.ai/api/v1/key".into()),
-        },
+        slack_tool(false),
+        slack_tool(true),
     ]
+}
+
+/// Slack through slackline (github.com/co42/slackline), as two tools with their own Slack app and token: read-only
+/// (`SLACKLINE_READONLY` hides and refuses every write command, and the token has read scopes only) and write. A
+/// launch gets one of them: both use slack.com, and a lease keeps only the first tool of a host (`host_conflict`).
+pub fn slack_tool(write: bool) -> Tool {
+    let rule = |host: &str| HostRule { host: host.into(), auth: Auth::Bearer };
+    let (id, name) = if write { (SLACK_WRITE, "Slack (write)") } else { (SLACK_READ, "Slack (read-only)") };
+    Tool {
+        id: id.into(),
+        name: name.into(),
+        install: Some(Install { kind: InstallKind::GithubRelease, source: "co42/slackline".into(), asset: "slackline-*-{uarch}-unknown-linux-gnu.tar.gz".into() }),
+        credential: Some(id.into()),
+        env: vec!["SLACK_TOKEN".into()],
+        hosts: vec![rule("slack.com"), rule("files.slack.com")],
+        workspaces: vec!["*".into()],
+        check_url: Some("https://slack.com/api/auth.test".into()),
+        vars: if write { BTreeMap::new() } else { BTreeMap::from([("SLACKLINE_READONLY".to_string(), "1".to_string())]) },
+    }
+}
+
+pub const SLACK_READ: &str = "slack-read";
+pub const SLACK_WRITE: &str = "slack-write";
+
+/// The Slack app pages of `slackline token create [--write]`: Slack's "Create app" with the app manifest filled in
+/// (user scopes only; the write app adds the write scopes).
+fn slack_app_url(write: bool) -> String {
+    let read = ["channels:history", "channels:read", "files:read", "groups:history", "groups:read", "im:history", "im:read", "mpim:history", "mpim:read", "pins:read", "reactions:read", "search:read", "users:read", "users:read.email"];
+    let writes = ["chat:write", "files:write", "im:write", "pins:write", "reactions:write", "users.profile:write"];
+    let scopes: Vec<&str> = read.iter().chain(if write { writes.iter() } else { [].iter() }).copied().collect();
+    let tag = if write { "rw" } else { "ro" };
+    let manifest = json!({
+        "display_information": {"background_color": "#4a154b", "description": format!("Slack CLI {tag}"), "name": format!("Slackline {tag}")},
+        "oauth_config": {"scopes": {"user": scopes}},
+        "settings": {"org_deploy_enabled": false, "socket_mode_enabled": false, "token_rotation_enabled": false},
+    });
+    // Percent-encode everything but unreserved characters, like `slackline token create`.
+    let encoded: String = manifest.to_string().bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
+    format!("https://api.slack.com/apps?new_app=1&manifest_json={encoded}")
 }
 
 /// A login of Home itself whose token can be copied into the vault (Home's own `gh` and `hf` logins).
@@ -239,15 +277,32 @@ pub struct TemplateHelp {
     pub token_url: String,
     /// Home's own login that can fill the token instead.
     pub home_token: Option<HomeToken>,
+    /// The label of the `token_url` link.
+    pub link_label: String,
+    /// What to do on that page, step by step, when it is more than "create a token".
+    pub steps: Vec<String>,
 }
 
 /// Token help of each template, by template ID.
 pub fn template_help() -> Vec<TemplateHelp> {
-    let help = |id: &str, url: &str, home: Option<HomeToken>| TemplateHelp { id: id.into(), token_url: url.into(), home_token: home };
+    let help = |id: &str, url: &str, home: Option<HomeToken>| TemplateHelp { id: id.into(), token_url: url.into(), home_token: home, link_label: "Create a token".into(), steps: vec![] };
+    let slack = |write: bool| TemplateHelp {
+        id: if write { SLACK_WRITE } else { SLACK_READ }.into(),
+        token_url: slack_app_url(write),
+        home_token: None,
+        link_label: "Open Slack to create the app".into(),
+        steps: vec![
+            "Open Slack: the app and its permissions are already filled in.".into(),
+            "Pick your Slack workspace, then click Next and Create.".into(),
+            "In the sidebar, open Install App, click Install to Workspace, then Allow.".into(),
+            "Copy the User OAuth Token (it starts with xoxp-) and paste it here.".into(),
+        ],
+    };
     vec![
         help("gh", "https://github.com/settings/personal-access-tokens/new", Some(HomeToken::Github)),
         help("hf", "https://huggingface.co/settings/tokens/new?tokenType=fineGrained", Some(HomeToken::Huggingface)),
-        help("openrouter", "https://openrouter.ai/settings/keys", None),
+        slack(false),
+        slack(true),
     ]
 }
 
@@ -317,6 +372,13 @@ pub fn check_tool(t: &Tool) -> Result<()> {
             anyhow::ensure!(!param.is_empty(), "a query parameter needs a name");
         }
     }
+    for (k, v) in &t.vars {
+        anyhow::ensure!(valid_env(k), "{k:?} is not a variable name");
+        anyhow::ensure!(!RESERVED_ENV.contains(&k.as_str()) && !matches!(k.as_str(), "PATH" | "HOME" | "LD_PRELOAD" | "LD_LIBRARY_PATH"), "{k} cannot be set for a tool");
+        anyhow::ensure!(!t.env.contains(k), "{k} already holds the token's placeholder");
+        anyhow::ensure!(v.len() <= 2000 && !v.contains(['\n', '\r', '\0']), "the value of {k} must be one line");
+    }
+    anyhow::ensure!(t.vars.is_empty() || t.install.is_some(), "settings are set when the tool's commands run: the tool needs an install");
     if let Some(i) = &t.install {
         anyhow::ensure!(!i.source.trim().is_empty(), "the install needs a source");
         anyhow::ensure!(i.source.chars().all(|c| !c.is_whitespace() && c != '\'' && c != '"'), "the install source cannot contain spaces or quotes");
@@ -422,7 +484,15 @@ pub async fn test_tool(app: &App, id: &str) -> Result<ToolTest> {
     crate::proxy::add_auth(&mut headers, &mut url, &rule.auth, &secret);
     let res = reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build()?.get(url).headers(headers).header("user-agent", "launchpad").send().await;
     Ok(match res {
-        Ok(r) if r.status().is_success() => ToolTest { ok: true, status: r.status().as_u16(), message: format!("The token works on {host}.") },
+        // Some APIs (Slack) answer 200 with `{"ok": false, "error": "invalid_auth"}`.
+        Ok(r) if r.status().is_success() => {
+            let status = r.status().as_u16();
+            let body: Value = r.json().await.unwrap_or(Value::Null);
+            match body.get("ok") {
+                Some(Value::Bool(false)) => ToolTest { ok: false, status, message: format!("{host} refused the token: {}.", body["error"].as_str().unwrap_or("not ok")) },
+                _ => ToolTest { ok: true, status, message: format!("The token works on {host}.") },
+            }
+        }
         Ok(r) if matches!(r.status().as_u16(), 401 | 403) => ToolTest { ok: false, status: r.status().as_u16(), message: format!("{host} refused the token ({}). Check the token and its permissions.", r.status()) },
         Ok(r) => ToolTest { ok: false, status: r.status().as_u16(), message: format!("{host} answered {}.", r.status()) },
         Err(e) => ToolTest { ok: false, status: 0, message: format!("Could not reach {host}: {e}") },
@@ -752,9 +822,13 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
     };
     // Granted tools that are on (`tool_defaults`), and their credentials.
     let off = req.off(app).await?;
-    let mut tools_out = vec![];
+    let mut tools_out: Vec<Tool> = vec![];
     for t in tools(app).await? {
         if !t.granted(req.workspace_id.as_deref()) || off.contains(&t.id) {
+            continue;
+        }
+        if let Some(other) = host_conflict(&tools_out, &t) {
+            tracing::info!("tool {}: left out, {} already sends its token to the same host", t.id, other.id);
             continue;
         }
         if let Some(cid) = &t.credential {
@@ -793,6 +867,13 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
         mcp: crate::mcp::granted(app, req.workspace_id.as_deref(), &off).await?,
         launchpad,
     })
+}
+
+/// The kept tool that already sends another token to one of `t`'s hosts (the proxy adds one token per host): two
+/// Slack tools, for example. The first tool in the registry's order (by name) wins.
+pub fn host_conflict<'a>(kept: &'a [Tool], t: &Tool) -> Option<&'a Tool> {
+    let cid = t.credential.as_deref()?;
+    kept.iter().find(|k| k.credential.as_deref().is_some_and(|c| c != cid) && k.hosts.iter().any(|a| t.hosts.iter().any(|b| a.host.eq_ignore_ascii_case(&b.host))))
 }
 
 /// Home: a fresh copy of an active lease (tokens Home refreshed meanwhile), or an error once it is revoked.
@@ -1038,6 +1119,41 @@ mod tests {
         assert!(wild.matches("a.b.example.com"));
         assert!(!wild.matches("example.com"));
         assert!(!wild.matches("badexample.com"));
+    }
+
+    #[test]
+    fn slack_app_url_matches_slackline_token_create() {
+        // Printed by `slackline token create` (v1.5.0).
+        let read = "https://api.slack.com/apps?new_app=1&manifest_json=%7B%22display_information%22%3A%7B%22background_color%22%3A%22%234a154b%22%2C%22description%22%3A%22Slack%20CLI%20ro%22%2C%22name%22%3A%22Slackline%20ro%22%7D%2C%22oauth_config%22%3A%7B%22scopes%22%3A%7B%22user%22%3A%5B%22channels%3Ahistory%22%2C%22channels%3Aread%22%2C%22files%3Aread%22%2C%22groups%3Ahistory%22%2C%22groups%3Aread%22%2C%22im%3Ahistory%22%2C%22im%3Aread%22%2C%22mpim%3Ahistory%22%2C%22mpim%3Aread%22%2C%22pins%3Aread%22%2C%22reactions%3Aread%22%2C%22search%3Aread%22%2C%22users%3Aread%22%2C%22users%3Aread.email%22%5D%7D%7D%2C%22settings%22%3A%7B%22org_deploy_enabled%22%3Afalse%2C%22socket_mode_enabled%22%3Afalse%2C%22token_rotation_enabled%22%3Afalse%7D%7D";
+        assert_eq!(slack_app_url(false), read);
+        let write = slack_app_url(true);
+        assert!(write.contains("Slackline%20rw") && write.contains("%22chat%3Awrite%22%2C%22files%3Awrite%22%2C%22im%3Awrite%22%2C%22pins%3Awrite%22%2C%22reactions%3Awrite%22%2C%22users.profile%3Awrite%22%5D"));
+    }
+
+    #[test]
+    fn a_lease_keeps_one_token_per_host() {
+        let (read, write) = (slack_tool(false), slack_tool(true));
+        assert_eq!(host_conflict(std::slice::from_ref(&read), &write).map(|t| t.id.as_str()), Some(SLACK_READ));
+        assert!(host_conflict(&templates()[..3], &read).is_none());
+        // Two tools sharing one token share its authority: no conflict.
+        let mut same = write.clone();
+        same.credential = read.credential.clone();
+        assert!(host_conflict(std::slice::from_ref(&read), &same).is_none());
+    }
+
+    #[test]
+    fn tool_settings_are_checked() {
+        let mut t = slack_tool(false);
+        assert!(check_tool(&t).is_ok());
+        for bad in ["PATH", "SLACK_TOKEN", "LD_PRELOAD", "1X"] {
+            t.vars = BTreeMap::from([(bad.to_string(), "1".to_string())]);
+            assert!(check_tool(&t).is_err(), "{bad}");
+        }
+        t.vars = BTreeMap::from([("SLACKLINE_FORMAT".to_string(), "a\nb".to_string())]);
+        assert!(check_tool(&t).is_err());
+        let mut no_install = slack_tool(false);
+        no_install.install = None;
+        assert!(check_tool(&no_install).is_err());
     }
 
     #[test]

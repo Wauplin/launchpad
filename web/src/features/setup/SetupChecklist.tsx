@@ -27,6 +27,8 @@ import { WorkspacePicker, defaultWorkspace } from "@/features/workspaces/Workspa
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
 import { usePatchConfig } from "@/features/settings/SettingsView";
+import { useVault } from "@/features/settings/CredentialsView";
+import { SlackSetup, slackReady } from "@/features/settings/SlackSetup";
 import type { ChannelsOverview } from "@/features/settings/ChannelsView";
 import { useOnboarding, usePatchOnboarding } from "@/onboarding/data";
 import { SUMMARY_KEY } from "./summary";
@@ -99,7 +101,8 @@ function MachineSetupChecklist() {
   const items = q.data?.items ?? [];
   const required = items.filter((i) => i.importance === "required");
   const optional = items.filter((i) => i.importance !== "required");
-  const hidden = optional.filter((i) => dismissed.includes(`setup:${i.id}`));
+  const hidden: { id: string; title: string }[] = optional.filter((i) => dismissed.includes(`setup:${i.id}`));
+  if (!host && dismissed.includes("setup:slack")) hidden.push({ id: "slack", title: "Slack" });
   const shown = optional.filter((i) => !dismissed.includes(`setup:${i.id}`));
   const ready = !!q.data && q.data.required_left === 0;
   return (
@@ -127,6 +130,7 @@ function MachineSetupChecklist() {
         <Section title="Required">{required.map((i) => <ItemCard key={i.id} item={i} host={host} recheck={recheck} />)}</Section>
         <Section title={host ? "Optional" : "Recommended and optional"}>
           {!host && <NotificationsItem />}
+          {!host && !dismissed.includes("setup:slack") && <SlackItem onHide={() => void patchOnboarding({ dismiss: ["setup:slack"] }).catch(toastError)} />}
           {shown.map((i) => <ItemCard key={i.id} item={i} host={host} recheck={recheck} onHide={i.state === "missing" ? () => void patchOnboarding({ dismiss: [`setup:${i.id}`] }).catch(toastError) : undefined} />)}
           {hidden.length > 0 && (
             <p className="m-0 flex flex-wrap items-center gap-1.5 text-[12px] text-ink-3">Hidden: {hidden.map((i) => i.title).join(", ")}
@@ -388,6 +392,19 @@ function GitHubExpectations() {
       <span>The status bar warns when fewer than 500 API calls are left in the hour.</span>
       <span>Nothing is posted, merged or changed on GitHub without your click.</span>
     </div>
+  );
+}
+
+/** Slack for agents (slackline): a read-only token, and optionally a write one. Optional but recommended; the vault is
+ * Home's, so a runner shows Home's state. */
+export function SlackItem({ onHide }: { onHide?: () => void }) {
+  const vault = useVault().data;
+  if (!vault || !vault.templates.some((t) => t.id === "slack-read")) return null;
+  const ready = slackReady(vault);
+  return (
+    <ItemShell title="Slack for agents" importance="recommended" state={ready ? "ready" : "missing"} why="Let agents search and read your Slack, and post only when you pick it for a launch. About two minutes per token." onHide={ready ? undefined : onHide}>
+      <SlackSetup v={vault} />
+    </ItemShell>
   );
 }
 

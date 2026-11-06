@@ -186,8 +186,43 @@ async fn jailed(app: &App, dir: &Path, cache: &Path, program: &str, args: &[&str
     Ok(())
 }
 
+/// A tool's settings (`Tool::vars`) apply only to its own commands: for each program of `bin`, a script in `out`
+/// (put on PATH instead of `bin`) sets them and runs the program. The session's environment never holds them.
+pub fn wrappers(tool: &Tool, bin: &Path, out: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(out)?;
+    for e in std::fs::read_dir(bin)?.flatten() {
+        let name = e.file_name();
+        let Some(name) = name.to_str() else { continue };
+        // Written aside, then renamed: a running session may be reading the previous script.
+        let tmp = out.join(format!(".{name}.tmp"));
+        std::fs::write(&tmp, wrapper_script(tool, &e.path()))?;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
+        std::fs::rename(&tmp, out.join(name))?;
+    }
+    Ok(())
+}
+
+fn wrapper_script(tool: &Tool, program: &Path) -> String {
+    let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
+    let mut text = format!("#!/bin/sh\n# Settings of the tool {} (Launchpad).\n", tool.id);
+    for (k, v) in &tool.vars {
+        text.push_str(&format!("export {k}={}\n", quote(v)));
+    }
+    text.push_str(&format!("exec {} \"$@\"\n", quote(&program.to_string_lossy())));
+    text
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn wrappers_set_quoted_settings_and_run_the_program() {
+        let mut t = crate::vault::slack_tool(false);
+        t.vars.insert("SLACKLINE_FORMAT".into(), "it's $HOME".into());
+        let s = super::wrapper_script(&t, std::path::Path::new("/data/tools/slack-read-1/bin/slackline"));
+        assert_eq!(s, "#!/bin/sh\n# Settings of the tool slack-read (Launchpad).\nexport SLACKLINE_FORMAT='it'\\''s $HOME'\nexport SLACKLINE_READONLY='1'\nexec '/data/tools/slack-read-1/bin/slackline' \"$@\"\n");
+    }
+
     #[test]
     fn glob_matches_release_assets() {
         assert!(super::glob("gh_*_linux_amd64.tar.gz", "gh_2.83.0_linux_amd64.tar.gz"));
