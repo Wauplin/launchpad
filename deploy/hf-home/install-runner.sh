@@ -137,7 +137,22 @@ else
 fi
 
 bold "4/4 · Pairing with Home"
-if [ -f "$HOME/.local/share/launchpad-runner/home.json" ] && grep -q "\"url\": \"$HOME_URL\"" "$HOME/.local/share/launchpad-runner/home.json"; then
+# A saved pairing counts only while Home still knows it: a Home recreated at the same address, or a runner removed
+# in Settings, answers 401, and the runner then asks to pair again (the request waits for your approval).
+LINK="$HOME/.local/share/launchpad-runner/home.json"
+paired=""
+if [ -f "$LINK" ] && grep -q "\"url\": \"$HOME_URL\"" "$LINK"; then
+  link_id="$(sed -n 's/.*"id": *"\([^"]*\)".*/\1/p' "$LINK" | head -1)"
+  link_secret="$(sed -n 's/.*"secret": *"\([^"]*\)".*/\1/p' "$LINK" | head -1)"
+  state="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" -H "X-Launchpad-Runner: $link_id.$link_secret" \
+    "$HOME_URL/api/runners/request/$link_id" 2>/dev/null || true)"
+  case "$state" in
+    200) paired=yes ;;
+    401) note "Home no longer knows this runner (Home was recreated or the runner was removed): pairing again." ;;
+    *) paired=yes; note "Could not check the pairing with Home (HTTP ${state:-error}): keeping it. If the runner does not show up on Home, run: launchpad-runner connect $HOME_URL" ;;
+  esac
+fi
+if [ -n "$paired" ]; then
   ok "Already paired with $HOME_URL"
 else
   HF_TOKEN="$TOKEN" "$HOME/.local/bin/launchpad-runner" connect "$HOME_URL" --name "$NAME"
