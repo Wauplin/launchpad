@@ -34,7 +34,19 @@ const TEXT_MAX: usize = 1 << 20;
 const SEED_INDEX: &str = "# Index\n\nThe map of this knowledge base: one line per important note, linking to it. Agents read this file at the start of every session, so keep it under 150 lines.\n";
 const SEED_AGENTS: &str = r#"# How to write here
 
-This is the knowledge base of this workspace, the only memory agents have. Write what is worth remembering next time: facts, decisions, how-tos, people, project context. Do not copy what a repository already says (README, CLAUDE.md, AGENTS.md).
+This is the knowledge base of this workspace, the only memory agents have. Agents read it at the start of sessions, so every line costs context: keep it small.
+
+## What to write
+
+- A few durable, high-level findings: the owner's preferences and decisions with their reasons, non-obvious facts that took effort to discover, how-tos, people and project context.
+- Anything the owner asks you to remember.
+
+## What not to write
+
+- No log: no record of sessions or runs, task status, what you did, what went well or failed. Traces, Git history and the session list already keep that.
+- Nothing a repository already says (README, CLAUDE.md, AGENTS.md), nothing you can find again quickly, nothing true only for the current task.
+
+Most sessions write nothing. Before you add a note, update or remove an existing one.
 
 ## Layout
 
@@ -42,7 +54,7 @@ This is the knowledge base of this workspace, the only memory agents have. Write
 - `people/`, `projects/`, `topics/`, `decisions/`, `howto/`: one Markdown note per subject, with a short kebab-case file name.
 - `sources/`: captures of pages or documents, with their URL and date.
 - `media/`: images, video and audio, added with `launchpad kb add-media`.
-- `bots/<bot>/`: a bot's own notes (its working memory between sessions).
+- `bots/<bot>/`: a bot's own notes, short and current (preferences and facts it needs next time, never a journal of its runs).
 
 ## Notes
 
@@ -67,7 +79,7 @@ Link notes with [[wikilinks]]. When a fact changes, update the note, or mark the
 Files here are read-only: write with `launchpad kb write|append|add-media|rm`. Every change records who made it and can be restored for 30 days. A file named `<note>.concurrent-<id>.md` is a second version written while the note changed: merge it into the note, then remove it.
 "#;
 
-const GARDENER_PROMPT: &str = "Tend the knowledge base of this workspace (its folder is $LAUNCHPAD_KB; read AGENTS.md there first). Merge duplicate notes, add missing [[wikilinks]], mark outdated notes `status: superseded` with a link to the current one, merge every `*.concurrent-*` file into its note and remove it, and keep INDEX.md an accurate map under 150 lines. Change only what clearly improves the notes, write with `launchpad kb`, and end with a short list of what you changed.";
+const GARDENER_PROMPT: &str = "Tend the knowledge base of this workspace (its folder is $LAUNCHPAD_KB; read AGENTS.md there first). Merge duplicate notes, cut notes down to their durable findings (remove logs of sessions or runs, task status and results that only mattered once), add missing [[wikilinks]], mark outdated notes `status: superseded` with a link to the current one, merge every `*.concurrent-*` file into its note and remove it, and keep INDEX.md an accurate map under 150 lines. Change only what clearly improves the notes, write with `launchpad kb`, and end with a short list of what you changed.";
 
 pub fn store(workspace_id: &str) -> String {
     format!("kb-{workspace_id}")
@@ -769,7 +781,7 @@ pub async fn instructions(app: &App, workspace_id: &str, dir: &Path) -> String {
     let more = if lines.len() > INDEX_LINES { format!("\n\n(INDEX.md continues: {} more lines in the file.)", lines.len() - INDEX_LINES) } else { String::new() };
     let cli = app.paths.cli_command();
     format!(
-        "# Knowledge base\n\nYour memory is the Launchpad knowledge base of the workspace \"{name}\", in `{dir}` (also `$LAUNCHPAD_KB`). Your harness's own memory is off: do not write memory files anywhere else.\n\n- Read it as files: start from INDEX.md below, look up with `rg` in that folder or `{cli} kb search <words>`.\n- The files are read-only. Write with `{cli} kb write <path>` (content on stdin, or `--file <file>`), `{cli} kb append <path>`, `{cli} kb add-media <file>` and `{cli} kb rm <path>`. Read AGENTS.md there before your first write.\n- Save what will help later sessions: decisions and their reasons, facts you had to discover, how-tos, people and project context. Update existing notes instead of adding near duplicates, and keep INDEX.md current. Repository instructions (CLAUDE.md, AGENTS.md in a repository) are not memory and stay where they are.\n\n## INDEX.md\n\n{shown}{more}\n",
+        "# Knowledge base\n\nYour memory is the Launchpad knowledge base of the workspace \"{name}\", in `{dir}` (also `$LAUNCHPAD_KB`). Your harness's own memory is off: do not write memory files anywhere else.\n\n- Read it as files: start from INDEX.md below, look up with `rg` in that folder or `{cli} kb search <words>`.\n- The files are read-only. Write with `{cli} kb write <path>` (content on stdin, or `--file <file>`), `{cli} kb append <path>`, `{cli} kb add-media <file>` and `{cli} kb rm <path>`. Read AGENTS.md there before your first write.\n- Write rarely: only a few durable, high-level findings (the owner's preferences and decisions with their reasons, non-obvious facts that took effort to discover, how-tos), and what the owner asks you to remember. Never keep a log of sessions or runs, task status, what you did, or what went well or failed: traces and Git history keep that. Most sessions write nothing. Every session reads this, so keep notes short, update or remove an existing note instead of adding one, and keep INDEX.md current. Repository instructions (CLAUDE.md, AGENTS.md in a repository) are not memory and stay where they are.\n\n## INDEX.md\n\n{shown}{more}\n",
         dir = dir.display()
     )
 }

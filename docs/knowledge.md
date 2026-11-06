@@ -7,9 +7,10 @@ Each workspace has a knowledge base: plain Markdown notes and media files that a
 - Every session on a runner gets a read-only copy of its workspace's knowledge base. The variable `$LAUNCHPAD_KB` points to it. Agents read it as files, for example with `rg`, or with `launchpad kb search <words>`.
 - The harness's own memory is off in every session (Claude Code auto memory, Codex memories). Their user instructions point to the knowledge base and include `INDEX.md`, the map of the knowledge base, at the start of the session.
 - Agents write with the `launchpad kb` commands: `write <path>` (stdin or `--file`), `append <path>`, `add-media <file>` and `rm <path>`. Home applies writes one at a time. The copy on the runner updates right after a write and every minute.
+- Agents are told to write rarely: a few durable, high-level findings (your preferences and decisions, facts that took effort to discover, how-tos) and what you ask them to remember. They do not log sessions, runs, task status or results: traces and Git history keep that, and a log would fill the context of every session that reads the knowledge base.
 - Repository instructions (`CLAUDE.md`, `AGENTS.md` in a repository) are not memory and stay where they are.
 
-A new knowledge base starts with `INDEX.md` and `AGENTS.md`. `AGENTS.md` explains the layout (`people/`, `projects/`, `topics/`, `decisions/`, `howto/`, `sources/`, `media/`) and the front matter of a note (`title`, `type`, `status: current | superseded`, `valid_from`, `sources`). Edit it to change how agents write.
+A new knowledge base starts with `INDEX.md` and `AGENTS.md`. `AGENTS.md` explains what to write and what not to write, the layout (`people/`, `projects/`, `topics/`, `decisions/`, `howto/`, `sources/`, `media/`) and the front matter of a note (`title`, `type`, `status: current | superseded`, `valid_from`, `sources`). Edit it to change how agents write.
 
 ## The Knowledge page
 
@@ -30,7 +31,7 @@ On a runner, the copy is in `<runner data folder>/knowledge/<workspace name>/`, 
 
 ## The gardener
 
-**Run the gardener** opens the composer with a prompt for the workspace: merge duplicate notes, add missing links, mark outdated notes as superseded, merge concurrent edits and keep `INDEX.md` current. Pick a profile with a cheap model. To run it every week, choose **Repeat on a schedule**. Its changes are listed and restorable like any other.
+**Run the gardener** opens the composer with a prompt for the workspace: merge duplicate notes, cut notes down to their durable findings (removing logs of runs and results), add missing links, mark outdated notes as superseded, merge concurrent edits and keep `INDEX.md` current. Pick a profile with a cheap model. To run it every week, choose **Repeat on a schedule**. Its changes are listed and restorable like any other.
 
 ## Import memories
 

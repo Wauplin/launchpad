@@ -168,6 +168,7 @@ The replication, relay, move and Burst design is in `docs/architecture.md`; thes
 
 - The knowledge base (`kb.rs`, store `kb-<workspace id>`) is the only agent memory. Only Home writes it, through `kb::apply` (one writer at a time, author and line counts in `plain_history.meta`); never commit a `kb-` store with `plain::commit`. Writes name the content they started from; a changed base keeps both versions (`.concurrent-<id>` sibling), never a silent overwrite.
 - Every contained session gets its workspace's mirror read-only (`$LAUNCHPAD_KB`) and the harness's own memory off through `Harness::contained_memory`. Agents write only with `launchpad kb` (session CLI token, `/api/kb`); Home takes the author from its own session record, never from the runner.
+- Memory stays small: every instruction that tells agents about the knowledge base (`kb::instructions`, the seeded `AGENTS.md`, `bots::instruction`, Ask Launchpad's `BOT.md`, `skills/launchpad/SKILL.md`) asks for a few durable findings and what the owner asks to remember, never a log of sessions, runs or results.
 - The gardener is a normal launch the owner starts (or repeats as a routine) from the Knowledge page; memory import reads a runner's harness memories only on an owner click.
 
 ### Credentials and the jail
