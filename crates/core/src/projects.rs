@@ -633,11 +633,17 @@ pub fn temp_root(app: &App) -> PathBuf {
 /// Creates `<data_dir>/tmp/tmp-<MMDD>-<slug>` and registers it as a temporary folder of a workspace. It is
 /// deleted when its last agent is archived, unless the owner keeps it as a folder (`promote`).
 pub async fn create_temp(app: &App, prompt: &str, workspace_id: &str) -> Result<Project> {
-    crate::workspace::get(app, workspace_id).await.context("choose a workspace for the temporary folder")?;
-    let root = temp_root(app);
     let (month, day) = crate::util::local_month_day();
     let base = format!("tmp-{month:02}{day:02}-{}", crate::compose::slug_from(prompt));
-    let mut path = root.join(&base);
+    create_temp_named(app, &base, workspace_id).await
+}
+
+/// Creates `<data_dir>/tmp/<base>` (or `<base>-2`, …) and registers it as a temporary folder of a workspace.
+pub async fn create_temp_named(app: &App, base: &str, workspace_id: &str) -> Result<Project> {
+    crate::workspace::get(app, workspace_id).await.context("choose a workspace for the temporary folder")?;
+    anyhow::ensure!(!base.is_empty() && !base.contains('/') && !base.starts_with('.'), "invalid temporary folder name");
+    let root = temp_root(app);
+    let mut path = root.join(base);
     let mut n = 2;
     while path.exists() {
         path = root.join(format!("{base}-{n}"));
@@ -682,6 +688,23 @@ pub async fn after_archive(app: &App, session_id: &str) {
     if let Err(e) = delete_temp(app, &p.id).await {
         tracing::warn!("delete the temporary folder {}: {e:#}", p.path);
     }
+}
+
+/// Home: forgets the temporary folder of a runner that is gone (a stopped Burst job) once no open session
+/// uses it (`moved`: the session that just left it): its disk, and the folder with it, no longer exist.
+pub async fn forget_lost_temp(app: &App, id: &str, moved: &str) -> Result<()> {
+    if app.sessions.list().iter().any(|s| s.id != moved && s.project_id.as_deref() == Some(id) && s.status != crate::model::SessionStatus::Closed) {
+        return Ok(());
+    }
+    let id = id.to_string();
+    let n = app
+        .state_db
+        .call(move |c| Ok(c.execute("DELETE FROM project WHERE id = ?1 AND is_temp = 1 AND runner_id IS NOT NULL AND runner_id NOT IN (SELECT id FROM runner)", [id])?))
+        .await?;
+    if n > 0 {
+        app.bus.publish("projects", "changed", serde_json::Value::Null);
+    }
+    Ok(())
 }
 
 /// Keep as folder: moves a temporary folder to `<projects_root>/<name>` and makes it a normal project. Moves

@@ -51,6 +51,8 @@ Between turns, a session can move to another runner: in its Summary, **Runs on**
 
 Every runner sends the conversation of a session to Home at the end of each turn, when it changed. So a session can also move while its runner is offline (a sleeping laptop): Move to Burst continues it from the last turn's branches and conversation; files that were not committed stay on that machine.
 
+A session in a temporary folder (a bot without a folder, such as Ask Launchpad) moves too: its new runner gives it a new, empty temporary folder with the same name, and the session says so. The files of the previous folder stay on the previous runner, or are gone with a stopped Burst job; keep files that matter in the knowledge base, a bot store or a Git folder.
+
 Home is the place that keeps conversations. In a contained session, Claude Code and Codex do not save their prompt history (`history.jsonl`). They still write their conversation file, because they resume from it. About an hour after a session is archived, its runner sends that conversation to Home one last time. When Home has confirmed it, the runner deletes the session's folder (`<data_dir>/sessions/<id>`). If trace backup is on, the runner also waits until the backup has uploaded those files. Resume gets the conversation back from Home before the agent starts.
 
 ## Sessions on Home
