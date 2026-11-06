@@ -37,7 +37,7 @@ The command saves the draft in the Outbox and tells the agent that nothing was s
 
 1. In Telegram, open [@BotFather](https://t.me/BotFather), send `/newbot` and copy the token.
 2. In **Settings → Channels → Telegram**, paste the token and click **Save on Home**. Home checks it with Telegram and keeps it in the vault.
-3. Bind your chat: open the `t.me/<your bot>?start=<code>` link on your phone and press **Start** (or send `/start <code>` to the bot). The code is single-use and valid for 30 minutes. The first chat that sends it is bound; every other chat is ignored and never answered. **Bind another chat** shows a new code.
+3. Bind your chat: open the `t.me/<your bot>?start=<code>` link on your phone and press **Start** (or send `/start <code>` to the bot). The code is single-use and valid for 30 minutes. The first chat that sends it is bound; every other chat is ignored and never answered. **Bind another chat** (in the Telegram card's **⋯**) shows a new code.
 
 Home reads the chat by polling Telegram (a private Space has no address Telegram could call). What happens in the bound chat:
 
@@ -46,7 +46,7 @@ Home reads the chat by polling Telegram (a private Space has no address Telegram
 - **Notifications** (a switch, on by default): the same events as desktop notifications, that is completed turns, failures, unexpected interruptions, automatic quota and cost stops, and automatic resumption. They name the status, the folder, its workspace and the agent, with a link: the session's card in Today for a finished, failed or interrupted session (the session itself when the card no longer waits), the bot's chat or the session otherwise. Every link opens the workspace of the session. Session titles appear only when you turn on **Include session titles**. Notifications never contain code or messages, and have no buttons.
 - Agents can write to you directly with `launchpad send telegram --body-file <file> --session-id <id>`.
 
-Quota rules do not change: a message from Telegram starts nothing with paid usage, and a quota pause holds it like any other message. **Send test message** checks the setup. **Remove Telegram** deletes the token and the bound chat.
+Quota rules do not change: a message from Telegram starts nothing with paid usage, and a quota pause holds it like any other message. **Send test message** checks the setup. **Remove Telegram**, in **⋯**, deletes the token and the bound chat.
 
 ## Incoming hooks
 
@@ -64,4 +64,4 @@ curl -X POST https://<you>-launchpad.hf.space/hooks/<id> \
   -d '{"event": "build_failed", "url": "https://…"}'
 ```
 
-curl, scripts and CI jobs can do this. GitHub's own webhooks cannot (they send no HF token): use a GitHub Actions step with curl instead. **Delete** stops the URL at once.
+curl, scripts and CI jobs can do this. GitHub's own webhooks cannot (they send no HF token): use a GitHub Actions step with curl instead. Each hook row has **Copy URL**; its **⋯** holds **Copy curl example**, **Open the last session** and **Delete**, which stops the URL at once.

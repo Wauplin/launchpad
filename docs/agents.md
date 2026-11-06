@@ -68,6 +68,8 @@ Launchpad saves a temporary folder's files on Home at the end of every turn, exc
 - **Quota paused**: held until subscription quota is available again.
 - **Done**, **Stopped**, **Interrupted**, **Failed**, **In terminal** and **Archived** for local sessions. Routines and scheduled launches are on the **Schedules** page.
 
+Click a row to open its session. The row's **⋯** holds **Stop** (while it runs) or **Archive**, **Mark unread** and **Pin** (pinned sessions show first). A quota-paused row shows when its quota resets; hover it for every window.
+
 A session **needs you** when it has an open question, or when it finished, failed or was interrupted and you have not seen it yet. Such sessions wait as cards in [Today](today.md) and stay bold in their group here; an unseen one has a small amber dot after its status. A session counts as seen after it was on screen for 1.5 seconds in a window you used recently. The sidebar shows only how many agents run or wait for quota.
 
 ```mermaid
@@ -176,7 +178,7 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ![The Ask panel: an answer and a proposed launch](images/ask.webp)
 
-Any agent granted the Launchpad CLI tool can propose cards too; they wait in Today → Approve and in the session that wrote them; handled cards are in Today → Done. **Add tool** asks you to confirm, then you paste the tool's token. **Edit** moves a proposal into the composer and replaces the card ("Edited in the composer"). **Start all** (in Today and on a bot's Proposals tab) and **Dismiss all** (on a bot's Proposals tab) act on every waiting card after one confirmation.
+Any agent granted the Launchpad CLI tool can propose cards too; they wait in Today → Approve and in the session that wrote them; handled cards are in Today → Done. **Add tool** asks you to confirm, then you paste the tool's token. **Edit** (in the card's **⋯**) moves a proposal into the composer and replaces the card (“Edited in the composer”). **Start all** (in Today and on a bot's Proposals tab) and **Dismiss all** (on a bot's Proposals tab) act on every waiting card after one confirmation.
 
 In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or both for each preset. The Presets button adds selected instructions after your message, in settings order. Bots can also propose a new preset or new values (label, text, agent availability) for an existing one; they cannot delete presets. Agent availability includes launches, steering and Send later. For example, a bots-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
 

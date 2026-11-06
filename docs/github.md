@@ -10,9 +10,9 @@ Sign in with `gh auth login` on the machine that runs the daemon. Launchpad read
 
 ![The Inbox with reason filters, Done on each row and a preview](images/inbox.webp)
 
-- The Inbox (`/inbox`) lists the notifications of the workspace's repositories. Notifications of a repository that has no folder appear in no Inbox: **Settings → GitHub → Repositories without a folder** lists those repositories with their notification count and last activity, with **Add to ▾** (clone it as a folder of a workspace) and **Open on GitHub**.
+- The Inbox (`/inbox`) lists the notifications of the workspace's repositories. Notifications of a repository that has no folder appear in no Inbox: **Settings → GitHub → Repositories without a folder** lists those repositories with their notification count and last activity, with **Add to ▾** (clone it as a folder of a workspace) and **Open on GitHub** in **⋯**.
 - Filter by reason: **Review requested**, **Mentioned**, **Assigned**, **Subscribed** or **All**, plus **Unread only** and a repository filter.
-- Each row shows **✓ Done**. Hover the row (or focus it with the keyboard) for **▶ Launch** (start an agent with this item as context) and **+ Add** (add it to the current draft); on touch screens they are always visible.
+- Each row shows **✓ Done** and **⋯**, which holds **Launch** (start an agent with this item as context) and, while a draft is open, **Add to the draft**. **⋯** shows when you hover the row or focus it with the keyboard. On the phone, a row has only **✓**: open the preview for **Launch**.
 - The preview shows the latest comments and a reply box. **Read/Unread** and **Unsubscribe** are in the preview.
 - The sidebar count is unread review requests, mentions and assignments.
 
@@ -48,7 +48,7 @@ Agents write comments and reviews with the `launchpad suggest` CLI. They are sav
 launchpad suggest review --repo owner/repo --number 123 --head <commit> --body-file review.md --event approve
 ```
 
-A suggestion appears as a card on the item's Conversation tab and in [Today](today.md) → **GitHub** (**Review & post** opens it there). **Edit**, then **Post review** (or **Post comment**) publishes it under your account after you confirm. **Discard** deletes it; for a suggestion that is posted or uncertain, the confirmation asks you to check GitHub first.
+A suggestion appears as a card on the item's Conversation tab and in [Today](today.md) → **GitHub** (**Review** opens it there). **Edit**, then **Post review** (or **Post comment**) publishes it under your account after you confirm. **Discard** deletes it; for a suggestion that is posted or uncertain, the confirmation asks you to check GitHub first.
 
 A review can also do one more thing with the same click. An approving review with `--merge squash|merge|rebase` shows **Post review and merge**: it posts the review, then merges the pull request at the reviewed commit. A review with `--run-ci` shows **Post review and run CI**: it posts the review, then approves the GitHub Actions runs of the reviewed commit that wait for a maintainer (pull requests from forks of first-time contributors). **Edit** changes or removes the follow-up (**After posting**). If the merge or the approval fails, the review stays posted, the card shows the error and nothing is retried.
 
