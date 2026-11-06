@@ -203,7 +203,7 @@ export function BotChat({ bot, thread, fresh, rotation, needsProfile, onCancelFr
         <span className="min-w-0 flex-1 break-words">Could not load the thread: {failedLog.error}</span>
         <button className="btn btn-sm" onClick={() => visible.forEach((s) => void load(s.id))}>Retry</button>
       </div>}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 [overflow-wrap:anywhere]"
+      <div ref={scrollRef} className="lp-quiet-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 [overflow-wrap:anywhere]"
         onScroll={(e) => {
           const el = e.currentTarget;
           atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
@@ -269,7 +269,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
         {data && <UndoButton a={data as Activity} />}
       </div>;
       if (!data) return null;
-      return <div className="py-1.5">{item.kind === "proposal" ? <ProposalCard p={data as Proposal} /> : <ItemCard item={data as TodayItem} proposal={undefined} suggestion={extra} />}</div>;
+      return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] py-1.5">{item.kind === "proposal" ? <ProposalCard p={data as Proposal} /> : <ItemCard item={data as TodayItem} proposal={undefined} suggestion={extra} />}</div>;
     case "changes":
       return <ChangesRow sessionId={item.sessionId} />;
     case "working":

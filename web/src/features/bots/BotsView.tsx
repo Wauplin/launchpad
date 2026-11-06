@@ -15,6 +15,7 @@ import { toast, toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, Loading, PageHeader, Tabs } from "@/components/ui";
 import { PatchView } from "@/features/github/DiffReview";
 import { BotChat } from "@/features/chat/BotChat";
+import { SplitView } from "@/components/SplitView";
 import type { Bot } from "@/gen/Bot";
 import type { BotSettings } from "@/gen/BotSettings";
 import type { Change } from "@/gen/Change";
@@ -47,6 +48,7 @@ const CLI_ACCESS: { id: LaunchpadAccess; label: string; detail: string }[] = [
 ];
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
+import { Sheet } from "@/mobile/Sheet";
 
 const PERMISSIONS: { id: PermissionMode; label: string; detail: string }[] = [
   { id: "yolo", label: "YOLO", detail: "Runs commands without asking, inside its jail" },
@@ -291,25 +293,22 @@ export function BotPage() {
           {newSession}{routines.length > 0 && pause}{openTrace}
         </span>}
         details={<span className="flex flex-wrap items-center gap-x-2 text-[12px] text-ink-3">{meta}</span>} />
-      {panel ? <div className="min-h-0 flex-1 overflow-y-auto">{side}</div> : chat}
+      {panel ? <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">{side}</div> : chat}
     </div>;
   }
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
       <PageHeader icon={<BotAvatar name={bot.settings.name} size={24} />} title={bot.settings.name} back={<Link to="/bots" className="iconbtn" title="All bots" aria-label="All bots"><Icon name="chev" size={14} className="rotate-90" /></Link>} meta={meta} actions={<>{routines.length > 0 && pause}{newSession}{openTrace}</>} />
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_clamp(360px,34%,440px)]">
-        <div className="flex min-h-0 flex-col border-r border-line">{chat}</div>
-        <aside className="flex min-h-0 flex-col">
-          <div className="border-b border-line px-2 pt-1"><Tabs label="Bot panels" className="gap-0" value={panel ?? "memory"} onChange={setPanel} tour="bots.panels" items={PANELS.map((p) => ({ id: p.id, label: p.label, count: count(p.id) }))} /></div>
-          <div className="min-h-0 flex-1 overflow-y-auto">{side}</div>
-        </aside>
-      </div>
+      <SplitView storageKey="launchpad.bot-panel-width" sideLabel="the bot panel" main={chat} side={<>
+        <div className="border-b border-line px-2 pt-1"><Tabs label="Bot panels" className="gap-0" value={panel ?? "memory"} onChange={setPanel} tour="bots.panels" items={PANELS.map((p) => ({ id: p.id, label: p.label, count: count(p.id) }))} /></div>
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">{side}</div>
+      </>} />
     </div>
   );
 }
 
 export function Section({ title, children, action }: { title: ReactNode; children: ReactNode; action?: ReactNode }) {
-  return <section className="grid gap-2 border-b border-line-2 p-3">
+  return <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 border-b border-line-2 p-3">
     <div className="flex items-center gap-2"><h3 className="seclabel m-0 min-w-0 flex-1">{title}</h3>{action}</div>
     {children}
   </section>;
@@ -391,10 +390,52 @@ function InstructionsSection({ bot }: { bot: Bot }) {
   const proposed = (useProposalList().data ?? []).filter((p) => p.body.kind === "bot_instructions" && p.body.bot_id === bot.id && (p.state === "proposed" || p.state === "failed"));
   return <div data-tour="bots.files">
     {proposed.length > 0 && <Section title="Proposed by the bot">{proposed.map((p) => <ProposalCard key={p.id} p={p} />)}</Section>}
-    <Section title="BOT.md · what it does">
-      <FileEditor key={`i-${bot.version}`} value={bot.instructions} onSave={(t) => save({ instructions: t })} rows={10} />
-    </Section>
+    <InstructionsEditor key={`i-${bot.version}`} bot={bot} onSave={(t) => save({ instructions: t })} />
   </div>;
+}
+
+/** BOT.md, short in the panel (the start of the rendered file); Expand opens a large editor with a live preview.
+ * A draft survives closing the editor until it is saved or discarded. */
+function InstructionsEditor({ bot, onSave }: { bot: Bot; onSave: (text: string) => Promise<boolean> }) {
+  const phone = usePhone();
+  const [text, setText] = useState(bot.instructions);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const dirty = text !== bot.instructions;
+  const save = async () => { setBusy(true); const ok = await onSave(text); setBusy(false); if (ok) setOpen(false); };
+  const buttons = dirty && <>
+    <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => setText(bot.instructions)}>Discard</button>
+    <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void save()}>Save</button>
+  </>;
+  const close = () => setOpen(false);
+  // The fade shows only when the preview is cut.
+  const preview = useRef<HTMLDivElement>(null);
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => { const el = preview.current; if (el) setCut(el.scrollHeight > el.clientHeight + 1); }, [text]);
+  const editor = <textarea className="field-input min-h-0 flex-1 resize-none py-2 text-[13px] leading-5" value={text} onChange={(e) => setText(e.target.value)} aria-label="BOT.md" autoFocus />;
+  return <Section title="BOT.md · what it does" action={<button className="btn btn-sm" title="Read and edit BOT.md in a large editor" onClick={() => setOpen(true)}><Icon name="expand" size={12} />Expand</button>}>
+    <div ref={preview} className="relative max-h-[168px] cursor-pointer overflow-hidden rounded-md bg-sunk px-3 py-2" title="Expand BOT.md" onClick={() => setOpen(true)}>
+      {text.trim() ? <Markdown text={text} className="text-[12px]" /> : <span className="text-[12px] text-ink-3">No instructions yet. Expand to write what {bot.settings.name} does.</span>}
+      {cut && <span className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-sunk to-transparent" />}
+    </div>
+    {dirty && <div className="flex items-center justify-end gap-1.5"><span className="mr-auto text-[12px] text-attn">Unsaved changes</span>{buttons}</div>}
+    {open && (phone
+      ? <Sheet title="BOT.md" full onClose={close}><div className="flex min-h-0 flex-1 flex-col gap-2 p-3">{editor}{dirty && <div className="flex justify-end gap-1.5">{buttons}</div>}</div></Sheet>
+      : <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 p-6" onClick={close} onKeyDown={(e) => { if (e.key === "Escape") close(); }}>
+        <div role="dialog" aria-modal="true" aria-label={`BOT.md of ${bot.settings.name}`} className="flex h-[calc(86vh/var(--lp-zoom,1))] w-[min(1200px,calc(92vw/var(--lp-zoom,1)))] flex-col overflow-hidden rounded-xl border border-line bg-paper shadow-[0_20px_60px_-20px_rgba(23,32,43,.6)]" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-2 border-b border-line-2 px-4 py-2.5">
+            <b className="min-w-0 flex-1 truncate text-[15px]">BOT.md · {bot.settings.name}</b>
+            <span className="text-[12px] text-ink-3">The next session reads it</span>
+            <button className="iconbtn" aria-label="Close" title="Close (your draft stays until you discard it)" onClick={close}><Icon name="x" size={14} /></button>
+          </div>
+          <div className="grid min-h-0 flex-1 grid-cols-2">
+            <div className="flex min-h-0 min-w-0 flex-col border-r border-line-2 p-3"><div className="seclabel pb-1.5">Edit</div>{editor}</div>
+            <div className="flex min-h-0 min-w-0 flex-col p-3"><div className="seclabel pb-1.5">Preview</div><div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-wrap:anywhere]">{text.trim() ? <Markdown text={text} className="text-[13px]" /> : <span className="text-[12px] text-ink-3">Nothing to preview.</span>}</div></div>
+          </div>
+          <div className="flex min-h-[48px] items-center justify-end gap-1.5 border-t border-line-2 px-4 py-2">{dirty ? buttons : <span className="text-[12px] text-ink-3">No change</span>}</div>
+        </div>
+      </div>)}
+  </Section>;
 }
 
 /** bot.toml as a file, and every version of both files for 30 days. */

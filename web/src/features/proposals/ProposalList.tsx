@@ -52,7 +52,7 @@ export function ProposalList({ proposals, reveal = null, empty }: { proposals: P
     } finally { setBusy(false); }
   };
   return (
-    <section data-tour="proposals.list" className="grid gap-2 p-3">
+    <section data-tour="proposals.list" className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <FilterChips label="Proposals shown">
           <FilterChip active={filter === "open"} count={waiting.length} onClick={() => setFilter("open")}>Waiting</FilterChip>

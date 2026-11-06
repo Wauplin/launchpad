@@ -228,7 +228,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
   const session = started && (p.body.kind === "launch" || p.body.kind === "message") ? sessions.find((s) => s.id === p.result_id) : undefined;
   const statusSessions = p.body.kind === "status" ? p.body.session_ids.map((id) => sessions.find((s) => s.id === id)).filter((s): s is Session => !!s) : [];
   return (
-    <article id={anchor ? `proposal-${p.id}` : undefined} data-tour="proposal.card" data-tour-id={p.id} tabIndex={-1} className={`grid gap-2 rounded-xl border bg-paper p-3 ${(p.body.kind === "cron" || p.body.kind === "routine") && !started ? "border-attn-line" : "border-line"}`}>
+    <article id={anchor ? `proposal-${p.id}` : undefined} data-tour="proposal.card" data-tour-id={p.id} tabIndex={-1} className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-xl border bg-paper p-3 [overflow-wrap:anywhere] ${(p.body.kind === "cron" || p.body.kind === "routine") && !started ? "border-attn-line" : "border-line"}`}>
       <div className="flex items-start gap-2">
         <Icon name={p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" || p.body.kind === "routine" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : p.body.kind === "tool" ? "term" : p.body.kind === "bot" ? "spark" : p.body.kind === "bot_instructions" ? "file" : p.body.kind === "ready" ? "check" : "play"} size={14} className="mt-0.5 flex-none text-ink-3" />
         <div className="min-w-0 flex-1">

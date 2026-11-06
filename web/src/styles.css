@@ -677,3 +677,7 @@ button {
   position: fixed; right: 16px; bottom: 40px; z-index: 80; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px;
   border: 1px solid var(--color-demo); border-radius: 999px; background: var(--color-paper); box-shadow: 0 10px 30px -12px rgb(10 15 25 / 0.5); font-size: 13px;
 }
+
+/* A scroll area without a visible scrollbar (the bot chat): wheel, touch and keys still scroll it. */
+.lp-quiet-scroll { scrollbar-width: none; }
+.lp-quiet-scroll::-webkit-scrollbar { display: none; }
