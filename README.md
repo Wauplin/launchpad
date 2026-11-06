@@ -27,7 +27,7 @@ Launchpad is a desktop app to launch, follow and review coding agents (Claude Co
 | | |
 | --- | --- |
 | **Today** | Every decision of the workspace in one list, with filters and a 30-day Done history. The sidebar, the workspace rail and the phone count only this list. [Read more](docs/today.md) |
-| **Agents** | Claude Code, Codex and OpenCode behind one session model. Live trace, Summary and Changes views, questions and approval cards, model and permission controls. Temporary folders for work that needs no folder, deleted at Archive unless you keep them. [Read more](docs/agents.md) |
+| **Agents** | Claude Code, Codex and OpenCode behind one session model. Live trace, Summary and Changes views, questions and approval cards, model and permission controls. Temporary folders for work that needs no folder, saved on Home and deleted 30 days after Archive unless you keep them. [Read more](docs/agents.md) |
 | **Profiles** | Run each harness with a subscription login, an API key or another provider (for example the Hugging Face router). Several accounts work side by side. [Read more](docs/agents.md#profiles) |
 | **Worktrees** | New agents run in a dedicated worktree and branch. Launchpad tries to update the base from its remote before launch, merges when you ask, and tries to push the merged base. Remote failures stay visible without blocking the task. [Read more](docs/agents.md#worktrees-and-merging) |
 | **Scheduling** | Start later, after other agents finish or when a quota resets. Routines run again and again: on a schedule, on GitHub activity, or when another agent is done, and stay silent when there is nothing to report. One Schedules page lists them all. [Read more](docs/agents.md#scheduling) |

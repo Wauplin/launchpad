@@ -76,12 +76,12 @@ export function TempProjectCard({ p }: { p: Project }) {
         <span className="ml-auto text-xs whitespace-nowrap text-ink-3">created {formatAge(p.created_at)} ago</span>
       </div>
       <div className="text-xs text-ink-3">
-        Temporary folder · {open.length ? `${open.length} open agent${open.length > 1 ? "s" : ""}` : "No open agent"} · Deleted when its last agent is archived, unless you keep it as a folder
+        Temporary folder · {open.length ? `${open.length} open agent${open.length > 1 ? "s" : ""}` : "No open agent"} · Saved on Home; leaves this list when its last agent is archived, and Home deletes it 30 days later, unless you keep it as a folder
       </div>
       <KeepFolder p={p} disabled={running} title={running ? "Wait for its agent to finish" : undefined} />
       <div className="flex items-center gap-2">
         <LaunchButton small ctx={{ projectId: p.id }} label="Launch here" primary={false} />
-        <ConfirmButton icon="trash" consequence={`Deletes ${p.path} from disk${open.length ? " and stops its agents" : ""}.`} confirmLabel="Delete files" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => {
+        <ConfirmButton icon="trash" consequence={`Deletes ${p.path} from disk${open.length ? " and stops its agents" : ""}. Home keeps a copy of its files 30 days, for a resume.`} confirmLabel="Delete files" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => {
           toast(`Deleted ${p.path}`);
           void qc.invalidateQueries({ queryKey: ["projects"] });
         }, toastError)}>Delete files</ConfirmButton>

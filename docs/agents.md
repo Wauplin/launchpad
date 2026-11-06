@@ -56,7 +56,7 @@ New launches ask the agent to end its first task with a short, self-contained su
 
 **Temporary folder** in the composer's folder menu starts the agent in a new, empty folder in Launchpad's data folder (`<data_dir>/tmp/`), outside your folders root. The agent is told that the folder is temporary, and how to list the workspace's folders and add a worktree of one with `launchpad work add-project`. The Folders page lists them.
 
-When you archive the last agent of a temporary folder, Launchpad deletes the folder; such a session cannot be resumed. To keep the files, click **Keep as folder** in the session's Next steps (or on the Folders page) once the agent is done, and choose a name: the folder moves to the folders root under that name and becomes a normal folder, and its sessions stay resumable. To create a folder before launching, use **Add folder** instead.
+Launchpad saves a temporary folder's files on Home at the end of every turn, except files listed in a `.gitignore` and nested Git repositories, so the session keeps its folder when it continues on another runner (for example a new Burst job). When you archive the last agent of a temporary folder, Launchpad removes it from the computer and from the folder lists; Home keeps its files 30 days, and **Resume** brings the folder back with them. After 30 days, Home deletes them and a resumed agent continues in an empty folder (the session says so). To keep the files for good, click **Keep as folder** in the session's Next steps (or on the Folders page) once the agent is done, and choose a name: the folder moves to the folders root under that name and becomes a normal folder, and its sessions stay resumable. To create a folder before launching, use **Add folder** instead.
 
 ## Following agents
 

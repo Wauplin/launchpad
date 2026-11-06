@@ -253,7 +253,7 @@ route("POST", "/api/sessions/:id/close", (r) => {
   updateSession(s.id, { quota_pause: null });
   setStatus(s.id, "closed", { live: false, open_question: false, ended_at: clock.now(), archived_done: done });
   refreshCounts();
-  // A temporary folder whose agents are all archived is deleted.
+  // A temporary folder whose agents are all archived leaves the list (Home keeps its files 30 days).
   const temp = world.projects.find((p) => p.id === s.project_id && p.is_temp);
   if (temp && !world.sessions.some((x) => x.project_id === temp.id && x.status !== "closed")) {
     world.projects = world.projects.filter((p) => p.id !== temp.id);

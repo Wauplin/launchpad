@@ -73,6 +73,13 @@ async fn prepare_move(app: &App, id: &str) -> Result<()> {
         let _action = app.sessions.action_lock().await;
         app.sessions.release(app, id).await?;
     }
+    // Its temporary folder leaves this disk with it (Home holds the files) unless another agent here uses it.
+    if let Some(pid) = &s.project_id
+        && crate::projects::get(app, pid).await?.is_some_and(|p| p.is_temp)
+        && !app.sessions.list().iter().any(|o| o.id != id && o.project_id.as_deref() == Some(pid.as_str()) && o.status != crate::model::SessionStatus::Closed)
+    {
+        crate::projects::remove_temp_copy(app, pid, false).await.context("its temporary folder cannot move yet")?;
+    }
     Ok(())
 }
 
@@ -243,7 +250,7 @@ pub async fn after_turn(app: &App, id: &str) {
     }
 }
 
-/// Where a moved session's folders are on this runner: its worktrees here, its plain folder, or a new temporary folder.
+/// Where a moved session's folders are on this runner: its worktrees here, its plain folder or its temporary folder.
 async fn relocate(app: &App, s: &mut Session, worktrees: &mut [TaskWorktree]) -> Result<()> {
     let old_cwd = s.cwd.clone();
     let mut placed = false;
@@ -273,14 +280,9 @@ async fn relocate(app: &App, s: &mut Session, worktrees: &mut [TaskWorktree]) ->
         s.cwd = p.path.clone();
         return Ok(());
     }
-    // A temporary folder stays on the runner it was made on (gone with a stopped Burst job): the
-    // conversation continues in a new, empty one with the same name.
-    if matches!(s.launch_spec.target, crate::model::Target::Temp) {
-        let workspace = s.launch_spec.workspace_id.clone().context("this session's temporary folder has no workspace")?;
-        let name = std::path::Path::new(crate::hosts::loc::native(&old_cwd)).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "tmp-moved".into());
-        let p = crate::projects::create_temp_named(app, &name, &workspace).await?;
+    // A temporary folder: the same folder here, its files from Home before the next turn (`plain::prepare`).
+    if let Some(p) = crate::projects::ensure_temp(app, s).await? {
         s.cwd = p.path;
-        s.project_id = Some(p.id);
         return Ok(());
     }
     bail!("this session's folder exists only on the runner it ran on")
@@ -395,7 +397,6 @@ pub async fn move_to(app: &App, id: &str, to: &str) -> Result<Session> {
     let from = s.runner_id.clone().context("this session has no runner")?;
     ensure!(from != to, "the session already runs there");
     ensure!(app.runners.connected(to), "the chosen runner is not connected");
-    let old_project = s.project_id.clone();
     let mut lost_files = false;
     if app.runners.connected(&from) {
         let (status, body) = app.runners.request(&from, "POST", &format!("/api/sessions/{id}/handoff"), Some(serde_json::json!({"final": true}).to_string())).await?;
@@ -405,20 +406,15 @@ pub async fn move_to(app: &App, id: &str, to: &str) -> Result<Session> {
         lost_files = !h.is_final && h.worktrees.iter().any(|w| w.state == WorktreeState::Active);
     }
     let s = app.sessions.reassign(app, id, to).await?;
+    if let Some(pid) = &s.project_id {
+        crate::projects::move_temp(app, pid, to).await?;
+    }
     let (status, body) = app.runners.request(to, "POST", &format!("/api/sessions/{id}/adopt"), None).await?;
     ensure!((200..300).contains(&status), "{}", serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| v["error"].as_str().map(str::to_string)).unwrap_or(body));
     let name = if crate::runners::is_burst(app, to).await { "Burst".to_string() } else { crate::runners::list(app).await?.into_iter().find(|r| r.runner.id == to).map(|r| r.runner.name).unwrap_or_else(|| "another runner".into()) };
     let mut text = format!("Moved to {name}.");
     if lost_files {
         text.push_str(" Its previous runner was offline: files not committed there stay on that machine.");
-    }
-    if matches!(s.launch_spec.target, crate::model::Target::Temp) {
-        text.push_str(" It continues in a new, empty temporary folder: the files of the previous one stay on the previous runner, or are gone with a stopped Burst job.");
-        if let Some(old) = &old_project
-            && let Err(e) = crate::projects::forget_lost_temp(app, old, id).await
-        {
-            tracing::warn!("temporary folder {old}: {e:#}");
-        }
     }
     crate::sessions::notice_anywhere(app, id, &text).await;
     Ok(s)

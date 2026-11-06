@@ -217,6 +217,11 @@ async fn remote_info(path: &Path) -> (Option<String>, Option<String>, Option<Str
 /// Unassigned one joins the workspace, and a folder of another workspace is refused: one folder belongs to
 /// one workspace. A folder on an SSH host is `<host>:<path>`.
 pub async fn register(app: &App, path: &Path, is_temp: bool, workspace_id: &str) -> Result<Project> {
+    register_as(app, path, is_temp, workspace_id, uuid::Uuid::new_v4().to_string()).await
+}
+
+/// `register` with the ID of a new record.
+async fn register_as(app: &App, path: &Path, is_temp: bool, workspace_id: &str, id: String) -> Result<Project> {
     let workspace = crate::workspace::get(app, workspace_id).await.context("choose a workspace for the folder")?;
     if let Some(host) = crate::hosts::loc::host_of_path(path) {
         anyhow::ensure!(app.hosts.record(host).is_some(), "unknown host {host}; add it in Settings → Hosts");
@@ -227,7 +232,7 @@ pub async fn register(app: &App, path: &Path, is_temp: bool, workspace_id: &str)
     }
     let (remote_url, gh_repo, gh_upstream) = remote_info(&path).await;
     let p = Project {
-        id: uuid::Uuid::new_v4().to_string(),
+        id,
         name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
         path: path.to_string_lossy().to_string(),
         remote_url,
@@ -630,18 +635,19 @@ pub fn temp_root(app: &App) -> PathBuf {
     app.paths.data_dir.join("tmp")
 }
 
-/// Creates `<data_dir>/tmp/tmp-<MMDD>-<slug>` and registers it as a temporary folder of a workspace. It is
-/// deleted when its last agent is archived, unless the owner keeps it as a folder (`promote`).
+/// Creates `<data_dir>/tmp/tmp-<MMDD>-<slug>` and registers it as a temporary folder of a workspace. Its files
+/// are saved on Home at every turn end (`plain::temp_store`); this disk's copy is deleted when its last agent
+/// is archived, Home's 30 days later, unless the owner keeps it as a folder (`promote`).
 pub async fn create_temp(app: &App, prompt: &str, workspace_id: &str) -> Result<Project> {
     let (month, day) = crate::util::local_month_day();
     let base = format!("tmp-{month:02}{day:02}-{}", crate::compose::slug_from(prompt));
-    create_temp_named(app, &base, workspace_id).await
+    temp_at(app, &base, workspace_id, uuid::Uuid::new_v4().to_string()).await
 }
 
-/// Creates `<data_dir>/tmp/<base>` (or `<base>-2`, …) and registers it as a temporary folder of a workspace.
-pub async fn create_temp_named(app: &App, base: &str, workspace_id: &str) -> Result<Project> {
+/// Creates `<data_dir>/tmp/<base>` (or `<base>-2`, …) and registers it as the temporary folder `id`.
+async fn temp_at(app: &App, base: &str, workspace_id: &str, id: String) -> Result<Project> {
     crate::workspace::get(app, workspace_id).await.context("choose a workspace for the temporary folder")?;
-    anyhow::ensure!(!base.is_empty() && !base.contains('/') && !base.starts_with('.'), "invalid temporary folder name");
+    ensure!(!base.is_empty() && !base.contains('/') && !base.starts_with('.'), "invalid temporary folder name");
     let root = temp_root(app);
     let mut path = root.join(base);
     let mut n = 2;
@@ -650,7 +656,64 @@ pub async fn create_temp_named(app: &App, base: &str, workspace_id: &str) -> Res
         n += 1;
     }
     std::fs::create_dir_all(&path).with_context(|| format!("create {}", path.display()))?;
-    register(app, &path, true, workspace_id).await
+    register_as(app, &path, true, workspace_id, id).await
+}
+
+/// The name of a session's temporary folder, from its working directory (`<data_dir>/tmp/tmp-…`).
+pub fn temp_name(cwd: &str) -> Option<String> {
+    let path = Path::new(crate::hosts::loc::native(cwd));
+    let name = path.file_name()?.to_string_lossy().into_owned();
+    (path.parent()?.file_name()? == "tmp" && name.starts_with("tmp-")).then_some(name)
+}
+
+/// A session's temporary folder on this disk: the registered one, or a new folder with the same ID and name,
+/// recreated after a move to this runner or after Archive removed it (its files come down from Home with
+/// `plain::prepare`). None: the session has no temporary folder.
+pub async fn ensure_temp(app: &App, s: &crate::model::Session) -> Result<Option<Project>> {
+    let Some(pid) = &s.project_id else { return Ok(None) };
+    if let Some(p) = get(app, pid).await? {
+        if !p.is_temp {
+            return Ok(None);
+        }
+        if crate::hosts::loc::host_of_path(Path::new(&p.path)).is_some() || Path::new(&p.path).is_dir() {
+            return Ok(Some(p));
+        }
+        // Registered, but its folder is gone: registered again below.
+        let id = p.id.clone();
+        app.state_db.call(move |c| Ok(c.execute("DELETE FROM project WHERE id = ?1", [id])?)).await?;
+    }
+    let Some(name) = temp_name(&s.cwd) else { return Ok(None) };
+    let workspace = s.launch_spec.workspace_id.clone().context("this session's temporary folder has no workspace")?;
+    Ok(Some(temp_at(app, &name, &workspace, pid.clone()).await?))
+}
+
+/// Home: a session in a temporary folder moves to another runner, and the folder's record with it.
+pub async fn move_temp(app: &App, id: &str, runner: &str) -> Result<()> {
+    let (id, runner) = (id.to_string(), runner.to_string());
+    app.state_db.call(move |c| Ok(c.execute("UPDATE project SET runner_id = ?2 WHERE id = ?1 AND is_temp = 1 AND runner_id IS NOT NULL", params![id, runner])?)).await?;
+    app.bus.publish("projects", "changed", serde_json::Value::Null);
+    Ok(())
+}
+
+/// Removes a temporary folder from this disk once Home holds all its files. `forget`: unregister it on Home
+/// too (Archive); otherwise Home keeps the record for the session's next runner (a move).
+pub async fn remove_temp_copy(app: &App, id: &str, forget: bool) -> Result<()> {
+    let p = get(app, id).await?.context("no such project")?;
+    let path = check_temp(app, &p)?;
+    ensure!(crate::plain::in_sync(app, &crate::plain::temp_store(id), &path).await, "Home does not have every file of {} yet", p.path);
+    app.terminals.close_in(&p.path).await?;
+    if path.exists() {
+        let dir = path.clone();
+        tokio::task::spawn_blocking(move || std::fs::remove_dir_all(&dir)).await??;
+    }
+    crate::plain::forget_copy(app, &path).await;
+    if forget {
+        return unregister(app, id).await;
+    }
+    let id = id.to_string();
+    app.state_db.call(move |c| Ok(c.execute("DELETE FROM project WHERE id = ?1", [id])?)).await?;
+    app.bus.publish("projects", "changed", serde_json::Value::Null);
+    Ok(())
 }
 
 /// The folder of a temporary project: directly in `<data_dir>/tmp`, or in the folders root (older ones).
@@ -678,33 +741,27 @@ pub async fn delete_temp(app: &App, id: &str) -> Result<()> {
     unregister(app, id).await
 }
 
-/// After Archive: a temporary folder whose agents are all archived is deleted.
+/// After Archive: a temporary folder whose agents are all archived leaves this disk and the folder list. Home
+/// keeps its files 30 days, so a resume brings it back (`ensure_temp`).
 pub async fn after_archive(app: &App, session_id: &str) {
     let Some(project_id) = app.sessions.get(session_id).and_then(|s| s.project_id) else { return };
     let Ok(Some(p)) = get(app, &project_id).await else { return };
     if !p.is_temp || app.sessions.list().iter().any(|s| s.project_id.as_deref() == Some(p.id.as_str()) && s.status != crate::model::SessionStatus::Closed) {
         return;
     }
-    if let Err(e) = delete_temp(app, &p.id).await {
-        tracing::warn!("delete the temporary folder {}: {e:#}", p.path);
-    }
-}
-
-/// Home: forgets the temporary folder of a runner that is gone (a stopped Burst job) once no open session
-/// uses it (`moved`: the session that just left it): its disk, and the folder with it, no longer exist.
-pub async fn forget_lost_temp(app: &App, id: &str, moved: &str) -> Result<()> {
-    if app.sessions.list().iter().any(|s| s.id != moved && s.project_id.as_deref() == Some(id) && s.status != crate::model::SessionStatus::Closed) {
-        return Ok(());
-    }
-    let id = id.to_string();
-    let n = app
-        .state_db
-        .call(move |c| Ok(c.execute("DELETE FROM project WHERE id = ?1 AND is_temp = 1 AND runner_id IS NOT NULL AND runner_id NOT IN (SELECT id FROM runner)", [id])?))
-        .await?;
-    if n > 0 {
+    // Home's record of a runner's folder (a runner away, a stopped Burst job): the runner removes its copy
+    // when the archive reaches it.
+    if p.runner_id.is_some() && app.paths.role == crate::role::Role::Home {
+        let id = p.id.clone();
+        if let Err(e) = app.state_db.call(move |c| Ok(c.execute("DELETE FROM project WHERE id = ?1", [id])?)).await {
+            tracing::warn!("forget the temporary folder {}: {e:#}", p.path);
+        }
         app.bus.publish("projects", "changed", serde_json::Value::Null);
+        return;
     }
-    Ok(())
+    if let Err(e) = remove_temp_copy(app, &p.id, true).await {
+        tracing::warn!("remove the temporary folder {}: {e:#}", p.path);
+    }
 }
 
 /// Keep as folder: moves a temporary folder to `<projects_root>/<name>` and makes it a normal project. Moves
@@ -760,5 +817,15 @@ async fn move_dir(old: &Path, new: &Path) -> Result<()> {
             Ok(())
         }
         Err(e) => Err(e).with_context(|| format!("move to {}", new.display())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn temp_name_reads_temporary_folders_only() {
+        assert_eq!(super::temp_name("/home/u/.local/share/launchpad-runner/tmp/tmp-1106-hfjs").as_deref(), Some("tmp-1106-hfjs"));
+        assert_eq!(super::temp_name("/home/u/projects/tmp-1106-hfjs"), None);
+        assert_eq!(super::temp_name("/data/tmp/notes"), None);
     }
 }

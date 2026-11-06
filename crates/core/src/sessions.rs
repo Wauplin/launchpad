@@ -1284,10 +1284,30 @@ impl Sessions {
         if s.launch_spec.harness.is_none() && crate::terminals::tui_running(app, &s) {
             bail!("This imported conversation is still running in another client. Finish it there first.");
         }
-        anyhow::ensure!(!matches!(s.launch_spec.target, Target::Temp) || crate::hostfs::is_dir(std::path::Path::new(&s.cwd)).await, "Its temporary folder was deleted when it was archived: start a new agent");
+        // A temporary folder removed at Archive (or after a move) comes back with its files from Home; Home
+        // deletes them 30 days after Archive, and the agent then continues in an empty folder.
+        let had_folder = crate::hostfs::is_dir(std::path::Path::new(&s.cwd)).await;
+        let restored = match crate::projects::ensure_temp(app, &s).await? {
+            Some(p) => {
+                if p.path != s.cwd {
+                    self.update(app, id, |s| s.cwd = p.path.clone()).await?;
+                }
+                !had_folder
+            }
+            None => {
+                anyhow::ensure!(!matches!(s.launch_spec.target, Target::Temp) || had_folder, "Its temporary folder is gone: start a new agent");
+                false
+            }
+        };
         // A clean worktree removed by cleanup comes back from its branch before the agent resumes.
         crate::worktrees::restore_for_session(app, id).await?;
         crate::plain::prepare(app, id).await?;
+        if restored {
+            let s = self.get(id).context("no such session")?;
+            if crate::plain::walk(std::path::Path::new(&s.cwd)).is_empty() {
+                self.sink(app, id).emit(EventBody::Notice { text: "Its temporary folder is empty: Home had no files of it (they are deleted 30 days after Archive).".into() }).await;
+            }
+        }
         let s = self.get(id).context("no such session")?;
         let worktrees = crate::worktrees::for_session(app, id).await?;
         let mut add_dirs = Vec::new();
@@ -2574,7 +2594,7 @@ pub async fn archive(app: &App, id: &str) -> Result<()> {
 /// The first-prompt note of a session in a temporary folder.
 pub fn temp_instruction(cli: &str, session_id: &str, workspace_id: &str, cwd: &str) -> String {
     format!(
-        "Launchpad temporary folder: your working directory `{cwd}` is temporary. Launchpad deletes it when the owner archives this session, unless they keep it as a folder. \
+        "Launchpad temporary folder: your working directory `{cwd}` is temporary. Launchpad saves its files on Home at the end of every turn (except files listed in a `.gitignore` and nested Git repositories: list large or generated files there), so they follow this session to another machine, and deletes them 30 days after the owner archives this session, unless they keep it as a folder. \
 To work on a registered folder, find it with `{cli} folders list --workspace {workspace_id}`, then run `{cli} work add-project --session-id {session_id} --project <name>`: it prints a dedicated worktree folder of that Git folder, which you edit and commit there (Launchpad pushes its branch to Home at the end of each turn for the owner's review). Never edit the owner's checkouts."
     )
 }

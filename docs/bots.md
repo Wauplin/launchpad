@@ -58,7 +58,7 @@ A new session starts:
 
 A new session gets a reference to the previous session's trace (`launchpad trace …`), never a copy of it, and the bot's notes in the knowledge base. The harness compacts a long context on its own.
 
-With a Git folder, each session works in a fresh worktree of Home Git. Without a folder, a session's temporary folder is deleted when the session is archived (or when a new session starts); keep what matters in the knowledge base or on a branch. The bot prepares branches, Local PRs and suggestions for your review, and acts directly on GitHub only when you explicitly ask.
+With a Git folder, each session works in a fresh worktree of Home Git. Without a folder, a session's temporary folder is saved on Home at every turn end and follows the session to any runner; Home deletes it 30 days after the session is archived (a new session archives the previous one), so keep what matters in the knowledge base or on a branch. The bot prepares branches, Local PRs and suggestions for your review, and acts directly on GitHub only when you explicitly ask.
 
 ## The bot's page
 

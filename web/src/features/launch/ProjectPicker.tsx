@@ -65,7 +65,7 @@ export function ProjectPicker({ projects, selected, temporary, allowTemporary = 
   const height = Math.min(rows.reduce((n, r) => n + (typeof r === "string" ? 24 : 48), 0), 220);
   return <div className="grid gap-1">
     <input autoFocus className="field-input w-full" aria-label="Find folder" placeholder="Find a folder…" value={search} onChange={(e) => { setSearch(e.target.value); scroll.current?.scrollTo({ top: 0 }); }} />
-    {allowTemporary && <MenuItem icon={<Icon name="clock" size={13} />} label="Temporary folder" detail="Deleted when you archive its agent" active={temporary} onClick={() => onPick(null)} />}
+    {allowTemporary && <MenuItem icon={<Icon name="clock" size={13} />} label="Temporary folder" detail="Kept 30 days after you archive its agent" active={temporary} onClick={() => onPick(null)} />}
     <div ref={scroll} className="overflow-y-auto" style={{ height }}>
       <div className="relative" style={{ height: virtual.getTotalSize() }}>
         {virtual.getVirtualItems().map((row) => {

@@ -9,6 +9,10 @@
 //!   in `<data_dir>/plain/<id>`, synced down before a session starts and up at the end of every turn.
 //! - An asset folder belongs to a Git folder: `launchpad assets create <path>` creates a store and maps the
 //!   path in the committed `.launchpad/assets.toml`; worktrees of that branch sync it like a plain folder.
+//! - A temporary folder's store is `tmp-<folder id>`: synced like a plain folder (without `.gitignore`d files
+//!   and nested Git repositories), so a session continues with its files on another runner or after a
+//!   resume. It has no lock: only the sessions of that folder name it, and each runner request names a
+//!   session that runs there. Home drops it 30 days after the folder's last session was archived.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -24,6 +28,19 @@ use crate::util::now_ms;
 
 /// Previous versions and the trash are kept this long.
 const KEEP_MS: i64 = 30 * 24 * 3600 * 1000;
+/// Prefix of a temporary folder's store.
+const TEMP_PREFIX: &str = "tmp-";
+
+/// The store of a temporary folder.
+pub fn temp_store(project_id: &str) -> String {
+    format!("{TEMP_PREFIX}{project_id}")
+}
+
+/// The folder ID of a temporary folder's store.
+fn temp_of(store: &str) -> Option<&str> {
+    store.strip_prefix(TEMP_PREFIX).filter(|id| uuid::Uuid::parse_str(id).is_ok())
+}
+
 /// Header naming the session of a runner's request.
 pub const SESSION_HEADER: &str = "X-Launchpad-Session";
 
@@ -141,6 +158,10 @@ async fn ensure_store(app: &App, id: &str) -> Result<()> {
         ensure!(crate::bots::exists(app, bot).await?, "no such bot");
         return Ok(());
     }
+    // Created by its first sync: the folder's record may reach Home later than its first turn.
+    if temp_of(id).is_some() {
+        return Ok(());
+    }
     let id = id.to_string();
     let known = app.state_db.call(move |c| {
         let plain: bool = c.query_row("SELECT 1 FROM project WHERE id = ?1 AND plain = 1", [&id], |_| Ok(true)).optional()?.unwrap_or(false);
@@ -191,7 +212,9 @@ pub async fn commit(app: &App, id: &str, session: Option<&str>, updates: Vec<Upd
     ensure_store(app, id).await?;
     ensure!(crate::kb::workspace_of(id).is_none(), "the knowledge base is written with launchpad kb");
     ensure!(crate::bots::id_of(id).is_none(), "a bot's files change in its Settings and Files tabs");
-    if let Some(s) = session {
+    if let Some(s) = session
+        && temp_of(id).is_none()
+    {
         let holder = lock_holder(app, id).await?;
         ensure!(holder.as_deref() == Some(s), "this session does not hold the folder's lock");
     }
@@ -269,6 +292,9 @@ pub async fn lock_holder(app: &App, id: &str) -> Result<Option<String>> {
 /// taken over.
 pub async fn lock(app: &App, id: &str, session: &str) -> Result<()> {
     ensure_store(app, id).await?;
+    if temp_of(id).is_some() {
+        return Ok(());
+    }
     if let Some(holder) = lock_holder(app, id).await?
         && holder != session
         && let Some(s) = app.sessions.get(&holder)
@@ -431,6 +457,45 @@ pub async fn untrash_asset(app: &App, id: &str) -> Result<i64> {
     Ok(v)
 }
 
+/// Home: drops the stores of temporary folders whose sessions were all archived more than 30 days ago (or
+/// that no session names and nobody changed for 30 days). Their blobs go at the next prune.
+pub async fn clean_temp(app: &App) -> Result<()> {
+    let cutoff = now_ms() - KEEP_MS;
+    let stores: Vec<(String, i64)> = app
+        .state_db
+        .call(|c| {
+            let mut st = c.prepare("SELECT s.store, coalesce((SELECT max(at) FROM plain_history h WHERE h.store = s.store), 0) FROM plain_state s WHERE s.store LIKE 'tmp-%'")?;
+            let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await?;
+    let sessions = app.sessions.list();
+    for (store, changed) in stores {
+        let Some(pid) = temp_of(&store) else { continue };
+        let mine: Vec<_> = sessions.iter().filter(|s| s.project_id.as_deref() == Some(pid)).collect();
+        if mine.iter().any(|s| s.status != crate::model::SessionStatus::Closed) {
+            continue;
+        }
+        let last = mine.iter().map(|s| s.status_since.max(s.ended_at.unwrap_or(0))).max().unwrap_or(0).max(changed);
+        if last >= cutoff {
+            continue;
+        }
+        let key = store.clone();
+        app.state_db
+            .call(move |c| {
+                let tx = c.transaction()?;
+                for table in ["plain_file", "plain_state", "plain_history", "plain_lock"] {
+                    tx.execute(&format!("DELETE FROM {table} WHERE store = ?1"), [&key])?;
+                }
+                tx.commit()?;
+                Ok(())
+            })
+            .await?;
+        tracing::info!("temporary folder {pid}: archived for 30 days, its files on Home are deleted");
+    }
+    Ok(())
+}
+
 /// Hashes of every blob a store still needs: current files and the versions of the last 30 days.
 pub async fn live_blobs(app: &App) -> Result<Vec<String>> {
     let cutoff = now_ms() - KEEP_MS;
@@ -467,6 +532,9 @@ pub fn spawn(app: &App) {
             tick.tick().await;
             if let Err(e) = clean_assets(&app).await {
                 tracing::warn!("asset folders cleanup: {e:#}");
+            }
+            if let Err(e) = clean_temp(&app).await {
+                tracing::warn!("temporary folders cleanup: {e:#}");
             }
             if let Err(e) = prune(&app).await {
                 tracing::warn!("plain folders prune: {e:#}");
@@ -577,8 +645,24 @@ pub(crate) async fn hash_file(path: &Path) -> Result<(String, u64, bool)> {
 
 /// Files of a copy (no `.git`, no symlinks), relative paths with `/`.
 pub fn walk(root: &Path) -> Vec<String> {
+    walk_store(root, false)
+}
+
+/// Files of a store's copy. A temporary folder (`temp`) leaves out `.gitignore`d files and nested Git
+/// repositories (clones the agent can make again).
+fn walk_store(root: &Path, temp: bool) -> Vec<String> {
     let mut out = vec![];
-    for e in ignore::WalkBuilder::new(root).hidden(false).git_ignore(false).git_exclude(false).git_global(false).ignore(false).parents(false).filter_entry(|e| e.file_name() != ".git").build().flatten() {
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .git_ignore(temp)
+        .require_git(false)
+        .git_exclude(false)
+        .git_global(false)
+        .ignore(false)
+        .parents(false)
+        .filter_entry(move |e| e.file_name() != ".git" && !(temp && e.depth() > 0 && e.file_type().is_some_and(|t| t.is_dir()) && e.path().join(".git").exists()))
+        .build();
+    for e in walker.flatten() {
         if e.file_type().is_some_and(|t| t.is_file())
             && let Ok(rel) = e.path().strip_prefix(root)
         {
@@ -598,7 +682,7 @@ pub async fn sync_down(app: &App, id: &str, dir: &Path, session: &str) -> Result
     let state = state_file(app, dir);
     let mut synced: Synced = tokio::fs::read(&state).await.ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     let wanted: BTreeMap<&str, &Entry> = tree.files.iter().map(|e| (e.path.as_str(), e)).collect();
-    for rel in walk(dir) {
+    for rel in walk_store(dir, temp_of(id).is_some()) {
         if !wanted.contains_key(rel.as_str()) && synced.files.contains_key(&rel) {
             let _ = tokio::fs::remove_file(dir.join(&rel)).await;
         }
@@ -625,7 +709,10 @@ pub async fn sync_down(app: &App, id: &str, dir: &Path, session: &str) -> Result
         tokio::fs::create_dir_all(parent).await?;
     }
     tokio::fs::write(&state, serde_json::to_vec(&synced)?).await?;
-    baseline(app, dir).await;
+    // A temporary folder stays as the agent left it: no Git repository of Launchpad's in it.
+    if temp_of(id).is_none() {
+        baseline(app, dir).await;
+    }
     Ok(())
 }
 
@@ -655,7 +742,7 @@ pub async fn sync_up(app: &App, id: &str, dir: &Path, session: &str) -> Result<u
     let synced: Synced = tokio::fs::read(&state).await.ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     let mut updates = vec![];
     let mut now: BTreeMap<String, String> = BTreeMap::new();
-    for rel in walk(dir) {
+    for rel in walk_store(dir, temp_of(id).is_some()) {
         if check_path(&rel).is_err() {
             continue;
         }
@@ -678,6 +765,28 @@ pub async fn sync_up(app: &App, id: &str, dir: &Path, session: &str) -> Result<u
     Ok(n)
 }
 
+/// Whether a copy has no change Home lacks (a temporary folder may then be removed from this disk).
+pub async fn in_sync(app: &App, id: &str, dir: &Path) -> bool {
+    let files: Vec<String> = walk_store(dir, temp_of(id).is_some()).into_iter().filter(|rel| check_path(rel).is_ok()).collect();
+    let Ok(bytes) = tokio::fs::read(state_file(app, dir)).await else { return files.is_empty() };
+    let Ok(synced) = serde_json::from_slice::<Synced>(&bytes) else { return false };
+    if files.len() != synced.files.len() {
+        return false;
+    }
+    for rel in files {
+        match (synced.files.get(&rel), hash_file(&dir.join(&rel)).await) {
+            (Some(sha), Ok((h, _, _))) if *sha == h => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Forgets what a copy synced (its folder was removed from this disk).
+pub async fn forget_copy(app: &App, dir: &Path) {
+    let _ = tokio::fs::remove_file(state_file(app, dir)).await;
+}
+
 /// Releases the lock (after Archive).
 pub async fn release(app: &App, id: &str, session: &str) -> Result<()> {
     home::lock(app, id, session, false).await
@@ -690,16 +799,19 @@ pub async fn mapped_assets(root: &Path) -> Vec<(String, String)> {
     table.into_iter().filter_map(|(k, v)| Some((k, v.as_str()?.to_string()))).filter(|(k, _)| check_path(k).is_ok()).collect()
 }
 
-/// The stores a session writes, with their folders on this machine: its plain folder, and the asset folders
-/// of its worktrees.
+/// The stores a session writes, with their folders on this machine: its plain or temporary folder, and the
+/// asset folders of its worktrees.
 pub async fn session_stores(app: &App, session_id: &str) -> Vec<(String, PathBuf)> {
     let mut out = vec![];
     if let Some(s) = app.sessions.get(session_id)
         && let Some(pid) = &s.project_id
         && let Ok(Some(p)) = crate::projects::get(app, pid).await
-        && p.plain
     {
-        out.push((p.id.clone(), PathBuf::from(&p.path)));
+        if p.plain {
+            out.push((p.id.clone(), PathBuf::from(&p.path)));
+        } else if p.is_temp && crate::hosts::loc::host_of_path(Path::new(&p.path)).is_none() {
+            out.push((temp_store(&p.id), PathBuf::from(&p.path)));
+        }
     }
     for w in crate::worktrees::for_session(app, session_id).await.unwrap_or_default().into_iter().filter(|w| w.state == crate::worktrees::WorktreeState::Active) {
         for (path, id) in mapped_assets(Path::new(&w.root)).await {
@@ -781,4 +893,30 @@ pub async fn create_in_worktree(app: &App, session_id: &str, cwd: &str, path: &s
     exclude_asset(app, &dir).await;
     sync_up(app, &asset.id, &dir, session_id).await?;
     Ok(format!("Asset folder `{path}` created (id {}). Commit `.launchpad/assets.toml`; files you put in `{path}` are stored by Launchpad (not in Git) at the end of every turn, with previous versions kept 30 days.", asset.id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn temp_walk_skips_gitignored_files_and_nested_repositories() {
+        let root = std::env::temp_dir().join(format!("lp-walk-{}", uuid::Uuid::new_v4()));
+        for (path, text) in [(".gitignore", "*.bin\nout/\n"), ("notes.md", "a"), ("data.bin", "b"), ("out/x.txt", "c"), ("clone/.git/HEAD", "d"), ("clone/src.rs", "e"), ("sub/keep.txt", "f")] {
+            let p = root.join(path);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        }
+        assert_eq!(walk_store(&root, true), vec![".gitignore", "notes.md", "sub/keep.txt"]);
+        assert_eq!(walk_store(&root, false), vec![".gitignore", "clone/src.rs", "data.bin", "notes.md", "out/x.txt", "sub/keep.txt"]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn temp_stores_are_named_by_folder_id() {
+        let id = uuid::Uuid::new_v4().to_string();
+        assert_eq!(temp_of(&temp_store(&id)), Some(id.as_str()));
+        assert_eq!(temp_of("tmp-notes"), None);
+        assert_eq!(temp_of(&id), None);
+    }
 }
