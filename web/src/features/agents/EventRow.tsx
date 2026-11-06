@@ -8,21 +8,21 @@ import { CodeLinksContext, Markdown } from "@/components/Markdown";
 import { toast } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
-import { formatAge, formatAgo } from "@/lib/format";
+import { age, ago, when } from "@/lib/format";
 import { isNoUpdate, routineMessage } from "@/lib/routines";
 import { groupSummary, type Call, type Row } from "./rows";
 import { noticesSummary, type TraceRow } from "./traceRows";
 import { AskCard } from "./AskCard";
 export { AskCard };
 
-/** "3 min" since `ts` ("3 min ago" with `ago`), refreshed every 30 s (rows are memoized, so the time renders itself). */
-function Ago({ ts, ago = false }: { ts: number; ago?: boolean }) {
+/** "3 min" since `ts` ("3 min ago" with `past`), refreshed every 30 s (rows are memoized, so the time renders itself). */
+function Ago({ ts, past = false }: { ts: number; past?: boolean }) {
   const [, tick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => tick((n) => n + 1), 30_000);
     return () => clearInterval(t);
   }, []);
-  return <>{ago ? formatAgo(ts) : formatAge(ts)}</>;
+  return <>{past ? ago(ts) : age(ts)}</>;
 }
 
 function duration(ms: number | null | undefined) {
@@ -277,7 +277,7 @@ export const EventRow = memo(
       case "turn":
         return (
           <Separator tone={row.error ? "text-gh-closed" : ""}>
-            <span title={new Date(row.ts).toLocaleString()}>{row.error ? `Turn failed: ${row.error}` : row.interrupted ? "Turn interrupted" : "Turn ended"} · <Ago ts={row.ts} ago /></span>
+            <span title={when(row.ts)}>{row.error ? `Turn failed: ${row.error}` : row.interrupted ? "Turn interrupted" : "Turn ended"} · <Ago ts={row.ts} past /></span>
           </Separator>
         );
       case "notice":

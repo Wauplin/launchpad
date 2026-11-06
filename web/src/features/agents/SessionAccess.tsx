@@ -8,7 +8,7 @@ import type { LeaseInfo } from "@/gen/LeaseInfo";
 import type { Session } from "@/gen/Session";
 import { LeaseRow } from "@/features/settings/CredentialsView";
 import { api } from "@/lib/api";
-import { formatAgo } from "@/lib/format";
+import { ago } from "@/lib/format";
 
 export function SessionAccess({ session, wrap }: { session: Session; wrap: (body: ReactNode) => ReactNode }) {
   const qc = useQueryClient();
@@ -35,7 +35,7 @@ export function SessionAccess({ session, wrap }: { session: Session; wrap: (body
           <ul className="mt-1 grid gap-0.5">
             {[...grouped.values()].slice(0, 60).map(({ a, n }) => (
               <li key={`${a.at}-${a.path}`} className="flex gap-2">
-                <span className="w-[70px] shrink-0 text-ink-3">{formatAgo(a.at)}</span>
+                <span className="w-[70px] shrink-0 text-ink-3">{ago(a.at)}</span>
                 <span className="min-w-0 flex-1 truncate font-mono text-[11px]" title={`${a.method} https://${a.host}${a.path} → ${a.status}`}>{a.action ? <b className="font-sans text-[12px]">{a.action}</b> : `${a.method} ${a.host}${a.path}`}</span>
                 <span className={a.status >= 400 ? "text-danger-ink" : "text-ink-3"}>{a.status}{n > 1 ? ` · ×${n}` : ""}</span>
               </li>

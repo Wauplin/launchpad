@@ -20,9 +20,9 @@ import type { RoutineRun } from "@/gen/RoutineRun";
 import type { Session } from "@/gen/Session";
 import type { Trigger } from "@/gen/Trigger";
 import { api } from "@/lib/api";
-import { formatAgo } from "@/lib/format";
+import { ago, when } from "@/lib/format";
 import { useProjects } from "@/lib/queries";
-import { GITHUB_EVENTS, OUTCOME, OUTCOME_CLASS, browserZone, lastSuccess, routineState, triggerSummary } from "@/lib/routines";
+import { GITHUB_EVENTS, OUTCOME, OUTCOME_CLASS, browserZone, cronTitle, lastSuccess, routineState, triggerSummary } from "@/lib/routines";
 
 export type RoutineDraft = { trigger: Trigger; schedule: string; conditions: CronCondition[] };
 
@@ -33,7 +33,7 @@ export const RunStrip = memo(function RunStrip({ history, count = 14 }: { histor
   const runs = history.slice(-count);
   if (!runs.length) return <span className="text-[11px] text-ink-3">No run yet</span>;
   return <span className="flex items-center gap-[3px]" aria-label="Recent runs">
-    {runs.map((r) => <span key={`${r.at}-${r.cause}`} className={`size-[9px] rounded-[2px] ${OUTCOME_CLASS[r.outcome]}`} title={`${new Date(r.at).toLocaleString()} · ${OUTCOME[r.outcome].label}${r.detail ? `: ${r.detail}` : ""} · ${r.cause}`} />)}
+    {runs.map((r) => <span key={`${r.at}-${r.cause}`} className={`size-[9px] rounded-[2px] ${OUTCOME_CLASS[r.outcome]}`} title={`${when(r.at)} · ${OUTCOME[r.outcome].label}${r.detail ? `: ${r.detail}` : ""} · ${r.cause}`} />)}
   </span>;
 });
 
@@ -132,10 +132,10 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
           <b>{routineState(cron, bot?.settings.name)}</b>
           <span className="ml-auto"><RunStrip history={cron.history} /></span>
         </div>
-        <p className="m-0 text-ink-2">{triggerSummary(cron, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder")}</p>
+        <p className="m-0 text-ink-2" title={cronTitle(cron)}>{triggerSummary(cron, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder")}</p>
         <p className="m-0 text-[12px] text-ink-3">{where}</p>
         {cron.conditions.length > 0 && <ul className="m-0 list-disc pl-5 text-xs text-ink-2">{cron.conditions.map((c, i) => <li key={i}>{conditionSummary(c, cron.spec.harness, harnessName)}</li>)}</ul>}
-        <p className="m-0 text-xs text-ink-3">{success ? `Last successful run ${formatAgo(success.at)} (${success.outcome === "report" ? "report" : "nothing to report"}).` : "No successful run yet."}{cron.last_outcome && !cron.last_outcome.startsWith("Report") && !cron.last_outcome.startsWith("No update") ? ` Last: ${cron.last_outcome}.` : ""}</p>
+        <p className="m-0 text-xs text-ink-3">{success ? `Last successful run ${ago(success.at)} (${success.outcome === "report" ? "report" : "nothing to report"}).` : "No successful run yet."}{cron.last_outcome && !cron.last_outcome.startsWith("Report") && !cron.last_outcome.startsWith("No update") ? ` Last: ${cron.last_outcome}.` : ""}</p>
         <div className="flex flex-wrap gap-2">
           <button className="btn btn-sm btn-primary" disabled={busy} title="Starts a run now, whatever the trigger and the conditions" onClick={() => void act(async () => { onOpen((await api.post<Session>(`/api/launch/crons/${cron.id}/run`)).id); })}><Icon name="play" size={12} />Run now</button>
           <button className="btn btn-sm" disabled={busy} onClick={() => setEdit({ trigger: cron.trigger, schedule: cron.schedule, conditions: cron.conditions, title: cron.title, instructions: cron.spec.text })}><Icon name="pencil" size={12} />Edit</button>
@@ -148,7 +148,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1">
       <b className="text-xs text-ink-2">Runs ({cron.history.length})</b>
       {cron.history.length ? [...cron.history].reverse().map((r) => <button key={`${r.at}-${r.cause}`} disabled={!r.session_id} onClick={() => r.session_id && onOpen(r.session_id)} className="grid min-w-0 gap-0.5 rounded-md border border-line px-2 py-1.5 text-left text-xs hover:bg-chrome disabled:cursor-default disabled:hover:bg-transparent">
-        <span className="flex min-w-0 items-center gap-2"><span className="min-w-0 flex-1 truncate" title={r.cause}>{new Date(r.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {r.cause}</span><OutcomeBadge run={r} /></span>
+        <span className="flex min-w-0 items-center gap-2"><span className="min-w-0 flex-1 truncate" title={r.cause}>{when(r.at)} · {r.cause}</span><OutcomeBadge run={r} /></span>
         {r.detail && <span className="text-ink-3">{r.detail}</span>}
       </button>) : <p className="m-0 text-xs text-ink-3">No run yet. Quiet runs show here as No update; they never notify you.</p>}
     </div>

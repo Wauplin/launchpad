@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
 import { toastError } from "@/components/Toast";
 import { MenuItem, Popover } from "@/components/Popover";
 import { ErrorState, Loading, Tabs } from "@/components/ui";
-import { formatAgo } from "@/lib/format";
+import { ago } from "@/lib/format";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import type { Predraft } from "@/gen/Predraft";
 import { LabelChip } from "./LabelChip";
@@ -158,7 +158,7 @@ export function RepoItems({
     <section className="rounded-lg border border-line overflow-clip">
       <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-line bg-chrome px-3">
         <Tabs<"prs" | "issues"> label="Folder GitHub items" value={tab} onChange={setTab} className="min-w-0 flex-1" items={[{ id: "prs", label: phone ? "PRs" : "Pull requests", count: (q.data?.prs?.length ?? 0) + predrafts.length }, { id: "issues", label: "Issues", count: q.data?.issues?.length ?? 0 }]} />
-        {q.data && !phone && <span className="text-[12px] text-ink-3">Synced {formatAgo(q.data.fetched_at)}</span>}
+        {q.data && !phone && <span className="text-[12px] text-ink-3">Synced {ago(q.data.fetched_at)}</span>}
         <button className="iconbtn" aria-label="Refresh from GitHub" title="Refresh from GitHub" disabled={busy || !repo} onClick={() => void refresh()}><Icon name="refresh" size={phone ? 16 : 13} className={busy ? "animate-spin" : ""} /></button>
         {phone ? <PhoneActions label="Item options" closeOnAction={false} details={<div className="grid gap-3"><button className="btn" disabled={!repo} onClick={() => openGitHub(`https://github.com/${repo}/${tab === "prs" ? "pulls" : "issues"}`)}>Open on GitHub</button><label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Discarded Local PRs</label></div>} />
           : <Popover align="right" width={240} label="More options" trigger={({ open, toggle }) => <button className="iconbtn" aria-label="More options" aria-expanded={open} title="More options" onClick={toggle}><Icon name="more" size={15} /></button>}>

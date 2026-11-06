@@ -11,7 +11,7 @@ import { Icon } from "@/components/Icon";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { delegatedAccess } from "@/lib/deployment";
-import { formatAgo } from "@/lib/format";
+import { ago } from "@/lib/format";
 import { useConfig, useSessions, useStatus } from "@/lib/queries";
 import { useRunners } from "@/lib/runners";
 import { formatUsd, useBurst } from "@/lib/burst";
@@ -142,7 +142,7 @@ function HomeRunners() {
               <div key={r.runner.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-attn-soft px-3 py-2 text-[13px]">
                 <span className="grid min-w-0 flex-1 basis-[240px]">
                   <span className="flex flex-wrap items-center gap-x-2"><b>{r.runner.name}</b><Badge tone="attn">waiting for approval</Badge></span>
-                  <span className="text-[12px] text-ink-3">{r.runner.os} · asked {formatAgo(r.runner.created_at)} · approve only if its terminal shows this code</span>
+                  <span className="text-[12px] text-ink-3">{r.runner.os} · asked {ago(r.runner.created_at)} · approve only if its terminal shows this code</span>
                 </span>
                 <span className="flex min-w-0 flex-wrap items-center justify-end gap-2">
                 <span className="font-mono text-[15px] font-semibold tracking-wide whitespace-nowrap" title="Compare with the code in the terminal">{r.runner.code}</span>
@@ -157,7 +157,7 @@ function HomeRunners() {
               <div className="flex flex-wrap items-center gap-2 text-[13px]">
                 <span className="grid min-w-0 flex-1">
                   <span className="flex items-center gap-2"><b>{r.runner.name}</b>{r.connected ? <Badge tone="ok">connected</Badge> : <Badge>offline</Badge>}{r.runner.capabilities.vm && <Badge tone="teal" title="The virtual machine contains its agents">Local VM</Badge>}{r.runner.capabilities.docker && <Badge tone="teal">Docker</Badge>}{r.compat === "outdated" && <Badge tone="attn" title="Its build differs from Home's: it takes no new sessions. See below how to update it.">Update this runner</Badge>}{networkDiffers(r) && <Badge tone="attn" title="Its last network check found a difference: see below">network differs</Badge>}{r.guard?.paused && <Badge tone="attn">paused</Badge>}{r.guard && !r.guard.accept_launches && <Badge>own launches only</Badge>}</span>
-                  <span className="text-[12px] text-ink-3">{r.runner.os}{r.runner.last_seen_at ? ` · last connected ${formatAgo(r.runner.last_seen_at)}` : ""}{r.runner.commit ? ` · build ${r.runner.commit.slice(0, 8)}` : ""}</span>
+                  <span className="text-[12px] text-ink-3">{r.runner.os}{r.runner.last_seen_at ? ` · last connected ${ago(r.runner.last_seen_at)}` : ""}{r.runner.commit ? ` · build ${r.runner.commit.slice(0, 8)}` : ""}</span>
                 </span>
                 <ConfirmButton icon="trash" consequence={`Disconnects ${r.runner.name}; it must pair again. Its sessions stay on Home.`} confirmLabel="Remove runner" onConfirm={() => api.delete(`/api/runners/${r.runner.id}`).then(() => { toast(`Removed ${r.runner.name}`); return refresh(); }, toastError)}>Remove</ConfirmButton>
               </div>
@@ -244,7 +244,7 @@ function BurstCard() {
               <Badge tone={r.state === "running" || r.state === "starting" ? "teal" : r.state === "failed" ? "attn" : undefined}>{BURST_STATE[r.state]}</Badge>
               <span className="min-w-0 flex-1 truncate" title={r.error ?? undefined}>
                 {r.session_id ? <Link className="hover:underline" to="/agents" search={{ session: r.session_id }}>{titleOf(r.session_id)}</Link> : "No session"}
-                <span className="text-ink-3"> · started {formatAgo(r.created_at)} · {formatUsd(r.cost_per_minute * Math.max(0, ((r.stopped_at ?? Date.now()) - r.created_at) / 60000))}{r.error ? ` · ${r.error}` : ""}</span>
+                <span className="text-ink-3"> · started {ago(r.created_at)} · {formatUsd(r.cost_per_minute * Math.max(0, ((r.stopped_at ?? Date.now()) - r.created_at) / 60000))}{r.error ? ` · ${r.error}` : ""}</span>
               </span>
               {(r.state === "starting" || r.state === "running" || r.state === "stopping") && <ConfirmButton icon="stop" consequence="Cancels this HF Job now. A turn still running there is interrupted; its session stays on Home." confirmLabel="Stop job" onConfirm={() => api.post<BurstOverview>(`/api/burst/${r.runner_id}/stop`, {}).then((o) => qc.setQueryData(["burst"], o), toastError)}>Stop</ConfirmButton>}
             </div>
@@ -302,7 +302,7 @@ function ThisRunner() {
       )}
       <Card title="Recent launches from elsewhere">
         {(launches.data ?? []).length === 0 ? <Empty icon="clock">None yet. Launches from the phone, schedules and bots appear here.</Empty> : (launches.data ?? []).slice(0, 20).map((l) => (
-          <div key={l.session_id} className="flex items-center gap-2 text-[13px]"><span className="w-[90px] text-[12px] text-ink-3">{formatAgo(l.at)}</span><span className="min-w-0 flex-1 truncate">{l.title}</span></div>
+          <div key={l.session_id} className="flex items-center gap-2 text-[13px]"><span className="w-[90px] text-[12px] text-ink-3">{ago(l.at)}</span><span className="min-w-0 flex-1 truncate">{l.title}</span></div>
         ))}
       </Card>
     </SettingsPage>

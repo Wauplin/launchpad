@@ -1,3 +1,4 @@
+import { when } from "@/lib/format";
 import { memo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Session } from "@/gen/Session";
@@ -10,7 +11,7 @@ const TraceRow = memo(function TraceRow({ session, selected, onToggle }: { sessi
     <HarnessMark harness={session.harness} size={15} />
     <span className="min-w-0 flex-1">
       <span className="block truncate text-xs font-semibold">{session.title}</span>
-      <span className="block truncate text-[11px] text-ink-3">{session.status === "closed" ? "Archived" : session.status} · {new Date(session.started_at).toLocaleString()} · {session.cwd}</span>
+      <span className="block truncate text-[11px] text-ink-3">{session.status === "closed" ? "Archived" : session.status} · {when(session.started_at)} · {session.cwd}</span>
     </span>
   </label>;
 });

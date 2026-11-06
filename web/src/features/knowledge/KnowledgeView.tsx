@@ -18,7 +18,7 @@ import type { NativeMemory } from "@/gen/NativeMemory";
 import type { Notes } from "@/gen/Notes";
 import { api, ApiError } from "@/lib/api";
 import { daemonUrl } from "@/lib/connection";
-import { formatAgo } from "@/lib/format";
+import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useSessions, useStatus } from "@/lib/queries";
 import { useRunners } from "@/lib/runners";
@@ -172,7 +172,7 @@ const NoteRow = memo(function NoteRow({ path, hit, active, onClick }: { path: st
 function Authors({ changes }: { changes: Change[] }) {
   const agents = new Set(changes.filter((c) => c.author?.kind === "agent").map((c) => c.author!.session_id));
   const mine = changes.filter((c) => c.author?.kind === "owner");
-  const parts = [agents.size ? `${agents.size} ${agents.size === 1 ? "session" : "sessions"}` : null, mine.length ? `you (${formatAgo(mine[0].at)})` : null].filter(Boolean);
+  const parts = [agents.size ? `${agents.size} ${agents.size === 1 ? "session" : "sessions"}` : null, mine.length ? `you (${ago(mine[0].at)})` : null].filter(Boolean);
   if (!parts.length) return null;
   return <span>Written by {parts.join(", ")}</span>;
 }
@@ -369,7 +369,7 @@ const ChangeRow = memo(function ChangeRow({ c, title, isNew, active, onClick }: 
       {c.added != null && c.added > 0 && <span className="text-[11px] text-gh-open tabular-nums">+{c.added}</span>}
       {c.removed != null && c.removed > 0 && <span className="text-[11px] text-danger tabular-nums">−{c.removed}</span>}
       {what(c) !== "changed" && <span className="text-[11px] text-ink-3">{what(c)}</span>}
-      <span className="ml-auto flex-none text-[11px] text-ink-3">{formatAgo(c.at)}</span>
+      <span className="ml-auto flex-none text-[11px] text-ink-3">{ago(c.at)}</span>
     </span>
     <span className="truncate text-[11px] text-ink-3">{a ? `${a.kind === "agent" ? `Agent "${title ?? a.name}"` : a.name}${a.model ? ` · ${a.model}` : ""}${a.runner ? ` · ${a.runner}` : ""}` : "Unknown author"}</span>
   </button>;
@@ -386,7 +386,7 @@ function ChangeDetail({ ws, c, exists, back, openNote, refresh }: { ws: string; 
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-line-2 px-4 py-2">
         {back && <button className="iconbtn" aria-label="Back to changes" onClick={back}><Icon name="chev" size={16} className="rotate-90" /></button>}
-        <span className="min-w-0 flex-1 truncate font-mono text-[13px]">{c.path} <span className="font-sans text-[12px] text-ink-3">· {kind} {new Date(c.at).toLocaleString()}</span></span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[13px]">{c.path} <span className="font-sans text-[12px] text-ink-3">· {kind} {ago(c.at)}</span></span>
         {exists && <button className="btn btn-sm" onClick={() => openNote(c.path)}><Icon name="file" size={12} />Open note</button>}
         <ConfirmButton consequence={kind === "created" ? `Removes ${c.path}, which this change created. It stays restorable.` : kind === "removed" ? `Puts ${c.path} back.` : `Puts back ${c.path} as it was before this change. The current version stays restorable.`} confirmLabel={kind === "created" ? "Undo" : "Restore"} onConfirm={restore}>{kind === "removed" ? "Restore" : kind === "created" ? "Undo" : "Restore previous"}</ConfirmButton>
       </div>

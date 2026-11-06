@@ -21,7 +21,7 @@ import { isCollapsed, useLayout, type AgentGroup } from "@/stores/layout";
 import { SessionPane } from "./SessionPane";
 import { StatusBadge } from "./SessionBits";
 import { useMarkSeen, useWindowFocused } from "./useSeen";
-import { formatAge } from "@/lib/format";
+import { age, formatReset } from "@/lib/format";
 import { toastError } from "@/components/Toast";
 import { usePhone } from "@/lib/phone";
 import { runAction } from "@/lib/actions";
@@ -45,7 +45,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
     finally { setActing(false); }
   };
   const needs = needsYou(s);
-  const quotaDetail = s.quota_pause?.error ?? s.quota_pause?.blockers.map((b) => `${b.window} reset ${b.resets_at === null ? "unknown" : new Date(b.resets_at * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`).join(" · ");
+  const quotaDetail = s.quota_pause?.error ?? s.quota_pause?.blockers.map((b) => `${b.window} reset ${b.resets_at === null ? "unknown" : formatReset(b.resets_at)}`).join(" · ");
   const line = s.quota_pause ? quotaDetail || "Waiting for a quota update" : isNoUpdate(s.last_message) ? "No update (a routine with nothing to report)" : s.last_message ?? (s.usage.cost_usd != null ? `$${s.usage.cost_usd.toFixed(2)}` : "");
   return (
     <div className="group relative" data-tour="agents.row" data-tour-id={s.id}>
@@ -61,7 +61,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
           {pinned ? "★ " : ""}{s.title}
         </span>
         <span className="flex items-center gap-1 text-[12px] whitespace-nowrap text-ink-3">
-          {informative(s) ? <StatusBadge s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{formatAge(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
+          {informative(s) ? <StatusBadge s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{age(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
         </span>
         <span className={`col-span-2 line-clamp-2 text-[12px] leading-[1.3] text-ink-3 ${dim ? "" : canMarkUnread ? "agent-row-line-2 pr-14" : "agent-row-line-1 pr-7"}`} title={line ? `${project} · ${line}` : project}>
           <span className="text-ink-2">{sessionPlace(s, project)}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}

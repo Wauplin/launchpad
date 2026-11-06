@@ -16,7 +16,7 @@ import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, Sett
 import { api } from "@/lib/api";
 import { useBots } from "@/lib/bots";
 import { copyText } from "@/lib/clipboard";
-import { formatAgo } from "@/lib/format";
+import { ago, when } from "@/lib/format";
 import { Card, SettingsPage } from "./SettingsView";
 
 export type ChannelsOverview = { here: boolean; origin: string; names: string[]; channels: Channel[]; telegram: TelegramStatus; hooks: Hook[] };
@@ -67,7 +67,7 @@ function Telegram({ t }: { t: TelegramStatus }) {
               <Token>{t.code}</Token>
               <a className="btn btn-sm no-underline" href={t.link} target="_blank" rel="noreferrer"><Icon name="ext" size={12} />Open in Telegram</a>
               <button className="btn btn-sm" onClick={() => copy(t.link!, "Link")}><Icon name="copy" size={12} />Copy link</button>
-              {t.code_expires_at && <span className="text-[12px] text-ink-3">Valid until {new Date(t.code_expires_at).toLocaleTimeString()}</span>}
+              {t.code_expires_at && <span className="text-[12px] text-ink-3">Valid until {when(t.code_expires_at)}</span>}
             </span>
           </div>
         )}
@@ -117,7 +117,7 @@ function Outgoing({ channels }: { channels: Channel[] }) {
       {channels.length === 0 && <Empty icon="send">No outgoing channel yet.</Empty>}
       {channels.map((c) => (
         <div key={c.id} className="flex flex-wrap items-center gap-2 text-[13px]">
-          <span className="min-w-0 flex-1"><b className="font-mono">{c.name}</b> <span className="text-[12px] text-ink-3">· {KINDS.find((x) => x.id === c.kind)?.label} · {c.host} · added {formatAgo(c.created_at)}</span></span>
+          <span className="min-w-0 flex-1"><b className="font-mono">{c.name}</b> <span className="text-[12px] text-ink-3">· {KINDS.find((x) => x.id === c.kind)?.label} · {c.host} · added {ago(c.created_at)}</span></span>
           <ConfirmButton icon="trash" consequence={`Removes ${c.name} and its URL from Home. Its drafts stay in Today but cannot be sent.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/channels/${c.id}`).then(refresh, toastError)}>Remove</ConfirmButton>
         </div>
       ))}
@@ -175,7 +175,7 @@ function Incoming({ hooks, origin }: { hooks: Hook[]; origin: string }) {
       {hooks.map((h) => (
         <div key={h.id} className="grid gap-1 border-b border-line-2 pb-2 text-[13px] last:border-b-0 last:pb-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="min-w-0 flex-1"><b>{h.name}</b> <span className="text-[12px] text-ink-3">→ {targetName(h.target, bots)} · {h.count} {h.count === 1 ? "message" : "messages"}{h.last_at ? `, last ${formatAgo(h.last_at)}` : ""}</span></span>
+            <span className="min-w-0 flex-1"><b>{h.name}</b> <span className="text-[12px] text-ink-3">→ {targetName(h.target, bots)} · {h.count} {h.count === 1 ? "message" : "messages"}{h.last_at ? `, last ${ago(h.last_at)}` : ""}</span></span>
             {h.last_session && <Link to="/agents" search={{ session: h.last_session } as never} className="text-[12px] text-teal-ink no-underline hover:underline">Last session</Link>}
             <ConfirmButton icon="trash" consequence={`Deletes ${h.name}: its URL stops working.`} confirmLabel="Delete" onConfirm={() => api.delete(`/api/channels/hooks/${h.id}`).then(refresh, toastError)}>Delete</ConfirmButton>
           </div>

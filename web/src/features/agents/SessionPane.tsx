@@ -1,6 +1,7 @@
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
+import { when } from "@/lib/format";
 import { ProposalCard, useProposalList } from "@/features/proposals/ProposalCard";
 import { FollowUpAgent } from "./FollowUpAgent";
 import { useProfile } from "@/lib/profiles";
@@ -490,7 +491,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
               {s.launch_spec.profile && <div><dt className="text-[11px] text-ink-3">Profile</dt><dd>{name} · {profileName ?? `${s.launch_spec.profile} (deleted profile)`}</dd></div>}
               {s.model && <div><dt className="text-[11px] text-ink-3">Model</dt><dd>{s.model}{s.effort ? ` · ${s.effort}` : ""}</dd></div>}
               {usageLine(s) && <div><dt className="text-[11px] text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
-              <div><dt className="text-[11px] text-ink-3">Started</dt><dd>{new Date(s.started_at).toLocaleString()}</dd></div>
+              <div><dt className="text-[11px] text-ink-3">Started</dt><dd>{when(s.started_at)}</dd></div>
             </dl>}
           </Popover>
           </div>
@@ -501,7 +502,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
           <div className="flex items-start gap-2"><HarnessMark harness={s.harness} size={20} /><div className="min-w-0"><b className="break-words">{s.title}</b><p className="mt-1 text-ink-3">{sessionPlace(s, projectName(projects, s.project_id, s.cwd))} · {s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : name}</p></div></div>
           <dl className="grid gap-2 text-ink-2">
             {usageLine(s) && <div><dt className="text-xs text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
-            <div><dt className="text-xs text-ink-3">Started</dt><dd>{new Date(s.started_at).toLocaleString()}</dd></div>
+            <div><dt className="text-xs text-ink-3">Started</dt><dd>{when(s.started_at)}</dd></div>
           </dl>
           {localPr && <button className="btn" onClick={() => { setDetailsOpen(false); void navigate({ to: "/predrafts/$id", params: { id: localPr.id } }); }}>Local PR</button>}
           <SessionWorktreeDetails session={s} />
@@ -514,7 +515,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         <button className="btn btn-sm" disabled={log.loading} onClick={() => void load(sessionId)}>{log.loading ? "Loading…" : "Retry"}</button>
       </div>}
       {s.capacity_retry_at != null && <div role="status" className="flex flex-wrap items-center gap-2 border-b border-line bg-teal-soft px-3 py-2 text-xs text-teal-ink">
-        <Icon name="clock" size={16} />Model at capacity · automatic retry {s.capacity_retry_count + 1} scheduled for {new Date(s.capacity_retry_at).toLocaleTimeString()}. Resume now or archive to cancel.
+        <Icon name="clock" size={16} />Model at capacity · automatic retry {s.capacity_retry_count + 1} scheduled for {when(s.capacity_retry_at)}. Resume now or archive to cancel.
       </div>}
       {s.launch_spec.target.kind === "browser" && <div className="border-b border-line bg-teal-soft px-3 py-1 text-xs text-teal-ink">Browser task · tabs shared from the Chrome extension · {s.launch_spec.target.act ? "Act" : "Read"}</div>}
       {s.live && processes.isError && <div role="alert" className="px-3 py-2 text-xs text-danger">{String(processes.error)} <button className="btn btn-sm" onClick={() => void processes.refetch()}>Retry</button></div>}

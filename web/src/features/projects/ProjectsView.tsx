@@ -16,7 +16,7 @@ import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
-import { formatAgo } from "@/lib/format";
+import { ago } from "@/lib/format";
 import { useProjects, useSessions } from "@/lib/queries";
 import { KeepFolder } from "./KeepFolder";
 import { isRunning } from "@/lib/sessionStatus";
@@ -71,7 +71,7 @@ export function TempProjectCard({ p }: { p: Project }) {
         <span className="min-w-0 truncate font-mono text-[13px] font-semibold" title={p.path}>
           {p.name.replace(/^tmp-\d{4}-/, "") || p.name}
         </span>
-        <span className="ml-auto text-xs whitespace-nowrap text-ink-3">created {formatAgo(p.created_at)}</span>
+        <span className="ml-auto text-xs whitespace-nowrap text-ink-3">created {ago(p.created_at)}</span>
       </div>
       <div className="text-xs text-ink-3">
         Temporary folder · {open.length ? `${open.length} open agent${open.length > 1 ? "s" : ""}` : "No open agent"} · Saved on Home; leaves this list when its last agent is archived, and Home deletes it 30 days later, unless you keep it as a folder

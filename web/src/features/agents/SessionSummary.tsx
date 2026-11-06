@@ -17,7 +17,7 @@ import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useStatus } from "@/lib/queries";
 import { copyText } from "@/lib/clipboard";
-import { formatAgo } from "@/lib/format";
+import { ago, formatReset, when } from "@/lib/format";
 import { useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { conditionsSummary, DelaySelector } from "@/features/launch/DelaySelector";
 import { budgetReached, costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, useProfile } from "@/lib/profiles";
@@ -43,7 +43,7 @@ export function StateBand({ session: s }: { session: Session }) {
   return <div className={`flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-xs ${STYLES[style]} ${s.status === "stopped" ? "border-dashed" : ""}`}>
     <Icon name={s.status === "stopped" ? "stop" : "alert"} size={16} /><b>{s.status === "stopped" ? "Stopped" : "Question"}</b>
     <span>{s.status === "stopped" ? "By you, during a turn" : "The agent needs an answer"}</span>
-    <span className="ml-auto" title={new Date(at).toLocaleString()}>Since {new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {formatAgo(at)}</span>
+    <span className="ml-auto" title={ago(at)}>Since {when(at)}</span>
   </div>;
 }
 
@@ -336,7 +336,7 @@ export function QuotaBand({ session: s }: { session: Session }) {
   };
   return <div className="grid gap-2 border-b border-attn-line bg-attn-soft px-4 py-3 text-xs text-attn">
     <b>{p.phase === "needs_attention" ? "Quota pause needs attention" : p.phase === "provider_limited" ? "Provider quota limit reached · retry manually when available" : p.blockers.length ? "Included quota exhausted · automatic continuation pending" : "Waiting for confirmed quota · automatic continuation pending"}</b>
-    <span>{p.blockers.map((b) => `${b.window} reset: ${b.resets_at === null ? "unknown" : new Date(b.resets_at * 1000).toLocaleString()}`).join(" · ")}</span>
+    <span>{p.blockers.map((b) => `${b.window} reset: ${b.resets_at === null ? "unknown" : formatReset(b.resets_at)}`).join(" · ")}</span>
     <span>{p.error ?? (p.phase === "pausing" ? "Interrupt requested; waiting for the turn and commands to finish." : p.phase === "resuming" ? "Continuing…" : "Waiting for a fresh quota reading confirming both windows are available. Reset times are estimates; failed readings keep this paused.")}</span>
     {p.phase !== "resuming" && p.phase !== "needs_attention" && <span>You can queue steering messages below; they are sent together when the agent resumes. Stop cancels queued messages.</span>}
     {quota?.quota_error && <span>Quota reading unavailable: {quota.quota_error}</span>}

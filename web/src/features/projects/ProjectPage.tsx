@@ -19,7 +19,7 @@ import { useComposer } from "@/stores/composer";
 import { RepoItems } from "@/features/github/RepoItems";
 import { Link, useParams, useSearch } from "@tanstack/react-router";
 import { Badge, ConfirmButton, Empty, Choice, Choices, SettingRow, Tabs, useSaveState } from "@/components/ui";
-import { formatAgo } from "@/lib/format";
+import { ago } from "@/lib/format";
 import { moveFolder, useWorkspaces } from "@/lib/workspace";
 import { toast } from "@/components/Toast";
 import { HarnessMark } from "@/components/HarnessMark";
@@ -265,7 +265,7 @@ const ProjectAgentRow = memo(function ProjectAgentRow({ s }: { s: Session }) {
       <HarnessMark harness={s.harness} size={16} />
       <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{s.title}</span>
       <StatusBadge s={s} />
-      {!phone && <span className="text-xs text-ink-3">{new Date(s.started_at).toLocaleDateString()}</span>}
+      {!phone && <span className="text-xs text-ink-3">{ago(s.started_at)}</span>}
     </button>
   );
 });
@@ -286,7 +286,7 @@ function AssetFolders({ projectId }: { projectId: string }) {
         <Icon name="folder" size={14} className="text-ink-3" />
         <span className="grid min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2"><span className="truncate font-mono font-semibold">{a.asset.name}</span>{a.asset.trashed_at ? <Badge tone="attn">in the trash</Badge> : !a.in_use && <Badge title="No branch, kept tip or note names it">unused</Badge>}</span>
-          <span className="truncate text-[12px] text-ink-3">{a.asset.trashed_at ? `Moved to the trash ${formatAgo(a.asset.trashed_at)}` : `${a.files} files · ${mb(a.size)}`} · changed {formatAgo(a.last_change)}</span>
+          <span className="truncate text-[12px] text-ink-3">{a.asset.trashed_at ? `Moved to the trash ${ago(a.asset.trashed_at)}` : `${a.files} files · ${mb(a.size)}`} · changed {ago(a.last_change)}</span>
         </span>
         {a.asset.trashed_at && <ConfirmButton tone="publish" consequence={`Puts the files of ${a.asset.name} back.`} confirmLabel="Restore" onConfirm={() => untrash(a)}>Restore</ConfirmButton>}
       </div>)}
@@ -323,7 +323,7 @@ const BranchRow = memo(function BranchRow({ b, draft, open, onToggle }: { b: Hom
     <Icon name="branch" size={14} className="text-ink-3" />
     <span className="grid min-w-0 flex-1">
       <span className="flex min-w-0 items-center gap-2"><span className="truncate font-mono font-semibold">{b.name}</span>{draft && <Link to="/predrafts/$id" params={{ id: draft.id }} className="truncate text-teal-ink">Local PR · {draft.title}</Link>}</span>
-      <span className="truncate text-[12px] text-ink-3">{b.head ? `${b.head.slice(0, 8)} ${b.subject}` : "deleted"} · {new Date(b.committed_at).toLocaleString()}</span>
+      <span className="truncate text-[12px] text-ink-3">{b.head ? `${b.head.slice(0, 8)} ${b.subject}` : "deleted"} · {ago(b.committed_at)}</span>
     </span>
     {b.kept.length > 0 && <button className="btn btn-sm" aria-expanded={open} onClick={onToggle}>{b.kept.length} previous tip{b.kept.length === 1 ? "" : "s"}</button>}
   </div>;
@@ -336,7 +336,7 @@ function KeptTips({ projectId, b }: { projectId: string; b: HomeBranch }) {
     <b className="font-mono">{b.name}: previous tips</b>
     <span className="text-ink-3">Kept for 30 days after the branch moved away from them. Restore points the branch back; the current tip is kept in turn.</span>
     {b.kept.map((k) => <div key={`${k.commit}${k.replaced_at}`} className="flex min-h-[32px] items-center gap-2">
-      <span className="min-w-0 flex-1 truncate"><span className="font-mono">{k.commit.slice(0, 8)}</span> {k.subject} <span className="text-ink-3">· replaced {new Date(k.replaced_at).toLocaleString()}</span></span>
+      <span className="min-w-0 flex-1 truncate"><span className="font-mono">{k.commit.slice(0, 8)}</span> {k.subject} <span className="text-ink-3">· replaced {ago(k.replaced_at)}</span></span>
       <ConfirmButton consequence={`Points ${b.name} on Home back to ${k.commit.slice(0, 8)}. Runners fetch it on their next sync; the current tip stays restorable.`} confirmLabel="Restore" onConfirm={() => restore(k.commit)}>Restore</ConfirmButton>
     </div>)}
   </div>;
@@ -370,7 +370,7 @@ function PlainHistory({ projectId, sessions }: { projectId: string; sessions: Se
 const ChangeRow = memo(function ChangeRow({ c, locked, onRestore }: { c: Change; locked: boolean; onRestore: (c: Change) => unknown }) {
   const what = !c.sha256 ? "created" : !c.new_sha256 ? "deleted" : "changed";
   return <div className="flex h-full items-center gap-2 border-b border-line-2 px-4 text-xs">
-    <span className="min-w-0 flex-1 truncate"><span className="font-mono">{c.path}</span> <span className="text-ink-3">· {what} · {new Date(c.at).toLocaleString()}</span></span>
+    <span className="min-w-0 flex-1 truncate"><span className="font-mono">{c.path}</span> <span className="text-ink-3">· {what} · {ago(c.at)}</span></span>
     {c.sha256 && <ConfirmButton disabled={locked} consequence={what === "deleted" ? `Puts ${c.path} back.` : `Puts back the version of ${c.path} from before this change. The current version stays restorable.`} confirmLabel="Restore" onConfirm={() => onRestore(c)}>{what === "deleted" ? "Restore" : "Restore previous"}</ConfirmButton>}
   </div>;
 });

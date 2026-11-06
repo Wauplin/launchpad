@@ -1,3 +1,4 @@
+import { when } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { CronCondition } from "@/gen/CronCondition";
@@ -46,7 +47,7 @@ export function CronFields({ draft, harness, onChange, onValidityChange, schedul
     <div className="flex flex-wrap gap-1.5">{PRESETS.map(([label, schedule]) => <button key={schedule} className={`btn btn-sm ${draft.schedule.trim() === schedule ? "btn-primary" : ""}`} onClick={() => onChange({ ...draft, schedule })}>{label}</button>)}</div>
     <input aria-label="Cron schedule" className="field-input font-mono text-[12px]" placeholder="minute hour day month weekday" value={draft.schedule} onChange={(e) => onChange({ ...draft, schedule: e.target.value })} />
     {next.error ? <p role="alert" className="text-xs text-gh-closed">{next.error.message}</p>
-      : next.data && <p className="text-xs text-ink-2">Next runs: {next.data.map((at) => new Date(at).toLocaleString()).join(" · ")}</p>}
+      : next.data && <p className="text-xs text-ink-2">Next runs: {next.data.map((at) => when(at)).join(" · ")}</p>}
     <p className="text-xs text-ink-3">5 fields: minute, hour, day of month, month, day of week. In your time zone · {zone}: the routine keeps it when you save.</p>
     </>}
     <b className="text-[12px] font-[650] text-ink-2">Run only if</b>

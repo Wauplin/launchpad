@@ -7,7 +7,7 @@ import type { Status } from "@/gen/Status";
 import type { ProfileSpend } from "@/gen/ProfileSpend";
 import { spendLabel, spendPercent, useQuotas, windowLabel, type QuotaEntry } from "@/lib/profiles";
 import { HarnessMark, useHarnessInfo, useHarnesses, type Harness } from "@/components/HarnessMark";
-import { formatAgo, formatReset, resetLabel } from "@/lib/format";
+import { ago, formatReset, resetLabel } from "@/lib/format";
 import { onConnectionChange } from "@/lib/ws";
 import { Popover } from "@/components/Popover";
 import { Icon } from "@/components/Icon";
@@ -51,7 +51,7 @@ export function useQuotaName(e: QuotaEntry) {
 }
 
 function Pair({ harness, name, s, labeled }: { harness: Harness; name: string; s: QuotaStatus; labeled: boolean }) {
-  const w = (label: string, q: QuotaWindow | null) => (q ? `${label}: ${Math.round(q.used_percent)}% used, ${q.resets_at === null ? "not started" : `resets ${new Date(q.resets_at * 1000).toLocaleString()}`}` : `${label}: unknown`);
+  const w = (label: string, q: QuotaWindow | null) => (q ? `${label}: ${Math.round(q.used_percent)}% used, ${q.resets_at === null ? "not started" : `resets ${formatReset(q.resets_at)}`}` : `${label}: unknown`);
   const pct = (q: QuotaWindow | null) => (q ? `${Math.round(q.used_percent)}%` : "?");
   return (
     <span className="inline-flex items-center gap-1.5" title={[name, w("5 hours", s.five_hour), w("Week", s.weekly), s.quota_error].filter(Boolean).join("\n")}>
@@ -104,7 +104,7 @@ function StaleQuota({ e }: { e: QuotaEntry }) {
   const name = useQuotaName(e);
   const s = e.q;
   if (s.quota_at === null || Date.now() - s.quota_at <= 15 * 60_000) return null;
-  return <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={s.quota_error ?? undefined}>{name} quota read {formatAgo(s.quota_at)}</span>;
+  return <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={s.quota_error ?? undefined}>{name} quota read {ago(s.quota_at)}</span>;
 }
 
 const emptyStatus: HarnessStatus = { version: null, version_error: null, updating_to: null };
@@ -115,7 +115,7 @@ function QuotaLine({ e }: { e: QuotaEntry }) {
   return (
     <div className="grid gap-0.5">
       <span className="inline-flex items-center gap-1.5 font-semibold"><HarnessMark harness={e.harness} size={14} />{name}</span>
-      <span className="text-ink-3">5h {s.five_hour ? `${Math.round(s.five_hour.used_percent)}% · ${resetLabel(s.five_hour.resets_at)}` : "unknown"} · week {s.weekly ? `${Math.round(s.weekly.used_percent)}% · ${resetLabel(s.weekly.resets_at)}` : "unknown"}{s.quota_at && ` · read ${formatAgo(s.quota_at)}`}</span>
+      <span className="text-ink-3">5h {s.five_hour ? `${Math.round(s.five_hour.used_percent)}% · ${resetLabel(s.five_hour.resets_at)}` : "unknown"} · week {s.weekly ? `${Math.round(s.weekly.used_percent)}% · ${resetLabel(s.weekly.resets_at)}` : "unknown"}{s.quota_at && ` · read ${ago(s.quota_at)}`}</span>
       {s.quota_error && <span className="text-gh-closed">{s.quota_error}</span>}
     </div>
   );

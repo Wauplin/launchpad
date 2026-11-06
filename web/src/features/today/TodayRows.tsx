@@ -17,7 +17,7 @@ import { MessageCard, useOutboxMessages } from "@/features/outbox/MessageCard";
 import { ProposalCard, proposalIcon, runProposalAction, START } from "@/features/proposals/ProposalCard";
 import { SuggestionCard } from "@/features/suggestions/Suggestions";
 import { runAction } from "@/lib/actions";
-import { formatAgo } from "@/lib/format";
+import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useSession } from "@/lib/queries";
 import type { TodayItem } from "./data";
@@ -49,7 +49,7 @@ function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, ma
   const opens = !!details || (phone && (!!actions || !!more));
   const look = LOOK[item.kind];
   const title = <span className="block truncate text-[13px] font-semibold" title={item.title}>{item.title}</span>;
-  const metaLine = <div className="flex min-w-0 items-center gap-x-1.5 text-[12px] text-ink-3">{meta ?? <span className="truncate">{item.detail}</span>}{age && <span className="flex-none whitespace-nowrap">· {formatAgo(item.at)}</span>}</div>;
+  const metaLine = <div className="flex min-w-0 items-center gap-x-1.5 text-[12px] text-ink-3">{meta ?? <span className="truncate">{item.detail}</span>}{age && <span className="flex-none whitespace-nowrap">· {ago(item.at)}</span>}</div>;
   const kind = <span className={`grid size-6 flex-none place-items-center ${look.color}`} title={look.name} aria-label={look.name} role="img"><Icon name={icon ?? look.icon} size={16} /></span>;
   const chev = (size: number) => <Icon name="chev" size={size} className={`flex-none transition-transform ${expanded ? "rotate-180" : ""}`} />;
   const label = expanded ? "Hide the details" : "Show the details";

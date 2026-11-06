@@ -1,6 +1,7 @@
 // Which daemon this window talks to, and whether the live connection works. Shown in browser tabs
 // (the laptop status bar, the phone top bar); the desktop shell runs on the daemon's machine.
 
+import { when } from "@/lib/format";
 import { useEffect, useState } from "react";
 import { useStatus } from "@/lib/queries";
 import { lastMessageAt, onConnectionChange } from "@/lib/ws";
@@ -25,7 +26,7 @@ export function HostChip({ compact = false, iconOnly = false }: { compact?: bool
   return (
     <span className={`inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap ${online ? "text-ink-2" : "font-semibold text-gh-closed"}`} role="status" title={online ? `Connected to ${host}${zone ? ` · host time ${zone}` : ""}` : `Not connected to ${host}; showing what was last received`}>
       <span className={`size-[7px] flex-none rounded-full ${online ? "bg-gh-open" : "bg-gh-closed"}`} />
-      <span className={iconOnly ? "sr-only" : "truncate"}>{online ? `${host}${compact ? "" : " · live"}` : `Offline${since ? ` since ${clock(since)}` : ""}`}</span>
+      <span className={iconOnly ? "sr-only" : "truncate"}>{online ? `${host}${compact ? "" : " · live"}` : `Offline${since ? ` since ${when(since)}` : ""}`}</span>
       {online && zone && !compact && <span className="truncate text-ink-3">· {zone}</span>}
     </span>
   );

@@ -10,7 +10,7 @@ import { Empty, Loading, SettingRow, useSaveState } from "@/components/ui";
 import { useInbox } from "@/features/inbox/data";
 import { openExternal } from "@/lib/platform";
 import { usePhone } from "@/lib/phone";
-import { formatAgo } from "@/lib/format";
+import { ago } from "@/lib/format";
 import { useConfig, useProjects } from "@/lib/queries";
 import { useWorkspaces } from "@/lib/workspace";
 import { useAddFolder } from "@/features/projects/addFolderStore";
@@ -57,7 +57,7 @@ const OrphanRow = memo(function OrphanRow({ r, phone }: { r: Orphan; phone: bool
     <div className={`flex items-center gap-2 border-b border-line-2 px-3 text-[13px] ${phone ? "h-[108px] flex-wrap content-center [&>.btn]:flex-1" : "h-[52px]"}`}>
       <span className={`grid min-w-0 ${phone ? "basis-full" : "flex-1"}`}>
         <b className="truncate font-mono text-[12px]">{r.repo}</b>
-        <span className="text-[12px] text-ink-3">{r.count} notification{r.count === 1 ? "" : "s"} · {formatAgo(r.last)}</span>
+        <span className="text-[12px] text-ink-3">{r.count} notification{r.count === 1 ? "" : "s"} · {ago(r.last)}</span>
       </span>
       <Popover viewport align="right" width={240} className={phone ? "flex-1" : ""} trigger={({ open, toggle }) => <button className={`btn btn-sm ${phone ? "w-full" : ""}`} aria-expanded={open} onClick={toggle}>Add to<Icon name="chev" size={11} /></button>}>
         {(close) => <>

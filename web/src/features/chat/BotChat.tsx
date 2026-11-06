@@ -35,7 +35,7 @@ import { activityLine, activityLink, activityParts, useActivity } from "./activi
 import { api } from "@/lib/api";
 import { pastedImages } from "@/lib/attachments";
 import { daemonAsset } from "@/lib/connection";
-import { formatAge } from "@/lib/format";
+import { age, ago, when } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useCrons, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
@@ -47,8 +47,6 @@ import { chatRows, stepsLabel, type ChatCard, type ChatItem, type ChatSession } 
 /** Today kinds that are a ready click in a bot's chat: Send, Post, Review & publish. */
 const READY = new Set<TodayItem["kind"]>(["outbox", "suggestion", "local_pr"]);
 
-const day = (ms: number) => new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
-const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 // Display rows per log object: a session whose events did not change keeps its rows.
 const folded = new WeakMap<SessionLog, ReturnType<typeof foldTrace>>();
@@ -240,7 +238,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
   switch (item.t) {
     case "divider":
       return <div className="pt-4 pb-2"><Separator>
-        <span>Session {item.index} · started {day(item.at)}{item.reason ? ` because ${item.reason}` : ""}</span>
+        <span>Session {item.index} · started {ago(item.at)}{item.reason ? ` because ${item.reason}` : ""}</span>
         <Link to="/agents" search={{ session: item.sessionId }} className="chat-tap text-teal-ink no-underline hover:underline" title="The whole trace of this session in Agents">Open in Agents</Link>
       </Separator></div>;
     case "user":
@@ -252,7 +250,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
     case "routine":
       return <div className="py-1.5"><Separator><span className="flex items-center gap-1.5" title="A routine started this run"><Icon name="refresh" size={12} />Routine “<RoutineName title={item.title} />” · {item.cause}</span></Separator></div>;
     case "quiet":
-      return <div className="flex items-center gap-1.5 py-1 text-[12px] text-ink-3" title="The run had nothing to report: no notification"><Icon name="refresh" size={12} /><span className="truncate"><RoutineName title={item.title} /> · {item.cause}{item.at ? ` · ${time(item.at)}` : ""} · no update</span></div>;
+      return <div className="flex items-center gap-1.5 py-1 text-[12px] text-ink-3" title="The run had nothing to report: no notification"><Icon name="refresh" size={12} /><span className="truncate"><RoutineName title={item.title} /> · {item.cause}{item.at ? ` · ${when(item.at)}` : ""} · no update</span></div>;
     case "answer":
       return <div className="py-1.5 text-[13px]"><AssistantRow text={item.text} streaming={item.streaming} /></div>;
     case "steps":
@@ -354,7 +352,7 @@ function WorkingRow({ item }: { item: Extract<ChatItem, { t: "working" }> }) {
   const label = s.status === "starting" ? "Starting" : s.status === "background" ? "Background work" : "Working";
   return <div className="flex items-center gap-2 py-1.5 text-[12px] text-work" role="status">
     <span className="lp-spin" />
-    <span className="min-w-0 flex-1 truncate">{label}{item.step ? ` · ${item.step}` : ""} · {formatAge(s.status_since)}</span>
+    <span className="min-w-0 flex-1 truncate">{label}{item.step ? ` · ${item.step}` : ""} · {age(s.status_since)}</span>
     <button className="btn btn-sm" disabled={busy} title="Stop: interrupt the bot" onClick={() => { setBusy(true); void runAction("session.stop", { id: s.id }).catch(toastError).finally(() => setBusy(false)); }}><Icon name="stop" size={12} />Stop</button>
   </div>;
 }

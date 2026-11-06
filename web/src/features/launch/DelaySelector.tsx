@@ -1,3 +1,4 @@
+import { when } from "@/lib/format";
 import { memo, useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
@@ -37,7 +38,7 @@ function conditionLabel(delay: LaunchDelay, sessions: Session[], schedules: Sche
 /** One line for all conditions of a scheduled launch; time and quota conditions share the resolved `ready_at`. */
 export function conditionsSummary(launch: ScheduledLaunch, sessions: Session[] = [], schedules: ScheduledLaunch[] = []): string {
   const parts = launch.conditions.map((c) => conditionLabel(c, sessions, schedules)).filter((p): p is string => !!p);
-  if (launch.ready_at) parts.push(`${parts.length ? "not before " : ""}${new Date(launch.ready_at).toLocaleString()}`);
+  if (launch.ready_at) parts.push(`${parts.length ? "not before " : ""}${when(launch.ready_at)}`);
   return parts.join(" · ");
 }
 
@@ -147,7 +148,7 @@ function ConditionEditor({ delay, run, exclude, onChange, onRemove }: { delay: L
         <select aria-label="Quota provider" className="field-input" value={delay.harness} onChange={(e) => onChange({ ...delay, harness: e.target.value as HarnessKind })}>{quotaHarnesses.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}</select>
         <select aria-label="Quota window" className="field-input" value={delay.window} onChange={(e) => onChange({ ...delay, window: e.target.value as "five_hour" | "weekly" })}><option value="five_hour">5-hour quota</option><option value="weekly">Weekly quota</option></select>
       </div>
-      {reset && !error && <p className="text-xs text-ink-2">Resets {new Date(reset).toLocaleString()}. This reset time is saved when you schedule.</p>}
+      {reset && !error && <p className="text-xs text-ink-2">Resets {when(reset)}. This reset time is saved when you schedule.</p>}
     </>}
     {error && <p role="alert" className="text-xs text-gh-closed">{error}</p>}
   </div>;

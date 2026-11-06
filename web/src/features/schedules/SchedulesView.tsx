@@ -19,7 +19,7 @@ import { api } from "@/lib/api";
 import { askTarget, useBots } from "@/lib/bots";
 import { usePhone } from "@/lib/phone";
 import { useCrons, useProjects, useSchedules, useSessions } from "@/lib/queries";
-import { browserZone, routineState, triggerSummary } from "@/lib/routines";
+import { browserZone, cronTitle, routineState, triggerSummary } from "@/lib/routines";
 import { useScope } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
 import { BRIEF, BRIEF_TITLE, RoutineDetails, RunStrip } from "./Routines";
@@ -122,7 +122,7 @@ const RoutineRow = memo(function RoutineRow({ r, bot, selected, onClick }: { r: 
     {bot ? <BotAvatar name={bot.settings.name} size={28} /> : <span className="grid size-[28px] place-items-center rounded-[8px] bg-teal-soft text-teal-ink"><Icon name="refresh" size={14} /></span>}
     <span className="min-w-0">
       <span className="block truncate text-[13px] font-semibold">{r.title}{owner && <span className="font-normal text-ink-3"> · {owner}</span>}</span>
-      <span className="block truncate text-[12px] text-ink-3">{triggerSummary(r, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder")} · {routineState(r, bot?.settings.name)}</span>
+      <span className="block truncate text-[12px] text-ink-3" title={cronTitle(r)}>{triggerSummary(r, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder")} · {routineState(r, bot?.settings.name)}</span>
     </span>
     <RunStrip history={r.history} />
   </button>;

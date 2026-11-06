@@ -16,7 +16,7 @@ import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, Sett
 import { api } from "@/lib/api";
 import { delegatedAccess } from "@/lib/deployment";
 import { homeStatus } from "@/features/setup/summary";
-import { formatAgo } from "@/lib/format";
+import { ago } from "@/lib/format";
 import { useSessions } from "@/lib/queries";
 import { useWorkspaces } from "@/lib/workspace";
 import { Card, SettingsPage } from "./SettingsView";
@@ -168,7 +168,7 @@ export function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | 
 function EntryRow({ id, name, detail, note, updatedAt, onDone }: { id: string; name: string; detail: string; note?: string; updatedAt: number; onDone: () => unknown }) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-[13px]">
-      <span className="min-w-0 flex-1"><b>{name}</b> <span className="font-mono text-[12px] text-ink-3">{id}</span> <span className="text-[12px] text-ink-3">· {detail} · updated {formatAgo(updatedAt)}</span></span>
+      <span className="min-w-0 flex-1"><b>{name}</b> <span className="font-mono text-[12px] text-ink-3">{id}</span> <span className="text-[12px] text-ink-3">· {detail} · updated {ago(updatedAt)}</span></span>
       {note && <Badge tone="teal">{note}</Badge>}
       <ConfirmButton icon="trash" consequence={`Removes ${name} from Home. Sessions that use it fail to start or lose it at their next lease renewal.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/vault/entries/${id}`).then(onDone, toastError)}>Remove</ConfirmButton>
     </div>
@@ -353,7 +353,7 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
             {homeToken && <button className="btn btn-sm" onClick={() => { setUseHome(true); setToken(""); }}>Use Home's {HOME_TOKEN_LABEL[homeToken]} token</button>}
           </div>
         )}
-        {stored && <span className="text-[12px] text-ink-3">Saved as {stored.name} ({stored.detail}), updated {formatAgo(stored.updated_at)}.</span>}
+        {stored && <span className="text-[12px] text-ink-3">Saved as {stored.name} ({stored.detail}), updated {ago(stored.updated_at)}.</span>}
         {custom && <span className="text-[12px] text-ink-3">Set the hosts that receive the token and the variables under Advanced.</span>}
       </div>
       <details className="rounded-[6px] border border-line-2 px-3">
@@ -429,7 +429,7 @@ export function LeaseRow({ lease, title, onDone }: { lease: LeaseInfo; title?: s
     <div className="flex flex-wrap items-center gap-2 text-[13px]">
       <span className="grid min-w-0 flex-1 gap-0.5">
         {title && <span className="truncate font-semibold">{title}</span>}
-        <span className="flex flex-wrap items-center gap-1">{lease.credentials.map((c) => <Token key={c}>{c}</Token>)}{lease.tools.map((t) => <Token key={t} tone="teal">{t}</Token>)}<span className="text-[12px] text-ink-3">started {formatAgo(lease.created_at)} · renewed {formatAgo(lease.renewed_at)}</span></span>
+        <span className="flex flex-wrap items-center gap-1">{lease.credentials.map((c) => <Token key={c}>{c}</Token>)}{lease.tools.map((t) => <Token key={t} tone="teal">{t}</Token>)}<span className="text-[12px] text-ink-3">started {ago(lease.created_at)} · renewed {ago(lease.renewed_at)}</span></span>
       </span>
       <ConfirmButton consequence="Stops adding these tokens to the session's requests at once (while its runner is connected). The agent keeps running without them." confirmLabel="Revoke" onConfirm={() => api.post(`/api/vault/leases/${lease.id}/revoke`, {}).then(() => { toast("Revoked"); return onDone(); }, toastError)}>Revoke</ConfirmButton>
     </div>

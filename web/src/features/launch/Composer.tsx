@@ -35,7 +35,7 @@ import { costUnavailableMessage, supportsModelCost, parseUsd, usd, usesModelRefe
 import { ModelSearch } from "@/components/ModelSearch";
 import { findModel, pickModel, ProviderPicker } from "@/components/ProviderPicker";
 import { availablePresets } from "@/lib/presets";
-import { browserZone } from "@/lib/routines";
+import { browserZone, describeCron } from "@/lib/routines";
 import { useScope } from "@/lib/workspace";
 import { useZoomScale } from "@/lib/zoom";
 import { rememberProjectCompletion, rememberedRun, rememberSuccessfulSession, useComposer } from "@/stores/composer";
@@ -648,7 +648,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {toolsOff.length > 0 && <Token title={`Off for this launch: ${toolsOff.map((t) => t.name).join(", ")}`}>{toolsOff.length} tool{toolsOff.length === 1 ? "" : "s"} off</Token>}
           {presetLabels.map((l) => <Token key={l}>{l}</Token>)}
           {scheduled && <Token warn title="Starts when all start conditions are met">start: {conditions.length} condition{conditions.length === 1 ? "" : "s"}</Token>}
-          {cron && <Token warn title={`Routine schedule ${cron.schedule}`}>routine {cron.schedule}</Token>}
+          {cron && <Token warn title={`Cron: ${cron.schedule}`}>routine · {describeCron(cron.schedule)}</Token>}
           {(payg || spec.allow_paid_usage || (harness && !harness.capabilities.quota)) && <Token warn={payg || spec.allow_paid_usage} title={billingText}>{payg ? "pay as you go" : spec.allow_paid_usage ? "paid usage on" : "provider billing"}</Token>}
           {!supportsCost && harness?.capabilities.cost && <Token warn title={costUnavailableMessage}>cost unavailable</Token>}
           {supportsCost && (spec.budget_usd != null || !budgetValid) && <Token warn>{spec.budget_usd != null ? `limit ${usd(spec.budget_usd)}` : "invalid cost limit"}</Token>}

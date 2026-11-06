@@ -9,7 +9,7 @@ import { HostChip, useConnection } from "@/app/Connection";
 import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import type { QuotaWindow } from "@/gen/QuotaWindow";
 import { useInbox } from "@/features/inbox/data";
-import { formatAgo, formatReset, resetLabel } from "@/lib/format";
+import { ago, formatReset, resetLabel, when } from "@/lib/format";
 import { useStatus } from "@/lib/queries";
 import { spendLabel, spendPercent, useProfiles, useQuotas, windowLabel } from "@/lib/profiles";
 import { outdatedLabel, useOfflineRunners, useOutdatedRunners } from "@/lib/runners";
@@ -28,7 +28,7 @@ function useStatusWarnings(): Warning[] {
   const offline = useOfflineRunners();
   const limits = useInbox().data?.limits ?? {};
   const out: Warning[] = [];
-  if (!online) out.push({ key: "offline", text: `Not connected to ${data?.host || "the daemon"}${since ? ` since ${new Date(since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}. Showing what was last received.` });
+  if (!online) out.push({ key: "offline", text: `Not connected to ${data?.host || "the daemon"}${since ? ` since ${when(since)}` : ""}. Showing what was last received.` });
   if (!data) return out;
   if (data.role === "runner" && data.home && data.home.state !== "connected") out.push({ key: "home", text: `Home is not reachable (${data.home.state.replace("_", " ")})${data.home.message ? `: ${data.home.message}` : ""}.`, to: "/settings/runners" });
   if (data.role === "runner" && data.home?.compat === "outdated") out.push({ key: "self-outdated", text: "This runner needs an update: Home sends it no new sessions.", to: "/settings/runners" });
@@ -41,7 +41,7 @@ function useStatusWarnings(): Warning[] {
     const full = [["5 hours", e.q.five_hour], ["weekly", e.q.weekly]].filter(([, w]) => w && (w as QuotaWindow).used_percent >= 90).map(([l]) => l);
     if (full.length) out.push({ key: `quota-${e.key}`, text: `${name}: ${full.join(" and ")} quota over 90% used.` });
     if (e.q.quota_error) out.push({ key: `quota-error-${e.key}`, text: `${name}: quota reading unavailable.` });
-    else if (e.q.quota_at != null && Date.now() - e.q.quota_at > 15 * 60_000) out.push({ key: `quota-stale-${e.key}`, text: `${name}: quota read ${formatAgo(e.q.quota_at)}.` });
+    else if (e.q.quota_at != null && Date.now() - e.q.quota_at > 15 * 60_000) out.push({ key: `quota-stale-${e.key}`, text: `${name}: quota read ${ago(e.q.quota_at)}.` });
   }
   for (const v of data.spend) if (v.windows.some((w) => w.used_usd >= w.limit_usd)) out.push({ key: `spend-${v.profile}`, text: `${v.name} reached a spending limit.` });
   for (const [k, v] of Object.entries(limits)) if (v.remaining < 500 && v.reset_at * 1000 > Date.now()) out.push({ key: `github-${k}`, text: `GitHub ${k}: ${v.remaining} calls left, resets ${formatReset(v.reset_at)}.` });
@@ -96,7 +96,7 @@ function StatusDetails() {
           <h3 className="flex items-center gap-2 font-semibold"><HarnessMark harness={e.harness} size={18} />{name}</h3>
           <WindowUsage label="5 hours" quota={s.five_hour} color={color} />
           <WindowUsage label="Weekly" quota={s.weekly} color={color} />
-          <p className={`text-[12px] ${stale ? "font-semibold text-attn" : "text-ink-3"}`}>{s.quota_at != null ? `${stale ? "Stale reading · " : ""}read ${formatAgo(s.quota_at)}` : "Quota not read yet."}</p>
+          <p className={`text-[12px] ${stale ? "font-semibold text-attn" : "text-ink-3"}`}>{s.quota_at != null ? `${stale ? "Stale reading · " : ""}read ${ago(s.quota_at)}` : "Quota not read yet."}</p>
           {s.quota_error && <p className="break-words text-[12px] text-gh-closed">Quota reading unavailable: {s.quota_error}</p>}
         </section>;
       })}

@@ -9,7 +9,7 @@ import { Icon } from "@/components/Icon";
 import { Empty, ErrorState, Loading } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { toast, toastError } from "@/components/Toast";
-import { formatAgo } from "@/lib/format";
+import { ago, when } from "@/lib/format";
 import { Card, SettingsPage } from "./SettingsView";
 
 type Device = { id: string; name: string; created_at: number; expires_at: number; last_seen_at: number | null; current: boolean };
@@ -176,7 +176,7 @@ const DeviceRow = memo(function DeviceRow({ device, height, top, busy, onRevoke 
   return <div className="absolute left-0 top-0 flex w-full items-center gap-3 border-b border-line-2" style={{ height, transform: `translateY(${top}px)` }}>
     <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{device.name}{device.current && <span className="ml-2 text-xs font-normal text-ink-3">{isDesktopShell ? "This desktop app" : "This browser"}</span>}</div>
       <div className="truncate text-xs text-ink-3">
-        {device.last_seen_at ? `Last active ${lastActive(device.last_seen_at)}` : "Not active since pairing"} · paired {new Date(device.created_at * 1000).toLocaleDateString()} · expires {new Date(device.expires_at * 1000).toLocaleDateString()}
+        {device.last_seen_at ? `Last active ${lastActive(device.last_seen_at)}` : "Not active since pairing"} · paired {ago(device.created_at * 1000)} · expires {when(device.expires_at * 1000)}
       </div></div>
     {isDesktopShell && device.current ? <span className="text-xs text-ink-3">Local desktop app</span> : <button className="btn btn-sm" disabled={busy} onClick={() => void onRevoke(device)}>{device.current ? "Sign out" : "Revoke"}</button>}
   </div>;
@@ -186,5 +186,5 @@ const DeviceRow = memo(function DeviceRow({ device, height, top, busy, onRevoke 
 function lastActive(unixSeconds: number) {
   const ms = unixSeconds * 1000;
   if (Date.now() - ms < 5 * 60_000) return "in the last 5 min";
-  return formatAgo(ms);
+  return ago(ms);
 }
