@@ -56,7 +56,6 @@ pub mod session_git;
 pub mod workspace;
 pub mod worktrees;
 pub mod vault;
-pub mod ssh_agent;
 pub mod proxy;
 pub mod contain;
 pub mod jail;

@@ -1,4 +1,4 @@
-//! The vault on Home: credentials (harness logins, tokens, the SSH key), the tool registry, and the session
+//! The vault on Home: credentials (harness logins and tokens), the tool registry, and the session
 //! leases that let runners use them.
 //!
 //! Secrets are write-only: no API returns them. A runner receives the secrets of one session in its lease
@@ -31,8 +31,6 @@ pub enum Kind {
     CodexLogin,
     /// A token or API key, used by tools through the proxy.
     Token,
-    /// A private SSH key, used through a forwarded ssh-agent; it never leaves Home.
-    SshKey,
 }
 
 impl Kind {
@@ -425,7 +423,6 @@ pub struct LoginKind {
 
 fn detail_of(kind: Kind, secret: &str) -> String {
     match kind {
-        Kind::SshKey => "private key".into(),
         Kind::CodexLogin => codex_claims(secret)
             .map(|c| {
                 let auth = &c["https://api.openai.com/auth"];
@@ -440,17 +437,6 @@ fn detail_of(kind: Kind, secret: &str) -> String {
             format!("…{tail}")
         }
     }
-}
-
-/// `<type> <base64>` of a private key without a passphrase, from `ssh-keygen -y` (Home's own data folder).
-async fn ssh_public(app: &App, private: &str) -> Result<String> {
-    let path = app.paths.data_dir.join(format!("key-{}.tmp", uuid::Uuid::new_v4()));
-    crate::paths::write_private(&path, &format!("{}\n", private.trim_end()))?;
-    let out = tokio::process::Command::new("ssh-keygen").args(["-y", "-P", "", "-f"]).arg(&path).stdin(std::process::Stdio::null()).output().await;
-    let _ = std::fs::remove_file(&path);
-    let out = out.context("ssh-keygen is not installed")?;
-    anyhow::ensure!(out.status.success(), "this is not a private key without a passphrase");
-    Ok(String::from_utf8_lossy(&out.stdout).split_whitespace().take(2).collect::<Vec<_>>().join(" "))
 }
 
 /// Every entry, without secrets. Channel secrets (`channel-…`, webhook URLs and the Telegram token) belong to
@@ -524,12 +510,10 @@ pub async fn put(app: &App, id: &str, kind: Kind, name: &str, value: &str) -> Re
             let auth: Value = serde_json::from_str(&value).context("paste the whole auth.json of a ChatGPT login (codex login)")?;
             anyhow::ensure!(auth["tokens"]["refresh_token"].is_string() && auth["tokens"]["access_token"].is_string(), "this auth.json has no ChatGPT tokens (an API key login is a Token entry)");
         }
-        Kind::SshKey => anyhow::ensure!(value.starts_with("-----BEGIN") && value.contains("PRIVATE KEY"), "paste a private key without a passphrase (-----BEGIN … PRIVATE KEY-----)"),
         Kind::ClaudeLogin => anyhow::ensure!(!value.contains(char::is_whitespace), "paste the token printed by claude setup-token"),
         Kind::Token => anyhow::ensure!(!value.contains(['\n', '\r']), "a token is one line"),
     }
-    // An SSH key shows its public key, to add on GitHub.
-    let detail = if kind == Kind::SshKey { ssh_public(app, &value).await? } else { detail_of(kind, &value) };
+    let detail = detail_of(kind, &value);
     let entry = VaultEntry { id: id.into(), kind, name: if name.trim().is_empty() { id.into() } else { name.trim().into() }, detail, updated_at: now_ms() };
     let (e, kind_s) = (entry.clone(), serde_json::to_value(kind)?.as_str().unwrap_or_default().to_string());
     app.state_db
@@ -542,9 +526,6 @@ pub async fn put(app: &App, id: &str, kind: Kind, name: &str, value: &str) -> Re
             Ok(())
         })
         .await?;
-    if kind == Kind::SshKey {
-        crate::ssh_agent::reload(app).await;
-    }
     app.bus.publish("vault", "changed", Value::Null);
     Ok(entry)
 }
@@ -553,7 +534,6 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
     ensure_home(app)?;
     let key = id.to_string();
     app.state_db.call(move |c| Ok(c.execute("DELETE FROM vault WHERE id = ?1", [key])?)).await?;
-    crate::ssh_agent::reload(app).await;
     app.bus.publish("vault", "changed", Value::Null);
     Ok(())
 }
@@ -673,8 +653,6 @@ pub struct Lease {
     pub credentials: Vec<LeaseCredential>,
     pub tools: Vec<Tool>,
     pub login: Option<LeaseLogin>,
-    /// Home holds an SSH key: the runner forwards an ssh-agent socket.
-    pub ssh: bool,
     pub git_name: Option<String>,
     pub git_email: Option<String>,
     /// The runner holds no token (Burst): its proxy sends requests to Home, which adds them (`token_relay`).
@@ -845,7 +823,6 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
         }
         tools_out.push(t);
     }
-    let ssh = entries.iter().any(|e| e.kind == Kind::SshKey);
     let home = app.config.get().home.clone();
     let launchpad = match (tools_out.iter().any(|t| t.id == LAUNCHPAD_TOOL), &req.bot_id) {
         (false, _) => None,
@@ -860,7 +837,6 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
         credentials,
         tools: tools_out,
         login,
-        ssh,
         git_name: Some(home.git_name).filter(|s| !s.trim().is_empty()),
         git_email: Some(home.git_email).filter(|s| !s.trim().is_empty()),
         relayed: false,
@@ -930,14 +906,6 @@ pub async fn runner_call(app: &App, runner_id: Option<&str>, op: &str, body: Val
                 app.bus.publish("vault", "leases", json!({"session_id": info.session_id}));
             }
             Ok(Value::Null)
-        }
-        "ssh" => {
-            let lease_id = body["lease_id"].as_str().context("lease_id")?;
-            let info = lease_rows(app, None).await?.into_iter().find(|l| l.id == lease_id).context("unknown lease")?;
-            anyhow::ensure!(info.revoked_at.is_none() && info.runner_id.as_deref() == runner_id, "this lease is not active");
-            let msg = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, body["msg"].as_str().context("msg")?)?;
-            let reply = crate::ssh_agent::handle(app, &msg).await?;
-            Ok(json!({"msg": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, reply)}))
         }
         "kb" => crate::kb::runner_apply(app, runner_id, body).await,
         _ => bail!("unknown runner call {op}"),

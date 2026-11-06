@@ -5,9 +5,8 @@
 //! Git config) with placeholders only, installs the granted tools and builds the jail. The runner never uses the
 //! machine's own clones, Git config, SSH keys, gh or harness logins.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
@@ -18,9 +17,6 @@ use crate::proxy::Access;
 use crate::sessions::StartSpec;
 use crate::util::now_ms;
 use crate::vault::{Lease, LeaseRequest};
-
-/// Where a jailed session finds its ssh-agent socket.
-const SSH_SOCK_IN_JAIL: &str = "/run/launchpad/ssh-agent.sock";
 
 pub fn session_dir(app: &App, id: &str) -> PathBuf {
     app.paths.data_dir.join("sessions").join(id)
@@ -68,7 +64,6 @@ async fn call(app: &App, op: &str, body: Value) -> Result<Value> {
     crate::home_link::home_call(op, body).await
 }
 
-static SSH: std::sync::LazyLock<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>> = std::sync::LazyLock::new(Default::default);
 static LOOP: std::sync::Once = std::sync::Once::new();
 
 /// Prepares a contained start: lease, proxy, harness home, tools and jail. Fails visibly without a login.
@@ -217,19 +212,6 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
             ("SCCACHE_SERVER_UDS".into(), "/tmp/sccache.sock".into()),
         ]);
     }
-    let mut binds = vec![];
-    if lease.ssh {
-        // Socket paths are short (108 bytes): the socket lives in the runtime folder, mounted at a fixed path.
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|d| d.is_dir()).unwrap_or_else(std::env::temp_dir);
-        let sock = runtime.join("launchpad-ssh").join(format!("{}.sock", &s.id[..s.id.len().min(12)]));
-        start_ssh_socket(app, &s.id, &sock)?;
-        if vm {
-            env.push(("SSH_AUTH_SOCK".into(), p(&sock)));
-        } else {
-            env.push(("SSH_AUTH_SOCK".into(), SSH_SOCK_IN_JAIL.into()));
-            binds.push((sock, PathBuf::from(SSH_SOCK_IN_JAIL)));
-        }
-    }
     // Profile values: `${NAME}` references resolve to placeholders of granted tools, never machine values.
     let refs = crate::vault::reference_values(&lease);
     let profile_env = crate::profiles::contained_env(app, s.harness, &s.launch_spec, s.model.as_deref(), &refs)?;
@@ -268,7 +250,7 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
         return Ok(start);
     }
     crate::jail::check().await?;
-    let jail = crate::jail::Jail { rw, ro, tmp, env: all, binds };
+    let jail = crate::jail::Jail { rw, ro, tmp, env: all };
     start.jail = Some(Arc::new(jail));
     Ok(start)
 }
@@ -299,74 +281,8 @@ fn write_git_config(home: &Path, lease: &Lease) -> Result<()> {
     Ok(())
 }
 
-/// The session's ssh-agent socket: every message goes to Home, which holds the key.
-fn start_ssh_socket(app: &App, session_id: &str, sock: &Path) -> Result<()> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    // A running jail keeps the socket it mounted: never replace a live listener.
-    if SSH.lock().unwrap().get(session_id).is_some_and(|t| !t.is_finished()) && sock.exists() {
-        return Ok(());
-    }
-    if let Some(old) = SSH.lock().unwrap().remove(session_id) {
-        old.abort();
-    }
-    std::fs::create_dir_all(sock.parent().context("socket folder")?)?;
-    let _ = std::fs::remove_file(sock);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(sock.parent().context("socket folder")?, std::fs::Permissions::from_mode(0o700));
-    }
-    let listener = tokio::net::UnixListener::bind(sock).context("create the ssh-agent socket")?;
-    let (app, id) = (app.clone(), session_id.to_string());
-    let task = tokio::spawn(async move {
-        loop {
-            let Ok((mut stream, _)) = listener.accept().await else { continue };
-            let (app, id) = (app.clone(), id.clone());
-            tokio::spawn(async move {
-                loop {
-                    let mut len = [0u8; 4];
-                    if stream.read_exact(&mut len).await.is_err() {
-                        return;
-                    }
-                    let n = u32::from_be_bytes(len) as usize;
-                    if n > 256 * 1024 {
-                        return;
-                    }
-                    let mut body = vec![0u8; n];
-                    if stream.read_exact(&mut body).await.is_err() {
-                        return;
-                    }
-                    let frame = [len.to_vec(), body].concat();
-                    let reply = match app.proxy.for_session(&id) {
-                        Some(active) => {
-                            let lease_id = active.lease.read().unwrap().id.clone();
-                            let msg = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &frame);
-                            match call(&app, "ssh", json!({"lease_id": lease_id, "msg": msg})).await {
-                                Ok(v) => v["msg"].as_str().and_then(|m| base64::Engine::decode(&base64::engine::general_purpose::STANDARD, m).ok()).unwrap_or_else(|| vec![0, 0, 0, 1, 5]),
-                                Err(e) => {
-                                    tracing::info!("ssh-agent for {id}: {e:#}");
-                                    vec![0, 0, 0, 1, 5]
-                                }
-                            }
-                        }
-                        None => vec![0, 0, 0, 1, 5],
-                    };
-                    if stream.write_all(&reply).await.is_err() {
-                        return;
-                    }
-                }
-            });
-        }
-    });
-    SSH.lock().unwrap().insert(session_id.to_string(), task);
-    Ok(())
-}
-
 /// Stop or Archive: the proxy forgets the session's tokens and Home closes the lease.
 pub async fn release(app: &App, session_id: &str) {
-    if let Some(task) = SSH.lock().unwrap().remove(session_id) {
-        task.abort();
-    }
     let Some(active) = app.proxy.drop_session(session_id) else { return };
     let lease_id = active.lease.read().unwrap().id.clone();
     let app = app.clone();
@@ -382,9 +298,6 @@ pub async fn revoked(app: &App, lease_id: &str) {
     let session = app.proxy.all().into_iter().find(|a| a.lease.read().unwrap().id == lease_id).map(|a| a.session_id.clone());
     app.proxy.drop_lease(lease_id);
     if let Some(id) = session {
-        if let Some(task) = SSH.lock().unwrap().remove(&id) {
-            task.abort();
-        }
         app.sessions.sink(app, &id).emit(crate::model::EventBody::Notice { text: "Credentials revoked on Home: requests of this session no longer receive tokens. Stop and resume the session to get a new lease.".into() }).await;
     }
 }

@@ -51,8 +51,6 @@ pub struct Jail {
     pub tmp: PathBuf,
     /// The session's variables (profile and Launchpad), set on top of the kept machine variables.
     pub env: Vec<(String, String)>,
-    /// Read-write mounts at another path inside (the ssh-agent socket).
-    pub binds: Vec<(PathBuf, PathBuf)>,
 }
 
 impl Jail {
@@ -78,9 +76,6 @@ impl Jail {
         }
         for p in &self.rw {
             bind("--bind-try", p, p);
-        }
-        for (from, to) in &self.binds {
-            bind("--bind-try", from, to);
         }
         if let Some(cwd) = cwd {
             a.push("--chdir".into());
@@ -124,7 +119,7 @@ mod tests {
 
     #[test]
     fn jail_mounts_only_session_folders_read_write() {
-        let jail = Jail { rw: vec!["/data/worktrees/s1".into()], ro: vec!["/home/me/.local/bin".into()], tmp: "/data/sessions/s1/tmp".into(), env: vec![], binds: vec![] };
+        let jail = Jail { rw: vec!["/data/worktrees/s1".into()], ro: vec!["/home/me/.local/bin".into()], tmp: "/data/sessions/s1/tmp".into(), env: vec![] };
         let args: Vec<String> = jail.args(Some(Path::new("/data/worktrees/s1/repo"))).into_iter().map(|a| a.into_string().unwrap()).collect();
         let joined = args.join(" ");
         assert!(joined.contains("--bind-try /data/worktrees/s1 /data/worktrees/s1"));

@@ -1,4 +1,4 @@
-// Settings → Credentials and tools: Home's vault (harness logins, tokens, the SSH key), the tool registry, the Git
+// Settings → Credentials and tools: Home's vault (harness logins and tokens), the tool registry, the Git
 // identity of agents' commits and the active session leases. Secrets are write-only: the page never reads them.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -41,7 +41,7 @@ export function CredentialsView() {
 function Vault({ v }: { v: VaultOverview }) {
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: ["vault"] });
-  const others = v.entries.filter((e) => e.kind === "token" || e.kind === "ssh_key");
+  const others = v.entries.filter((e) => e.kind === "token");
   return (
     <>
       <Card title="Harness logins" tour="settings.vault">
@@ -61,13 +61,10 @@ function Vault({ v }: { v: VaultOverview }) {
           );
         })}
       </Card>
-      <Card title="Tokens and SSH key">
+      <Card title="Tokens">
         {others.length === 0 && <Empty icon="info">No token yet. Add the tokens your tools use, for example a fine-grained GitHub token.</Empty>}
-        {others.map((e) => <EntryRow key={e.id} id={e.id} name={e.name} detail={`${e.kind === "ssh_key" ? "SSH key · " : ""}${e.detail}`} updatedAt={e.updated_at} onDone={refresh} />)}
-        <div className="flex flex-wrap gap-2">
-          <AddSecret label="Add a token" kind="token" hint="A token or API key. Tools reference it by its ID." onDone={refresh} />
-          <AddSecret label="Add the SSH key" kind="ssh_key" hint="A private key without a passphrase. It never leaves Home: sessions use it through a forwarded ssh-agent." multiline onDone={refresh} />
-        </div>
+        {others.map((e) => <EntryRow key={e.id} id={e.id} name={e.name} detail={e.detail} updatedAt={e.updated_at} onDone={refresh} />)}
+        <AddSecret label="Add a token" kind="token" hint="A token or API key. Tools reference it by its ID." onDone={refresh} />
       </Card>
       <Card title="Slack"><SlackSetup v={v} /></Card>
       <Tools v={v} onDone={refresh} />

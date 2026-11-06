@@ -245,6 +245,8 @@ CREATE TABLE IF NOT EXISTS activity (id TEXT PRIMARY KEY, session_id TEXT NOT NU
     let bot_columns = conn.prepare("PRAGMA table_info(bot)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !bot_columns.iter().any(|c| c == "paused") { conn.execute_batch("ALTER TABLE bot ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;")?; }
     if !device_columns.iter().any(|c| c == "last_seen_at") { conn.execute_batch("ALTER TABLE browser_device ADD COLUMN last_seen_at INTEGER;")?; }
+    // The vault SSH key (removed): agents push to Home Git and clones use the GitHub sign-in.
+    conn.execute_batch("DELETE FROM vault WHERE kind = 'ssh_key';")?;
     // Traces imported from other instances (peer trace sync, removed): Home is the only source now.
     if has("imported_from") {
         conn.execute_batch("DELETE FROM session_event WHERE session_id IN (SELECT id FROM session WHERE imported_from IS NOT NULL);

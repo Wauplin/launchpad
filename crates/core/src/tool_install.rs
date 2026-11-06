@@ -170,7 +170,7 @@ async fn jailed(app: &App, dir: &Path, cache: &Path, program: &str, args: &[&str
         ("CARGO_HOME".into(), format!("{cache_s}/cargo")),
         ("npm_config_cache".into(), format!("{cache_s}/npm")),
     ];
-    let jail = crate::jail::Jail { rw: vec![dir.to_path_buf(), cache.to_path_buf()], ro, tmp: tmp.clone(), env, binds: vec![] };
+    let jail = crate::jail::Jail { rw: vec![dir.to_path_buf(), cache.to_path_buf()], ro, tmp: tmp.clone(), env };
     let out = crate::procs::command(&app.env.jailed(Some(std::sync::Arc::new(jail))), program, Some(dir))
         .args(args)
         .stdin(crate::exec::Io::Null)

@@ -98,7 +98,7 @@ class Steps(unittest.TestCase):
         return s
 
     def test_optional_steps_never_count(self):
-        s = self.setup(ssh=True, identity=True, profile=True, workspaces=True, folders=True)
+        s = self.setup(identity=True, profile=True, workspaces=True, folders=True)
         self.assertTrue(s.complete)
         self.assertEqual(sum(1 for x in s.steps() if x["required"] and not x["done"]), 0)
         s.home["folders"]["done"] = False

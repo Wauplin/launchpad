@@ -20,7 +20,6 @@ import re
 import secrets
 import shutil
 import signal
-import tempfile
 import time
 
 import aiohttp
@@ -49,7 +48,7 @@ MIN_KEY = 12
 LOGINS = {"claude": "claude_login", "codex": "codex_login"}  # Harnesses whose login Home keeps in its vault.
 NAMES = {"claude": "Claude Code", "codex": "Codex"}
 # Owner choices kept in Home's onboarding record (`dismissed`), so they survive restarts and restores.
-SSH_DONE, PROFILE_DONE, AGENT_DONE = "home:ssh", "home:profile", "home:first-agent"
+PROFILE_DONE, AGENT_DONE = "home:profile", "home:first-agent"
 SKIPPED = "home:skip:"  # + the ID of an optional step the owner skipped.
 # The setup steps, in order: (id, title, what it is for, required, tag of an optional step).
 STEPS = (
@@ -61,9 +60,7 @@ STEPS = (
     ("workspaces", "Workspaces", "Groups of folders, for example Work and Side projects. Create at least one; add more any time.", True, None),
     ("folders", "First folder", "A repository your agents work in, cloned into a workspace.", True, None),
     ("runner", "Where agents run", "A Linux machine of yours that runs the agents, or Burst when none is on.", False, "recommended"),
-    ("ssh", "SSH key", "Only for pushing over SSH from a runner's own clone: agents push to Home Git, and the GitHub sign-in covers clones.", False, "optional"),
     ("agent", "First agent", "Ask an agent what one of your projects is about.", False, "recommended"),
-    ("bot", "First bot", "An agent that stays: one thread, its own instructions, and notes it keeps between sessions.", False, "optional"),
 )
 OPTIONAL = {s[0] for s in STEPS if not s[3]}
 FIRST_PROMPT = "What is this project about? Give a short overview of its purpose, structure and main parts."
@@ -318,7 +315,7 @@ class Setup:
         # must add the secret in the Space settings.
         self.encryption = {"state": "on" if key else "off", "error": None}
         self.passphrase = None  # A key generated or typed on this page, until Home restarts with it.
-        self.home = {}  # What Home's daemon has: SSH key, identity, profiles, folders, runners, bots.
+        self.home = {}  # What Home's daemon has: identity, profiles, folders, runners.
         self.marks = set()  # Owner choices in Home's onboarding record.
         self.home_at = 0.0
         self.hf_retry = None  # Retries a check that could not reach Hugging Face, with backoff.
@@ -483,15 +480,10 @@ class Setup:
         projects = await self.api("GET", "/api/projects")
         runners = await self.api("GET", "/api/runners")
         try:
-            bots = await self.api("GET", "/api/bots")
-        except Exception:
-            bots = []
-        try:
             burst = await self.api("GET", "/api/burst")
         except Exception:
             burst = {"unavailable": "Burst is not available on this Home", "config": {"monthly_cap_usd": 0}, "month_usd": 0}
         entries = vault["entries"]
-        ssh = next((e for e in entries if e["kind"] == "ssh_key"), None)
         profiles, missing = [], None
         for p in config["profiles"]:
             kind = LOGINS.get(p["harness"])
@@ -504,7 +496,6 @@ class Setup:
         if not agent:
             agent = bool(await self.api("GET", "/api/sessions"))
         self.home = {
-            "ssh": {"done": bool(ssh) and SSH_DONE in marks, "public_key": f"{ssh['detail']} launchpad-home" if ssh else None},
             "identity": {"done": bool(vault["git_name"].strip() and vault["git_email"].strip()), "name": vault["git_name"], "email": vault["git_email"]},
             "profile": {"done": bool(profiles) and PROFILE_DONE in marks, "ready": bool(profiles), "profiles": profiles, "missing": missing},
             "workspaces": {"done": bool(workspaces), "workspaces": [{"id": w["id"], "name": w["name"]} for w in workspaces]},
@@ -518,7 +509,6 @@ class Setup:
                        "burst": {"available": burst.get("unavailable") is None, "unavailable": burst.get("unavailable"),
                                  "cap": burst.get("config", {}).get("monthly_cap_usd", 0)}},
             "agent": {"done": agent},
-            "bot": {"done": bool(bots)},
         }
         self.marks = marks
 
@@ -587,7 +577,7 @@ class Setup:
             "key": {"done": self.key is not None, "state": self.encryption["state"], "error": self.encryption["error"],
                     "pending": self.passphrase is not None},
             "github": dict(github, secret=self.secret(), suggest={"name": user.get("name", ""), "email": noreply_email(user)}),
-            **{k: self.home.get(k, {"done": False}) for k in ("ssh", "identity", "profile", "workspaces", "folders", "runner", "agent", "bot")},
+            **{k: self.home.get(k, {"done": False}) for k in ("identity", "profile", "workspaces", "folders", "runner", "agent")},
             "install": self.install_command(),
             "first_prompt": FIRST_PROMPT,
             "login": self.login.status() if self.login else None,
@@ -683,22 +673,6 @@ class Setup:
         await self.api("PUT", "/api/config", config)
         await self.check_home(force=True)
 
-    async def create_ssh_key(self):
-        """An ed25519 key pair made on Home. The private key goes to the vault (encrypted in backups) and never
-        leaves Home: sessions use it through a forwarded ssh-agent."""
-        vault = await self.api("GET", "/api/vault")
-        if any(e["kind"] == "ssh_key" for e in vault["entries"]):
-            return
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "id_ed25519"
-            process = await asyncio.create_subprocess_exec(
-                "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "launchpad-home", "-f", str(path),
-                stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
-            if await process.wait() != 0:
-                raise ValueError("Could not create the SSH key")
-            private = path.read_text()
-        await self.api("PUT", "/api/vault/entries/ssh-key", {"kind": "ssh_key", "name": "Home SSH key", "value": private})
-
     async def set_profiles(self, body):
         """The default model and effort of each signed-in profile (`profiles`: a list of `id`, `model`, `effort`)."""
         choices = body.get("profiles")
@@ -760,10 +734,6 @@ class Setup:
             await self.restart()
         elif not self.unlocked or not self.api:
             raise ValueError("Finish the Hugging Face and key steps first")
-        elif path == "/_home/ssh":
-            await self.create_ssh_key()
-        elif path == "/_home/ssh/done":
-            await self.mark(SSH_DONE)
         elif path == "/_home/profile":
             await self.set_profiles(body)
             await self.mark(PROFILE_DONE)

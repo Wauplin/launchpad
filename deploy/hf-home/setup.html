@@ -58,7 +58,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
   <div class="body">
   <p id="key-on" class="hint" hidden>Encryption is on. The key is the <code>LP_HOME_KEY</code> secret of this Space: keep your copy, Home needs it to restore its credentials if the Space is ever deleted.</p>
   <div id="key-form" class="stack">
-    <p class="hint">Home encrypts every credential it stores (logins, tokens, SSH key) with this key. Save it somewhere safe: you need it to restore Home if its Space is ever deleted.</p>
+    <p class="hint">Home encrypts every credential it stores (logins and tokens) with this key. Save it somewhere safe: you need it to restore Home if its Space is ever deleted.</p>
     <label class="choice"><input type="radio" name="keymode" value="generate" checked><span><b>Generate a strong key</b> (recommended)<br><small>Home never displays it. Copy it to your password manager or download it as a file.</small></span></label>
     <label class="choice"><input type="radio" name="keymode" value="own"><span><b>Use my own key</b><br><small>Choose a passphrase, or enter the key of an earlier Home to read its saved credentials.</small></span></label>
     <div id="key-generate" class="row"><button id="key-copy">Copy key</button><button id="key-download">Download key file</button><small id="key-saved-note"></small></div>
@@ -78,14 +78,6 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
 <li id="s-github"><span class="dot"></span><div><h2>GitHub</h2><div class="state"></div></div>
   <div class="body"><p class="hint">Used by the Inbox, issues, pull requests, private clones and publication. Home keeps this login encrypted. Agents never get it: they get their own tokens from Credentials and tools.</p>
   <div class="row"><button class="primary" data-login="github">Sign in to GitHub</button></div></div></li>
-
-<li id="s-ssh"><span class="dot"></span><div><h2>SSH key</h2><div class="state"></div></div>
-  <div class="body"><p class="hint">You need it only to push over SSH from a runner's own clone: agents push to Home Git, and the GitHub sign-in already covers clones. The private key never leaves Home.</p>
-  <div class="row" id="ssh-new"><button class="primary" id="ssh-create">Create an SSH key</button><button class="link" id="ssh-skip">Skip for now</button></div>
-  <div id="ssh-add" class="stack" hidden><p class="hint">Add the public key to your GitHub account:</p>
-  <div class="row"><textarea id="ssh-pub" class="grow mono" rows="2" readonly aria-label="Public SSH key"></textarea><button id="ssh-copy">Copy</button></div>
-  <p class="hint">Open the GitHub page below, paste the key, name it “Launchpad Home” and click <b>Add SSH key</b>. <a href="https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account" target="_blank" rel="noopener noreferrer">How to add an SSH key</a></p>
-  <div class="row"><a class="btn" href="https://github.com/settings/ssh/new" target="_blank" rel="noopener noreferrer">Open GitHub SSH settings</a><button class="primary" id="ssh-done">I added it</button><button class="link" id="ssh-skip2">Skip for now</button></div></div></div></li>
 
 <li id="s-identity"><span class="dot"></span><div><h2>Git identity</h2><div class="state"></div></div>
   <div class="body"><p class="hint">The author of your agents' commits, on every runner.</p>
@@ -133,9 +125,6 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
   <label class="field">Prompt<textarea id="agent-prompt" rows="2"></textarea></label>
   <div class="row"><button class="primary" id="agent-run">Run agent</button><small id="agent-where"></small><button class="link" id="agent-skip">Skip for now</button></div></div></li>
 
-<li id="s-bot"><span class="dot"></span><div><h2></h2><div class="state"></div></div>
-  <div class="body"><p class="hint">A bot is an agent that stays: one thread, its own instructions, and notes it keeps between sessions. Create one in Home when you need it.</p>
-  <div class="row"><a class="btn primary" href="/bots?new=true">Create a bot</a><button class="link" id="bot-skip">Skip for now</button></div></div></li>
 </ol>
 <div id="device" class="box" hidden><span id="device-what"></span><div class="row" id="code-row"><span class="code" id="code"></span><button id="copy-code">Copy</button></div>
   <div class="row"><a id="link" class="btn primary" target="_blank" rel="noopener noreferrer">Open sign-in page</a><button id="cancel">Cancel</button></div>
@@ -177,7 +166,6 @@ function render(s){
   $("#s-huggingface .state").textContent=hf.done?`Signed in as ${hf.account}`:"Not signed in";
   $("#s-key .state").textContent=key.done?"Encryption on":key.state==="restarting"?"Home is restarting…":key.state==="manual"?"Waiting for the LP_HOME_KEY secret":"Not set";
   $("#s-github .state").textContent=gh.done?`Signed in${gh.account?` as ${gh.account}`:""}${gh.secret?" (GH_TOKEN Space secret)":""}`:gh.error||(gh.secret?"The GH_TOKEN Space secret did not work. Check it in the Space settings.":"Not connected");
-  $("#s-ssh .state").textContent=s.ssh.done?"Added":skipped("ssh")?"Skipped":s.ssh.public_key?"Created: add it to GitHub":"Not created";
   $("#s-identity .state").textContent=s.identity.done?`${s.identity.name} <${s.identity.email}>`:"Not set";
   $("#s-profile .state").textContent=pr.done?`Ready: ${(pr.profiles||[]).map(p=>`${p.name}${p.model?` · ${p.model}`:""}${p.effort?` · ${p.effort}`:""}`).join(", ")}`:pr.ready?"Choose a model":pr.missing?`${pr.missing.name} needs its login`:"No profile yet";
   $("#s-workspaces .state").textContent=s.workspaces.done?(s.workspaces.workspaces||[]).map(w=>w.name).join(", "):"No workspace yet";
@@ -186,7 +174,6 @@ function render(s){
   const asking=(ru.runners||[]).filter(r=>r.state==="pending");
   $("#s-runner .state").textContent=asking.length?`${asking.map(r=>r.name).join(", ")} asks to connect: approve below`:live.length?`Connected: ${live.map(r=>r.name).join(", ")}${burst.available?" · Burst when it is off":""}`:paired.length?`Paired: ${paired.map(r=>r.name).join(", ")} (offline now)${burst.available?" · Burst meanwhile":""}`:skipped("runner")?(burst.available?"Burst for now":"Skipped"):burst.available?"Burst is ready: nothing to install":"No runner yet";
   $("#s-agent .state").textContent=s.agent.done?"Done":skipped("agent")?"Skipped":live.length?"Ready to run":burst.available?"Ready to run on Burst":"Needs a connected runner";
-  $("#s-bot .state").textContent=s.bot.done?"Created":skipped("bot")?"Skipped":"No bot yet";
   // A skipped step can be opened again; it stays skipped on Home until it is done.
   s.steps.filter(x=>x.done&&x.id!==active).forEach(x=>{const b=document.createElement("button");b.className="link";b.textContent="Open";b.onclick=()=>openStep(x.id);$(`#s-${x.id} .state`).append(" · ",b);});
   if(opened){const b=document.createElement("button");b.className="link";b.textContent="Close";b.onclick=()=>openStep(null);$(`#s-${opened} .state`).append(" · ",b);}
@@ -203,10 +190,6 @@ function render(s){
   const ownOk=own.length>=12&&own===own2;
   $("#key-save").disabled=busy||!$("#key-kept").checked||(mode==="generate"?!generatedKey:!ownOk);
   if(key.state==="manual")$("#secrets").href=`https://huggingface.co/spaces/${s.space}/settings`;
-
-  // SSH step: the key is created only on a click.
-  $("#ssh-new").hidden=!!s.ssh.public_key;$("#ssh-add").hidden=!s.ssh.public_key;$("#ssh-create").disabled=busy;
-  $("#ssh-pub").value=s.ssh.public_key||"";
 
   // Identity step.
   if(active==="identity"&&!$("#git-name").dataset.filled){$("#git-name").dataset.filled="1";$("#git-name").value=s.identity.name||gh.suggest.name||"";$("#git-email").value=s.identity.email||gh.suggest.email||"";}
@@ -360,10 +343,6 @@ $("#key-copy-manual").onclick=async e=>{const r=await post("/_home/key/copy",{})
 $("#key-download").onclick=()=>{if(!generatedKey)return;const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([`Launchpad Home credential key for ${st.space}\nKeep it secret. Home needs it to read its saved credentials.\n\n${generatedKey}\n`],{type:"text/plain"}));a.download="launchpad-home-key.txt";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
 $("#key-save").onclick=()=>{const mode=document.querySelector("input[name=keymode]:checked").value;act("/_home/key/save",{key:mode==="own"?$("#own-key").value:generatedKey});};
 $("#restart").onclick=()=>act("/_home/restart",{});
-$("#ssh-copy").onclick=e=>copy(e.target,$("#ssh-pub").value);
-$("#ssh-create").onclick=()=>act("/_home/ssh",{});
-$("#ssh-done").onclick=async()=>{if(await act("/_home/ssh/done",{})&&opened==="ssh")openStep(null);};
-$("#ssh-skip").onclick=$("#ssh-skip2").onclick=()=>{reopened.delete("ssh");skip("ssh");};
 $("#git-name").oninput=$("#git-email").oninput=()=>render(st);
 $("#git-save").onclick=async()=>{const name=$("#git-name").value.trim(),email=$("#git-email").value.trim();if(!name||!email.includes("@")){actionError="Enter a name and an email address.";render(st);return;}busy=true;await api("PUT","/api/vault/identity",{name,email});busy=false;if(!actionError&&opened==="identity")openStep(null);};
 $("#profile-save").onclick=async()=>{if(await act("/_home/profile",{profiles:[...$("#profile-list").children].map(r=>({id:r.dataset.profile,model:r.querySelector("[data-model]").value||null,effort:r.querySelector("[data-effort]").value||null}))})&&opened==="profile")openStep(null);};
@@ -377,7 +356,6 @@ $("#install-copy").onclick=e=>copy(e.target,st.install);
 $("#runner-skip").onclick=$("#runner-burst").onclick=()=>{reopened.delete("runner");skip("runner");};
 $("#agent-runner").onchange=()=>render(st);
 $("#agent-skip").onclick=()=>{reopened.delete("agent");skip("agent");};
-$("#bot-skip").onclick=()=>{reopened.delete("bot");skip("bot");};
 $("#agent-run").onclick=async()=>{
   const folder=$("#agent-folder").value,profile=st.profile.profiles.find(p=>p.id===$("#agent-profile").value),project=st.folders.projects.find(p=>p.id===folder);
   if(!profile||!project)return;busy=true;render(st);

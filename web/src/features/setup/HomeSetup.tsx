@@ -9,7 +9,6 @@ import { ErrorState, Loading } from "@/components/ui";
 import { delegatedAccess } from "@/lib/deployment";
 import { useConfig, useProjects } from "@/lib/queries";
 import { useRunners } from "@/lib/runners";
-import { useBots } from "@/lib/bots";
 import { useWorkspaces } from "@/lib/workspace";
 import { WorkspaceCreator } from "@/features/workspaces/WorkspacePicker";
 import { useVault } from "@/features/settings/CredentialsView";
@@ -45,11 +44,10 @@ export function HomeSetup() {
   const projects = useProjects().data ?? [];
   const runners = useRunners().data ?? [];
   const workspaces = useWorkspaces().data ?? [];
-  const bots = useBots().data ?? [];
   const showAddFolder = useAddFolder((s) => s.show);
   const s = space.data;
   // Outside a Space, the same steps from Home's own data (no Hugging Face, key or GitHub steps).
-  const local = s ? null : homeSteps({ vault, profiles: config?.profiles.length ?? 0, workspaces: workspaces.length, projects: projects.length, runners, bots: bots.length });
+  const local = s ? null : homeSteps({ vault, profiles: config?.profiles.length ?? 0, workspaces: workspaces.length, projects: projects.length, runners });
   const localLeft = local && vault && config ? local.filter((r) => r.required && !r.done).length : null;
   useEffect(() => {
     if (localLeft !== null) qc.setQueryData(SUMMARY_KEY, { required_left: localLeft });
@@ -63,14 +61,12 @@ export function HomeSetup() {
       case "huggingface": return r.done ? settings("/settings/huggingface") : openSetup;
       case "key": return r.done ? null : openSetup;
       case "github": return r.done ? settings("/settings/github") : openSetup;
-      case "ssh": return r.done ? settings("/settings/credentials") : fix("/settings/credentials", "Add the SSH key");
       case "identity": return settings("/settings/credentials", r.done ? "Open" : "Set it");
       case "profile": return r.done ? settings("/settings/profiles") : fix("/settings/profiles", "Add a profile");
       case "workspaces": return s ? (r.done ? settings("/settings/workspace") : openSetup) : null;
       case "folders": return <button className="btn btn-sm" disabled={workspaces.length === 0} title={workspaces.length === 0 ? "Create a workspace first" : undefined} onClick={() => showAddFolder()}>Add a folder</button>;
       case "runner": return settings("/settings/runners", r.done ? "Open" : "Add a runner");
       case "agent": return r.done ? null : openSetup;
-      case "bot": return r.done ? settings("/bots") : <Link to="/bots" search={{ new: true } as never} className="btn btn-sm">Create a bot</Link>;
       default: return s ? openSetup : null;
     }
   };
