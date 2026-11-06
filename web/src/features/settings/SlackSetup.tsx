@@ -64,9 +64,9 @@ function SlackMode({ v, mode }: { v: VaultOverview; mode: (typeof MODES)[number]
       setBusy(false);
     }
   };
-  // Revoke removes the token from Home and keeps the tool (its workspaces and settings), so the form shows again and a
-  // new token sets it back: replacing a token is a revoke followed by a save.
-  const revoke = () => api.delete(`/api/vault/entries/${mode.id}`).then(() => { setTest(null); toast(`Revoked ${template.name}`); return qc.invalidateQueries({ queryKey: ["vault"] }); }, toastError);
+  // Delete removes the token from Home and keeps the tool (its workspaces and settings), so the form shows again and a
+  // new token sets it back: replacing a token is a delete followed by a save.
+  const remove = () => api.delete(`/api/vault/entries/${mode.id}`).then(() => { setTest(null); toast(`Deleted ${template.name} from Home`); return qc.invalidateQueries({ queryKey: ["vault"] }); }, toastError);
   const odd = token.trim() && !token.trim().startsWith("xoxp-");
   return (
     <div className="grid gap-2 rounded-lg border border-line-2 bg-chrome p-2.5 text-[13px]">
@@ -77,7 +77,7 @@ function SlackMode({ v, mode }: { v: VaultOverview; mode: (typeof MODES)[number]
         <span className="ml-auto flex flex-wrap items-center gap-1.5">
           {test && <Badge tone={test.ok ? "ok" : "attn"} title={test.message}>{test.ok ? "token works" : "token refused"}</Badge>}
           {ready && <button className="btn btn-sm" onClick={() => void runTest()}>Test</button>}
-          {ready && <ConfirmButton consequence={`Removes the token from Home. Sessions lose ${template.name} at their next lease renewal. To replace it, paste a new token afterwards. The token stays valid in Slack until you uninstall the app there.`} confirmLabel="Revoke" onConfirm={revoke}>Revoke the token</ConfirmButton>}
+          {ready && <ConfirmButton icon="trash" consequence={`Deletes the token from Home's vault. Sessions lose ${template.name} at their next lease renewal. To replace it, paste a new token afterwards. This does not revoke it in Slack: it stays valid there until you uninstall the app.`} confirmLabel="Delete" onConfirm={remove}>Delete</ConfirmButton>}
         </span>
       </div>
       <span className="text-[12px] text-ink-2">{mode.what}</span>
