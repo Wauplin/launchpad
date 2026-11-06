@@ -6,7 +6,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/Icon";
-import { Empty, ErrorState, FilterChip, FilterChips, Loading } from "@/components/ui";
+import { Empty, ErrorState, Choice, Choices, Loading } from "@/components/ui";
 import { highlight, type Tokens } from "@/features/code/highlight";
 import { usePhone } from "@/lib/phone";
 import { useTheme } from "@/stores/theme";
@@ -175,8 +175,8 @@ export function DiffReview({ files, selected, onSelect, patch, loading, error, e
       {status && <span className="text-ink-3">{status}</span>}
       {toolbar}
       <span className="ml-auto flex items-center gap-1.5">
-        {!phone && <FilterChips label="Diff layout"><FilterChip active={!split} onClick={() => setSplit(false)}>Unified</FilterChip><FilterChip active={split} onClick={() => setSplit(true)}>Split</FilterChip></FilterChips>}
-        <FilterChip active={wrap} title="Wrap long lines" onClick={() => setWrap(!wrap)}>Wrap</FilterChip>
+        {!phone && <Choices label="Diff layout"><Choice active={!split} onClick={() => setSplit(false)}>Unified</Choice><Choice active={split} onClick={() => setSplit(true)}>Split</Choice></Choices>}
+        <Choice active={wrap} title="Wrap long lines" onClick={() => setWrap(!wrap)}>Wrap</Choice>
       </span>
     </div>
     {banner}

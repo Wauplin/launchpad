@@ -96,7 +96,7 @@ function SlackMode({ v, mode }: { v: VaultOverview; mode: (typeof MODES)[number]
           <Step n={3}>
             <span>Paste the token. Home keeps it; agents only see a placeholder.</span>
             <span className="flex flex-wrap items-center gap-2">
-              <input className="field-input w-[320px] max-w-full font-mono" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="xoxp-…" autoComplete="off" aria-label={`Slack ${mode.title} token`} />
+              <input className="field-input w-[320px] max-w-full font-mono text-[12px]" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="xoxp-…" autoComplete="off" aria-label={`Slack ${mode.title} token`} />
               <button className="btn btn-sm btn-primary" disabled={busy || !token.trim()} onClick={() => void save()}>{busy ? "Saving…" : "Save on Home"}</button>
             </span>
             {odd && <span className="text-[12px] text-attn">This does not look like a User OAuth Token (xoxp-…). Copy the one under Install App.</span>}

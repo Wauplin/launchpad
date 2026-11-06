@@ -140,7 +140,7 @@ export function CommandField() {
           placeholder={ctx.primary === "launch" ? "What should an agent do here?" : bot ? "Ask, or launch an agent…" : "Launch an agent…"}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); primary(); } }}
-          className="min-h-6 min-w-0 flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-5 outline-none" />
+          className="min-h-6 min-w-0 flex-1 resize-none bg-transparent placeholder-shown:overflow-hidden py-0.5 text-[13px] leading-5 outline-none" />
       </div>
       {bot && <button className={`btn ${ctx.primary === "ask" ? "btn-primary" : ""}`} data-tour="topbar.ask" title={`${askLabel}: the answer opens in the Ask panel${ctx.line ? ", with the page as context" : ""}`} disabled={busy} onClick={() => void ask()}><Icon name="send" size={13} />Ask</button>}
       <LaunchSplitButton ctx={ctx.launch} text={text} onLaunch={launch} onUsed={() => setText("")} primary={ctx.primary === "launch" || !bot}

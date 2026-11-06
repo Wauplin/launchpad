@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { useReviewState } from "@/lib/reviewState";
 import { Markdown } from "@/components/Markdown";
 import { openGitHub } from "@/features/github/lib";
-import { Badge, ErrorState, FilterChip, FilterChips } from "@/components/ui";
+import { Badge, ErrorState, Choice, Choices } from "@/components/ui";
 import { ActionButton } from "@/components/ActionButton";
 import { runAction } from "@/lib/actions";
 import { Icon } from "@/components/Icon";
@@ -55,8 +55,8 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
     </div>
     {editing && s.status === "draft" ? <div className="grid gap-2">
       <textarea aria-label="Suggested text" className="field-input min-h-40" value={body} disabled={busy} onChange={(e) => { const v = e.target.value; edit.set((o) => ({ ...o, body: v })); }} />
-      {s.kind === "review" && <FilterChips label="Suggested review type">{([["COMMENT", "Comment"], ["APPROVE", "Approve"], ["REQUEST_CHANGES", "Request changes"]] as const).map(([id, label]) => <FilterChip key={id} active={event === id} disabled={busy} onClick={() => edit.set((o) => ({ ...o, event: id }))}>{label}</FilterChip>)}</FilterChips>}
-      {s.kind === "review" && !local && <FilterChips label="After posting">{([["none", "Nothing else"], ["merge", "Merge"], ["run_ci", "Run CI"]] as const).filter(([id]) => id !== "merge" || event === "APPROVE").map(([id, label]) => <FilterChip key={id} active={(id === "merge" ? !!merge : id === "run_ci" ? runCi && !merge : !merge && !runCi)} disabled={busy} onClick={() => edit.set((o) => ({ ...o, merge: id === "merge" ? merge ?? s.merge ?? "squash" : null, run_ci: id === "run_ci" }))}>{label}</FilterChip>)}</FilterChips>}
+      {s.kind === "review" && <Choices label="Suggested review type">{([["COMMENT", "Comment"], ["APPROVE", "Approve"], ["REQUEST_CHANGES", "Request changes"]] as const).map(([id, label]) => <Choice key={id} active={event === id} disabled={busy} onClick={() => edit.set((o) => ({ ...o, event: id }))}>{label}</Choice>)}</Choices>}
+      {s.kind === "review" && !local && <Choices label="After posting">{([["none", "Nothing else"], ["merge", "Merge"], ["run_ci", "Run CI"]] as const).filter(([id]) => id !== "merge" || event === "APPROVE").map(([id, label]) => <Choice key={id} active={(id === "merge" ? !!merge : id === "run_ci" ? runCi && !merge : !merge && !runCi)} disabled={busy} onClick={() => edit.set((o) => ({ ...o, merge: id === "merge" ? merge ?? s.merge ?? "squash" : null, run_ci: id === "run_ci" }))}>{label}</Choice>)}</Choices>}
     </div> : <Markdown text={s.body} />}
     {stale && s.status === "draft" && <p className="mt-3 flex items-center gap-1.5 text-[12px] text-attn"><Icon name="alert" size={12} />The PR head changed. Ask the agent for a fresh review before posting.</p>}
     {s.followup_error && <p className="mt-3 flex items-center gap-1.5 text-[12px] text-attn"><Icon name="alert" size={12} />{s.followup_error}</p>}

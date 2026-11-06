@@ -118,7 +118,7 @@ function Body({ onClose }: { onClose: () => void }) {
             <section className="grid gap-1.5">
               <div className="seclabel">Any folder</div>
               <div className="flex flex-wrap gap-1.5">
-                <input className="field-input h-[30px] min-w-0 flex-1 basis-[260px] font-mono text-xs" aria-label="Folder path" placeholder="~/work/some-folder" value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && typed.trim()) setAt(typed.trim()); }} />
+                <input className="field-input min-w-0 flex-1 basis-[260px] font-mono text-[12px]" aria-label="Folder path" placeholder="~/work/some-folder" value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && typed.trim()) setAt(typed.trim()); }} />
                 <button className="btn btn-sm" disabled={!typed.trim()} onClick={() => setAt(typed.trim())}>Go</button>
                 {d?.parent && <button className="btn btn-sm" onClick={() => setAt(d.parent)}><Icon name="up" size={12} />Up</button>}
                 <button className="btn btn-sm" onClick={() => setAt("~")}>Home</button>
@@ -163,7 +163,7 @@ function NewPlainFolder({ workspaceId, onDone }: { workspaceId: string | null; o
   return <section className="grid gap-1.5">
     <span className="text-[12px] text-ink-3">For projects without Git. Home stores the files and keeps previous versions and deleted files for 30 days; one agent works in it at a time, in a synced copy.</span>
     <div className="flex gap-1.5">
-      <input className="field-input h-[30px] min-w-0 flex-1" aria-label="Folder name" placeholder="Folder name" value={name} onChange={(e) => setName(e.target.value)} />
+      <input className="field-input min-w-0 flex-1" aria-label="Folder name" placeholder="Folder name" value={name} onChange={(e) => setName(e.target.value)} />
       <button className="btn btn-sm btn-primary" disabled={busy || !name.trim() || !workspaceId} onClick={() => void create()}>Create</button>
     </div>
   </section>;

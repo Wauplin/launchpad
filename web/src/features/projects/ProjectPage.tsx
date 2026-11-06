@@ -18,7 +18,7 @@ import type { Change } from "@/gen/Change";
 import { useComposer } from "@/stores/composer";
 import { RepoItems } from "@/features/github/RepoItems";
 import { Link, useParams, useSearch } from "@tanstack/react-router";
-import { Badge, ConfirmButton, Empty, FilterChip, FilterChips, SettingRow, Tabs, useSaveState } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, Choice, Choices, SettingRow, Tabs, useSaveState } from "@/components/ui";
 import { formatAge } from "@/lib/format";
 import { moveFolder, useWorkspaces } from "@/lib/workspace";
 import { toast } from "@/components/Toast";
@@ -177,26 +177,26 @@ function FolderSettings({ p }: { p: Project }) {
       </SettingRow>
       <SettingRow label="Workspace" hint="Every folder belongs to one workspace. Its agents, schedules and inbox threads follow it." state={member.state} error={member.error}>
         {workspaces.length === 0 ? <span className="text-[12px] text-ink-3">No workspace yet: create one from the workspace menu.</span> : (
-          <FilterChips label="Workspace of this folder">
+          <Choices label="Workspace of this folder">
             {workspaces.map((w) => {
               const inside = p.workspace_id === w.id;
-              return <FilterChip key={w.id} active={inside} onClick={() => !inside && void member.run(() => moveFolder(p, w).then(() => qc.invalidateQueries({ queryKey: ["projects"] })))}>{inside && <Icon name="check" size={11} />}{w.name}</FilterChip>;
+              return <Choice key={w.id} active={inside} onClick={() => !inside && void member.run(() => moveFolder(p, w).then(() => qc.invalidateQueries({ queryKey: ["projects"] })))}>{inside && <Icon name="check" size={11} />}{w.name}</Choice>;
             })}
-          </FilterChips>
+          </Choices>
         )}
       </SettingRow>
       {!p.is_temp && (
         <SettingRow label="Worktree setup" hint={remote ? "Edit on the host while remote access is on." : `Runs in each new worktree before the agent starts (${navigator.platform.startsWith("Win") ? "PowerShell" : "sh -c"}, 30 min limit).`} info="$LAUNCHPAD_SOURCE_CHECKOUT points to this checkout. A failure is reported to the agent, which starts anyway. Without a command, new worktrees start with the committed files and the ignored files listed in .worktreeinclude." state={setup.state} error={setup.error}>
-          <input className="field-input min-w-0 flex-1 font-mono text-xs" aria-label="Worktree setup command" disabled={remote} placeholder="pnpm install --frozen-lockfile" {...field("setup", setup, (v) => ({ worktree_setup: v }), p.worktree_setup ?? "")} />
+          <input className="field-input min-w-0 flex-1 font-mono text-[12px]" aria-label="Worktree setup command" disabled={remote} placeholder="pnpm install --frozen-lockfile" {...field("setup", setup, (v) => ({ worktree_setup: v }), p.worktree_setup ?? "")} />
         </SettingRow>
       )}
       {!p.is_temp && (
         <SettingRow label="When done" hint="Default for new agents of this folder; the composer can change it per launch." state={done.state} error={done.error}>
-          <FilterChips label="When done">
+          <Choices label="When done">
             {([["keep", "Keep the branch for review"], ["local_pr", "Open a Local PR"], ["merge", "Merge when done"]] as const).map(([value, label]) => (
-              <FilterChip key={value} active={p.when_done === value} onClick={() => p.when_done !== value && void done.run(() => patch({ when_done: value }))}>{label}</FilterChip>
+              <Choice key={value} active={p.when_done === value} onClick={() => p.when_done !== value && void done.run(() => patch({ when_done: value }))}>{label}</Choice>
             ))}
-          </FilterChips>
+          </Choices>
         </SettingRow>
       )}
       {!p.is_temp && (

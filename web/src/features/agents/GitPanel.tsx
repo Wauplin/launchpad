@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
 import { useReviewState } from "@/lib/reviewState";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
-import { ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading } from "@/components/ui";
+import { ConfirmButton, Empty, ErrorState, Choice, Choices, Loading } from "@/components/ui";
 import { DiffReview, type LineNote } from "@/features/github/DiffReview";
 import type { SessionGitStatus as Status } from "@/gen/SessionGitStatus";
 import type { SessionGitHistory as History } from "@/gen/SessionGitHistory";
@@ -114,12 +114,12 @@ export function GitPanel({ sessionId, initialMain = false, canMessage = true }: 
       notes={notes.value}
       onAddNote={(n) => notes.set((all) => [...all, n])}
       toolbar={<>
-        <FilterChips label="Compared changes">
-          <FilterChip active={!staged && !main && !committed} onClick={() => live(false, false)}>Working tree</FilterChip>
-          <FilterChip active={staged && !main && !committed} onClick={() => live(true, false)}>Staged</FilterChip>
-          <FilterChip active={main && !committed} disabled={!status.data?.main_changes} onClick={() => live(false, true)}>Compared with main</FilterChip>
-          {!!history.data?.commits.length && <FilterChip active={committed} onClick={() => setMode("committed")}>Committed</FilterChip>}
-        </FilterChips>
+        <Choices label="Compared changes">
+          <Choice active={!staged && !main && !committed} onClick={() => live(false, false)}>Working tree</Choice>
+          <Choice active={staged && !main && !committed} onClick={() => live(true, false)}>Staged</Choice>
+          <Choice active={main && !committed} disabled={!status.data?.main_changes} onClick={() => live(false, true)}>Compared with main</Choice>
+          {!!history.data?.commits.length && <Choice active={committed} onClick={() => setMode("committed")}>Committed</Choice>}
+        </Choices>
         <button className="iconbtn" aria-label="Refresh changes" title="Refresh changes" onClick={() => { void status.refetch(); void history.refetch(); if (commit) void commitHistory.refetch(); if (selected) void diff.refetch(); }}><Icon name="refresh" size={13} /></button>
       </>}
       banner={(status.data || history.data) && !files.length ? <Empty icon="check">{committed ? "No net file changes in these commits." : main ? "No tracked changes compared with main." : "Working tree clean."}</Empty> : undefined}

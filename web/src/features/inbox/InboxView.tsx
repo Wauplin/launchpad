@@ -111,7 +111,7 @@ function RepoList({ repos, total, selected, query, setQuery, pick }: { repos: [s
   const v = useVirtualizer({ count: repos.length, getScrollElement: () => ref.current, estimateSize: () => isPhone ? 44 : 28, overscan: 6, useFlushSync: false });
   const row = `flex ${isPhone ? "h-11" : "h-7"} w-full items-center gap-2 rounded-md px-2 text-left text-[12px] hover:bg-select`;
   return <div className="grid gap-1">
-    <input autoFocus aria-label="Search repositories" className="field-input h-8" placeholder="Search repositories…" value={query} onChange={(e) => setQuery(e.target.value)} />
+    <input autoFocus aria-label="Search repositories" className="field-input" placeholder="Search repositories…" value={query} onChange={(e) => setQuery(e.target.value)} />
     <button className={`${row} ${selected === null ? "bg-select font-semibold" : ""}`} onClick={() => pick(null)}><span className="flex-1">All repositories</span><span className="text-ink-3">{total}</span></button>
     <div ref={ref} className="max-h-60 overflow-y-auto">
       {repos.length === 0 && <Empty>No repository matches.</Empty>}

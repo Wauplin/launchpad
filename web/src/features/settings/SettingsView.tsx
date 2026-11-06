@@ -166,7 +166,7 @@ export function PresetsView() {
               <button className="iconbtn size-[22px]! disabled:opacity-30" disabled={i === 0} title="Move up" aria-label="Move up" onClick={() => move(i, -1)}><Icon name="up" size={12} /></button>
               <button className="iconbtn size-[22px]! disabled:opacity-30" disabled={i === presets.length - 1} title="Move down" aria-label="Move down" onClick={() => move(i, 1)}><Icon name="down" size={12} /></button>
             </span>
-            <input className="field-input h-[30px] text-[13px] font-semibold" aria-label="Preset name" value={p.label} onChange={(e) => edit(i, { label: e.target.value })} onBlur={() => save(presets)} />
+            <input className="field-input font-semibold" aria-label="Preset name" value={p.label} onChange={(e) => edit(i, { label: e.target.value })} onBlur={() => save(presets)} />
             <textarea rows={2} className="field-input h-auto min-h-[30px] resize-y py-1.5 text-[13px]" aria-label="Preset text" value={p.text} placeholder="The sentence added to the prompt" onChange={(e) => edit(i, { text: e.target.value })} onBlur={() => save(presets)} />
             <div className="preset-availability col-start-2 col-end-4 flex flex-wrap gap-x-5 gap-y-1 text-[12px]">
               <label className="flex min-h-8 items-center gap-2"><input type="checkbox" checked={p.bots === true} onChange={(e) => save(presets.map((x, j) => j === i ? { ...x, bots: e.target.checked } : x))} />Bots</label>

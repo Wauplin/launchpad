@@ -110,7 +110,7 @@ function ReversePairing({ disabled }: { disabled: boolean }) {
     <p className="text-sm font-medium">Pair with a code from another browser</p>
     <p className="text-xs text-ink-2">On the unpaired browser, choose Show pairing code. Enter its eight-character code here.</p>
     <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); void check(); }}>
-      <label className="grid gap-1 text-xs">Pairing code<input className="field-input w-40 font-mono uppercase" value={code} maxLength={12} autoComplete="off" autoCapitalize="characters" spellCheck={false} placeholder="ABCD 2345" required disabled={disabled || busy} onChange={(event) => { setCode(event.target.value); setRequest(null); }} /></label>
+      <label className="grid gap-1 text-xs">Pairing code<input className="field-input w-40 font-mono text-[12px] uppercase" value={code} maxLength={12} autoComplete="off" autoCapitalize="characters" spellCheck={false} placeholder="ABCD 2345" required disabled={disabled || busy} onChange={(event) => { setCode(event.target.value); setRequest(null); }} /></label>
       <button className="btn btn-sm" disabled={disabled || busy}>Check code</button>
     </form>
     {request && <div className="grid gap-2" role="status">
@@ -150,7 +150,7 @@ function HttpsSetup({ disabled, onBusy, onPair }: { disabled: boolean; onBusy: (
   const controls = <div className="grid min-w-0 gap-2 text-sm">
     <p>Use Tailscale Serve to pair over HTTPS. Tailscale manages the certificate and keeps the connection running in the background. Both devices must be signed in to your tailnet.</p>
     {!data.connected && <p className="text-attn">Sign in using the Tailscale app on this machine, then refresh.</p>}
-    <label className="flex flex-wrap items-center gap-2">HTTPS port <input className="field-input w-24 font-mono text-xs" type="number" inputMode="numeric" min={1} max={65535} placeholder="443" value={value} disabled={disabled} onChange={(e) => { setPort(e.target.value); setResult(null); }} /></label>
+    <label className="flex flex-wrap items-center gap-2">HTTPS port <input className="field-input w-24 font-mono text-[12px]" type="number" inputMode="numeric" min={1} max={65535} placeholder="443" value={value} disabled={disabled} onChange={(e) => { setPort(e.target.value); setResult(null); }} /></label>
     <p className="text-xs text-ink-3">{data.https_port ? `Suggested port: ${data.https_port}. Existing routes are kept. This forwards to Launchpad on port ${data.daemon_port}.` : "Choose an unused HTTPS port from 1 to 65535."}</p>
     {command && <code className="min-w-0 break-all rounded bg-chrome p-2 text-xs">{command}</code>}
     <div className="flex flex-wrap gap-2">

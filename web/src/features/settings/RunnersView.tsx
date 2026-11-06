@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Guard } from "@/gen/Guard";
 import type { RemoteLaunch } from "@/gen/RemoteLaunch";
 import { toast, toastError } from "@/components/Toast";
-import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, SettingRow } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, SettingRow } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
@@ -144,9 +144,9 @@ function HomeRunners() {
                   <span className="flex flex-wrap items-center gap-x-2"><b>{r.runner.name}</b><Badge tone="attn">waiting for approval</Badge></span>
                   <span className="text-[12px] text-ink-3">{r.runner.os} · asked {formatAge(r.runner.created_at)} ago · approve only if its terminal shows this code</span>
                 </span>
-                <span className="flex items-center gap-2">
-                <span className="font-mono text-[15px] font-semibold tracking-wide" title="Compare with the code in the terminal">{r.runner.code}</span>
-                <ConfirmButton tone="publish" consequence={`Lets ${r.runner.name} run agents for this Home. Approve only if the terminal shows ${r.runner.code}.`} confirmLabel="Approve" onConfirm={() => api.post(`/api/runners/${r.runner.id}/approve`, {}).then(() => { toast(`Approved ${r.runner.name}`); setAdding(false); return refresh(); }, toastError)}>Approve</ConfirmButton>
+                <span className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                <span className="font-mono text-[15px] font-semibold tracking-wide whitespace-nowrap" title="Compare with the code in the terminal">{r.runner.code}</span>
+                <ConfirmButton tone="publish" className="btn-primary" consequence={`Lets ${r.runner.name} run agents for this Home. Approve only if the terminal shows ${r.runner.code}.`} confirmLabel="Approve" onConfirm={() => api.post(`/api/runners/${r.runner.id}/approve`, {}).then(() => { toast(`Approved ${r.runner.name}`); setAdding(false); return refresh(); }, toastError)}>Approve</ConfirmButton>
                 <ConfirmButton icon="trash" consequence="Refuses this request." confirmLabel="Refuse" onConfirm={() => api.delete(`/api/runners/${r.runner.id}`).then(refresh, toastError)}>Refuse</ConfirmButton>
                 </span>
               </div>
@@ -220,15 +220,15 @@ function BurstCard() {
     <Card title="Burst" tour="settings.burst">
       <span className="text-[13px] text-ink-2">When no runner takes a launch (your laptop is off), Home starts it on Burst: an HF Job in your namespace, from Home's own image. The job holds no token: Home adds them. It stops after each turn, once Home has saved everything, and your next message starts a new one.</span>
       <SettingRow label="Burst" hint={data.unavailable && data.config.enabled ? data.unavailable : "Also available on purpose: Runner → Burst in the composer, or Move to → Burst on a session."}>
-        <FilterChips label="Burst">
-          <FilterChip active={data.config.enabled} onClick={() => !data.config.enabled && void save({ ...data.config, enabled: true })}>On</FilterChip>
-          <FilterChip active={!data.config.enabled} onClick={() => data.config.enabled && void save({ ...data.config, enabled: false })}>Off</FilterChip>
-        </FilterChips>
+        <Choices label="Burst">
+          <Choice active={data.config.enabled} onClick={() => !data.config.enabled && void save({ ...data.config, enabled: true })}>On</Choice>
+          <Choice active={!data.config.enabled} onClick={() => data.config.enabled && void save({ ...data.config, enabled: false })}>Off</Choice>
+        </Choices>
       </SettingRow>
       <SettingRow label="Monthly cap" hint={`${formatUsd(data.month_usd)} used this month (UTC). At the cap, Home starts no new job; running ones finish their turn.`}>
         <span className="flex items-center gap-2">
           <span className="text-[13px] text-ink-3">$</span>
-          <input className="field-input w-24 text-[13px]" aria-label="Monthly cap in USD" inputMode="decimal" value={capValue} onChange={(e) => setCap(e.target.value)} />
+          <input className="field-input w-24" aria-label="Monthly cap in USD" inputMode="decimal" value={capValue} onChange={(e) => setCap(e.target.value)} />
           {cap !== null && <button className="btn btn-sm btn-primary" disabled={!(capNumber >= 0)} onClick={() => void save({ ...data.config, monthly_cap_usd: capNumber })}>Save</button>}
           <span className="h-1.5 w-24 overflow-hidden rounded-full bg-sunk" title={`${Math.round(used)}% of the cap`}><span className={`block h-full ${used >= 100 ? "bg-gh-closed" : used >= 80 ? "bg-attn" : "bg-teal"}`} style={{ width: `${used}%` }} /></span>
         </span>
@@ -287,16 +287,16 @@ function ThisRunner() {
       {guard && (
         <Card title="Runner guard">
           <SettingRow label="Launches from other devices" hint="Phone, schedules and bots. Refuse: only windows on this machine launch here.">
-            <FilterChips label="Launches from other devices">
-              <FilterChip active={guard.accept_launches} onClick={() => !guard.accept_launches && void save({ ...guard, accept_launches: true })}>Accept</FilterChip>
-              <FilterChip active={!guard.accept_launches} onClick={() => guard.accept_launches && void save({ ...guard, accept_launches: false })}>Refuse</FilterChip>
-            </FilterChips>
+            <Choices label="Launches from other devices">
+              <Choice active={guard.accept_launches} onClick={() => !guard.accept_launches && void save({ ...guard, accept_launches: true })}>Accept</Choice>
+              <Choice active={!guard.accept_launches} onClick={() => guard.accept_launches && void save({ ...guard, accept_launches: false })}>Refuse</Choice>
+            </Choices>
           </SettingRow>
           <SettingRow label="Pause runner" hint="No new session starts here; running sessions continue.">
-            <FilterChips label="Pause runner">
-              <FilterChip active={!guard.paused} onClick={() => guard.paused && void save({ ...guard, paused: false })}>Running</FilterChip>
-              <FilterChip active={guard.paused} onClick={() => !guard.paused && void save({ ...guard, paused: true })}>Paused</FilterChip>
-            </FilterChips>
+            <Choices label="Pause runner">
+              <Choice active={!guard.paused} onClick={() => guard.paused && void save({ ...guard, paused: false })}>Running</Choice>
+              <Choice active={guard.paused} onClick={() => !guard.paused && void save({ ...guard, paused: true })}>Paused</Choice>
+            </Choices>
           </SettingRow>
         </Card>
       )}

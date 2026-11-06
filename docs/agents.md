@@ -50,7 +50,7 @@ Folder pages, inbox rows and every **▶** button open the composer too. The com
 
 The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the **Launch** button while you collect more context; its **▾** menu starts a new agent instead or discards the draft.
 
-New launches ask the agent to end its first task with a short, self-contained summary. Follow-up messages are sent unchanged, except the first message after a Local PR is published, which tells the agent to push to the published branch from now on.
+New launches ask the agent to end its first task with a short, self-contained summary. In an agent's message box, the **+** icon next to presets and attachments adds the same context to the next message. Follow-up messages are sent unchanged, except the first message after a Local PR is published, which tells the agent to push to the published branch from now on.
 
 ## Temporary folders
 

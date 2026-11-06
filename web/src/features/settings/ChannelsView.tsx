@@ -12,7 +12,7 @@ import type { HookTarget } from "@/gen/HookTarget";
 import type { TelegramStatus } from "@/gen/TelegramStatus";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
-import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, SettingRow, Token } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, SettingRow, Token } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useBots } from "@/lib/bots";
 import { copyText } from "@/lib/clipboard";
@@ -54,7 +54,7 @@ function Telegram({ t }: { t: TelegramStatus }) {
       {!t.configured ? (
         <SettingRow label="Bot token" hint={<>In Telegram, open <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a>, send <code>/newbot</code> and paste the token it gives you. Home checks it with Telegram.</>}>
           <span className="flex flex-wrap gap-2">
-            <input className="field-input min-w-[260px] flex-1 font-mono" type="password" aria-label="Telegram bot token" placeholder="123456:ABC…" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
+            <input className="field-input min-w-[260px] flex-1 font-mono text-[12px]" type="password" aria-label="Telegram bot token" placeholder="123456:ABC…" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
             <button className="btn btn-sm btn-primary" disabled={busy || !token.trim()} onClick={() => act(() => api.put<TelegramStatus>("/api/channels/telegram/token", { token }).then((s) => { set(s); setToken(""); toast("Saved on Home"); }))}>Save on Home</button>
           </span>
         </SettingRow>
@@ -123,10 +123,10 @@ function Outgoing({ channels }: { channels: Channel[] }) {
       ))}
       {!open ? <button className="btn btn-sm w-fit" onClick={() => setOpen(true)}><Icon name="plus" size={12} />Add a channel</button> : (
         <div className="grid gap-2 rounded-[8px] border border-line-2 p-2.5 text-[13px]">
-          <FilterChips label="Channel kind">{KINDS.map((x) => <FilterChip key={x.id} active={kind === x.id} onClick={() => setKind(x.id)}>{x.label}</FilterChip>)}</FilterChips>
+          <Choices label="Channel kind">{KINDS.map((x) => <Choice key={x.id} active={kind === x.id} onClick={() => setKind(x.id)}>{x.label}</Choice>)}</Choices>
           <span className="text-[12px] text-ink-3">{k.hint} The URL is a credential: Home stores it in the vault and never shows it again.</span>
-          <label className="grid gap-1"><span className="text-ink-2">Name (agents use it)</span><input className="field-input w-[220px] font-mono" value={name} onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))} placeholder="team-chat" /></label>
-          <label className="grid gap-1"><span className="text-ink-2">Webhook URL</span><input className="field-input font-mono" type="password" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={k.placeholder} autoComplete="off" /></label>
+          <label className="grid gap-1"><span className="text-ink-2">Name (agents use it)</span><input className="field-input w-[220px] font-mono text-[12px]" value={name} onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))} placeholder="team-chat" /></label>
+          <label className="grid gap-1"><span className="text-ink-2">Webhook URL</span><input className="field-input font-mono text-[12px]" type="password" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={k.placeholder} autoComplete="off" /></label>
           <div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !name.trim() || !url.trim()} onClick={save}>Save on Home</button><button className="btn btn-sm" onClick={() => setOpen(false)}>Cancel</button></div>
         </div>
       )}

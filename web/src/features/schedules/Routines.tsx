@@ -7,7 +7,7 @@ import { memo, useEffect, useState } from "react";
 import { useHarnessName } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
-import { Badge, ConfirmButton, FilterChip } from "@/components/ui";
+import { Badge, Choice, Choices, ConfirmButton } from "@/components/ui";
 import { CronFields, DEFAULT_CRON, conditionSummary } from "@/features/launch/CronSelector";
 import type { Bot } from "@/gen/Bot";
 import type { CronAgent } from "@/gen/CronAgent";
@@ -61,28 +61,28 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, onChange,
   // In a thread (a bot, Ask Launchpad), a run waits for the thread anyway: no "previous run" condition.
   const conditions = inThread ? draft.conditions.filter((c) => c.kind !== "previous_run_finished") : draft.conditions;
   return <div className="grid gap-2">
-    <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="When it runs">
-      <FilterChip active={t.kind === "schedule"} onClick={() => kind("schedule")}>On a schedule</FilterChip>
-      <FilterChip active={t.kind === "github"} onClick={() => kind("github")}>GitHub activity</FilterChip>
-      <FilterChip active={t.kind === "session_done"} onClick={() => kind("session_done")}>When an agent is done</FilterChip>
-    </div>
+    <Choices label="When it runs">
+      <Choice active={t.kind === "schedule"} onClick={() => kind("schedule")}>On a schedule</Choice>
+      <Choice active={t.kind === "github"} onClick={() => kind("github")}>GitHub activity</Choice>
+      <Choice active={t.kind === "session_done"} onClick={() => kind("session_done")}>When an agent is done</Choice>
+    </Choices>
     {t.kind === "github" && <div className="grid gap-2">
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Repository
-        <select className="field-input h-[30px] font-normal" value={t.repo ?? ""} onChange={(e) => onChange({ ...draft, trigger: { ...t, repo: e.target.value || null } })}>
+        <select className="field-input font-normal" value={t.repo ?? ""} onChange={(e) => onChange({ ...draft, trigger: { ...t, repo: e.target.value || null } })}>
           <option value="">Any repository of the workspace{repos.length ? ` (${repos.length})` : ""}</option>
           {repos.map((r) => <option key={r} value={r}>{r}</option>)}
           {t.repo && !repos.includes(t.repo) && <option value={t.repo}>{t.repo}</option>}
         </select>
       </label>
       <div className="grid gap-1"><span className="text-[12px] font-semibold text-ink-2">New in your Inbox</span>
-        <div className="flex flex-wrap gap-1.5">{GITHUB_EVENTS.map((e) => <FilterChip key={e.id} active={t.events.includes(e.id)} onClick={() => toggle(e.id)}>{e.label}</FilterChip>)}</div>
+        <Choices label="New in your Inbox">{GITHUB_EVENTS.map((e) => <Choice key={e.id} active={t.events.includes(e.id)} onClick={() => toggle(e.id)}>{e.label}</Choice>)}</Choices>
         {!t.events.length && <p role="alert" className="m-0 text-xs text-gh-closed">Pick at least one kind of activity.</p>}
       </div>
       <p className="m-0 text-xs text-ink-3">Launchpad reads your GitHub notifications (the Inbox) about every minute. New activity found in one check starts one run with all of it.</p>
     </div>}
     {t.kind === "session_done" && <div className="grid gap-2">
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Folder
-        <select className="field-input h-[30px] font-normal" value={t.folder ?? ""} onChange={(e) => onChange({ ...draft, trigger: { ...t, folder: e.target.value || null } })}>
+        <select className="field-input font-normal" value={t.folder ?? ""} onChange={(e) => onChange({ ...draft, trigger: { ...t, folder: e.target.value || null } })}>
           <option value="">Any folder of the workspace</option>
           {folders.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
@@ -120,7 +120,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
   return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 text-[13px]">
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-lg border border-line bg-chrome p-3">
       {edit ? <>
-        <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input h-[30px] font-normal" value={edit.title} maxLength={80} onChange={(e) => setEdit({ ...edit, title: e.target.value })} /></label>
+        <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input font-normal" value={edit.title} maxLength={80} onChange={(e) => setEdit({ ...edit, title: e.target.value })} /></label>
         {cron.bot_id && <label className="grid gap-1 text-[12px] font-semibold text-ink-2">What it does at each run<textarea className="field-input min-h-[90px] py-1.5 font-normal leading-5" value={edit.instructions} onChange={(e) => setEdit({ ...edit, instructions: e.target.value })} /></label>}
         <TriggerFields draft={edit} harness={cron.spec.harness} workspaceId={cron.spec.workspace_id} inThread={inThread} onChange={(d) => setEdit({ ...edit, ...d })} onValidityChange={setEditValid} />
         <div className="flex justify-end gap-2">
@@ -197,7 +197,7 @@ export function NewRoutine({ bot, repo, harness, onDone }: { bot: Bot; repo: str
     {!title && !instructions && <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-ink-3">Start from
       {routineTemplates(repo).map((t) => <button key={t.label} className="btn btn-sm" onClick={() => { setTitle(t.title); setInstructions(t.instructions); setDraft(t.draft); }}>{t.label}</button>)}
     </div>}
-    <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input h-[30px] font-normal" maxLength={80} value={title} placeholder="Morning check" onChange={(e) => setTitle(e.target.value)} /></label>
+    <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input font-normal" maxLength={80} value={title} placeholder="Morning check" onChange={(e) => setTitle(e.target.value)} /></label>
     <label className="grid gap-1 text-[12px] font-semibold text-ink-2">What it does at each run
       <textarea className="field-input min-h-[76px] py-1.5 font-normal leading-5" value={instructions} placeholder="For example: “Check the open issues labeled bug and tell me about new ones.”" onChange={(e) => setInstructions(e.target.value)} />
       <span className="font-normal text-ink-3">Sent to {name}'s thread at each run. It reports, or replies no_update when there is nothing to say: then you get no notification.</span>

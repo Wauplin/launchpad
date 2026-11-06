@@ -57,7 +57,7 @@ function VaultLoginSelect({ kind, value, onChange }: { kind: string; value: stri
   const logins = (vault.data?.entries ?? []).filter((e) => e.kind === kind);
   return (
     <span className="grid gap-1">
-      <select className="field-input h-[28px] w-fit text-xs" aria-label="Login" value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
+      <select className="field-input w-fit" aria-label="Login" value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
         <option value="">First login in the vault</option>
         {logins.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
         {value && !logins.some((l) => l.id === value) && <option value={value}>{value} (not in the vault)</option>}
@@ -371,7 +371,7 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
       <div className={row}>
         <b className="pt-1 font-[650]">Name</b>
         <span className="flex flex-wrap items-center gap-2">
-          <input className={`field-input h-[30px] min-w-0 flex-1 basis-[180px] ${d.name.trim() ? "" : "border-attn-line!"}`} aria-label="Profile name" placeholder="Name shown in the composer, for example Claude · work" value={d.name} onChange={(e) => onChange((x) => ({ ...x, name: e.target.value }))} />
+          <input className={`field-input min-w-0 flex-1 basis-[180px] ${d.name.trim() ? "" : "border-attn-line!"}`} aria-label="Profile name" placeholder="Name shown in the composer, for example Claude · work" value={d.name} onChange={(e) => onChange((x) => ({ ...x, name: e.target.value }))} />
           <span className="text-xs text-ink-3">{d.saved ? <>ID <code className="font-mono">{d.id}</code></> : "ID set on save"}</span>
         </span>
       </div>
@@ -402,13 +402,13 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
                 )}
               </Popover>
             ) : (
-              <select className="field-input h-[30px] w-auto text-xs" aria-label="Default model" value={d.model ?? ""} onChange={(e) => onChange((x) => ({ ...x, model: e.target.value || null, effort: null }))}>
+              <select className="field-input w-auto" aria-label="Default model" value={d.model ?? ""} onChange={(e) => onChange((x) => ({ ...x, model: e.target.value || null, effort: null }))}>
                 <option value="">Harness default{defaults?.model ? ` (${defaults.model})` : ""}</option>
                 {d.model && !defaults?.models.some((m) => m.id === d.model) && <option value={d.model}>{d.model}</option>}
                 {(defaults?.models ?? []).map((m) => <option key={m.id} value={m.id}>{m.display_name || m.id}</option>)}
               </select>
             )}
-            {efforts.length > 0 && <select className="field-input h-[30px] w-auto text-xs" aria-label="Default effort" value={d.effort ?? ""} onChange={(e) => onChange((x) => ({ ...x, effort: e.target.value || null }))}>
+            {efforts.length > 0 && <select className="field-input w-auto" aria-label="Default effort" value={d.effort ?? ""} onChange={(e) => onChange((x) => ({ ...x, effort: e.target.value || null }))}>
               <option value="">Default effort</option>
               {efforts.map((e) => <option key={e} value={e}>{e}</option>)}
             </select>}
@@ -423,7 +423,7 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
       {supportsCost && <div className={row}>
         <b className="pt-1 font-[650]">Default cost limit</b>
         <span className="flex flex-wrap items-center gap-2">
-          <input className="field-input w-28 font-mono text-xs" aria-label="Default cost limit in USD" placeholder="No limit" value={d.budget} onChange={(e) => onChange((x) => ({ ...x, budget: e.target.value }))} />
+          <input className="field-input w-28" aria-label="Default cost limit in USD" placeholder="No limit" value={d.budget} onChange={(e) => onChange((x) => ({ ...x, budget: e.target.value }))} />
           <span className={`text-xs ${budgetValid ? "text-ink-3" : "text-attn"}`}>{budgetValid ? `USD per session, prefilled in the composer and editable on each session.` : "Enter a positive amount, or leave empty."}</span>
         </span>
       </div>}
@@ -469,7 +469,7 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
           <div className={row}>
             <b className="pt-1 font-[650]">Model list</b>
             <span className="grid gap-1">
-              <input className="field-input h-[28px] min-w-0 font-mono text-xs" aria-label="Model list URL" placeholder="Optional: https://…/v1/models" value={d.models_url ?? ""} onChange={(e) => onChange((x) => ({ ...x, models_url: e.target.value || null }))} />
+              <input className="field-input min-w-0 font-mono text-[12px]" aria-label="Model list URL" placeholder="Optional: https://…/v1/models" value={d.models_url ?? ""} onChange={(e) => onChange((x) => ({ ...x, models_url: e.target.value || null }))} />
               <span className="text-xs text-ink-3">An OpenAI-compatible model list whose models replace the {harness?.name ?? "harness"} models in the composer, for a profile that uses another provider.{providerModels.data ? ` ${providerModels.data.length} models with tool use.` : ""}</span>
             </span>
           </div>
@@ -584,9 +584,9 @@ function EnvRow({ name, value, doc, onName, onValue, onRemove }: { name: string;
   return (
     <span className="grid gap-0.5">
       <span className="grid grid-cols-[minmax(0,1fr)_26px] @min-[480px]:grid-cols-[minmax(0,240px)_minmax(0,1fr)_26px] gap-1.5">
-        <input className={`field-input col-span-full @min-[480px]:col-span-1 h-[28px] min-w-0 font-mono text-xs ${name.trim() ? "" : "border-attn-line!"}`} aria-label="Variable name" placeholder="NAME" value={name} onChange={(e) => onName(e.target.value.toUpperCase())} />
+        <input className={`field-input col-span-full @min-[480px]:col-span-1 min-w-0 font-mono text-[12px] ${name.trim() ? "" : "border-attn-line!"}`} aria-label="Variable name" placeholder="NAME" value={name} onChange={(e) => onName(e.target.value.toUpperCase())} />
         <span className="relative flex min-w-0">
-          <input type={masked ? "password" : "text"} autoComplete="off" spellCheck={false} className={`field-input h-[28px] min-w-0 flex-1 font-mono text-xs ${doc?.secret ? "pr-7" : ""} ${value.trim() ? "" : "border-attn-line!"}`} aria-label={`Value of ${name}`} placeholder={placeholder} value={value} onChange={(e) => onValue(e.target.value)} />
+          <input type={masked ? "password" : "text"} autoComplete="off" spellCheck={false} className={`field-input min-w-0 flex-1 font-mono text-[12px] ${doc?.secret ? "pr-7" : ""} ${value.trim() ? "" : "border-attn-line!"}`} aria-label={`Value of ${name}`} placeholder={placeholder} value={value} onChange={(e) => onValue(e.target.value)} />
           {doc?.secret && !!value && !value.startsWith("${") && <button className="absolute top-1/2 right-1 -translate-y-1/2 iconbtn size-5!" title={shown ? "Hide value" : "Show value"} aria-label={shown ? `Hide ${name}` : `Show ${name}`} aria-pressed={shown} onClick={() => setShown((x) => !x)}><Icon name="eye" size={12} /></button>}
         </span>
         <button className="iconbtn" title="Remove variable" onClick={onRemove}><Icon name="x" size={13} /></button>
@@ -607,7 +607,7 @@ function AddVariable({ harness, docs, used, onAdd }: { harness: HarnessKind; doc
     <Popover width={440} up={up} trigger={({ toggle }) => <button className="btn btn-sm w-fit" onClick={(e) => (setText(""), setUp(lowerHalf(e)), toggle())}><Icon name="plus" size={12} />Add variable<Icon name="chev" size={11} /></button>}>
       {(close) => (
         <>
-          <input autoFocus className="field-input mb-1 h-[30px] text-xs" aria-label="Search variables" placeholder={docs.length ? "Search documented variables, or type a name" : "Variable name"} value={text} onChange={(e) => setText(e.target.value)} />
+          <input autoFocus className="field-input mb-1" aria-label="Search variables" placeholder={docs.length ? "Search documented variables, or type a name" : "Variable name"} value={text} onChange={(e) => setText(e.target.value)} />
           <MenuItem label={custom ? <>Add <code className="font-mono">{custom}</code></> : "Custom variable"} detail={custom && docs.some((x) => x.name === custom) ? undefined : "Any other variable read by the harness or its tools"} onClick={() => (onAdd(custom), close())} />
           {groups.map((g) => (
             <div key={`${harness}/${g}`} className="grid gap-px">
@@ -633,10 +633,10 @@ function SpendLimits({ draft: d, onChange }: { draft: Draft; onChange: (limits: 
         return (
           <span key={j} className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-ink-3">At most $</span>
-            <input className={`field-input h-[28px] w-20 font-mono text-xs ${parseUsd(l.usd) ? "" : "border-attn-line!"}`} aria-label="Spending limit in USD" placeholder="50" value={l.usd} onChange={(e) => set(j, (x) => ({ ...x, usd: e.target.value }))} />
+            <input className={`field-input w-20 ${parseUsd(l.usd) ? "" : "border-attn-line!"}`} aria-label="Spending limit in USD" placeholder="50" value={l.usd} onChange={(e) => set(j, (x) => ({ ...x, usd: e.target.value }))} />
             <span className="text-xs text-ink-3">per</span>
-            <input className={`field-input h-[28px] w-14 font-mono text-xs ${parsed ? "" : "border-attn-line!"}`} aria-label="Window length" inputMode="numeric" value={l.count} onChange={(e) => set(j, (x) => ({ ...x, count: e.target.value }))} />
-            <select className="field-input h-[28px] w-auto text-xs" aria-label="Window unit" value={l.unit} onChange={(e) => set(j, (x) => ({ ...x, unit: e.target.value as Unit }))}>
+            <input className={`field-input w-14 ${parsed ? "" : "border-attn-line!"}`} aria-label="Window length" inputMode="numeric" value={l.count} onChange={(e) => set(j, (x) => ({ ...x, count: e.target.value }))} />
+            <select className="field-input w-auto" aria-label="Window unit" value={l.unit} onChange={(e) => set(j, (x) => ({ ...x, unit: e.target.value as Unit }))}>
               <option value="hours">hours</option>
               <option value="days">days</option>
               <option value="weeks">weeks</option>

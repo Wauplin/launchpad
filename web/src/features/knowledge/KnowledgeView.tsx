@@ -10,7 +10,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Icon } from "@/components/Icon";
 import { Markdown } from "@/components/Markdown";
 import { toast, toastError } from "@/components/Toast";
-import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader, Tabs } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, FilterChip, Loading, PageHeader, Tabs } from "@/components/ui";
 import { PatchView } from "@/features/github/DiffReview";
 import type { Change } from "@/gen/Change";
 import type { Hit } from "@/gen/Hit";
@@ -137,7 +137,7 @@ function NotesTab({ ws, notes, changes, selected, select, panel, setPanel, showH
     <div className="flex min-h-0 flex-1">
       {showList && <aside className={`flex min-h-0 flex-col border-r border-line ${phone ? "flex-1" : "w-[300px] flex-none"}`} data-tour="knowledge.notes">
         <div className="border-b border-line-2 p-2">
-          <input className="field-input h-[30px] w-full" placeholder="Find notes by name or text" aria-label="Find notes" value={filter} onChange={(e) => setFilter(e.target.value)} />
+          <input className="field-input w-full" placeholder="Find notes by name or text" aria-label="Find notes" value={filter} onChange={(e) => setFilter(e.target.value)} />
         </div>
         {notes.concurrent.length > 0 && <div className="border-b border-line-2 bg-attn-soft px-3 py-2 text-[12px] text-attn">
           {notes.concurrent.length === 1 ? "1 concurrent edit waits" : `${notes.concurrent.length} concurrent edits wait`} for a merge: {notes.concurrent.map((c, i) => <span key={c.path}>{i > 0 && ", "}<button className="underline" onClick={() => select(c.note)}>{c.note}</button></span>)}
@@ -259,7 +259,7 @@ function NoteEditor({ ws, path: initialPath, base, initial, isNew, paths, done }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-line-2 px-4 py-2">
-        {isNew ? <input autoFocus className="field-input h-[30px] min-w-0 flex-1 font-mono" aria-label="Path of the new note" value={path} onChange={(e) => setPath(e.target.value)} />
+        {isNew ? <input autoFocus className="field-input min-w-0 flex-1 font-mono text-[12px]" aria-label="Path of the new note" value={path} onChange={(e) => setPath(e.target.value)} />
           : <span className="min-w-0 flex-1 truncate font-mono text-[13px]">{path}</span>}
         <button className="btn btn-sm" onClick={() => done()}>Cancel</button>
         <button className="btn btn-sm btn-primary" disabled={busy || !valid || taken} title={taken ? "A note with this path exists" : undefined} onClick={() => void save()}>{busy ? "Saving…" : "Save"}</button>
@@ -306,7 +306,7 @@ function ImportPanel({ ws, existing, done }: { ws: string; existing: string[]; d
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 text-[13px]">
         <p className="m-0 mb-3 text-[12px] text-ink-3">Claude Code and Codex keep their own memory files on each machine. Launchpad turns that memory off in its sessions; import the files once into <span className="font-mono">imported/</span>, then run the gardener to fold them into your notes. Nothing is removed from the machine.</p>
         {role === "home" && (runners.length === 0 ? <Empty icon="term">Connect a runner first: memories are read on the machine where your agents ran.</Empty>
-          : <FilterChips label="Runner" className="mb-3">{runners.map((r) => <FilterChip key={r.runner.id} active={r.runner.id === chosen} disabled={!r.connected} title={r.connected ? undefined : "Offline"} onClick={() => setRunner(r.runner.id)}>{r.runner.name}</FilterChip>)}</FilterChips>)}
+          : <Choices label="Runner" className="mb-3">{runners.map((r) => <Choice key={r.runner.id} active={r.runner.id === chosen} disabled={!r.connected} title={r.connected ? undefined : "Offline"} onClick={() => setRunner(r.runner.id)}>{r.runner.name}</Choice>)}</Choices>)}
         {q.isLoading ? <Loading what="memory files" /> : q.error ? <ErrorState error={q.error} /> : q.data && (files.length === 0 ? <Empty icon="book">No harness memory found on {from}.</Empty> : <div className="grid gap-1">
           {files.map((f) => <label key={f.path} className="flex min-w-0 items-start gap-2 rounded-md px-2 py-1 hover:bg-sunk">
             <input type="checkbox" className="mt-1" checked={!off.has(f.path)} onChange={(e) => setOff((s) => { const n = new Set(s); if (e.target.checked) n.delete(f.path); else n.add(f.path); return n; })} />

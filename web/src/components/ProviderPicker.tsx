@@ -125,12 +125,12 @@ export function ProviderPicker({ models, model, onChange, up, compact }: { model
   const label = !provider ? "Fastest (default)" : (policy?.label ?? provider);
   const unknown = !!provider && !policy && !info.providers.some((p) => p.name === provider);
   return (
-    <span className={compact ? "flex flex-wrap items-center gap-1.5" : "grid gap-1.5"}>
-      <Popover width={300} up={up} trigger={({ toggle }) => (
-        <button type="button" className={`btn btn-sm w-fit max-w-full ${unknown ? "border-attn-line!" : ""}`} aria-label="Inference provider" onClick={toggle}>
+    <span className="grid justify-items-start gap-1.5">
+      <Popover className="w-full" width={300} up={up} trigger={({ toggle }) => (
+        <button type="button" className={`field-input flex min-w-0 items-center gap-1.5 text-left ${unknown ? "border-attn-line!" : ""}`} aria-label="Inference provider" onClick={toggle}>
           <span className="truncate">{label}</span>
-          {(policy || !provider) && resolved(info.providers, provider) && <span className="text-ink-3">· {resolved(info.providers, provider)!.name}</span>}
-          <Icon name="chev" size={11} />
+          {(policy || !provider) && resolved(info.providers, provider) && <span className="truncate text-ink-3">· {resolved(info.providers, provider)!.name}</span>}
+          <Icon name="chev" size={14} className="ml-auto flex-none text-ink-3" />
         </button>
       )}>
         {(close) => (

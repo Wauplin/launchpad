@@ -45,7 +45,7 @@ import { Sheet } from "@/mobile/Sheet";
 import { WorktreeCard, useSessionWorktrees, WorktreeChip } from "./Worktrees";
 import { usePhone } from "@/lib/phone";
 import { PresetButton, PresetChips, usePresets } from "./MessagePresets";
-import { EMPTY_CONTEXT, hasMessageContext, MessageContextPicker } from "./MessageContext";
+import { EMPTY_CONTEXT, hasMessageContext, MessageContextButton, MessageContextChips } from "./MessageContext";
 import { PromptField } from "@/features/launch/PromptField";
 import { withPresets } from "@/lib/presets";
 import { runAction } from "@/lib/actions";
@@ -145,6 +145,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
           }}
           placeholder={placeholder}
         />
+        {!ask && <MessageContextButton sessionId={sessionId} value={context} onChange={setContext} disabled={disabled || busy || reading} />}
         {!ask && <PresetButton surface={presetSurface} selected={presets} onChange={setPresets} disabled={disabled || busy || reading} />}
         <button className="iconbtn" title={`Attach files or images (you can also drop files${acceptsImages ? " or paste a screenshot" : ""}). ${ATTACH_LIMITS}`} aria-label="Attach files or images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
           <Icon name="clip" size={14} />
@@ -153,7 +154,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
           <Icon name="send" size={14} />
         </button>
       </div>
-      {!ask && <div className="mt-1.5"><MessageContextPicker sessionId={sessionId} value={context} onChange={setContext} disabled={disabled || busy || reading} /></div>}
+      {!ask && <MessageContextChips value={context} onChange={setContext} disabled={disabled || busy || reading} />}
     </div>
   );
 }
@@ -357,7 +358,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
 
   // The one primary action, depending on the state.
   const primary = running || s.status === "quota_paused" ? (
-    <button className="btn btn-sm border-gh-closed! bg-danger! text-white!" title={s.status === "quota_paused" ? "Stop: cancel automatic continuation" : "Stop: interrupt the agent"} onClick={() => void act(s.id, "session.stop")}>
+    <button className="btn btn-sm btn-danger" title={s.status === "quota_paused" ? "Stop: cancel automatic continuation" : "Stop: interrupt the agent"} onClick={() => void act(s.id, "session.stop")}>
       <Icon name="stop" size={12} />Stop
     </button>
   ) : s.status === "in_terminal" ? (
@@ -388,7 +389,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const profileLabel = s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : null;
   const contextShare = s.usage.context_tokens && s.usage.context_window ? `${Math.round((100 * s.usage.context_tokens) / s.usage.context_window)}% context` : null;
   const titleEl = renaming ? <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-    <input autoFocus aria-label="Session title" className="field-input min-w-0 flex-1 basis-32 text-[13px] font-[650]" maxLength={100} value={title} disabled={savingTitle} onChange={(e) => setTitle(e.target.value)} />
+    <input autoFocus aria-label="Session title" className="field-input min-w-0 flex-1 basis-32 font-[650]" maxLength={100} value={title} disabled={savingTitle} onChange={(e) => setTitle(e.target.value)} />
     <button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, { title: title.trim() }); setRenaming(false); } catch (e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button>
     <button className="btn btn-sm" disabled={savingTitle} onClick={() => setRenaming(false)}>Cancel</button>
   </div> : <button className={`session-title min-w-0 truncate text-left text-[13px] font-[650] hover:text-teal-ink ${phone ? "flex-1" : ""}`} title={`${s.title} · Click to edit`} aria-label={`Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
@@ -408,7 +409,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
     ...(isGit ? [{ id: "changes" as const, title: "Git changes of the session folder", label: `Changes${changed ? ` · ${git.data?.files.length || committedFiles || mainChanges}` : ""}` }] : []),
   ]} />;
   const hasFinal = rows.some((r) => r.t === "assistant");
-  const actionsMenu = <Popover viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={phone ? "iconbtn" : "iconbtn border border-line"} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}><Icon name="more" size={phone ? 20 : 14} /></button>}>
+  const actionsMenu = <Popover className="flex" viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={phone ? "iconbtn" : "iconbtn border border-line"} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}><Icon name="more" size={phone ? 20 : 14} /></button>}>
     {(close) => <>
       {!phone && !running && s.status !== "in_terminal" && <MenuItem icon={<Icon name="agents" size={14} />} label="New agent here" detail="A separate agent in the same folder, with this trace as context" onClick={() => { close(); useComposer.getState().followUpFrom(s); }} />}
       {hasFinal && <MenuItem icon={<Icon name="comment" size={14} />} label="Jump to the final message" detail="In the trace" onClick={() => { close(); setView("trace"); setJumpFinal((n) => n + 1); }} />}

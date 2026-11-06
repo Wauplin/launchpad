@@ -145,6 +145,13 @@ button {
   .field-input {
     @apply h-8 w-full rounded-[7px] border border-line bg-paper px-2.5 text-[13px] text-ink outline-none;
   }
+  /* Native selects draw the same chevron as SelectButton menus. */
+  select.field-input {
+    @apply appearance-none bg-no-repeat pr-8;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23808a96' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 9px center;
+    background-size: 14px;
+  }
   .field-input:focus {
     @apply border-teal shadow-[0_0_0_3px_var(--color-teal-soft)];
   }
@@ -185,6 +192,22 @@ button {
   }
   .lp-chip:disabled {
     @apply opacity-50;
+  }
+  /* Choices: pick one or several options of a setting (profile, tools, presets, On/Off). */
+  .lp-seg {
+    @apply inline-flex max-w-full min-w-0 flex-wrap gap-0.5 rounded-lg bg-sunk p-0.5;
+  }
+  .lp-seg-item {
+    @apply inline-flex h-[26px] min-w-0 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] whitespace-nowrap text-ink-2 select-none;
+  }
+  .lp-seg-item:hover:not(:disabled) {
+    @apply text-ink;
+  }
+  .lp-seg-item[aria-pressed="true"] {
+    @apply bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)];
+  }
+  .lp-seg-item:disabled {
+    @apply cursor-not-allowed opacity-45;
   }
   .lp-count {
     @apply rounded-full bg-sunk px-1.5 text-[11px] leading-4 font-semibold text-ink-3 tabular-nums;
@@ -436,6 +459,9 @@ button {
   }
   .lp-phone .iconbtn {
     @apply size-10;
+  }
+  .lp-phone .lp-seg-item {
+    @apply min-h-10 px-3 text-[14px];
   }
   .lp-phone .field-input,
   .lp-phone textarea,

@@ -2,7 +2,7 @@
 // registry tools granted to the session, on by their defaults and switched on or off for one launch.
 
 import type { LaunchSpec } from "@/gen/LaunchSpec";
-import { FilterChip, FilterChips } from "@/components/ui";
+import { Choice, Choices } from "@/components/ui";
 import { hostConflict, useVault } from "@/features/settings/CredentialsView";
 import type { Tool } from "@/gen/Tool";
 import { useMcpServers } from "@/features/settings/McpServers";
@@ -66,7 +66,7 @@ export function RunnerChoice({ spec, set }: { spec: LaunchSpec; set: Set }) {
       : "A task that needs Docker runs on a Local VM runner: Docker needs root, so it never runs in a jail.";
   return (
     <span className="grid gap-1">
-      <select className="field-input w-auto text-xs" aria-label="Runner" value={spec.runner_id ?? ""} onChange={(e) => set((s) => ({ ...s, runner_id: e.target.value || null }))}>
+      <select className="field-input w-auto" aria-label="Runner" value={spec.runner_id ?? ""} onChange={(e) => set((s) => ({ ...s, runner_id: e.target.value || null }))}>
         <option value="">Automatic</option>
         {runners.map((r) => <option key={r.runner.id} value={r.runner.id} disabled={!r.connected || r.compat === "outdated"}>{r.runner.name}{r.runner.capabilities.vm ? " · Local VM" : ""}{r.runner.capabilities.docker ? " · Docker" : ""}{!r.connected ? " · offline" : r.compat === "outdated" ? " · needs an update" : ""}</option>)}
         {burst && <option value="burst" disabled={!!burst.unavailable}>Burst · HF Job{burst.unavailable ? " · unavailable" : ""}</option>}
@@ -132,9 +132,9 @@ export function ToolsChoice({ spec, set, workspaceId, folderId }: { spec: Launch
   if (!items.length) return null;
   return (
     <span className="grid gap-1">
-      <FilterChips label="Tools">
-        {items.map((t) => <FilterChip key={t.key} active={t.on} onClick={() => set((s) => ({ ...s, ...flip(t.key) }))}>{t.name}</FilterChip>)}
-      </FilterChips>
+      <Choices label="Tools">
+        {items.map((t) => <Choice key={t.key} active={t.on} onClick={() => set((s) => ({ ...s, ...flip(t.key) }))}>{t.name}</Choice>)}
+      </Choices>
       <span className="text-[12px] text-ink-3">{items.some((t) => t.on !== t.byDefault) ? "Changed for this launch. " : ""}Defaults come from the workspace, the folder and the bot.</span>
     </span>
   );

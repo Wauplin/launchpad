@@ -56,7 +56,7 @@ export const MessageCard = memo(function MessageCard({ m }: { m: OutboxMessage }
       </div>
       {draft ? (
         <div className="grid gap-2">
-          {(m.title != null || title) && <input className="field-input text-[13px] font-semibold" aria-label="Title" value={title} disabled={busy} onChange={(e) => setTitle(e.target.value)} placeholder="Title (optional)" />}
+          {(m.title != null || title) && <input className="field-input font-semibold" aria-label="Title" value={title} disabled={busy} onChange={(e) => setTitle(e.target.value)} placeholder="Title (optional)" />}
           <textarea aria-label="Message" className="field-input min-h-32 text-[13px]" value={body} disabled={busy} onChange={(e) => setBody(e.target.value)} />
         </div>
       ) : (

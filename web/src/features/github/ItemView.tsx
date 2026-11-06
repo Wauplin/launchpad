@@ -9,7 +9,7 @@ import { toast } from "@/components/Toast";
 import { Icon, type IconName } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
 import { ActionButton } from "@/components/ActionButton";
-import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader, Tabs, type BadgeTone } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, PageHeader, Tabs, type BadgeTone } from "@/components/ui";
 import { useInbox, useInboxAction } from "@/features/inbox/InboxView";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { useProjects } from "@/lib/queries";
@@ -222,7 +222,7 @@ function Controls({ item, act, busy, shown = true, onClose }: { item: Item; act:
         <div className="flex flex-wrap items-center gap-2"><Badge tone={state.tone} icon={state.icon}>{state.label}</Badge>{!open && !item.merged && <button className="btn btn-sm" disabled={busy} onClick={() => void act("state", { kind: isPr ? "pr" : "issue", state: "open", state_reason: "reopened" })}>Reopen</button>}</div>
         {isPr && open && <div data-tour="item.merge" className="grid gap-2 rounded-lg border border-line bg-paper p-3">
           <span className={`flex items-start gap-1.5 ${ready ? "text-gh-open" : "text-attn"}`}><Icon name={ready ? "okcircle" : "alert"} size={13} className="mt-px flex-none" />{ready ? "Ready to merge" : blocker(item)}</span>
-          {allowed.length > 1 && <FilterChips label="Merge method">{allowed.map(([m, , label]) => <FilterChip key={m} active={actual === m} onClick={() => setMethod(m)}>{label}</FilterChip>)}</FilterChips>}
+          {allowed.length > 1 && <Choices label="Merge method">{allowed.map(([m, , label]) => <Choice key={m} active={actual === m} onClick={() => setMethod(m)}>{label}</Choice>)}</Choices>}
           <ConfirmButton tone="publish" small={false} className={`w-full justify-center ${ready ? "btn-primary" : ""}`} disabled={busy || item.isDraft || item.mergeable !== "MERGEABLE" || !allowed.length}
             consequence={`${methods.find(([m]) => m === actual)?.[2] ?? actual} into ${item.baseRefName} on GitHub.`} confirmLabel={`Confirm ${actual} merge`}
             onConfirm={() => act("merge", { sha: item.headRefOid, merge_method: actual }).then((ok) => { if (ok) localStorage.setItem(`merge-method:${item.repo}`, actual); })}>

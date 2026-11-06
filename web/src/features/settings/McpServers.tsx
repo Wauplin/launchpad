@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { McpServer } from "@/gen/McpServer";
 import { toast, toastError } from "@/components/Toast";
-import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading } from "@/components/ui";
 import { api } from "@/lib/api";
 import { formatAge } from "@/lib/format";
 import { useScope, useWorkspaces } from "@/lib/workspace";
@@ -57,10 +57,10 @@ function ServerRow({ s, wsName, onEdit, onDone }: { s: McpServer; wsName: (id: s
             const on = !s.tools_off.includes(t.name);
             return (
               <div key={t.name} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
-                <FilterChips label={`${t.name} on or off`}>
-                  <FilterChip active={on} onClick={() => !on && void toggle(t.name, true)}>On</FilterChip>
-                  <FilterChip active={!on} onClick={() => on && void toggle(t.name, false)}>Off</FilterChip>
-                </FilterChips>
+                <Choices label={`${t.name} on or off`}>
+                  <Choice active={on} onClick={() => !on && void toggle(t.name, true)}>On</Choice>
+                  <Choice active={!on} onClick={() => on && void toggle(t.name, false)}>Off</Choice>
+                </Choices>
                 <span className="font-mono">{t.name}</span>
                 {t.read_only && <Badge tone="teal">read only</Badge>}
                 {t.destructive && <Badge tone="attn">destructive</Badge>}
@@ -93,14 +93,14 @@ function ServerForm({ server, onClose, onDone }: { server: McpServer; onClose: (
   return (
     <div className="grid gap-2 rounded-md border border-line-2 p-3">
       <b className="text-[13px]">{isNew ? "Add an MCP server" : `Edit ${server.name}`}</b>
-      <label className="grid gap-1 text-[12px]">Name<input className="field-input text-[13px]" value={name} onChange={(e) => setName(e.target.value)} placeholder="Gmail" /></label>
+      <label className="grid gap-1 text-[12px]">Name<input className="field-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Gmail" /></label>
       <label className="grid gap-1 text-[12px]">Address<input className="field-input font-mono text-[12px]" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://mcp.example.com/mcp" spellCheck={false} /></label>
-      <label className="grid gap-1 text-[12px]">Token<input className="field-input text-[13px]" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={isNew ? "Sent as Authorization: Bearer (leave empty if none)" : "Leave empty to keep the current token"} /></label>
+      <label className="grid gap-1 text-[12px]">Token<input className="field-input" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={isNew ? "Sent as Authorization: Bearer (leave empty if none)" : "Leave empty to keep the current token"} /></label>
       <div className="grid gap-1 text-[12px]">Granted in
-        <FilterChips label="Granted in">
-          <FilterChip active={everywhere} onClick={() => setGranted(["*"])}>Every workspace</FilterChip>
-          {workspaces.map((w) => <FilterChip key={w.id} active={!everywhere && granted.includes(w.id)} onClick={() => setGranted((g) => { const rest = g.filter((x) => x !== "*"); return rest.includes(w.id) ? rest.filter((x) => x !== w.id) : [...rest, w.id]; })}>{w.name}</FilterChip>)}
-        </FilterChips>
+        <Choices label="Granted in">
+          <Choice active={everywhere} onClick={() => setGranted(["*"])}>Every workspace</Choice>
+          {workspaces.map((w) => <Choice key={w.id} active={!everywhere && granted.includes(w.id)} onClick={() => setGranted((g) => { const rest = g.filter((x) => x !== "*"); return rest.includes(w.id) ? rest.filter((x) => x !== w.id) : [...rest, w.id]; })}>{w.name}</Choice>)}
+        </Choices>
         {!granted.length && <span className="text-ink-3">Choose where agents may use it.</span>}
       </div>
       <div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !id || !url.trim() || !granted.length} onClick={save}>{busy ? "Reading its tools…" : "Save"}</button><button className="btn btn-sm" onClick={onClose}>Cancel</button></div>

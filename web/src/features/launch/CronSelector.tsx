@@ -44,7 +44,7 @@ export function CronFields({ draft, harness, onChange, onValidityChange, schedul
   return <div className="grid gap-2">
     {withSchedule && <>
     <div className="flex flex-wrap gap-1.5">{PRESETS.map(([label, schedule]) => <button key={schedule} className={`btn btn-sm ${draft.schedule.trim() === schedule ? "btn-primary" : ""}`} onClick={() => onChange({ ...draft, schedule })}>{label}</button>)}</div>
-    <input aria-label="Cron schedule" className="field-input font-mono" placeholder="minute hour day month weekday" value={draft.schedule} onChange={(e) => onChange({ ...draft, schedule: e.target.value })} />
+    <input aria-label="Cron schedule" className="field-input font-mono text-[12px]" placeholder="minute hour day month weekday" value={draft.schedule} onChange={(e) => onChange({ ...draft, schedule: e.target.value })} />
     {next.error ? <p role="alert" className="text-xs text-gh-closed">{next.error.message}</p>
       : next.data && <p className="text-xs text-ink-2">Next runs: {next.data.map((at) => new Date(at).toLocaleString()).join(" · ")}</p>}
     <p className="text-xs text-ink-3">5 fields: minute, hour, day of month, month, day of week. In your time zone · {zone}: the routine keeps it when you save.</p>
@@ -70,7 +70,7 @@ export function CronSelector({ cron, harness, onChange, onValidityChange }: { cr
   useEffect(() => { if (!cron) onValidityChange(true); }, [cron, onValidityChange]);
   return <div className="grid gap-1.5">
     <label className="text-[12px] font-[650] text-ink-2" htmlFor="launch-repeat">Repeat</label>
-    <select id="launch-repeat" className="field-input h-8" value={cron ? "cron" : "once"} onChange={(e) => onChange(e.target.value === "cron" ? { ...DEFAULT_CRON, conditions: DEFAULT_CRON.conditions.filter((c) => supportsQuota || c.kind !== "quota_left") } : null)}>
+    <select id="launch-repeat" className="field-input" value={cron ? "cron" : "once"} onChange={(e) => onChange(e.target.value === "cron" ? { ...DEFAULT_CRON, conditions: DEFAULT_CRON.conditions.filter((c) => supportsQuota || c.kind !== "quota_left") } : null)}>
       <option value="once">Run once</option><option value="cron">As a routine, on a schedule…</option>
     </select>
     {cron && <div className="grid gap-2 rounded-lg border border-line bg-chrome p-2.5">

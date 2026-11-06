@@ -192,7 +192,7 @@ function NewBot({ first, onCancel }: { first: boolean; onCancel?: () => void }) 
         {templates.map((t) => <button key={t.id} className="btn btn-sm" onClick={() => { setName(t.name); setJob(t.instructions.replace(/^#[^\n]*\n+/, "").trim()); setFolder(""); }}><Icon name="spark" size={12} />{t.name}</button>)}
       </div>}
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name
-        <input className="field-input h-[32px] font-normal" maxLength={40} value={name} placeholder="Scout" onChange={(e) => setName(e.target.value)} autoFocus />
+        <input className="field-input font-normal" maxLength={40} value={name} placeholder="Scout" onChange={(e) => setName(e.target.value)} autoFocus />
       </label>
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Its job
         <textarea className="field-input min-h-[76px] py-1.5 font-normal leading-5" value={job} placeholder="What it does and how you like it done. For example: “Watch the Xet changelog and tell me only about breaking changes.”" onChange={(e) => setJob(e.target.value)} />
@@ -200,11 +200,11 @@ function NewBot({ first, onCancel }: { first: boolean; onCancel?: () => void }) 
       </label>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Profile
-          {profiles.length ? <select className="field-input h-[32px] font-normal" value={profile} onChange={(e) => setProfile(e.target.value)}>{profiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.billing === "subscription" ? "subscription" : "pay as you go"}</option>)}</select>
+          {profiles.length ? <select className="field-input font-normal" value={profile} onChange={(e) => setProfile(e.target.value)}>{profiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.billing === "subscription" ? "subscription" : "pay as you go"}</option>)}</select>
             : <Link to="/settings/profiles" className="btn btn-sm w-fit">Add a profile first</Link>}
         </label>
         <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Folder
-          <select className="field-input h-[32px] font-normal" value={folder} onChange={(e) => setFolder(e.target.value)}>
+          <select className="field-input font-normal" value={folder} onChange={(e) => setFolder(e.target.value)}>
             <option value="">None: a temporary folder per session</option>
             {folders.map((p) => <option key={p.id} value={p.id}>{p.name}{p.plain ? " · plain folder" : ""}</option>)}
           </select>
@@ -522,23 +522,23 @@ function SettingsPanel({ bot }: { bot: Bot }) {
   return <div data-tour="bots.settings">
     <InstructionsSection bot={bot} />
     <Section title="How it runs">
-      <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input h-[30px] font-normal" maxLength={40} value={s.name} onChange={(e) => setS({ ...s, name: e.target.value })} /></label>
+      <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input font-normal" maxLength={40} value={s.name} onChange={(e) => setS({ ...s, name: e.target.value })} /></label>
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Profile
-        <select className="field-input h-[30px] font-normal" value={s.profile ?? ""} onChange={(e) => setS({ ...s, profile: e.target.value || undefined, model: undefined, effort: undefined })}>
+        <select className="field-input font-normal" value={s.profile ?? ""} onChange={(e) => setS({ ...s, profile: e.target.value || undefined, model: undefined, effort: undefined })}>
           <option value="">Default{fallback ? `: ${fallback.name}` : ""} (first subscription profile)</option>
           {s.profile && !profiles.some((p) => p.id === s.profile) && <option value={s.profile}>A removed profile</option>}
           {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </label>
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Model
-        <select className="field-input h-[30px] font-normal" value={s.model ?? ""} onChange={(e) => setS({ ...s, model: e.target.value || undefined })}>
+        <select className="field-input font-normal" value={s.model ?? ""} onChange={(e) => setS({ ...s, model: e.target.value || undefined })}>
           <option value="">Default of the profile{profile?.model ? ` (${profile.model})` : ""}</option>
           {models.map((m) => <option key={m.id} value={m.id}>{m.display_name || m.id}</option>)}
           {s.model && !models.some((m) => m.id === s.model) && <option value={s.model}>{s.model}</option>}
         </select>
       </label>
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Folder
-        <select className="field-input h-[30px] font-normal" value={s.folder ?? ""} onChange={(e) => setS({ ...s, folder: e.target.value || undefined })}>
+        <select className="field-input font-normal" value={s.folder ?? ""} onChange={(e) => setS({ ...s, folder: e.target.value || undefined })}>
           <option value="">None: a temporary folder per session</option>
           {s.folder && !folders.some((p) => p.id === s.folder) && <option value={s.folder}>A removed folder</option>}
           {folders.map((p) => <option key={p.id} value={p.id}>{p.name}{p.plain ? " · plain folder" : ""}</option>)}

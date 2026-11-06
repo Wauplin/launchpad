@@ -250,8 +250,8 @@ function IdentityForm({ keys, onSaved }: { keys: string[]; onSaved: () => void }
     <form className="grid gap-2 rounded-lg border border-line-2 bg-chrome p-2.5" onSubmit={(e) => { e.preventDefault(); if (valid) void save(); }}>
       <div className="text-[13px] font-semibold">Your identity for commits</div>
       <div className="text-[12px] text-ink-2">Saved with git config --global. Only the missing {askName && askEmail ? "values are" : "value is"} asked; existing values are never changed.</div>
-      {askName && <label className="grid gap-1 text-[12px] text-ink-2">Name<input className="field-input h-[30px] max-w-[360px]" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></label>}
-      {askEmail && <label className="grid gap-1 text-[12px] text-ink-2">Email<input className="field-input h-[30px] max-w-[360px]" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></label>}
+      {askName && <label className="grid gap-1 text-[12px] text-ink-2">Name<input className="field-input max-w-[360px]" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></label>}
+      {askEmail && <label className="grid gap-1 text-[12px] text-ink-2">Email<input className="field-input max-w-[360px]" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></label>}
       <div><button type="submit" className="btn btn-sm btn-primary" disabled={!valid || busy}>Save</button></div>
     </form>
   );

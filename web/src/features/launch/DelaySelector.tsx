@@ -167,7 +167,7 @@ export function DelaySelector({ conditions, harness, profile, exclude, onChange,
     <label className="text-[12px] font-[650] text-ink-2" htmlFor="launch-start">Start</label>
     <p className="text-xs text-ink-3">{!conditions.length ? "Now, when you click Launch. Add conditions to schedule it." : conditions.length === 1 ? "When this condition is met." : "When all of these conditions are met."}</p>
     {conditions.map((c, i) => <ConditionEditor key={i} delay={c} run={run} exclude={exclude} onChange={(next) => onChange(conditions.map((x, j) => j === i ? next : x))} onRemove={() => onChange(conditions.filter((_, j) => j !== i))} />)}
-    <select id="launch-start" className="field-input h-8" value="" onChange={(e) => { const c = newCondition(e.target.value, e.target.value === "quota" ? quotaHarness : harness); if (c) onChange([...conditions, c]); }}>
+    <select id="launch-start" className="field-input" value="" onChange={(e) => { const c = newCondition(e.target.value, e.target.value === "quota" ? quotaHarness : harness); if (c) onChange([...conditions, c]); }}>
       <option value="">{conditions.length ? "Add another condition…" : "Add a start condition…"}</option>
       {KINDS.map((k) => <option key={k.kind} value={k.kind} disabled={k.kind === "agents" && hasAgents}>{k.label}…</option>)}
     </select>

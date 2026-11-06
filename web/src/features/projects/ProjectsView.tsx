@@ -39,7 +39,7 @@ export function Description({ p }: { p: Project }) {
     return (
       <input
         autoFocus
-        className="field-input h-7 text-xs"
+        className="field-input"
         value={edit}
         placeholder="One line, used when the folder is given as context"
         onChange={(e) => setEdit(e.target.value)}

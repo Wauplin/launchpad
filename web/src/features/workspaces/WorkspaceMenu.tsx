@@ -30,7 +30,7 @@ export function NewWorkspaceForm({ onDone, onCancel }: { onDone: () => void; onC
   };
   return (
     <form className="grid gap-2 p-1.5" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      <label className="grid gap-1 text-[12px] text-ink-2">New workspace name<input autoFocus className="field-input h-[30px]" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} /></label>
+      <label className="grid gap-1 text-[12px] text-ink-2">New workspace name<input autoFocus className="field-input" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} /></label>
       <span className="flex justify-end gap-1.5"><button type="button" className="btn btn-sm btn-ghost" onClick={onCancel}>Cancel</button><button type="submit" className="btn btn-sm btn-primary" disabled={!name.trim()}>Create and show here</button></span>
     </form>
   );
@@ -63,7 +63,7 @@ export function WorkspaceMenu() {
       )}>
         {(close) => mode === "new" ? <NewWorkspaceForm onDone={() => { close(); setMode("menu"); }} onCancel={() => setMode("menu")} /> : mode === "rename" ? (
           <form className="grid gap-2 p-1.5" onSubmit={(e) => { e.preventDefault(); void rename(close); }}>
-            <label className="grid gap-1 text-[12px] text-ink-2">Rename {workspace.name}<input autoFocus className="field-input h-[30px]" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} /></label>
+            <label className="grid gap-1 text-[12px] text-ink-2">Rename {workspace.name}<input autoFocus className="field-input" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} /></label>
             <span className="flex justify-end gap-1.5"><button type="button" className="btn btn-sm btn-ghost" onClick={() => setMode("menu")}>Cancel</button><button type="submit" className="btn btn-sm btn-primary" disabled={!name.trim()}>Rename</button></span>
           </form>
         ) : (

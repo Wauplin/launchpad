@@ -30,7 +30,7 @@ function GitHubLinkForm({ onAdd, onDone }: { onAdd: (r: GitHubRef) => void; onDo
     <div className="grid gap-1.5 p-1">
       <input
         autoFocus
-        className="field-input h-7 text-xs"
+        className="field-input"
         placeholder="https://github.com/owner/repo/issues/123"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
@@ -47,9 +47,11 @@ function GitHubLinkForm({ onAdd, onDone }: { onAdd: (r: GitHubRef) => void; onDo
 }
 
 /** The "+ Add context" popover: one menu for projects, GitHub links, agent traces and recent contexts. */
-export function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject, onGitHub, onToggleTrace, disabled, compact = false }: {
+export function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject, onGitHub, onToggleTrace, disabled, compact = false, icon = false }: {
   disabled?: boolean;
   compact?: boolean;
+  /** Only a "+" icon button, for the icon row of a message box. */
+  icon?: boolean;
   projects: Project[];
   recent: { key: string; label: string; add: () => void }[];
   sessions: Session[];
@@ -64,7 +66,12 @@ export function AddContextMenu({ projects, recent, sessions, selectedTraces, onP
       width={340}
       viewport
       label="Add context"
-      trigger={({ open, toggle }) => (
+      className={icon ? "flex shrink-0" : undefined}
+      trigger={({ open, toggle }) => icon ? (
+        <button disabled={disabled} aria-haspopup="dialog" aria-expanded={open} className="iconbtn" title="Add context: a folder, a GitHub link or an agent trace" aria-label="Add context" onClick={() => { setMode("menu"); toggle(); }}>
+          <Icon name="plus" size={14} />
+        </button>
+      ) : (
         <button disabled={disabled} aria-haspopup="dialog" aria-expanded={open} className={`btn btn-sm ${compact ? "btn-ghost" : ""}`} onClick={() => { setMode("menu"); toggle(); }}>
           <Icon name="plus" size={12} />
           Add context

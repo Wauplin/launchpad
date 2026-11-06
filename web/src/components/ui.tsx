@@ -69,6 +69,15 @@ export function FilterChips({ label, children, className = "", tour }: { label: 
   return <div role="group" aria-label={label} data-tour={tour} className={`phone-tabs flex flex-wrap items-center gap-1.5 ${className}`}>{children}</div>;
 }
 
+/** One option of a setting (Profile, Tools, On/Off): raised when picked. Use FilterChip to narrow a list instead. */
+export function Choice({ active, onClick, children, title, disabled, className = "" }: { active: boolean; onClick: () => void; children: ReactNode; title?: string; disabled?: boolean; className?: string }) {
+  return <button type="button" className={`lp-seg-item ${className}`} aria-pressed={active} title={title} disabled={disabled} onClick={onClick}>{children}</button>;
+}
+
+export function Choices({ label, children, className = "", tour }: { label: string; children: ReactNode; className?: string; tour?: string }) {
+  return <div role="group" aria-label={label} data-tour={tour} className={`lp-seg ${className}`}>{children}</div>;
+}
+
 /**
  * Destructive or publishing action. The first click arms it and shows the consequence on one line with Cancel;
  * the second click runs it. Never use window.confirm.
@@ -101,6 +110,8 @@ export function ConfirmButton({ children, confirmLabel, consequence, onConfirm, 
   return (
     <span ref={ref} role="group" className="inline-flex max-w-full flex-wrap items-center gap-1.5" aria-live="polite">
       <span className="min-w-0 text-[12px] text-ink-2">{consequence}</span>
+      {/* The confirmation and Cancel stay together; only the consequence wraps. */}
+      <span className="inline-flex flex-none items-center gap-1.5">
       <button
         type="button"
         className={`btn ${size} ${tone === "danger" ? "btn-danger" : "btn-primary"}`}
@@ -115,6 +126,7 @@ export function ConfirmButton({ children, confirmLabel, consequence, onConfirm, 
         {confirmLabel ?? children}
       </button>
       <button type="button" className={`btn btn-ghost ${size}`} onClick={() => setArmed(false)}>Cancel</button>
+      </span>
     </span>
   );
 }

@@ -248,7 +248,7 @@ export function CostLimit({ session: s, badge = false }: { session: Session; bad
   >
     {(close) => <div className="grid gap-2 p-2 text-xs">
       <b>Cost limit (USD)</b>
-      <input className="field-input font-mono text-xs" aria-label="Cost limit in USD" placeholder="No limit" value={text} onChange={(e) => setText(e.target.value)} />
+      <input className="field-input font-mono text-[12px]" aria-label="Cost limit in USD" placeholder="No limit" value={text} onChange={(e) => setText(e.target.value)} />
       <span className={parsed === undefined ? "text-attn" : "text-ink-3"}>{parsed === undefined ? "Enter a positive amount, or leave empty for no limit." : `${usd(spent)} reported so far. At the limit, the running turn stops and no new turn starts. Costs are reported by the harness, at the end of each turn for Claude Code.`}</span>
       <span className="flex gap-2">
         <button className="btn btn-sm btn-primary" disabled={busy || parsed === undefined} onClick={() => void save(parsed ?? null, close)}>Save limit</button>

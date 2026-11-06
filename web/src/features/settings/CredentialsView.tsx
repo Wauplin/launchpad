@@ -12,7 +12,7 @@ import type { ToolInstallKind } from "@/gen/ToolInstallKind";
 import type { VaultKind } from "@/gen/VaultKind";
 import type { VaultOverview } from "@/gen/VaultOverview";
 import { toast, toastError } from "@/components/Toast";
-import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, SettingRow, Token } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, SettingRow, Token } from "@/components/ui";
 import { api } from "@/lib/api";
 import { delegatedAccess } from "@/lib/deployment";
 import { homeStatus } from "@/features/setup/summary";
@@ -150,7 +150,7 @@ export function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | 
             <span className="text-[12px] text-ink-2">Open the Claude sign-in page, approve, then paste the code it shows:</span>
             <a className="btn btn-sm btn-primary w-fit" href={login.link} target="_blank" rel="noreferrer">Open the sign-in page</a>
             <div className="flex flex-wrap gap-2">
-              <input className="field-input w-[360px] max-w-full font-mono" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Paste the code" autoComplete="off" spellCheck={false} />
+              <input className="field-input w-[360px] max-w-full font-mono text-[12px]" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Paste the code" autoComplete="off" spellCheck={false} />
               <button className="btn btn-sm" disabled={busy || !code.trim()} onClick={() => void run("/_home/code", { code: code.trim() }).then(() => setCode(""))}>Send</button>
             </div>
           </> : <span className="text-[12px] text-ink-3">Finishing the Claude Code sign-in…</span>) : <>
@@ -191,10 +191,10 @@ function AddSecret({ label, kind, hint, multiline, onDone }: { label: string; ki
       <span className="text-[12px] text-ink-3">{hint}</span>
       <div className="flex flex-wrap gap-2">
         <label className="grid gap-1"><span className="text-ink-2">Name</span><input className="field-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === "token" ? "GitHub" : "Personal"} /></label>
-        <label className="grid gap-1"><span className="text-ink-2">ID</span><input className="field-input font-mono" value={id || slug(name)} onChange={(e) => setId(slug(e.target.value))} placeholder="github" /></label>
+        <label className="grid gap-1"><span className="text-ink-2">ID</span><input className="field-input font-mono text-[12px]" value={id || slug(name)} onChange={(e) => setId(slug(e.target.value))} placeholder="github" /></label>
       </div>
       <label className="grid gap-1"><span className="text-ink-2">Secret</span>
-        {multiline ? <textarea className="field-input min-h-[90px] font-mono text-[12px]" value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" spellCheck={false} /> : <input className="field-input font-mono" type="password" value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" />}
+        {multiline ? <textarea className="field-input min-h-[90px] font-mono text-[12px]" value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" spellCheck={false} /> : <input className="field-input font-mono text-[12px]" type="password" value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" />}
       </label>
       <div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !value.trim() || !(id || slug(name))} onClick={save}>Save on Home</button><button className="btn btn-sm" onClick={() => setOpen(false)}>Cancel</button></div>
     </div>
@@ -349,7 +349,7 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
-            <input className="field-input w-[360px] max-w-full font-mono" type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder={stored ? "Leave empty to keep the current token" : "Paste the token"} />
+            <input className="field-input w-[360px] max-w-full font-mono text-[12px]" type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder={stored ? "Leave empty to keep the current token" : "Paste the token"} />
             {homeToken && <button className="btn btn-sm" onClick={() => { setUseHome(true); setToken(""); }}>Use Home's {HOME_TOKEN_LABEL[homeToken]} token</button>}
           </div>
         )}
@@ -358,19 +358,19 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
       </div>
       <details className="rounded-[6px] border border-line-2 px-3">
         <summary className="cursor-pointer py-2 text-[12px] text-ink-2">Advanced: ID, install, variables, settings, hosts, workspaces</summary>
-        <SettingRow label="Name"><input className="field-input" value={t.name} onChange={(e) => set({ name: e.target.value })} /><input className="field-input w-[160px] font-mono" value={id} onChange={(e) => set({ id: slug(e.target.value) })} disabled={!custom} aria-label="ID" /></SettingRow>
+        <SettingRow label="Name"><input className="field-input" value={t.name} onChange={(e) => set({ name: e.target.value })} /><input className="field-input w-[160px] font-mono text-[12px]" value={id} onChange={(e) => set({ id: slug(e.target.value) })} disabled={!custom} aria-label="ID" /></SettingRow>
         <SettingRow label="Install" hint="Runs on each runner, in its own folder. {arch} becomes amd64 or arm64.">
           <select className="field-input" value={t.install?.kind ?? "none"} onChange={(e) => set({ install: e.target.value === "none" ? null : { kind: e.target.value as ToolInstallKind, source: t.install?.source ?? "", asset: t.install?.asset ?? "" } })}>
             {kinds.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
           </select>
-          {t.install && <input className="field-input min-w-[220px] flex-1 font-mono" value={t.install.source} placeholder={t.install.kind === "github_release" ? "owner/repo" : t.install.kind === "url" ? "https://…" : "package"} onChange={(e) => set({ install: { ...t.install!, source: e.target.value.trim() } })} />}
-          {t.install?.kind === "github_release" && <input className="field-input min-w-[200px] font-mono" value={t.install.asset} placeholder="tool_*_linux_{arch}.tar.gz" onChange={(e) => set({ install: { ...t.install!, asset: e.target.value.trim() } })} />}
+          {t.install && <input className="field-input min-w-[220px] flex-1 font-mono text-[12px]" value={t.install.source} placeholder={t.install.kind === "github_release" ? "owner/repo" : t.install.kind === "url" ? "https://…" : "package"} onChange={(e) => set({ install: { ...t.install!, source: e.target.value.trim() } })} />}
+          {t.install?.kind === "github_release" && <input className="field-input min-w-[200px] font-mono text-[12px]" value={t.install.asset} placeholder="tool_*_linux_{arch}.tar.gz" onChange={(e) => set({ install: { ...t.install!, asset: e.target.value.trim() } })} />}
         </SettingRow>
         <SettingRow label="Token ID" hint="The vault entry the proxy adds on the hosts below. Empty: no token.">
-          <input className="field-input w-[200px] font-mono" list="vault-token-ids" value={t.credential ?? ""} placeholder={custom ? id || "my-tool" : ""} onChange={(e) => set({ credential: slug(e.target.value) || null })} />
+          <input className="field-input w-[200px] font-mono text-[12px]" list="vault-token-ids" value={t.credential ?? ""} placeholder={custom ? id || "my-tool" : ""} onChange={(e) => set({ credential: slug(e.target.value) || null })} />
           <datalist id="vault-token-ids">{tokens.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</datalist>
         </SettingRow>
-        <SettingRow label="Variables" hint="Set to a placeholder in the agent's environment, for example SLACK_TOKEN."><input className="field-input min-w-[260px] flex-1 font-mono" value={t.env.join(", ")} onChange={(e) => set({ env: e.target.value.split(/[\s,]+/).filter(Boolean) })} /></SettingRow>
+        <SettingRow label="Variables" hint="Set to a placeholder in the agent's environment, for example SLACK_TOKEN."><input className="field-input min-w-[260px] flex-1 font-mono text-[12px]" value={t.env.join(", ")} onChange={(e) => set({ env: e.target.value.split(/[\s,]+/).filter(Boolean) })} /></SettingRow>
         <SettingRow label="Settings" hint="Values that are not secret, one KEY=value per line, for example an endpoint or a read-only switch. They are set only when the tool's commands run, never in the agent's environment. Needs an install.">
           <textarea className="field-input min-h-[52px] min-w-[300px] flex-1 font-mono text-[12px]" value={vars} onChange={(e) => setVars(e.target.value)} spellCheck={false} placeholder="SLACKLINE_READONLY=1" aria-label="Settings" />
         </SettingRow>
@@ -379,13 +379,13 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
           <span className="text-[11px] text-ink-3">{parseHosts(hosts).map((h) => `${h.host}: ${AUTH_LABEL[h.auth.kind]}`).join(" · ")}</span>
         </SettingRow>
         <SettingRow label="Check URL" hint="An https address on one of the hosts that answers with a valid token; Test calls it from Home.">
-          <input className="field-input min-w-[300px] flex-1 font-mono" value={t.check_url ?? ""} placeholder="https://api.example.com/me" onChange={(e) => set({ check_url: e.target.value.trim() || null })} />
+          <input className="field-input min-w-[300px] flex-1 font-mono text-[12px]" value={t.check_url ?? ""} placeholder="https://api.example.com/me" onChange={(e) => set({ check_url: e.target.value.trim() || null })} />
         </SettingRow>
         <SettingRow label="Granted in" hint="Sessions of these workspaces get the tool and its token.">
-          <FilterChips label="Granted in">
-            <FilterChip active={all} onClick={() => set({ workspaces: all ? [] : ["*"] })}>Every workspace</FilterChip>
-            {workspaces.map((w) => <FilterChip key={w.id} active={all || t.workspaces.includes(w.id)} onClick={() => toggleWs(w.id)}>{w.name}</FilterChip>)}
-          </FilterChips>
+          <Choices label="Granted in">
+            <Choice active={all} onClick={() => set({ workspaces: all ? [] : ["*"] })}>Every workspace</Choice>
+            {workspaces.map((w) => <Choice key={w.id} active={all || t.workspaces.includes(w.id)} onClick={() => toggleWs(w.id)}>{w.name}</Choice>)}
+          </Choices>
         </SettingRow>
       </details>
       <div className="flex flex-wrap items-center gap-2">

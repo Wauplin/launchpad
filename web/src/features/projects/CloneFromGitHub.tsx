@@ -43,7 +43,7 @@ export function CloneFromGitHub({ root, workspace, initialRepo, onDone }: { root
     <div className="grid gap-2">
       <div className="text-[12px] text-ink-3">Clones into <span className="font-mono">{root ?? "the folders root"}</span>{workspace ? `, then adds it to ${workspace.name}` : ". Choose its workspace below"}. A repository already cloned for another workspace gets a second folder.</div>
       <div className="flex gap-2">
-        <input className="field-input h-7 flex-1 font-mono text-xs" aria-label="Repository" placeholder="owner/name, or filter the repositories below" value={repo} disabled={!!cloning} onChange={(e) => setRepo(e.target.value)} />
+        <input className="field-input flex-1 font-mono text-[12px]" aria-label="Repository" placeholder="owner/name, or filter the repositories below" value={repo} disabled={!!cloning} onChange={(e) => setRepo(e.target.value)} />
         <button className="btn btn-sm btn-primary" disabled={!typed.includes("/") || !!cloning || !workspace} onClick={() => void clone(typed)}>
           {cloning ? "Cloning…" : "Clone"}
         </button>

@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "@/components/Toast";
-import { ConfirmButton, ErrorState, FilterChip, FilterChips } from "@/components/ui";
+import { ConfirmButton, ErrorState, Choice, Choices } from "@/components/ui";
 import { api } from "@/lib/api";
 import { abandonOperation } from "@/lib/operations";
 import { replyKey, useReviewState } from "@/lib/reviewState";
@@ -75,9 +75,9 @@ export function GitHubReplyBox({ repo, number, comment, review, notes, onPosted,
       onChange={(e) => reply.set(e.target.value)}
     />
     {expanded && <div className="mt-2 flex flex-wrap items-center gap-2">
-      {review && <FilterChips label="Review type">
-        {([["COMMENT", "Comment"], ["APPROVE", "Approve"], ["REQUEST_CHANGES", "Request changes"]] as const).map(([id, label]) => <FilterChip key={id} active={event === id} onClick={() => setEvent(id)}>{label}</FilterChip>)}
-      </FilterChips>}
+      {review && <Choices label="Review type">
+        {([["COMMENT", "Comment"], ["APPROVE", "Approve"], ["REQUEST_CHANGES", "Request changes"]] as const).map(([id, label]) => <Choice key={id} active={event === id} onClick={() => setEvent(id)}>{label}</Choice>)}
+      </Choices>}
       {notes}
       <span className="ml-auto text-[12px] text-ink-3">Posts to GitHub when you click.</span>
       {review && <button className="btn btn-sm" disabled={busy || disabled || !canReview} onClick={() => void send("review")}>{busy ? "Posting…" : "Submit review"}</button>}

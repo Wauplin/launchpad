@@ -28,6 +28,7 @@ import { HarnessMark, useHarnessName, useHarnesses, useHarnessInfo } from "@/com
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
+import { Choice, Choices } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { useConfig, useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { costUnavailableMessage, supportsModelCost, parseUsd, usd, usesModelReference, useProfileModels, useProfiles } from "@/lib/profiles";
@@ -61,14 +62,15 @@ function Field({ label, hint, end, children, tour }: { label: string; hint?: str
 
 function SelectButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
   return (
-    <button onClick={onClick} className="flex h-8 w-full min-w-0 items-center gap-2 rounded-[7px] border border-line bg-paper px-2.5 text-left text-[13px] hover:border-line">
+    <button type="button" onClick={onClick} className="field-input flex min-w-0 items-center gap-2 text-left">
       <span className="flex min-w-0 flex-1 items-center gap-2 truncate">{children}</span>
       <Icon name="chev" size={14} className="flex-none text-ink-3" />
     </button>
   );
 }
 
-function Branch({ projectId, branch, onChange, currentLabel = "checkout" }: { projectId: string; branch: string | null; onChange: (b: string | null) => void; currentLabel?: string }) {
+/** Branch menu: a full-width field in the options (`field`), else a small inline chip. */
+function Branch({ projectId, branch, onChange, currentLabel = "checkout", field = false }: { projectId: string; branch: string | null; onChange: (b: string | null) => void; currentLabel?: string; field?: boolean }) {
   const q = useQuery({
     queryKey: ["branches", projectId],
     queryFn: () => api.get<{ current: string | null; branches: string[] }>(`/api/projects/${projectId}/branches`),
@@ -77,7 +79,9 @@ function Branch({ projectId, branch, onChange, currentLabel = "checkout" }: { pr
   return (
     <Popover
       width={260}
-      trigger={({ toggle }) => (
+      trigger={({ toggle }) => field ? (
+        <SelectButton onClick={toggle}><Icon name="branch" size={13} className="flex-none text-ink-3" /><span className="truncate">{branch ?? `${currentLabel}${q.data?.current ? ` (${q.data.current})` : ""}`}</span></SelectButton>
+      ) : (
         <button onClick={toggle} className="inline-flex h-5 items-center gap-1 rounded-[5px] border border-line bg-paper px-1.5 font-mono text-[12px] whitespace-nowrap">
           <Icon name="branch" size={12} />
           {branch ?? `${currentLabel}${q.data?.current ? ` (${q.data.current})` : ""}`}
@@ -654,7 +658,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         {showOptions && <OptionsFrame onClose={() => setShowOptions(false)}>
           {!browserOnly && <OptionRow label="Run in">
             <div className="grid gap-1.5">
-              {target ? <select className="field-input h-8 w-full" aria-label="Run in" value={selectedWorktree ? `worktree:${selectedWorktree.id}` : worktreeMode ? "worktree" : existing ? `predraft:${existing.id}` : spec.target.kind} onChange={(e) => {
+              {target ? <select className="field-input w-full" aria-label="Run in" value={selectedWorktree ? `worktree:${selectedWorktree.id}` : worktreeMode ? "worktree" : existing ? `predraft:${existing.id}` : spec.target.kind} onChange={(e) => {
                 const v = e.target.value;
                 const worktree = worktreeChoices.find((w) => v === `worktree:${w.id}`);
                 const predraft = existingPrChoices.find((p) => v === `predraft:${p.id}`);
@@ -669,7 +673,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                 {!!worktreeChoices.length && <optgroup label="Existing worktrees">{worktreeChoices.map((w) => <option key={w.id} value={`worktree:${w.id}`} disabled={w.busy}>{w.branch}{w.busy ? " · Agent active" : ""}</option>)}</optgroup>}
                 {existing && !existingPrChoices.some((p) => p.id === existing.id) && <option value={`predraft:${existing.id}`} disabled>Local PR: {existing.title} · Unavailable</option>}
                 {!!existingPrChoices.length && <optgroup label="Existing Local PRs">{existingPrChoices.map((p) => <option key={p.id} value={`predraft:${p.id}`}>{p.title}{p.published_number ? ` · PR #${p.published_number}` : ""}</option>)}</optgroup>}
-              </select> : <div className="field-input h-8">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "Deleted at Archive" : "—"}</div>}
+              </select> : <div className="field-input">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "Deleted at Archive" : "—"}</div>}
               {taskWorktrees.isFetching && !taskWorktrees.data && target && <div className="mt-1 text-xs text-ink-3">Loading existing worktrees…</div>}
               {taskWorktrees.isError && target && <div className="mt-1 text-xs text-danger-ink">Could not load existing worktrees. <button className="underline" onClick={() => void taskWorktrees.refetch()}>Retry</button></div>}
               {existing && <div className="mt-1 break-all text-xs text-ink-3">Branch {existing.branch} on Home</div>}
@@ -682,10 +686,10 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               </label>}
             </div>
           </OptionRow>}
-          {worktreeMode && target && !pushToPr && <OptionRow label="From"><Branch projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="default branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { when_done: "keep" }), base } }))} /></OptionRow>}
+          {worktreeMode && target && !pushToPr && <OptionRow label="From"><Branch field projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="default branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { when_done: "keep" }), base } }))} /></OptionRow>}
           {worktreeMode && target && !pushToPr && <OptionRow label="When done">
             <span className="grid" title="Merge: the agent asks Launchpad to merge when it is done; Home fast-forwards the base branch, and a base that moved goes back to the agent for a rebase. Open a Local PR: the agent opens a Local PR of its branch on Home, with a title and description for you to review and publish.">
-              <select className="field-input w-auto text-xs" aria-label="When done" value={spec.worktree?.when_done ?? "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project" onChange={(e) => {
+              <select className="field-input w-auto" aria-label="When done" value={spec.worktree?.when_done ?? "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project" onChange={(e) => {
                 const whenDone = e.target.value as WhenDone;
                 set((s) => ({ ...s, worktree: { ...s.worktree!, when_done: whenDone } }));
                 completionDefault.mutate({ projectId: target.id, whenDone });
@@ -698,21 +702,14 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           </OptionRow>}
           <OptionRow label="Profile">
             <span className="grid gap-1">
-              <span className="inline-flex flex-wrap gap-0.5 rounded-lg bg-sunk p-0.5">
+              <Choices label="Profile">
                 {profiles.map((o) => (
-                  <button
-                    key={o.id}
-                    title={`${harnessName(o.harness)} · ${o.billing === "pay_as_you_go" ? "pay as you go" : "subscription"}`}
-                    onClick={() => { setBudgetText(null); set((s) => withProfile(s, o)); }}
-                    className={`inline-flex h-[26px] shrink-0 items-center disabled:cursor-not-allowed disabled:opacity-45 gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[13px] ${
-                      spec.profile === o.id ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"
-                    }`}
-                  >
+                  <Choice key={o.id} active={spec.profile === o.id} title={`${harnessName(o.harness)} · ${o.billing === "pay_as_you_go" ? "pay as you go" : "subscription"}`} onClick={() => { setBudgetText(null); set((s) => withProfile(s, o)); }}>
                     <HarnessMark harness={o.harness} size={15} />
                     {o.name}
-                  </button>
+                  </Choice>
                 ))}
-              </span>
+              </Choices>
               <Link to="/settings/profiles" className="w-fit text-[12px] text-teal-ink hover:underline">Manage profiles</Link>
             </span>
           </OptionRow>
@@ -720,7 +717,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {launchTools.items.length > 0 && <OptionRow label="Tools"><ToolsChoice spec={spec} set={set} workspaceId={toolsWorkspace} folderId={targetId} /></OptionRow>}
           {harness?.capabilities.permission_modes && <OptionRow label="Permissions">
             <div className="grid gap-1.5">
-              <select className="field-input w-auto text-xs" aria-label="Permission mode" value={spec.permission_mode ?? "yolo"} onChange={(e) => set((s) => ({ ...s, permission_mode: e.target.value as LaunchSpec["permission_mode"] }))}>
+              <select className="field-input w-auto" aria-label="Permission mode" value={spec.permission_mode ?? "yolo"} onChange={(e) => set((s) => ({ ...s, permission_mode: e.target.value as LaunchSpec["permission_mode"] }))}>
                 <option value="yolo">YOLO</option>
                 <option value="approvals">Ask for approval</option>
                 <option value="auto">Auto approval</option>
@@ -787,27 +784,19 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           </OptionRow>}
           <OptionRow label="Presets" end={<button className="ml-1 font-normal text-teal-ink hover:underline" onClick={() => void navigate({ to: "/settings/presets" })}>Edit</button>}>
             <div className="flex flex-wrap gap-1.5">
-              {agentPresets.map((p) => {
-                const on = spec.presets.includes(p.id);
-                return (
-                  <button
-                    key={p.id}
-                    title={p.text}
-                    onClick={() => set((s) => ({ ...s, presets: on ? s.presets.filter((x) => x !== p.id) : [...s.presets, p.id] }))}
-                    className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-[11px] text-[13px] ${on ? "border-ink bg-ink font-semibold text-paper" : "border-line bg-paper text-ink-2 hover:border-line"}`}
-                  >
-                    {on && <Icon name="check" size={12} />}
-                    {p.label}
-                  </button>
-                );
-              })}
+              {agentPresets.length > 0 && <Choices label="Presets">
+                {agentPresets.map((p) => {
+                  const on = spec.presets.includes(p.id);
+                  return <Choice key={p.id} active={on} title={p.text} onClick={() => set((s) => ({ ...s, presets: on ? s.presets.filter((x) => x !== p.id) : [...s.presets, p.id] }))}>{p.label}</Choice>;
+                })}
+              </Choices>}
               {agentPresets.length === 0 && <span className="pt-1.5 text-xs text-ink-3">No preset.</span>}
             </div>
           </OptionRow>
           {!supportsCost && harness?.capabilities.cost && <OptionRow label="Cost management"><span className="text-xs text-attn">{costUnavailableMessage}</span></OptionRow>}
           {supportsCost && <OptionRow label="Cost limit">
             <span className="grid gap-1">
-              <input className="field-input w-28 font-mono text-xs" aria-label="Cost limit in USD" placeholder="No limit" value={budgetInput} onChange={(e) => { setBudgetText(e.target.value); const v = parseUsd(e.target.value); if (v !== undefined) set((s) => ({ ...s, budget_usd: v })); }} />
+              <input className="field-input w-28" aria-label="Cost limit in USD" placeholder="No limit" value={budgetInput} onChange={(e) => { setBudgetText(e.target.value); const v = parseUsd(e.target.value); if (v !== undefined) set((s) => ({ ...s, budget_usd: v })); }} />
               <span className={`text-[11px] ${budgetValid ? "text-ink-3" : "text-attn"}`}>{budgetValid ? "USD of reported cost. At the limit, the running turn stops and no new turn starts. Empty: no limit." : "Enter a positive amount in USD, or leave empty."}</span>
             </span>
           </OptionRow>}

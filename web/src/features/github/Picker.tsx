@@ -33,7 +33,7 @@ function List({ options, selected, onChange, allowNew, render }: { options: stri
   const toggle = (name: string) => onChange(selected.includes(name) ? selected.filter((s) => s !== name) : [...selected, name]);
   return (
     <div className="grid gap-1">
-      <input className="field-input h-7" aria-label="Search" placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
+      <input className="field-input" aria-label="Search" placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
       {allowNew && q && !all.some((o) => o.toLowerCase() === q) && <button className="rounded px-2 py-1 text-left text-[12px] text-teal-ink hover:bg-select" onClick={() => { toggle(query.trim()); setQuery(""); }}>{allowNew} “{query.trim()}”</button>}
       <div ref={ref} className="overflow-auto" style={{ height: Math.min(240, rows.length * (isPhone ? 44 : 28)) }}>
         <div className="relative" style={{ height: v.getTotalSize() }}>

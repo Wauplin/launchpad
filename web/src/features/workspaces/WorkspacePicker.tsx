@@ -6,7 +6,7 @@ import { useState } from "react";
 import type { Workspace } from "@/gen/Workspace";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
-import { FilterChip, FilterChips } from "@/components/ui";
+import { Choice, Choices } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useWorkspaces } from "@/lib/workspace";
 
@@ -30,19 +30,19 @@ export function WorkspacePicker({ value, onChange, label = "Workspace" }: { valu
   };
   const form = typing || workspaces.length === 0;
   return (
-    <FilterChips label={label}>
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
       <span className="text-[12px] text-ink-3">{label}</span>
-      {workspaces.map((w) => <FilterChip key={w.id} active={value === w.id} onClick={() => onChange(w.id)}>{value === w.id && <Icon name="check" size={11} />}{w.name}</FilterChip>)}
+      {workspaces.length > 0 && <Choices label={label}>{workspaces.map((w) => <Choice key={w.id} active={value === w.id} onClick={() => onChange(w.id)}>{w.name}</Choice>)}</Choices>}
       {form ? (
         <form className="flex items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); void create(); }}>
-          <input autoFocus={workspaces.length > 0} className="field-input h-[26px] w-[160px] text-[12px]" maxLength={40} aria-label="New workspace name" placeholder={workspaces.length ? "New workspace name" : "Name a workspace, e.g. Work"} value={name} onChange={(e) => setName(e.target.value)} />
+          <input autoFocus={workspaces.length > 0} className="field-input w-[180px]" maxLength={40} aria-label="New workspace name" placeholder={workspaces.length ? "New workspace name" : "Name a workspace, e.g. Work"} value={name} onChange={(e) => setName(e.target.value)} />
           <button type="submit" className="btn btn-sm" disabled={!name.trim() || busy}>Create</button>
           {workspaces.length > 0 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTyping(false)}>Cancel</button>}
         </form>
       ) : (
-        <button type="button" className="lp-chip" onClick={() => setTyping(true)}><Icon name="plus" size={11} />New workspace</button>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTyping(true)}><Icon name="plus" size={12} />New workspace</button>
       )}
-    </FilterChips>
+    </div>
   );
 }
 
@@ -67,7 +67,7 @@ export function WorkspaceCreator() {
   };
   return (
     <form className="flex flex-wrap items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); void create(); }}>
-      <input className="field-input h-[30px] w-[220px] text-[13px]" maxLength={40} aria-label="Workspace name" placeholder={workspaces.length ? "Another workspace (optional)" : "Workspace name, e.g. Work"} value={name} onChange={(e) => setName(e.target.value)} />
+      <input className="field-input w-[220px]" maxLength={40} aria-label="Workspace name" placeholder={workspaces.length ? "Another workspace (optional)" : "Workspace name, e.g. Work"} value={name} onChange={(e) => setName(e.target.value)} />
       <button type="submit" className={`btn btn-sm${workspaces.length ? "" : " btn-primary"}`} disabled={!name.trim() || busy}><Icon name="plus" size={12} />Create workspace</button>
     </form>
   );
