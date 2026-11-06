@@ -1300,18 +1300,18 @@ impl harness::Harness for Adapter {
             "--sandbox",
             "read-only",
             "--json",
-            "-c",
-            "model_reasoning_effort=\"low\"",
         ]);
         let defaults = app.models.defaults(app, ID);
-        let small = defaults
-            .models
-            .iter()
-            .find(|m| m.id.contains("luna") || m.id.contains("mini"))
-            .map(|m| m.id.clone());
-        if let Some(model) = small.or_else(|| session.model.clone()).or(defaults.model) {
-            cmd.args(["--model", &model]);
-        }
+        let small = defaults.models.iter().find(|m| m.id.contains("luna"))
+            .or_else(|| defaults.models.iter().find(|m| m.id.contains("mini")));
+        let model = small.map(|m| m.id.as_str())
+            .or(session.model.as_deref()).or(defaults.model.as_deref());
+        let info = model.and_then(|id| defaults.models.iter().find(|m| m.id == id));
+        let effort = ["none", "minimal", "low"].into_iter()
+            .find(|effort| info.is_some_and(|m| m.efforts.iter().any(|e| e == effort)))
+            .unwrap_or("low");
+        cmd.args(["-c", &format!("model_reasoning_effort=\"{effort}\"")]);
+        if let Some(model) = model { cmd.args(["--model", model]); }
         Some(cmd)
     }
     fn title_response(&self, stdout: String) -> Result<harness::TitleReply> {

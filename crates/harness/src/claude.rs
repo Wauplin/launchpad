@@ -1103,6 +1103,8 @@ impl harness::Harness for Adapter {
             "-p",
             "--model",
             "haiku",
+            "--effort",
+            "low",
             "--tools",
             "",
             "--no-session-persistence",

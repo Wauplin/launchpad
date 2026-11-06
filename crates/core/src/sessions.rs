@@ -137,7 +137,7 @@ struct Inner {
     records: Mutex<HashMap<String, Session>>,
     stop_requests: Mutex<HashSet<String>>,
     quota_stops: Mutex<HashSet<String>>,
-    title_requests: Mutex<HashSet<String>>,
+    title_requests: crate::locks::Locks,
     quota_interrupts: Mutex<HashMap<String, i64>>,
     /// Subscription-only retries (manual or reset fallback) ignore the old snapshot until new evidence.
     manual_quota_retries: Mutex<HashMap<String, i64>>,
@@ -195,7 +195,7 @@ impl Sessions {
                 records: Mutex::new(HashMap::new()),
                 stop_requests: Mutex::new(HashSet::new()),
                 quota_stops: Mutex::new(HashSet::new()),
-                title_requests: Mutex::new(HashSet::new()),
+                title_requests: crate::locks::Locks::default(),
                 quota_interrupts: Mutex::new(HashMap::new()),
                 manual_quota_retries: Mutex::new(HashMap::new()),
                 budget_interrupts: Mutex::new(HashMap::new()),
@@ -415,13 +415,8 @@ impl Sessions {
         self.update(app, id, |s| { s.title = title.to_string(); s.title_pending = false; }).await
     }
 
-    pub(crate) fn claim_title_request(&self, id: &str) -> bool {
-        let mut requests = self.inner.title_requests.lock().unwrap();
-        self.get(id).is_some_and(|s| s.title_pending) && requests.insert(id.to_string())
-    }
-
-    pub(crate) fn finish_title_request(&self, id: &str) {
-        self.inner.title_requests.lock().unwrap().remove(id);
+    pub(crate) fn title_request_lock(&self, id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.inner.title_requests.get(id)
     }
 
     /// Each window reports which sessions it shows, whether it has the focus, and how long ago it last
@@ -2304,9 +2299,21 @@ impl Sink {
         // Every turn end sends the session's branches to Home.
         if before.status.is_running() && !status.is_running() {
             let (app, id) = (self.app.clone(), self.id.clone());
+            let completed = self.sessions.get(&self.id);
             tokio::spawn(async move {
-                crate::worktrees::after_turn(&app, &id).await;
-                crate::plain::after_turn(&app, &id).await;
+                tokio::join!(
+                    async {
+                        crate::worktrees::after_turn(&app, &id).await;
+                        crate::plain::after_turn(&app, &id).await;
+                    },
+                    async {
+                        if matches!(status, SessionStatus::Waiting | SessionStatus::Error | SessionStatus::Interrupted | SessionStatus::Stopped)
+                            && let Some(session) = completed
+                        {
+                            crate::titles::refresh(&app, &session).await;
+                        }
+                    },
+                );
                 crate::handoff::after_turn(&app, &id).await;
             });
         }
