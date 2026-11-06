@@ -697,14 +697,19 @@ class Setup:
             private = path.read_text()
         await self.api("PUT", "/api/vault/entries/ssh-key", {"kind": "ssh_key", "name": "Home SSH key", "value": private})
 
-    async def set_profile(self, body):
+    async def set_profiles(self, body):
+        """The default model and effort of each signed-in profile (`profiles`: a list of `id`, `model`, `effort`)."""
+        choices = body.get("profiles")
+        if not isinstance(choices, list) or not choices:
+            raise ValueError("Sign in to an agent first")
         config = (await self.api("GET", "/api/config"))["config"]
-        profile = next((p for p in config["profiles"] if p["id"] == body.get("id")), None)
-        if not profile:
-            raise ValueError("This profile no longer exists")
-        for field in ("model", "effort"):
-            value = body.get(field)
-            profile[field] = str(value).strip()[:120] if value else None
+        for choice in choices:
+            profile = next((p for p in config["profiles"] if isinstance(choice, dict) and p["id"] == choice.get("id")), None)
+            if not profile:
+                raise ValueError("This profile no longer exists")
+            for field in ("model", "effort"):
+                value = choice.get(field)
+                profile[field] = str(value).strip()[:120] if value else None
         await self.api("PUT", "/api/config", config)
 
     async def mark(self, item):
@@ -758,7 +763,7 @@ class Setup:
         elif path == "/_home/ssh/done":
             await self.mark(SSH_DONE)
         elif path == "/_home/profile":
-            await self.set_profile(body)
+            await self.set_profiles(body)
             await self.mark(PROFILE_DONE)
         elif path == "/_home/agent":
             await self.mark(AGENT_DONE)

@@ -96,8 +96,10 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
   <div class="body">
   <div id="profile-login" class="stack"><p class="hint" id="profile-hint">A profile is how agents run. Sign in with your subscription: Home keeps the login encrypted and lends it to runners for each session.</p>
   <div class="row"><button class="primary" data-login="claude">Sign in to Claude Code</button><button class="primary" data-login="codex">Sign in to Codex (ChatGPT)</button></div></div>
-  <div id="profile-model" class="stack" hidden><p class="hint"><b id="profile-name"></b> is ready. Choose the model and effort its agents use by default. You can change them for each launch.</p>
-  <div class="row"><label class="field grow">Model<select id="model"></select></label><label class="field grow">Effort<select id="effort"></select></label></div>
+  <div id="profile-model" class="stack" hidden><p class="hint">Choose the model and effort each profile's agents use by default. You can change them for each launch.</p>
+  <div id="profile-list" class="stack"></div>
+  <div id="profile-more" class="stack"><p class="hint">Use both agents? Sign in to the other one now: each login becomes its own profile.</p>
+  <div class="row"><button data-login="claude" id="more-claude">Sign in to Claude Code</button><button data-login="codex" id="more-codex">Sign in to Codex (ChatGPT)</button></div></div>
   <div class="row"><button class="primary" id="profile-save">Continue</button></div></div></div></li>
 
 <li id="s-folders"><span class="dot"></span><div><h2>Workspace and first folder</h2><div class="state"></div></div>
@@ -136,7 +138,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
 </div></main>
 <script>
 const $=s=>document.querySelector(s);
-let keyTried=false,csrf="",st=null,actionError="",busy=false,generatedKey=null,keyKept=false,modelsFor=null,reopened=new Set(),foldersOpen=false,repos=null,cloningRepo=null,cloneQueue=[],cloneErrors=[],wsChosen=null;
+let keyTried=false,csrf="",st=null,actionError="",busy=false,generatedKey=null,keyKept=false,defaults={},reopened=new Set(),foldersOpen=false,repos=null,cloningRepo=null,cloneQueue=[],cloneErrors=[],wsChosen=null;
 const NAMES={huggingface:"Hugging Face",github:"GitHub",codex:"Codex",claude:"Claude Code"};
 const STEP={huggingface:"huggingface",github:"github",codex:"profile",claude:"profile"};
 const count=(n,w)=>n?`${n} ${w}${n===1?"":"s"}`:`no ${w}`;
@@ -196,7 +198,9 @@ function render(s){
   // Profile step.
   $("#profile-login").hidden=pr.ready;$("#profile-model").hidden=!pr.ready;
   $("#profile-hint").textContent=pr.missing?`The profile ${pr.missing.name} has no login in Home's vault yet. Sign in below: Home keeps the login encrypted and lends it to runners for each session.`:"A profile is how agents run. Sign in with your subscription: Home keeps the login encrypted and lends it to runners for each session.";
-  if(active==="profile"&&pr.ready)loadModels(pr.profiles[0]);
+  if(pr.ready)renderProfiles(pr.profiles||[]);
+  const has=new Set((pr.profiles||[]).map(p=>p.harness));
+  ["claude","codex"].forEach(t=>$("#more-"+t).hidden=has.has(t));$("#profile-more").hidden=has.has("claude")&&has.has("codex");
   document.querySelectorAll("[data-login]").forEach(b=>{const t=b.dataset.login;b.disabled=busy||!!login||(t==="github"&&gh.secret);});
 
   // Folders step.
@@ -243,17 +247,27 @@ function render(s){
   $("#open").hidden=!s.complete;$("#open").className=`btn${s.complete&&!active?" primary":""}`;
   $("#open").textContent=s.complete&&active?"Skip and open Home":"Open Home";
 }
-function fill(sel,items){const el=$(sel),v=el.value,html=items.map(([id,n])=>`<option value="${esc(id)}">${esc(n)}</option>`).join("");if(el.dataset.html!==html){el.innerHTML=html;el.dataset.html=html;if(items.some(([id])=>id===v))el.value=v;}}
+function fill(sel,items){const el=typeof sel==="string"?$(sel):sel,v=el.value,html=items.map(([id,n])=>`<option value="${esc(id)}">${esc(n)}</option>`).join("");if(el.dataset.html!==html){el.innerHTML=html;el.dataset.html=html;if(items.some(([id])=>id===v))el.value=v;}}
 async function newKey(){keyTried=true;busy=true;try{const r=await post("/_home/key/"+(st.key.pending?"copy":"new"),{});if(r)generatedKey=r.passphrase;}finally{busy=false;render(st);}}
 function copy(button,text,label="Copy"){navigator.clipboard.writeText(text).then(()=>{button.textContent="Copied";setTimeout(()=>button.textContent=label,1500);},()=>{actionError="Could not copy. Use Download key file instead.";render(st);});}
-async function loadModels(p){
-  const id=`${p.id}:${p.harness}`;if(modelsFor===id)return;modelsFor=id;
-  try{const d=await api("GET",`/api/harness/${p.harness}/defaults`);const models=d.models||[];
-    $("#profile-name").textContent=p.name;
-    fill("#model",[["","Default"+(d.model?` (${d.model})`:"")],...models.map(m=>[m.id,m.display_name||m.id])]);
-    const efforts=()=>{const m=models.find(m=>m.id===$("#model").value);const list=(m&&m.efforts.length?m.efforts:d.efforts)||[];fill("#effort",[["","Default"+(d.effort?` (${d.effort})`:"")],...list.map(e=>[e,e])]);};
-    $("#model").value=p.model||"";efforts();$("#effort").value=p.effort||"";$("#model").onchange=efforts;
-  }catch{$("#profile-name").textContent=p.name;fill("#model",[["","Default"]]);fill("#effort",[["","Default"]]);}
+// One row per signed-in profile, each with its own model and effort; rows are kept so choices survive a re-render.
+function renderProfiles(profiles){
+  const list=$("#profile-list"),ids=profiles.map(p=>p.id);
+  [...list.children].forEach(r=>{if(!ids.includes(r.dataset.profile))r.remove();});
+  profiles.forEach(p=>{
+    let row=[...list.children].find(r=>r.dataset.profile===p.id);
+    if(!row){row=document.createElement("div");row.className="stack";row.dataset.profile=p.id;
+      row.innerHTML=`<b>${esc(p.name)}</b><div class="row"><label class="field grow">Model<select data-model></select></label><label class="field grow">Effort<select data-effort></select></label></div>`;
+      list.appendChild(row);void loadModels(p,row);}
+  });
+}
+async function loadModels(p,row){
+  const model=row.querySelector("[data-model]"),effort=row.querySelector("[data-effort]");
+  try{const d=defaults[p.harness]||(defaults[p.harness]=await api("GET",`/api/harness/${p.harness}/defaults`));const models=d.models||[];
+    fill(model,[["","Default"+(d.model?` (${d.model})`:"")],...models.map(m=>[m.id,m.display_name||m.id])]);
+    const efforts=()=>{const m=models.find(m=>m.id===model.value);const list=(m&&m.efforts.length?m.efforts:d.efforts)||[];fill(effort,[["","Default"+(d.effort?` (${d.effort})`:"")],...list.map(e=>[e,e])]);};
+    model.value=p.model||"";efforts();effort.value=p.effort||"";model.onchange=efforts;
+  }catch{delete defaults[p.harness];fill(model,[["","Default"]]);fill(effort,[["","Default"]]);}
 }
 async function loadRepos(){repos=[];try{repos=await api("POST","/api/projects/clone/suggestions",{})||[];}catch{repos=[];}renderRepos();}
 function renderRepos(){
@@ -327,7 +341,7 @@ $("#ssh-done").onclick=()=>act("/_home/ssh/done",{});
 $("#ssh-skip").onclick=$("#ssh-skip2").onclick=()=>{reopened.delete("ssh");skip("ssh");};
 $("#git-name").oninput=$("#git-email").oninput=()=>render(st);
 $("#git-save").onclick=async()=>{const name=$("#git-name").value.trim(),email=$("#git-email").value.trim();if(!name||!email.includes("@")){actionError="Enter a name and an email address.";render(st);return;}busy=true;await api("PUT","/api/vault/identity",{name,email});busy=false;};
-$("#profile-save").onclick=()=>act("/_home/profile",{id:st.profile.profiles[0].id,model:$("#model").value||null,effort:$("#effort").value||null});
+$("#profile-save").onclick=()=>act("/_home/profile",{profiles:[...$("#profile-list").children].map(r=>({id:r.dataset.profile,model:r.querySelector("[data-model]").value||null,effort:r.querySelector("[data-effort]").value||null}))});
 $("#ws-create").onclick=async()=>{const name=$("#ws-name").value.trim()||(st.folders.workspaces.length?"":"Personal");if(!name)return;const w=await api("POST","/api/workspaces",{name});if(w){wsChosen=w.id;$("#ws-name").value="";}};
 $("#ws-name").onkeydown=e=>{if(e.key==="Enter")$("#ws-create").click();};
 $("#repo").oninput=renderRepos;
