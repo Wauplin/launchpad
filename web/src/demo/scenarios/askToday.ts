@@ -48,6 +48,6 @@ export default scenario({
 
 *Split the invoice service into modules* is quota paused and continues by itself after the reset.
 
-I proposed one launch: **Retry the Node 24 CI upgrade**. Press **Start** on the card to run it, or **Edit** to change it first.`),
+I proposed one launch: **Retry the Node 24 CI upgrade**. Press **Start** on the card to run it, or **Edit** in its ⋯ to change it first.`),
   ],
 });

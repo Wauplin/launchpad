@@ -57,13 +57,14 @@ function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, ma
   const label = expanded ? "Hide the details" : "Show the details";
   if (phone) return (
     <article data-tour="today.card" data-tour-id={item.id} className={`border-b border-line-2 ${highlight ? "bg-select" : expanded ? "bg-chrome" : ""}`}>
-      <div className="flex min-h-[60px] min-w-0 items-center gap-2 py-1.5 pr-3">
+      <div className="flex min-h-[60px] min-w-0 flex-wrap items-center gap-y-1 py-1.5 pr-3">
         {opens
-          ? <button type="button" className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 pl-3 text-left" aria-expanded={expanded} aria-label={`${item.title}: ${label.toLowerCase()}`} onClick={() => toggle(item.id)}>
+          ? <button type="button" className="flex min-h-11 min-w-0 flex-[1_1_160px] items-center gap-2.5 pl-3 text-left" aria-expanded={expanded} aria-label={`${item.title}: ${label.toLowerCase()}`} onClick={() => toggle(item.id)}>
             {kind}<span className="min-w-0 flex-1">{title}{metaLine}</span>{chev(12)}
           </button>
-          : <div className="flex min-w-0 flex-1 items-center gap-2.5 pl-3">{kind}<div className="min-w-0 flex-1">{to ?? title}{metaLine}</div></div>}
-        {buttons && main && <div className="flex flex-none items-center">{main}</div>}
+          : <div className="flex min-w-0 flex-[1_1_160px] items-center gap-2.5 pl-3">{kind}<div className="min-w-0 flex-1">{to ?? title}{metaLine}</div></div>}
+        {/* An armed confirmation (Merge) wraps under the title instead of pushing the row sideways. */}
+        {buttons && main && <div className="ml-auto flex max-w-full flex-none items-center justify-end pl-2">{main}</div>}
       </div>
       {expanded && opens && <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 px-3 pb-3">
         {details}

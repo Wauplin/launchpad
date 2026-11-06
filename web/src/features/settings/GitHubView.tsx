@@ -47,7 +47,7 @@ export function GitHubView() {
 
 type Orphan = { repo: string; count: number; last: number };
 
-// The phone puts the two 44 px buttons on their own line.
+// Fixed heights for the virtualizer: Add to ▾ and ⋯ stay on the line, also on the phone.
 const ROW = 52;
 const PHONE_ROW = 64;
 

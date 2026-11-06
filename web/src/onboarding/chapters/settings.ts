@@ -49,7 +49,7 @@ export const settings: Chapter = {
     {
       id: "settings.github-repos", route: "/settings/github", anchor: "settings.github-repos",
       title: "Repositories without a folder",
-      body: "Notifications of repositories with no folder belong to no workspace: no Inbox or count shows them. This list does. Add to clones one into a workspace, whose Inbox then shows its items; Open on GitHub checks the others there. This page is under Launchpad, shared by every workspace; This workspace, at the top, holds its bots, tools and MCP servers.",
+      body: "Notifications of repositories with no folder belong to no workspace: no Inbox or count shows them. This list does. Add to clones one into a workspace, whose Inbox then shows its items; Open on GitHub, in the ⋯ of a row, checks the others there. This page is under Launchpad, shared by every workspace; This workspace, at the top, holds its bots, tools and MCP servers.",
     },
   ],
 };

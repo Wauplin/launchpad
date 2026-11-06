@@ -11,7 +11,7 @@ const reviewRequested = () => !!anchor("inbox.reasons")?.querySelector('button[a
 
 export const github: Chapter = {
   ...meta("github"),
-  learned: ["The Inbox is your GitHub notifications, cached and refreshed every minute", "Reason chips narrow it; Done, Launch and + Add act on a row", "PR pages show the conversation, changes and checks, and why Merge is not primary", "Nothing reaches GitHub without your click"],
+  learned: ["The Inbox is your GitHub notifications, cached and refreshed every minute", "Reason chips narrow it; Done and the ⋯ of a row (Launch, Add to the draft) act on it", "PR pages show the conversation, changes and checks, and why Merge is not primary", "Nothing reaches GitHub without your click"],
   setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {
@@ -30,7 +30,7 @@ export const github: Chapter = {
       title: "Act on a thread",
       body: "Done archives the thread like on GitHub. The ⋯ of a row holds its other actions: Launch starts an agent with the PR or issue as context; Add to the draft adds it to the draft you are writing.",
       tryIt: {
-        text: "hover a row and press Launch to start a draft with that PR.",
+        text: "open the ⋯ of a row and pick Launch to start a draft with that PR.",
         done: () => useComposer.getState().open && useComposer.getState().spec.github_refs.length > 0,
         doIt: async () => { const row = await waitFor(() => anchor("inbox.row")); [...(row?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.trim() === "Launch")?.click(); },
       },
