@@ -36,7 +36,8 @@ export function homeSteps(d: HomeData): HomeStep[] {
   return [
     step("identity", "Git identity", "The author of your agents' commits.", true, !!(d.vault?.git_name.trim() && d.vault.git_email.trim())),
     step("profile", "Agent profile", "A subscription login and the default model and effort.", true, d.profiles > 0),
-    step("folders", "Workspace and first folder", "Folders your agents work in, grouped by workspace.", true, d.workspaces > 0 && d.projects > 0),
+    step("workspaces", "Workspaces", "Groups of folders, for example Work and Side projects. Create at least one; add more any time.", true, d.workspaces > 0),
+    step("folders", "First folder", "A repository your agents work in, cloned into a workspace.", true, d.workspaces > 0 && d.projects > 0),
     step("runner", "Where agents run", "A Linux machine of yours that runs the agents.", false, d.runners?.some((r) => r.runner.state === "approved") ?? false, "recommended"),
     step("ssh", "SSH key", "Only for pushing over SSH from a runner's own clone: agents push to Home Git, and the GitHub sign-in covers clones.", false, d.vault?.entries.some((e) => e.kind === "ssh_key") ?? false, "optional"),
     step("bot", "First bot", "An agent that stays: one thread, its own instructions, and notes it keeps between sessions.", false, (d.bots ?? 0) > 0, "optional"),

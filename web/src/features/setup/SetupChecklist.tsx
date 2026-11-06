@@ -23,7 +23,7 @@ import { useConfig, useProjects, useStatus } from "@/lib/queries";
 import { isDesktopShell } from "@/lib/platform";
 import { useComposer } from "@/stores/composer";
 import { useScope, useWorkspaces } from "@/lib/workspace";
-import { WorkspacePicker, defaultWorkspace } from "@/features/workspaces/WorkspacePicker";
+import { WorkspaceCreator, WorkspacePicker, defaultWorkspace } from "@/features/workspaces/WorkspacePicker";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
 import { usePatchConfig } from "@/features/settings/SettingsView";
@@ -193,11 +193,13 @@ function ItemCard({ item, host, recheck, onHide }: { item: SetupItem; host: stri
   const missing = item.state === "missing";
   // Identity keys are one form; the profile, folder and presets steps have their own controls.
   const identity = item.missing.filter((p) => p.id === "user.name" || p.id === "user.email");
-  const parts = item.missing.filter((p) => !identity.includes(p) && !p.id.startsWith("sign_in:") && !(item.id === "profile" && p.id === "create") && !(item.id === "folder" && p.id === "add") && !(item.id === "presets" && p.id === "templates"));
+  const parts = item.missing.filter((p) => !identity.includes(p) && !p.id.startsWith("sign_in:") && !(item.id === "profile" && p.id === "create") && !(item.id === "folder" && p.id === "add") && !(item.id === "workspace" && p.id === "create") && !(item.id === "presets" && p.id === "templates"));
   return (
     <ItemShell title={item.title} importance={item.importance} state={item.state} why={item.why} onHide={onHide}>
       <FoundList item={item} />
       {item.id === "github" && <GitHubExpectations />}
+      {/* More workspaces can be added at any time, so the form stays once the first one exists. */}
+      {item.id === "workspace" && host === null && <WorkspaceCreator />}
       {/* A satisfied item only explains what Launchpad uses: no fix, change or switch actions. */}
       {missing && <>
         {identity.length > 0 && <IdentityForm keys={identity.map((p) => p.id)} host={host} onSaved={recheck} />}
@@ -339,6 +341,7 @@ function FolderStep({ item, host, onDone }: { item: SetupItem; host: string | nu
       onDone();
     } catch (e) { toastError(e); } finally { setBusy(null); }
   };
+  if (workspaces.length === 0) return <p className="m-0 text-[12px] text-ink-3">Create a workspace first (the Workspaces step above): every folder belongs to one.</p>;
   return (
     <div className="grid gap-1.5">
       {item.suggestions.length > 0 && <WorkspacePicker label="Add to" value={workspace?.id ?? null} onChange={setChosen} />}

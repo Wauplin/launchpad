@@ -85,17 +85,6 @@ pub async fn update(app: &App, id: &str, patch: Patch) -> Result<Workspace> {
     Ok(w)
 }
 
-/// The name of the workspace Home creates when there is none.
-pub const FIRST: &str = "Personal";
-
-/// Home: creates the first workspace when there is none, so a window always has one to show.
-pub async fn ensure_one(app: &App) -> Result<()> {
-    if list(app).await?.is_empty() {
-        create(app, FIRST).await?;
-    }
-    Ok(())
-}
-
 /// Runner: replaces every workspace with Home's.
 pub async fn replace_all(app: &App, all: Vec<Workspace>) -> Result<()> {
     let rows: Vec<(String, String)> = all.iter().map(|w| Ok((w.id.clone(), serde_json::to_string(w)?))).collect::<Result<_>>()?;

@@ -496,6 +496,21 @@ async fn contained_items(app: &App, env: &UserEnv) -> Vec<SetupItem> {
     items
 }
 
+// ---------------------------------------------------------------- Workspaces
+
+/// At least one workspace, named by the owner: there is no default one, and every folder needs a workspace.
+async fn workspaces(app: &App) -> SetupItem {
+    let mut it = item("workspace", "Workspaces", Importance::Required, "A workspace groups related folders, for example Work and Side projects. Create at least one before you add or clone a folder; add more any time.");
+    let all = launchpad_core::workspace::list(app).await.unwrap_or_default();
+    if all.is_empty() {
+        it.missing.push(part("create", "Create a workspace", None, None, false, false));
+    } else {
+        it.state = ItemState::Ready;
+        it.found.push(found(if all.len() == 1 { "Workspace" } else { "Workspaces" }, all.iter().map(|w| w.name.as_str()).collect::<Vec<_>>().join(", "), None));
+    }
+    it
+}
+
 // ---------------------------------------------------------------- First folder
 
 async fn folder(app: &App, host: Option<&str>) -> SetupItem {
@@ -648,8 +663,8 @@ fn required_left(items: &[SetupItem]) -> u32 {
 static SUMMARY: Mutex<Option<(Instant, u32)>> = Mutex::new(None);
 const SUMMARY_TTL: Duration = Duration::from_secs(300);
 
-/// The required items of a machine: GitHub CLI, Git, Agent profile, First folder, and on a machine whose agents
-/// run contained, the jail, the vault logins and the agents' Git identity.
+/// The required items of a machine: GitHub CLI, Git, Agent profile, Workspaces (on this computer: they are shared),
+/// First folder, and on a machine whose agents run contained, the jail, the vault logins and the agents' Git identity.
 async fn required(app: &App, host: Option<&str>) -> Vec<SetupItem> {
     let env = app.env.on(host);
     let ((gh_item, gh), profile, folder) = tokio::join!(github(app, &env, host), profile(app, host), folder(app, host));
@@ -657,6 +672,9 @@ async fn required(app: &App, host: Option<&str>) -> Vec<SetupItem> {
     let mut items = vec![gh_item, git, profile];
     if contained(app, host) {
         items.extend(contained_items(app, &env).await);
+    }
+    if host.is_none() {
+        items.push(workspaces(app).await);
     }
     items.push(folder);
     items
@@ -692,6 +710,7 @@ pub async fn item_state(app: &App, host: Option<&str>, id: &str) -> Option<Setup
             git(app, &env, host, &gh).await
         }
         "profile" => profile(app, host).await,
+        "workspace" if host.is_none() => workspaces(app).await,
         "folder" => folder(app, host).await,
         "jail" if contained(app, host) => jail(&env).await,
         "huggingface" if host.is_none() => huggingface(app).await,

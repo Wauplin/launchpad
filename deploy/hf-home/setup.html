@@ -103,10 +103,16 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
   <div class="row"><button data-login="claude" id="more-claude">Sign in to Claude Code</button><button data-login="codex" id="more-codex">Sign in to Codex (ChatGPT)</button></div></div>
   <div class="row"><button class="primary" id="profile-save">Continue</button></div></div></div></li>
 
-<li id="s-folders"><span class="dot"></span><div><h2>Workspace and first folder</h2><div class="state"></div></div>
-  <div class="body"><p class="hint">A workspace groups related folders, for example “Work” and “Personal”. Create at least one, then clone a repository from GitHub into it.</p>
+<li id="s-workspaces"><span class="dot"></span><div><h2>Workspaces</h2><div class="state"></div></div>
+  <div class="body"><p class="hint">A workspace groups related folders, and a Launchpad window shows one workspace at a time. Name them as you like, for example “Work” and “Side projects”. Create at least one; you can add more now or later in Settings.</p>
+  <div class="row" id="ws-list"></div>
+  <div class="row"><input type="text" id="ws-name" class="grow" placeholder="Workspace name" aria-label="Workspace name" maxlength="40"><button id="ws-create">Create workspace</button></div>
+  <div class="row" id="workspaces-next" hidden><button class="primary" id="workspaces-done">Continue</button></div></div></li>
+
+<li id="s-folders"><span class="dot"></span><div><h2>First folder</h2><div class="state"></div></div>
+  <div class="body"><p class="hint">Clone a repository from GitHub into a workspace. Click several in a row: they clone one after another.</p>
+  <p class="hint" id="clone-needs-ws" hidden>Create a workspace first: every folder belongs to one.</p>
   <div class="row" id="ws-chips"></div>
-  <div class="row"><input type="text" id="ws-name" class="grow" placeholder="Workspace name, for example Personal" aria-label="Workspace name"><button id="ws-create">Create workspace</button></div>
   <div id="clone" class="stack" hidden><small id="clone-into"></small>
     <div class="row"><input type="text" id="repo" class="grow mono" placeholder="owner/name, or filter your repositories" aria-label="Repository" spellcheck="false"><button class="primary" id="repo-clone" disabled>Clone</button></div>
     <div class="list" id="repos"></div><small id="cloning"></small></div>
@@ -139,7 +145,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
 </div></main>
 <script>
 const $=s=>document.querySelector(s);
-let keyTried=false,csrf="",st=null,actionError="",busy=false,generatedKey=null,keyKept=false,defaults={},reopened=new Set(),opened=null,foldersOpen=false,repos=null,cloningRepo=null,cloneQueue=[],cloneErrors=[],wsChosen=null;
+let keyTried=false,csrf="",st=null,actionError="",busy=false,generatedKey=null,keyKept=false,defaults={},reopened=new Set(),opened=null,held=new Set(),repos=null,cloningRepo=null,cloneQueue=[],cloneErrors=[],wsChosen=null;
 const NAMES={huggingface:"Hugging Face",github:"GitHub",codex:"Codex",claude:"Claude Code"};
 const STEP={huggingface:"huggingface",github:"github",codex:"profile",claude:"profile"};
 const count=(n,w)=>n?`${n} ${w}${n===1?"":"s"}`:`no ${w}`;
@@ -148,7 +154,9 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const stepOf=(s,k)=>s.steps.find(x=>x.id===k)||{done:false,skipped:false};
 const skipped=k=>!!(st&&stepOf(st,k).skipped);
 const skip=k=>act("/_home/skip",{step:k});
-function isDone(s,k){const x=stepOf(s,k);if(k==="folders")return x.done&&!foldersOpen;return x.done||(x.skipped&&!reopened.has(k));}
+// The workspaces and folders steps stay open until their Continue, so more can be added.
+const HOLD=["workspaces","folders"];
+function isDone(s,k){const x=stepOf(s,k);if(HOLD.includes(k))return x.done&&!held.has(k);return x.done||(x.skipped&&!reopened.has(k));}
 
 function render(s){
   if(!s)return;st=s;csrf=s.csrf;$("#bucket").textContent=s.bucket;
@@ -170,6 +178,7 @@ function render(s){
   $("#s-ssh .state").textContent=s.ssh.done?"Added":skipped("ssh")?"Skipped":s.ssh.public_key?"Created: add it to GitHub":"Not created";
   $("#s-identity .state").textContent=s.identity.done?`${s.identity.name} <${s.identity.email}>`:"Not set";
   $("#s-profile .state").textContent=pr.done?`Ready: ${(pr.profiles||[]).map(p=>`${p.name}${p.model?` · ${p.model}`:""}${p.effort?` · ${p.effort}`:""}`).join(", ")}`:pr.ready?"Choose a model":pr.missing?`${pr.missing.name} needs its login`:"No profile yet";
+  $("#s-workspaces .state").textContent=s.workspaces.done?(s.workspaces.workspaces||[]).map(w=>w.name).join(", "):"No workspace yet";
   $("#s-folders .state").textContent=fo.done?`${(fo.workspaces||[]).map(w=>w.name).join(", ")} · ${(fo.projects||[]).length} folder${(fo.projects||[]).length===1?"":"s"}`:"No folder yet";
   const live=(ru.runners||[]).filter(r=>r.connected),paired=(ru.runners||[]).filter(r=>r.state==="approved"&&!r.connected),burst=ru.burst||{available:false};
   $("#s-runner .state").textContent=live.length?`Connected: ${live.map(r=>r.name).join(", ")}${burst.available?" · Burst when it is off":""}`:paired.length?`Paired: ${paired.map(r=>r.name).join(", ")} (offline now)${burst.available?" · Burst meanwhile":""}`:skipped("runner")?(burst.available?"Burst for now":"Skipped"):burst.available?"Burst is ready: nothing to install":"No runner yet";
@@ -208,16 +217,22 @@ function render(s){
   ["claude","codex"].forEach(t=>$("#more-"+t).hidden=has.has(t));$("#profile-more").hidden=has.has("claude")&&has.has("codex");
   document.querySelectorAll("[data-login]").forEach(b=>{const t=b.dataset.login;b.disabled=busy||!!login||(t==="github"&&gh.secret);});
 
-  // Folders step.
+  // Workspaces step.
   const ws=fo.workspaces||[];
+  $("#ws-list").innerHTML=ws.map(w=>`<span class="chip on" style="cursor:default">${esc(w.name)}</span>`).join("");
+  $("#ws-name").placeholder=ws.length?"Another workspace (optional)":"Workspace name";
+  $("#ws-create").className=ws.length?"":"primary";
+  if(active==="workspaces")held.add("workspaces");
+  $("#workspaces-next").hidden=!s.workspaces.done;
+
+  // Folders step.
   if(!ws.some(w=>w.id===wsChosen))wsChosen=ws.length?ws[ws.length-1].id:null;
   $("#ws-chips").innerHTML=ws.map(w=>`<button class="chip${w.id===wsChosen?" on":""}" data-ws="${esc(w.id)}">${esc(w.name)} · ${count((fo.projects||[]).filter(p=>p.workspace_id===w.id).length,"folder")}</button>`).join("");
   document.querySelectorAll("[data-ws]").forEach(b=>b.onclick=()=>{wsChosen=b.dataset.ws;render(st);});
-  $("#ws-name").placeholder=ws.length?"Another workspace (optional)":"Workspace name, for example Personal";
-  $("#clone").hidden=!ws.length;$("#clone-into").textContent=`Clone a repository into ${(ws.find(w=>w.id===wsChosen)||{}).name||"the workspace"} (choose another workspace above):`;
+  $("#clone-needs-ws").hidden=!!ws.length;$("#clone").hidden=!ws.length;$("#clone-into").textContent=`Clone a repository into ${(ws.find(w=>w.id===wsChosen)||{}).name||"the workspace"} (choose another workspace above):`;
   if(active==="folders"&&ws.length&&repos===null)loadRepos();
   renderRepos();
-  if(active==="folders")foldersOpen=true;
+  if(active==="folders")held.add("folders");
   $("#folders-next").hidden=!fo.done;
 
   // Runner step.
@@ -252,8 +267,8 @@ function render(s){
   $("#open").hidden=!s.complete;$("#open").className=`btn${s.complete&&!next?" primary":""}`;
   $("#open").textContent=s.complete&&next?"Skip and open Home":"Open Home";
 }
-/** Opens a finished step again (or closes it with null). The folders step stays open until its Continue. */
-function openStep(k){if(opened==="folders"&&k!=="folders")foldersOpen=false;opened=k;if(k==="identity")delete $("#git-name").dataset.filled;render(st);}
+/** Opens a finished step again (or closes it with null). The workspaces and folders steps stay open until their Continue. */
+function openStep(k){if(HOLD.includes(opened)&&k!==opened)held.delete(opened);opened=k;if(k==="identity")delete $("#git-name").dataset.filled;render(st);}
 function fill(sel,items){const el=typeof sel==="string"?$(sel):sel,v=el.value,html=items.map(([id,n])=>`<option value="${esc(id)}">${esc(n)}</option>`).join("");if(el.dataset.html!==html){el.innerHTML=html;el.dataset.html=html;if(items.some(([id])=>id===v))el.value=v;}}
 async function newKey(){keyTried=true;busy=true;try{const r=await post("/_home/key/"+(st.key.pending?"copy":"new"),{});if(r)generatedKey=r.passphrase;}finally{busy=false;render(st);}}
 function copy(button,text,label="Copy"){navigator.clipboard.writeText(text).then(()=>{button.textContent="Copied";setTimeout(()=>button.textContent=label,1500);},()=>{actionError="Could not copy. Use Download key file instead.";render(st);});}
@@ -349,12 +364,12 @@ $("#ssh-skip").onclick=$("#ssh-skip2").onclick=()=>{reopened.delete("ssh");skip(
 $("#git-name").oninput=$("#git-email").oninput=()=>render(st);
 $("#git-save").onclick=async()=>{const name=$("#git-name").value.trim(),email=$("#git-email").value.trim();if(!name||!email.includes("@")){actionError="Enter a name and an email address.";render(st);return;}busy=true;await api("PUT","/api/vault/identity",{name,email});busy=false;if(!actionError&&opened==="identity")openStep(null);};
 $("#profile-save").onclick=async()=>{if(await act("/_home/profile",{profiles:[...$("#profile-list").children].map(r=>({id:r.dataset.profile,model:r.querySelector("[data-model]").value||null,effort:r.querySelector("[data-effort]").value||null}))})&&opened==="profile")openStep(null);};
-$("#ws-create").onclick=async()=>{const name=$("#ws-name").value.trim()||(st.folders.workspaces.length?"":"Personal");if(!name)return;const w=await api("POST","/api/workspaces",{name});if(w){wsChosen=w.id;$("#ws-name").value="";}};
+$("#ws-create").onclick=async()=>{const name=$("#ws-name").value.trim();if(!name){actionError="Enter a workspace name.";render(st);return;}const w=await api("POST","/api/workspaces",{name});if(w){wsChosen=w.id;$("#ws-name").value="";}};
 $("#ws-name").onkeydown=e=>{if(e.key==="Enter")$("#ws-create").click();};
 $("#repo").oninput=renderRepos;
 $("#repo").onkeydown=e=>{if(e.key==="Enter"&&!$("#repo-clone").disabled)$("#repo-clone").click();};
 $("#repo-clone").onclick=()=>clone($("#repo").value.trim());
-$("#folders-done").onclick=()=>{foldersOpen=false;if(opened==="folders")opened=null;render(st);};
+$("#workspaces-done").onclick=$("#folders-done").onclick=e=>{const k=e.target.id.replace("-done","");held.delete(k);if(opened===k)opened=null;render(st);};
 $("#install-copy").onclick=e=>copy(e.target,st.install);
 $("#runner-skip").onclick=$("#runner-burst").onclick=()=>{reopened.delete("runner");skip("runner");};
 $("#agent-runner").onchange=()=>render(st);

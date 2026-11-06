@@ -60,6 +60,8 @@ export function Shell() {
   useRememberPlace();
   // Settings replaces the sidebar with its own pages, so there is one level of navigation.
   const settings = useRouterState({ select: (s) => inSettings(s.location.pathname) });
+  // There is no default workspace: Setup (whose Workspaces step creates the first one) and Settings open without one.
+  const setup = useRouterState({ select: (s) => s.location.pathname === "/setup" });
   return (
     <div className="flex h-full flex-col">
       <IconSprite />
@@ -71,7 +73,7 @@ export function Shell() {
         <div className="flex min-w-0 flex-1 flex-col">
           {!isDemo && <WelcomeGate />}
           <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-paper">
-            {empty ? <NoWorkspace /> : <Outlet />}
+            {empty && !setup && !settings ? <NoWorkspace /> : <Outlet />}
           </main>
           <TerminalDock />
         </div>

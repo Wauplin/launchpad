@@ -66,6 +66,8 @@ The tour runs in demo mode: a fictional organization with prerecorded agent runs
 - Git identity, GitHub CLI sign-in, Git credentials and SSH key.
 - Each harness: installed and signed in.
 - A first profile.
+- At least one workspace, with the name you choose: Launchpad creates none by itself. The **Workspaces** step creates the first one and as many more as you want. Adding or cloning a folder waits until a workspace exists.
+- A first folder.
 - On Linux, where every agent runs contained: bubblewrap installed and able to create a jail (on Ubuntu 24.04, the AppArmor profile that allows it), a login in the vault for each profile's agent, and the Git identity of agents (both in **Settings → Credentials and tools**). Agents in the jail never use this computer's sign-ins or Git configuration.
 
 - Recommended and optional: notifications, **Slack for agents** (a read-only Slack token, and optionally a write one, see [Credentials and tools](home-and-runners.md#credentials-and-tools)), starter presets, phones and other devices, SSH machines. **Not now** hides an optional item.
@@ -82,7 +84,7 @@ See [Profiles](agents.md#profiles) for the details.
 
 ### Add a folder
 
-Home starts with one workspace, **Personal**; the rail at the left edge shows your workspaces (see [Workspaces](agents.md#workspaces)). Open **Folders** in the sidebar and click **Add folder**. The sidebar lists **Bots** first (its chevron collapses the group on this device), then Today, Agents, Inbox, Schedules, Knowledge and Folders. The Folders page lists the folders of the workspace and its temporary folders. **Clone from GitHub** (the first tab) clones into the folders root (`~/projects` by default); you can also browse any folder on this computer or an SSH host. Clone suggestions list repositories with recent GitHub notifications first, then your recently pushed repositories.
+Launchpad starts with no workspace: create one in the **Workspaces** step of the setup checklist, or in the **Add folder** dialog, which offers it when there is none. The rail at the left edge shows your workspaces (see [Workspaces](agents.md#workspaces)). Open **Folders** in the sidebar and click **Add folder**. The sidebar lists **Bots** first (its chevron collapses the group on this device), then Today, Agents, Inbox, Schedules, Knowledge and Folders. The Folders page lists the folders of the workspace and its temporary folders. **Clone from GitHub** (the first tab) clones into the folders root (`~/projects` by default); you can also browse any folder on this computer or an SSH host. Clone suggestions list repositories with recent GitHub notifications first, then your recently pushed repositories.
 
 ### Launch your first agent
 

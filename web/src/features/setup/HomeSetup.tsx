@@ -11,6 +11,7 @@ import { useConfig, useProjects } from "@/lib/queries";
 import { useRunners } from "@/lib/runners";
 import { useBots } from "@/lib/bots";
 import { useWorkspaces } from "@/lib/workspace";
+import { WorkspaceCreator } from "@/features/workspaces/WorkspacePicker";
 import { useVault } from "@/features/settings/CredentialsView";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { SlackSetup, slackReady } from "@/features/settings/SlackSetup";
@@ -65,7 +66,8 @@ export function HomeSetup() {
       case "ssh": return r.done ? settings("/settings/credentials") : fix("/settings/credentials", "Add the SSH key");
       case "identity": return settings("/settings/credentials", r.done ? "Open" : "Set it");
       case "profile": return r.done ? settings("/settings/profiles") : fix("/settings/profiles", "Add a profile");
-      case "folders": return <button className="btn btn-sm" onClick={() => showAddFolder()}>Add a folder</button>;
+      case "workspaces": return s ? (r.done ? settings("/settings/workspace") : openSetup) : null;
+      case "folders": return <button className="btn btn-sm" disabled={workspaces.length === 0} title={workspaces.length === 0 ? "Create a workspace first" : undefined} onClick={() => showAddFolder()}>Add a folder</button>;
       case "runner": return settings("/settings/runners", r.done ? "Open" : "Add a runner");
       case "agent": return r.done ? null : openSetup;
       case "bot": return r.done ? settings("/bots") : <Link to="/bots" search={{ new: true } as never} className="btn btn-sm">Create a bot</Link>;
@@ -92,6 +94,7 @@ export function HomeSetup() {
             <span className="grid min-w-0 flex-1">
               <span className="flex items-center gap-2 text-[13px] font-semibold">{r.title}{r.tag && !r.done && <span className="rounded-full border border-line-2 px-1.5 text-[11px] font-normal text-ink-3">{r.tag}</span>}</span>
               <span className="text-[12px] text-ink-3">{r.why}</span>
+              {r.id === "workspaces" && !s && <span className="mt-1.5 grid gap-1.5">{workspaces.length > 0 && <span className="text-[12px]">{workspaces.map((w) => w.name).join(", ")}</span>}<WorkspaceCreator /></span>}
             </span>
             <span className={`text-[12px] ${r.done ? "text-gh-open" : "text-ink-3"}`}>{r.done ? "Done" : r.skipped ? "Skipped" : "To do"}</span>
             {r.action}
